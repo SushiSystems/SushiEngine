@@ -9,17 +9,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
-- Milestone A (headless core): the first engine slice on top of SushiRuntime. A
-  structure-of-arrays `World` stores entity components in runtime memory (position
-  as a double-buffered `State`, velocity as a `Buffer`); `Simulation` builds one
-  integrate node (`position_next = position + velocity * dt`) as a SushiRuntime
-  graph, compiled once and replayed every fixed timestep; `Application` owns the
-  runtime, the world, and the loop, keeping control of stepping in the engine (the
-  head) while the runtime acts as the plugged-in compute backbone (the battery).
-- `sandbox` target: the example game and single SYCL translation unit. Spawns a
-  million entities under constant velocity, runs the simulation, and reads
-  positions back to check the result against its closed-form value and report the
-  per-step cost.
+- ECS layer (substrate-plan WP-3): the entity / component / system core on top of
+  SushiRuntime. Entities are generation-checked handles; components live in
+  archetype chunks of structure-of-arrays columns, each column its own runtime
+  allocation so the dependency tracker keys on it. A system declares its component
+  reads and writes (`Read<T>` / `Write<T>`) and the `Schedule` emits one graph node
+  per chunk; the runtime's dependency tracker orders systems by access — conflicting
+  ones run in order, disjoint ones (and disjoint chunks) in parallel — so the engine
+  writes no scheduler. Node iteration counts are late-bound to each chunk's live
+  entity count, so the graph is compiled once and replayed while entities spawn and
+  die. Structural changes go through a `CommandBuffer` applied at the frame barrier,
+  with O(1) swap-remove destroys; new chunk sets are the only trigger for a rebuild,
+  reported by the world's `structure_version`.
+- `sandbox` target: the WP-3 worked example and single SYCL translation unit. A
+  particle world (Position, Velocity, Mass, Lifetime) driven by `apply_forces`,
+  `integrate`, and a parallel `decay_lifetime` system, spawning and destroying
+  entities every frame, checked against an independent scalar reference with the
+  graph compiled exactly once.
 - `core/types.hpp`: the single integration seam for value types. It aliases a
   temporary placeholder today and is the one file to re-point at SushiBLAS when
   that library lands.

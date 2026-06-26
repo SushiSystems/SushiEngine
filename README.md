@@ -7,25 +7,27 @@ The engine owns the loop, the world, and — later — the window and renderer; 
 runtime is a hardware-agnostic orchestration backbone the engine hands work to.
 The dependency points one way only: `SushiEngine -> SushiRuntime`.
 
-## Status — Milestone A (headless core)
+## Status — ECS layer (WP-3)
 
-Proves the loop with no rendering: a structure-of-arrays component store whose
-positions are integrated by velocity each fixed timestep, expressed as a single
-SushiRuntime graph node and replayed every step. The `sandbox` target spawns a
-million entities, runs the sim, and reads positions back to check determinism and
-print the per-step cost.
+The entity / component / system core is in place: components live in archetype
+chunks, systems declare the components they read and write, and the SushiRuntime
+dependency tracker orders them — conflicting systems run in sequence, disjoint ones
+in parallel — with no scheduler written in the engine. The schedule is compiled once
+and replayed every frame; entities spawn and die through a deferred command buffer
+with no per-frame recompile. The `sandbox` target is the worked example: a particle
+world checked against an independent scalar reference.
 
-Next: Milestone B adds a window, The-Forge rendering, and Dear ImGui (render as an
-opaque host sink node); Milestone C adds the editor host shell.
+Next: rendering (a window, The-Forge, Dear ImGui — render as an opaque host sink
+node), then the editor host shell.
 
 ## Layout
 
 - `include/SushiEngine/core/types.hpp` — the single seam for value types. Today it
   aliases a placeholder; when SushiBLAS lands, re-point it there in one file.
-- `include/SushiEngine/ecs/` — components and the SoA `World` store.
-- `include/SushiEngine/sim/simulation.hpp` — builds and replays the sim graph.
-- `include/SushiEngine/app/application.hpp` — owns the runtime, world, and loop.
-- `sandbox/main.cpp` — the example game and the single SYCL translation unit.
+- `include/SushiEngine/ecs/` — the ECS: entities, components, archetype chunks, the
+  world, the deferred command buffer, and the system schedule.
+- `include/SushiEngine/SushiEngine.hpp` — umbrella header for the whole surface.
+- `sandbox/main.cpp` — the worked example and the single SYCL translation unit.
 
 ## Building
 

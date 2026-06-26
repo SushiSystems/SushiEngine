@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* blas_placeholder.hpp                                                   */
+/* entity.hpp                                                             */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -23,55 +23,48 @@
 
 #pragma once
 
-#include <cstddef>
+#include <cstdint>
 
 namespace SushiEngine
 {
     /**
-     * @brief Temporary stand-in for the value types SushiBLAS will own.
+     * @brief A stable handle to an entity: a slot index plus a generation.
      *
-     * The engine's vector and scalar types belong to SushiBLAS (tensors, and
-     * floats derived from them). Until that library exists this namespace holds
-     * the smallest device-usable placeholders the simulation needs. It is reached
-     * only through core/types.hpp, so when SushiBLAS lands this whole file is
-     * deleted and the seam re-pointed in one place. Do not reference it directly.
+     * The index addresses a slot in the world's entity directory; the generation
+     * distinguishes successive entities that reuse the same slot after a destroy.
+     * A handle is valid only while the world's generation for its slot still
+     * matches, so a stale handle to a destroyed entity is detected rather than
+     * silently aliasing a new one. Trivially copyable and cheap to pass by value.
      */
-    namespace placeholder
+    struct Entity
     {
-        /** @brief Scalar element type; maps to a SushiBLAS float later. */
-        using Float = float;
+        /** @brief Sentinel index marking a null handle. */
+        static constexpr std::uint32_t K_INVALID = 0xFFFFFFFFu;
+
+        std::uint32_t index = K_INVALID; /**< Slot in the entity directory. */
+        std::uint32_t generation = 0;    /**< Reuse counter guarding staleness. */
+
+        /** @brief True if this handle refers to no entity. */
+        constexpr bool is_null() const noexcept { return index == K_INVALID; }
 
         /**
-         * @brief A trivially copyable 3-component vector usable in device code.
-         *
-         * Only the operations the integrator needs are defined; everything richer
-         * is SushiBLAS's job, not the engine's.
+         * @brief Equality over both the slot and the generation.
+         * @param other The handle to compare against.
+         * @return True if both handles name the same live entity.
          */
-        struct Vec3
+        constexpr bool operator==(const Entity& other) const noexcept
         {
-            Float x = 0;
-            Float y = 0;
-            Float z = 0;
+            return index == other.index && generation == other.generation;
+        }
 
-            /**
-             * @brief Componentwise sum.
-             * @param o The other vector to add.
-             * @return A new vector containing the sum.
-             */
-            constexpr Vec3 operator+(const Vec3& o) const noexcept
-            {
-                return Vec3{x + o.x, y + o.y, z + o.z};
-            }
-
-            /**
-             * @brief Scaling by a scalar.
-             * @param s The scalar value to multiply by.
-             * @return A new vector with scaled components.
-             */
-            constexpr Vec3 operator*(Float s) const noexcept
-            {
-                return Vec3{x * s, y * s, z * s};
-            }
-        };
-    } // namespace placeholder
+        /**
+         * @brief Inequality, the negation of operator==.
+         * @param other The handle to compare against.
+         * @return True if the handles differ in slot or generation.
+         */
+        constexpr bool operator!=(const Entity& other) const noexcept
+        {
+            return !(*this == other);
+        }
+    };
 } // namespace SushiEngine

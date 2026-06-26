@@ -17,9 +17,9 @@ The dependency points one way only:
 SushiEngine  ──depends on──▶  SushiRuntime
 ```
 
-The runtime never knows the engine exists. It has no concept of a game, a frame, a
-component, or a renderer; it schedules an abstract task graph across whatever
-hardware is present. This is deliberate, and it is the rule that keeps both
+The runtime never knows the engine exists. It has no concept of a game, a frame, an
+entity, a component, or a renderer; it schedules an abstract task graph across
+whatever hardware is present. This is deliberate, and it is the rule that keeps both
 projects changeable: the engine may be rewritten without touching the runtime, and
 the runtime may gain backends without the engine noticing.
 
@@ -30,35 +30,57 @@ as a workaround.
 
 ## 2. Layers
 
-The engine is small and header-only at this stage. Each layer depends only on the
-ones below it.
+The engine is header-only at this stage. Each layer depends only on the ones below.
 
-| Layer | Header | Responsibility |
-|-------|--------|----------------|
-| Application | `app/application.hpp` | Owns the runtime, world, and loop; drives stepping. |
-| Simulation  | `sim/simulation.hpp`  | Builds the per-step task graph from a `World` and replays it. |
-| World / ECS | `ecs/world.hpp`, `ecs/components.hpp` | Structure-of-arrays component store over runtime memory. |
-| Value types | `core/types.hpp`      | The single seam for scalars and vectors (see §5). |
+| Layer | Headers | Responsibility |
+|-------|---------|----------------|
+| Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
+| Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
+| World       | `ecs/world.hpp` | Entities, archetypes, spawn/destroy, component access. |
+| Storage     | `ecs/archetype.hpp`, `ecs/chunk.hpp` | Archetype chunks of structure-of-arrays columns. |
+| Identity    | `ecs/entity.hpp`, `ecs/component.hpp` | Entity handles, component ids, access tags. |
+| Value types | `core/types.hpp` | The single seam for scalars and vectors (see §5). |
 
 `SushiEngine.hpp` is the umbrella header that pulls the surface together.
 
-## 3. The simulation graph
+## 3. The ECS and the system graph
 
-A `World` keeps each component as one contiguous field backed by runtime memory:
-positions live in a double-buffered `State` (a step reads the current field and
-writes the next, and the runtime swaps them), velocities in a plain `Buffer`. The
-fields are shared USM, so the host may seed and read them while a device kernel
-drives the arrays.
+This is where the engine's "the graph behaves like a game engine" thesis is built —
+on the runtime, not in it.
 
-`Simulation` expresses one fixed timestep as a SushiRuntime graph. A *system* is a
-graph node; the dependency tracker orders systems by the component fields they read
-and write, so the runtime's scheduler *is* the system scheduler. The graph is built
-once in the constructor and replayed every step, so the runtime compiles it exactly
-once and steady-state stepping pays no analysis cost.
+**Storage is archetype chunks.** Entities sharing one component set form an
+*archetype*; an archetype stores its entities in fixed-capacity *chunks*. Within a
+chunk each component is a separate contiguous column backed by its own runtime
+allocation (structure-of-arrays). A column's base pointer is therefore a distinct
+resource the runtime's dependency tracker keys on, which is what makes chunks the
+unit of parallelism: two systems touching different chunks run in parallel, two
+touching the same column are ordered — with no scheduler written in the engine.
 
-The Milestone A graph is a single node — integrate position by velocity. Real games
-add more systems (gravity, collision, culling, AI); they compose the same way, each
-naming the fields it touches.
+**A system is a graph node.** A system declares the components it reads and writes
+(`Read<T>` / `Write<T>`); the Schedule emits one node per matching chunk, keyed on
+that chunk's columns. The runtime's dependency tracker *is* the system scheduler:
+it derives the ordering from component access. A read-after-write on a component
+orders the two systems; disjoint access leaves them parallel.
+
+**Counts are late-bound; structure is compiled.** Each node iterates its chunk's
+live entity count, re-read every step, so spawning and destroying entities within
+existing chunks varies the work with no recompile. The graph is rebuilt only when
+the *chunk set* changes (a new archetype or chunk) — reported by the world's
+`structure_version`. Pre-reserving chunks keeps a steady spawn/destroy workload at a
+single compile.
+
+**Structural changes are deferred.** Systems run as device kernels and must never
+see entities appear or vanish mid-frame. Gameplay code records spawns and destroys
+into a `CommandBuffer` during the frame, and the loop applies them once, at an
+explicit barrier between steps. Destroy is an O(1) swap-remove that keeps a chunk's
+live rows packed; entity handles carry a generation so a stale handle to a destroyed
+entity is detected, not silently reused.
+
+The worked example in `sandbox/main.cpp` exercises all of this — Position, Velocity,
+Mass, and Lifetime components; `apply_forces`, `integrate`, and a parallel
+`decay_lifetime` system; per-frame spawn and deferred destroy — and checks every
+surviving entity against an independent scalar reference, with the graph compiled
+exactly once across the whole run.
 
 ## 4. The render seam (planned)
 
@@ -66,7 +88,7 @@ Rendering does not belong inside the runtime — the runtime knows no graphics, 
 as it knows no math. Nor is it bolted onto the side as a second, hand-synchronized
 loop. Instead, rendering enters the engine's graph as an **opaque host sink node**:
 a node the runtime orders against the simulation by the data it reads (the transform
-fields) but whose body — the actual draw calls — is engine code the runtime never
+columns) but whose body — the actual draw calls — is engine code the runtime never
 introspects.
 
 The first cut consumes the simulation result after the step's completion latch and
@@ -88,10 +110,13 @@ This is the same discipline as §1: one seam, not parallel paths.
 
 ## 6. Milestones
 
-- **A — headless core (done).** The loop runs with no rendering: a world is
-  integrated each fixed timestep on a runtime graph, and the result is validated
-  against its closed-form value. Proves the head drives the battery.
-- **B — window and rendering.** A window, The-Forge rendering, and Dear ImGui;
-  rendering enters as the opaque sink node of §4.
-- **C — editor host shell.** The editor as a host application that runs the game as
-  a scene, with play/pause and inspection panels.
+- **WP-3 — the ECS layer (done).** Archetype-chunk storage, systems scheduled by
+  component access, deferred spawn/destroy via a command buffer, compiled once and
+  replayed, validated against a scalar reference. This is the substrate plan's first
+  end-to-end milestone (the SushiEngine side of WP-3). It uses dense per-chunk
+  columns and whole-column resource identity; graduating to region-keyed sub-chunks
+  (runtime WP-2) and device residency (WP-6) follows as scale grows.
+- **Rendering.** A window, The-Forge rendering, and Dear ImGui; rendering enters as
+  the opaque sink node of §4.
+- **Editor host shell.** The editor as a host application that runs the game as a
+  scene, with play/pause and inspection panels.
