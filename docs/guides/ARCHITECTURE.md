@@ -34,12 +34,13 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 
 | Layer | Headers | Responsibility |
 |-------|---------|----------------|
+| Physics     | `physics/pgs_solver.hpp`, `physics/graph_coloring.hpp` | Graph-coloured PGS constraint solver (see §4). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
 | World       | `ecs/world.hpp` | Entities, archetypes, spawn/destroy, component access. |
 | Storage     | `ecs/archetype.hpp`, `ecs/chunk.hpp` | Archetype chunks of structure-of-arrays columns. |
 | Identity    | `ecs/entity.hpp`, `ecs/component.hpp` | Entity handles, component ids, access tags. |
-| Value types | `core/types.hpp` | The single seam for scalars and vectors (see §5). |
+| Value types | `core/types.hpp` | The single seam for scalars and vectors (see §6). |
 
 `SushiEngine.hpp` is the umbrella header that pulls the surface together.
 
@@ -82,7 +83,33 @@ Mass, and Lifetime components; `apply_forces`, `integrate`, and a parallel
 surviving entity against an independent scalar reference, with the graph compiled
 exactly once across the whole run.
 
-## 4. The render seam (planned)
+## 4. The physics constraint solver
+
+Physics is a domain layer on top of the runtime, the same way the ECS is: it
+expresses itself as ordinary read/write sets and lets the dependency tracker do the
+ordering. The solver here is **Projected Gauss-Seidel** (PGS), the sequential
+constraint method, parallelised by **graph colouring**.
+
+A sequential Gauss-Seidel sweep cannot run all constraints at once: two constraints
+that share a body would race. So the constraints are *edge-coloured* over the bodies
+(`color_constraints`) — each colour is a batch in which no two constraints share a
+body. The `ConstraintSolver` then emits one task per colour: a parallel projection
+over that colour's constraints, which is race-free because the bodies are disjoint.
+Every colour reads and writes the shared position array, so the runtime orders the
+colours into a sequential sweep — colour k+1 after colour k — while parallelising
+fully *within* a colour. That ordering is exactly Gauss-Seidel across colours, and
+because a colour's constraints are independent, the parallel result equals the
+sequential one. The sweep is repeated for the iteration count, and the whole solve is
+one graph compiled once and replayed every frame.
+
+The solver owns no engine concept beyond bodies and constraints — it takes a position
+array, an inverse-mass array, and a projection functor — so a new constraint type
+(contacts, angular joints) is added by providing its POD and its device projection;
+the colouring and the graph structure are reused unchanged. `DistanceConstraint` with
+`DistanceProjection` is the first concrete type, exercised by `examples/pgs_demo.cpp`
+(a hanging chain checked against a scalar reference).
+
+## 5. The render seam (planned)
 
 Rendering does not belong inside the runtime — the runtime knows no graphics, just
 as it knows no math. Nor is it bolted onto the side as a second, hand-synchronized
@@ -97,7 +124,7 @@ rendering to an in-graph sink node pinned to a render thread, so the scheduler c
 overlap the next step's simulation with the current step's draw. Graphics go through
 The-Forge; the editor GUI through Dear ImGui.
 
-## 5. The value-type seam
+## 6. The value-type seam
 
 The engine takes its scalar and vector types from `core/types.hpp` and nowhere
 else. Those types belong to **SushiBLAS** (tensors, and the floats derived from
@@ -108,7 +135,7 @@ engine names the underlying type.
 
 This is the same discipline as §1: one seam, not parallel paths.
 
-## 6. Milestones
+## 7. Milestones
 
 - **WP-3 — the ECS layer (done).** Archetype-chunk storage, systems scheduled by
   component access, deferred spawn/destroy via a command buffer, compiled once and
@@ -116,7 +143,11 @@ This is the same discipline as §1: one seam, not parallel paths.
   end-to-end milestone (the SushiEngine side of WP-3). It uses dense per-chunk
   columns and whole-column resource identity; graduating to region-keyed sub-chunks
   (runtime WP-2) and device residency (WP-6) follows as scale grows.
+- **WP-3 — the physics solver (done).** Graph-coloured Projected Gauss-Seidel over
+  distance constraints (§4), generic over the constraint type, validated against a
+  scalar reference. Next constraint types (contacts, joints) and rigid-body state
+  build on the same colouring and graph structure.
 - **Rendering.** A window, The-Forge rendering, and Dear ImGui; rendering enters as
-  the opaque sink node of §4.
+  the opaque sink node of §5.
 - **Editor host shell.** The editor as a host application that runs the game as a
   scene, with play/pause and inspection panels.

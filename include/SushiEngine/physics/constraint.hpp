@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* SushiEngine.hpp                                                        */
+/* constraint.hpp                                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -23,22 +23,29 @@
 
 #pragma once
 
-/**
- * @file SushiEngine.hpp
- * @brief Umbrella header for the engine. One include pulls in the value-type seam,
- *        the full ECS surface (entities, components, archetype storage, the world,
- *        the deferred command buffer, and the system schedule), and the physics
- *        constraint solver.
- */
+#include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/ecs/entity.hpp>
-#include <SushiEngine/ecs/component.hpp>
-#include <SushiEngine/ecs/chunk.hpp>
-#include <SushiEngine/ecs/archetype.hpp>
-#include <SushiEngine/ecs/world.hpp>
-#include <SushiEngine/ecs/command_buffer.hpp>
-#include <SushiEngine/ecs/schedule.hpp>
-#include <SushiEngine/physics/constraint.hpp>
-#include <SushiEngine/physics/graph_coloring.hpp>
-#include <SushiEngine/physics/pgs_solver.hpp>
+
+namespace SushiEngine
+{
+    namespace Physics
+    {
+        /**
+         * @brief A constraint holding two bodies a fixed distance apart.
+         *
+         * The building block of ropes, cloth, and rigid links. The solver reads the
+         * two body indices to colour the constraint (no two constraints sharing a
+         * body may run together) and to project their positions toward @ref
+         * rest_length. Any constraint type the solver accepts exposes its two body
+         * indices as the public fields `a` and `b`; new constraint types follow this
+         * shape so the colouring and the solve loop are reused unchanged.
+         */
+        struct DistanceConstraint
+        {
+            std::uint32_t a = 0;          /**< First body index. */
+            std::uint32_t b = 0;          /**< Second body index. */
+            Scalar rest_length = Scalar(0); /**< Target distance between the bodies. */
+        };
+    } // namespace Physics
+} // namespace SushiEngine
