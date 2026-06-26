@@ -45,26 +45,32 @@ add_library(SushiEngine INTERFACE)
 target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(SushiEngine INTERFACE sushiruntime)
 
-# The sandbox is the game: the single SYCL translation unit in this project.
-add_executable(sandbox sandbox/main.cpp)
-target_link_libraries(sandbox PRIVATE SushiEngine)
-set_target_properties(sandbox PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON)
+# Each example is one SYCL translation unit linking the engine. The runtime applies
+# -fsycl directory-scoped inside its own subdirectory, which does not reach a target
+# defined here, and its add_sycl_to_target() is a no-op stub on the intel-llvm path;
+# so on intel-llvm we add the flag ourselves. This helper keeps every example target
+# consistent: SYCL flags and, on Windows, the runtime DLL copy.
+function(add_engine_executable name source)
+    add_executable(${name} ${source})
+    target_link_libraries(${name} PRIVATE SushiEngine)
+    set_target_properties(${name} PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON)
 
-# Apply SYCL to the sandbox. The runtime applies -fsycl directory-scoped inside
-# its own subdirectory, which does not reach a target defined here, and its
-# add_sycl_to_target() is a no-op stub on the intel-llvm path. So on intel-llvm
-# we add the flag ourselves; on AdaptiveCpp/oneAPI the real command does it.
-add_sycl_to_target(TARGET sandbox SOURCES sandbox/main.cpp)
-if(SR_SYCL_TOOLCHAIN STREQUAL "intel-llvm")
-    target_compile_options(sandbox PRIVATE -fsycl)
-    target_link_options(sandbox PRIVATE -fsycl)
-endif()
+    add_sycl_to_target(TARGET ${name} SOURCES ${source})
+    if(SR_SYCL_TOOLCHAIN STREQUAL "intel-llvm")
+        target_compile_options(${name} PRIVATE -fsycl)
+        target_link_options(${name} PRIVATE -fsycl)
+    endif()
 
-if(WIN32)
-    add_custom_command(TARGET sandbox POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:sushiruntime>
-            $<TARGET_FILE_DIR:sandbox>)
-endif()
+    if(WIN32)
+        add_custom_command(TARGET ${name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:sushiruntime>
+                $<TARGET_FILE_DIR:${name}>)
+    endif()
+endfunction()
+
+# The sandbox is the ECS worked example; pgs_demo is the physics constraint solver.
+add_engine_executable(sandbox sandbox/main.cpp)
+add_engine_executable(pgs_demo examples/pgs_demo.cpp)

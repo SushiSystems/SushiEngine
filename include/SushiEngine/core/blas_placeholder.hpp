@@ -72,6 +72,16 @@ namespace SushiEngine
             {
                 return Vec3{x * s, y * s, z * s};
             }
+
+            /**
+             * @brief Componentwise difference.
+             * @param o The vector to subtract.
+             * @return A new vector containing this minus @p o.
+             */
+            constexpr Vec3 operator-(const Vec3& o) const noexcept
+            {
+                return Vec3{x - o.x, y - o.y, z - o.z};
+            }
         };
     } // namespace placeholder
 } // namespace SushiEngine

@@ -9,6 +9,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- Physics constraint solver (substrate-plan WP-3, physics half): a Projected
+  Gauss-Seidel solver built on graph colouring. `color_constraints` edge-colours the
+  constraints so each colour is a conflict-free batch (no two constraints in a colour
+  share a body); `ConstraintSolver` compiles each colour into one parallel task and
+  lets the runtime's dependency tracker order the colours into a sequential sweep —
+  Gauss-Seidel across colours, parallel within one — repeated for the iteration count
+  and compiled once. The solver is generic over the constraint type and its
+  projection (a new constraint type is its own POD plus projection), with
+  `DistanceConstraint` / `DistanceProjection` provided. The `pgs_demo` example solves
+  a hanging chain and checks the device result against a scalar reference running the
+  same colours in the same order (max error ~1e-6, compile_count == 1).
 - ECS layer (substrate-plan WP-3): the entity / component / system core on top of
   SushiRuntime. Entities are generation-checked handles; components live in
   archetype chunks of structure-of-arrays columns, each column its own runtime
