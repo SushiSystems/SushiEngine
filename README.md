@@ -1,6 +1,6 @@
 # SushiEngine
 
-A small, debloated game engine head built on top of [SushiRuntime](../sushiruntime).
+A 3D game engine head built on top of [SushiRuntime](../sushiruntime).
 
 SushiEngine is the head; SushiRuntime is a plugged-in component (the battery).
 The engine owns the loop, the world, and — later — the window and renderer; the
@@ -28,6 +28,40 @@ node), then the editor host shell.
   world, the deferred command buffer, and the system schedule.
 - `include/SushiEngine/SushiEngine.hpp` — umbrella header for the whole surface.
 - `sandbox/main.cpp` — the worked example and the single SYCL translation unit.
+- `tests/` — the GoogleTest functional suite (unit / integration / regression),
+  run against the real runtime.
+- `cli/` — the `se` developer CLI (build / test / run / diagnostics).
+
+## Developer CLI
+
+The `se` CLI wraps configure, build, test, and run so you do not type the long
+cmake line by hand. It consumes the SushiRuntime sibling's bundled clang++ and
+vcpkg automatically, so a normal side-by-side checkout needs no configuration.
+
+```
+pip install -e cli            # installs `se` (and `sushiengine`)
+se project build              # configure + build (tests on by default)
+se project test               # run the functional suite via CTest labels
+se project test -s unit       # just the unit label
+se project run sandbox        # run a built executable
+se config show                # what the CLI resolved, and from where
+```
+
+Machine-specific paths (a non-standard runtime location, scoop-installed cmake)
+go in a gitignored `cli/config.local.toml`; see `cli/config.toml` for the keys.
+
+## Testing
+
+Tests are off by default. Enable them with `-DSE_BUILD_TESTS=ON` (the CLI's
+`se project build` does this for you), then:
+
+```
+cmake --build build --target se_functional_tests
+ctest --test-dir build --output-on-failure          # all tests
+ctest --test-dir build -L 'unit|integration|regression'
+```
+
+GoogleTest is pulled from vcpkg, the same toolchain the runtime already requires.
 
 ## Building
 

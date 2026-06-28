@@ -74,3 +74,15 @@ endfunction()
 # The sandbox is the ECS worked example; pgs_demo is the physics constraint solver.
 add_engine_executable(sandbox sandbox/main.cpp)
 add_engine_executable(pgs_demo examples/pgs_demo.cpp)
+
+# --- Testing ---
+# OFF by default so a plain configure stays minimal; the CLI (`se project build`)
+# and CI turn it ON. GoogleTest comes from vcpkg, the same toolchain the runtime
+# already requires on Windows.
+option(SE_BUILD_TESTS "Build the SushiEngine test suite" OFF)
+
+if(SE_BUILD_TESTS)
+    enable_testing()
+    find_package(GTest CONFIG REQUIRED)
+    add_subdirectory(tests)
+endif()

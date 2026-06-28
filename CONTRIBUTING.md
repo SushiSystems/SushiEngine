@@ -11,7 +11,7 @@ project's **Apache License, Version 2.0** (see [`LICENSE`](LICENSE)).
 > first — it explains the head/battery split, the layers, and how the engine hands
 > simulation work to SushiRuntime as a task graph.
 
-SushiEngine is a head built on top of
+**Note:** SushiEngine is a head built on top of
 [SushiRuntime](https://github.com/SushiSystems/SushiRuntime). The dependency points
 one way only — `SushiEngine -> SushiRuntime` — and the runtime never depends on the
 engine. A change that needs new runtime behavior belongs in the runtime, behind its

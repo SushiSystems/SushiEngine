@@ -1,2 +1,11 @@
 build/
 *.log
+
+# CLI: machine-specific overrides, Python caches, and editable installs.
+cli/config.local.toml
+__pycache__/
+*.pyc
+cli/build/
+cli/*.egg-info/
+.sushi_env.json
+CLAUDE.md

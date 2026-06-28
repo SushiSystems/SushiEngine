@@ -135,7 +135,29 @@ engine names the underlying type.
 
 This is the same discipline as §1: one seam, not parallel paths.
 
-## 7. Milestones
+## 7. Validation and tooling
+
+The engine ships no device code of its own, so there is nothing to test in
+isolation — a meaningful test must instantiate kernels and run them against the
+real runtime. The suite in `tests/` does exactly that: it follows SushiRuntime's
+layout (`functional/{unit,integration,regression}`, a shared `common/` with the
+GoogleTest entry point and a process-wide runtime fixture) and builds one binary,
+`se_functional_tests`, as a SYCL translation-unit set. There are no mocks. Tests
+carry the `Unit_*` / `Integration_*` / `Regression_*` suite-name prefixes, which
+`tests/CMakeLists.txt` turns into CTest labels so a sub-suite is one `ctest -L`
+away. The integration tests re-run the sandbox and PGS claims as assertions
+(scalar-reference agreement, `compile_count == 1`); the unit tests pin the host
+bookkeeping (entity directory, swap-remove, command buffer, graph colouring).
+
+The `se` developer CLI (`cli/`) is the counterpart to the runtime's `sr`: a thin
+Typer layer over a service layer that issues the cmake/ctest calls. It owns no
+build knowledge the CMake does not — its job is to resolve the toolchain the
+engine consumes (SushiRuntime's bundled clang++ and vcpkg) and snapshot the MSVC
+environment on Windows, then drive configure/build/test/run. The same one-way
+dependency holds: the CLI reads the runtime's `dependencies/` tree but the engine
+never reaches back into runtime source.
+
+## 8. Milestones
 
 - **WP-3 — the ECS layer (done).** Archetype-chunk storage, systems scheduled by
   component access, deferred spawn/destroy via a command buffer, compiled once and

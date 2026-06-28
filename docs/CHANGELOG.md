@@ -9,6 +9,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- Test suite (`tests/`): a GoogleTest-based functional suite mirroring
+  SushiRuntime's layout, gated behind the `SE_BUILD_TESTS` CMake option (OFF by
+  default; GoogleTest comes from vcpkg). One binary, `se_functional_tests`, built
+  as a SYCL translation-unit set so kernels run against the real runtime — no
+  mocks. Tests are grouped into CTest labels (`unit` / `integration` /
+  `regression`) from the GTest suite-name prefix convention (`Unit_*` /
+  `Integration_*` / `Regression_*`), so `ctest -L unit` selects a sub-suite.
+  Coverage: World entity directory mechanics (spawn/get/destroy, generation
+  invalidation, swap-remove repointing, structure versioning, queries),
+  CommandBuffer deferral, graph-colouring properties, and end-to-end Schedule and
+  PGS-solver runs checked against scalar references (`compile_count == 1`).
+- Developer CLI (`cli/`): a Typer/Rich command-line tool installed as `se` (and
+  `sushiengine`), mirroring SushiRuntime's `sr`. Core surface: `se project
+  build/test/run/clean/doxygen`, `se config show`, and `se env dump`. It consumes
+  the SushiRuntime sibling's bundled clang++ and vcpkg rather than provisioning a
+  toolchain — when `cxx` / `vcpkg_root` are unset they resolve from the runtime's
+  `dependencies/` tree, so a normal checkout needs no local config. Layered
+  configuration (`cli/config.toml` -> `config.local.toml` -> `SE_*` env vars) and
+  a cached MSVC-environment snapshot on Windows.
 - Physics constraint solver (substrate-plan WP-3, physics half): a Projected
   Gauss-Seidel solver built on graph colouring. `color_constraints` edge-colours the
   constraints so each colour is a conflict-free batch (no two constraints in a colour

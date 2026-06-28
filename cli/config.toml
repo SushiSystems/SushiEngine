@@ -1,0 +1,38 @@
+# SushiEngine CLI configuration.
+#
+# Layering (lowest -> highest precedence):
+#   built-in defaults  ->  this file  ->  config.local.toml  ->  SE_* env vars  ->  CLI flags
+#
+# This file is committed and holds shared / portable defaults. Machine-specific
+# absolute paths (compiler locations, vcpkg, the runtime checkout) belong in a
+# gitignored `config.local.toml` next to this file, using the SAME section
+# layout. The active platform's `[tool.<platform>]` section is merged over the
+# common `[tool]` section automatically.
+#
+# The engine consumes SushiRuntime's toolchain: when cxx / vcpkg_root are unset,
+# the CLI resolves them from the runtime sibling's `dependencies/` tree, so a
+# normal checkout needs no local config at all.
+
+[tool]
+# Default executable for `se project run` with no target.
+target_bin = "sandbox"
+# The SushiRuntime sibling. Empty resolves to ../sushiruntime next to this repo.
+sushiruntime_dir = ""
+
+[tool.linux]
+generator = "Ninja"
+use_vcpkg = false
+
+[tool.windows]
+generator = "Ninja"
+use_vcpkg = true
+vcpkg_triplet = "x64-windows"
+target_bin = "sandbox.exe"
+# The following are machine-specific; override in config.local.toml.
+# vs_vcvars    = "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
+# ninja_exe    = "ninja"
+# cmake_exe    = "C:/Users/<you>/scoop/shims/cmake.exe"
+# ctest_exe    = "C:/Users/<you>/scoop/shims/ctest.exe"
+# vcpkg_root   = "C:/Projects/sushiruntime/dependencies/vcpkg"
+# pkgconf_exe  = "C:/Projects/sushiruntime/dependencies/vcpkg/installed/x64-windows/tools/pkgconf/pkgconf.exe"
+# cxx          = "C:/Projects/sushiruntime/dependencies/toolchains/llvm-sycl/bin/clang++.exe"
