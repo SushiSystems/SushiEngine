@@ -1,6 +1,9 @@
 build/
 *.log
 
+# Generated Doxygen output.
+docs/api-site/
+
 # CLI: machine-specific overrides, Python caches, and editable installs.
 cli/config.local.toml
 __pycache__/

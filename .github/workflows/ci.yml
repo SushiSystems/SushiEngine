@@ -1,0 +1,86 @@
+name: CI
+
+# Functional suite on every push / PR. The engine is the head of the stack, so it
+# checks out the SushiRuntime sibling and builds against it, exactly as a local
+# `se project build` does.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  functional:
+    name: Functional tests
+    runs-on: ubuntu-latest
+    # Intel oneAPI base image provides SYCL/DPC++ (icx/icpx), matching the dev
+    # Dockerfile's SYCL toolchain. We build against the checked-out trees directly
+    # rather than rebuilding the dev image.
+    container:
+      image: intel/oneapi-basekit:latest
+    steps:
+      # Engine into sushiengine/, runtime sibling into sushiruntime/, so the
+      # engine's default SUSHIRUNTIME_DIR (../sushiruntime) resolves to it.
+      - name: Check out SushiEngine
+        uses: actions/checkout@v4
+        with:
+          path: sushiengine
+
+      - name: Check out the SushiRuntime sibling
+        uses: actions/checkout@v4
+        with:
+          repository: SushiSystems/SushiRuntime
+          ref: main
+          path: sushiruntime
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config git libhwloc-dev libgtest-dev
+
+      - name: Configure, build, and run the functional suite
+        shell: bash
+        working-directory: sushiengine
+        run: |
+          set -e
+          source /opt/intel/oneapi/setvars.sh --force
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_CXX_FLAGS=-fsycl \
+            -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
+            -DSE_BUILD_TESTS=ON \
+            -DSR_BUILD_BENCHMARKS=OFF        # the engine pulls the runtime in; skip its heavy benchmarks
+          cmake --build build
+          ctest --test-dir build -L "unit|integration|regression" --output-on-failure
+
+  docs:
+    name: API docs site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends doxygen graphviz
+
+      - name: Build the engine API reference
+        shell: bash
+        run: |
+          set -e
+          doxygen Doxyfile
+          # Surface any undocumented public symbol or missing @param. Reported,
+          # not yet fatal: once the log is clean across the public surface, flip
+          # this to `exit 1` so the reference can never regress.
+          log=docs/api-site/doxygen-warnings.log
+          if [ -s "$log" ]; then
+            echo "::warning::Doxygen reported documentation gaps in the public API:"
+            cat "$log"
+          fi
+
+      - name: Upload the generated site
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-site
+          path: docs/api-site/html

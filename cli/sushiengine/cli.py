@@ -11,6 +11,7 @@ from typing import List, Optional
 import typer
 
 from .services import diag as diag_svc
+from .services import docker as docker_svc
 from .services import project as project_svc
 from .services.project import BuildType, Suite
 
@@ -28,9 +29,12 @@ config_app = typer.Typer(help="Inspect resolved configuration.",
                          no_args_is_help=True)
 env_app = typer.Typer(help="Inspect the build environment.",
                       no_args_is_help=True)
+docker_app = typer.Typer(help="Build and run the containerized dev environment.",
+                         no_args_is_help=True)
 app.add_typer(project_app, name="project")
 app.add_typer(config_app, name="config")
 app.add_typer(env_app, name="env")
+app.add_typer(docker_app, name="docker")
 
 
 # --------------------------------------------------------------------------- #
@@ -100,6 +104,32 @@ def project_clean():
 def project_doxygen():
     """Generate Doxygen documentation."""
     raise typer.Exit(project_svc.doxygen())
+
+
+# --------------------------------------------------------------------------- #
+# docker
+# --------------------------------------------------------------------------- #
+@docker_app.command("build")
+def docker_build(
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Rebuild every layer, ignoring the Docker cache."),
+    runtime_ref: Optional[str] = typer.Option(
+        None, "--runtime-ref",
+        help="SushiRuntime branch/tag/sha to clone into the image (default: main)."),
+):
+    """Build the `sushiengine` dev image (toolchain + runtime sibling + CLI)."""
+    raise typer.Exit(docker_svc.build(no_cache=no_cache, runtime_ref=runtime_ref))
+
+
+@docker_app.command("run")
+def docker_run(
+    admin: bool = typer.Option(
+        False, "--admin", help="Run privileged (--privileged --cap-add=SYS_ADMIN)."),
+    no_gpu: bool = typer.Option(
+        False, "--no-gpu", help="Skip GPU passthrough (CPU SYCL device still works)."),
+):
+    """Start an interactive container with the engine source mounted live."""
+    raise typer.Exit(docker_svc.run(admin=admin, no_gpu=no_gpu))
 
 
 # --------------------------------------------------------------------------- #

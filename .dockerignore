@@ -1,0 +1,19 @@
+build/
+bin/
+*.user
+*.suo
+*.pdb
+*.log
+.git/
+.vscode/
+.gemini/
+.sushi_env.json
+
+# Python build artifacts (confuse setuptools auto-discovery if copied in)
+**/build/
+**/__pycache__/
+**/*.egg-info/
+*.py[cod]
+
+# Machine-specific CLI overrides — the container resolves its own toolchain.
+cli/config.local.toml
