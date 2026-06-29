@@ -54,6 +54,52 @@ jobs:
           cmake --build build
           ctest --test-dir build -L "unit|integration|regression" --output-on-failure
 
+  editor:
+    name: Editor shell
+    runs-on: ubuntu-latest
+    # Same SYCL container as the functional job: the engine's root CMakeLists
+    # always pulls the runtime subdirectory in, so even an editor-only configure
+    # needs the SYCL toolchain. We build only the se_editor target, so the runtime
+    # itself is configured but never compiled.
+    container:
+      image: intel/oneapi-basekit:latest
+    steps:
+      - name: Check out SushiEngine
+        uses: actions/checkout@v4
+        with:
+          path: sushiengine
+          submodules: recursive        # Dear ImGui lives in third_party/imgui
+
+      - name: Check out the SushiRuntime sibling
+        uses: actions/checkout@v4
+        with:
+          repository: SushiSystems/SushiRuntime
+          ref: main
+          path: sushiruntime
+
+      - name: Install build and editor dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config git libhwloc-dev \
+            libsdl2-dev libgl1-mesa-dev
+
+      - name: Configure and build the editor shell
+        shell: bash
+        working-directory: sushiengine
+        run: |
+          set -e
+          source /opt/intel/oneapi/setvars.sh --force
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_CXX_FLAGS=-fsycl \
+            -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
+            -DSE_BUILD_EDITOR=ON \
+            -DSE_BUILD_TESTS=OFF \
+            -DSR_BUILD_BENCHMARKS=OFF
+          cmake --build build --target se_editor
+
   docs:
     name: API docs site
     runs-on: ubuntu-latest

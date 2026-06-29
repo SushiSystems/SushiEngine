@@ -12,6 +12,7 @@ import typer
 
 from .services import diag as diag_svc
 from .services import docker as docker_svc
+from .services import editor as editor_svc
 from .services import project as project_svc
 from .services.project import BuildType, Suite
 
@@ -104,6 +105,18 @@ def project_clean():
 def project_doxygen():
     """Generate Doxygen documentation."""
     raise typer.Exit(project_svc.doxygen())
+
+
+# --------------------------------------------------------------------------- #
+# editor
+# --------------------------------------------------------------------------- #
+@app.command("editor")
+def editor(
+    no_run: bool = typer.Option(
+        False, "--no-run", help="Build the editor but do not launch it."),
+):
+    """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON)."""
+    raise typer.Exit(editor_svc.build_and_run(run=not no_run))
 
 
 # --------------------------------------------------------------------------- #

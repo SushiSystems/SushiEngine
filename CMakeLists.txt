@@ -75,6 +75,16 @@ endfunction()
 add_engine_executable(sandbox sandbox/main.cpp)
 add_engine_executable(pgs_demo examples/pgs_demo.cpp)
 
+# --- Editor ---
+# The Unity-style ImGui editor shell. OFF by default so a plain configure needs no
+# SDL2/ImGui; `se editor` (or -DSE_BUILD_EDITOR=ON) turns it on. It is a plain C++
+# target — no runtime link, no SYCL — so it builds on a stock toolchain.
+option(SE_BUILD_EDITOR "Build the SushiEngine editor" OFF)
+
+if(SE_BUILD_EDITOR)
+    add_subdirectory(editor)
+endif()
+
 # --- Testing ---
 # OFF by default so a plain configure stays minimal; the CLI (`se project build`)
 # and CI turn it ON. GoogleTest comes from vcpkg, the same toolchain the runtime
