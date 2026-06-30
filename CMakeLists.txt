@@ -6,7 +6,16 @@ cmake_minimum_required(VERSION 3.20)
 # first, so we must pick the SYCL compiler and the vcpkg toolchain here, before
 # our project(), or the runtime's selection runs too late to take effect.
 
-set(SUSHIRUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sushiruntime"
+# Inside a SushiStack workspace every module is cloned beside the others, so the
+# runtime sibling is <workspace>/sushiruntime. Prefer SUSHISTACK_HOME when it is
+# set (the installer exports it); otherwise the in-tree sibling ../sushiruntime,
+# which is the same path in a workspace and the right default standalone.
+if(DEFINED ENV{SUSHISTACK_HOME})
+    set(_SE_DEFAULT_RUNTIME "$ENV{SUSHISTACK_HOME}/sushiruntime")
+else()
+    set(_SE_DEFAULT_RUNTIME "${CMAKE_CURRENT_SOURCE_DIR}/../sushiruntime")
+endif()
+set(SUSHIRUNTIME_DIR "${_SE_DEFAULT_RUNTIME}"
     CACHE PATH "Path to the SushiRuntime sibling checkout")
 
 # Mirror the runtime's intel-llvm default: use clang++ when the caller named no
@@ -23,6 +32,12 @@ endif()
 if(WIN32)
     if((NOT DEFINED VCPKG_ROOT OR VCPKG_ROOT STREQUAL "") AND DEFINED ENV{VCPKG_ROOT})
         set(VCPKG_ROOT "$ENV{VCPKG_ROOT}" CACHE PATH "Path to vcpkg root")
+    endif()
+    # Fall back to the shared workspace vcpkg tree so a direct CMake configure
+    # inside a SushiStack workspace finds it without the `se` CLI injecting it.
+    if((NOT DEFINED VCPKG_ROOT OR VCPKG_ROOT STREQUAL "") AND DEFINED ENV{SUSHISTACK_HOME}
+       AND EXISTS "$ENV{SUSHISTACK_HOME}/dependencies/vcpkg")
+        set(VCPKG_ROOT "$ENV{SUSHISTACK_HOME}/dependencies/vcpkg" CACHE PATH "Path to vcpkg root")
     endif()
     if(VCPKG_ROOT AND (NOT DEFINED CMAKE_TOOLCHAIN_FILE OR CMAKE_TOOLCHAIN_FILE STREQUAL ""))
         set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"

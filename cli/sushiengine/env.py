@@ -101,7 +101,7 @@ def _inject_runtime_toolchain(cfg: Config, env: dict[str, str]) -> None:
     """Add the runtime's bundled clang++ bin/lib to a build/run environment.
 
     Neither platform ships a system SYCL compiler: the engine builds with the
-    intel/llvm clang++ that SushiRuntime installed under its dependencies tree, so
+    intel/llvm clang++ provisioned into the shared SushiStack dependency tree, so
     that bin must be on PATH (and, on Linux, its lib on LD_LIBRARY_PATH) for the
     compiler and its SYCL runtime libraries to resolve.
     """
@@ -109,8 +109,7 @@ def _inject_runtime_toolchain(cfg: Config, env: dict[str, str]) -> None:
         root = find_project_root()
     except SystemExit:
         return
-    runtime = cfg.runtime_dir(root)
-    bundle = runtime / "dependencies" / "toolchains" / "llvm-sycl"
+    bundle = cfg.deps_dir(root) / "toolchains" / "llvm-sycl"
     bin_dir = bundle / "bin"
     lib_dir = bundle / "lib"
     if bin_dir.is_dir():
