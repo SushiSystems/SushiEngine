@@ -16,11 +16,10 @@ from pathlib import Path
 from rich.table import Table
 
 from .. import console
+from sushicli.workspace import merge_platform_table, read_toml
 from ..config import (
     Config,
     _ENV_OVERRIDES,
-    _merge_tool_table,
-    _read_toml,
     config_dir,
     find_project_root,
     load_config,
@@ -39,9 +38,9 @@ def _toml_keys(root: Path, plat: str) -> set[str]:
     cfg_dir = config_dir(root)
     keys: set[str] = set()
     for fname in ("config.toml", "config.local.toml"):
-        doc = _read_toml(cfg_dir / fname)
+        doc = read_toml(cfg_dir / fname)
         if doc:
-            keys.update(_merge_tool_table(doc, plat).keys())
+            keys.update(merge_platform_table(doc, plat).keys())
     return keys
 
 

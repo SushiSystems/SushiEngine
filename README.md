@@ -39,12 +39,12 @@ cmake line by hand. It consumes the SushiRuntime sibling's bundled clang++ and
 vcpkg automatically, so a normal side-by-side checkout needs no configuration.
 
 ```
-pip install -e cli            # installs `se` (and `sushiengine`)
-se project build              # configure + build (tests on by default)
-se project test               # run the functional suite via CTest labels
-se project test -s unit       # just the unit label
-se project run sandbox        # run a built executable
-se config show                # what the CLI resolved, and from where
+ss install-cli sushiengine    # installs `se` (and `sushiengine`)
+se build              # configure + build (tests on by default)
+se test               # run the functional suite via CTest labels
+se test -s unit       # just the unit label
+se run sandbox        # run a built executable
+se config                # what the CLI resolved, and from where
 ```
 
 Machine-specific paths (a non-standard runtime location, scoop-installed cmake)
@@ -53,7 +53,7 @@ go in a gitignored `cli/config.local.toml`; see `cli/config.toml` for the keys.
 ## Testing
 
 Tests are off by default. Enable them with `-DSE_BUILD_TESTS=ON` (the CLI's
-`se project build` does this for you), then:
+`se build` does this for you), then:
 
 ```
 cmake --build build --target se_functional_tests

@@ -20,12 +20,12 @@ from __future__ import annotations
 import os
 import platform
 
-try:
-    import tomllib  # Python 3.11+
-except ModuleNotFoundError:  # Python 3.10 fallback
-    import tomli as tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
+
+# Domain-agnostic config plumbing (marker walk-up, [tool] TOML layering) shared
+# by every Sushi* CLI. This repo keeps only its own schema below.
+from sushicli.workspace import has_marker, load_layered, resolve_env_path, walk_up
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -35,14 +35,13 @@ def find_project_root(start: Path | None = None) -> Path:
     tells us nothing about where the project lives — the invocation directory
     does. Run any `se` command from anywhere inside the checkout.
     """
-    cur = (start or Path.cwd()).resolve()
-    for d in (cur, *cur.parents):
-        if (d / "CMakeLists.txt").is_file():
-            return d
-    raise SystemExit(
-        "Not inside a SushiEngine project: no CMakeLists.txt found in the "
-        "current directory or any parent. cd into the repo and try again."
-    )
+    root = walk_up(start or Path.cwd(), has_marker("CMakeLists.txt"))
+    if root is None:
+        raise SystemExit(
+            "Not inside a SushiEngine project: no CMakeLists.txt found in the "
+            "current directory or any parent. cd into the repo and try again."
+        )
+    return root
 
 
 def config_dir(root: Path | None = None) -> Path:
@@ -133,13 +132,10 @@ class Config:
         @param root The engine project root.
         @return The workspace root, or None when not inside a workspace.
         """
-        env = os.environ.get("SUSHISTACK_HOME")
-        if env:
-            return Path(self.expand(env)).resolve()
-        for d in (root, *root.parents):
-            if (d / ".sushistack").is_file():
-                return d
-        return None
+        home = resolve_env_path("SUSHISTACK_HOME")
+        if home:
+            return home
+        return walk_up(root, has_marker(".sushistack"))
 
     def deps_dir(self, root: Path) -> Path:
         """The shared dependency tree this engine resolves its toolchain from.
@@ -194,23 +190,6 @@ class Config:
         return str(bundled) if bundled.is_dir() else ""
 
 
-def _read_toml(path: Path) -> dict:
-    if not path.is_file():
-        return {}
-    with path.open("rb") as fh:
-        return tomllib.load(fh)
-
-
-def _merge_tool_table(doc: dict, plat: str) -> dict:
-    """Merge common [tool] with [tool.<platform>] (platform wins)."""
-    tool = dict(doc.get("tool", {}))
-    merged = {k: v for k, v in tool.items() if not isinstance(v, dict)}
-    plat_table = tool.get(plat, {})
-    if isinstance(plat_table, dict):
-        merged.update(plat_table)
-    return merged
-
-
 def _shared_config_local() -> Path | None:
     """The workspace-shared config.local.toml ``ss install`` writes, if any.
 
@@ -219,17 +198,13 @@ def _shared_config_local() -> Path | None:
     config.local.toml``; every module reads them from there so nothing is
     configured twice.
     """
-    env = os.environ.get("SUSHISTACK_HOME")
-    if env:
-        return Path(os.path.expandvars(os.path.expanduser(env))) / "cli" / "config.local.toml"
-    try:
-        root = find_project_root()
-    except SystemExit:
-        return None
-    for d in (root, *root.parents):
-        if (d / ".sushistack").is_file():
-            return d / "cli" / "config.local.toml"
-    return None
+    home = resolve_env_path("SUSHISTACK_HOME")
+    if home is None:
+        try:
+            home = walk_up(find_project_root(), has_marker(".sushistack"))
+        except SystemExit:
+            home = None
+    return (home / "cli" / "config.local.toml") if home else None
 
 
 def load_config() -> Config:
@@ -241,25 +216,12 @@ def load_config() -> Config:
     plat = platform.system().lower()  # 'windows' | 'linux' | 'darwin'
 
     cfg_dir = config_dir()
-    values: dict = {}
     shared = _shared_config_local()
     sources = [cfg_dir / "config.toml"]
     if shared is not None:
         sources.append(shared)
     sources.append(cfg_dir / "config.local.toml")
-    for path in sources:
-        doc = _read_toml(path)
-        if doc:
-            values.update(_merge_tool_table(doc, plat))
-
-    # Env overrides (highest precedence below CLI flags).
-    for field_name, env_var in _ENV_OVERRIDES.items():
-        if env_var in os.environ:
-            values[field_name] = os.environ[env_var]
-
-    # Coerce booleans that may arrive as strings from env.
-    if isinstance(values.get("use_vcpkg"), str):
-        values["use_vcpkg"] = values["use_vcpkg"].strip().lower() in ("1", "true", "yes", "on")
+    values = load_layered(sources, plat, _ENV_OVERRIDES, bool_keys=("use_vcpkg",))
 
     known = {f.name for f in fields(Config)}
     cfg = Config(**{k: v for k, v in values.items() if k in known})

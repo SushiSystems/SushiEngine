@@ -1,0 +1,38 @@
+# SushiEngine dependency fragment — the dependencies the engine owns on top of
+# what SushiRuntime already provides. `ss` aggregates this with the SushiStack
+# base fragment and (transitively) SushiRuntime's own fragment when the engine is
+# part of the workspace, then provisions everything into the shared
+# dependencies/ tree.
+#
+# SushiEngine is built *on* SushiRuntime: it links the runtime and compiles the
+# same SYCL program, so it needs every toolchain SushiRuntime needs. Rather than
+# repeat those here, the [module] table below declares that dependency and `ss`
+# folds the runtime's requirements into the engine's readiness picture.
+#
+# Field reference:
+#   description    Human-readable purpose (shown by `ss doctor`).
+#   required       false => a missing one warns but does not stop the build.
+#   gpu_only       true  => only installed when GPU support is requested.
+#   linux_apt      apt package names; empty list = not an apt/vcpkg package.
+#   windows_vcpkg  vcpkg port names; empty list = not an apt/vcpkg package.
+#   check_cmd      Optional command; exit 0 means "already installed".
+
+[module]
+# SushiEngine is orchestrated by SushiRuntime; every runtime dependency (hwloc,
+# the SYCL toolchains) is also an engine dependency. `ss doctor` reports the
+# engine ready only once these are satisfied too.
+depends_on = ["sushiruntime"]
+
+[sdl2]
+description   = "SDL2 window/input layer for the editor shell (se editor). Editor is OFF by default, so this is optional for a plain library build."
+required      = false
+linux_apt     = ["libsdl2-dev"]
+windows_vcpkg = ["sdl2"]
+check_cmd     = ["pkg-config", "--exists", "sdl2"]
+
+[opengl]
+description   = "OpenGL development headers for the editor's ImGui renderer backend. System-provided on Windows; a -dev package on Linux."
+required      = false
+linux_apt     = ["libgl-dev"]
+windows_vcpkg = []
+check_cmd     = ["pkg-config", "--exists", "gl"]
