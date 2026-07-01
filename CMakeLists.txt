@@ -44,6 +44,12 @@ if(SE_BUILD_EDITOR)
     add_subdirectory(editor)
 endif()
 
+# The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
+# (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.
+if(SE_BUILD_RENDER)
+    add_subdirectory(render)
+endif()
+
 # One SYCL test binary against the real runtime (no mocks). OFF by default.
 if(SE_BUILD_TESTS)
     enable_testing()
