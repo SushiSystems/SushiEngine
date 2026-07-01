@@ -20,29 +20,16 @@ include(GoogleTest)
 set(SE_TEST_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
 
 # Applies the cross-cutting settings to a test binary: the shared-helpers include
-# dir, the engine + GTest links, the SYCL flags (the engine's kernels live in the
-# consuming TU), and the Windows runtime-DLL copy.
+# dir, the engine + GTest links, and the shared SYCL policy (device flags + the
+# Windows runtime-DLL copy) from cmake/SyclTarget.cmake — the same helper the
+# engine's example apps use, so the two lanes cannot drift apart.
 function(sushi_configure_test_target target)
     target_include_directories(${target} PRIVATE ${SE_TEST_COMMON_DIR})
     target_link_libraries(${target} PRIVATE SushiEngine GTest::gtest)
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON)
-
-    # Mirror add_engine_executable: add_sycl_to_target is a no-op stub on the
-    # intel-llvm path, so add -fsycl to the whole target there ourselves.
-    add_sycl_to_target(TARGET ${target})
-    if(SR_SYCL_TOOLCHAIN STREQUAL "intel-llvm")
-        target_compile_options(${target} PRIVATE -fsycl)
-        target_link_options(${target} PRIVATE -fsycl)
-    endif()
-
-    if(WIN32)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:sushiruntime>
-                $<TARGET_FILE_DIR:${target}>)
-    endif()
+    sushi_apply_sycl(${target})
 endfunction()
 
 add_executable(se_functional_tests
