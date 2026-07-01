@@ -36,3 +36,34 @@ required      = false
 linux_apt     = ["libgl-dev"]
 windows_vcpkg = []
 check_cmd     = ["pkg-config", "--exists", "gl"]
+
+[vulkan-headers]
+description   = "Vulkan API headers for the renderer (se build --render). Renderer is OFF by default, so this is optional for a plain library build."
+required      = false
+linux_apt     = ["libvulkan-dev"]
+windows_vcpkg = ["vulkan-headers"]
+check_cmd     = ["pkg-config", "--exists", "vulkan"]
+
+[vulkan-loader]
+description   = "Vulkan loader (vulkan-1 import library + ICD loader) the renderer links against. Paired with vulkan-headers."
+required      = false
+linux_apt     = ["libvulkan1"]
+windows_vcpkg = ["vulkan-loader"]
+
+[vulkan-memory-allocator]
+description   = "AMD Vulkan Memory Allocator (VMA) — the renderer's GPU allocator."
+required      = false
+linux_apt     = ["libvulkan-memory-allocator-dev"]
+windows_vcpkg = ["vulkan-memory-allocator"]
+
+[vk-bootstrap]
+description   = "vk-bootstrap — Vulkan instance/device/swapchain selection boilerplate for the renderer."
+required      = false
+linux_apt     = []
+windows_vcpkg = ["vk-bootstrap"]
+
+[glslang]
+description   = "glslang (GLSL -> SPIR-V). Used by a build-time host tool that compiles the renderer's shaders to embedded SPIR-V headers; not a runtime dependency."
+required      = false
+linux_apt     = ["glslang-dev"]
+windows_vcpkg = ["glslang"]
