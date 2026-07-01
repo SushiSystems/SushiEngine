@@ -14,6 +14,7 @@ from .services import diag as diag_svc
 from .services import docker as docker_svc
 from .services import editor as editor_svc
 from .services import project as project_svc
+from .services import render as render_svc
 from .services.project import BuildType, Suite
 
 app = typer.Typer(
@@ -108,6 +109,18 @@ def editor(
 ):
     """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON)."""
     raise typer.Exit(editor_svc.build_and_run(run=not no_run))
+
+
+# --------------------------------------------------------------------------- #
+# render
+# --------------------------------------------------------------------------- #
+@app.command("render")
+def render(
+    no_run: bool = typer.Option(
+        False, "--no-run", help="Build the renderer probe but do not run it."),
+):
+    """Build and run the Vulkan renderer probe (configures with SE_BUILD_RENDER=ON)."""
+    raise typer.Exit(render_svc.build_and_run(run=not no_run))
 
 
 # --------------------------------------------------------------------------- #
