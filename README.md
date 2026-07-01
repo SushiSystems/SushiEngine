@@ -1,118 +1,159 @@
 # SushiEngine
 
-A 3D game engine head built on top of [SushiRuntime](../sushiruntime).
+A C++17 game engine built on top of [SushiRuntime](../sushiruntime).
 
-SushiEngine is the head; SushiRuntime is a plugged-in component (the battery).
-The engine owns the loop, the world, and — later — the window and renderer; the
-runtime is a hardware-agnostic orchestration backbone the engine hands work to.
-The dependency points one way only: `SushiEngine -> SushiRuntime`.
+SushiEngine depends on SushiRuntime and never the other way around. SushiRuntime
+provides hardware discovery, USM allocation, the SYCL task graph, and the
+dependency tracker. SushiEngine provides the frame loop, the entity-component-system
+(ECS), a physics constraint solver, and an editor shell. The engine ships no SYCL
+device code of its own; kernels are instantiated in the consuming translation unit
+(for example `sandbox/main.cpp`), which links against the runtime.
 
-## Status — ECS layer (WP-3)
+## What currently exists
 
-The entity / component / system core is in place: components live in archetype
-chunks, systems declare the components they read and write, and the SushiRuntime
-dependency tracker orders them — conflicting systems run in sequence, disjoint ones
-in parallel — with no scheduler written in the engine. The schedule is compiled once
-and replayed every frame; entities spawn and die through a deferred command buffer
-with no per-frame recompile. The `sandbox` target is the worked example: a particle
-world checked against an independent scalar reference.
+- **ECS** (`include/SushiEngine/ecs/`, header-only). Entities are
+  generation-checked handles. Components are stored in archetype chunks of
+  structure-of-arrays columns. A system declares which components it reads and
+  writes; the schedule emits one graph node per chunk and the runtime's dependency
+  tracker orders them. The graph is compiled once and replayed each frame; it is
+  only rebuilt when a new chunk is allocated. Structural changes (spawn/destroy) go
+  through a command buffer applied at a frame barrier.
+- **Physics** (`include/SushiEngine/physics/`). A Projected Gauss-Seidel constraint
+  solver parallelised by graph colouring. Generic over the constraint type;
+  `DistanceConstraint` is provided.
+- **Editor** (`editor/`). An SDL2 + OpenGL + Dear ImGui desktop application with a
+  docking layout: Hierarchy, Inspector, Project browser, Text Editor, Toolbar,
+  Console, and Statistics panels. It operates on an editor-owned scene model and
+  does not link the runtime, so it builds without a SYCL toolchain. It does not yet
+  drive a live ECS world or render a viewport.
+- **`se` CLI** (`cli/`). A Python/Typer tool that wraps configure/build/test/run.
 
-Next: rendering (a window, The-Forge, Dear ImGui — render as an opaque host sink
-node), then the editor host shell.
+## Repository layout
 
-## Layout
+- `include/SushiEngine/core/types.hpp` — the single alias point for value types
+  (`Vec3`, `Scalar`), currently a placeholder.
+- `include/SushiEngine/ecs/` — entities, components, archetype chunks, world,
+  command buffer, schedule.
+- `include/SushiEngine/physics/` — PGS solver and graph colouring.
+- `include/SushiEngine/SushiEngine.hpp` — umbrella header.
+- `sandbox/main.cpp` — ECS worked example; a single SYCL translation unit. Runs the
+  ECS and an independent scalar reference in parallel and asserts they match.
+- `examples/pgs_demo.cpp` — physics solver demo (a hanging chain).
+- `editor/` — the ImGui editor shell.
+- `tests/` — GoogleTest functional suite (unit / integration / regression), run
+  against the real runtime.
+- `cli/` — the `se` developer CLI.
 
-- `include/SushiEngine/core/types.hpp` — the single seam for value types. Today it
-  aliases a placeholder; when SushiBLAS lands, re-point it there in one file.
-- `include/SushiEngine/ecs/` — the ECS: entities, components, archetype chunks, the
-  world, the deferred command buffer, and the system schedule.
-- `include/SushiEngine/SushiEngine.hpp` — umbrella header for the whole surface.
-- `sandbox/main.cpp` — the worked example and the single SYCL translation unit.
-- `tests/` — the GoogleTest functional suite (unit / integration / regression),
-  run against the real runtime.
-- `cli/` — the `se` developer CLI (build / test / run / diagnostics).
+## Requirements
 
-## Install
+- The **SushiStack** repository, which is the workspace and holds the shared
+  `dependencies/` tree: the intel/llvm SYCL clang++ toolchain, vcpkg, cmake, ctest,
+  doxygen, and pkgconf. Everything lives inside this repo — there are no
+  system-wide dependencies to install.
+- The **SushiRuntime** sibling checked out next to this repository (at
+  `../sushiruntime`, or overridden with `-DSUSHIRUNTIME_DIR=...`).
+- On Windows, a Developer Command Prompt (vcvars) so MSVC and the resource compiler
+  are on the path. The `se` CLI snapshots this environment for you.
 
-SushiEngine builds on top of the shared SushiStack workspace, which provides the
-SYCL toolchain, vcpkg, and the SushiRuntime sibling. On a fresh machine one
-command installs Python and Git if missing, clones the workspace, installs the
-`ss` CLI, and downloads the shared dependencies:
+## Setup
 
-```bash
-curl -fsSL https://sushisystems.io/install.sh | bash      # Linux / WSL
-```
+The toolchain and dependencies are not installed system-wide; they live inside the
+SushiStack repository, which is the workspace. Get it with the umbrella installer,
+then add the two repositories:
 
 ```powershell
-irm https://sushisystems.io/install.ps1 | iex             # Windows (PowerShell)
+irm https://sushisystems.io/install.ps1 | iex   # Windows (PowerShell)
 ```
-
-On Windows use `irm`, not `curl` — in PowerShell `curl` is an alias for
-`Invoke-WebRequest` and does not pipe a script the same way.
-
-Then add the modules and install this CLI through the umbrella:
 
 ```bash
-ss add sushiruntime sushiengine   # clone both into the workspace
-ss install-cli sushiengine        # install `se` (and `sushiengine`) via pipx
+curl -fsSL https://sushisystems.io/install.sh | bash   # Linux / WSL
 ```
 
-`ss install-cli` sets up an isolated pipx venv and wires in the shared
-`sushicli` presentation layer. Add `--no-editable` for a non-developer install.
+The installer clones the workspace into `sushistack`, installs the `ss` CLI, and
+downloads the shared `dependencies/` tree. Then:
 
-## Developer CLI
+```
+ss add sushiruntime sushiengine    # clone both repos into the workspace
+ss install-cli sushiengine         # install `se` (and `sushiengine`) via pipx
+```
 
-The `se` CLI wraps configure, build, test, and run so you do not type the long
-cmake line by hand. It reads the SushiRuntime sibling's bundled clang++ and
-vcpkg automatically, so a normal side-by-side checkout needs no configuration.
+If the SushiStack repository is already cloned, you only need the two
+repositories side by side and the `se` CLI installed.
+
+### Machine-specific paths
+
+The CLI resolves the compiler and vcpkg from the runtime/stack automatically. When
+the toolchain lives somewhere the defaults do not expect, put absolute paths in a
+gitignored `cli/config.local.toml` next to `cli/config.toml`, using the same section
+layout. On this machine the tools resolve from `D:/Projects/sushistack/dependencies`:
+
+```toml
+[tool.windows]
+cmake_exe   = "D:/Projects/sushistack/dependencies/tools/cmake/bin/cmake.EXE"
+ctest_exe   = "D:/Projects/sushistack/dependencies/tools/cmake/bin/ctest.EXE"
+doxygen_exe = "D:/Projects/sushistack/dependencies/tools/doxygen/doxygen.EXE"
+pkgconf_exe = "D:/Projects/sushistack/dependencies/vcpkg/installed/x64-windows/tools/pkgconf/pkgconf.exe"
+```
+
+Run `se config` to print the resolved values and where each came from.
+
+## The `se` CLI
+
+`se` wraps the cmake/ctest calls so you do not type the long configure line by hand.
 
 | Command | What it does |
 |---|---|
-| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. Tests build by default. |
-| `se test [--suite <label>] [--filter <regex>] [--repeat N]` | Run the test suite via CTest labels. `--suite all` runs everything. |
-| `se run <target> [-- args…]` | Run a built executable (e.g. `se run sandbox`). Args after `--` are forwarded to it. `--sort` picks one interactively. |
-| `se editor [--no-run]` | Build and launch the ImGui editor (configures with `SE_BUILD_EDITOR=ON`). |
+| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. |
+| `se test [--suite <label>] [--filter <regex>] [--repeat N]` | Run the suite via CTest labels. Labels: `functional` (default), `unit`, `integration`, `regression`, `all`. `--filter` is a `ctest -R` regex over `Suite.Case` names. `--repeat` re-runs until failure. |
+| `se run <target> [-- args…]` | Run a built executable (for example `se run sandbox`). Arguments after `--` are forwarded. `--sort` picks one interactively. |
+| `se editor [--no-run]` | Build the ImGui editor (configures with `SE_BUILD_EDITOR=ON`) and launch it. `--no-run` builds only. |
 | `se clean` | Remove the `build/` tree. |
 | `se doxygen` | Generate Doxygen documentation. |
-| `se config` | Print the resolved config and where each value came from. |
-| `se env [--all]` | Print the environment cmake/ctest/run subprocesses execute under. |
-| `se docker build [--no-cache] [--runtime-ref <ref>]` | Build the containerized dev image (toolchain + runtime sibling + CLI). |
-| `se docker run [--admin] [--no-gpu]` | Start an interactive container with the engine source mounted live. |
+| `se config` | Print the resolved config and each value's source. |
+| `se env [--all]` | Print the environment build/run subprocesses execute under. |
+| `se docker build [--no-cache] [--runtime-ref <ref>]` | Build the containerized dev image (toolchain + runtime + CLI). |
+| `se docker run [--admin] [--no-gpu]` | Start an interactive container with the source mounted live. |
 
-The `--suite` labels are `functional` (default), `unit`, `integration`,
-`regression`, and `all`.
+After changing toolchain paths in `config.local.toml`, delete the `build/` tree
+(`se clean`) before reconfiguring — cmake bakes the old paths into its cache.
 
-Machine-specific paths (a non-standard runtime location, a scoop-installed
-cmake) go in a gitignored `cli/config.local.toml`; see `cli/config.toml` for the
-keys.
-
-## Testing
-
-Tests are off by default. Enable them with `-DSE_BUILD_TESTS=ON` (the CLI's
-`se build` does this for you), then:
-
-```
-cmake --build build --target se_functional_tests
-ctest --test-dir build --output-on-failure          # all tests
-ctest --test-dir build -L 'unit|integration|regression'
-```
-
-GoogleTest is pulled from vcpkg, the same toolchain the runtime already requires.
-
-## Building
-
-Needs the SushiRuntime sibling checkout at `../sushiruntime` (override with
-`-DSUSHIRUNTIME_DIR=...`) and its SYCL toolchain. Configure with the same compiler
-the runtime uses, e.g. the bundled intel/llvm clang++:
+## Building without the CLI
 
 ```
 cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_COMPILER=<sushiruntime>/dependencies/toolchains/llvm-sycl/bin/clang++ \
-  -DVCPKG_ROOT=<sushiruntime>/dependencies/vcpkg \
-  -DCMAKE_TOOLCHAIN_FILE=<sushiruntime>/dependencies/vcpkg/scripts/buildsystems/vcpkg.cmake
-cmake --build build --target sandbox
+  -DCMAKE_CXX_COMPILER=D:/Projects/sushistack/dependencies/toolchains/llvm-sycl/bin/clang++ \
+  -DVCPKG_ROOT=D:/Projects/sushistack/dependencies/vcpkg \
+  -DCMAKE_TOOLCHAIN_FILE=D:/Projects/sushistack/dependencies/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+cmake --build build --target sandbox     # ECS worked example
+cmake --build build --target pgs_demo    # physics demo
 ```
 
-On Windows, configure from a Developer environment (vcvars) so the resource
-compiler and MSVC libraries are on the path.
+Run the sandbox to validate the ECS; it exits 0 on success:
+
+```
+./build/sandbox.exe
+```
+
+The editor is behind `-DSE_BUILD_EDITOR=ON` and the tests behind
+`-DSE_BUILD_TESTS=ON` (both off by default; `se editor` and `se build` set them).
+
+## Testing
+
+Tests are off by default. Enable and run them:
+
+```
+cmake --build build --target se_functional_tests
+ctest --test-dir build --output-on-failure
+ctest --test-dir build -L 'unit|integration|regression'
+```
+
+GoogleTest comes from vcpkg. The suite instantiates real kernels and runs them
+against the runtime — there are no mocks.
+
+## Documentation
+
+- `docs/guides/ARCHITECTURE.md` — how the layers fit together and the seams a
+  cross-cutting change touches.
+- `docs/CHANGELOG.md` — notable changes.

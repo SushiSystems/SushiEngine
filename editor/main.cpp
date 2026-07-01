@@ -21,28 +21,36 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Editor scaffold (step 1): an SDL2 + OpenGL window hosting Dear ImGui with a
-// full-window dockspace and a single placeholder panel. It draws no engine state
-// yet — the next step wires a World/Schedule into the loop (play/pause/step) and
-// a profiler panel fed by RunReport. Keeping this first cut free of the runtime
-// means it builds and stays green without a SYCL toolchain, so the editor shell
-// and its CI lane can be proven independently of the simulation it will host.
+// Editor shell: an SDL2 + OpenGL window hosting Dear ImGui with a full-window
+// dockspace and a Unity-style panel set — Hierarchy, Inspector, Project, and a
+// text editor. It edits an editor-side scene and the on-disk project; it draws no
+// live engine state yet. Keeping this shell free of the runtime means it builds
+// and stays green without a SYCL toolchain, so the editor and its CI lane can be
+// proven independently of the simulation it will eventually host.
 
 #include <cstdio>
+#include <filesystem>
 
 #include <SDL.h>
 #include <SDL_opengl.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_sdl2.h>
 #include <backends/imgui_impl_opengl3.h>
 
+#include "editor_context.hpp"
+#include "editor_panels.hpp"
+
 namespace
 {
-    // A single dockspace covering the main viewport, so panels added later can be
-    // dragged, tabbed, and split Unity-style. Rebuilt each frame; ImGui persists
-    // the resulting layout to imgui.ini between runs.
-    void draw_dockspace()
+    // A single dockspace covering the main viewport, so the panels can be dragged,
+    // tabbed, and split Unity-style. Rebuilt each frame; ImGui persists the layout
+    // to imgui.ini between runs. On the first run (no persisted node yet) the
+    // caller-provided default layout is applied once via build_default_layout.
+    //
+    // @return true on the frame the default layout still needs to be built.
+    bool draw_dockspace()
     {
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -61,21 +69,14 @@ namespace
         ImGui::Begin("SushiEngineDockHost", nullptr, flags);
         ImGui::PopStyleVar(3);
 
-        ImGui::DockSpace(ImGui::GetID("SushiEngineDockSpace"), ImVec2(0.0f, 0.0f),
+        const ImGuiID dockspace_id = ImGui::GetID("SushiEngineDockSpace");
+        const bool needs_layout = ImGui::DockBuilderGetNode(dockspace_id) == nullptr;
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f),
                          ImGuiDockNodeFlags_PassthruCentralNode);
+        if (needs_layout)
+            sushi::editor::build_default_layout(dockspace_id);
         ImGui::End();
-    }
-
-    // Stand-in for the panels to come (hierarchy, inspector, profiler, viewport).
-    void draw_placeholder_panel()
-    {
-        ImGui::Begin("SushiEngine");
-        ImGui::TextUnformatted("Editor shell is alive.");
-        ImGui::Separator();
-        ImGui::Text("Frame: %.2f ms (%.0f FPS)",
-                    1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-        ImGui::TextUnformatted("Next: wire a World/Schedule and a live viewport.");
-        ImGui::End();
+        return needs_layout;
     }
 }
 
@@ -123,6 +124,19 @@ int main(int, char**)
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
+    sushi::editor::EditorContext context;
+    context.project_root = std::filesystem::current_path().string();
+    context.current_directory = context.project_root;
+
+    // Seed a small scene so the hierarchy and inspector are populated on first run.
+    sushi::editor::SceneNode* camera = context.scene.create_node("Main Camera");
+    context.scene.create_node("Directional Light");
+    sushi::editor::SceneNode* root = context.scene.create_node("Scene Root");
+    context.scene.create_node("Child A", root);
+    context.scene.create_node("Child B", root);
+    context.selected_node = camera->id;
+    sushi::editor::editor_log(context, "Editor ready.");
+
     bool running = true;
     while (running)
     {
@@ -143,7 +157,17 @@ int main(int, char**)
         ImGui::NewFrame();
 
         draw_dockspace();
-        draw_placeholder_panel();
+        sushi::editor::draw_menu_bar(context, running);
+        sushi::editor::draw_status_bar(context);
+        sushi::editor::draw_toolbar_panel(context);
+        sushi::editor::draw_hierarchy_panel(context);
+        sushi::editor::draw_inspector_panel(context);
+        sushi::editor::draw_project_panel(context);
+        sushi::editor::draw_text_editor_panel(context);
+        sushi::editor::draw_console_panel(context);
+        sushi::editor::draw_statistics_panel(context);
+        if (context.show_imgui_demo)
+            ImGui::ShowDemoWindow(&context.show_imgui_demo);
 
         ImGui::Render();
         int w = 0, h = 0;

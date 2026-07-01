@@ -30,6 +30,7 @@ add_library(sushi_imgui STATIC
     "${IMGUI_DIR}/imgui_tables.cpp"
     "${IMGUI_DIR}/imgui_widgets.cpp"
     "${IMGUI_DIR}/imgui_demo.cpp"
+    "${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp")
 target_include_directories(sushi_imgui PUBLIC
@@ -38,7 +39,7 @@ target_include_directories(sushi_imgui PUBLIC
 target_link_libraries(sushi_imgui PUBLIC SDL2::SDL2 OpenGL::GL)
 target_compile_features(sushi_imgui PUBLIC cxx_std_17)
 
-add_executable(se_editor main.cpp)
+add_executable(se_editor main.cpp editor_panels.cpp)
 target_link_libraries(se_editor PRIVATE sushi_imgui)
 # SDL2 defines SDL_main on some platforms (Windows); link the entry shim when the
 # target exists so WinMain resolves without forcing it on Linux/macOS.

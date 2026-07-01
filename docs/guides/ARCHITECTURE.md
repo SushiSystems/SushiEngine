@@ -172,4 +172,11 @@ never reaches back into runtime source.
 - **Rendering.** A window, The-Forge rendering, and Dear ImGui; rendering enters as
   the opaque sink node of §5.
 - **Editor host shell.** The editor as a host application that runs the game as a
-  scene, with play/pause and inspection panels.
+  scene, with play/pause and inspection panels. The `se_editor` shell (SDL2 + Dear
+  ImGui, `editor/`) currently hosts a Unity-style panel set — Hierarchy (with
+  drag-and-drop reparenting, rename, and filtering), Inspector, Project browser, a
+  tabbed Text Editor, a Play/Pause/Step Toolbar, a Console, and a Statistics panel,
+  all toggled from a Window menu — over an editor-owned `Scene` model
+  (`scene_model.hpp`, `editor_context.hpp`), deliberately decoupled from the runtime
+  so it builds without a SYCL toolchain. Wiring these panels onto a live World, plus
+  a viewport and play/pause, is the remaining work.

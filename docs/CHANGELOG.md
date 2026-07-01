@@ -9,6 +9,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- Editor panels (`editor/`): the `se_editor` shell grows a Unity-style panel set on
+  top of its SDL2 + Dear ImGui dockspace — Hierarchy, Inspector, Project, a tabbed
+  Text Editor, a Toolbar, a Console, and a Statistics panel, plus a status bar —
+  laid out with a default dock split on first run. A **Window** menu toggles every
+  panel, and each panel's title-bar close button shares that visibility bit so a
+  closed panel reopens from the menu. The Hierarchy shows an editor-side scene tree
+  with select, create, delete, a search filter, double-click / context-menu rename,
+  and mouse drag-and-drop reparenting (drop onto a node to parent, onto empty space
+  or via the "Unparent" menu to promote to a root); the Inspector edits the
+  selection's name, visibility, and transform; the Project panel is a
+  `std::filesystem` browser rooted at the working directory that opens text files
+  into the editor; the Text Editor hosts open files as reorderable tabs with
+  dirty-state tracking and save; the Toolbar drives a Play/Pause/Step playback state
+  (a stub seam for a future World loop); the Console records editor actions; the
+  Statistics panel reports frame time, FPS, and entity/document counts. The panels
+  operate on an editor-owned `Scene`/`EditorContext` model (`scene_model.hpp`,
+  `editor_context.hpp`), keeping the shell free of the runtime and SYCL, so this
+  lane still builds on a stock toolchain. `imgui_stdlib` is vendored into the
+  `sushi_imgui` library for `std::string`-backed text fields.
 - Test suite (`tests/`): a GoogleTest-based functional suite mirroring
   SushiRuntime's layout, gated behind the `SE_BUILD_TESTS` CMake option (OFF by
   default; GoogleTest comes from vcpkg). One binary, `se_functional_tests`, built

@@ -1,0 +1,137 @@
+/**************************************************************************/
+/* editor_context.hpp                                                     */
+/**************************************************************************/
+/*                          This file is part of:                         */
+/*                              SushiEngine                               */
+/*               https://github.com/SushiSystems/SushiEngine              */
+/*                        https://sushisystems.io                         */
+/**************************************************************************/
+/* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
+/*     http://www.apache.org/licenses/LICENSE-2.0                         */
+/*                                                                        */
+/* Unless required by applicable law or agreed to in writing, software    */
+/* distributed under the License is distributed on an "AS IS" BASIS,      */
+/* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
+/* implied. See the License for the specific language governing           */
+/* permissions and limitations under the License.                         */
+/**************************************************************************/
+
+#ifndef SUSHIENGINE_EDITOR_EDITOR_CONTEXT_HPP
+#define SUSHIENGINE_EDITOR_EDITOR_CONTEXT_HPP
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "scene_model.hpp"
+
+namespace sushi::editor
+{
+    /**
+     * @brief Which dockable panels are currently shown.
+     *
+     * Each flag backs one entry in the Window menu and one panel's open state, so
+     * closing a panel (its title-bar X) and reopening it from the menu share the
+     * same bit. Defaults to everything visible on a fresh layout.
+     */
+    struct PanelVisibility
+    {
+        bool hierarchy = true;
+        bool inspector = true;
+        bool project = true;
+        bool text_editor = true;
+        bool console = true;
+        bool statistics = true;
+        bool toolbar = true;
+    };
+
+    /**
+     * @brief Editor playback state, mirroring a game engine's play controls.
+     *
+     * The shell has no runtime wired in yet, so this drives only the toolbar's
+     * button states and console feedback; it is the seam a future World loop binds
+     * to for play/pause/step.
+     */
+    enum class PlayState
+    {
+        Stopped,
+        Playing,
+        Paused
+    };
+    /**
+     * @brief One file open in the text-edit panel.
+     *
+     * Holds the on-disk path, the live editable buffer, and a dirty flag flipped
+     * whenever the buffer diverges from disk so the UI can mark unsaved work and
+     * prompt on close.
+     */
+    struct Document
+    {
+        std::string path;
+        std::string display_name;
+        std::string text;
+        bool dirty = false;
+    };
+
+    /**
+     * @brief Shared, mutable editor state passed to every panel each frame.
+     *
+     * A single aggregate the panels read and write: the scene being edited, the
+     * current selection, the project browser root, and the set of open documents.
+     * Panels communicate through this struct rather than calling each other, so the
+     * hierarchy's selection change is picked up by the inspector next frame with no
+     * direct coupling.
+     */
+    struct EditorContext
+    {
+        Scene scene;
+        std::uint64_t selected_node = 0;
+
+        std::string project_root;
+        std::string current_directory;
+
+        std::vector<Document> documents;
+        int active_document = -1;
+
+        PanelVisibility panels;
+        PlayState play_state = PlayState::Stopped;
+
+        std::string hierarchy_filter;
+        std::uint64_t renaming_node = 0;
+
+        std::vector<std::string> console_lines;
+
+        bool show_imgui_demo = false;
+    };
+
+    /**
+     * @brief Append one line to the editor console log.
+     *
+     * A tiny free function rather than a method so panels depend only on the data
+     * aggregate, not on a logging interface; the console panel renders whatever has
+     * accumulated. Older lines are trimmed to keep the buffer bounded.
+     *
+     * @param context Editor state whose console buffer receives the line.
+     * @param message Text to record.
+     */
+    inline void editor_log(EditorContext& context, const std::string& message)
+    {
+        context.console_lines.push_back(message);
+        constexpr std::size_t MAX_CONSOLE_LINES = 1000;
+        if (context.console_lines.size() > MAX_CONSOLE_LINES)
+        {
+            context.console_lines.erase(
+                context.console_lines.begin(),
+                context.console_lines.begin() +
+                    static_cast<std::ptrdiff_t>(context.console_lines.size() -
+                                                MAX_CONSOLE_LINES));
+        }
+    }
+}
+
+#endif
