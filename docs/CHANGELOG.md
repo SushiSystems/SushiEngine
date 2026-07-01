@@ -9,6 +9,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- Renderer foundation (`render/`, `include/SushiEngine/render/`): the first cut of a
+  greenfield Vulkan 1.3 renderer, gated behind the `SE_BUILD_RENDER` CMake option
+  (OFF by default). Consumers program against an abstract RHI device
+  (`render/rhi/device.hpp`: `IRenderDevice`, `create_render_device()`, `DeviceInfo`,
+  `RenderDeviceDesc`) that carries no Vulkan types — the dependency-inversion seam a
+  future D3D12/Metal backend slots into. The Vulkan backend (`render/rhi/vulkan/`)
+  brings up a 1.3 instance and device (dynamic rendering + synchronization2) via
+  vk-bootstrap and a VMA allocator, selecting the physical device by preference and
+  exposing its UUID — the key a later milestone matches against SushiRuntime's SYCL
+  device for zero-copy interop. It renders its first pixels: a one-shot offscreen
+  triangle via 1.3 dynamic rendering (`render/rhi/vulkan/vulkan_offscreen.*`), whose
+  shaders are compiled from GLSL to embedded SPIR-V at build time by a glslang host
+  tool (`render/tools/shader_compiler/`, driven by the `sushi_compile_shader` CMake
+  helper) so the renderer carries no runtime shader-compiler dependency. A headless
+  `render_probe` target brings the device up, renders the triangle, and reads two
+  pixels back to assert the pipeline path (center lit, corner cleared) — validating
+  the whole chain (and vcpkg provisioning) without a display, the render analogue of
+  the ECS sandbox. Like the editor, the renderer is a plain compiled target — no
+  runtime link, no SYCL — so it builds on a stock toolchain. Vulkan, VMA,
+  vk-bootstrap, and glslang are declared in `cli/sushistack.deps.toml` and provisioned
+  by `ss install`. New `se` CLI command `se render` configures with the flag on,
+  builds `render_probe`, and runs it.
 - Editor panels (`editor/`): the `se_editor` shell grows a Unity-style panel set on
   top of its SDL2 + Dear ImGui dockspace — Hierarchy, Inspector, Project, a tabbed
   Text Editor, a Toolbar, a Console, and a Statistics panel, plus a status bar —
