@@ -20,12 +20,14 @@ from __future__ import annotations
 import os
 import platform
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 
-# Domain-agnostic config plumbing (marker walk-up, [tool] TOML layering) shared
-# by every Sushi* CLI. This repo keeps only its own schema below.
-from sushicli.workspace import has_marker, load_layered, resolve_env_path, walk_up
+# Domain-agnostic config plumbing shared by every Sushi* CLI. The generic build-
+# tool schema (cmake/ninja/vcpkg paths) and the layered-load skeleton live in
+# sushicli; this repo adds only the engine-specific fields below.
+from sushicli.config_base import ToolConfig, load_tool_config
+from sushicli.workspace import has_marker, resolve_env_path, walk_up
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -68,30 +70,16 @@ _ENV_OVERRIDES = {
 
 
 @dataclass
-class Config:
-    """Resolved, platform-specific tool configuration."""
+class Config(ToolConfig):
+    """Resolved, platform-specific tool configuration for the engine build.
 
-    # The SYCL compiler. Empty means "discover it": the runtime's bundled clang++
-    # (under <runtime>/dependencies/toolchains/llvm-sycl/bin) if present, else a
-    # clang++ on PATH.
-    cxx: str = ""
-    generator: str = "Ninja"
-    use_vcpkg: bool = False
-
-    # Tool roots / paths (mostly Windows-specific absolutes).
-    vcpkg_root: str = ""
-    vs_vcvars: str = ""
-    ninja_exe: str = ""
-    # cmake/ctest are resolved from PATH when empty. They are configurable because
-    # VS BuildTools does not ship the CMake component, so on Windows cmake commonly
-    # lives in a scoop/standalone install that is not on PATH.
-    cmake_exe: str = ""
-    ctest_exe: str = ""
-    pkgconf_exe: str = ""
-    # doxygen is resolved from PATH when empty; configurable because on Windows it
-    # commonly installs outside PATH (winget/choco shims or Program Files).
-    doxygen_exe: str = ""
-    vcpkg_triplet: str = "x64-windows"
+    Inherits the generic host build-tool fields (cmake/ninja/vcpkg paths, etc.)
+    from :class:`ToolConfig`. The engine selects no SYCL toolchain — it consumes
+    the shared one — so it adds only the sibling-runtime checkout below. ``cxx``
+    (from ToolConfig) empty means "discover it": the runtime's bundled clang++
+    (under <runtime>/dependencies/toolchains/llvm-sycl/bin) if present, else a
+    clang++ on PATH.
+    """
 
     # The SushiRuntime sibling checkout. Empty means "../sushiruntime relative to
     # the project root" (matching SUSHIRUNTIME_DIR's default in CMakeLists.txt).
@@ -99,17 +87,6 @@ class Config:
 
     # Run defaults.
     target_bin: str = "sandbox"
-
-    # Derived.
-    platform: str = ""
-
-    @property
-    def is_windows(self) -> bool:
-        return self.platform == "windows"
-
-    def expand(self, value: str) -> str:
-        """Expand ~ and env vars in a path-like config value."""
-        return os.path.expandvars(os.path.expanduser(value)) if value else value
 
     def runtime_dir(self, root: Path) -> Path:
         """Resolve the SushiRuntime checkout this engine builds against.
@@ -221,9 +198,4 @@ def load_config() -> Config:
     if shared is not None:
         sources.append(shared)
     sources.append(cfg_dir / "config.local.toml")
-    values = load_layered(sources, plat, _ENV_OVERRIDES, bool_keys=("use_vcpkg",))
-
-    known = {f.name for f in fields(Config)}
-    cfg = Config(**{k: v for k, v in values.items() if k in known})
-    cfg.platform = plat
-    return cfg
+    return load_tool_config(Config, sources, plat, _ENV_OVERRIDES)
