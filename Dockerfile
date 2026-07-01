@@ -5,7 +5,7 @@
 # image provisions the same intel/llvm clang++ -fsycl toolchain the runtime is
 # built and tested against, then clones the runtime as a SIBLING checkout next to
 # the engine (the layout SushiEngine's CMake and `se` CLI expect by default:
-# ../sushiruntime). Build on demand inside the container with `se project build`.
+# ../sushiruntime). Build on demand inside the container with `se build`.
 #
 # Base: CUDA runtime (GTX 1060 = sm_61, Pascal), matching the runtime image.
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
@@ -87,7 +87,7 @@ RUN /usr/bin/python3 -m pip install --no-cache-dir --upgrade pip setuptools whee
 # The image is a ready build/run *environment*, not a pre-built artifact: the
 # clang++ -fsycl toolchain, the runtime sibling, the deps and the `se` CLI are all
 # installed. Build on demand inside the container:
-#   se project build
-#   se project test
+#   se build
+#   se test
 #
 CMD ["/bin/bash"]

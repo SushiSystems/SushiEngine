@@ -1,7 +1,7 @@
 """Docker environment management for the SushiEngine dev image.
 
 The image bundles the clang++ -fsycl toolchain, a SushiRuntime sibling checkout,
-and the `se` CLI, so a fresh container can `se project build` straight away. See
+and the `se` CLI, so a fresh container can `se build` straight away. See
 the repo-root Dockerfile for what the image provisions.
 """
 

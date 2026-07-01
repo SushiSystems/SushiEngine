@@ -2,7 +2,7 @@ name: CI
 
 # Functional suite on every push / PR. The engine is the head of the stack, so it
 # checks out the SushiRuntime sibling and builds against it, exactly as a local
-# `se project build` does.
+# `se build` does.
 on:
   push:
     branches: [ main ]

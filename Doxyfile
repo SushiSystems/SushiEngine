@@ -2,7 +2,7 @@
 #
 # Scope is the public engine surface (include/SushiEngine), the product's
 # documented face. The layered design is described in docs/guides/ARCHITECTURE.md.
-# Build it with `se project doxygen` (or `doxygen Doxyfile`); output lands in
+# Build it with `se doxygen` (or `doxygen Doxyfile`); output lands in
 # docs/api-site/html.
 
 PROJECT_NAME           = "SushiEngine"

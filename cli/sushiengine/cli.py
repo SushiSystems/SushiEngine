@@ -24,25 +24,16 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-project_app = typer.Typer(help="C++ project build / test / run management.",
-                          no_args_is_help=True)
-config_app = typer.Typer(help="Inspect resolved configuration.",
-                         no_args_is_help=True)
-env_app = typer.Typer(help="Inspect the build environment.",
-                      no_args_is_help=True)
 docker_app = typer.Typer(help="Build and run the containerized dev environment.",
                          no_args_is_help=True)
-app.add_typer(project_app, name="project")
-app.add_typer(config_app, name="config")
-app.add_typer(env_app, name="env")
 app.add_typer(docker_app, name="docker")
 
 
 # --------------------------------------------------------------------------- #
-# project
+# build / test / run / clean / doxygen
 # --------------------------------------------------------------------------- #
-@project_app.command("build")
-def project_build(
+@app.command("build")
+def build(
     type: BuildType = typer.Option(
         BuildType.release, "--type", "-t", case_sensitive=False,
         help="Build type: release | debug | relwithdebinfo."),
@@ -56,8 +47,8 @@ def project_build(
     raise typer.Exit(project_svc.build(type, clean, tests=not no_test))
 
 
-@project_app.command("test")
-def project_test(
+@app.command("test")
+def test(
     suite: Suite = typer.Option(
         Suite.functional, "--suite", "-s", case_sensitive=False,
         help="Which CTest label group to run ('all' runs every test)."),
@@ -72,16 +63,16 @@ def project_test(
     """Run the test suite via CTest labels.
 
     For GTest-level knobs (shuffle, break-on-failure) run the binary directly:
-    se project run se_functional_tests -- --gtest_shuffle --gtest_break_on_failure
+    se run se_functional_tests -- --gtest_shuffle --gtest_break_on_failure
     """
     raise typer.Exit(project_svc.test(suite, filter, repeat))
 
 
-@project_app.command(
+@app.command(
     "run",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
-def project_run(
+def run(
     ctx: typer.Context,
     target: Optional[str] = typer.Argument(
         None, help="Executable name to run (exact, then substring match)."),
@@ -90,19 +81,19 @@ def project_run(
 ):
     """Run a built executable. Args after `--` are forwarded to it.
 
-    Example: se project run sandbox
+    Example: se run sandbox
     """
     raise typer.Exit(project_svc.run(target=target, sort=sort, app_args=list(ctx.args)))
 
 
-@project_app.command("clean")
-def project_clean():
+@app.command("clean")
+def clean():
     """Remove the build/ tree."""
     raise typer.Exit(project_svc.clean())
 
 
-@project_app.command("doxygen")
-def project_doxygen():
+@app.command("doxygen")
+def doxygen():
     """Generate Doxygen documentation."""
     raise typer.Exit(project_svc.doxygen())
 
@@ -148,14 +139,14 @@ def docker_run(
 # --------------------------------------------------------------------------- #
 # config / env (diagnostics)
 # --------------------------------------------------------------------------- #
-@config_app.command("show")
-def config_show():
+@app.command("config")
+def config():
     """Print the resolved config and where each value came from."""
     raise typer.Exit(diag_svc.config_show())
 
 
-@env_app.command("dump")
-def env_dump(
+@app.command("env")
+def env(
     all: bool = typer.Option(
         False, "--all", help="Show every variable, not just build-relevant ones."),
 ):

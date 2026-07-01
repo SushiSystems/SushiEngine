@@ -90,7 +90,7 @@ def _run(cmd: list[str], env: dict[str, str], cwd: Path) -> int:
             f"Executable not found: '{cmd[0]}'.\n"
             f"  - it is not on PATH and no explicit path is configured.\n"
             f"  - set its path in config.local.toml (e.g. cmake_exe / ctest_exe / ninja_exe), or\n"
-            f"  - run `se config show` to see what the CLI resolved.")
+            f"  - run `se config` to see what the CLI resolved.")
         return 1
 
 
@@ -113,7 +113,7 @@ def _run_drained(cmd: list[str], env: dict[str, str], cwd: Path) -> int:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1)
     except FileNotFoundError:
-        console.error(f"Executable not found: '{cmd[0]}'. Run `se config show`.")
+        console.error(f"Executable not found: '{cmd[0]}'. Run `se config`.")
         return 1
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -222,7 +222,7 @@ def test(suite: Suite, filter: str | None = None, repeat: int = 0) -> int:
     cfg = load_config()
     build_dir = _build_dir(root)
     if not build_dir.is_dir():
-        console.error("build/ not found. Run `se project build` first.")
+        console.error("build/ not found. Run `se build` first.")
         return 1
 
     env = load_build_env(cfg, build_dir)
@@ -246,7 +246,7 @@ def run(target: str | None = None, sort: bool = False,
     cfg = load_config()
     build_dir = _build_dir(root)
     if not build_dir.is_dir():
-        console.error("build/ not found. Run `se project build` first.")
+        console.error("build/ not found. Run `se build` first.")
         return 1
 
     env = load_build_env(cfg, build_dir)

@@ -32,23 +32,59 @@ node), then the editor host shell.
   run against the real runtime.
 - `cli/` — the `se` developer CLI (build / test / run / diagnostics).
 
+## Install
+
+SushiEngine builds on top of the shared SushiStack workspace, which provides the
+SYCL toolchain, vcpkg, and the SushiRuntime sibling. On a fresh machine one
+command installs Python and Git if missing, clones the workspace, installs the
+`ss` CLI, and downloads the shared dependencies:
+
+```bash
+curl -fsSL https://sushisystems.io/install.sh | bash      # Linux / WSL
+```
+
+```powershell
+irm https://sushisystems.io/install.ps1 | iex             # Windows (PowerShell)
+```
+
+On Windows use `irm`, not `curl` — in PowerShell `curl` is an alias for
+`Invoke-WebRequest` and does not pipe a script the same way.
+
+Then add the modules and install this CLI through the umbrella:
+
+```bash
+ss add sushiruntime sushiengine   # clone both into the workspace
+ss install-cli sushiengine        # install `se` (and `sushiengine`) via pipx
+```
+
+`ss install-cli` sets up an isolated pipx venv and wires in the shared
+`sushicli` presentation layer. Add `--no-editable` for a non-developer install.
+
 ## Developer CLI
 
 The `se` CLI wraps configure, build, test, and run so you do not type the long
-cmake line by hand. It consumes the SushiRuntime sibling's bundled clang++ and
+cmake line by hand. It reads the SushiRuntime sibling's bundled clang++ and
 vcpkg automatically, so a normal side-by-side checkout needs no configuration.
 
-```
-ss install-cli sushiengine    # installs `se` (and `sushiengine`)
-se build              # configure + build (tests on by default)
-se test               # run the functional suite via CTest labels
-se test -s unit       # just the unit label
-se run sandbox        # run a built executable
-se config                # what the CLI resolved, and from where
-```
+| Command | What it does |
+|---|---|
+| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. Tests build by default. |
+| `se test [--suite <label>] [--filter <regex>] [--repeat N]` | Run the test suite via CTest labels. `--suite all` runs everything. |
+| `se run <target> [-- args…]` | Run a built executable (e.g. `se run sandbox`). Args after `--` are forwarded to it. `--sort` picks one interactively. |
+| `se editor [--no-run]` | Build and launch the ImGui editor (configures with `SE_BUILD_EDITOR=ON`). |
+| `se clean` | Remove the `build/` tree. |
+| `se doxygen` | Generate Doxygen documentation. |
+| `se config` | Print the resolved config and where each value came from. |
+| `se env [--all]` | Print the environment cmake/ctest/run subprocesses execute under. |
+| `se docker build [--no-cache] [--runtime-ref <ref>]` | Build the containerized dev image (toolchain + runtime sibling + CLI). |
+| `se docker run [--admin] [--no-gpu]` | Start an interactive container with the engine source mounted live. |
 
-Machine-specific paths (a non-standard runtime location, scoop-installed cmake)
-go in a gitignored `cli/config.local.toml`; see `cli/config.toml` for the keys.
+The `--suite` labels are `functional` (default), `unit`, `integration`,
+`regression`, and `all`.
+
+Machine-specific paths (a non-standard runtime location, a scoop-installed
+cmake) go in a gitignored `cli/config.local.toml`; see `cli/config.toml` for the
+keys.
 
 ## Testing
 
