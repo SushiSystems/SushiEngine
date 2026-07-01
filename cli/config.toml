@@ -14,7 +14,7 @@
 # normal checkout needs no local config at all.
 
 [tool]
-# Default executable for `se project run` with no target.
+# Default executable for `se run` with no target.
 target_bin = "sandbox"
 # The SushiRuntime sibling. Empty resolves to ../sushiruntime next to this repo.
 sushiruntime_dir = ""
@@ -36,3 +36,13 @@ target_bin = "sandbox.exe"
 # vcpkg_root   = "C:/Projects/sushiruntime/dependencies/vcpkg"
 # pkgconf_exe  = "C:/Projects/sushiruntime/dependencies/vcpkg/installed/x64-windows/tools/pkgconf/pkgconf.exe"
 # cxx          = "C:/Projects/sushiruntime/dependencies/toolchains/llvm-sycl/bin/clang++.exe"
+
+[cli]
+# CLI appearance, resolved by the shared `sushicli` package (same schema for
+# sr/se/ss). Override in config.local.toml or with SUSHI_CLI_THEME /
+# SUSHI_CLI_ICONS / SUSHI_CLI_COLOR — no rebuild needed. See sushicli's README
+# for the full list of presets and the [cli.colors] / [cli.icon_overrides]
+# tables for one-off overrides.
+theme = "default"
+icons = "text"
+color = "auto"

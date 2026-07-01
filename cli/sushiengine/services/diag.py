@@ -1,9 +1,9 @@
 """Diagnostic commands: inspect the resolved config and the build environment.
 
 These are read-only troubleshooting helpers. When a build picks the "wrong"
-compiler or a path looks off, `se config show` answers *what* the CLI resolved
+compiler or a path looks off, `se config` answers *what* the CLI resolved
 and *where each value came from* (default / config.toml / env override), and
-`se env dump` answers *which environment* cmake/ctest actually run under.
+`se env` answers *which environment* cmake/ctest actually run under.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def config_show() -> int:
     cfg = load_config()
     toml_keys = _toml_keys(root, plat)
 
-    table = Table(show_header=True, header_style="bold magenta")
+    table = Table(show_header=True, header_style=console.accent)
     table.add_column("Setting")
     table.add_column("Value")
     table.add_column("Source")
@@ -98,7 +98,7 @@ def env_dump(show_all: bool = False) -> int:
 
     shown = {k: v for k, v in sorted(env.items()) if keep(k)}
 
-    table = Table(show_header=True, header_style="bold magenta")
+    table = Table(show_header=True, header_style=console.accent)
     table.add_column("Variable")
     table.add_column("Value", overflow="fold")
     for k, v in shown.items():
