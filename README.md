@@ -23,7 +23,9 @@ device code of its own; kernels are instantiated in the consuming translation un
   `DistanceConstraint` is provided.
 - **Editor** (`editor/`). An SDL2 + Dear ImGui desktop application that presents
   through the engine's Vulkan renderer, with a docking layout: Hierarchy, Inspector,
-  Project browser, Text Editor, Toolbar, Console, and Statistics panels. The window,
+  Project browser, Text Editor, Toolbar, Console, and Statistics panels, plus an
+  `Edit ▸ Preferences…` window whose settings (precision, theme, camera speed, grid,
+  snap) persist to a per-user JSON file behind an `IPreferencesStore` seam. The window,
   the Vulkan presentation, and the ImGui/Vulkan glue sit behind narrow seams
   (`platform_window.hpp`, `render/window_renderer.hpp`, `imgui_backend.*`). The live
   world is the single source of truth for entities: the Hierarchy lists them and the

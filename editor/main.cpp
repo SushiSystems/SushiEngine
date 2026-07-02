@@ -45,6 +45,7 @@
 #include "editor_context.hpp"
 #include "editor_panels.hpp"
 #include "imgui_backend.hpp"
+#include "preferences.hpp"
 #include "sdl_window.hpp"
 #include "viewport_panel.hpp"
 
@@ -132,6 +133,17 @@ int main(int, char**)
         context.project_root = std::filesystem::current_path().string();
         context.current_directory = context.project_root;
         context.world_entity_count = simulation->entity_count();
+
+        // Load persisted preferences and apply the live-effective ones up front, so the
+        // editor opens in the user's theme and camera speed. The store is injected into
+        // the context for the Preferences window to display its path.
+        std::unique_ptr<sushi::editor::IPreferencesStore> preferences_store =
+            sushi::editor::create_preferences_store();
+        context.preferences_store = preferences_store.get();
+        context.preferences = preferences_store->load();
+        sushi::editor::apply_theme(context.preferences.theme);
+        scene_camera.set_move_speed(context.preferences.camera_move_speed);
+
         sushi::editor::editor_log(context, "Editor ready (Vulkan).");
         sushi::editor::editor_log(context, "Live world seeded; press Play to tick it.");
 
@@ -213,6 +225,16 @@ int main(int, char**)
             sushi::editor::draw_text_editor_panel(context);
             sushi::editor::draw_console_panel(context);
             sushi::editor::draw_statistics_panel(context);
+            sushi::editor::draw_preferences_window(context);
+
+            // Persist preferences once per frame after any edit, and apply the fields
+            // that take effect live (the camera speed; theme is applied on change).
+            if (context.preferences_dirty)
+            {
+                scene_camera.set_move_speed(context.preferences.camera_move_speed);
+                preferences_store->save(context.preferences);
+                context.preferences_dirty = false;
+            }
             if (context.show_imgui_demo)
                 ImGui::ShowDemoWindow(&context.show_imgui_demo);
 
@@ -228,6 +250,7 @@ int main(int, char**)
             }
         }
 
+        preferences_store->save(context.preferences);
         renderer->wait_idle();
         return 0;
     }

@@ -162,6 +162,13 @@ selection (ImGui draw list, projecting through the camera), so an entity is crea
 the Hierarchy, selected in any viewport, moved with the gizmo, edited in the Inspector,
 and destroyed — all against the one live world.
 
+Editor and project settings sit behind a **preferences seam** (`editor/preferences.hpp`
+`IPreferencesStore`, JSON implementation writing a per-user `preferences.json`). The
+Preferences window edits a plain `Preferences` aggregate; the loop persists changes and
+applies the live-effective ones (theme, camera speed). Precision is the one setting the
+running editor cannot change — it is the compile-time `SE_SCALAR_DOUBLE` of §6 — so the
+window records intent and prompts a rebuild.
+
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
 plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.

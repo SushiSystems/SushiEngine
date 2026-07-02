@@ -25,6 +25,8 @@ find_package(SDL2 CONFIG REQUIRED)
 # render/ does not export them here, so the editor resolves them itself.
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(VulkanLoader CONFIG REQUIRED)
+# Header-only JSON for the editor's persisted Preferences and the .sushiscene format.
+find_package(nlohmann_json CONFIG REQUIRED)
 
 set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui")
 if(NOT EXISTS "${IMGUI_DIR}/imgui.cpp")
@@ -56,8 +58,10 @@ add_executable(se_editor
     editor_panels.cpp
     sdl_window.cpp
     imgui_backend.cpp
-    viewport_panel.cpp)
-target_link_libraries(se_editor PRIVATE sushi_imgui sushi_render sushi_sim)
+    viewport_panel.cpp
+    preferences.cpp)
+target_link_libraries(se_editor PRIVATE
+    sushi_imgui sushi_render sushi_sim nlohmann_json::nlohmann_json)
 # SDL2 defines SDL_main on some platforms (Windows); link the entry shim when the
 # target exists so WinMain resolves without forcing it on Linux/macOS.
 if(TARGET SDL2::SDL2main)

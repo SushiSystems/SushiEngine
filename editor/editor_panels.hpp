@@ -99,6 +99,28 @@ namespace sushi::editor
     void draw_status_bar(EditorContext& context);
 
     /**
+     * @brief Draw the modal Preferences window when @c show_preferences is set.
+     *
+     * Edits @ref EditorContext::preferences in place across General / Editor / Scene
+     * sections. Any change sets @ref EditorContext::preferences_dirty so the loop
+     * persists it and applies the live-effective fields (theme, camera speed). The
+     * precision control is compile-time, so it records intent and prompts a rebuild.
+     *
+     * @param context Shared editor state; edits the preferences aggregate.
+     */
+    void draw_preferences_window(EditorContext& context);
+
+    /**
+     * @brief Apply a theme to ImGui's active style.
+     *
+     * Kept as a free function so both startup (from the loaded preferences) and the
+     * Preferences window can apply the same mapping without duplicating it.
+     *
+     * @param theme The theme to install.
+     */
+    void apply_theme(EditorTheme theme);
+
+    /**
      * @brief Build the default Unity-style dock layout the first time the editor runs.
      *
      * Splits the dockspace into Hierarchy (left), Inspector (right), Project plus the

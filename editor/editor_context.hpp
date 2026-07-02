@@ -31,6 +31,8 @@
 
 #include <SushiEngine/sim/simulation.hpp>
 
+#include "preferences.hpp"
+
 namespace sushi::editor
 {
     /**
@@ -113,6 +115,15 @@ namespace sushi::editor
         std::vector<std::string> console_lines;
 
         std::size_t world_entity_count = 0;
+
+        // The persisted editor/project settings and their store. The store is owned by
+        // main() and injected; panels read and edit `preferences` and set
+        // `preferences_dirty` so the loop persists the change once per frame rather
+        // than on every widget tick. `show_preferences` toggles the modal window.
+        Preferences preferences;
+        IPreferencesStore* preferences_store = nullptr;
+        bool preferences_dirty = false;
+        bool show_preferences = false;
 
         bool show_imgui_demo = false;
     };

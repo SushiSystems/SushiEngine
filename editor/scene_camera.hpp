@@ -99,6 +99,15 @@ namespace sushi::editor
             /** @brief The underlying fly camera, for inspection. */
             FlyCamera& camera() noexcept { return camera_; }
 
+            /**
+             * @brief Sets the base fly speed, from the editor's camera-speed preference.
+             * @param units_per_second Base movement speed before the Shift boost.
+             */
+            void set_move_speed(float units_per_second) noexcept
+            {
+                controller_.move_speed = units_per_second;
+            }
+
         private:
             FlyCamera camera_;
             CameraController controller_;

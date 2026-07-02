@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Editor Preferences with persisted settings.** An `Edit ▸ Preferences…` window edits
+  General (Scalar precision, theme), Editor (autosave, camera move speed), and Scene
+  (grid, snap) settings. Persistence sits behind an `IPreferencesStore` abstraction
+  (`editor/preferences.hpp`) with a JSON implementation writing
+  `<user-config>/SushiEngine/preferences.json` — the UI depends on the interface, not the
+  file (dependency inversion). Live-effective fields (theme, camera speed) apply
+  immediately; the precision control is compile-time, so it records intent and flags a
+  rebuild when it differs from the running binary. Uses the newly declared
+  `nlohmann-json` dependency (`cli/sushistack.deps.toml`, provisioned via `ss`).
 - **Selectable Scalar precision (`SE_SCALAR_DOUBLE`).** The engine's `Scalar` (and the
   `Vec3`/`Mat4`/`Quat` built on it) can now be single or double precision, chosen at
   build time. It is a compile-time switch because `Scalar` is a typedef baked into

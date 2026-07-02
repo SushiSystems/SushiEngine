@@ -60,3 +60,10 @@ description   = "glslang (GLSL -> SPIR-V). Used by a build-time host tool that c
 required      = false
 linux_apt     = ["glslang-dev"]
 windows_vcpkg = ["glslang"]
+
+[nlohmann-json]
+description   = "nlohmann/json — header-only JSON for the editor's persisted Preferences and the .sushiscene format. Editor is OFF by default, so this is optional for a plain library build."
+required      = false
+linux_apt     = ["nlohmann-json3-dev"]
+windows_vcpkg = ["nlohmann-json"]
+check_cmd     = ["pkg-config", "--exists", "nlohmann_json"]

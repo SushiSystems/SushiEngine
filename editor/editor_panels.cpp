@@ -210,6 +210,13 @@ namespace sushi::editor
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Edit"))
+        {
+            if (ImGui::MenuItem("Preferences...", nullptr))
+                context.show_preferences = true;
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("GameObject"))
         {
             if (ImGui::MenuItem("Create Empty", nullptr, false, world != nullptr))
@@ -689,6 +696,99 @@ namespace sushi::editor
                 ImGui::EndMenuBar();
             }
         }
+        ImGui::End();
+    }
+
+    void apply_theme(EditorTheme theme)
+    {
+        switch (theme)
+        {
+            case EditorTheme::Light:   ImGui::StyleColorsLight(); break;
+            case EditorTheme::Classic: ImGui::StyleColorsClassic(); break;
+            case EditorTheme::Dark:    ImGui::StyleColorsDark(); break;
+        }
+    }
+
+    void draw_preferences_window(EditorContext& context)
+    {
+        if (!context.show_preferences)
+            return;
+
+        ImGui::SetNextWindowSize(ImVec2(460.0f, 420.0f), ImGuiCond_FirstUseEver);
+        if (!ImGui::Begin("Preferences", &context.show_preferences))
+        {
+            ImGui::End();
+            return;
+        }
+
+        Preferences& preferences = context.preferences;
+        bool changed = false;
+
+        if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            // Precision is a compile-time choice, so this records intent for the next
+            // build rather than changing the running engine. Flag the mismatch.
+            const char* precision_items[] = {"Single (float)", "Double"};
+            int precision_index = preferences.precision == ScalarPrecision::Double ? 1 : 0;
+            if (ImGui::Combo("Scalar precision", &precision_index, precision_items, 2))
+            {
+                preferences.precision =
+                    precision_index == 1 ? ScalarPrecision::Double : ScalarPrecision::Single;
+                changed = true;
+            }
+            if (preferences.precision != current_precision())
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f),
+                                   "Rebuild required to apply precision.");
+                ImGui::TextDisabled("Run: se editor %s",
+                                    preferences.precision == ScalarPrecision::Double
+                                        ? "--double"
+                                        : "(without --double)");
+            }
+            else
+            {
+                ImGui::TextDisabled("Matches this build.");
+            }
+
+            const char* theme_items[] = {"Dark", "Light", "Classic"};
+            int theme_index = static_cast<int>(preferences.theme);
+            if (ImGui::Combo("Theme", &theme_index, theme_items, 3))
+            {
+                preferences.theme = static_cast<EditorTheme>(theme_index);
+                apply_theme(preferences.theme);
+                changed = true;
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            changed |= ImGui::Checkbox("Autosave", &preferences.autosave);
+            changed |= ImGui::DragFloat("Camera move speed", &preferences.camera_move_speed,
+                                        0.1f, 0.1f, 100.0f, "%.1f");
+        }
+
+        if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            changed |= ImGui::Checkbox("Show grid", &preferences.grid_visible);
+            changed |= ImGui::Checkbox("Snap to grid", &preferences.snap_enabled);
+            if (preferences.snap_enabled)
+            {
+                changed |= ImGui::DragFloat("Move snap", &preferences.snap_translate,
+                                            0.01f, 0.001f, 10.0f, "%.3f");
+                changed |= ImGui::DragFloat("Rotate snap (deg)", &preferences.snap_rotate_degrees,
+                                            0.5f, 1.0f, 90.0f, "%.1f");
+                changed |= ImGui::DragFloat("Scale snap", &preferences.snap_scale,
+                                            0.01f, 0.001f, 10.0f, "%.3f");
+            }
+        }
+
+        ImGui::Separator();
+        if (context.preferences_store != nullptr)
+            ImGui::TextDisabled("%s", context.preferences_store->path().c_str());
+
+        if (changed)
+            context.preferences_dirty = true;
+
         ImGui::End();
     }
 
