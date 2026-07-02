@@ -24,6 +24,7 @@
 #ifndef SUSHIENGINE_EDITOR_EDITOR_CONTEXT_HPP
 #define SUSHIENGINE_EDITOR_EDITOR_CONTEXT_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -106,6 +107,8 @@ namespace sushi::editor
         std::uint64_t renaming_node = 0;
 
         std::vector<std::string> console_lines;
+
+        std::size_t world_entity_count = 0;
 
         bool show_imgui_demo = false;
     };

@@ -9,6 +9,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Live ECS world driven on SushiRuntime**, behind a plain-C++ simulation seam.
+  A new `sushi_sim` static library (`sim/`) owns a `SushiRuntime::API::Runtime`, an
+  ECS `World`, and a `Schedule`, and drives a world of spinning, orbiting cubes —
+  two systems (`spin` advancing orientation, `orbit` advancing position) over
+  disjoint components, so the runtime's dependency tracker runs them in parallel,
+  exactly as the sandbox proves. Every value a kernel reads is precomputed on the
+  host into a component (the per-step rotation quaternion, the per-step orbit
+  rotation as a cos/sin pair), so the kernels are pure arithmetic and capture no
+  host state — legal device code. The library exposes only the plain-C++
+  `ISimulation` seam (`include/SushiEngine/sim/simulation.hpp`: `ISimulation`,
+  `create_simulation()`, `RenderScene`, `RenderInstance`, `CameraState`), which
+  names no runtime, SYCL, or ECS type — the editor depends on the abstraction, and
+  the runtime/SYCL/ECS stay contained in one translation unit. Each tick runs the
+  schedule and an extract pass reads the shared-USM columns back on the host into
+  the `RenderScene` the editor draws (a host copy today; device-shared interop is a
+  later milestone). The editor (`editor/main.cpp`) creates the simulation, ticks it
+  only while the toolbar is Playing (binding the existing `PlayState`), draws the
+  extracted instances in the Scene viewport, and reports the live entity count in
+  the Statistics panel. Turning `SE_BUILD_EDITOR` on now also builds `sushi_sim`,
+  so the editor's final link is SYCL-aware and its executable ships the runtime DLL.
 - Editor **Scene viewport** with a Unity-style fly camera. A dockable Scene panel
   shows a Vulkan-rendered 3D view — a ground grid and lit cubes — that the offscreen
   scene renderer draws and ImGui samples via `ImGui::Image`. Right-mouse enables

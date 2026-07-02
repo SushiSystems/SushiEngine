@@ -673,6 +673,8 @@ namespace sushi::editor
         ImGui::Separator();
         ImGui::Text("Entities:   %d", count_nodes(context.scene.roots()));
         ImGui::Text("Open files: %zu", context.documents.size());
+        ImGui::Separator();
+        ImGui::Text("World entities: %zu", context.world_entity_count);
 
         ImGui::End();
     }

@@ -26,11 +26,15 @@ device code of its own; kernels are instantiated in the consuming translation un
   Project browser, Text Editor, Toolbar, Console, and Statistics panels. The window,
   the Vulkan presentation, and the ImGui/Vulkan glue sit behind narrow seams
   (`platform_window.hpp`, `render/window_renderer.hpp`, `imgui_backend.*`). It
-  operates on an editor-owned scene model and does not link the runtime directly.
-  Turning the editor on builds the renderer too; it needs SDL2 with its `[vulkan]`
-  feature. A **Scene** panel shows a Vulkan-rendered 3D viewport (ground grid and lit
-  cubes) navigated with a Unity-style fly camera — right-mouse look plus WASD/QE and
-  Shift to boost. A live ECS world and a Game view follow.
+  operates on an editor-owned scene model. Turning the editor on builds the renderer
+  too; it needs SDL2 with its `[vulkan]` feature. A **Scene** panel shows a
+  Vulkan-rendered 3D viewport navigated with a Unity-style fly camera — right-mouse
+  look plus WASD/QE and Shift to boost. The viewport draws a **live ECS world**
+  ticked on SushiRuntime: a ring of spinning, orbiting cubes, ticked only while the
+  toolbar is Playing. The world lives behind a plain-C++ simulation seam
+  (`include/SushiEngine/sim/simulation.hpp`), implemented by the `sushi_sim` library
+  that contains the runtime, ECS, and SYCL — so the editor depends only on the
+  abstraction. A Game view (a second camera) follows.
 - **`se` CLI** (`cli/`). A Python/Typer tool that wraps configure/build/test/run.
 
 ## Repository layout
@@ -45,6 +49,8 @@ device code of its own; kernels are instantiated in the consuming translation un
   ECS and an independent scalar reference in parallel and asserts they match.
 - `examples/pgs_demo.cpp` — physics solver demo (a hanging chain).
 - `editor/` — the ImGui editor shell.
+- `sim/` — the `sushi_sim` library: the runtime-backed live world behind the
+  plain-C++ `ISimulation` seam (`include/SushiEngine/sim/`).
 - `tests/` — GoogleTest functional suite (unit / integration / regression), run
   against the real runtime.
 - `cli/` — the `se` developer CLI.

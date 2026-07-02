@@ -148,13 +148,30 @@ graphics API. The Scene panel (`editor/viewport_panel.*`) drives a fly camera
 that reads a library-neutral `InputState` (`editor/input_state.hpp`) the panel fills
 from ImGui — so the controller depends on no input source and stays unit-testable.
 
-Live simulation state reaches the renderer as an **opaque host sink**: the runtime
-orders the draw against the simulation by the transform columns it reads, but the
-draw body is engine code the runtime never introspects. The first cut consumes the
-step result after its completion latch and uploads transforms (a host round-trip); a
-later cut promotes rendering to an in-graph sink node pinned to a render thread so the
-scheduler can overlap the next step's simulation with the current step's draw. The
-editor GUI goes through Dear ImGui.
+Live simulation state reaches the renderer through the **simulation seam**
+(`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
+plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.
+The concrete world lives in one compiled library, `sushi_sim` (`sim/`), the single
+place device code exists outside an example: it owns a `SushiRuntime::API::Runtime`,
+an ECS `World`, and a `Schedule`, and drives a small world of spinning, orbiting
+cubes. Two systems over disjoint components (`spin` writes orientation, `orbit`
+writes position) let the dependency tracker run them in parallel; every value a
+kernel reads is precomputed on the host into a component so the kernels are pure
+arithmetic that capture no host state — the discipline that keeps them legal device
+code (see §3). This is dependency inversion at the largest seam in the engine: the
+editor links `sushi_sim` and depends only on `ISimulation`, so the runtime, SYCL, and
+ECS never enter the editor's translation units, and a different world backend (or a
+headless stub) can replace it without the editor changing. Because the editor links a
+SYCL library, its final link is SYCL-aware and it ships the runtime DLL — the
+plain-toolchain lane is held by `sandbox` and `render_probe`, not the editor.
+
+Each `tick()` runs the schedule and an **extract** pass reads the world's shared-USM
+columns back on the host (via `World::get`) into a read-only `RenderScene`
+(`RenderInstance` transforms + a `CameraState`) the editor draws; the editor ticks
+only while the toolbar is Playing, binding the existing `PlayState`. The extract is a
+host copy today. A later interop milestone promotes it to a device-shared sink pinned
+to a render thread, so the scheduler can overlap the next step's simulation with the
+current step's draw and skip the round-trip. The editor GUI goes through Dear ImGui.
 
 ## 6. The value-type seam
 

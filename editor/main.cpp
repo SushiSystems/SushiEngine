@@ -40,6 +40,7 @@
 #include <vector>
 
 #include <SushiEngine/render/window_renderer.hpp>
+#include <SushiEngine/sim/simulation.hpp>
 
 #include "editor_context.hpp"
 #include "editor_panels.hpp"
@@ -109,20 +110,12 @@ int main(int, char**)
         sushi::editor::ImGuiBackend imgui(window, *renderer);
         sushi::editor::ViewportPanel scene_view(*renderer, imgui, "Scene");
 
-        // A few reference cubes on the grid so the Scene view shows solid geometry
-        // to navigate; Increment 3 replaces these with the live world's instances.
+        // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
+        // seam. The editor sees only the abstraction and the extracted RenderScene;
+        // the runtime, SYCL, and ECS stay inside sushi_sim.
+        std::unique_ptr<SushiEngine::sim::ISimulation> simulation =
+            SushiEngine::sim::create_simulation();
         std::vector<SushiEngine::render::MeshInstance> instances;
-        const auto add_cube = [&instances](SushiEngine::Vec3 position, SushiEngine::Vec3 color)
-        {
-            SushiEngine::render::MeshInstance instance;
-            instance.model = SushiEngine::compose_transform(position, SushiEngine::Quat{},
-                                                            SushiEngine::Vec3{1.0f, 1.0f, 1.0f});
-            instance.color = color;
-            instances.push_back(instance);
-        };
-        add_cube({0.0f, 0.5f, 0.0f}, {0.90f, 0.45f, 0.30f});
-        add_cube({2.0f, 0.5f, -1.5f}, {0.40f, 0.70f, 0.90f});
-        add_cube({-2.0f, 0.5f, 1.0f}, {0.55f, 0.85f, 0.45f});
 
         sushi::editor::EditorContext context;
         context.project_root = std::filesystem::current_path().string();
@@ -135,12 +128,31 @@ int main(int, char**)
         context.scene.create_node("Child A", root);
         context.scene.create_node("Child B", root);
         context.selected_node = camera->id;
+        context.world_entity_count = simulation->entity_count();
         sushi::editor::editor_log(context, "Editor ready (Vulkan).");
+        sushi::editor::editor_log(context, "Live world seeded; press Play to tick it.");
 
         bool running = true;
         while (running)
         {
             running = window.pump_events();
+
+            // Tick the world on the runtime only while playing, so the toolbar's
+            // Play/Pause gates motion; then take the fresh snapshot to draw.
+            if (context.play_state == sushi::editor::PlayState::Playing)
+                simulation->tick();
+
+            const SushiEngine::sim::RenderScene& scene = simulation->render_scene();
+            instances.clear();
+            instances.reserve(scene.instances.size());
+            for (const SushiEngine::sim::RenderInstance& source : scene.instances)
+            {
+                SushiEngine::render::MeshInstance instance;
+                instance.model = source.model;
+                instance.color = source.color;
+                instances.push_back(instance);
+            }
+            context.world_entity_count = simulation->entity_count();
 
             imgui.new_frame();
 

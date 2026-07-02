@@ -51,8 +51,15 @@ if(SE_BUILD_RENDER)
     add_subdirectory(render)
 endif()
 
-# The Unity-style ImGui editor shell. OFF by default (see ProjectOptions); a plain
-# C++ + Vulkan target (no runtime link, no SYCL) — it builds on a stock toolchain.
+# The live world behind the ISimulation seam: a SYCL static library owning the
+# runtime, world, and schedule. The editor links it to tick and draw a real world.
+if(SE_BUILD_EDITOR)
+    add_subdirectory(sim)
+endif()
+
+# The Unity-style ImGui editor shell. OFF by default (see ProjectOptions). It links
+# sushi_sim (the runtime-backed world), so its final link is SYCL-aware — the plain
+# stock-toolchain lane is preserved by the sandbox and render_probe, not the editor.
 if(SE_BUILD_EDITOR)
     add_subdirectory(editor)
 endif()

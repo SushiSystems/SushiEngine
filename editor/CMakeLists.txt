@@ -57,7 +57,7 @@ add_executable(se_editor
     sdl_window.cpp
     imgui_backend.cpp
     viewport_panel.cpp)
-target_link_libraries(se_editor PRIVATE sushi_imgui sushi_render)
+target_link_libraries(se_editor PRIVATE sushi_imgui sushi_render sushi_sim)
 # SDL2 defines SDL_main on some platforms (Windows); link the entry shim when the
 # target exists so WinMain resolves without forcing it on Linux/macOS.
 if(TARGET SDL2::SDL2main)
@@ -72,5 +72,15 @@ if(WIN32 AND TARGET SDL2::SDL2)
     add_custom_command(TARGET se_editor POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:SDL2::SDL2>
+            $<TARGET_FILE_DIR:se_editor>)
+endif()
+
+# The runtime DLL must sit next to the editor too, since sushi_sim links it. The
+# SYCL policy copies it next to sushi_sim (a static lib dir), not the exe, so copy
+# it here where se_editor actually runs.
+if(WIN32 AND TARGET sushiruntime)
+    add_custom_command(TARGET se_editor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:sushiruntime>
             $<TARGET_FILE_DIR:se_editor>)
 endif()
