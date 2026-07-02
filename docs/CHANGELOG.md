@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Hierarchy parenting via drag-and-drop.** Entities can now be nested: dragging one
+  onto another in the Hierarchy reparents it (dropping on empty space unparents back
+  to root), with a per-child cycle guard so an entity can never end up as its own
+  ancestor. `IWorldEditor` gained `parent()`/`set_parent()`; parenting is host-side
+  editor metadata (like name/visibility), not an ECS component. The simulation's
+  extract step now composes each entity's world matrix by walking its parent chain
+  (`RuntimeSimulation::world_matrix`), so a parent's transform propagates to its
+  children. A search filter in the Hierarchy still flattens to a plain filtered list,
+  since nesting is meaningless once most of the tree is hidden.
 - **Unity-style Project window.** The Project panel is now a two-pane file browser: a
   recursive folder tree on the left and a searchable icon-grid of the current folder's
   contents on the right, replacing the old single-list browser. Supports create

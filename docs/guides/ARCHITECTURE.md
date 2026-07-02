@@ -221,12 +221,19 @@ from `ISimulation` so a panel that only inspects or edits depends on the narrow 
 (interface segregation): entities are addressed by a stable `EntityId`, queried
 (`entities`, `name`, `transform`, `color`, `visible`) and mutated (`create`, `destroy`,
 `set_name`, `set_transform`, `set_color`, `set_visible`). Transform and colour are real
-ECS components the surface writes through; names and visibility are host-side editor
-metadata the simulation keeps beside each entity's handle. Editor-created entities carry
-no motion components, so the spin/orbit systems never match them and they stay
-authorable while the world plays — only the seeded demo cubes are system-driven. The
-Hierarchy lists these entities and the Inspector edits the selection; the editor GUI
-goes through Dear ImGui.
+ECS components the surface writes through; names, visibility, and parenting are
+host-side editor metadata the simulation keeps beside each entity's handle
+(`parent`/`set_parent`). Editor-created entities carry no motion components, so the
+spin/orbit systems never match them and they stay authorable while the world plays —
+only the seeded demo cubes are system-driven. The Hierarchy renders these entities as a
+tree (drag-and-drop reparents; dropping on empty space unparents to root), guarded
+against cycles by walking the candidate parent's own ancestor chain before accepting a
+drop, and the Inspector edits the selection; the editor GUI goes through Dear ImGui.
+Because parenting is host metadata rather than an ECS `Parent` component, the extract
+pass composes each entity's object-to-world matrix by walking its parent chain on the
+host (`RuntimeSimulation::world_matrix`, bounded by the live entity count against a
+corrupt chain) rather than in a kernel — the same host-copy-first posture as extract
+itself, revisited only if parenting needs to affect systems running on the device.
 
 ## 6. The value-type seam
 

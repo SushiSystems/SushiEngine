@@ -217,6 +217,11 @@ namespace SushiEngine
                         records_.erase(it);
                         order_.erase(std::remove(order_.begin(), order_.end(), id),
                                      order_.end());
+                        // Destroying a parent leaves its children as roots rather than
+                        // cascading the destroy, matching how the Hierarchy shows them.
+                        for (auto& entry : records_)
+                            if (entry.second.parent == id)
+                                entry.second.parent = NULL_ENTITY;
                         extract();
                     }
 
@@ -314,6 +319,26 @@ namespace SushiEngine
                         }
                     }
 
+                    EntityId parent(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->parent : NULL_ENTITY;
+                    }
+
+                    void set_parent(EntityId child, EntityId new_parent) override
+                    {
+                        Record* child_record = find(child);
+                        if (child_record == nullptr || child == new_parent)
+                            return;
+                        if (new_parent != NULL_ENTITY)
+                        {
+                            if (find(new_parent) == nullptr || is_descendant(new_parent, child))
+                                return;
+                        }
+                        child_record->parent = new_parent;
+                        extract();
+                    }
+
                 private:
                     /** @brief The editor metadata paired with each entity's ECS handle. */
                     struct Record
@@ -323,12 +348,62 @@ namespace SushiEngine
                         bool visible = true;
                         bool animated = false;
                         bool is_camera = false;
+                        EntityId parent = NULL_ENTITY;
                     };
 
                     const Record* find(EntityId id) const noexcept
                     {
                         const auto it = records_.find(id);
                         return it != records_.end() ? &it->second : nullptr;
+                    }
+
+                    /**
+                     * @brief Whether @p candidate is @p ancestor or one of its descendants.
+                     *
+                     * Walks up from @p candidate through its parent chain looking for
+                     * @p ancestor, bounded by the live entity count so a corrupt chain can
+                     * never loop forever.
+                     */
+                    bool is_descendant(EntityId candidate, EntityId ancestor) const noexcept
+                    {
+                        std::size_t guard = records_.size() + 1;
+                        for (EntityId current = candidate;
+                             current != NULL_ENTITY && guard > 0; --guard)
+                        {
+                            if (current == ancestor)
+                                return true;
+                            const Record* record = find(current);
+                            current = record != nullptr ? record->parent : NULL_ENTITY;
+                        }
+                        return false;
+                    }
+
+                    /**
+                     * @brief Composes an entity's object-to-world matrix along its parent chain.
+                     *
+                     * Local transforms multiply from root to leaf (parent * ... * local); a
+                     * bounded walk guards against a corrupt chain rather than recursing
+                     * unboundedly.
+                     */
+                    Mat4 world_matrix(EntityId id) const
+                    {
+                        std::vector<Mat4> chain;
+                        std::size_t guard = records_.size() + 1;
+                        for (EntityId current = id;
+                             current != NULL_ENTITY && guard > 0; --guard)
+                        {
+                            const Record* record = find(current);
+                            if (record == nullptr || !world_.alive(record->entity))
+                                break;
+                            const Transform& t = world_.get<Transform>(record->entity);
+                            const Orientation& o = world_.get<Orientation>(record->entity);
+                            chain.push_back(compose_transform(t.position, o.rotation, t.scale));
+                            current = record->parent;
+                        }
+                        Mat4 result;
+                        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+                            result = mul(result, *it);
+                        return result;
                     }
 
                     Record* find(EntityId id) noexcept
@@ -496,8 +571,7 @@ namespace SushiEngine
                             const Tint& tint = world_.get<Tint>(record->entity);
                             RenderInstance instance;
                             instance.id = id;
-                            instance.model = compose_transform(transform.position,
-                                                               orientation.rotation, transform.scale);
+                            instance.model = world_matrix(id);
                             instance.color = tint.color;
                             scene_.instances.push_back(instance);
                         }

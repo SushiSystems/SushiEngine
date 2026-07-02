@@ -389,6 +389,102 @@ namespace sushi::editor
         ImGui::EndMainMenuBar();
     }
 
+    namespace
+    {
+        // One Hierarchy row: rename field or selectable label, drag-reparent source
+        // and target, context menu, and (when not renaming) a recursive draw of its
+        // children so parenting nests visually the way Unity's hierarchy does.
+        void draw_entity_node(EditorContext& context, IWorldEditor* world, EntityId id,
+                               EntityId& delete_target)
+        {
+            const std::string entity_name = world->name(id);
+            ImGui::PushID(static_cast<int>(id));
+
+            if (context.renaming_entity == id)
+            {
+                static std::string buffer;
+                static EntityId active = NULL_ENTITY;
+                if (active != id)
+                {
+                    buffer = entity_name;
+                    active = id;
+                    ImGui::SetKeyboardFocusHere();
+                }
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                const bool commit = ImGui::InputText(
+                    "##rename", &buffer,
+                    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+                if (commit || ImGui::IsItemDeactivated())
+                {
+                    world->set_name(id, buffer);
+                    context.renaming_entity = NULL_ENTITY;
+                    active = NULL_ENTITY;
+                }
+                ImGui::PopID();
+                return;
+            }
+
+            std::vector<EntityId> children;
+            for (const EntityId candidate : world->entities())
+                if (world->parent(candidate) == id)
+                    children.push_back(candidate);
+
+            ImGuiTreeNodeFlags flags =
+                ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+            if (children.empty())
+                flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            if (context.selected_entity == id)
+                flags |= ImGuiTreeNodeFlags_Selected;
+
+            const bool open = ImGui::TreeNodeEx(entity_name.c_str(), flags);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+            {
+                context.selected_entity = id;
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    context.frame_selected_requested = true;
+            }
+
+            if (ImGui::BeginDragDropSource())
+            {
+                ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &id, sizeof(EntityId));
+                ImGui::TextUnformatted(entity_name.c_str());
+                ImGui::EndDragDropSource();
+            }
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload =
+                        ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
+                {
+                    const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
+                    world->set_parent(dragged, id);
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            if (ImGui::BeginPopupContextItem())
+            {
+                context.selected_entity = id;
+                if (ImGui::MenuItem("Rename"))
+                    context.renaming_entity = id;
+                if (ImGui::MenuItem("Unparent", nullptr, false,
+                                    world->parent(id) != NULL_ENTITY))
+                    world->set_parent(id, NULL_ENTITY);
+                if (ImGui::MenuItem("Delete"))
+                    delete_target = id;
+                ImGui::EndPopup();
+            }
+
+            if (open && !children.empty())
+            {
+                for (const EntityId child : children)
+                    draw_entity_node(context, world, child, delete_target);
+                ImGui::TreePop();
+            }
+
+            ImGui::PopID();
+        }
+    } // namespace
+
     void draw_hierarchy_panel(EditorContext& context)
     {
         if (!context.panels.hierarchy)
@@ -433,49 +529,22 @@ namespace sushi::editor
 
         if (ImGui::BeginChild("entities"))
         {
-            for (const EntityId id : world->entities())
+            if (!lower_filter.empty())
             {
-                const std::string entity_name = world->name(id);
-                if (!lower_filter.empty() &&
-                    to_lower(entity_name).find(lower_filter) == std::string::npos)
-                    continue;
-
-                ImGui::PushID(static_cast<int>(id));
-
-                if (context.renaming_entity == id)
+                // A search filter flattens the tree: nesting is meaningless once most
+                // of the hierarchy is hidden, so matches are listed directly.
+                for (const EntityId id : world->entities())
                 {
-                    // Inline rename: an autofocused field seeded from the name, seeded
-                    // once as the target changes, committed on Enter or focus loss.
-                    static std::string buffer;
-                    static EntityId active = NULL_ENTITY;
-                    if (active != id)
-                    {
-                        buffer = entity_name;
-                        active = id;
-                        ImGui::SetKeyboardFocusHere();
-                    }
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    const bool commit = ImGui::InputText(
-                        "##rename", &buffer,
-                        ImGuiInputTextFlags_EnterReturnsTrue |
-                            ImGuiInputTextFlags_AutoSelectAll);
-                    if (commit || ImGui::IsItemDeactivated())
-                    {
-                        world->set_name(id, buffer);
-                        context.renaming_entity = NULL_ENTITY;
-                        active = NULL_ENTITY;
-                    }
-                }
-                else
-                {
+                    const std::string entity_name = world->name(id);
+                    if (to_lower(entity_name).find(lower_filter) == std::string::npos)
+                        continue;
+
+                    ImGui::PushID(static_cast<int>(id));
                     const bool selected = context.selected_entity == id;
                     if (ImGui::Selectable(entity_name.c_str(), selected,
                                           ImGuiSelectableFlags_AllowDoubleClick))
                     {
                         context.selected_entity = id;
-                        // Double-click frames the entity in the Scene view (Unity's F),
-                        // teleporting the camera beside it. Rename lives on the context
-                        // menu and F2 so it does not fight the frame gesture.
                         if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                             context.frame_selected_requested = true;
                     }
@@ -488,9 +557,28 @@ namespace sushi::editor
                             delete_target = id;
                         ImGui::EndPopup();
                     }
+                    ImGui::PopID();
+                }
+            }
+            else
+            {
+                // The root canvas itself accepts drops too, so dragging an entity onto
+                // empty space unparents it back to the top level.
+                if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect,
+                                                     ImGui::GetID("hierarchy_root")))
+                {
+                    if (const ImGuiPayload* payload =
+                            ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
+                    {
+                        const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
+                        world->set_parent(dragged, NULL_ENTITY);
+                    }
+                    ImGui::EndDragDropTarget();
                 }
 
-                ImGui::PopID();
+                for (const EntityId id : world->entities())
+                    if (world->parent(id) == NULL_ENTITY)
+                        draw_entity_node(context, world, id, delete_target);
             }
         }
         ImGui::EndChild();

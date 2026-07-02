@@ -194,6 +194,21 @@ namespace SushiEngine
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
 
+                /** @brief The entity's parent, or `NULL_ENTITY` if it is a root. */
+                virtual EntityId parent(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief Reparents @p child under @p new_parent.
+                 *
+                 * Pass `NULL_ENTITY` to make @p child a root. A no-op if it would create a
+                 * cycle (@p new_parent is @p child itself or one of its own descendants) —
+                 * the caller does not need to check ancestry itself.
+                 *
+                 * @param child Entity being reparented.
+                 * @param new_parent The new parent, or `NULL_ENTITY` for root.
+                 */
+                virtual void set_parent(EntityId child, EntityId new_parent) = 0;
+
                 /**
                  * @brief Creates a camera entity: a pose plus a `CameraParams`.
                  *
