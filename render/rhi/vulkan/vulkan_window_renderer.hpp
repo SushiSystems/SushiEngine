@@ -79,6 +79,7 @@ namespace SushiEngine
                     void* begin_frame(std::uint32_t width, std::uint32_t height) override;
                     void end_frame() override;
                     void wait_idle() override;
+                    std::unique_ptr<ISceneView> create_scene_view() override;
 
                 private:
                     static constexpr std::uint32_t FRAMES_IN_FLIGHT = 2;

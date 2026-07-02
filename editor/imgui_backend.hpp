@@ -24,6 +24,8 @@
 #ifndef SUSHIENGINE_EDITOR_IMGUI_BACKEND_HPP
 #define SUSHIENGINE_EDITOR_IMGUI_BACKEND_HPP
 
+#include <imgui.h>
+
 #include <SushiEngine/render/window_renderer.hpp>
 
 #include "platform_window.hpp"
@@ -64,6 +66,25 @@ namespace sushi::editor
              * @param command_buffer The opaque handle from IWindowRenderer::begin_frame.
              */
             void render(void* command_buffer);
+
+            /**
+             * @brief Registers a sampled image as an ImGui texture for ImGui::Image.
+             *
+             * Wraps ImGui_ImplVulkan_AddTexture so the scene-view panels can display
+             * their offscreen colour targets; the returned id stays valid until
+             * unregister_texture() or a target resize.
+             *
+             * @param sampler    A VkSampler (as void*) for the image.
+             * @param image_view A VkImageView (as void*) in shader-read layout.
+             * @return An ImGui texture id usable with ImGui::Image.
+             */
+            ImTextureID register_texture(void* sampler, void* image_view);
+
+            /**
+             * @brief Releases a texture id previously returned by register_texture().
+             * @param texture The id to release; ignored if zero.
+             */
+            void unregister_texture(ImTextureID texture);
 
         private:
             SushiEngine::render::IWindowRenderer& renderer_;

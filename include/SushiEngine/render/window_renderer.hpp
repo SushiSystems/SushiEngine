@@ -40,6 +40,7 @@
 #include <memory>
 
 #include <SushiEngine/render/rhi/device.hpp>
+#include <SushiEngine/render/scene_view.hpp>
 
 namespace SushiEngine
 {
@@ -112,6 +113,16 @@ namespace SushiEngine
 
                 /** @brief Blocks until the device is idle; call before teardown. */
                 virtual void wait_idle() = 0;
+
+                /**
+                 * @brief Creates an offscreen scene view on this renderer's device.
+                 *
+                 * The view renders independently of the window frame and is sampled
+                 * back into the UI; the editor uses it for its Viewport panels.
+                 *
+                 * @return An owning handle to the new scene view.
+                 */
+                virtual std::unique_ptr<ISceneView> create_scene_view() = 0;
         };
 
         /**

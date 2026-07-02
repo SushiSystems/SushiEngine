@@ -8,6 +8,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- Editor **Scene viewport** with a Unity-style fly camera. A dockable Scene panel
+  shows a Vulkan-rendered 3D view — a ground grid and lit cubes — that the offscreen
+  scene renderer draws and ImGui samples via `ImGui::Image`. Right-mouse enables
+  free-look and WASD/QE flight with Shift to boost, frame-rate independent and active
+  only while the panel is interacted with. New pieces: an offscreen scene-view
+  abstraction (`include/SushiEngine/render/scene_view.hpp`: `ISceneView`,
+  `CameraView`, `MeshInstance`) created by `IWindowRenderer::create_scene_view()`, its
+  Vulkan implementation (`render/rhi/vulkan/vulkan_scene_view.*` — double-buffered
+  colour+depth targets, a lit-mesh and a flat-line pipeline sharing one push-constant
+  layout, drawn with 1.3 dynamic rendering and left shader-readable for ImGui), the
+  mesh/line/grid shaders (`render/shaders/mesh.vert`, `mesh.frag`, `line.frag`), and
+  the editor's camera/input seams (`editor/fly_camera.hpp`, `camera_controller.hpp`,
+  `input_state.hpp`, `viewport_panel.*`). The Dear ImGui adapter gained
+  `register_texture`/`unregister_texture` to expose the offscreen target as an ImGui
+  texture. The Scene panel joins the Window menu and docks into the layout centre.
+- Matrix and quaternion math on the single BLAS seam
+  (`include/SushiEngine/core/blas_placeholder.hpp`, exposed via `core/types.hpp`):
+  `Mat4`, `Quat`, and the vector/matrix/quaternion operations the renderer and camera
+  need (`perspective`, `look_at`, `compose_transform`, `mat4_from_quat`, `mul`,
+  `normalize`, `cross`, `dot`, …), documented as placeholders SushiBLAS will own.
+
 ### Changed
 - Editor now presents through Vulkan instead of OpenGL. The `se_editor` shell keeps
   its SDL2 window and Dear ImGui dockspace but renders through the engine's Vulkan

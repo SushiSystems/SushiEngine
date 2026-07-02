@@ -26,6 +26,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "vulkan_scene_view.hpp"
+
 namespace SushiEngine
 {
     namespace render
@@ -304,6 +306,11 @@ namespace SushiEngine
             void VulkanWindowRenderer::wait_idle()
             {
                 vkDeviceWaitIdle(device_.device());
+            }
+
+            std::unique_ptr<ISceneView> VulkanWindowRenderer::create_scene_view()
+            {
+                return std::unique_ptr<ISceneView>(new VulkanSceneView(device_));
             }
         } // namespace vulkan
 

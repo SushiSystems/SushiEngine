@@ -37,12 +37,15 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <vector>
+
 #include <SushiEngine/render/window_renderer.hpp>
 
 #include "editor_context.hpp"
 #include "editor_panels.hpp"
 #include "imgui_backend.hpp"
 #include "sdl_window.hpp"
+#include "viewport_panel.hpp"
 
 namespace
 {
@@ -104,6 +107,22 @@ int main(int, char**)
             SushiEngine::render::create_window_renderer(desc);
 
         sushi::editor::ImGuiBackend imgui(window, *renderer);
+        sushi::editor::ViewportPanel scene_view(*renderer, imgui, "Scene");
+
+        // A few reference cubes on the grid so the Scene view shows solid geometry
+        // to navigate; Increment 3 replaces these with the live world's instances.
+        std::vector<SushiEngine::render::MeshInstance> instances;
+        const auto add_cube = [&instances](SushiEngine::Vec3 position, SushiEngine::Vec3 color)
+        {
+            SushiEngine::render::MeshInstance instance;
+            instance.model = SushiEngine::compose_transform(position, SushiEngine::Quat{},
+                                                            SushiEngine::Vec3{1.0f, 1.0f, 1.0f});
+            instance.color = color;
+            instances.push_back(instance);
+        };
+        add_cube({0.0f, 0.5f, 0.0f}, {0.90f, 0.45f, 0.30f});
+        add_cube({2.0f, 0.5f, -1.5f}, {0.40f, 0.70f, 0.90f});
+        add_cube({-2.0f, 0.5f, 1.0f}, {0.55f, 0.85f, 0.45f});
 
         sushi::editor::EditorContext context;
         context.project_root = std::filesystem::current_path().string();
@@ -129,6 +148,8 @@ int main(int, char**)
             sushi::editor::draw_menu_bar(context, running);
             sushi::editor::draw_status_bar(context);
             sushi::editor::draw_toolbar_panel(context);
+            if (context.panels.scene_view)
+                scene_view.draw(context.panels.scene_view, instances.data(), instances.size());
             sushi::editor::draw_hierarchy_panel(context);
             sushi::editor::draw_inspector_panel(context);
             sushi::editor::draw_project_panel(context);

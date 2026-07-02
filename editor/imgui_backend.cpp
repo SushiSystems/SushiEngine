@@ -23,6 +23,7 @@
 
 #include "imgui_backend.hpp"
 
+#include <cstdint>
 #include <stdexcept>
 
 #include <vulkan/vulkan.h>
@@ -133,5 +134,21 @@ namespace sushi::editor
         ImGui::Render();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
                                         static_cast<VkCommandBuffer>(command_buffer));
+    }
+
+    ImTextureID ImGuiBackend::register_texture(void* sampler, void* image_view)
+    {
+        VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(
+            static_cast<VkSampler>(sampler), static_cast<VkImageView>(image_view),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(set));
+    }
+
+    void ImGuiBackend::unregister_texture(ImTextureID texture)
+    {
+        if (texture == 0)
+            return;
+        ImGui_ImplVulkan_RemoveTexture(
+            reinterpret_cast<VkDescriptorSet>(static_cast<std::uintptr_t>(texture)));
     }
 } // namespace sushi::editor

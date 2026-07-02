@@ -131,12 +131,22 @@ consumer. The layering, from abstract to concrete:
   The Vulkan implementation is `render/rhi/vulkan/vulkan_window_renderer.*`.
 - **Headless target** (`render/rhi/vulkan/vulkan_offscreen.*`): the same device path
   without a window, used by `render_probe` to validate the pipeline in CI.
+- **Scene view** (`render/scene_view.hpp`: `ISceneView`, created by
+  `IWindowRenderer::create_scene_view()`): an offscreen camera view of a `MeshInstance`
+  set plus a ground grid, drawn from a `CameraView`. The Vulkan implementation
+  (`render/rhi/vulkan/vulkan_scene_view.*`) is double-buffered — the frame being
+  sampled by the UI is never the frame being drawn — and leaves its colour image
+  shader-readable so the editor samples it with `ImGui::Image`. It exposes only the
+  sampler/view handles a UI backend needs, never a full descriptor set.
 
 The editor composes these behind its own **windowing seam** (`editor/platform_window.hpp`
 `IPlatformWindow`, SDL implementation `editor/sdl_window.*`) and a **Dear ImGui ↔
 Vulkan adapter** (`editor/imgui_backend.*`) — the one editor component that speaks
 Vulkan, kept apart from the app loop and panels so the rest of the editor names no
-graphics API.
+graphics API. The Scene panel (`editor/viewport_panel.*`) drives a fly camera
+(`editor/fly_camera.hpp`) through a stateless controller (`editor/camera_controller.hpp`)
+that reads a library-neutral `InputState` (`editor/input_state.hpp`) the panel fills
+from ImGui — so the controller depends on no input source and stays unit-testable.
 
 Live simulation state reaches the renderer as an **opaque host sink**: the runtime
 orders the draw against the simulation by the transform columns it reads, but the
@@ -148,10 +158,12 @@ editor GUI goes through Dear ImGui.
 
 ## 6. The value-type seam
 
-The engine takes its scalar and vector types from `core/types.hpp` and nowhere
-else. Those types belong to **SushiBLAS** (tensors, and the floats derived from
-them). Until that library exists, `core/types.hpp` aliases a minimal placeholder in
-`core/blas_placeholder.hpp`. When SushiBLAS lands, re-point `core/types.hpp` at it
+The engine takes its scalar, vector, matrix, and quaternion types — and the
+operations on them — from `core/types.hpp` and nowhere else. Those types belong to
+**SushiBLAS** (tensors, and the floats derived from them). Until that library exists,
+`core/types.hpp` aliases a minimal placeholder in `core/blas_placeholder.hpp`, which
+now carries `Vec3`, `Mat4`, `Quat` and the handful of operations the renderer and
+camera need (`perspective`, `look_at`, `compose_transform`, `mul`, …). When SushiBLAS lands, re-point `core/types.hpp` at it
 and delete the placeholder — a single-file change, because nothing else in the
 engine names the underlying type.
 

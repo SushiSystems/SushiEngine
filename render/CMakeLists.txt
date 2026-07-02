@@ -52,15 +52,25 @@ sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.vert"
     triangle_vert_spv TRIANGLE_VERT_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.frag"
     triangle_frag_spv TRIANGLE_FRAG_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.vert"
+    mesh_vert_spv MESH_VERT_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.frag"
+    mesh_frag_spv MESH_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/line.frag"
+    line_frag_spv LINE_FRAG_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
     rhi/vulkan/vulkan_device.cpp
     rhi/vulkan/vulkan_offscreen.cpp
     rhi/vulkan/vulkan_window_renderer.cpp
+    rhi/vulkan/vulkan_scene_view.cpp
     rhi/vulkan/vma_impl.cpp
     "${TRIANGLE_VERT_HEADER}"
-    "${TRIANGLE_FRAG_HEADER}")
+    "${TRIANGLE_FRAG_HEADER}"
+    "${MESH_VERT_HEADER}"
+    "${MESH_FRAG_HEADER}"
+    "${LINE_FRAG_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")

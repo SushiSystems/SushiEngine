@@ -52,4 +52,24 @@ namespace SushiEngine
 
     /** @brief Three-component vector used for positions and velocities. */
     using Vec3 = placeholder::Vec3;
+
+    /** @brief Column-major 4x4 matrix for transforms and camera projections. */
+    using Mat4 = placeholder::Mat4;
+
+    /** @brief Unit-quaternion rotation. */
+    using Quat = placeholder::Quat;
+
+    // Vector, matrix, and quaternion operations, from the same seam as the types.
+    using placeholder::compose_transform;
+    using placeholder::cross;
+    using placeholder::dot;
+    using placeholder::length;
+    using placeholder::look_at;
+    using placeholder::mat4_from_quat;
+    using placeholder::mul;
+    using placeholder::normalize;
+    using placeholder::perspective;
+    using placeholder::quat_axis_angle;
+    using placeholder::scaling;
+    using placeholder::translation;
 } // namespace SushiEngine
