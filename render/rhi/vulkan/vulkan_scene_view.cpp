@@ -52,11 +52,14 @@ namespace SushiEngine
                  *        the draw's picking id, and the currently selected id for highlight.
                  *
                  * 120 bytes, within the 128-byte push-constant floor every Vulkan device
-                 * guarantees.
+                 * guarantees. The MVP is an explicit @c float[16] rather than an engine
+                 * @c Mat4: GPU data is 32-bit regardless of the engine's Scalar precision,
+                 * so a double-precision build narrows to float exactly here at the upload
+                 * boundary and the shader's @c mat4 layout is unchanged.
                  */
                 struct MeshPush
                 {
-                    Mat4 mvp;
+                    float mvp[16];
                     float n0[4];
                     float n1[4];
                     float n2[4];
@@ -115,13 +118,21 @@ namespace SushiEngine
                                    std::uint32_t entity_id, std::uint32_t selected_id)
                 {
                     MeshPush push;
-                    push.mvp = mul(view_projection, model);
-                    push.n0[0] = model.m[0]; push.n0[1] = model.m[1]; push.n0[2] = model.m[2];
-                    push.n1[0] = model.m[4]; push.n1[1] = model.m[5]; push.n1[2] = model.m[6];
-                    push.n2[0] = model.m[8]; push.n2[1] = model.m[9]; push.n2[2] = model.m[10];
-                    push.n0[3] = color.x;
-                    push.n1[3] = color.y;
-                    push.n2[3] = color.z;
+                    const Mat4 mvp = mul(view_projection, model);
+                    for (int i = 0; i < 16; ++i)
+                        push.mvp[i] = static_cast<float>(mvp.m[i]);
+                    push.n0[0] = static_cast<float>(model.m[0]);
+                    push.n0[1] = static_cast<float>(model.m[1]);
+                    push.n0[2] = static_cast<float>(model.m[2]);
+                    push.n1[0] = static_cast<float>(model.m[4]);
+                    push.n1[1] = static_cast<float>(model.m[5]);
+                    push.n1[2] = static_cast<float>(model.m[6]);
+                    push.n2[0] = static_cast<float>(model.m[8]);
+                    push.n2[1] = static_cast<float>(model.m[9]);
+                    push.n2[2] = static_cast<float>(model.m[10]);
+                    push.n0[3] = static_cast<float>(color.x);
+                    push.n1[3] = static_cast<float>(color.y);
+                    push.n2[3] = static_cast<float>(color.z);
                     push.entity_id = entity_id;
                     push.selected = selected_id;
                     return push;

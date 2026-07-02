@@ -88,6 +88,11 @@ class Config(ToolConfig):
     # Run defaults.
     target_bin: str = "sandbox"
 
+    # Engine Scalar precision. False = single (float), True = double. Persisted here
+    # (the editor's Preferences writes it) and consumed as -DSE_SCALAR_DOUBLE at
+    # configure time; changing it requires a rebuild because Scalar is compile-time.
+    scalar_double: bool = False
+
     def runtime_dir(self, root: Path) -> Path:
         """Resolve the SushiRuntime checkout this engine builds against.
 

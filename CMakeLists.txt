@@ -33,6 +33,12 @@ add_library(SushiEngine INTERFACE)
 target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(SushiEngine INTERFACE sushiruntime)
 
+# The precision choice reaches every consumer through this one INTERFACE definition:
+# sandbox, pgs_demo, sushi_sim (and thus the editor), and the tests all link
+# SushiEngine, so all agree on Scalar. core/blas_placeholder.hpp is the sole reader.
+target_compile_definitions(SushiEngine INTERFACE
+    $<$<BOOL:${SE_SCALAR_DOUBLE}>:SE_SCALAR_DOUBLE>)
+
 # The sandbox is the ECS worked example; pgs_demo is the physics constraint solver.
 add_sushi_sycl_executable(sandbox sandbox/main.cpp)
 add_sushi_sycl_executable(pgs_demo examples/pgs_demo.cpp)

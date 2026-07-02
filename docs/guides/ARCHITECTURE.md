@@ -213,6 +213,19 @@ engine names the underlying type.
 
 This is the same discipline as §1: one seam, not parallel paths.
 
+Because everything routes through this one seam, **precision is a build-time choice**.
+The `SE_SCALAR_DOUBLE` option (`cmake/ProjectOptions.cmake`) switches the placeholder's
+`Float` between `float` and `double`; it is threaded as a compile definition on the
+`SushiEngine` INTERFACE target so every consumer — sandbox, `pgs_demo`, `sushi_sim`
+(and thus the editor), and the tests — agrees on `sizeof(Scalar)`. It is compile-time,
+not runtime, because `Scalar` is baked into trivially-copyable components and device
+storage. `sushi_render` is the one target that shares the value types (across
+`MeshInstance`/`CameraView`) without linking the engine target — it links the runtime
+otherwise — so it mirrors the same definition to keep the ABI in agreement. The Vulkan
+upload path narrows to 32-bit explicitly at the push-constant boundary, so GPU data and
+the shaders are identical in either build. The `se` CLI exposes it as `--double` on
+`se build`/`se editor` and a persisted `scalar_double` config field.
+
 ## 7. Validation and tooling
 
 The engine ships no device code of its own, so there is nothing to test in

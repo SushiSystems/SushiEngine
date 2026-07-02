@@ -386,11 +386,17 @@ namespace sushi::editor
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
             EntityTransform transform = world->transform(id);
-            float position[3] = {transform.position.x, transform.position.y,
-                                 transform.position.z};
+            // ImGui edits at float precision; the components are engine Scalar (float
+            // or double per build), so narrow explicitly into the widget buffers and
+            // widen back on write.
+            float position[3] = {static_cast<float>(transform.position.x),
+                                 static_cast<float>(transform.position.y),
+                                 static_cast<float>(transform.position.z)};
             float rotation[3];
             quat_to_euler_degrees(transform.rotation, rotation);
-            float scale[3] = {transform.scale.x, transform.scale.y, transform.scale.z};
+            float scale[3] = {static_cast<float>(transform.scale.x),
+                              static_cast<float>(transform.scale.y),
+                              static_cast<float>(transform.scale.z)};
 
             bool changed = false;
             if (ImGui::BeginTable("transform", 2, ImGuiTableFlags_SizingStretchProp))
@@ -415,7 +421,8 @@ namespace sushi::editor
         if (ImGui::CollapsingHeader("Renderer", ImGuiTreeNodeFlags_DefaultOpen))
         {
             const SushiEngine::Vec3 current = world->color(id);
-            float color[3] = {current.x, current.y, current.z};
+            float color[3] = {static_cast<float>(current.x), static_cast<float>(current.y),
+                              static_cast<float>(current.z)};
             if (ImGui::ColorEdit3("Color", color))
                 world->set_color(id, SushiEngine::Vec3{color[0], color[1], color[2]});
         }

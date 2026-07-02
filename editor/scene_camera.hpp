@@ -129,8 +129,8 @@ namespace sushi::editor
              * @param far_plane    Far clip distance (> near).
              */
             void set_pose(const SushiEngine::Vec3& position, const SushiEngine::Vec3& target,
-                          const SushiEngine::Vec3& up, float vertical_fov, float near_plane,
-                          float far_plane) noexcept
+                          const SushiEngine::Vec3& up, SushiEngine::Scalar vertical_fov,
+                          SushiEngine::Scalar near_plane, SushiEngine::Scalar far_plane) noexcept
             {
                 position_ = position;
                 target_ = target;
@@ -153,9 +153,9 @@ namespace sushi::editor
             SushiEngine::Vec3 position_{SushiEngine::Vec3{0, 7, 12}};
             SushiEngine::Vec3 target_{SushiEngine::Vec3{0, 0, 0}};
             SushiEngine::Vec3 up_{SushiEngine::Vec3{0, 1, 0}};
-            float vertical_fov_ = 1.0471976f;
-            float near_plane_ = 0.1f;
-            float far_plane_ = 500.0f;
+            SushiEngine::Scalar vertical_fov_ = SushiEngine::Scalar(1.0471976);
+            SushiEngine::Scalar near_plane_ = SushiEngine::Scalar(0.1);
+            SushiEngine::Scalar far_plane_ = SushiEngine::Scalar(500);
     };
 } // namespace sushi::editor
 

@@ -9,6 +9,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Selectable Scalar precision (`SE_SCALAR_DOUBLE`).** The engine's `Scalar` (and the
+  `Vec3`/`Mat4`/`Quat` built on it) can now be single or double precision, chosen at
+  build time. It is a compile-time switch because `Scalar` is a typedef baked into
+  trivially-copyable components and device storage, so it cannot flip at runtime. The
+  option is declared in `cmake/ProjectOptions.cmake` and threaded as one compile
+  definition on the `SushiEngine` INTERFACE target (and mirrored on `sushi_render`,
+  which shares the value types across its interface structs but does not link the
+  engine target), consumed at the single seam in `core/blas_placeholder.hpp`. The GPU
+  upload path narrows to 32-bit explicitly, so shader data is unchanged in either
+  build. The `se` CLI gained `--double` on `se build` and `se editor`, and a persisted
+  `scalar_double` config field, so the choice survives across builds. Both precisions
+  build clean and the ECS sandbox validates identically under each.
 - **Translate gizmo in the Scene viewport.** The selected entity gets three world-axis
   handles (drawn over the viewport with ImGui's draw list, no extra Vulkan), and
   dragging one moves the entity along that axis, written straight back to its transform

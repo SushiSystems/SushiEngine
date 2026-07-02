@@ -37,14 +37,17 @@ namespace sushi::editor
                                const SushiEngine::Vec3& point, const ImVec2& origin,
                                float width, float height, ImVec2& out)
         {
-            const float* m = view_projection.m;
-            const float x = m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12];
-            const float y = m[1] * point.x + m[5] * point.y + m[9] * point.z + m[13];
-            const float w = m[3] * point.x + m[7] * point.y + m[11] * point.z + m[15];
-            if (w <= 0.0001f)
+            // Compute in engine Scalar (float or double per build) so the matrix and
+            // point types agree; narrow to float only for the ImGui screen position.
+            using Scalar = SushiEngine::Scalar;
+            const Scalar* m = view_projection.m;
+            const Scalar x = m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12];
+            const Scalar y = m[1] * point.x + m[5] * point.y + m[9] * point.z + m[13];
+            const Scalar w = m[3] * point.x + m[7] * point.y + m[11] * point.z + m[15];
+            if (w <= Scalar(0.0001))
                 return false;
-            out.x = origin.x + (x / w * 0.5f + 0.5f) * width;
-            out.y = origin.y + (y / w * 0.5f + 0.5f) * height;
+            out.x = origin.x + static_cast<float>(x / w * Scalar(0.5) + Scalar(0.5)) * width;
+            out.y = origin.y + static_cast<float>(y / w * Scalar(0.5) + Scalar(0.5)) * height;
             return true;
         }
 

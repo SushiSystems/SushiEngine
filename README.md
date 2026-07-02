@@ -121,10 +121,10 @@ Run `se config` to print the resolved values and where each came from.
 
 | Command | What it does |
 |---|---|
-| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. |
+| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test] [--double]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. `--double` builds with double-precision `Scalar` (`SE_SCALAR_DOUBLE=ON`); the default is single (float). |
 | `se test [--suite <label>] [--filter <regex>] [--repeat N]` | Run the suite via CTest labels. Labels: `functional` (default), `unit`, `integration`, `regression`, `all`. `--filter` is a `ctest -R` regex over `Suite.Case` names. `--repeat` re-runs until failure. |
 | `se run <target> [-- args…]` | Run a built executable (for example `se run sandbox`). Arguments after `--` are forwarded. `--sort` picks one interactively. |
-| `se editor [--no-run]` | Build the ImGui editor (configures with `SE_BUILD_EDITOR=ON`) and launch it. `--no-run` builds only. |
+| `se editor [--no-run] [--double]` | Build the ImGui editor (configures with `SE_BUILD_EDITOR=ON`) and launch it. `--no-run` builds only. `--double` uses double-precision `Scalar`. |
 | `se clean` | Remove the `build/` tree. |
 | `se doxygen` | Generate Doxygen documentation. |
 | `se config` | Print the resolved config and each value's source. |
@@ -156,6 +156,8 @@ Run the sandbox to validate the ECS; it exits 0 on success:
 
 The editor is behind `-DSE_BUILD_EDITOR=ON` and the tests behind
 `-DSE_BUILD_TESTS=ON` (both off by default; `se editor` and `se build` set them).
+Precision is behind `-DSE_SCALAR_DOUBLE=ON` (off by default → single-precision
+`Scalar`); it is a compile-time choice, so switching it requires a reconfigure.
 
 ## Testing
 

@@ -81,6 +81,13 @@ target_link_libraries(sushi_render PUBLIC
     vk-bootstrap::vk-bootstrap)
 target_compile_features(sushi_render PUBLIC cxx_std_17)
 
+# The renderer shares the engine's value types (Mat4/Vec3) across the MeshInstance
+# and CameraView interface structs, so it must agree with every other target on the
+# Scalar precision even though it does not link the SushiEngine INTERFACE target
+# (that would pull in the runtime). Mirror the option here so sizeof(Mat4) matches.
+target_compile_definitions(sushi_render PUBLIC
+    $<$<BOOL:${SE_SCALAR_DOUBLE}>:SE_SCALAR_DOUBLE>)
+
 # Headless smoke test: brings the device up, renders the triangle offscreen, and
 # reads the pixels back to prove the pipeline path — the render analogue of the ECS
 # sandbox, and it runs in CI without a display.

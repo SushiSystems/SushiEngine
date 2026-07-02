@@ -145,10 +145,15 @@ def _check_runtime(cfg: Config, root: Path) -> int:
 
 
 def _configure_args(cfg: Config, root: Path, build_dir: Path,
-                    build_type: str, tests: bool) -> list[str]:
+                    build_type: str, tests: bool,
+                    scalar_double: bool = False) -> list[str]:
     runtime = cfg.runtime_dir(root)
     cxx = cfg.resolved_compiler(root)
     vcpkg = cfg.resolved_vcpkg(root)
+
+    # Always pass the precision explicitly so toggling it re-caches cleanly: an
+    # absent -D would otherwise leave a stale value in CMakeCache.txt.
+    double = scalar_double or cfg.scalar_double
 
     args = [
         _cmake(cfg), "-S", str(root), "-B", str(build_dir), "-G", cfg.generator,
@@ -156,6 +161,7 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
         f"-DCMAKE_CXX_COMPILER={cxx}",
         f"-DSUSHIRUNTIME_DIR={runtime}",
         f"-DSE_BUILD_TESTS={'ON' if tests else 'OFF'}",
+        f"-DSE_SCALAR_DOUBLE={'ON' if double else 'OFF'}",
     ]
     # On Windows clang++ also drives the C probe; point both slots at it.
     if cfg.is_windows:
@@ -177,7 +183,8 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
     return args
 
 
-def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int:
+def build(build_type: BuildType, clean: bool = False, tests: bool = True,
+          double: bool = False) -> int:
     console.header("Project Build")
     root = find_project_root()
     cfg = load_config()
@@ -190,16 +197,21 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int
     if clean:
         clean_tree(root)
 
+    scalar_double = double or cfg.scalar_double
     console.info(f"Tests: {'ON' if tests else 'OFF'}")
+    console.info(f"Precision: {'double' if scalar_double else 'single'}")
     console.info(f"Runtime: {cfg.runtime_dir(root)}")
 
     env = load_build_env(cfg, build_dir)
 
-    if _needs_configure(build_dir, cfg.generator):
+    # An explicit --double toggles a compile-time switch, so an existing tree must
+    # be re-configured for it to take (the in-place re-run updates CMakeCache.txt).
+    if _needs_configure(build_dir, cfg.generator) or double:
         console.info(f"Configuring CMake... (type={build_type.value}, tests={'ON' if tests else 'OFF'})")
-        if build_dir.is_dir():
+        if _needs_configure(build_dir, cfg.generator) and build_dir.is_dir():
             shutil.rmtree(build_dir, ignore_errors=True)
-        args = _configure_args(cfg, root, build_dir, cmake_build_type, tests)
+        args = _configure_args(cfg, root, build_dir, cmake_build_type, tests,
+                               scalar_double=scalar_double)
         rc = _run(args, env, cwd=root)
         if rc != 0:
             console.error("CMake configure failed.")

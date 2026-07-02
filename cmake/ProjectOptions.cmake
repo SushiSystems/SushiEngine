@@ -24,3 +24,10 @@ option(SE_BUILD_TESTS "Build the SushiEngine test suite" OFF)
 # packages. OFF so a plain configure needs none of them; `se build --render` (or
 # -DSE_BUILD_RENDER=ON) turns it on.
 option(SE_BUILD_RENDER "Build the SushiEngine Vulkan renderer" OFF)
+
+# The engine's Scalar type. OFF selects single precision (float), ON double. It is a
+# compile-time choice because Scalar is a typedef baked into trivially-copyable
+# components and device storage, so it cannot flip at runtime. Threaded as the
+# SE_SCALAR_DOUBLE compile definition on the SushiEngine INTERFACE target (see the
+# top-level CMakeLists.txt), consumed at the one seam in core/blas_placeholder.hpp.
+option(SE_SCALAR_DOUBLE "Use double-precision Scalar throughout the engine" OFF)

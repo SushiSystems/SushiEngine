@@ -39,8 +39,19 @@ namespace SushiEngine
      */
     namespace placeholder
     {
-        /** @brief Scalar element type; maps to a SushiBLAS float later. */
+        /**
+         * @brief Scalar element type; maps to a SushiBLAS float later.
+         *
+         * Single precision by default; the SE_SCALAR_DOUBLE build option (declared in
+         * cmake/ProjectOptions.cmake, threaded on the SushiEngine INTERFACE target)
+         * switches the whole engine to double. This one line is the entire precision
+         * seam — everything downstream is written in terms of @c Float, not a literal.
+         */
+#ifdef SE_SCALAR_DOUBLE
+        using Float = double;
+#else
         using Float = float;
+#endif
 
         /**
          * @brief A trivially copyable 3-component vector usable in device code.
