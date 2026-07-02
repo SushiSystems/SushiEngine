@@ -176,6 +176,15 @@ applies the live-effective ones (theme, camera speed). Precision is the one sett
 running editor cannot change — it is the compile-time `SE_SCALAR_DOUBLE` of §6 — so the
 window records intent and prompts a rebuild.
 
+The **Project panel** (`editor/editor_panels.cpp`) is a two-pane file browser over the
+on-disk project: a recursive folder tree and a searchable icon-grid of the current
+folder, supporting create/rename/delete, "Show in Explorer", and double-click open
+(text extensions open in the built-in text editor; anything else opens via the OS
+default application, `ShellExecuteW` on Windows). The project root defaults to
+`<user profile>/sushiengine/project` — outside the engine's own source tree — and is
+persisted as `Preferences::last_project_root` once resolved, so authored project files
+never mix with engine source.
+
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
 plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.

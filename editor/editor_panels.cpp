@@ -27,11 +27,19 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <system_error>
 
 #include <filesystem>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -114,6 +122,129 @@ namespace sushi::editor
             std::transform(out.begin(), out.end(), out.begin(),
                            [](unsigned char c) { return static_cast<char>(::tolower(c)); });
             return out;
+        }
+
+        // A child path named `base` under `parent`, disambiguated with " (n)" if it
+        // already exists — matches Unity's "New Folder", "New Folder (1)", ... naming.
+        fs::path unique_child_path(const fs::path& parent, const std::string& base,
+                                   const std::string& extension)
+        {
+            fs::path candidate = parent / (base + extension);
+            for (int n = 1; fs::exists(candidate); ++n)
+                candidate = parent / (base + " (" + std::to_string(n) + ")" + extension);
+            return candidate;
+        }
+
+        // Truncates a display name to a tile-friendly length rather than wrapping —
+        // simpler and robust across filenames of any length.
+        std::string truncate_label(const std::string& name, std::size_t max_chars = 16)
+        {
+            if (name.size() <= max_chars)
+                return name;
+            return name.substr(0, max_chars - 1) + "…";
+        }
+
+        // Opens the platform file browser at `path`, selecting it if it's a file.
+        // Windows-only for now; the project targets Windows first (see CLAUDE.md).
+        void show_in_explorer(const fs::path& path)
+        {
+#ifdef _WIN32
+            const std::string command = (fs::is_directory(path) ? "explorer \"" : "explorer /select,\"") +
+                                        path.string() + "\"";
+            std::system(command.c_str());
+#else
+            (void)path;
+#endif
+        }
+
+        // Launches `path` with whatever the OS has associated with its extension —
+        // Explorer's own double-click "open" verb (ShellExecute), not a shell command
+        // line, so a path never round-trips through shell quoting/injection.
+        void open_with_default_app(const fs::path& path)
+        {
+#ifdef _WIN32
+            ShellExecuteW(nullptr, L"open", path.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+            (void)path;
+#endif
+        }
+
+        // A tile's icon fill colour by kind: folders, code, and everything else.
+        ImU32 tile_color(const fs::path& path, bool is_dir)
+        {
+            if (is_dir)
+                return IM_COL32(210, 180, 90, 255);
+            std::string ext = to_lower(path.extension().string());
+            if (ext == ".cpp" || ext == ".cc" || ext == ".hpp" || ext == ".h" || ext == ".inl")
+                return IM_COL32(90, 150, 220, 255);
+            if (has_text_extension(path))
+                return IM_COL32(150, 150, 150, 255);
+            return IM_COL32(90, 90, 90, 255);
+        }
+
+        // Recursively draws one folder node of the Project panel's tree pane; clicking
+        // a node (anywhere in its row) navigates the grid pane to that folder.
+        void draw_project_tree_node(EditorContext& context, const fs::path& dir)
+        {
+            std::error_code ec;
+            std::vector<fs::path> subdirs;
+            for (const auto& entry : fs::directory_iterator(dir, ec))
+                if (entry.is_directory())
+                    subdirs.push_back(entry.path());
+            std::sort(subdirs.begin(), subdirs.end());
+
+            const std::string label = dir.filename().empty() ? dir.string() : dir.filename().string();
+            ImGuiTreeNodeFlags flags =
+                ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth;
+            if (subdirs.empty())
+                flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            std::error_code cmp_ec;
+            if (fs::weakly_canonical(dir, cmp_ec) ==
+                fs::weakly_canonical(fs::path(context.current_directory), cmp_ec))
+                flags |= ImGuiTreeNodeFlags_Selected;
+
+            ImGui::PushID(dir.string().c_str());
+            const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+            if (ImGui::IsItemClicked())
+                context.current_directory = dir.string();
+            if (open && !(flags & ImGuiTreeNodeFlags_Leaf))
+            {
+                for (const fs::path& sub : subdirs)
+                    draw_project_tree_node(context, sub);
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+
+        // The "Create ▸" submenu shared by the grid's background and item context
+        // menus: new folder or new source/text file, seeded into inline rename.
+        void draw_project_create_menu(EditorContext& context, const fs::path& parent)
+        {
+            if (ImGui::BeginMenu("Create"))
+            {
+                struct Entry { const char* label; const char* base; const char* ext; };
+                static const Entry entries[] = {
+                    {"Folder", "New Folder", ""},
+                    {"C++ Header", "NewHeader", ".hpp"},
+                    {"C++ Source", "NewSource", ".cpp"},
+                    {"Text File", "New Text File", ".txt"},
+                };
+                for (const Entry& entry : entries)
+                {
+                    if (ImGui::MenuItem(entry.label))
+                    {
+                        const fs::path path = unique_child_path(parent, entry.base, entry.ext);
+                        std::error_code ec;
+                        if (entry.ext[0] == '\0')
+                            fs::create_directory(path, ec);
+                        else
+                            std::ofstream(path, std::ios::binary).close();
+                        context.renaming_project_path = path.string();
+                        context.selected_project_path = path.string();
+                    }
+                }
+                ImGui::EndMenu();
+            }
         }
 
         // A labelled drag-float row for a 3-component vector, matching Unity's
@@ -508,25 +639,43 @@ namespace sushi::editor
         }
 
         const fs::path root(context.project_root);
-        fs::path current(context.current_directory);
+        const fs::path current(context.current_directory);
 
+        // Breadcrumb path and up-navigation, above the tree/grid split.
         ImGui::TextDisabled("%s", current.string().c_str());
-        ImGui::Separator();
-
+        std::error_code root_ec;
         const bool at_root =
-            fs::weakly_canonical(current) == fs::weakly_canonical(root);
+            fs::weakly_canonical(current, root_ec) == fs::weakly_canonical(root, root_ec);
+        ImGui::SameLine();
         ImGui::BeginDisabled(at_root);
-        if (ImGui::Selectable("..", false, ImGuiSelectableFlags_DontClosePopups))
+        if (ImGui::SmallButton("Up"))
             context.current_directory = current.parent_path().string();
         ImGui::EndDisabled();
+        ImGui::Separator();
+
+        // Left: a folder tree rooted at the project. Right: a Unity-style icon grid
+        // of the current folder's contents. The tree only ever shows directories; the
+        // grid shows both, so files are reachable without cluttering the tree.
+        ImGui::BeginChild("project_tree", ImVec2(180.0f, 0.0f), true);
+        draw_project_tree_node(context, root);
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+        ImGui::BeginChild("project_grid", ImVec2(0.0f, 0.0f), true);
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##project_filter", "Search...", &context.project_filter);
+        const std::string lower_filter = to_lower(context.project_filter);
 
         std::error_code ec;
         std::vector<fs::directory_entry> entries;
         for (const auto& entry : fs::directory_iterator(current, ec))
+        {
+            if (!lower_filter.empty() &&
+                to_lower(entry.path().filename().string()).find(lower_filter) == std::string::npos)
+                continue;
             entries.push_back(entry);
-
-        // Directories first, then files; each group alphabetical — the ordering a
-        // filesystem browser is expected to present regardless of iteration order.
+        }
         std::sort(entries.begin(), entries.end(),
                   [](const fs::directory_entry& a, const fs::directory_entry& b)
                   {
@@ -534,26 +683,142 @@ namespace sushi::editor
                       const bool b_dir = b.is_directory();
                       if (a_dir != b_dir)
                           return a_dir;
-                      return a.path().filename().string() <
-                             b.path().filename().string();
+                      return a.path().filename().string() < b.path().filename().string();
                   });
 
-        for (const auto& entry : entries)
-        {
-            const bool is_dir = entry.is_directory();
-            const std::string name =
-                (is_dir ? "[D] " : "     ") + entry.path().filename().string();
+        constexpr float TILE_SIZE = 76.0f;
+        constexpr float TILE_SPACING = 8.0f;
+        const float avail_width = ImGui::GetContentRegionAvail().x;
+        float row_x = 0.0f;
 
-            if (ImGui::Selectable(name.c_str()) &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        // The delete target is deferred out of the loop so the directory listing is
+        // never mutated (and filesystem-iterated again next frame) mid-walk.
+        fs::path delete_target;
+
+        for (std::size_t i = 0; i < entries.size(); ++i)
+        {
+            const fs::directory_entry& entry = entries[i];
+            const bool is_dir = entry.is_directory();
+            const std::string path_string = entry.path().string();
+            const std::string name = entry.path().filename().string();
+
+            if (row_x + TILE_SIZE > avail_width && row_x > 0.0f)
+                row_x = 0.0f;
+            else if (i > 0 && row_x > 0.0f)
+                ImGui::SameLine();
+            row_x += TILE_SIZE + TILE_SPACING;
+
+            ImGui::PushID(path_string.c_str());
+            ImGui::BeginGroup();
+
+            if (context.renaming_project_path == path_string)
             {
-                if (is_dir)
-                    context.current_directory = entry.path().string();
-                else if (has_text_extension(entry.path()))
-                    open_document(context, entry.path());
+                // Inline rename: mirrors the Hierarchy's pattern — an autofocused field
+                // seeded once as the target changes, committed on Enter or focus loss.
+                static std::string buffer;
+                static std::string active;
+                if (active != path_string)
+                {
+                    buffer = name;
+                    active = path_string;
+                    ImGui::SetKeyboardFocusHere();
+                }
+                ImGui::Dummy(ImVec2(TILE_SIZE, TILE_SIZE * 0.6f));
+                ImGui::SetNextItemWidth(TILE_SIZE);
+                const bool commit =
+                    ImGui::InputText("##rename", &buffer,
+                                     ImGuiInputTextFlags_EnterReturnsTrue |
+                                         ImGuiInputTextFlags_AutoSelectAll);
+                if (commit || ImGui::IsItemDeactivated())
+                {
+                    std::error_code rename_ec;
+                    const fs::path renamed = entry.path().parent_path() / buffer;
+                    if (!buffer.empty() && renamed != entry.path())
+                        fs::rename(entry.path(), renamed, rename_ec);
+                    context.renaming_project_path.clear();
+                    active.clear();
+                }
             }
+            else
+            {
+                const ImU32 color = tile_color(entry.path(), is_dir);
+                ImGui::PushStyleColor(ImGuiCol_Button, color);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, color);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, color);
+                const std::string label =
+                    (is_dir ? std::string("[D]") : entry.path().extension().string()) + "\n" +
+                    truncate_label(name) + "##tile";
+                const bool clicked = ImGui::Button(label.c_str(), ImVec2(TILE_SIZE, TILE_SIZE));
+                ImGui::PopStyleColor(3);
+                if (clicked)
+                {
+                    context.selected_project_path = path_string;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    {
+                        if (is_dir)
+                            context.current_directory = path_string;
+                        else if (has_text_extension(entry.path()))
+                            open_document(context, entry.path());
+                        else
+                            open_with_default_app(entry.path());
+                    }
+                }
+
+                if (ImGui::BeginPopupContextItem())
+                {
+                    context.selected_project_path = path_string;
+                    if (!is_dir && ImGui::MenuItem("Open"))
+                    {
+                        if (has_text_extension(entry.path()))
+                            open_document(context, entry.path());
+                        else
+                            open_with_default_app(entry.path());
+                    }
+                    if (ImGui::MenuItem("Rename"))
+                        context.renaming_project_path = path_string;
+                    if (ImGui::MenuItem("Delete"))
+                        delete_target = entry.path();
+                    if (ImGui::MenuItem("Show in Explorer"))
+                        show_in_explorer(entry.path());
+                    ImGui::Separator();
+                    draw_project_create_menu(context, current);
+                    ImGui::EndPopup();
+                }
+            }
+
+            ImGui::EndGroup();
+            ImGui::PopID();
         }
 
+        // Right-click on empty grid space: create new items in the current folder.
+        if (ImGui::BeginPopupContextWindow("project_grid_context", ImGuiPopupFlags_MouseButtonRight |
+                                                                       ImGuiPopupFlags_NoOpenOverItems))
+        {
+            draw_project_create_menu(context, current);
+            if (ImGui::MenuItem("Show in Explorer"))
+                show_in_explorer(current);
+            ImGui::EndPopup();
+        }
+
+        if (!delete_target.empty())
+        {
+            std::error_code delete_ec;
+            const std::string deleted_string = delete_target.string();
+            fs::remove_all(delete_target, delete_ec);
+            if (context.selected_project_path == deleted_string)
+                context.selected_project_path.clear();
+            for (std::size_t i = 0; i < context.documents.size(); ++i)
+                if (context.documents[i].path == deleted_string)
+                {
+                    context.documents.erase(context.documents.begin() +
+                                            static_cast<std::ptrdiff_t>(i));
+                    if (context.active_document >= static_cast<int>(i))
+                        --context.active_document;
+                    break;
+                }
+        }
+
+        ImGui::EndChild();
         ImGui::End();
     }
 

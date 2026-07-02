@@ -105,6 +105,13 @@ namespace sushi::editor
         std::string project_root;
         std::string current_directory;
 
+        // Project panel state: the single selected file/folder (full path, empty if
+        // none), the path currently in inline rename, and the name-search filter
+        // applied to the current folder's contents.
+        std::string selected_project_path;
+        std::string renaming_project_path;
+        std::string project_filter;
+
         std::vector<Document> documents;
         int active_document = -1;
 

@@ -63,6 +63,10 @@ add_executable(se_editor
     preferences.cpp)
 target_link_libraries(se_editor PRIVATE
     sushi_imgui sushi_render sushi_sim nlohmann_json::nlohmann_json)
+# ShellExecuteW (Project panel's "open with default app") needs Shell32.
+if(WIN32)
+    target_link_libraries(se_editor PRIVATE Shell32)
+endif()
 # SDL2 defines SDL_main on some platforms (Windows); link the entry shim when the
 # target exists so WinMain resolves without forcing it on Linux/macOS.
 if(TARGET SDL2::SDL2main)

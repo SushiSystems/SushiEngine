@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Unity-style Project window.** The Project panel is now a two-pane file browser: a
+  recursive folder tree on the left and a searchable icon-grid of the current folder's
+  contents on the right, replacing the old single-list browser. Supports create
+  (Folder / C++ Header / C++ Source / Text File), inline rename, delete, "Show in
+  Explorer", and double-click open — text files (`.h`/`.hpp`/`.cpp`/`.txt`/etc.) open in
+  the built-in text editor, everything else opens via the OS default application
+  (`ShellExecuteW` on Windows). The default project root is no longer inside the engine's
+  own source tree: it now resolves to `<user profile>/sushiengine/project` (created if
+  missing) and is persisted as `last_project_root` in `Preferences` once chosen.
 - **Rotate/scale gizmos with a Local/World axis toggle.** `GizmoController` now offers
   a full W/E/R handle set (translate, rotate, scale) plus a toolbar toggle for whether
   Translate/Rotate drag along world axes or the selection's own local axes (`GizmoSpace`);

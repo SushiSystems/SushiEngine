@@ -31,6 +31,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 
@@ -48,6 +49,35 @@
 #include "preferences.hpp"
 #include "sdl_window.hpp"
 #include "viewport_panel.hpp"
+
+namespace
+{
+    // Where user-authored projects live by default: never inside the engine's own
+    // source tree (writing project code next to the engine's is exactly the mixing
+    // the Project panel exists to avoid). Falls back to the current directory only if
+    // the per-user profile directory cannot be resolved.
+    std::string default_projects_root()
+    {
+        std::filesystem::path home;
+#ifdef _WIN32
+        char* value = nullptr;
+        std::size_t length = 0;
+        if (_dupenv_s(&value, &length, "USERPROFILE") == 0 && value != nullptr)
+        {
+            home = value;
+            std::free(value);
+        }
+#else
+        if (const char* value = std::getenv("HOME"))
+            home = value;
+#endif
+        std::filesystem::path root =
+            !home.empty() ? home / "sushiengine" / "project" : std::filesystem::current_path();
+        std::error_code ec;
+        std::filesystem::create_directories(root, ec);
+        return root.string();
+    }
+} // namespace
 
 namespace
 {
@@ -130,8 +160,6 @@ int main(int, char**)
         // edit it through the injected simulation. There is no editor-side scene model.
         sushi::editor::EditorContext context;
         context.simulation = simulation.get();
-        context.project_root = std::filesystem::current_path().string();
-        context.current_directory = context.project_root;
         context.world_entity_count = simulation->entity_count();
 
         // Load persisted preferences and apply the live-effective ones up front, so the
@@ -142,6 +170,19 @@ int main(int, char**)
         context.preferences_store = preferences_store.get();
         context.preferences = preferences_store->load();
         sushi::editor::apply_theme(context.preferences.theme);
+
+        // The Project panel's root: the last one the user browsed to, or a
+        // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
+        // so authored project code never mixes with the engine's.
+        context.project_root = context.preferences.last_project_root.empty()
+                                    ? default_projects_root()
+                                    : context.preferences.last_project_root;
+        context.current_directory = context.project_root;
+        if (context.preferences.last_project_root != context.project_root)
+        {
+            context.preferences.last_project_root = context.project_root;
+            preferences_store->save(context.preferences);
+        }
         scene_camera.set_move_speed(context.preferences.camera_move_speed);
 
         sushi::editor::editor_log(context, "Editor ready (Vulkan).");
