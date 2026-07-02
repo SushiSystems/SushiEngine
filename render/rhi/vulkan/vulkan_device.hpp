@@ -71,9 +71,19 @@ namespace SushiEngine
                     VulkanDevice& operator=(const VulkanDevice&) = delete;
 
                     const DeviceInfo& info() const noexcept override { return info_; }
+                    NativeDeviceHandles native_handles() const noexcept override;
 
                     /** @brief The Vulkan instance handle. */
                     VkInstance instance() const noexcept { return instance_.instance; }
+
+                    /**
+                     * @brief The presentation surface, or VK_NULL_HANDLE if headless.
+                     * @return The VkSurfaceKHR created by the host's surface factory.
+                     */
+                    VkSurfaceKHR surface() const noexcept { return surface_; }
+
+                    /** @brief The instance's API version, for ImGui/loader setup. */
+                    std::uint32_t api_version() const noexcept { return instance_.api_version; }
 
                     /** @brief The selected physical device handle. */
                     VkPhysicalDevice physical_device() const noexcept { return device_.physical_device; }
@@ -92,6 +102,7 @@ namespace SushiEngine
 
                 private:
                     vkb::Instance instance_{};
+                    VkSurfaceKHR surface_ = VK_NULL_HANDLE;
                     vkb::Device device_{};
                     VmaAllocator allocator_ = VK_NULL_HANDLE;
                     VkQueue graphics_queue_ = VK_NULL_HANDLE;

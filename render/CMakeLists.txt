@@ -57,6 +57,7 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.frag"
 add_library(sushi_render STATIC
     rhi/vulkan/vulkan_device.cpp
     rhi/vulkan/vulkan_offscreen.cpp
+    rhi/vulkan/vulkan_window_renderer.cpp
     rhi/vulkan/vma_impl.cpp
     "${TRIANGLE_VERT_HEADER}"
     "${TRIANGLE_FRAG_HEADER}")

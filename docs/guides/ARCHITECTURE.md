@@ -109,20 +109,42 @@ the colouring and the graph structure are reused unchanged. `DistanceConstraint`
 `DistanceProjection` is the first concrete type, exercised by `examples/pgs_demo.cpp`
 (a hanging chain checked against a scalar reference).
 
-## 5. The render seam (planned)
+## 5. The render seam
 
 Rendering does not belong inside the runtime — the runtime knows no graphics, just
-as it knows no math. Nor is it bolted onto the side as a second, hand-synchronized
-loop. Instead, rendering enters the engine's graph as an **opaque host sink node**:
-a node the runtime orders against the simulation by the data it reads (the transform
-columns) but whose body — the actual draw calls — is engine code the runtime never
-introspects.
+as it knows no math. The renderer is a separate compiled library (`render/`,
+`include/SushiEngine/render/`), a **greenfield Vulkan 1.3** backend behind a
+dependency-inversion boundary so a D3D12/Metal backend can follow without touching a
+consumer. The layering, from abstract to concrete:
 
-The first cut consumes the simulation result after the step's completion latch and
-uploads transforms to the renderer (a host round-trip). A later cut promotes
-rendering to an in-graph sink node pinned to a render thread, so the scheduler can
-overlap the next step's simulation with the current step's draw. Graphics go through
-The-Forge; the editor GUI through Dear ImGui.
+- **RHI device** (`render/rhi/device.hpp`): `IRenderDevice` / `create_render_device()`
+  carry no Vulkan types. `DeviceInfo` exposes the physical device's UUID — the key a
+  later milestone matches against SushiRuntime's SYCL device for zero-copy interop.
+  `RenderDeviceDesc` carries a `SurfaceFactory` hook and required instance extensions
+  so a windowed host supplies its presentation surface without the renderer ever
+  calling a windowing library; `native_handles()` is the single, explicit escape
+  hatch a native-API adapter (the editor's ImGui Vulkan backend) uses.
+- **Presentation facade** (`render/window_renderer.hpp`): `IWindowRenderer` /
+  `create_window_renderer()` own the device and swapchain and drive the
+  acquire → clear → submit → present cycle; a host opens a frame, records into the
+  returned command buffer, and closes it. Swapchain rebuild on resize is internal.
+  The Vulkan implementation is `render/rhi/vulkan/vulkan_window_renderer.*`.
+- **Headless target** (`render/rhi/vulkan/vulkan_offscreen.*`): the same device path
+  without a window, used by `render_probe` to validate the pipeline in CI.
+
+The editor composes these behind its own **windowing seam** (`editor/platform_window.hpp`
+`IPlatformWindow`, SDL implementation `editor/sdl_window.*`) and a **Dear ImGui ↔
+Vulkan adapter** (`editor/imgui_backend.*`) — the one editor component that speaks
+Vulkan, kept apart from the app loop and panels so the rest of the editor names no
+graphics API.
+
+Live simulation state reaches the renderer as an **opaque host sink**: the runtime
+orders the draw against the simulation by the transform columns it reads, but the
+draw body is engine code the runtime never introspects. The first cut consumes the
+step result after its completion latch and uploads transforms (a host round-trip); a
+later cut promotes rendering to an in-graph sink node pinned to a render thread so the
+scheduler can overlap the next step's simulation with the current step's draw. The
+editor GUI goes through Dear ImGui.
 
 ## 6. The value-type seam
 
@@ -169,14 +191,16 @@ never reaches back into runtime source.
   distance constraints (§4), generic over the constraint type, validated against a
   scalar reference. Next constraint types (contacts, joints) and rigid-body state
   build on the same colouring and graph structure.
-- **Rendering.** A window, The-Forge rendering, and Dear ImGui; rendering enters as
-  the opaque sink node of §5.
+- **Rendering (in progress).** A greenfield Vulkan 1.3 renderer behind an RHI
+  abstraction (§5), reaching first pixels headlessly (`render_probe`) and now driving
+  the editor window; live simulation state enters as the opaque sink node of §5.
 - **Editor host shell.** The editor as a host application that runs the game as a
-  scene, with play/pause and inspection panels. The `se_editor` shell (SDL2 + Dear
-  ImGui, `editor/`) currently hosts a Unity-style panel set — Hierarchy (with
-  drag-and-drop reparenting, rename, and filtering), Inspector, Project browser, a
-  tabbed Text Editor, a Play/Pause/Step Toolbar, a Console, and a Statistics panel,
-  all toggled from a Window menu — over an editor-owned `Scene` model
-  (`scene_model.hpp`, `editor_context.hpp`), deliberately decoupled from the runtime
-  so it builds without a SYCL toolchain. Wiring these panels onto a live World, plus
+  scene, with play/pause and inspection panels. The `se_editor` shell (SDL2 window +
+  Dear ImGui presenting through the Vulkan renderer, `editor/`) currently hosts a
+  Unity-style panel set — Hierarchy (with drag-and-drop reparenting, rename, and
+  filtering), Inspector, Project browser, a tabbed Text Editor, a Play/Pause/Step
+  Toolbar, a Console, and a Statistics panel, all toggled from a Window menu — over an
+  editor-owned `Scene` model (`scene_model.hpp`, `editor_context.hpp`), decoupled from
+  the runtime behind the windowing, presentation, and ImGui-adapter seams of §5.
+  Wiring these panels onto a live World, plus
   a viewport and play/pause, is the remaining work.

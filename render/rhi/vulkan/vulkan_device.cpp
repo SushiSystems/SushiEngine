@@ -72,12 +72,26 @@ namespace SushiEngine
                     .require_api_version(1, 3, 0);
                 if (desc.enable_validation)
                     instance_builder.request_validation_layers().use_default_debug_messenger();
+                for (const std::string& extension : desc.required_instance_extensions)
+                    instance_builder.enable_extension(extension.c_str());
 
                 auto instance_result = instance_builder.build();
                 if (!instance_result)
                     throw std::runtime_error("SushiEngine: Vulkan instance creation failed: " +
                                              instance_result.error().message());
                 instance_ = instance_result.value();
+
+                // Windowed devices are handed a surface by the host so selection can
+                // require a present-capable queue; headless devices (render_probe)
+                // supply no factory and defer surface initialization.
+                if (desc.surface_factory)
+                {
+                    surface_ = reinterpret_cast<VkSurfaceKHR>(
+                        desc.surface_factory(reinterpret_cast<std::uint64_t>(instance_.instance)));
+                    if (surface_ == VK_NULL_HANDLE)
+                        throw std::runtime_error(
+                            "SushiEngine: the surface factory returned no surface");
+                }
 
                 // Vulkan 1.3 core features the renderer depends on: dynamic rendering
                 // removes render-pass/framebuffer objects, synchronization2 gives the
@@ -90,8 +104,11 @@ namespace SushiEngine
 
                 vkb::PhysicalDeviceSelector selector(instance_);
                 selector.set_minimum_version(1, 3)
-                    .set_required_features_13(features_13)
-                    .defer_surface_initialization(); // no window surface yet (headless bring-up)
+                    .set_required_features_13(features_13);
+                if (surface_ != VK_NULL_HANDLE)
+                    selector.set_surface(surface_); // require a present-capable device
+                else
+                    selector.defer_surface_initialization(); // headless bring-up
                 if (desc.preference == DevicePreference::LowPower)
                     selector.prefer_gpu_device_type(vkb::PreferredDeviceType::integrated);
 
@@ -132,8 +149,21 @@ namespace SushiEngine
                     vmaDestroyAllocator(allocator_);
                 if (device_.device != VK_NULL_HANDLE)
                     vkb::destroy_device(device_);
+                if (surface_ != VK_NULL_HANDLE)
+                    vkb::destroy_surface(instance_, surface_);
                 if (instance_.instance != VK_NULL_HANDLE)
                     vkb::destroy_instance(instance_);
+            }
+
+            NativeDeviceHandles VulkanDevice::native_handles() const noexcept
+            {
+                NativeDeviceHandles handles;
+                handles.instance = instance_.instance;
+                handles.physical_device = device_.physical_device;
+                handles.device = device_.device;
+                handles.graphics_queue = graphics_queue_;
+                handles.graphics_queue_family = graphics_queue_family_;
+                return handles;
             }
         } // namespace vulkan
 

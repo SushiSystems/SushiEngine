@@ -8,6 +8,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Changed
+- Editor now presents through Vulkan instead of OpenGL. The `se_editor` shell keeps
+  its SDL2 window and Dear ImGui dockspace but renders through the engine's Vulkan
+  renderer (`sushi_render`), so the same device that will draw the viewport also
+  draws the UI. The change is layered behind three narrow seams so the app loop
+  (`editor/main.cpp`) names no windowing or graphics API directly: a windowing seam
+  (`editor/platform_window.hpp` `IPlatformWindow`, implemented by
+  `editor/sdl_window.*`), the renderer's presentation facade
+  (`include/SushiEngine/render/window_renderer.hpp` `IWindowRenderer` /
+  `create_window_renderer()`, Vulkan implementation
+  `render/rhi/vulkan/vulkan_window_renderer.*` — device + swapchain + frame sync,
+  transparent swapchain rebuild on resize), and the Dear ImGui ↔ Vulkan adapter
+  (`editor/imgui_backend.*`, the one editor component that speaks Vulkan). The RHI
+  device (`render/rhi/device.hpp`) gained a `SurfaceFactory` hook and
+  `required_instance_extensions` so the host creates the presentation surface without
+  the renderer ever calling a windowing library, plus a `native_handles()` escape
+  hatch the ImGui Vulkan backend uses. Turning `SE_BUILD_EDITOR` on now implies
+  `SE_BUILD_RENDER`. The SDL2 dependency now requires its `[vulkan]` feature
+  (`cli/sushistack.deps.toml`); the unused OpenGL dependency was removed.
+
 ### Added
 - Renderer foundation (`render/`, `include/SushiEngine/render/`): the first cut of a
   greenfield Vulkan 1.3 renderer, gated behind the `SE_BUILD_RENDER` CMake option

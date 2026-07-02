@@ -38,8 +38,10 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace SushiEngine
 {
@@ -51,6 +53,21 @@ namespace SushiEngine
             HighPerformance, /**< Prefer a discrete GPU (default). */
             LowPower         /**< Prefer an integrated GPU. */
         };
+
+        /**
+         * @brief A platform hook that creates a presentation surface for the backend.
+         *
+         * The renderer never talks to a windowing library; the host (editor) does.
+         * Given the backend's just-created instance handle, the host creates a
+         * surface on its window and returns it. Both handles cross the seam as
+         * @c std::uint64_t so no Vulkan (or Win32/X11) type leaks into this header —
+         * a non-Vulkan backend would interpret them under its own convention. A null
+         * factory means a headless device with no presentation surface.
+         *
+         * @param instance_handle The backend instance (a VkInstance for Vulkan).
+         * @return The created surface handle (a VkSurfaceKHR for Vulkan).
+         */
+        using SurfaceFactory = std::function<std::uint64_t(std::uint64_t instance_handle)>;
 
         /**
          * @brief Parameters for bringing up a graphics device.
@@ -66,6 +83,37 @@ namespace SushiEngine
             bool enable_validation = false;
             DevicePreference preference = DevicePreference::HighPerformance;
             const std::array<std::uint8_t, 16>* required_uuid = nullptr;
+
+            /**
+             * @brief Instance extensions the host requires (e.g. its window-system
+             * surface extensions). Empty for a headless device.
+             */
+            std::vector<std::string> required_instance_extensions;
+
+            /**
+             * @brief Host hook that creates a presentation surface once the instance
+             * exists. Null selects a headless device (the render_probe path).
+             */
+            SurfaceFactory surface_factory;
+        };
+
+        /**
+         * @brief Raw backend handles for adapters that must speak the native API.
+         *
+         * The one deliberate escape hatch from the abstraction: a component that is
+         * intrinsically tied to the graphics API (the editor's Dear ImGui Vulkan
+         * backend) needs the live handles. They are exposed as @c void* / integers so
+         * this header stays API-neutral; a Vulkan consumer reinterprets them to
+         * VkInstance, VkPhysicalDevice, VkDevice, and VkQueue. App and panel code use
+         * the abstract surface and never touch this.
+         */
+        struct NativeDeviceHandles
+        {
+            void* instance = nullptr;
+            void* physical_device = nullptr;
+            void* device = nullptr;
+            void* graphics_queue = nullptr;
+            std::uint32_t graphics_queue_family = 0;
         };
 
         /**
@@ -99,6 +147,16 @@ namespace SushiEngine
                  * @return Name, UUID, and capability summary of the device in use.
                  */
                 virtual const DeviceInfo& info() const noexcept = 0;
+
+                /**
+                 * @brief Raw backend handles for a native-API adapter.
+                 *
+                 * See @ref NativeDeviceHandles: the escape hatch the ImGui Vulkan
+                 * backend needs. Ordinary consumers never call this.
+                 *
+                 * @return The live instance/device/queue handles.
+                 */
+                virtual NativeDeviceHandles native_handles() const noexcept = 0;
         };
 
         /**

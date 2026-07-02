@@ -38,16 +38,23 @@ add_sushi_sycl_executable(sandbox sandbox/main.cpp)
 add_sushi_sycl_executable(pgs_demo examples/pgs_demo.cpp)
 
 # --- Optional subdirectories --------------------------------------------------
-# The Unity-style ImGui editor shell. OFF by default (see ProjectOptions); it is a
-# plain C++ target — no runtime link, no SYCL — so it builds on a stock toolchain.
+# The editor presents through the Vulkan renderer, so turning the editor on turns
+# the renderer on too. Render must be added before the editor so the sushi_render
+# target exists when the editor links it.
 if(SE_BUILD_EDITOR)
-    add_subdirectory(editor)
+    set(SE_BUILD_RENDER ON)
 endif()
 
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
 # (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.
 if(SE_BUILD_RENDER)
     add_subdirectory(render)
+endif()
+
+# The Unity-style ImGui editor shell. OFF by default (see ProjectOptions); a plain
+# C++ + Vulkan target (no runtime link, no SYCL) — it builds on a stock toolchain.
+if(SE_BUILD_EDITOR)
+    add_subdirectory(editor)
 endif()
 
 # One SYCL test binary against the real runtime (no mocks). OFF by default.

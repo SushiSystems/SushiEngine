@@ -1,19 +1,30 @@
 # ============================================================================
 # SushiEngine editor
 #
-# A Unity-style editor shell: an SDL2 + OpenGL window hosting Dear ImGui (docking
-# branch, vendored at third_party/imgui). This first cut is a bare dockspace and
-# placeholder panel; later steps wire in a World/Schedule, panels, and a viewport.
+# A Unity-style editor shell: a Vulkan-backed SDL2 window hosting Dear ImGui
+# (docking branch, vendored at third_party/imgui). It presents through the engine's
+# Vulkan renderer (sushi_render) rather than OpenGL, so the same device that draws
+# the viewport also draws the UI. Later steps wire in a live World and viewport.
 #
-# OS-agnostic and CMake-clean: SDL2 and OpenGL come from the platform's package
-# manager (vcpkg on Windows, the system on Linux/macOS) via find_package; ImGui is
-# vendored as a submodule and compiled here, the idiomatic way to ship it. The
-# editor is NOT a SYCL translation unit yet, so it neither links the runtime nor
-# needs a SYCL compiler — keeping this lane buildable on a stock toolchain.
+# OS-agnostic and CMake-clean: SDL2 comes from the platform's package manager
+# (vcpkg on Windows, the system on Linux/macOS) via find_package; ImGui is vendored
+# as a submodule and compiled here, the idiomatic way to ship it. The editor is NOT
+# a SYCL translation unit, so it does not link the runtime directly — the live world
+# arrives behind the plain-C++ simulation seam. It requires SE_BUILD_RENDER for the
+# Vulkan backend (the top-level CMake turns render on whenever the editor is on).
 # ============================================================================
 
+if(NOT TARGET sushi_render)
+    message(FATAL_ERROR
+        "The editor needs the Vulkan renderer. Configure with -DSE_BUILD_RENDER=ON "
+        "(the top-level CMake enables it automatically when SE_BUILD_EDITOR is on).")
+endif()
+
 find_package(SDL2 CONFIG REQUIRED)
-find_package(OpenGL REQUIRED)
+# The imported Vulkan targets are directory-scoped; the renderer's find_package in
+# render/ does not export them here, so the editor resolves them itself.
+find_package(VulkanHeaders CONFIG REQUIRED)
+find_package(VulkanLoader CONFIG REQUIRED)
 
 set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui")
 if(NOT EXISTS "${IMGUI_DIR}/imgui.cpp")
@@ -22,8 +33,9 @@ if(NOT EXISTS "${IMGUI_DIR}/imgui.cpp")
         "Initialize submodules: git submodule update --init --recursive")
 endif()
 
-# ImGui core plus the SDL2 platform backend and the OpenGL3 renderer backend. The
-# GL3 backend carries its own loader, so no GLEW/glad is required.
+# ImGui core plus the SDL2 platform backend and the Vulkan renderer backend. The
+# Vulkan backend links the loader for its prototype calls; the color format is fed
+# in at init time (dynamic rendering, no render-pass object).
 add_library(sushi_imgui STATIC
     "${IMGUI_DIR}/imgui.cpp"
     "${IMGUI_DIR}/imgui_draw.cpp"
@@ -32,15 +44,19 @@ add_library(sushi_imgui STATIC
     "${IMGUI_DIR}/imgui_demo.cpp"
     "${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp"
-    "${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp")
+    "${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp")
 target_include_directories(sushi_imgui PUBLIC
     "${IMGUI_DIR}"
     "${IMGUI_DIR}/backends")
-target_link_libraries(sushi_imgui PUBLIC SDL2::SDL2 OpenGL::GL)
+target_link_libraries(sushi_imgui PUBLIC SDL2::SDL2 Vulkan::Headers Vulkan::Loader)
 target_compile_features(sushi_imgui PUBLIC cxx_std_17)
 
-add_executable(se_editor main.cpp editor_panels.cpp)
-target_link_libraries(se_editor PRIVATE sushi_imgui)
+add_executable(se_editor
+    main.cpp
+    editor_panels.cpp
+    sdl_window.cpp
+    imgui_backend.cpp)
+target_link_libraries(se_editor PRIVATE sushi_imgui sushi_render)
 # SDL2 defines SDL_main on some platforms (Windows); link the entry shim when the
 # target exists so WinMain resolves without forcing it on Linux/macOS.
 if(TARGET SDL2::SDL2main)

@@ -24,18 +24,11 @@
 depends_on = ["sushiruntime"]
 
 [sdl2]
-description   = "SDL2 window/input layer for the editor shell (se editor). Editor is OFF by default, so this is optional for a plain library build."
+description   = "SDL2 window/input/Vulkan-surface layer for the editor shell (se editor). The [vulkan] feature enables SDL's Vulkan surface path, which the editor's Vulkan backend requires. Editor is OFF by default, so this is optional for a plain library build."
 required      = false
 linux_apt     = ["libsdl2-dev"]
-windows_vcpkg = ["sdl2"]
+windows_vcpkg = ["sdl2[vulkan]"]
 check_cmd     = ["pkg-config", "--exists", "sdl2"]
-
-[opengl]
-description   = "OpenGL development headers for the editor's ImGui renderer backend. System-provided on Windows; a -dev package on Linux."
-required      = false
-linux_apt     = ["libgl-dev"]
-windows_vcpkg = []
-check_cmd     = ["pkg-config", "--exists", "gl"]
 
 [vulkan-headers]
 description   = "Vulkan API headers for the renderer (se build --render). Renderer is OFF by default, so this is optional for a plain library build."

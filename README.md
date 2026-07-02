@@ -21,11 +21,14 @@ device code of its own; kernels are instantiated in the consuming translation un
 - **Physics** (`include/SushiEngine/physics/`). A Projected Gauss-Seidel constraint
   solver parallelised by graph colouring. Generic over the constraint type;
   `DistanceConstraint` is provided.
-- **Editor** (`editor/`). An SDL2 + OpenGL + Dear ImGui desktop application with a
-  docking layout: Hierarchy, Inspector, Project browser, Text Editor, Toolbar,
-  Console, and Statistics panels. It operates on an editor-owned scene model and
-  does not link the runtime, so it builds without a SYCL toolchain. It does not yet
-  drive a live ECS world or render a viewport.
+- **Editor** (`editor/`). An SDL2 + Dear ImGui desktop application that presents
+  through the engine's Vulkan renderer, with a docking layout: Hierarchy, Inspector,
+  Project browser, Text Editor, Toolbar, Console, and Statistics panels. The window,
+  the Vulkan presentation, and the ImGui/Vulkan glue sit behind narrow seams
+  (`platform_window.hpp`, `render/window_renderer.hpp`, `imgui_backend.*`). It
+  operates on an editor-owned scene model and does not link the runtime directly.
+  Turning the editor on builds the renderer too; it needs SDL2 with its `[vulkan]`
+  feature. A live ECS world and a viewport follow.
 - **`se` CLI** (`cli/`). A Python/Typer tool that wraps configure/build/test/run.
 
 ## Repository layout

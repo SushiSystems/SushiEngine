@@ -21,26 +21,28 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Editor shell: an SDL2 + OpenGL window hosting Dear ImGui with a full-window
+// Editor shell: a Vulkan-backed window hosting Dear ImGui with a full-window
 // dockspace and a Unity-style panel set — Hierarchy, Inspector, Project, and a
-// text editor. It edits an editor-side scene and the on-disk project; it draws no
-// live engine state yet. Keeping this shell free of the runtime means it builds
-// and stays green without a SYCL toolchain, so the editor and its CI lane can be
-// proven independently of the simulation it will eventually host.
+// text editor. It edits an editor-side scene and the on-disk project; a live
+// viewport and world follow in later increments. The window (SdlWindow), the
+// graphics device and swapchain (render::IWindowRenderer), and the ImGui/Vulkan
+// glue (ImGuiBackend) sit behind narrow seams, so this loop names no windowing or
+// graphics API directly and a different backend could replace either.
 
+#include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
-
-#include <SDL.h>
-#include <SDL_opengl.h>
 
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <backends/imgui_impl_sdl2.h>
-#include <backends/imgui_impl_opengl3.h>
+
+#include <SushiEngine/render/window_renderer.hpp>
 
 #include "editor_context.hpp"
 #include "editor_panels.hpp"
+#include "imgui_backend.hpp"
+#include "sdl_window.hpp"
 
 namespace
 {
@@ -82,109 +84,78 @@ namespace
 
 int main(int, char**)
 {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
+    try
     {
-        std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
-        return 1;
-    }
+        sushi::editor::SdlWindow window("SushiEngine Editor", 1600, 900);
 
-    // Request an OpenGL 3.3 core context — enough for ImGui's GL3 backend, which
-    // carries its own function loader, so no GLEW/glad dependency is needed.
-    const char* glsl_version = "#version 330";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        window.drawable_size(width, height);
 
-    const auto window_flags = static_cast<SDL_WindowFlags>(
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-    SDL_Window* window = SDL_CreateWindow(
-        "SushiEngine Editor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1600, 900, window_flags);
-    if (window == nullptr)
-    {
-        std::fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // vsync
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-    ImGui::StyleColorsDark();
-    ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
-    ImGui_ImplOpenGL3_Init(glsl_version);
-
-    sushi::editor::EditorContext context;
-    context.project_root = std::filesystem::current_path().string();
-    context.current_directory = context.project_root;
-
-    // Seed a small scene so the hierarchy and inspector are populated on first run.
-    sushi::editor::SceneNode* camera = context.scene.create_node("Main Camera");
-    context.scene.create_node("Directional Light");
-    sushi::editor::SceneNode* root = context.scene.create_node("Scene Root");
-    context.scene.create_node("Child A", root);
-    context.scene.create_node("Child B", root);
-    context.selected_node = camera->id;
-    sushi::editor::editor_log(context, "Editor ready.");
-
-    bool running = true;
-    while (running)
-    {
-        SDL_Event event;
-        while (SDL_PollEvent(&event))
+        SushiEngine::render::WindowRendererDesc desc;
+        desc.required_instance_extensions = window.vulkan_instance_extensions();
+        desc.surface_factory = [&window](std::uint64_t instance)
         {
-            ImGui_ImplSDL2_ProcessEvent(&event);
-            if (event.type == SDL_QUIT)
-                running = false;
-            if (event.type == SDL_WINDOWEVENT &&
-                event.window.event == SDL_WINDOWEVENT_CLOSE &&
-                event.window.windowID == SDL_GetWindowID(window))
-                running = false;
+            return window.create_vulkan_surface(instance);
+        };
+        desc.width = width != 0 ? width : 1600;
+        desc.height = height != 0 ? height : 900;
+        std::unique_ptr<SushiEngine::render::IWindowRenderer> renderer =
+            SushiEngine::render::create_window_renderer(desc);
+
+        sushi::editor::ImGuiBackend imgui(window, *renderer);
+
+        sushi::editor::EditorContext context;
+        context.project_root = std::filesystem::current_path().string();
+        context.current_directory = context.project_root;
+
+        // Seed a small scene so the hierarchy and inspector are populated on first run.
+        sushi::editor::SceneNode* camera = context.scene.create_node("Main Camera");
+        context.scene.create_node("Directional Light");
+        sushi::editor::SceneNode* root = context.scene.create_node("Scene Root");
+        context.scene.create_node("Child A", root);
+        context.scene.create_node("Child B", root);
+        context.selected_node = camera->id;
+        sushi::editor::editor_log(context, "Editor ready (Vulkan).");
+
+        bool running = true;
+        while (running)
+        {
+            running = window.pump_events();
+
+            imgui.new_frame();
+
+            draw_dockspace();
+            sushi::editor::draw_menu_bar(context, running);
+            sushi::editor::draw_status_bar(context);
+            sushi::editor::draw_toolbar_panel(context);
+            sushi::editor::draw_hierarchy_panel(context);
+            sushi::editor::draw_inspector_panel(context);
+            sushi::editor::draw_project_panel(context);
+            sushi::editor::draw_text_editor_panel(context);
+            sushi::editor::draw_console_panel(context);
+            sushi::editor::draw_statistics_panel(context);
+            if (context.show_imgui_demo)
+                ImGui::ShowDemoWindow(&context.show_imgui_demo);
+
+            window.drawable_size(width, height);
+            if (void* command_buffer = renderer->begin_frame(width, height))
+            {
+                imgui.render(command_buffer);
+                renderer->end_frame();
+            }
+            else
+            {
+                ImGui::EndFrame(); // no frame presented (minimized/resize); close the UI frame
+            }
         }
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        draw_dockspace();
-        sushi::editor::draw_menu_bar(context, running);
-        sushi::editor::draw_status_bar(context);
-        sushi::editor::draw_toolbar_panel(context);
-        sushi::editor::draw_hierarchy_panel(context);
-        sushi::editor::draw_inspector_panel(context);
-        sushi::editor::draw_project_panel(context);
-        sushi::editor::draw_text_editor_panel(context);
-        sushi::editor::draw_console_panel(context);
-        sushi::editor::draw_statistics_panel(context);
-        if (context.show_imgui_demo)
-            ImGui::ShowDemoWindow(&context.show_imgui_demo);
-
-        ImGui::Render();
-        int w = 0, h = 0;
-        SDL_GL_GetDrawableSize(window, &w, &h);
-        glViewport(0, 0, w, h);
-        glClearColor(0.10f, 0.11f, 0.12f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        SDL_GL_SwapWindow(window);
+        renderer->wait_idle();
+        return 0;
     }
-
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
-
-    SDL_GL_DeleteContext(gl_context);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return 0;
+    catch (const std::exception& error)
+    {
+        std::fprintf(stderr, "SushiEngine editor: %s\n", error.what());
+        return 1;
+    }
 }
