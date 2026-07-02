@@ -185,6 +185,17 @@ default application, `ShellExecuteW` on Windows). The project root defaults to
 persisted as `Preferences::last_project_root` once resolved, so authored project files
 never mix with engine source.
 
+Scene persistence (`editor/scene_serializer.*`, `ISceneSerializer`-free — it is two free
+functions, `save_scene`/`load_scene`, since there is only one format) writes/reads a
+`.sushiscene` JSON file purely through `IWorldEditor`'s existing query/mutate surface,
+so it adds no engine-side type. Parent links are stored as indices into the saved
+entity array rather than raw `EntityId`s (ids are not guaranteed stable across a
+destroy-and-reload); loading destroys every existing entity, recreates the file's in
+order, and resolves parent indices in a second pass once all entities exist, so a
+child listed before its parent in the file still resolves correctly. `File ▸ Save
+Scene`/`Save Scene As...` and the Project panel's double-click/`Open` on a
+`.sushiscene` file are the only entry points; undo/redo is a separate, later increment.
+
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
 plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.

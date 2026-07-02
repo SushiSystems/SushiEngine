@@ -105,6 +105,13 @@ namespace sushi::editor
         std::string project_root;
         std::string current_directory;
 
+        // The scene currently open, if any (empty means unsaved/new). Save writes
+        // here directly; Save As and the Save-As-prompted first save go through
+        // `show_save_scene_as`, an inline filename popup rooted at `project_root`.
+        std::string scene_path;
+        bool show_save_scene_as = false;
+        std::string save_scene_as_name;
+
         // Project panel state: the single selected file/folder (full path, empty if
         // none), the path currently in inline rename, and the name-search filter
         // applied to the current folder's contents.

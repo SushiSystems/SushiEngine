@@ -111,6 +111,17 @@ namespace sushi::editor
     void draw_preferences_window(EditorContext& context);
 
     /**
+     * @brief Draw the modal "Save Scene As" filename prompt when @c show_save_scene_as is set.
+     *
+     * A single-field popup rooted at @ref EditorContext::project_root; on confirm it
+     * writes the `.sushiscene` file via @ref save_scene and records the path in
+     * @ref EditorContext::scene_path so a later Save goes straight to disk.
+     *
+     * @param context Shared editor state; edits the save-as buffer and the scene path.
+     */
+    void draw_save_scene_as_modal(EditorContext& context);
+
+    /**
      * @brief Apply a theme to ImGui's active style.
      *
      * Kept as a free function so both startup (from the loaded preferences) and the

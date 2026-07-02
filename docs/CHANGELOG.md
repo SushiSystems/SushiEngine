@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **`.sushiscene` save/open.** `File ▸ Save Scene` / `Save Scene As...` write the live
+  world to a JSON `.sushiscene` file (`editor/scene_serializer.*`); double-clicking one
+  in the Project panel (or its context menu's Open) clears the world and reloads it.
+  Serialization goes only through `IWorldEditor`'s existing query/mutate surface — no
+  new engine-side interface — so it names no runtime or ECS type. Parent links are
+  written as indices into the saved array rather than raw `EntityId`s, since ids are
+  not stable across a destroy-and-reload; a load resolves them only after every entity
+  in the file exists, so a child can be listed before its parent. Undo/redo remains a
+  separate, not-yet-started increment.
 - **Hierarchy parenting via drag-and-drop.** Entities can now be nested: dragging one
   onto another in the Hierarchy reparents it (dropping on empty space unparents back
   to root), with a per-child cycle guard so an entity can never end up as its own

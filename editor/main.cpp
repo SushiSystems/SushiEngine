@@ -332,6 +332,7 @@ int main(int, char**)
             sushi::editor::draw_console_panel(context);
             sushi::editor::draw_statistics_panel(context);
             sushi::editor::draw_preferences_window(context);
+            sushi::editor::draw_save_scene_as_modal(context);
 
             // Persist preferences once per frame after any edit, and apply the fields
             // that take effect live (the camera speed; theme is applied on change).

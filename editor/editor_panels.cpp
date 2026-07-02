@@ -23,6 +23,8 @@
 
 #include "editor_panels.hpp"
 
+#include "scene_serializer.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -325,6 +327,25 @@ namespace sushi::editor
             {
                 context.selected_entity = world->create("Entity");
                 editor_log(context, "Created entity 'Entity'.");
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Save Scene", nullptr, false, world != nullptr))
+            {
+                if (context.scene_path.empty())
+                {
+                    context.save_scene_as_name = "Scene.sushiscene";
+                    context.show_save_scene_as = true;
+                }
+                else if (save_scene(*world, context.scene_path))
+                    editor_log(context, "Saved scene '" + context.scene_path + "'.");
+                else
+                    editor_log(context, "Failed to save scene '" + context.scene_path + "'.");
+            }
+            if (ImGui::MenuItem("Save Scene As...", nullptr, false, world != nullptr))
+            {
+                context.save_scene_as_name =
+                    context.scene_path.empty() ? "Scene.sushiscene" : fs::path(context.scene_path).filename().string();
+                context.show_save_scene_as = true;
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Save", "Ctrl+S", false,
@@ -845,6 +866,16 @@ namespace sushi::editor
                     {
                         if (is_dir)
                             context.current_directory = path_string;
+                        else if (entry.path().extension() == ".sushiscene")
+                        {
+                            IWorldEditor* world = world_of(context);
+                            if (world != nullptr && load_scene(*world, path_string))
+                            {
+                                context.scene_path = path_string;
+                                context.selected_entity = NULL_ENTITY;
+                                editor_log(context, "Loaded scene '" + path_string + "'.");
+                            }
+                        }
                         else if (has_text_extension(entry.path()))
                             open_document(context, entry.path());
                         else
@@ -857,7 +888,17 @@ namespace sushi::editor
                     context.selected_project_path = path_string;
                     if (!is_dir && ImGui::MenuItem("Open"))
                     {
-                        if (has_text_extension(entry.path()))
+                        if (entry.path().extension() == ".sushiscene")
+                        {
+                            IWorldEditor* world = world_of(context);
+                            if (world != nullptr && load_scene(*world, path_string))
+                            {
+                                context.scene_path = path_string;
+                                context.selected_entity = NULL_ENTITY;
+                                editor_log(context, "Loaded scene '" + path_string + "'.");
+                            }
+                        }
+                        else if (has_text_extension(entry.path()))
                             open_document(context, entry.path());
                         else
                             open_with_default_app(entry.path());
@@ -1162,6 +1203,53 @@ namespace sushi::editor
             case EditorTheme::Light:   ImGui::StyleColorsLight(); break;
             case EditorTheme::Classic: ImGui::StyleColorsClassic(); break;
             case EditorTheme::Dark:    ImGui::StyleColorsDark(); break;
+        }
+    }
+
+    void draw_save_scene_as_modal(EditorContext& context)
+    {
+        if (!context.show_save_scene_as)
+            return;
+
+        const char* popup_id = "Save Scene As";
+        ImGui::OpenPopup(popup_id);
+        if (ImGui::BeginPopupModal(popup_id, &context.show_save_scene_as,
+                                   ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextDisabled("%s", context.project_root.c_str());
+            ImGui::SetNextItemWidth(320.0f);
+            const bool commit = ImGui::InputText("##save_scene_name", &context.save_scene_as_name,
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+
+            const bool confirmed = ImGui::Button("Save") || commit;
+            ImGui::SameLine();
+            const bool cancelled = ImGui::Button("Cancel");
+
+            if (confirmed && !context.save_scene_as_name.empty())
+            {
+                fs::path path = fs::path(context.project_root) / context.save_scene_as_name;
+                if (path.extension() != ".sushiscene")
+                    path += ".sushiscene";
+                IWorldEditor* world = world_of(context);
+                if (world != nullptr && save_scene(*world, path.string()))
+                {
+                    context.scene_path = path.string();
+                    editor_log(context, "Saved scene '" + context.scene_path + "'.");
+                }
+                else
+                {
+                    editor_log(context, "Failed to save scene '" + path.string() + "'.");
+                }
+                context.show_save_scene_as = false;
+                ImGui::CloseCurrentPopup();
+            }
+            else if (cancelled)
+            {
+                context.show_save_scene_as = false;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
         }
     }
 
