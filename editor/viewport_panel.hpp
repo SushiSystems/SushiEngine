@@ -78,9 +78,13 @@ namespace sushi::editor
              * @param count       Number of instances.
              * @param selected_id The highlighted instance id; updated when the user
              *                    left-clicks the viewport to pick (0 clears it).
+             * @param gizmo_position When non-null, a translate gizmo is drawn at this
+             *                    world position and dragging it writes the new position
+             *                    back through the pointer. Null draws no gizmo.
              */
             void draw(bool& open, const SushiEngine::render::MeshInstance* instances,
-                      std::size_t count, std::uint32_t& selected_id);
+                      std::size_t count, std::uint32_t& selected_id,
+                      SushiEngine::Vec3* gizmo_position = nullptr);
 
         private:
             void resize_to(std::uint32_t width, std::uint32_t height);
@@ -93,6 +97,15 @@ namespace sushi::editor
             std::unique_ptr<SushiEngine::render::ISceneView> view_;
             std::vector<ImTextureID> slot_textures_;
             bool looking_ = false;
+
+            // Translate-gizmo drag state. gizmo_axis_ is the axis being dragged (0=X,
+            // 1=Y, 2=Z, -1=none); the rest is captured at drag start so the mapping
+            // from mouse pixels to world units stays stable while the object moves.
+            int gizmo_axis_ = -1;
+            ImVec2 gizmo_start_mouse_{};
+            ImVec2 gizmo_axis_screen_{};
+            float gizmo_world_per_pixel_ = 0.0f;
+            SushiEngine::Vec3 gizmo_start_position_{};
     };
 } // namespace sushi::editor
 

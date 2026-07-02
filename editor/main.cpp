@@ -173,12 +173,39 @@ int main(int, char**)
             // renderer speaks 32-bit ids; entity ids stay small, so the round-trip is
             // lossless. A left-click in either viewport picks the entity under it.
             std::uint32_t selected = static_cast<std::uint32_t>(context.selected_entity);
+
+            // The Scene view gets a translate gizmo at the selection; dragging it edits
+            // a local copy of the position that is written back to the world afterwards.
+            SushiEngine::sim::IWorldEditor& world = simulation->world();
+            const bool has_selection = world.exists(context.selected_entity);
+            SushiEngine::sim::EntityTransform selected_transform;
+            SushiEngine::Vec3 gizmo_position;
+            SushiEngine::Vec3* gizmo_pointer = nullptr;
+            if (has_selection)
+            {
+                selected_transform = world.transform(context.selected_entity);
+                gizmo_position = selected_transform.position;
+                gizmo_pointer = &gizmo_position;
+            }
+
             if (context.panels.scene_view)
                 scene_view.draw(context.panels.scene_view, instances.data(), instances.size(),
-                                selected);
+                                selected, gizmo_pointer);
             if (context.panels.game_view)
                 game_view.draw(context.panels.game_view, instances.data(), instances.size(),
                                selected);
+
+            // Apply a gizmo drag only when the selection did not change this frame (a
+            // pick and a drag are mutually exclusive) and the position actually moved.
+            if (has_selection &&
+                selected == static_cast<std::uint32_t>(context.selected_entity) &&
+                (gizmo_position.x != selected_transform.position.x ||
+                 gizmo_position.y != selected_transform.position.y ||
+                 gizmo_position.z != selected_transform.position.z))
+            {
+                selected_transform.position = gizmo_position;
+                world.set_transform(context.selected_entity, selected_transform);
+            }
             context.selected_entity = selected;
             sushi::editor::draw_hierarchy_panel(context);
             sushi::editor::draw_inspector_panel(context);

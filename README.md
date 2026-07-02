@@ -30,7 +30,8 @@ device code of its own; kernels are instantiated in the consuming translation un
   Inspector edits the selection's name, visibility, transform, and colour straight
   through to the ECS via the `IWorldEditor` surface. Left-clicking a cube in the
   viewport selects it (GPU id-buffer picking), highlighted and synced with the
-  Hierarchy. Turning the editor on builds the renderer
+  Hierarchy, and a translate gizmo moves it. The scene is fully interactive: create,
+  select, move, edit, and destroy entities against the one live world. Turning the editor on builds the renderer
   too; it needs SDL2 with its `[vulkan]` feature. A **Scene** panel shows a
   Vulkan-rendered 3D viewport navigated with a Unity-style fly camera — right-mouse
   look plus WASD/QE and Shift to boost. The viewport draws a **live ECS world**

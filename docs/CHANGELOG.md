@@ -9,6 +9,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Translate gizmo in the Scene viewport.** The selected entity gets three world-axis
+  handles (drawn over the viewport with ImGui's draw list, no extra Vulkan), and
+  dragging one moves the entity along that axis, written straight back to its transform
+  through `IWorldEditor`. Grabbing a handle never reselects (it takes priority over
+  picking), and the mouse-pixel-to-world mapping is captured at grab time so the drag
+  stays stable as the object moves. Combined with the Hierarchy's Add/Delete and the
+  GameObject menu, the scene is now fully interactive: create, select, move, edit, and
+  destroy entities.
 - **Click-to-select in the viewport (GPU id-buffer picking) with selection highlight.**
   The scene view now draws a second `R32_UINT` colour target alongside the shaded image,
   writing each instance's picking id per pixel (the grid writes none), copies it to a

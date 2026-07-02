@@ -156,7 +156,11 @@ that reads a library-neutral `InputState` (`editor/input_state.hpp`) the panel f
 from ImGui, and a `WorldCameraSource` (the **Game** view) posed each frame from the
 simulation's camera. So the same panel serves both viewports, the controller depends
 on no input source and stays unit-testable, and a new camera kind is a new
-implementation rather than a new panel.
+implementation rather than a new panel. Interaction closes the loop: a left-click picks
+via the id target and the Scene view draws a screen-space translate gizmo at the
+selection (ImGui draw list, projecting through the camera), so an entity is created from
+the Hierarchy, selected in any viewport, moved with the gizmo, edited in the Inspector,
+and destroyed — all against the one live world.
 
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
