@@ -172,6 +172,21 @@ namespace SushiEngine
             }
 
             /**
+             * @brief Read-only host access to entity @p e's component of type @p T.
+             * @tparam T The component type to read.
+             * @param e An alive entity that has component @p T.
+             * @return A const reference into the shared-USM column.
+             */
+            template <typename T>
+            const T& get(Entity e) const noexcept
+            {
+                assert(alive(e) && "get() on a dead or stale entity");
+                const EntityRecord& rec = entities_[e.index];
+                const std::byte* base = rec.chunk->column(component_id<T>());
+                return *reinterpret_cast<const T*>(base + rec.row * sizeof(T));
+            }
+
+            /**
              * @brief All archetypes whose components include every id in @p required.
              * @param required A sorted set of component ids a system needs.
              * @return Pointers to the matching archetypes.

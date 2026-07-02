@@ -125,17 +125,12 @@ int main(int, char**)
             SushiEngine::sim::create_simulation();
         std::vector<SushiEngine::render::MeshInstance> instances;
 
+        // The world is the single source of truth for entities; the panels read and
+        // edit it through the injected simulation. There is no editor-side scene model.
         sushi::editor::EditorContext context;
+        context.simulation = simulation.get();
         context.project_root = std::filesystem::current_path().string();
         context.current_directory = context.project_root;
-
-        // Seed a small scene so the hierarchy and inspector are populated on first run.
-        sushi::editor::SceneNode* camera = context.scene.create_node("Main Camera");
-        context.scene.create_node("Directional Light");
-        sushi::editor::SceneNode* root = context.scene.create_node("Scene Root");
-        context.scene.create_node("Child A", root);
-        context.scene.create_node("Child B", root);
-        context.selected_node = camera->id;
         context.world_entity_count = simulation->entity_count();
         sushi::editor::editor_log(context, "Editor ready (Vulkan).");
         sushi::editor::editor_log(context, "Live world seeded; press Play to tick it.");

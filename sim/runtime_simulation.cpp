@@ -22,18 +22,27 @@
 /**************************************************************************/
 
 // The one SYCL translation unit behind the ISimulation seam: it owns a
-// SushiRuntime, an ECS World, and a Schedule, and drives a live world of spinning,
-// orbiting cubes. Two systems demonstrate the runtime's dependency tracker — "spin"
-// advances each cube's orientation, "orbit" advances its position — over disjoint
+// SushiRuntime, an ECS World, and a Schedule, and drives an editable live world.
+// Two systems demonstrate the runtime's dependency tracker — "spin" advances each
+// animated cube's orientation, "orbit" advances its position — over disjoint
 // components, so they run in parallel exactly as the sandbox proves. Every value a
 // kernel touches is precomputed on the host into a component (the per-step rotation
 // quaternion, the per-step orbit rotation as a cos/sin pair), so the kernels are
 // pure arithmetic and capture no host state, which is what makes them legal device
-// code. After each step an extract pass reads the columns back on the host and
-// composes model matrices into the RenderScene the editor draws.
+// code. The editor addresses entities by a stable EntityId this file maps onto the
+// ECS handle; names and visibility are host-side editor metadata, while transform
+// and colour are real components. Entities the editor creates carry no motion, so
+// they stay where they are placed and edited even while the world plays; only the
+// seeded demo cubes are driven by the two systems. After each step, and after any
+// edit, an extract pass reads the columns back on the host into the RenderScene the
+// editor draws.
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <SushiEngine/SushiEngine.hpp>
@@ -77,19 +86,19 @@ namespace SushiEngine
             };
 
             constexpr Scalar DT = Scalar(1.0 / 60.0);
-            constexpr std::size_t CUBE_COUNT = 24;
+            constexpr std::size_t SEED_CUBE_COUNT = 24;
             constexpr std::size_t CHUNK_CAPACITY = 256;
 
             /**
              * @brief The runtime-backed live world behind the ISimulation seam.
              *
-             * Constructs the runtime, world, and schedule; seeds the cubes; registers
-             * the two systems; and on each tick runs the schedule and extracts a fresh
-             * RenderScene. The extract is a host read of the shared-USM columns via
-             * `World::get`, composed into model matrices — the simple, correct path
-             * before device-shared interop lands.
+             * Constructs the runtime, world, and schedule; seeds the animated demo
+             * cubes; registers the two systems; and on each tick — and after each edit
+             * — extracts a fresh RenderScene. The extract is a host read of the
+             * shared-USM columns via `World::get`, composed into model matrices — the
+             * simple, correct path before device-shared interop lands.
              */
-            class RuntimeSimulation final : public ISimulation
+            class RuntimeSimulation final : public ISimulation, public IWorldEditor
             {
                 public:
                     RuntimeSimulation()
@@ -97,12 +106,17 @@ namespace SushiEngine
                           world_(runtime_, CHUNK_CAPACITY),
                           schedule_(runtime_)
                     {
+                        // Reserve both archetypes up front so neither the seed nor the
+                        // editor's first create allocates a chunk mid-run.
                         world_.reserve<Transform, Orientation, SpinStep, OrbitState, Tint>(
                             CHUNK_CAPACITY);
+                        world_.reserve<Transform, Orientation, Tint>(CHUNK_CAPACITY);
                         seed_world();
                         register_systems();
                         extract(); // a valid snapshot before the first tick
                     }
+
+                    // --- ISimulation -------------------------------------------------
 
                     void tick() override
                     {
@@ -117,12 +131,143 @@ namespace SushiEngine
 
                     std::size_t entity_count() const noexcept override
                     {
-                        return entities_.size();
+                        return order_.size();
+                    }
+
+                    IWorldEditor& world() noexcept override { return *this; }
+
+                    // --- IWorldEditor ------------------------------------------------
+
+                    std::vector<EntityId> entities() const override { return order_; }
+
+                    bool exists(EntityId id) const noexcept override
+                    {
+                        return records_.find(id) != records_.end();
+                    }
+
+                    std::string name(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->name : std::string{};
+                    }
+
+                    EntityTransform transform(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return EntityTransform{};
+                        const Transform& t = world_.get<Transform>(record->entity);
+                        const Orientation& o = world_.get<Orientation>(record->entity);
+                        EntityTransform out;
+                        out.position = t.position;
+                        out.rotation = o.rotation;
+                        out.scale = t.scale;
+                        return out;
+                    }
+
+                    Vec3 color(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return Vec3{};
+                        return world_.get<Tint>(record->entity).color;
+                    }
+
+                    bool visible(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->visible;
+                    }
+
+                    EntityId create(const std::string& display_name) override
+                    {
+                        const Entity entity = world_.spawn(Transform{}, Orientation{},
+                                                           Tint{Vec3{Scalar(0.8), Scalar(0.8),
+                                                                     Scalar(0.8)}});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        records_.emplace(id, Record{entity, display_name, true, false});
+                        extract();
+                        return id;
+                    }
+
+                    void destroy(EntityId id) override
+                    {
+                        const auto it = records_.find(id);
+                        if (it == records_.end())
+                            return;
+                        CommandBuffer commands;
+                        commands.destroy(it->second.entity);
+                        commands.apply(world_);
+                        records_.erase(it);
+                        order_.erase(std::remove(order_.begin(), order_.end(), id),
+                                     order_.end());
+                        extract();
+                    }
+
+                    void set_name(EntityId id, const std::string& display_name) override
+                    {
+                        Record* record = find(id);
+                        if (record != nullptr)
+                            record->name = display_name;
+                    }
+
+                    void set_transform(EntityId id, const EntityTransform& value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return;
+                        Transform& t = world_.get<Transform>(record->entity);
+                        Orientation& o = world_.get<Orientation>(record->entity);
+                        t.position = value.position;
+                        t.scale = value.scale;
+                        o.rotation = value.rotation;
+                        extract();
+                    }
+
+                    void set_color(EntityId id, const Vec3& value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return;
+                        world_.get<Tint>(record->entity).color = value;
+                        extract();
+                    }
+
+                    void set_visible(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record != nullptr)
+                        {
+                            record->visible = value;
+                            extract();
+                        }
                     }
 
                 private:
+                    /** @brief The editor metadata paired with each entity's ECS handle. */
+                    struct Record
+                    {
+                        Entity entity;
+                        std::string name;
+                        bool visible = true;
+                        bool animated = false;
+                    };
+
+                    const Record* find(EntityId id) const noexcept
+                    {
+                        const auto it = records_.find(id);
+                        return it != records_.end() ? &it->second : nullptr;
+                    }
+
+                    Record* find(EntityId id) noexcept
+                    {
+                        const auto it = records_.find(id);
+                        return it != records_.end() ? &it->second : nullptr;
+                    }
+
                     /**
-                     * @brief Places the cubes on a ring and precomputes their motion.
+                     * @brief Places the demo cubes on a ring and precomputes their motion.
                      *
                      * Each cube gets a per-step spin quaternion and a per-step orbit
                      * rotation (as a cos/sin pair), both computed here on the host so
@@ -131,9 +276,9 @@ namespace SushiEngine
                     void seed_world()
                     {
                         const Vec3 spin_axis = normalize(Vec3{0, 1, 0});
-                        for (std::size_t i = 0; i < CUBE_COUNT; ++i)
+                        for (std::size_t i = 0; i < SEED_CUBE_COUNT; ++i)
                         {
-                            const Scalar t = Scalar(i) / Scalar(CUBE_COUNT);
+                            const Scalar t = Scalar(i) / Scalar(SEED_CUBE_COUNT);
                             const Scalar ring_angle = t * Scalar(6.2831853);
                             const Scalar radius = Scalar(4.5);
 
@@ -157,8 +302,13 @@ namespace SushiEngine
 
                             Tint tint{hue(t)};
 
-                            const Entity e = world_.spawn(transform, Orientation{}, spin, orbit, tint);
-                            entities_.push_back(e);
+                            const Entity entity =
+                                world_.spawn(transform, Orientation{}, spin, orbit, tint);
+                            const EntityId id = next_id_++;
+                            order_.push_back(id);
+                            char label[16];
+                            std::snprintf(label, sizeof(label), "Cube %02zu", i);
+                            records_.emplace(id, Record{entity, label, true, true});
                         }
 
                         scene_.camera.position = Vec3{0, Scalar(7), Scalar(12)};
@@ -174,7 +324,9 @@ namespace SushiEngine
                      *
                      * "spin" writes Orientation from the precomputed SpinStep; "orbit"
                      * writes Transform and advances OrbitState. Their write sets are
-                     * disjoint, so the dependency tracker runs them concurrently.
+                     * disjoint, so the dependency tracker runs them concurrently. Only
+                     * the seeded archetype carries SpinStep/OrbitState, so editor-created
+                     * entities (which lack them) are never matched and stay still.
                      */
                     void register_systems()
                     {
@@ -203,20 +355,26 @@ namespace SushiEngine
                      * @brief Reads the world's columns and rebuilds the render snapshot.
                      *
                      * A host read of the shared-USM component columns (via `World::get`)
-                     * composed into per-instance model matrices; the camera is static.
+                     * composed into per-instance model matrices; invisible entities are
+                     * skipped. Run after every tick and after every edit so the view
+                     * always matches the world.
                      */
                     void extract()
                     {
                         scene_.instances.clear();
-                        scene_.instances.reserve(entities_.size());
-                        for (const Entity e : entities_)
+                        scene_.instances.reserve(order_.size());
+                        for (const EntityId id : order_)
                         {
-                            if (!world_.alive(e))
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->visible ||
+                                !world_.alive(record->entity))
                                 continue;
-                            const Transform& transform = world_.get<Transform>(e);
-                            const Orientation& orientation = world_.get<Orientation>(e);
-                            const Tint& tint = world_.get<Tint>(e);
+                            const Transform& transform = world_.get<Transform>(record->entity);
+                            const Orientation& orientation =
+                                world_.get<Orientation>(record->entity);
+                            const Tint& tint = world_.get<Tint>(record->entity);
                             RenderInstance instance;
+                            instance.id = id;
                             instance.model = compose_transform(transform.position,
                                                                orientation.rotation, transform.scale);
                             instance.color = tint.color;
@@ -236,7 +394,9 @@ namespace SushiEngine
                     SushiRuntime::API::Runtime runtime_;
                     World world_;
                     Schedule schedule_;
-                    std::vector<Entity> entities_;
+                    std::vector<EntityId> order_;
+                    std::unordered_map<EntityId, Record> records_;
+                    EntityId next_id_ = 1;
                     RenderScene scene_;
             };
         } // namespace

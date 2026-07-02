@@ -38,7 +38,9 @@
  */
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
@@ -47,11 +49,32 @@ namespace SushiEngine
 {
     namespace sim
     {
-        /** @brief One drawable object extracted from the world: transform and colour. */
+        /**
+         * @brief A stable, editor-facing handle to one world entity.
+         *
+         * Assigned by the simulation and constant for the entity's lifetime, unlike
+         * the ECS's internal generation-checked handle. Zero is the null id (no
+         * entity), so a host can use it as an unselected sentinel.
+         */
+        using EntityId = std::uint64_t;
+
+        /** @brief The null entity id; no entity carries it. */
+        constexpr EntityId NULL_ENTITY = 0;
+
+        /** @brief An entity's authorable transform, as the inspector edits it. */
+        struct EntityTransform
+        {
+            Vec3 position;               /**< World position. */
+            Quat rotation;               /**< Orientation. */
+            Vec3 scale{Vec3{1, 1, 1}};   /**< Per-axis scale. */
+        };
+
+        /** @brief One drawable object extracted from the world: identity, transform, colour. */
         struct RenderInstance
         {
-            Mat4 model; /**< Object-to-world transform composed from the entity's state. */
-            Vec3 color; /**< Base colour. */
+            EntityId id = NULL_ENTITY; /**< The entity this instance draws, for picking. */
+            Mat4 model;                /**< Object-to-world transform composed from the entity's state. */
+            Vec3 color;                /**< Base colour. */
         };
 
         /**
@@ -86,11 +109,74 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The editor's read/write surface onto the live world.
+         *
+         * The query and mutation half of the seam, split from `ISimulation` so a panel
+         * that only inspects or edits entities depends on this narrow interface, not on
+         * the stepping engine (interface segregation). Entities are addressed by their
+         * stable `EntityId`; every mutation is applied to the world so the next
+         * extracted `RenderScene` reflects it. Names and visibility are editor metadata
+         * the simulation keeps host-side; transform and colour are backed by real ECS
+         * components.
+         */
+        class IWorldEditor
+        {
+            public:
+                virtual ~IWorldEditor() = default;
+
+                /** @brief The live entities in display order. */
+                virtual std::vector<EntityId> entities() const = 0;
+
+                /** @brief Whether @p id names a live entity. */
+                virtual bool exists(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's display name (empty if it does not exist). */
+                virtual std::string name(EntityId id) const = 0;
+
+                /** @brief The entity's transform (identity if it does not exist). */
+                virtual EntityTransform transform(EntityId id) const = 0;
+
+                /** @brief The entity's base colour (zero if it does not exist). */
+                virtual Vec3 color(EntityId id) const = 0;
+
+                /** @brief Whether the entity is drawn. */
+                virtual bool visible(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief Creates a static entity at the origin and selects nothing.
+                 *
+                 * The new entity carries no motion, so it stays where it is placed and
+                 * edited even while the world is playing (unlike the seeded demo cubes,
+                 * which their systems drive).
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create(const std::string& name) = 0;
+
+                /** @brief Destroys @p id; a no-op if it does not exist. */
+                virtual void destroy(EntityId id) = 0;
+
+                /** @brief Sets the entity's display name. */
+                virtual void set_name(EntityId id, const std::string& name) = 0;
+
+                /** @brief Writes the entity's transform components. */
+                virtual void set_transform(EntityId id, const EntityTransform& transform) = 0;
+
+                /** @brief Writes the entity's base colour. */
+                virtual void set_color(EntityId id, const Vec3& color) = 0;
+
+                /** @brief Sets whether the entity is drawn. */
+                virtual void set_visible(EntityId id, bool visible) = 0;
+        };
+
+        /**
          * @brief A live world a host ticks and draws without seeing the runtime.
          *
          * Owns the ECS world, its schedule, and the SushiRuntime that executes it.
          * `tick()` advances the world one fixed step; `render_scene()` returns the
-         * snapshot extracted after the most recent tick.
+         * snapshot extracted after the most recent tick; `world()` is the editor's
+         * read/write surface onto the same world.
          */
         class ISimulation
         {
@@ -112,6 +198,9 @@ namespace SushiEngine
 
                 /** @brief Number of live entities in the world. */
                 virtual std::size_t entity_count() const noexcept = 0;
+
+                /** @brief The editor's read/write surface onto this world. */
+                virtual IWorldEditor& world() noexcept = 0;
         };
 
         /**

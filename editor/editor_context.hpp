@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-#include "scene_model.hpp"
+#include <SushiEngine/sim/simulation.hpp>
 
 namespace sushi::editor
 {
@@ -92,8 +92,12 @@ namespace sushi::editor
      */
     struct EditorContext
     {
-        Scene scene;
-        std::uint64_t selected_node = 0;
+        // The live world, owned by main() and injected here; the panels edit it
+        // through the IWorldEditor surface. The world is the single source of truth
+        // for entities — there is no separate editor-side scene model.
+        SushiEngine::sim::ISimulation* simulation = nullptr;
+        SushiEngine::sim::EntityId selected_entity = SushiEngine::sim::NULL_ENTITY;
+        SushiEngine::sim::EntityId renaming_entity = SushiEngine::sim::NULL_ENTITY;
 
         std::string project_root;
         std::string current_directory;
@@ -105,7 +109,6 @@ namespace sushi::editor
         PlayState play_state = PlayState::Stopped;
 
         std::string hierarchy_filter;
-        std::uint64_t renaming_node = 0;
 
         std::vector<std::string> console_lines;
 

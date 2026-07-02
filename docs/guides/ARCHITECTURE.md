@@ -173,11 +173,24 @@ plain-toolchain lane is held by `sandbox` and `render_probe`, not the editor.
 
 Each `tick()` runs the schedule and an **extract** pass reads the world's shared-USM
 columns back on the host (via `World::get`) into a read-only `RenderScene`
-(`RenderInstance` transforms + a `CameraState`) the editor draws; the editor ticks
-only while the toolbar is Playing, binding the existing `PlayState`. The extract is a
-host copy today. A later interop milestone promotes it to a device-shared sink pinned
-to a render thread, so the scheduler can overlap the next step's simulation with the
-current step's draw and skip the round-trip. The editor GUI goes through Dear ImGui.
+(`RenderInstance` — an `EntityId` + transform + colour — and a `CameraState`) the
+editor draws; the editor ticks only while the toolbar is Playing, binding the existing
+`PlayState`. The extract is a host copy today. A later interop milestone promotes it to
+a device-shared sink pinned to a render thread, so the scheduler can overlap the next
+step's simulation with the current step's draw and skip the round-trip.
+
+The **world is the single source of truth for entities** — there is no separate
+editor-side scene model. The editor reads and writes it through `IWorldEditor`, split
+from `ISimulation` so a panel that only inspects or edits depends on the narrow surface
+(interface segregation): entities are addressed by a stable `EntityId`, queried
+(`entities`, `name`, `transform`, `color`, `visible`) and mutated (`create`, `destroy`,
+`set_name`, `set_transform`, `set_color`, `set_visible`). Transform and colour are real
+ECS components the surface writes through; names and visibility are host-side editor
+metadata the simulation keeps beside each entity's handle. Editor-created entities carry
+no motion components, so the spin/orbit systems never match them and they stay
+authorable while the world plays — only the seeded demo cubes are system-driven. The
+Hierarchy lists these entities and the Inspector edits the selection; the editor GUI
+goes through Dear ImGui.
 
 ## 6. The value-type seam
 

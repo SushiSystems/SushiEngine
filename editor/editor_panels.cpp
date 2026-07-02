@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -40,12 +41,13 @@ namespace fs = std::filesystem;
 
 namespace sushi::editor
 {
+    using SushiEngine::sim::EntityId;
+    using SushiEngine::sim::EntityTransform;
+    using SushiEngine::sim::IWorldEditor;
+    using SushiEngine::sim::NULL_ENTITY;
+
     namespace
     {
-        // The payload id used to carry a dragged node's id between the hierarchy's
-        // drag source and its drop targets. Kept local so nothing else can collide.
-        constexpr const char* HIERARCHY_DRAG_PAYLOAD = "SUSHI_NODE";
-
         // A file is opened into the text editor only when it looks textual; the
         // browser still lists everything, but double-clicking a binary is a no-op.
         bool has_text_extension(const fs::path& path)
@@ -114,140 +116,6 @@ namespace sushi::editor
             return out;
         }
 
-        // A node survives the hierarchy filter if it, or any descendant, contains the
-        // (already lower-cased) query — so filtering keeps ancestors visible as the
-        // path to a match rather than hiding a parent whose child matched.
-        bool subtree_matches(const SceneNode* node, const std::string& lower_query)
-        {
-            if (lower_query.empty())
-                return true;
-            if (to_lower(node->name).find(lower_query) != std::string::npos)
-                return true;
-            for (const auto& child : node->children)
-            {
-                if (subtree_matches(child.get(), lower_query))
-                    return true;
-            }
-            return false;
-        }
-
-        int count_nodes(const std::vector<std::unique_ptr<SceneNode>>& nodes)
-        {
-            int total = 0;
-            for (const auto& node : nodes)
-                total += 1 + count_nodes(node->children);
-            return total;
-        }
-
-        // Recursively draw one hierarchy node and its subtree, wiring selection,
-        // the right-click context menu, and drag-and-drop reparenting. A deferred
-        // (node, new_parent) request is returned via the out-params so the tree is
-        // never mutated mid-walk, which would invalidate the iterators above us.
-        void draw_hierarchy_node(EditorContext& context, SceneNode* node,
-                                 const std::string& lower_filter,
-                                 SceneNode*& reparent_child, SceneNode*& reparent_to,
-                                 bool& reparent_requested, SceneNode*& delete_target,
-                                 SceneNode*& add_child_target)
-        {
-            if (!subtree_matches(node, lower_filter))
-                return;
-
-            ImGui::PushID(static_cast<int>(node->id));
-
-            // Inline rename: while this node is the rename target, an autofocused
-            // text field stands in for the tree label. Committed on Enter or focus
-            // loss; children stay visible under a manual indent so the tree shape is
-            // preserved without a matching TreePop.
-            if (context.renaming_node == node->id)
-            {
-                ImGui::SetNextItemWidth(-FLT_MIN);
-                ImGui::SetKeyboardFocusHere();
-                if (ImGui::InputText("##rename", &node->name,
-                                     ImGuiInputTextFlags_EnterReturnsTrue |
-                                         ImGuiInputTextFlags_AutoSelectAll) ||
-                    ImGui::IsItemDeactivated())
-                {
-                    context.renaming_node = 0;
-                }
-
-                ImGui::Indent();
-                for (auto& child : node->children)
-                    draw_hierarchy_node(context, child.get(), lower_filter,
-                                        reparent_child, reparent_to,
-                                        reparent_requested, delete_target,
-                                        add_child_target);
-                ImGui::Unindent();
-                ImGui::PopID();
-                return;
-            }
-
-            ImGuiTreeNodeFlags flags =
-                ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
-                ImGuiTreeNodeFlags_DefaultOpen;
-            if (node->id == context.selected_node)
-                flags |= ImGuiTreeNodeFlags_Selected;
-            if (node->children.empty())
-                flags |= ImGuiTreeNodeFlags_Leaf;
-
-            const bool open = ImGui::TreeNodeEx(node->name.c_str(), flags);
-
-            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-                context.selected_node = node->id;
-            if (ImGui::IsItemHovered() &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-            {
-                context.renaming_node = node->id;
-                context.selected_node = node->id;
-            }
-
-            if (ImGui::BeginDragDropSource())
-            {
-                ImGui::SetDragDropPayload(HIERARCHY_DRAG_PAYLOAD, &node, sizeof(node));
-                ImGui::TextUnformatted(node->name.c_str());
-                ImGui::EndDragDropSource();
-            }
-            if (ImGui::BeginDragDropTarget())
-            {
-                if (const ImGuiPayload* payload =
-                        ImGui::AcceptDragDropPayload(HIERARCHY_DRAG_PAYLOAD))
-                {
-                    reparent_child = *static_cast<SceneNode* const*>(payload->Data);
-                    reparent_to = node;
-                    reparent_requested = true;
-                }
-                ImGui::EndDragDropTarget();
-            }
-
-            if (ImGui::BeginPopupContextItem())
-            {
-                context.selected_node = node->id;
-                if (ImGui::MenuItem("Rename"))
-                    context.renaming_node = node->id;
-                if (ImGui::MenuItem("Add Child"))
-                    add_child_target = node;
-                if (node->parent != nullptr && ImGui::MenuItem("Unparent"))
-                {
-                    reparent_child = node;
-                    reparent_to = nullptr;
-                    reparent_requested = true;
-                }
-                if (ImGui::MenuItem("Delete"))
-                    delete_target = node;
-                ImGui::EndPopup();
-            }
-
-            if (open)
-            {
-                for (auto& child : node->children)
-                    draw_hierarchy_node(context, child.get(), lower_filter,
-                                        reparent_child, reparent_to, reparent_requested,
-                                        delete_target, add_child_target);
-                ImGui::TreePop();
-            }
-
-            ImGui::PopID();
-        }
-
         // A labelled drag-float row for a 3-component vector, matching Unity's
         // X/Y/Z inspector rows. Returns true when any component changed this frame.
         bool vector3_field(const char* label, float values[3], float speed)
@@ -262,6 +130,55 @@ namespace sushi::editor
             ImGui::PopID();
             return changed;
         }
+
+        // Editor-facing rotation presentation: the world stores a quaternion, but the
+        // inspector edits Euler degrees like Unity. These conversions are a display
+        // concern local to the panel, not part of the engine's math seam.
+        void quat_to_euler_degrees(const SushiEngine::Quat& q, float out[3])
+        {
+            constexpr float RAD_TO_DEG = 57.2957795f;
+            const float sinr_cosp = 2.0f * (q.w * q.x + q.y * q.z);
+            const float cosr_cosp = 1.0f - 2.0f * (q.x * q.x + q.y * q.y);
+            const float roll = std::atan2(sinr_cosp, cosr_cosp);
+
+            const float sinp = 2.0f * (q.w * q.y - q.z * q.x);
+            const float pitch = std::fabs(sinp) >= 1.0f
+                                    ? std::copysign(1.5707963f, sinp)
+                                    : std::asin(sinp);
+
+            const float siny_cosp = 2.0f * (q.w * q.z + q.x * q.y);
+            const float cosy_cosp = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
+            const float yaw = std::atan2(siny_cosp, cosy_cosp);
+
+            out[0] = roll * RAD_TO_DEG;
+            out[1] = pitch * RAD_TO_DEG;
+            out[2] = yaw * RAD_TO_DEG;
+        }
+
+        SushiEngine::Quat euler_degrees_to_quat(const float in[3])
+        {
+            constexpr float DEG_TO_RAD = 0.01745329f;
+            const float roll = in[0] * DEG_TO_RAD;
+            const float pitch = in[1] * DEG_TO_RAD;
+            const float yaw = in[2] * DEG_TO_RAD;
+
+            const float cr = std::cos(roll * 0.5f), sr = std::sin(roll * 0.5f);
+            const float cp = std::cos(pitch * 0.5f), sp = std::sin(pitch * 0.5f);
+            const float cy = std::cos(yaw * 0.5f), sy = std::sin(yaw * 0.5f);
+
+            SushiEngine::Quat q;
+            q.w = cr * cp * cy + sr * sp * sy;
+            q.x = sr * cp * cy - cr * sp * sy;
+            q.y = cr * sp * cy + sr * cp * sy;
+            q.z = cr * cp * sy - sr * sp * cy;
+            return q;
+        }
+
+        // The world's editor surface, or nullptr before the simulation is injected.
+        IWorldEditor* world_of(EditorContext& context)
+        {
+            return context.simulation != nullptr ? &context.simulation->world() : nullptr;
+        }
     }
 
     void draw_menu_bar(EditorContext& context, bool& running)
@@ -269,12 +186,13 @@ namespace sushi::editor
         if (!ImGui::BeginMainMenuBar())
             return;
 
+        IWorldEditor* world = world_of(context);
+
         if (ImGui::BeginMenu("File"))
         {
-            if (ImGui::MenuItem("New Entity", "Ctrl+N"))
+            if (ImGui::MenuItem("New Entity", "Ctrl+N", false, world != nullptr))
             {
-                SceneNode* node = context.scene.create_node("Entity");
-                context.selected_node = node->id;
+                context.selected_entity = world->create("Entity");
                 editor_log(context, "Created entity 'Entity'.");
             }
             ImGui::Separator();
@@ -294,17 +212,10 @@ namespace sushi::editor
 
         if (ImGui::BeginMenu("GameObject"))
         {
-            if (ImGui::MenuItem("Create Empty"))
+            if (ImGui::MenuItem("Create Empty", nullptr, false, world != nullptr))
             {
-                SceneNode* node = context.scene.create_node("Entity");
-                context.selected_node = node->id;
-            }
-            if (ImGui::MenuItem("Create Child", nullptr, false,
-                                context.selected_node != 0))
-            {
-                SceneNode* parent = context.scene.find(context.selected_node);
-                SceneNode* node = context.scene.create_node("Entity", parent);
-                context.selected_node = node->id;
+                context.selected_entity = world->create("Entity");
+                editor_log(context, "Created entity 'Entity'.");
             }
             ImGui::EndMenu();
         }
@@ -338,18 +249,25 @@ namespace sushi::editor
             return;
         }
 
+        IWorldEditor* world = world_of(context);
+        if (world == nullptr)
+        {
+            ImGui::TextDisabled("No world.");
+            ImGui::End();
+            return;
+        }
+
         if (ImGui::Button("Add Entity"))
         {
-            SceneNode* node = context.scene.create_node("Entity");
-            context.selected_node = node->id;
+            context.selected_entity = world->create("Entity");
             editor_log(context, "Created entity 'Entity'.");
         }
         ImGui::SameLine();
-        ImGui::BeginDisabled(context.selected_node == 0);
+        ImGui::BeginDisabled(context.selected_entity == NULL_ENTITY);
         if (ImGui::Button("Delete"))
         {
-            context.scene.remove_node(context.scene.find(context.selected_node));
-            context.selected_node = 0;
+            world->destroy(context.selected_entity);
+            context.selected_entity = NULL_ENTITY;
         }
         ImGui::EndDisabled();
 
@@ -359,46 +277,77 @@ namespace sushi::editor
 
         const std::string lower_filter = to_lower(context.hierarchy_filter);
 
-        SceneNode* reparent_child = nullptr;
-        SceneNode* reparent_to = nullptr;
-        bool reparent_requested = false;
-        SceneNode* delete_target = nullptr;
-        SceneNode* add_child_target = nullptr;
+        // The entity being deleted this frame is deferred out of the loop so the
+        // entity list is never mutated while it is being walked.
+        EntityId delete_target = NULL_ENTITY;
 
-        for (auto& root : context.scene.roots())
-            draw_hierarchy_node(context, root.get(), lower_filter, reparent_child,
-                                reparent_to, reparent_requested, delete_target,
-                                add_child_target);
-
-        // Dropping onto the empty area below the tree promotes a node to a root.
-        ImGui::Dummy(ImVec2(0.0f, ImGui::GetContentRegionAvail().y > 0.0f
-                                       ? ImGui::GetContentRegionAvail().y
-                                       : 1.0f));
-        if (ImGui::BeginDragDropTarget())
+        if (ImGui::BeginChild("entities"))
         {
-            if (const ImGuiPayload* payload =
-                    ImGui::AcceptDragDropPayload(HIERARCHY_DRAG_PAYLOAD))
+            for (const EntityId id : world->entities())
             {
-                reparent_child = *static_cast<SceneNode* const*>(payload->Data);
-                reparent_to = nullptr;
-                reparent_requested = true;
-            }
-            ImGui::EndDragDropTarget();
-        }
+                const std::string entity_name = world->name(id);
+                if (!lower_filter.empty() &&
+                    to_lower(entity_name).find(lower_filter) == std::string::npos)
+                    continue;
 
-        if (add_child_target != nullptr)
-        {
-            SceneNode* node = context.scene.create_node("Entity", add_child_target);
-            context.selected_node = node->id;
+                ImGui::PushID(static_cast<int>(id));
+
+                if (context.renaming_entity == id)
+                {
+                    // Inline rename: an autofocused field seeded from the name, seeded
+                    // once as the target changes, committed on Enter or focus loss.
+                    static std::string buffer;
+                    static EntityId active = NULL_ENTITY;
+                    if (active != id)
+                    {
+                        buffer = entity_name;
+                        active = id;
+                        ImGui::SetKeyboardFocusHere();
+                    }
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    const bool commit = ImGui::InputText(
+                        "##rename", &buffer,
+                        ImGuiInputTextFlags_EnterReturnsTrue |
+                            ImGuiInputTextFlags_AutoSelectAll);
+                    if (commit || ImGui::IsItemDeactivated())
+                    {
+                        world->set_name(id, buffer);
+                        context.renaming_entity = NULL_ENTITY;
+                        active = NULL_ENTITY;
+                    }
+                }
+                else
+                {
+                    const bool selected = context.selected_entity == id;
+                    if (ImGui::Selectable(entity_name.c_str(), selected,
+                                          ImGuiSelectableFlags_AllowDoubleClick))
+                    {
+                        context.selected_entity = id;
+                        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                            context.renaming_entity = id;
+                    }
+                    if (ImGui::BeginPopupContextItem())
+                    {
+                        context.selected_entity = id;
+                        if (ImGui::MenuItem("Rename"))
+                            context.renaming_entity = id;
+                        if (ImGui::MenuItem("Delete"))
+                            delete_target = id;
+                        ImGui::EndPopup();
+                    }
+                }
+
+                ImGui::PopID();
+            }
         }
-        if (delete_target != nullptr)
+        ImGui::EndChild();
+
+        if (delete_target != NULL_ENTITY)
         {
-            if (context.selected_node == delete_target->id)
-                context.selected_node = 0;
-            context.scene.remove_node(delete_target);
+            if (context.selected_entity == delete_target)
+                context.selected_entity = NULL_ENTITY;
+            world->destroy(delete_target);
         }
-        if (reparent_requested)
-            context.scene.reparent(reparent_child, reparent_to);
 
         ImGui::End();
     }
@@ -413,34 +362,62 @@ namespace sushi::editor
             return;
         }
 
-        SceneNode* node = context.scene.find(context.selected_node);
-        if (node == nullptr)
+        IWorldEditor* world = world_of(context);
+        if (world == nullptr || !world->exists(context.selected_entity))
         {
             ImGui::TextDisabled("Nothing selected.");
             ImGui::End();
             return;
         }
 
-        ImGui::Checkbox("##visible", &node->visible);
+        const EntityId id = context.selected_entity;
+
+        bool visible = world->visible(id);
+        if (ImGui::Checkbox("##visible", &visible))
+            world->set_visible(id, visible);
         ImGui::SameLine();
+        std::string name = world->name(id);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputText("##name", &node->name);
-        ImGui::Text("Id: %llu", static_cast<unsigned long long>(node->id));
+        if (ImGui::InputText("##name", &name))
+            world->set_name(id, name);
+        ImGui::Text("Id: %llu", static_cast<unsigned long long>(id));
         ImGui::Separator();
 
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            if (ImGui::BeginTable("transform", 2,
-                                  ImGuiTableFlags_SizingStretchProp))
+            EntityTransform transform = world->transform(id);
+            float position[3] = {transform.position.x, transform.position.y,
+                                 transform.position.z};
+            float rotation[3];
+            quat_to_euler_degrees(transform.rotation, rotation);
+            float scale[3] = {transform.scale.x, transform.scale.y, transform.scale.z};
+
+            bool changed = false;
+            if (ImGui::BeginTable("transform", 2, ImGuiTableFlags_SizingStretchProp))
             {
-                ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed,
-                                        80.0f);
+                ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
                 ImGui::TableSetupColumn("value");
-                vector3_field("Position", node->transform.position, 0.05f);
-                vector3_field("Rotation", node->transform.rotation, 0.5f);
-                vector3_field("Scale", node->transform.scale, 0.05f);
+                changed |= vector3_field("Position", position, 0.05f);
+                changed |= vector3_field("Rotation", rotation, 0.5f);
+                changed |= vector3_field("Scale", scale, 0.05f);
                 ImGui::EndTable();
             }
+
+            if (changed)
+            {
+                transform.position = SushiEngine::Vec3{position[0], position[1], position[2]};
+                transform.rotation = euler_degrees_to_quat(rotation);
+                transform.scale = SushiEngine::Vec3{scale[0], scale[1], scale[2]};
+                world->set_transform(id, transform);
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Renderer", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const SushiEngine::Vec3 current = world->color(id);
+            float color[3] = {current.x, current.y, current.z};
+            if (ImGui::ColorEdit3("Color", color))
+                world->set_color(id, SushiEngine::Vec3{color[0], color[1], color[2]});
         }
 
         ImGui::End();
@@ -672,10 +649,8 @@ namespace sushi::editor
         ImGui::Text("Frame: %.2f ms", 1000.0f / io.Framerate);
         ImGui::Text("FPS:   %.0f", io.Framerate);
         ImGui::Separator();
-        ImGui::Text("Entities:   %d", count_nodes(context.scene.roots()));
-        ImGui::Text("Open files: %zu", context.documents.size());
-        ImGui::Separator();
         ImGui::Text("World entities: %zu", context.world_entity_count);
+        ImGui::Text("Open files:     %zu", context.documents.size());
 
         ImGui::End();
     }
@@ -690,9 +665,12 @@ namespace sushi::editor
         {
             if (ImGui::BeginMenuBar())
             {
-                SceneNode* selected = context.scene.find(context.selected_node);
+                IWorldEditor* world = world_of(context);
+                const bool has_selection =
+                    world != nullptr && world->exists(context.selected_entity);
                 ImGui::Text("Selected: %s",
-                            selected != nullptr ? selected->name.c_str() : "none");
+                            has_selection ? world->name(context.selected_entity).c_str()
+                                          : "none");
                 ImGui::Separator();
                 const char* state_text =
                     context.play_state == PlayState::Playing   ? "Playing"
@@ -700,7 +678,7 @@ namespace sushi::editor
                                                                : "Stopped";
                 ImGui::Text("State: %s", state_text);
                 ImGui::Separator();
-                ImGui::Text("Entities: %d", count_nodes(context.scene.roots()));
+                ImGui::Text("Entities: %zu", context.world_entity_count);
                 ImGui::EndMenuBar();
             }
         }

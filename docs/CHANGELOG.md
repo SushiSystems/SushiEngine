@@ -9,6 +9,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Entity-aware editor over the live world.** The world is now the single source of
+  truth for entities: the editor-side scene model (`editor/scene_model.hpp`) is gone,
+  and the Hierarchy and Inspector operate directly on the simulation. The simulation
+  seam grew an `IWorldEditor` read/write surface (`include/SushiEngine/sim/simulation.hpp`)
+  — split from `ISimulation` so a panel that only edits depends on the narrow interface
+  (interface segregation) — addressing entities by a stable `EntityId` with query
+  (`entities`, `name`, `transform`, `color`, `visible`) and mutation (`create`,
+  `destroy`, `set_name`, `set_transform`, `set_color`, `set_visible`) operations. The
+  Hierarchy lists the world's entities with select, create, delete, filter, and inline
+  / context-menu rename; the Inspector edits the selection's name, visibility,
+  transform (Euler in the UI, quaternion in the world), and colour, writing straight
+  through to the ECS components. Entities the editor creates carry no motion, so they
+  stay where placed and stay editable while the world plays — only the seeded demo
+  cubes are driven by the systems. `RenderInstance` now carries its `EntityId` (the
+  key the upcoming viewport picking reads back), and the extract skips hidden
+  entities. `World::get` gained a `const` overload for read-only host access.
 - Editor **Game view**: a second Unity viewport rendering the live world from the
   world's own camera, alongside the Scene view's free-flying camera. The camera is
   factored behind an `ISceneCamera` seam (`editor/scene_camera.hpp`) with a

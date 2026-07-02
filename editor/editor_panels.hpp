@@ -31,21 +31,26 @@
 namespace sushi::editor
 {
     /**
-     * @brief Draw the top menu bar (File / Edit / GameObject / Window).
-     * @param context Shared editor state the menu acts on (scene, documents).
+     * @brief Draw the top menu bar (File / GameObject / Window).
+     * @param context Shared editor state the menu acts on (world, documents).
      * @param running Set to false when the user chooses File > Exit.
      */
     void draw_menu_bar(EditorContext& context, bool& running);
 
     /**
-     * @brief Draw the Hierarchy panel: the scene tree with select/create/reparent.
-     * @param context Shared editor state; updates @c selected_node and the tree.
+     * @brief Draw the Hierarchy panel: the live world's entities.
+     *
+     * Lists the world's entities directly (the world is the single source of truth),
+     * with select, create, delete, a search filter, and inline / context-menu rename.
+     *
+     * @param context Shared editor state; updates @c selected_entity via the world.
      */
     void draw_hierarchy_panel(EditorContext& context);
 
     /**
      * @brief Draw the Inspector panel for the current selection.
-     * @param context Shared editor state; edits the selected node's fields in place.
+     * @param context Shared editor state; edits the selected entity's name, visibility,
+     *                transform, and colour through the world editor.
      */
     void draw_inspector_panel(EditorContext& context);
 
