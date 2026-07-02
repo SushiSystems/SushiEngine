@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- Editor **Game view**: a second Unity viewport rendering the live world from the
+  world's own camera, alongside the Scene view's free-flying camera. The camera is
+  factored behind an `ISceneCamera` seam (`editor/scene_camera.hpp`) with a
+  navigable `FlyCameraSource` (Scene) and a world-posed `WorldCameraSource` (Game),
+  so one `ViewportPanel` — now taking the camera by injection — serves both, and a
+  new camera kind is a new implementation rather than a new panel. The two panels
+  dock tabbed in the layout centre like Unity, and the Game panel joins the Window
+  menu. `ViewportPanel` no longer owns a camera; the Scene fly camera and the Game
+  world camera are host-owned and passed in.
 - **Live ECS world driven on SushiRuntime**, behind a plain-C++ simulation seam.
   A new `sushi_sim` static library (`sim/`) owns a `SushiRuntime::API::Runtime`, an
   ECS `World`, and a `Schedule`, and drives a world of spinning, orbiting cubes —

@@ -43,6 +43,7 @@ namespace sushi::editor
     struct PanelVisibility
     {
         bool scene_view = true;
+        bool game_view = true;
         bool hierarchy = true;
         bool inspector = true;
         bool project = true;

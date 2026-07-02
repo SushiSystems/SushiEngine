@@ -33,18 +33,19 @@
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
 
-#include "camera_controller.hpp"
-#include "fly_camera.hpp"
 #include "imgui_backend.hpp"
+#include "scene_camera.hpp"
 
 namespace sushi::editor
 {
     /**
-     * @brief A Unity-style Scene panel: a Vulkan viewport with a fly camera.
+     * @brief A Unity-style viewport panel: a Vulkan 3D view from an injected camera.
      *
-     * Owns an offscreen scene view, a fly camera, and its controller. Each frame it
-     * sizes the target to the panel, gathers navigation input from ImGui (right mouse
-     * to look and fly, WASD/QE, Shift to boost) while the panel is interacted with,
+     * Owns an offscreen scene view and displays it; the camera it renders from is
+     * supplied by reference (dependency injection), so the same panel serves the
+     * Scene view (a navigable fly camera) and the Game view (the world's camera).
+     * Each frame it sizes the target to the panel, feeds navigation input to the
+     * camera while the panel is interacted with (only if the camera is navigable),
      * renders the given mesh instances, and displays the result with ImGui::Image.
      * The offscreen colour target is registered with the ImGui backend as a texture,
      * re-registered on resize.
@@ -56,10 +57,11 @@ namespace sushi::editor
              * @brief Creates the scene view and registers its textures with ImGui.
              * @param renderer The window renderer that owns the device.
              * @param imgui    The ImGui backend used to register sampled textures.
-             * @param title    The panel window title (e.g. "Scene").
+             * @param title    The panel window title (e.g. "Scene" or "Game").
+             * @param camera   The camera this panel renders from; must outlive the panel.
              */
             ViewportPanel(SushiEngine::render::IWindowRenderer& renderer, ImGuiBackend& imgui,
-                          const char* title);
+                          const char* title, ISceneCamera& camera);
             ~ViewportPanel();
 
             ViewportPanel(const ViewportPanel&) = delete;
@@ -78,9 +80,6 @@ namespace sushi::editor
             void draw(bool& open, const SushiEngine::render::MeshInstance* instances,
                       std::size_t count);
 
-            /** @brief The panel's fly camera, for the Game view or inspection. */
-            FlyCamera& camera() noexcept { return camera_; }
-
         private:
             void resize_to(std::uint32_t width, std::uint32_t height);
             void register_textures();
@@ -88,10 +87,9 @@ namespace sushi::editor
 
             ImGuiBackend& imgui_;
             const char* title_;
+            ISceneCamera& camera_;
             std::unique_ptr<SushiEngine::render::ISceneView> view_;
             std::vector<ImTextureID> slot_textures_;
-            FlyCamera camera_;
-            CameraController controller_;
             bool looking_ = false;
     };
 } // namespace sushi::editor

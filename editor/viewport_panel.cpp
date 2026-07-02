@@ -26,8 +26,8 @@
 namespace sushi::editor
 {
     ViewportPanel::ViewportPanel(SushiEngine::render::IWindowRenderer& renderer,
-                                 ImGuiBackend& imgui, const char* title)
-        : imgui_(imgui), title_(title), view_(renderer.create_scene_view())
+                                 ImGuiBackend& imgui, const char* title, ISceneCamera& camera)
+        : imgui_(imgui), title_(title), camera_(camera), view_(renderer.create_scene_view())
     {
         register_textures();
     }
@@ -83,33 +83,36 @@ namespace sushi::editor
 
         // Unity fly navigation: right mouse over the panel starts a look session that
         // lasts until the button is released, even if the cursor leaves the panel.
+        // Only navigable cameras (the Scene fly camera) consume it; the Game camera
+        // is driven by the world and ignores the panel's input.
         ImGuiIO& io = ImGui::GetIO();
-        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-            looking_ = true;
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
-            looking_ = false;
-
-        InputState input;
-        input.dt = io.DeltaTime;
-        input.look_active = looking_;
-        if (looking_)
+        if (camera_.navigable())
         {
-            input.mouse_dx = io.MouseDelta.x;
-            input.mouse_dy = io.MouseDelta.y;
-            input.forward = ImGui::IsKeyDown(ImGuiKey_W);
-            input.back = ImGui::IsKeyDown(ImGuiKey_S);
-            input.left = ImGui::IsKeyDown(ImGuiKey_A);
-            input.right = ImGui::IsKeyDown(ImGuiKey_D);
-            input.up = ImGui::IsKeyDown(ImGuiKey_E);
-            input.down = ImGui::IsKeyDown(ImGuiKey_Q);
-            input.fast = io.KeyShift;
-        }
-        controller_.update(camera_, input);
+            if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                looking_ = true;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
+                looking_ = false;
 
-        SushiEngine::render::CameraView camera_view;
-        camera_view.view = camera_.view_matrix();
-        camera_view.projection =
-            camera_.projection(static_cast<float>(width) / static_cast<float>(height));
+            InputState input;
+            input.dt = io.DeltaTime;
+            input.look_active = looking_;
+            if (looking_)
+            {
+                input.mouse_dx = io.MouseDelta.x;
+                input.mouse_dy = io.MouseDelta.y;
+                input.forward = ImGui::IsKeyDown(ImGuiKey_W);
+                input.back = ImGui::IsKeyDown(ImGuiKey_S);
+                input.left = ImGui::IsKeyDown(ImGuiKey_A);
+                input.right = ImGui::IsKeyDown(ImGuiKey_D);
+                input.up = ImGui::IsKeyDown(ImGuiKey_E);
+                input.down = ImGui::IsKeyDown(ImGuiKey_Q);
+                input.fast = io.KeyShift;
+            }
+            camera_.process(input);
+        }
+
+        const SushiEngine::render::CameraView camera_view =
+            camera_.view(static_cast<float>(width) / static_cast<float>(height));
         view_->render(camera_view, instances, count);
 
         ImGui::Image(slot_textures_[view_->current_slot()],

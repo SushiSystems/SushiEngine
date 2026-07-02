@@ -108,7 +108,15 @@ int main(int, char**)
             SushiEngine::render::create_window_renderer(desc);
 
         sushi::editor::ImGuiBackend imgui(window, *renderer);
-        sushi::editor::ViewportPanel scene_view(*renderer, imgui, "Scene");
+
+        // Two Unity viewports, each a ViewportPanel over the same world but a
+        // different injected camera: the Scene view flies freely, the Game view
+        // follows the world's camera. The cameras are declared before the panels so
+        // they outlive the references the panels hold.
+        sushi::editor::FlyCameraSource scene_camera;
+        sushi::editor::WorldCameraSource game_camera;
+        sushi::editor::ViewportPanel scene_view(*renderer, imgui, "Scene", scene_camera);
+        sushi::editor::ViewportPanel game_view(*renderer, imgui, "Game", game_camera);
 
         // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
         // seam. The editor sees only the abstraction and the extracted RenderScene;
@@ -154,6 +162,11 @@ int main(int, char**)
             }
             context.world_entity_count = simulation->entity_count();
 
+            // Pose the Game camera from the world's camera this frame.
+            const SushiEngine::sim::CameraState& game = scene.camera;
+            game_camera.set_pose(game.position, game.target, game.up,
+                                 game.vertical_fov_radians, game.near_plane, game.far_plane);
+
             imgui.new_frame();
 
             draw_dockspace();
@@ -162,6 +175,8 @@ int main(int, char**)
             sushi::editor::draw_toolbar_panel(context);
             if (context.panels.scene_view)
                 scene_view.draw(context.panels.scene_view, instances.data(), instances.size());
+            if (context.panels.game_view)
+                game_view.draw(context.panels.game_view, instances.data(), instances.size());
             sushi::editor::draw_hierarchy_panel(context);
             sushi::editor::draw_inspector_panel(context);
             sushi::editor::draw_project_panel(context);

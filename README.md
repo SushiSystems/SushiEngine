@@ -34,7 +34,9 @@ device code of its own; kernels are instantiated in the consuming translation un
   toolbar is Playing. The world lives behind a plain-C++ simulation seam
   (`include/SushiEngine/sim/simulation.hpp`), implemented by the `sushi_sim` library
   that contains the runtime, ECS, and SYCL — so the editor depends only on the
-  abstraction. A Game view (a second camera) follows.
+  abstraction. A **Game** view renders the same world from the world's own camera,
+  tabbed next to the Scene view like Unity; the camera each viewport uses sits behind
+  an `ISceneCamera` seam, so one panel serves both.
 - **`se` CLI** (`cli/`). A Python/Typer tool that wraps configure/build/test/run.
 
 ## Repository layout

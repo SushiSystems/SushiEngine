@@ -312,6 +312,7 @@ namespace sushi::editor
         if (ImGui::BeginMenu("Window"))
         {
             ImGui::MenuItem("Scene", nullptr, &context.panels.scene_view);
+            ImGui::MenuItem("Game", nullptr, &context.panels.game_view);
             ImGui::MenuItem("Hierarchy", nullptr, &context.panels.hierarchy);
             ImGui::MenuItem("Inspector", nullptr, &context.panels.inspector);
             ImGui::MenuItem("Project", nullptr, &context.panels.project);
@@ -724,7 +725,9 @@ namespace sushi::editor
                                                      nullptr, &center);
 
         ImGui::DockBuilderDockWindow("Toolbar", top);
+        // Scene and Game share the centre node, so they open tabbed like Unity.
         ImGui::DockBuilderDockWindow("Scene", center);
+        ImGui::DockBuilderDockWindow("Game", center);
         ImGui::DockBuilderDockWindow("Hierarchy", left);
         ImGui::DockBuilderDockWindow("Inspector", right);
         ImGui::DockBuilderDockWindow("Statistics", right);

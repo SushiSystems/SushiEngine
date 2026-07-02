@@ -143,10 +143,16 @@ The editor composes these behind its own **windowing seam** (`editor/platform_wi
 `IPlatformWindow`, SDL implementation `editor/sdl_window.*`) and a **Dear ImGui ↔
 Vulkan adapter** (`editor/imgui_backend.*`) — the one editor component that speaks
 Vulkan, kept apart from the app loop and panels so the rest of the editor names no
-graphics API. The Scene panel (`editor/viewport_panel.*`) drives a fly camera
+graphics API. A single `ViewportPanel` (`editor/viewport_panel.*`) owns an offscreen
+scene view and renders it from an injected camera — the `ISceneCamera` seam
+(`editor/scene_camera.hpp`). Two implementations back the two Unity viewports: a
+navigable `FlyCameraSource` (the **Scene** view) driving a fly camera
 (`editor/fly_camera.hpp`) through a stateless controller (`editor/camera_controller.hpp`)
 that reads a library-neutral `InputState` (`editor/input_state.hpp`) the panel fills
-from ImGui — so the controller depends on no input source and stays unit-testable.
+from ImGui, and a `WorldCameraSource` (the **Game** view) posed each frame from the
+simulation's camera. So the same panel serves both viewports, the controller depends
+on no input source and stays unit-testable, and a new camera kind is a new
+implementation rather than a new panel.
 
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
