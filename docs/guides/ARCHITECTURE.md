@@ -137,7 +137,11 @@ consumer. The layering, from abstract to concrete:
   (`render/rhi/vulkan/vulkan_scene_view.*`) is double-buffered — the frame being
   sampled by the UI is never the frame being drawn — and leaves its colour image
   shader-readable so the editor samples it with `ImGui::Image`. It exposes only the
-  sampler/view handles a UI backend needs, never a full descriptor set.
+  sampler/view handles a UI backend needs, never a full descriptor set. Alongside the
+  shaded image it renders a second `R32_UINT` **id target** carrying each instance's
+  picking id, copied to a host buffer each frame so `pick(x, y)` resolves a click to
+  the entity under the cursor (GPU id-buffer picking); `render` also takes the selected
+  id, which the mesh shader highlights.
 
 The editor composes these behind its own **windowing seam** (`editor/platform_window.hpp`
 `IPlatformWindow`, SDL implementation `editor/sdl_window.*`) and a **Dear ImGui ↔

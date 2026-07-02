@@ -8,8 +8,10 @@ layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec3 v_color;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out uint out_id;
 
 void main()
 {
     out_color = vec4(v_color, 1.0);
+    out_id = 0u; // the grid is not pickable
 }

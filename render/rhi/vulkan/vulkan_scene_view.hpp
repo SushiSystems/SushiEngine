@@ -73,7 +73,8 @@ namespace SushiEngine
                     std::uint32_t width() const noexcept override { return width_; }
                     std::uint32_t height() const noexcept override { return height_; }
                     void render(const CameraView& camera, const MeshInstance* instances,
-                                std::size_t count) override;
+                                std::size_t count, std::uint32_t selected_id) override;
+                    std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
                     std::uint32_t current_slot() const noexcept override { return current_slot_; }
@@ -82,6 +83,7 @@ namespace SushiEngine
                     static constexpr std::uint32_t SLOTS = 2;
                     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
                     static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
+                    static constexpr VkFormat ID_FORMAT = VK_FORMAT_R32_UINT;
 
                     /** @brief A VMA-backed buffer with its element count. */
                     struct Buffer
@@ -100,6 +102,12 @@ namespace SushiEngine
                         VkImage depth = VK_NULL_HANDLE;
                         VmaAllocation depth_allocation = VK_NULL_HANDLE;
                         VkImageView depth_view = VK_NULL_HANDLE;
+                        VkImage id = VK_NULL_HANDLE;
+                        VmaAllocation id_allocation = VK_NULL_HANDLE;
+                        VkImageView id_view = VK_NULL_HANDLE;
+                        VkBuffer readback = VK_NULL_HANDLE;
+                        VmaAllocation readback_allocation = VK_NULL_HANDLE;
+                        void* readback_mapped = nullptr;
                         VkCommandPool pool = VK_NULL_HANDLE;
                         VkCommandBuffer cmd = VK_NULL_HANDLE;
                         VkFence fence = VK_NULL_HANDLE;

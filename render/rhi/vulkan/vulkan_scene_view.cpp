@@ -47,13 +47,21 @@ namespace SushiEngine
                     float normal[3];
                 };
 
-                /** @brief Per-draw push constant: MVP plus the normal basis with colour in w. */
+                /**
+                 * @brief Per-draw push constant: MVP, the normal basis with colour in w,
+                 *        the draw's picking id, and the currently selected id for highlight.
+                 *
+                 * 120 bytes, within the 128-byte push-constant floor every Vulkan device
+                 * guarantees.
+                 */
                 struct MeshPush
                 {
                     Mat4 mvp;
                     float n0[4];
                     float n1[4];
                     float n2[4];
+                    std::uint32_t entity_id;
+                    std::uint32_t selected;
                 };
 
                 void check(VkResult result, const char* what)
@@ -102,8 +110,9 @@ namespace SushiEngine
                     vkCmdPipelineBarrier2(cmd, &dependency);
                 }
 
-                /** @brief Fills a push constant from a model matrix and colour. */
-                MeshPush make_push(const Mat4& view_projection, const Mat4& model, const Vec3& color)
+                /** @brief Fills a push constant from a model matrix, colour, and pick ids. */
+                MeshPush make_push(const Mat4& view_projection, const Mat4& model, const Vec3& color,
+                                   std::uint32_t entity_id, std::uint32_t selected_id)
                 {
                     MeshPush push;
                     push.mvp = mul(view_projection, model);
@@ -113,6 +122,8 @@ namespace SushiEngine
                     push.n0[3] = color.x;
                     push.n1[3] = color.y;
                     push.n2[3] = color.z;
+                    push.entity_id = entity_id;
+                    push.selected = selected_id;
                     return push;
                 }
             } // namespace
@@ -151,7 +162,7 @@ namespace SushiEngine
             void VulkanSceneView::create_pipelines()
             {
                 VkPushConstantRange range{};
-                range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
                 range.offset = 0;
                 range.size = sizeof(MeshPush);
 
@@ -198,15 +209,18 @@ namespace SushiEngine
                 multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
                 multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-                VkPipelineColorBlendAttachmentState blend_attachment{};
-                blend_attachment.colorWriteMask =
-                    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                    VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                // Two colour attachments: the shaded image and the R32_UINT id target.
+                // Neither blends; the id attachment must not, as it is an integer format.
+                VkPipelineColorBlendAttachmentState blend_attachments[2]{};
+                for (VkPipelineColorBlendAttachmentState& attachment : blend_attachments)
+                    attachment.colorWriteMask =
+                        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
                 VkPipelineColorBlendStateCreateInfo blend{};
                 blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-                blend.attachmentCount = 1;
-                blend.pAttachments = &blend_attachment;
+                blend.attachmentCount = 2;
+                blend.pAttachments = blend_attachments;
 
                 VkPipelineDepthStencilStateCreateInfo depth{};
                 depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -221,11 +235,11 @@ namespace SushiEngine
                 dynamic.dynamicStateCount = 2;
                 dynamic.pDynamicStates = dynamic_states;
 
-                VkFormat color_format = COLOR_FORMAT;
+                const VkFormat color_formats[2] = {COLOR_FORMAT, ID_FORMAT};
                 VkPipelineRenderingCreateInfo rendering_info{};
                 rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-                rendering_info.colorAttachmentCount = 1;
-                rendering_info.pColorAttachmentFormats = &color_format;
+                rendering_info.colorAttachmentCount = 2;
+                rendering_info.pColorAttachmentFormats = color_formats;
                 rendering_info.depthAttachmentFormat = DEPTH_FORMAT;
 
                 // The two pipelines differ only in topology, cull mode, and fragment
@@ -405,6 +419,16 @@ namespace SushiEngine
                                          &slot.depth, &slot.depth_allocation, nullptr),
                           "vmaCreateImage(depth)");
 
+                    // The id target the mesh pass writes; copied to a host buffer each
+                    // frame so a click can read the entity under the cursor.
+                    VkImageCreateInfo id_info = color_info;
+                    id_info.format = ID_FORMAT;
+                    id_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                    check(vmaCreateImage(device_.allocator(), &id_info, &image_alloc,
+                                         &slot.id, &slot.id_allocation, nullptr),
+                          "vmaCreateImage(id)");
+
                     VkImageViewCreateInfo color_view{};
                     color_view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
                     color_view.image = slot.color;
@@ -424,6 +448,29 @@ namespace SushiEngine
                     check(vkCreateImageView(device_.device(), &depth_view, nullptr,
                                             &slot.depth_view),
                           "vkCreateImageView(depth)");
+
+                    VkImageViewCreateInfo id_view = color_view;
+                    id_view.image = slot.id;
+                    id_view.format = ID_FORMAT;
+                    check(vkCreateImageView(device_.device(), &id_view, nullptr, &slot.id_view),
+                          "vkCreateImageView(id)");
+
+                    // Host-visible readback buffer sized to the id image, filled by a
+                    // copy at the end of each render so pick() reads it without a stall.
+                    VkBufferCreateInfo readback_info{};
+                    readback_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    readback_info.size = VkDeviceSize(width_) * height_ * sizeof(std::uint32_t);
+                    readback_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+                    VmaAllocationCreateInfo readback_alloc{};
+                    readback_alloc.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+                    readback_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+                                           VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    VmaAllocationInfo readback_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &readback_info, &readback_alloc,
+                                          &slot.readback, &slot.readback_allocation, &readback_mapped),
+                          "vmaCreateBuffer(readback)");
+                    slot.readback_mapped = readback_mapped.pMappedData;
 
                     VkCommandPoolCreateInfo pool_info{};
                     pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -456,6 +503,12 @@ namespace SushiEngine
                         vkDestroyFence(device_.device(), slot.fence, nullptr);
                     if (slot.pool != VK_NULL_HANDLE)
                         vkDestroyCommandPool(device_.device(), slot.pool, nullptr);
+                    if (slot.readback != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.readback, slot.readback_allocation);
+                    if (slot.id_view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), slot.id_view, nullptr);
+                    if (slot.id != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), slot.id, slot.id_allocation);
                     if (slot.depth_view != VK_NULL_HANDLE)
                         vkDestroyImageView(device_.device(), slot.depth_view, nullptr);
                     if (slot.depth != VK_NULL_HANDLE)
@@ -490,7 +543,7 @@ namespace SushiEngine
             }
 
             void VulkanSceneView::render(const CameraView& camera, const MeshInstance* instances,
-                                         std::size_t count)
+                                         std::size_t count, std::uint32_t selected_id)
             {
                 const std::uint32_t index = frame_counter_ % SLOTS;
                 ++frame_counter_;
@@ -524,6 +577,13 @@ namespace SushiEngine
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, 0,
                            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+                // The id target is rebuilt every frame, so its prior contents are
+                // discarded (UNDEFINED) before it is cleared and drawn into.
+                transition(slot.cmd, slot.id, VK_IMAGE_ASPECT_COLOR_BIT,
+                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
                 VkRenderingAttachmentInfo color_attachment{};
                 color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -532,6 +592,17 @@ namespace SushiEngine
                 color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                 color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 color_attachment.clearValue.color = {{0.05f, 0.06f, 0.08f, 1.0f}};
+
+                VkRenderingAttachmentInfo id_attachment{};
+                id_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                id_attachment.imageView = slot.id_view;
+                id_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                id_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                id_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                id_attachment.clearValue.color.uint32[0] = NO_PICK;
+
+                const VkRenderingAttachmentInfo color_attachments[2] = {color_attachment,
+                                                                        id_attachment};
 
                 VkRenderingAttachmentInfo depth_attachment{};
                 depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -545,8 +616,8 @@ namespace SushiEngine
                 rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
                 rendering.renderArea.extent = {width_, height_};
                 rendering.layerCount = 1;
-                rendering.colorAttachmentCount = 1;
-                rendering.pColorAttachments = &color_attachment;
+                rendering.colorAttachmentCount = 2;
+                rendering.pColorAttachments = color_attachments;
                 rendering.pDepthAttachment = &depth_attachment;
                 vkCmdBeginRendering(slot.cmd, &rendering);
 
@@ -563,23 +634,23 @@ namespace SushiEngine
                 const VkDeviceSize zero_offset = 0;
 
                 // Ground grid: a single flat-coloured line draw.
+                const std::uint32_t stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
                 vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
                 vkCmdBindVertexBuffers(slot.cmd, 0, 1, &grid_vertices_.buffer, &zero_offset);
-                const MeshPush grid_push = make_push(view_projection, Mat4{}, Vec3{0.32f, 0.33f, 0.40f});
-                vkCmdPushConstants(slot.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                   sizeof(MeshPush), &grid_push);
+                const MeshPush grid_push =
+                    make_push(view_projection, Mat4{}, Vec3{0.32f, 0.33f, 0.40f}, NO_PICK, NO_PICK);
+                vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &grid_push);
                 vkCmdDraw(slot.cmd, grid_vertices_.count, 1, 0, 0);
 
-                // Instanced lit cubes.
+                // Instanced lit cubes; each carries its picking id and the selected id.
                 vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
                 vkCmdBindVertexBuffers(slot.cmd, 0, 1, &cube_vertices_.buffer, &zero_offset);
                 vkCmdBindIndexBuffer(slot.cmd, cube_indices_.buffer, 0, VK_INDEX_TYPE_UINT16);
                 for (std::size_t i = 0; i < count; ++i)
                 {
-                    const MeshPush push =
-                        make_push(view_projection, instances[i].model, instances[i].color);
-                    vkCmdPushConstants(slot.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                       sizeof(MeshPush), &push);
+                    const MeshPush push = make_push(view_projection, instances[i].model,
+                                                    instances[i].color, instances[i].id, selected_id);
+                    vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
                     vkCmdDrawIndexed(slot.cmd, cube_indices_.count, 1, 0, 0, 0);
                 }
 
@@ -592,6 +663,22 @@ namespace SushiEngine
                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
+                // Copy the id target into the host-visible readback buffer so pick()
+                // can resolve a click without its own submit.
+                transition(slot.cmd, slot.id, VK_IMAGE_ASPECT_COLOR_BIT,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_2_COPY_BIT,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+
+                VkBufferImageCopy copy{};
+                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.imageSubresource.layerCount = 1;
+                copy.imageExtent = {width_, height_, 1};
+                vkCmdCopyImageToBuffer(slot.cmd, slot.id,
+                                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, slot.readback, 1, &copy);
+
                 check(vkEndCommandBuffer(slot.cmd), "vkEndCommandBuffer");
 
                 VkSubmitInfo submit{};
@@ -603,6 +690,22 @@ namespace SushiEngine
 
                 slot.ever_rendered = true;
                 current_slot_ = index;
+            }
+
+            std::uint32_t VulkanSceneView::pick(std::uint32_t x, std::uint32_t y)
+            {
+                Slot& slot = slots_[current_slot_];
+                if (!slot.ever_rendered || slot.readback_mapped == nullptr ||
+                    x >= width_ || y >= height_)
+                    return NO_PICK;
+
+                // Ensure the copy that filled the readback buffer has completed before
+                // reading it; a click is rare, so the wait is not a hot path.
+                check(vkWaitForFences(device_.device(), 1, &slot.fence, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(pick)");
+
+                const std::uint32_t* pixels = static_cast<const std::uint32_t*>(slot.readback_mapped);
+                return pixels[static_cast<std::size_t>(y) * width_ + x];
             }
         } // namespace vulkan
     } // namespace render

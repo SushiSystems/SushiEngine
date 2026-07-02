@@ -153,6 +153,7 @@ int main(int, char**)
                 SushiEngine::render::MeshInstance instance;
                 instance.model = source.model;
                 instance.color = source.color;
+                instance.id = static_cast<std::uint32_t>(source.id);
                 instances.push_back(instance);
             }
             context.world_entity_count = simulation->entity_count();
@@ -168,10 +169,17 @@ int main(int, char**)
             sushi::editor::draw_menu_bar(context, running);
             sushi::editor::draw_status_bar(context);
             sushi::editor::draw_toolbar_panel(context);
+            // Selection is shared between the viewports and the panels. The scene
+            // renderer speaks 32-bit ids; entity ids stay small, so the round-trip is
+            // lossless. A left-click in either viewport picks the entity under it.
+            std::uint32_t selected = static_cast<std::uint32_t>(context.selected_entity);
             if (context.panels.scene_view)
-                scene_view.draw(context.panels.scene_view, instances.data(), instances.size());
+                scene_view.draw(context.panels.scene_view, instances.data(), instances.size(),
+                                selected);
             if (context.panels.game_view)
-                game_view.draw(context.panels.game_view, instances.data(), instances.size());
+                game_view.draw(context.panels.game_view, instances.data(), instances.size(),
+                               selected);
+            context.selected_entity = selected;
             sushi::editor::draw_hierarchy_panel(context);
             sushi::editor::draw_inspector_panel(context);
             sushi::editor::draw_project_panel(context);

@@ -12,9 +12,11 @@ layout(location = 1) in vec3 in_normal;
 layout(push_constant) uniform Push
 {
     mat4 mvp;
-    vec4 n0; // xyz = normal-basis column 0, w = colour.r
-    vec4 n1; // xyz = normal-basis column 1, w = colour.g
-    vec4 n2; // xyz = normal-basis column 2, w = colour.b
+    vec4 n0;       // xyz = normal-basis column 0, w = colour.r
+    vec4 n1;       // xyz = normal-basis column 1, w = colour.g
+    vec4 n2;       // xyz = normal-basis column 2, w = colour.b
+    uint entity_id; // this draw's picking id (0 = none), written to the id target
+    uint selected;  // the currently selected id, for highlight (0 = nothing selected)
 } pc;
 
 layout(location = 0) out vec3 v_normal;

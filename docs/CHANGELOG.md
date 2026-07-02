@@ -9,6 +9,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Click-to-select in the viewport (GPU id-buffer picking) with selection highlight.**
+  The scene view now draws a second `R32_UINT` colour target alongside the shaded image,
+  writing each instance's picking id per pixel (the grid writes none), copies it to a
+  host-visible buffer each frame, and exposes `ISceneView::pick(x, y)` to read the
+  entity under a pixel back. A left-click in either viewport selects the entity beneath
+  the cursor (right mouse stays reserved for fly navigation), kept in sync with the
+  Hierarchy and Inspector. `ISceneView::render` takes the selected id and the mesh
+  shader lifts the selected entity toward a warm highlight so it stands out.
+  `MeshInstance` carries a 32-bit `id`; the push constant grew the draw id and selected
+  id (120 bytes, still within the 128-byte floor) and now reaches the fragment stage.
 - **Entity-aware editor over the live world.** The world is now the single source of
   truth for entities: the editor-side scene model (`editor/scene_model.hpp`) is gone,
   and the Hierarchy and Inspector operate directly on the simulation. The simulation

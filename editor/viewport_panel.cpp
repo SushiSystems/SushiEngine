@@ -66,7 +66,7 @@ namespace sushi::editor
     }
 
     void ViewportPanel::draw(bool& open, const SushiEngine::render::MeshInstance* instances,
-                             std::size_t count)
+                             std::size_t count, std::uint32_t& selected_id)
     {
         if (!ImGui::Begin(title_, &open))
         {
@@ -113,10 +113,25 @@ namespace sushi::editor
 
         const SushiEngine::render::CameraView camera_view =
             camera_.view(static_cast<float>(width) / static_cast<float>(height));
-        view_->render(camera_view, instances, count);
+        view_->render(camera_view, instances, count, selected_id);
 
+        const ImVec2 image_origin = ImGui::GetCursorScreenPos();
         ImGui::Image(slot_textures_[view_->current_slot()],
                      ImVec2(static_cast<float>(width), static_cast<float>(height)));
+
+        // Left-click in the viewport picks the entity under the cursor (right mouse is
+        // reserved for navigation). The image is drawn 1:1 with the target, so the
+        // local pixel is just the cursor offset from the image's top-left.
+        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            const float local_x = mouse.x - image_origin.x;
+            const float local_y = mouse.y - image_origin.y;
+            if (local_x >= 0.0f && local_y >= 0.0f)
+                selected_id = view_->pick(static_cast<std::uint32_t>(local_x),
+                                          static_cast<std::uint32_t>(local_y));
+        }
+
         ImGui::End();
     }
 } // namespace sushi::editor

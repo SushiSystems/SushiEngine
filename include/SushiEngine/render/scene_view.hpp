@@ -52,12 +52,16 @@ namespace SushiEngine
             Mat4 projection; /**< Camera-to-clip (Vulkan depth 0..1, Y-flipped). */
         };
 
-        /** @brief One mesh drawn this frame: its world transform and colour. */
+        /** @brief One mesh drawn this frame: its world transform, colour, and pick id. */
         struct MeshInstance
         {
-            Mat4 model; /**< Object-to-world transform. */
-            Vec3 color; /**< Base colour. */
+            Mat4 model;              /**< Object-to-world transform. */
+            Vec3 color;              /**< Base colour. */
+            std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
         };
+
+        /** @brief The id a pick returns when no instance covers the sampled pixel. */
+        constexpr std::uint32_t NO_PICK = 0;
 
         /** @brief Native handles a UI backend needs to sample one target slot. */
         struct SceneViewTexture
@@ -102,12 +106,26 @@ namespace SushiEngine
                  * its colour image ready to sample. Same-queue ordering makes the
                  * result visible to the UI submit that follows.
                  *
-                 * @param camera    The view and projection to render from.
-                 * @param instances Pointer to the mesh instances to draw.
-                 * @param count     Number of instances.
+                 * @param camera      The view and projection to render from.
+                 * @param instances   Pointer to the mesh instances to draw.
+                 * @param count       Number of instances.
+                 * @param selected_id The instance id to highlight, or NO_PICK for none.
                  */
                 virtual void render(const CameraView& camera, const MeshInstance* instances,
-                                    std::size_t count) = 0;
+                                    std::size_t count, std::uint32_t selected_id) = 0;
+
+                /**
+                 * @brief The instance id drawn at a pixel of the last rendered frame.
+                 *
+                 * Reads back the id target the render pass wrote, so a host maps a
+                 * click in the panel to the entity under the cursor. Coordinates are in
+                 * target pixels; out-of-range or empty pixels return NO_PICK.
+                 *
+                 * @param x Pixel x in [0, width()).
+                 * @param y Pixel y in [0, height()).
+                 * @return The instance id at that pixel, or NO_PICK.
+                 */
+                virtual std::uint32_t pick(std::uint32_t x, std::uint32_t y) = 0;
 
                 /** @brief Number of double-buffered target slots. */
                 virtual std::uint32_t slot_count() const noexcept = 0;

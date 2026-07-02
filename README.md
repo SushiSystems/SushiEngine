@@ -28,7 +28,9 @@ device code of its own; kernels are instantiated in the consuming translation un
   (`platform_window.hpp`, `render/window_renderer.hpp`, `imgui_backend.*`). The live
   world is the single source of truth for entities: the Hierarchy lists them and the
   Inspector edits the selection's name, visibility, transform, and colour straight
-  through to the ECS via the `IWorldEditor` surface. Turning the editor on builds the renderer
+  through to the ECS via the `IWorldEditor` surface. Left-clicking a cube in the
+  viewport selects it (GPU id-buffer picking), highlighted and synced with the
+  Hierarchy. Turning the editor on builds the renderer
   too; it needs SDL2 with its `[vulkan]` feature. A **Scene** panel shows a
   Vulkan-rendered 3D viewport navigated with a Unity-style fly camera — right-mouse
   look plus WASD/QE and Shift to boost. The viewport draws a **live ECS world**

@@ -73,12 +73,14 @@ namespace sushi::editor
              * The camera is driven only while the panel is interacted with, so input
              * over other panels never moves the view.
              *
-             * @param open      Visibility flag, bound to the panel's close button.
-             * @param instances The mesh instances to draw this frame.
-             * @param count     Number of instances.
+             * @param open        Visibility flag, bound to the panel's close button.
+             * @param instances   The mesh instances to draw this frame.
+             * @param count       Number of instances.
+             * @param selected_id The highlighted instance id; updated when the user
+             *                    left-clicks the viewport to pick (0 clears it).
              */
             void draw(bool& open, const SushiEngine::render::MeshInstance* instances,
-                      std::size_t count);
+                      std::size_t count, std::uint32_t& selected_id);
 
         private:
             void resize_to(std::uint32_t width, std::uint32_t height);
