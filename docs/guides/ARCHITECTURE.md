@@ -193,8 +193,27 @@ entity array rather than raw `EntityId`s (ids are not guaranteed stable across a
 destroy-and-reload); loading destroys every existing entity, recreates the file's in
 order, and resolves parent indices in a second pass once all entities exist, so a
 child listed before its parent in the file still resolves correctly. `File ▸ Save
-Scene`/`Save Scene As...` and the Project panel's double-click/`Open` on a
-`.sushiscene` file are the only entry points; undo/redo is a separate, later increment.
+Scene`/`Save Scene As...`/`New Scene` and the Project panel's double-click/`Open` on a
+`.sushiscene` file are the entry points; `capture_scene`/`apply_scene` are the same
+functions `save_scene`/`load_scene` wrap around file I/O, and are reused directly by
+undo/redo below.
+
+Undo/redo (`editor/command_history.*`, `CommandHistory`) is whole-world snapshot-based
+rather than a per-field command hierarchy: every step is a full
+`capture_scene`/`apply_scene` round-trip, which is simple and correct at this entity
+count at the cost of coarser granularity. Two recording modes cover the panels:
+`record()` snapshots immediately before a discrete, single-frame mutation (create,
+delete, rename, reparent, a checkbox toggle); `begin_change()`/`end_change()` bracket a
+continuous edit spanning several frames (an Inspector slider held down, a gizmo drag)
+so it costs one undo step regardless of how many frames it runs — panels call
+`begin_change` on the widget's activation edge (`ImGui::IsItemActivated()`) and
+`end_change` on its deactivation edge (`IsItemDeactivatedAfterEdit()`); the gizmo does
+the same off `GizmoController::dragging()`'s grab/release edge, tracked in the main
+loop since the gizmo lives inside `ViewportPanel::draw()`. `Edit ▸ Undo`/`Redo`
+(Ctrl+Z/Ctrl+Y, ignored while `ImGuiIO::WantTextInput` is set so a rename field's own
+text editing is not hijacked) drive it. Because undo/redo swaps the whole world,
+entity ids are not preserved across the step, so both clear the current selection
+rather than risk it aliasing an unrelated new entity.
 
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,

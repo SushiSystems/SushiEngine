@@ -189,6 +189,7 @@ int main(int, char**)
         sushi::editor::editor_log(context, "Live world seeded; press Play to tick it.");
 
         bool running = true;
+        bool gizmo_was_dragging = false;
         while (running)
         {
             running = window.pump_events();
@@ -240,6 +241,21 @@ int main(int, char**)
             imgui.new_frame();
 
             draw_dockspace();
+
+            // Global undo/redo shortcuts, gated off text-entry widgets so Ctrl+Z in a
+            // document or a rename field is not hijacked by the scene history.
+            if (!ImGui::GetIO().WantTextInput && simulation != nullptr)
+            {
+                SushiEngine::sim::IWorldEditor& editor_world = simulation->world();
+                const bool ctrl = ImGui::GetIO().KeyCtrl;
+                if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) &&
+                    context.history.undo(editor_world))
+                    context.selected_entity = SushiEngine::sim::NULL_ENTITY;
+                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) &&
+                         context.history.redo(editor_world))
+                    context.selected_entity = SushiEngine::sim::NULL_ENTITY;
+            }
+
             sushi::editor::draw_menu_bar(context, running);
             sushi::editor::draw_status_bar(context);
             sushi::editor::draw_toolbar_panel(context);
@@ -284,6 +300,15 @@ int main(int, char**)
                                selected, false, nullptr, sushi::editor::GizmoMode::Translate,
                                sushi::editor::GizmoSpace::World, nullptr, &selector);
             }
+
+            // One undo step per whole drag, not one per frame: snapshot on the frame
+            // the handle is grabbed, commit on the frame it is released.
+            const bool gizmo_is_dragging = scene_view.gizmo_dragging();
+            if (gizmo_is_dragging && !gizmo_was_dragging)
+                context.history.begin_change(world);
+            else if (!gizmo_is_dragging && gizmo_was_dragging)
+                context.history.end_change();
+            gizmo_was_dragging = gizmo_is_dragging;
 
             // Write a gizmo edit back only when the selection did not change this frame
             // (a pick and a drag are mutually exclusive).

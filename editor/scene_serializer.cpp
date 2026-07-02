@@ -69,7 +69,7 @@ namespace sushi::editor
         }
     } // namespace
 
-    bool save_scene(IWorldEditor& world, const std::string& path)
+    json capture_scene(IWorldEditor& world)
     {
         const std::vector<EntityId> ids = world.entities();
         std::unordered_map<EntityId, int> index_of;
@@ -110,31 +110,11 @@ namespace sushi::editor
             root.push_back(std::move(entry));
         }
 
-        std::ofstream file(path);
-        if (!file)
-            return false;
-        file << root.dump(2);
-        return static_cast<bool>(file);
+        return root;
     }
 
-    bool load_scene(IWorldEditor& world, const std::string& path)
+    void apply_scene(IWorldEditor& world, const json& root)
     {
-        std::ifstream file(path);
-        if (!file)
-            return false;
-
-        json root;
-        try
-        {
-            file >> root;
-        }
-        catch (const json::parse_error&)
-        {
-            return false;
-        }
-        if (!root.is_array())
-            return false;
-
         // Replace the world wholesale: clear every existing entity before
         // recreating the file's, so a load is never a merge with the prior scene.
         for (const EntityId id : world.entities())
@@ -186,7 +166,36 @@ namespace sushi::editor
             if (parent_index >= 0 && static_cast<std::size_t>(parent_index) < created.size())
                 world.set_parent(created[i], created[static_cast<std::size_t>(parent_index)]);
         }
+    }
 
+    bool save_scene(IWorldEditor& world, const std::string& path)
+    {
+        std::ofstream file(path);
+        if (!file)
+            return false;
+        file << capture_scene(world).dump(2);
+        return static_cast<bool>(file);
+    }
+
+    bool load_scene(IWorldEditor& world, const std::string& path)
+    {
+        std::ifstream file(path);
+        if (!file)
+            return false;
+
+        json root;
+        try
+        {
+            file >> root;
+        }
+        catch (const json::parse_error&)
+        {
+            return false;
+        }
+        if (!root.is_array())
+            return false;
+
+        apply_scene(world, root);
         return true;
     }
 } // namespace sushi::editor

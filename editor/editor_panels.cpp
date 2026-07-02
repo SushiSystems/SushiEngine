@@ -251,7 +251,8 @@ namespace sushi::editor
 
         // A labelled drag-float row for a 3-component vector, matching Unity's
         // X/Y/Z inspector rows. Returns true when any component changed this frame.
-        bool vector3_field(const char* label, float values[3], float speed)
+        bool vector3_field(EditorContext& context, IWorldEditor& world, const char* label,
+                          float values[3], float speed)
         {
             ImGui::PushID(label);
             ImGui::TableNextRow();
@@ -260,6 +261,10 @@ namespace sushi::editor
             ImGui::TableSetColumnIndex(1);
             ImGui::SetNextItemWidth(-FLT_MIN);
             const bool changed = ImGui::DragFloat3("##v", values, speed);
+            if (ImGui::IsItemActivated())
+                context.history.begin_change(world);
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                context.history.end_change();
             ImGui::PopID();
             return changed;
         }
@@ -329,6 +334,15 @@ namespace sushi::editor
                 editor_log(context, "Created entity 'Entity'.");
             }
             ImGui::Separator();
+            if (ImGui::MenuItem("New Scene", nullptr, false, world != nullptr))
+            {
+                context.history.record(*world);
+                for (const EntityId id : world->entities())
+                    world->destroy(id);
+                context.scene_path.clear();
+                context.selected_entity = NULL_ENTITY;
+                editor_log(context, "New scene.");
+            }
             if (ImGui::MenuItem("Save Scene", nullptr, false, world != nullptr))
             {
                 if (context.scene_path.empty())
@@ -364,6 +378,16 @@ namespace sushi::editor
 
         if (ImGui::BeginMenu("Edit"))
         {
+            // Undo/redo replaces the world wholesale (see CommandHistory), so entity
+            // ids from before the swap are no longer valid; drop the selection rather
+            // than risk it aliasing an unrelated new entity.
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, context.history.can_undo()) &&
+                world != nullptr && context.history.undo(*world))
+                context.selected_entity = NULL_ENTITY;
+            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, context.history.can_redo()) &&
+                world != nullptr && context.history.redo(*world))
+                context.selected_entity = NULL_ENTITY;
+            ImGui::Separator();
             if (ImGui::MenuItem("Preferences...", nullptr))
                 context.show_preferences = true;
             ImGui::EndMenu();
@@ -373,11 +397,13 @@ namespace sushi::editor
         {
             if (ImGui::MenuItem("Create Empty", nullptr, false, world != nullptr))
             {
+                context.history.record(*world);
                 context.selected_entity = world->create("Entity");
                 editor_log(context, "Created entity 'Entity'.");
             }
             if (ImGui::MenuItem("Camera", nullptr, false, world != nullptr))
             {
+                context.history.record(*world);
                 context.selected_entity = world->create_camera("Camera");
                 editor_log(context, "Created camera 'Camera'.");
             }
@@ -437,6 +463,7 @@ namespace sushi::editor
                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
                 if (commit || ImGui::IsItemDeactivated())
                 {
+                    context.history.record(*world);
                     world->set_name(id, buffer);
                     context.renaming_entity = NULL_ENTITY;
                     active = NULL_ENTITY;
@@ -477,6 +504,7 @@ namespace sushi::editor
                         ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
                 {
                     const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
+                    context.history.record(*world);
                     world->set_parent(dragged, id);
                 }
                 ImGui::EndDragDropTarget();
@@ -489,7 +517,10 @@ namespace sushi::editor
                     context.renaming_entity = id;
                 if (ImGui::MenuItem("Unparent", nullptr, false,
                                     world->parent(id) != NULL_ENTITY))
+                {
+                    context.history.record(*world);
                     world->set_parent(id, NULL_ENTITY);
+                }
                 if (ImGui::MenuItem("Delete"))
                     delete_target = id;
                 ImGui::EndPopup();
@@ -526,6 +557,7 @@ namespace sushi::editor
 
         if (ImGui::Button("Add Entity"))
         {
+            context.history.record(*world);
             context.selected_entity = world->create("Entity");
             editor_log(context, "Created entity 'Entity'.");
         }
@@ -533,6 +565,7 @@ namespace sushi::editor
         ImGui::BeginDisabled(context.selected_entity == NULL_ENTITY);
         if (ImGui::Button("Delete"))
         {
+            context.history.record(*world);
             world->destroy(context.selected_entity);
             context.selected_entity = NULL_ENTITY;
         }
@@ -561,22 +594,49 @@ namespace sushi::editor
                         continue;
 
                     ImGui::PushID(static_cast<int>(id));
-                    const bool selected = context.selected_entity == id;
-                    if (ImGui::Selectable(entity_name.c_str(), selected,
-                                          ImGuiSelectableFlags_AllowDoubleClick))
+
+                    if (context.renaming_entity == id)
                     {
-                        context.selected_entity = id;
-                        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                            context.frame_selected_requested = true;
+                        static std::string buffer;
+                        static EntityId active = NULL_ENTITY;
+                        if (active != id)
+                        {
+                            buffer = entity_name;
+                            active = id;
+                            ImGui::SetKeyboardFocusHere();
+                        }
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        const bool commit = ImGui::InputText(
+                            "##rename", &buffer,
+                            ImGuiInputTextFlags_EnterReturnsTrue |
+                                ImGuiInputTextFlags_AutoSelectAll);
+                        if (commit || ImGui::IsItemDeactivated())
+                        {
+                            context.history.record(*world);
+                            world->set_name(id, buffer);
+                            context.renaming_entity = NULL_ENTITY;
+                            active = NULL_ENTITY;
+                        }
                     }
-                    if (ImGui::BeginPopupContextItem())
+                    else
                     {
-                        context.selected_entity = id;
-                        if (ImGui::MenuItem("Rename"))
-                            context.renaming_entity = id;
-                        if (ImGui::MenuItem("Delete"))
-                            delete_target = id;
-                        ImGui::EndPopup();
+                        const bool selected = context.selected_entity == id;
+                        if (ImGui::Selectable(entity_name.c_str(), selected,
+                                              ImGuiSelectableFlags_AllowDoubleClick))
+                        {
+                            context.selected_entity = id;
+                            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                                context.frame_selected_requested = true;
+                        }
+                        if (ImGui::BeginPopupContextItem())
+                        {
+                            context.selected_entity = id;
+                            if (ImGui::MenuItem("Rename"))
+                                context.renaming_entity = id;
+                            if (ImGui::MenuItem("Delete"))
+                                delete_target = id;
+                            ImGui::EndPopup();
+                        }
                     }
                     ImGui::PopID();
                 }
@@ -592,6 +652,7 @@ namespace sushi::editor
                             ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
                     {
                         const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
+                        context.history.record(*world);
                         world->set_parent(dragged, NULL_ENTITY);
                     }
                     ImGui::EndDragDropTarget();
@@ -606,6 +667,7 @@ namespace sushi::editor
 
         if (delete_target != NULL_ENTITY)
         {
+            context.history.record(*world);
             if (context.selected_entity == delete_target)
                 context.selected_entity = NULL_ENTITY;
             world->destroy(delete_target);
@@ -636,12 +698,19 @@ namespace sushi::editor
 
         bool visible = world->visible(id);
         if (ImGui::Checkbox("##visible", &visible))
+        {
+            context.history.record(*world);
             world->set_visible(id, visible);
+        }
         ImGui::SameLine();
         std::string name = world->name(id);
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputText("##name", &name))
             world->set_name(id, name);
+        if (ImGui::IsItemActivated())
+            context.history.begin_change(*world);
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            context.history.end_change();
         ImGui::Text("Id: %llu", static_cast<unsigned long long>(id));
         ImGui::Separator();
 
@@ -665,9 +734,9 @@ namespace sushi::editor
             {
                 ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
                 ImGui::TableSetupColumn("value");
-                changed |= vector3_field("Position", position, 0.05f);
-                changed |= vector3_field("Rotation", rotation, 0.5f);
-                changed |= vector3_field("Scale", scale, 0.05f);
+                changed |= vector3_field(context, *world, "Position", position, 0.05f);
+                changed |= vector3_field(context, *world, "Rotation", rotation, 0.5f);
+                changed |= vector3_field(context, *world, "Scale", scale, 0.05f);
                 ImGui::EndTable();
             }
 
@@ -695,6 +764,11 @@ namespace sushi::editor
                         static_cast<SushiEngine::Scalar>(fov_degrees / 57.29578f);
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
                 float near_plane = static_cast<float>(params.near_plane);
                 float far_plane = static_cast<float>(params.far_plane);
                 if (ImGui::DragFloat("Near", &near_plane, 0.01f, 0.001f, 10.0f, "%.3f"))
@@ -702,24 +776,48 @@ namespace sushi::editor
                     params.near_plane = static_cast<SushiEngine::Scalar>(near_plane);
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
                 if (ImGui::DragFloat("Far", &far_plane, 1.0f, 1.0f, 10000.0f, "%.1f"))
                 {
                     params.far_plane = static_cast<SushiEngine::Scalar>(far_plane);
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
                 int display_index = static_cast<int>(params.display_index);
                 if (ImGui::DragInt("Display", &display_index, 0.1f, 0, 15))
                 {
                     params.display_index = static_cast<std::uint32_t>(display_index < 0 ? 0 : display_index);
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
                 int priority = static_cast<int>(params.priority);
                 if (ImGui::DragInt("Priority", &priority, 0.1f))
                 {
                     params.priority = priority;
                     changed = true;
                 }
-                changed |= ImGui::Checkbox("Active", &params.active);
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                if (ImGui::Checkbox("Active", &params.active))
+                {
+                    context.history.record(*world);
+                    changed = true;
+                }
 
                 if (changed)
                     world->set_camera_params(id, params);
@@ -732,6 +830,10 @@ namespace sushi::editor
                               static_cast<float>(current.z)};
             if (ImGui::ColorEdit3("Color", color))
                 world->set_color(id, SushiEngine::Vec3{color[0], color[1], color[2]});
+            if (ImGui::IsItemActivated())
+                context.history.begin_change(*world);
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                context.history.end_change();
         }
 
         ImGui::End();

@@ -114,6 +114,14 @@ namespace sushi::editor
                               const ImVec2& image_origin, float width, float height,
                               bool hovered, const GizmoSnap& snap);
 
+            /**
+             * @brief Whether a handle is currently grabbed (a drag is in progress).
+             *
+             * Lets a host detect the drag's start/end edges across frames (e.g. to
+             * record one undo step per drag instead of one per frame).
+             */
+            bool dragging() const noexcept { return axis_ >= 0; }
+
         private:
             // Active-drag state. axis_ is the grabbed axis (0=X,1=Y,2=Z, 3=uniform for
             // scale, -1=none); the rest is captured at grab time.

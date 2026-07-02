@@ -31,6 +31,7 @@
 
 #include <SushiEngine/sim/simulation.hpp>
 
+#include "command_history.hpp"
 #include "gizmo_controller.hpp"
 #include "preferences.hpp"
 
@@ -111,6 +112,10 @@ namespace sushi::editor
         std::string scene_path;
         bool show_save_scene_as = false;
         std::string save_scene_as_name;
+
+        // Undo/redo over whole-world snapshots; panels record before a mutation (see
+        // CommandHistory) and the menu/keyboard shortcuts drive undo()/redo().
+        CommandHistory history;
 
         // Project panel state: the single selected file/folder (full path, empty if
         // none), the path currently in inline rename, and the name-search filter

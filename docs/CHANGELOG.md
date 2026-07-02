@@ -9,6 +9,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Undo/redo and New Scene.** `Edit ▸ Undo`/`Redo` (Ctrl+Z / Ctrl+Y, ignored while a
+  text widget has focus) step through whole-world JSON snapshots via a new
+  `CommandHistory` (`editor/command_history.*`), reusing `scene_serializer`'s
+  `capture_scene`/`apply_scene` rather than a per-field command hierarchy — simple and
+  correct at this entity count, at the cost of coarser granularity than a field-level
+  command would give. Continuous edits (a gizmo drag, an Inspector slider held across
+  frames) are recorded as one step via `begin_change`/`end_change`, keyed off the
+  widget's activate/deactivate edge (or the gizmo's own grab/release edge) so a single
+  drag never produces dozens of undo steps; discrete actions (create, delete, rename,
+  reparent, checkbox toggles) record with a single `record()` call before the mutation.
+  Undoing/redoing clears the current selection, since entity ids are not preserved
+  across the destroy-and-reload the snapshot swap performs. `File ▸ New Scene` clears
+  the world (itself undoable) and resets the open scene path.
 - **`.sushiscene` save/open.** `File ▸ Save Scene` / `Save Scene As...` write the live
   world to a JSON `.sushiscene` file (`editor/scene_serializer.*`); double-clicking one
   in the Project panel (or its context menu's Open) clears the world and reloads it.
@@ -16,8 +29,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   new engine-side interface — so it names no runtime or ECS type. Parent links are
   written as indices into the saved array rather than raw `EntityId`s, since ids are
   not stable across a destroy-and-reload; a load resolves them only after every entity
-  in the file exists, so a child can be listed before its parent. Undo/redo remains a
-  separate, not-yet-started increment.
+  in the file exists, so a child can be listed before its parent.
 - **Hierarchy parenting via drag-and-drop.** Entities can now be nested: dragging one
   onto another in the Hierarchy reparents it (dropping on empty space unparents back
   to root), with a per-child cycle guard so an entity can never end up as its own

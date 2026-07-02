@@ -26,10 +26,34 @@
 
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace sushi::editor
 {
+    /**
+     * @brief Captures every live entity in @p world as JSON, in `.sushiscene` shape.
+     *
+     * The in-memory counterpart of @ref save_scene, reused by `CommandHistory` to
+     * snapshot the world for undo/redo without touching disk.
+     *
+     * @param world The world to snapshot.
+     * @return The scene as a JSON array, one object per entity.
+     */
+    nlohmann::json capture_scene(SushiEngine::sim::IWorldEditor& world);
+
+    /**
+     * @brief Replaces every entity in @p world with the entities described by @p root.
+     *
+     * The in-memory counterpart of @ref load_scene; see its documentation for the
+     * clear-then-recreate semantics and parent-index resolution.
+     *
+     * @param world The world to repopulate.
+     * @param root A JSON array in the shape @ref capture_scene produces.
+     */
+    void apply_scene(SushiEngine::sim::IWorldEditor& world, const nlohmann::json& root);
+
     /**
      * @brief Writes every live entity in @p world to a `.sushiscene` JSON file.
      *

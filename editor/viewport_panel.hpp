@@ -116,6 +116,9 @@ namespace sushi::editor
                       const GizmoSnap* gizmo_snap = nullptr,
                       const DisplaySelector* display = nullptr);
 
+            /** @brief Whether this panel's gizmo currently has a handle grabbed. */
+            bool gizmo_dragging() const noexcept { return gizmo_.dragging(); }
+
         private:
             void resize_to(std::uint32_t width, std::uint32_t height);
             void register_textures();
