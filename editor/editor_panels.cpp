@@ -330,7 +330,7 @@ namespace sushi::editor
         {
             if (ImGui::MenuItem("New Entity", "Ctrl+N", false, world != nullptr))
             {
-                context.selected_entity = world->create("Entity");
+                select_only(context, world->create("Entity"));
                 editor_log(context, "Created entity 'Entity'.");
             }
             ImGui::Separator();
@@ -340,7 +340,7 @@ namespace sushi::editor
                 for (const EntityId id : world->entities())
                     world->destroy(id);
                 context.scene_path.clear();
-                context.selected_entity = NULL_ENTITY;
+                select_only(context, NULL_ENTITY);
                 editor_log(context, "New scene.");
             }
             if (ImGui::MenuItem("Save Scene", nullptr, false, world != nullptr))
@@ -383,10 +383,10 @@ namespace sushi::editor
             // than risk it aliasing an unrelated new entity.
             if (ImGui::MenuItem("Undo", "Ctrl+Z", false, context.history.can_undo()) &&
                 world != nullptr && context.history.undo(*world))
-                context.selected_entity = NULL_ENTITY;
+                select_only(context, NULL_ENTITY);
             if (ImGui::MenuItem("Redo", "Ctrl+Y", false, context.history.can_redo()) &&
                 world != nullptr && context.history.redo(*world))
-                context.selected_entity = NULL_ENTITY;
+                select_only(context, NULL_ENTITY);
             ImGui::Separator();
             if (ImGui::MenuItem("Preferences...", nullptr))
                 context.show_preferences = true;
@@ -398,13 +398,13 @@ namespace sushi::editor
             if (ImGui::MenuItem("Create Empty", nullptr, false, world != nullptr))
             {
                 context.history.record(*world);
-                context.selected_entity = world->create("Entity");
+                select_only(context, world->create("Entity"));
                 editor_log(context, "Created entity 'Entity'.");
             }
             if (ImGui::MenuItem("Camera", nullptr, false, world != nullptr))
             {
                 context.history.record(*world);
-                context.selected_entity = world->create_camera("Camera");
+                select_only(context, world->create_camera("Camera"));
                 editor_log(context, "Created camera 'Camera'.");
             }
             ImGui::Separator();
@@ -438,11 +438,52 @@ namespace sushi::editor
 
     namespace
     {
+        // Depth-first pre-order (roots in world order, each followed by its children)
+        // — the same order draw_entity_node recurses in, so a Shift-range over it
+        // matches what is visually listed whenever every node is expanded.
+        void collect_display_order(IWorldEditor* world, EntityId parent,
+                                   std::vector<EntityId>& out)
+        {
+            for (const EntityId id : world->entities())
+                if (world->parent(id) == parent)
+                {
+                    out.push_back(id);
+                    collect_display_order(world, id, out);
+                }
+        }
+
+        // Shift+click: select every entity between the anchor (the last plain or
+        // Ctrl click) and @p id in @p order, inclusive. The anchor itself does not
+        // move, so repeated Shift-clicks re-extend the same range rather than
+        // chaining from the previous Shift target.
+        void select_range(EditorContext& context, const std::vector<EntityId>& order,
+                          EntityId id)
+        {
+            const auto anchor_it =
+                std::find(order.begin(), order.end(), context.selection_anchor);
+            const auto to_it = std::find(order.begin(), order.end(), id);
+            if (anchor_it == order.end() || to_it == order.end())
+            {
+                select_only(context, id);
+                return;
+            }
+            auto a = static_cast<std::size_t>(std::distance(order.begin(), anchor_it));
+            auto b = static_cast<std::size_t>(std::distance(order.begin(), to_it));
+            if (a > b)
+                std::swap(a, b);
+            context.selected_entities.clear();
+            for (std::size_t i = a; i <= b; ++i)
+                context.selected_entities.push_back(order[i]);
+            context.selected_entity = id;
+        }
+
         // One Hierarchy row: rename field or selectable label, drag-reparent source
         // and target, context menu, and (when not renaming) a recursive draw of its
         // children so parenting nests visually the way Unity's hierarchy does.
+        // @p order is the full display-order flattening, used to resolve Shift-range
+        // selection; @p delete_requested is set when this row's Delete is chosen.
         void draw_entity_node(EditorContext& context, IWorldEditor* world, EntityId id,
-                               EntityId& delete_target)
+                               const std::vector<EntityId>& order, bool& delete_requested)
         {
             const std::string entity_name = world->name(id);
             ImGui::PushID(static_cast<int>(id));
@@ -481,14 +522,21 @@ namespace sushi::editor
                 ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
             if (children.empty())
                 flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-            if (context.selected_entity == id)
+            if (is_selected(context, id))
                 flags |= ImGuiTreeNodeFlags_Selected;
 
             const bool open = ImGui::TreeNodeEx(entity_name.c_str(), flags);
             if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
             {
-                context.selected_entity = id;
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                const ImGuiIO& io = ImGui::GetIO();
+                if (io.KeyShift)
+                    select_range(context, order, id);
+                else if (io.KeyCtrl)
+                    toggle_selected(context, id);
+                else
+                    select_only(context, id);
+                if (!io.KeyShift && !io.KeyCtrl &&
+                    ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                     context.frame_selected_requested = true;
             }
 
@@ -512,7 +560,11 @@ namespace sushi::editor
 
             if (ImGui::BeginPopupContextItem())
             {
-                context.selected_entity = id;
+                // Right-clicking an entity outside the current selection replaces it;
+                // right-clicking one already selected preserves the multi-selection so
+                // Delete can act on the whole group.
+                if (!is_selected(context, id))
+                    select_only(context, id);
                 if (ImGui::MenuItem("Rename"))
                     context.renaming_entity = id;
                 if (ImGui::MenuItem("Unparent", nullptr, false,
@@ -522,14 +574,14 @@ namespace sushi::editor
                     world->set_parent(id, NULL_ENTITY);
                 }
                 if (ImGui::MenuItem("Delete"))
-                    delete_target = id;
+                    delete_requested = true;
                 ImGui::EndPopup();
             }
 
             if (open && !children.empty())
             {
                 for (const EntityId child : children)
-                    draw_entity_node(context, world, child, delete_target);
+                    draw_entity_node(context, world, child, order, delete_requested);
                 ImGui::TreePop();
             }
 
@@ -558,16 +610,17 @@ namespace sushi::editor
         if (ImGui::Button("Add Entity"))
         {
             context.history.record(*world);
-            context.selected_entity = world->create("Entity");
+            select_only(context, world->create("Entity"));
             editor_log(context, "Created entity 'Entity'.");
         }
         ImGui::SameLine();
-        ImGui::BeginDisabled(context.selected_entity == NULL_ENTITY);
+        ImGui::BeginDisabled(context.selected_entities.empty());
         if (ImGui::Button("Delete"))
         {
             context.history.record(*world);
-            world->destroy(context.selected_entity);
-            context.selected_entity = NULL_ENTITY;
+            for (const EntityId target : context.selected_entities)
+                world->destroy(target);
+            select_only(context, NULL_ENTITY);
         }
         ImGui::EndDisabled();
 
@@ -577,22 +630,26 @@ namespace sushi::editor
 
         const std::string lower_filter = to_lower(context.hierarchy_filter);
 
-        // The entity being deleted this frame is deferred out of the loop so the
-        // entity list is never mutated while it is being walked.
-        EntityId delete_target = NULL_ENTITY;
+        // Delete is deferred out of the loop below so the entity list is never
+        // mutated while it is being walked; a row sets this when its own Delete
+        // (context menu or, implicitly, being part of the selection) fires.
+        bool delete_requested = false;
 
         if (ImGui::BeginChild("entities"))
         {
             if (!lower_filter.empty())
             {
                 // A search filter flattens the tree: nesting is meaningless once most
-                // of the hierarchy is hidden, so matches are listed directly.
+                // of the hierarchy is hidden, so matches are listed directly. Ctrl/Shift
+                // still work, ranging over the filtered order shown here.
+                std::vector<EntityId> filtered_order;
                 for (const EntityId id : world->entities())
+                    if (to_lower(world->name(id)).find(lower_filter) != std::string::npos)
+                        filtered_order.push_back(id);
+
+                for (const EntityId id : filtered_order)
                 {
                     const std::string entity_name = world->name(id);
-                    if (to_lower(entity_name).find(lower_filter) == std::string::npos)
-                        continue;
-
                     ImGui::PushID(static_cast<int>(id));
 
                     if (context.renaming_entity == id)
@@ -620,21 +677,29 @@ namespace sushi::editor
                     }
                     else
                     {
-                        const bool selected = context.selected_entity == id;
+                        const bool selected = is_selected(context, id);
                         if (ImGui::Selectable(entity_name.c_str(), selected,
                                               ImGuiSelectableFlags_AllowDoubleClick))
                         {
-                            context.selected_entity = id;
-                            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                            const ImGuiIO& io = ImGui::GetIO();
+                            if (io.KeyShift)
+                                select_range(context, filtered_order, id);
+                            else if (io.KeyCtrl)
+                                toggle_selected(context, id);
+                            else
+                                select_only(context, id);
+                            if (!io.KeyShift && !io.KeyCtrl &&
+                                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                                 context.frame_selected_requested = true;
                         }
                         if (ImGui::BeginPopupContextItem())
                         {
-                            context.selected_entity = id;
+                            if (!is_selected(context, id))
+                                select_only(context, id);
                             if (ImGui::MenuItem("Rename"))
                                 context.renaming_entity = id;
                             if (ImGui::MenuItem("Delete"))
-                                delete_target = id;
+                                delete_requested = true;
                             ImGui::EndPopup();
                         }
                     }
@@ -643,6 +708,9 @@ namespace sushi::editor
             }
             else
             {
+                std::vector<EntityId> order;
+                collect_display_order(world, NULL_ENTITY, order);
+
                 // The root canvas itself accepts drops too, so dragging an entity onto
                 // empty space unparents it back to the top level.
                 if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect,
@@ -660,17 +728,17 @@ namespace sushi::editor
 
                 for (const EntityId id : world->entities())
                     if (world->parent(id) == NULL_ENTITY)
-                        draw_entity_node(context, world, id, delete_target);
+                        draw_entity_node(context, world, id, order, delete_requested);
             }
         }
         ImGui::EndChild();
 
-        if (delete_target != NULL_ENTITY)
+        if (delete_requested && !context.selected_entities.empty())
         {
             context.history.record(*world);
-            if (context.selected_entity == delete_target)
-                context.selected_entity = NULL_ENTITY;
-            world->destroy(delete_target);
+            for (const EntityId target : context.selected_entities)
+                world->destroy(target);
+            select_only(context, NULL_ENTITY);
         }
 
         ImGui::End();
@@ -962,27 +1030,30 @@ namespace sushi::editor
                 const bool clicked = ImGui::Button(label.c_str(), ImVec2(TILE_SIZE, TILE_SIZE));
                 ImGui::PopStyleColor(3);
                 if (clicked)
+                    context.selected_project_path = path_string;
+                // Double-click detection is independent of the Button's own
+                // pressed-on-release return, which can miss the second click of a
+                // fast double-click; hover + IsMouseDoubleClicked is the reliable pair.
+                if (ImGui::IsItemHovered() &&
+                    ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                 {
                     context.selected_project_path = path_string;
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    if (is_dir)
+                        context.current_directory = path_string;
+                    else if (entry.path().extension() == ".sushiscene")
                     {
-                        if (is_dir)
-                            context.current_directory = path_string;
-                        else if (entry.path().extension() == ".sushiscene")
+                        IWorldEditor* world = world_of(context);
+                        if (world != nullptr && load_scene(*world, path_string))
                         {
-                            IWorldEditor* world = world_of(context);
-                            if (world != nullptr && load_scene(*world, path_string))
-                            {
-                                context.scene_path = path_string;
-                                context.selected_entity = NULL_ENTITY;
-                                editor_log(context, "Loaded scene '" + path_string + "'.");
-                            }
+                            context.scene_path = path_string;
+                            select_only(context, NULL_ENTITY);
+                            editor_log(context, "Loaded scene '" + path_string + "'.");
                         }
-                        else if (has_text_extension(entry.path()))
-                            open_document(context, entry.path());
-                        else
-                            open_with_default_app(entry.path());
                     }
+                    else if (has_text_extension(entry.path()))
+                        open_document(context, entry.path());
+                    else
+                        open_with_default_app(entry.path());
                 }
 
                 if (ImGui::BeginPopupContextItem())
@@ -996,7 +1067,7 @@ namespace sushi::editor
                             if (world != nullptr && load_scene(*world, path_string))
                             {
                                 context.scene_path = path_string;
-                                context.selected_entity = NULL_ENTITY;
+                                select_only(context, NULL_ENTITY);
                                 editor_log(context, "Loaded scene '" + path_string + "'.");
                             }
                         }

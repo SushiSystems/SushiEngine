@@ -250,10 +250,10 @@ int main(int, char**)
                 const bool ctrl = ImGui::GetIO().KeyCtrl;
                 if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) &&
                     context.history.undo(editor_world))
-                    context.selected_entity = SushiEngine::sim::NULL_ENTITY;
+                    sushi::editor::select_only(context, SushiEngine::sim::NULL_ENTITY);
                 else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) &&
                          context.history.redo(editor_world))
-                    context.selected_entity = SushiEngine::sim::NULL_ENTITY;
+                    sushi::editor::select_only(context, SushiEngine::sim::NULL_ENTITY);
             }
 
             sushi::editor::draw_menu_bar(context, running);
@@ -315,7 +315,15 @@ int main(int, char**)
             if (has_selection && gizmo_edited &&
                 selected == static_cast<std::uint32_t>(context.selected_entity))
                 world.set_transform(context.selected_entity, selected_transform);
-            context.selected_entity = selected;
+            // A viewport click always replaces the whole selection (no multi-select
+            // there yet), but only when it actually changed the pick this frame — this
+            // runs every frame regardless, and re-collapsing to one entity every frame
+            // would fight the Hierarchy's Ctrl/Shift multi-select.
+            if (selected != static_cast<std::uint32_t>(context.selected_entity))
+                sushi::editor::select_only(
+                    context, static_cast<SushiEngine::sim::EntityId>(selected));
+            else
+                context.selected_entity = selected;
 
             // Service the Scene-camera / framing requests raised by the Hierarchy
             // (double-click) and the GameObject menu, now that the selection is settled.

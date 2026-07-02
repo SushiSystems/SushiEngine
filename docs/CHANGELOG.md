@@ -9,6 +9,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Hierarchy multi-select (Ctrl/Shift-click).** Ctrl+click toggles an entity's
+  membership in the selection; Shift+click selects every entity between the last
+  clicked ("anchor") entity and the clicked one, ranging over the tree's depth-first
+  display order (or the filtered order when a search filter is active). `Delete` (the
+  toolbar button and the context menu) now destroys the whole selection. A plain click
+  still collapses to a single entity. `EditorContext::selected_entity` remains the
+  single "primary" target the Inspector, the viewport gizmo, and Align/Move-to-View
+  read; `selected_entities` is the full set only the Hierarchy's bulk operations use.
+- **Project panel double-click fix.** Double-clicking a file tile (to open a scene,
+  text file, or code file) relied on `ImGui::Button`'s own pressed-on-release return
+  value to gate `IsMouseDoubleClicked`, which could miss the second click of a fast
+  double-click. Detection now uses `IsItemHovered() && IsMouseDoubleClicked()`
+  independent of the button's return value, matching the pattern already proven by the
+  Hierarchy's entity double-click.
 - **Undo/redo and New Scene.** `Edit ▸ Undo`/`Redo` (Ctrl+Z / Ctrl+Y, ignored while a
   text widget has focus) step through whole-world JSON snapshots via a new
   `CommandHistory` (`editor/command_history.*`), reusing `scene_serializer`'s

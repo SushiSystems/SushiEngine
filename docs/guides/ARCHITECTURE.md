@@ -259,6 +259,14 @@ only the seeded demo cubes are system-driven. The Hierarchy renders these entiti
 tree (drag-and-drop reparents; dropping on empty space unparents to root), guarded
 against cycles by walking the candidate parent's own ancestor chain before accepting a
 drop, and the Inspector edits the selection; the editor GUI goes through Dear ImGui.
+`EditorContext` splits selection in two: `selected_entity` is the single "primary"
+target the Inspector, viewport gizmo, and Align/Move-to-View act on, while
+`selected_entities` is the Hierarchy's full multi-selection (Ctrl+click toggles
+membership; Shift+click ranges from `selection_anchor` — the last plain or Ctrl click —
+over the tree's depth-first display order, or the filtered order when a search filter
+narrows the list). A plain click collapses both back to one entity
+(`select_only`/`toggle_selected`/`is_selected` in `editor_context.hpp`); `Delete` acts on
+the whole vector.
 Because parenting is host metadata rather than an ECS `Parent` component, the extract
 pass composes each entity's object-to-world matrix by walking its parent chain on the
 host (`RuntimeSimulation::world_matrix`, bounded by the live entity count against a

@@ -24,6 +24,7 @@
 #ifndef SUSHIENGINE_EDITOR_EDITOR_CONTEXT_HPP
 #define SUSHIENGINE_EDITOR_EDITOR_CONTEXT_HPP
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -100,7 +101,16 @@ namespace sushi::editor
         // through the IWorldEditor surface. The world is the single source of truth
         // for entities — there is no separate editor-side scene model.
         SushiEngine::sim::ISimulation* simulation = nullptr;
+
+        // The Inspector/gizmo's single "primary" target (the most recently clicked
+        // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
+        // toggles membership, Shift extends a range from `selection_anchor`); a plain
+        // click collapses both down to one entity via `select_only`. Anything that
+        // edits a single entity (Inspector, the viewport gizmo, Align/Move-to-View)
+        // reads `selected_entity`; bulk operations (Hierarchy Delete) read the vector.
         SushiEngine::sim::EntityId selected_entity = SushiEngine::sim::NULL_ENTITY;
+        std::vector<SushiEngine::sim::EntityId> selected_entities;
+        SushiEngine::sim::EntityId selection_anchor = SushiEngine::sim::NULL_ENTITY;
         SushiEngine::sim::EntityId renaming_entity = SushiEngine::sim::NULL_ENTITY;
 
         std::string project_root;
@@ -188,6 +198,61 @@ namespace sushi::editor
                     static_cast<std::ptrdiff_t>(context.console_lines.size() -
                                                 MAX_CONSOLE_LINES));
         }
+    }
+
+    /** @brief Whether @p id is part of the current Hierarchy multi-selection. */
+    inline bool is_selected(const EditorContext& context,
+                            SushiEngine::sim::EntityId id) noexcept
+    {
+        return std::find(context.selected_entities.begin(), context.selected_entities.end(),
+                         id) != context.selected_entities.end();
+    }
+
+    /**
+     * @brief Collapses the selection to a single entity (a plain click).
+     *
+     * Sets both the Inspector/gizmo's `selected_entity` and the Hierarchy's
+     * multi-selection to just @p id, and rebases the Shift-range anchor there. Pass
+     * `NULL_ENTITY` to clear the selection entirely.
+     *
+     * @param context Editor state to update.
+     * @param id The entity to select alone, or `NULL_ENTITY` to select nothing.
+     */
+    inline void select_only(EditorContext& context, SushiEngine::sim::EntityId id)
+    {
+        context.selected_entity = id;
+        context.selection_anchor = id;
+        context.selected_entities.clear();
+        if (id != SushiEngine::sim::NULL_ENTITY)
+            context.selected_entities.push_back(id);
+    }
+
+    /**
+     * @brief Toggles @p id's membership in the multi-selection (a Ctrl+click).
+     *
+     * Rebases the Shift-range anchor to @p id either way, so a following Shift-click
+     * extends from this entity rather than the original plain-click target.
+     *
+     * @param context Editor state to update.
+     * @param id The entity to add or remove from the selection.
+     */
+    inline void toggle_selected(EditorContext& context, SushiEngine::sim::EntityId id)
+    {
+        const auto it =
+            std::find(context.selected_entities.begin(), context.selected_entities.end(), id);
+        if (it != context.selected_entities.end())
+        {
+            context.selected_entities.erase(it);
+            context.selected_entity = context.selected_entities.empty()
+                                          ? SushiEngine::sim::NULL_ENTITY
+                                          : context.selected_entities.back();
+        }
+        else
+        {
+            context.selected_entities.push_back(id);
+            context.selected_entity = id;
+        }
+        context.selection_anchor = id;
     }
 }
 
