@@ -207,23 +207,30 @@ int main(int, char**)
             // lossless. A left-click in either viewport picks the entity under it.
             std::uint32_t selected = static_cast<std::uint32_t>(context.selected_entity);
 
-            // The Scene view gets a translate gizmo at the selection; dragging it edits
-            // a local copy of the position that is written back to the world afterwards.
+            // The Scene view gets the transform gizmo at the selection; a drag edits a
+            // local copy of the transform written back to the world afterwards.
             SushiEngine::sim::IWorldEditor& world = simulation->world();
             const bool has_selection = world.exists(context.selected_entity);
             SushiEngine::sim::EntityTransform selected_transform;
-            SushiEngine::Vec3 gizmo_position;
-            SushiEngine::Vec3* gizmo_pointer = nullptr;
+            SushiEngine::sim::EntityTransform* gizmo_target = nullptr;
             if (has_selection)
             {
                 selected_transform = world.transform(context.selected_entity);
-                gizmo_position = selected_transform.position;
-                gizmo_pointer = &gizmo_position;
+                gizmo_target = &selected_transform;
             }
 
+            // Gizmo snapping comes from the Scene preferences; off unless enabled there.
+            sushi::editor::GizmoSnap snap;
+            snap.enabled = context.preferences.snap_enabled;
+            snap.translate = context.preferences.snap_translate;
+            snap.rotate_degrees = context.preferences.snap_rotate_degrees;
+            snap.scale = context.preferences.snap_scale;
+
+            bool gizmo_edited = false;
             if (context.panels.scene_view)
-                scene_view.draw(context.panels.scene_view, instances.data(), instances.size(),
-                                selected, true, gizmo_pointer);
+                gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
+                                               instances.size(), selected, true, gizmo_target,
+                                               context.gizmo_mode, context.gizmo_space, &snap);
             if (context.panels.game_view)
             {
                 // The Game view is played, not authored: no picking, no gizmo. It offers
@@ -233,21 +240,50 @@ int main(int, char**)
                 selector.count = displays.size();
                 selector.selected = &context.game_display;
                 game_view.draw(context.panels.game_view, instances.data(), instances.size(),
-                               selected, false, nullptr, &selector);
+                               selected, false, nullptr, sushi::editor::GizmoMode::Translate,
+                               sushi::editor::GizmoSpace::World, nullptr, &selector);
             }
 
-            // Apply a gizmo drag only when the selection did not change this frame (a
-            // pick and a drag are mutually exclusive) and the position actually moved.
-            if (has_selection &&
-                selected == static_cast<std::uint32_t>(context.selected_entity) &&
-                (gizmo_position.x != selected_transform.position.x ||
-                 gizmo_position.y != selected_transform.position.y ||
-                 gizmo_position.z != selected_transform.position.z))
-            {
-                selected_transform.position = gizmo_position;
+            // Write a gizmo edit back only when the selection did not change this frame
+            // (a pick and a drag are mutually exclusive).
+            if (has_selection && gizmo_edited &&
+                selected == static_cast<std::uint32_t>(context.selected_entity))
                 world.set_transform(context.selected_entity, selected_transform);
-            }
             context.selected_entity = selected;
+
+            // Service the Scene-camera / framing requests raised by the Hierarchy
+            // (double-click) and the GameObject menu, now that the selection is settled.
+            if (world.exists(context.selected_entity) &&
+                (context.frame_selected_requested || context.align_with_view_requested ||
+                 context.move_to_view_requested))
+            {
+                const SushiEngine::sim::EntityTransform target =
+                    world.transform(context.selected_entity);
+                sushi::editor::FlyCamera& fly = scene_camera.camera();
+                if (context.frame_selected_requested)
+                {
+                    // Teleport the camera beside the entity, keeping its facing.
+                    fly.position =
+                        target.position - fly.forward() * static_cast<SushiEngine::Scalar>(6);
+                }
+                if (context.align_with_view_requested)
+                {
+                    SushiEngine::sim::EntityTransform aligned = target;
+                    aligned.position = fly.position;
+                    aligned.rotation = fly.orientation();
+                    world.set_transform(context.selected_entity, aligned);
+                }
+                if (context.move_to_view_requested)
+                {
+                    SushiEngine::sim::EntityTransform moved = target;
+                    moved.position =
+                        fly.position + fly.forward() * static_cast<SushiEngine::Scalar>(6);
+                    world.set_transform(context.selected_entity, moved);
+                }
+            }
+            context.frame_selected_requested = false;
+            context.align_with_view_requested = false;
+            context.move_to_view_requested = false;
             sushi::editor::draw_hierarchy_panel(context);
             sushi::editor::draw_inspector_panel(context);
             sushi::editor::draw_project_panel(context);

@@ -157,10 +157,17 @@ from ImGui, and a `WorldCameraSource` (the **Game** view) posed each frame from 
 simulation's camera. So the same panel serves both viewports, the controller depends
 on no input source and stays unit-testable, and a new camera kind is a new
 implementation rather than a new panel. Interaction closes the loop: a left-click picks
-via the id target and the Scene view draws a screen-space translate gizmo at the
-selection (ImGui draw list, projecting through the camera), so an entity is created from
-the Hierarchy, selected in any viewport, moved with the gizmo, edited in the Inspector,
-and destroyed — all against the one live world.
+via the id target and the Scene view draws the transform gizmo at the selection
+(`editor/gizmo_controller.*`, ImGui draw list, projecting through the camera), so an
+entity is created from the Hierarchy, selected in any viewport, moved with the gizmo,
+edited in the Inspector, and destroyed — all against the one live world.
+`GizmoController` offers translate/rotate/scale (Unity's W/E/R) and a `GizmoSpace`
+(Local/World) the toolbar toggles; Scale always drags local axes to avoid shearing a
+rotated object. Rotate drags are computed by intersecting the mouse ray with the axis's
+own plane through the pivot each frame and measuring the signed world-space angle swept
+between grab-time and current plane vectors — a screen-space angle would invert once
+the camera crosses to the far side of the axis, which is why translate/scale axes and
+the ray/plane math live in world space rather than screen space throughout.
 
 Editor and project settings sit behind a **preferences seam** (`editor/preferences.hpp`
 `IPreferencesStore`, JSON implementation writing a per-user `preferences.json`). The

@@ -31,6 +31,7 @@
 
 #include <SushiEngine/sim/simulation.hpp>
 
+#include "gizmo_controller.hpp"
 #include "preferences.hpp"
 
 namespace sushi::editor
@@ -118,6 +119,21 @@ namespace sushi::editor
 
         // Which display the Game view renders, chosen from the resolved cameras.
         std::uint32_t game_display = 0;
+
+        // The active Scene-view transform tool (W/E/R) and axis frame (Local/World),
+        // shared between the toolbar that sets them and the viewport that draws the
+        // matching gizmo.
+        GizmoMode gizmo_mode = GizmoMode::Translate;
+        GizmoSpace gizmo_space = GizmoSpace::World;
+
+        // One-shot camera/selection requests raised by the Hierarchy and GameObject
+        // menu and serviced by the main loop, which owns the Scene camera and world:
+        //   frame  — move the Scene camera to look at the selection (double-click).
+        //   align  — move the selection to the Scene camera's pose (Align With View).
+        //   moveto — move the selection in front of the Scene camera (Move to View).
+        bool frame_selected_requested = false;
+        bool align_with_view_requested = false;
+        bool move_to_view_requested = false;
 
         // The persisted editor/project settings and their store. The store is owned by
         // main() and injected; panels read and edit `preferences` and set

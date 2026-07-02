@@ -32,10 +32,12 @@ namespace sushi::editor
     /**
      * @brief Drives a FlyCamera from an InputState with Unity Scene-view controls.
      *
-     * Right mouse gates both look and movement: while it is held, mouse motion turns
-     * the camera and WASD/QE fly it, with Shift boosting speed. All motion is scaled
-     * by frame time so it is frame-rate independent. Stateless and pure — it reads
-     * input and writes the camera, nothing else — so it is trivially testable.
+     * Right mouse gates look and WASD/QE flight (Shift boosts); the mouse wheel
+     * dollies along the view direction and the middle mouse pans in the view plane,
+     * both without holding right mouse — Unity's Scene navigation. All motion is
+     * scaled by frame time (wheel and pan by their fixed steps) so it is frame-rate
+     * independent. Stateless and pure — reads input, writes the camera — so it is
+     * trivially testable.
      */
     struct CameraController
     {
@@ -43,6 +45,8 @@ namespace sushi::editor
         float move_speed = 6.0f;          /**< Base fly speed in units per second. */
         float boost_multiplier = 4.0f;    /**< Speed multiplier while Shift is held. */
         float pitch_limit = 1.5533f;      /**< Clamp pitch to just under +/- 90 degrees. */
+        float zoom_step = 0.8f;           /**< Units dollied per wheel notch. */
+        float pan_speed = 0.01f;          /**< World units panned per pixel of mouse move. */
 
         /**
          * @brief Applies one frame of input to @p camera.
@@ -51,6 +55,18 @@ namespace sushi::editor
          */
         void update(FlyCamera& camera, const InputState& input) const noexcept
         {
+            // Wheel dolly and middle-mouse pan work whether or not look is active, so
+            // the view can be framed without holding right mouse (Unity Scene nav).
+            if (input.wheel != 0.0f)
+                camera.position = camera.position + camera.forward() * (input.wheel * zoom_step);
+            if (input.pan_active && (input.pan_dx != 0.0f || input.pan_dy != 0.0f))
+            {
+                const SushiEngine::Vec3 right = camera.right();
+                const SushiEngine::Vec3 up = SushiEngine::cross(right, camera.forward());
+                camera.position = camera.position + right * (-input.pan_dx * pan_speed) +
+                                  up * (input.pan_dy * pan_speed);
+            }
+
             if (!input.look_active)
                 return;
 

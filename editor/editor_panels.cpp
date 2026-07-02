@@ -229,6 +229,13 @@ namespace sushi::editor
                 context.selected_entity = world->create_camera("Camera");
                 editor_log(context, "Created camera 'Camera'.");
             }
+            ImGui::Separator();
+            const bool has_selection =
+                world != nullptr && world->exists(context.selected_entity);
+            if (ImGui::MenuItem("Align With View", nullptr, false, has_selection))
+                context.align_with_view_requested = true;
+            if (ImGui::MenuItem("Move to View", nullptr, false, has_selection))
+                context.move_to_view_requested = true;
             ImGui::EndMenu();
         }
 
@@ -335,8 +342,11 @@ namespace sushi::editor
                                           ImGuiSelectableFlags_AllowDoubleClick))
                     {
                         context.selected_entity = id;
+                        // Double-click frames the entity in the Scene view (Unity's F),
+                        // teleporting the camera beside it. Rename lives on the context
+                        // menu and F2 so it does not fight the frame gesture.
                         if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                            context.renaming_entity = id;
+                            context.frame_selected_requested = true;
                     }
                     if (ImGui::BeginPopupContextItem())
                     {
@@ -666,6 +676,49 @@ namespace sushi::editor
                                  : context.play_state == PlayState::Paused ? "Paused"
                                                                            : "Stopped";
         ImGui::TextDisabled("| %s", state_text);
+
+        // Transform tool selector, mirroring Unity's W/E/R. The hotkeys apply only
+        // when no text field is capturing keys, so typing a name never switches tools.
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        const GizmoMode modes[3] = {GizmoMode::Translate, GizmoMode::Rotate, GizmoMode::Scale};
+        const char* mode_labels[3] = {"Move", "Rotate", "Scale"};
+        for (int i = 0; i < 3; ++i)
+        {
+            ImGui::SameLine();
+            const bool active = context.gizmo_mode == modes[i];
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button(mode_labels[i]))
+                context.gizmo_mode = modes[i];
+            if (active)
+                ImGui::PopStyleColor();
+        }
+
+        // Local/World axis-frame toggle, mirroring Unity's gizmo-space button. Disabled
+        // for Scale, which always drags in local axes (a world-aligned scale on a
+        // rotated object would shear it).
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(context.gizmo_mode == GizmoMode::Scale);
+        const char* space_label = context.gizmo_space == GizmoSpace::Local ? "Local" : "World";
+        if (ImGui::Button(space_label))
+            context.gizmo_space = context.gizmo_space == GizmoSpace::Local ? GizmoSpace::World
+                                                                            : GizmoSpace::Local;
+        ImGui::EndDisabled();
+
+        // While right mouse is held the Scene camera owns WASD for flight, so the tool
+        // hotkeys stand down to avoid switching tools as the user moves.
+        if (!ImGui::GetIO().WantTextInput && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+                context.gizmo_mode = GizmoMode::Translate;
+            else if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+                context.gizmo_mode = GizmoMode::Rotate;
+            else if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+                context.gizmo_mode = GizmoMode::Scale;
+        }
 
         ImGui::End();
     }

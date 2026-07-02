@@ -62,6 +62,26 @@ namespace sushi::editor
                 SushiEngine::cross(forward(), SushiEngine::Vec3{0.0f, 1.0f, 0.0f}));
         }
 
+        /**
+         * @brief The camera's orientation as a quaternion, for aligning objects to it.
+         *
+         * Built so that at the default yaw/pitch an identity-rotated object (which
+         * faces -Z, the engine's forward convention) matches the camera's facing.
+         * Used by "Align With View": a yaw about world up, then pitch about the local
+         * right axis.
+         *
+         * @return The unit quaternion whose forward (-Z) equals the camera's forward.
+         */
+        SushiEngine::Quat orientation() const noexcept
+        {
+            const float yaw_theta = std::atan2(-std::cos(yaw_radians), -std::sin(yaw_radians));
+            const SushiEngine::Quat yaw_q =
+                SushiEngine::quat_axis_angle(SushiEngine::Vec3{0.0f, 1.0f, 0.0f}, yaw_theta);
+            const SushiEngine::Quat pitch_q =
+                SushiEngine::quat_axis_angle(SushiEngine::Vec3{1.0f, 0.0f, 0.0f}, pitch_radians);
+            return SushiEngine::normalize(SushiEngine::mul(yaw_q, pitch_q));
+        }
+
         /** @brief The world-to-camera view matrix. */
         SushiEngine::Mat4 view_matrix() const noexcept
         {

@@ -59,6 +59,7 @@ add_executable(se_editor
     sdl_window.cpp
     imgui_backend.cpp
     viewport_panel.cpp
+    gizmo_controller.cpp
     preferences.cpp)
 target_link_libraries(se_editor PRIVATE
     sushi_imgui sushi_render sushi_sim nlohmann_json::nlohmann_json)

@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Rotate/scale gizmos with a Local/World axis toggle.** `GizmoController` now offers
+  a full W/E/R handle set (translate, rotate, scale) plus a toolbar toggle for whether
+  Translate/Rotate drag along world axes or the selection's own local axes (`GizmoSpace`);
+  Scale always drags in local axes to avoid shearing a rotated object. The rotate ring
+  drag now intersects the mouse ray with the axis's own plane through the pivot each
+  frame and measures the signed world-space angle swept, instead of a screen-space
+  angle — the previous screen-space approach inverted when the camera viewed the axis
+  from its far side.
+
 - **Camera component with display selection.** Cameras are now first-class ECS entities
   (a `Camera` component: fov, clip planes, `display_index`, `priority`, `active`), posed
   by their transform and appearing in the Hierarchy. `IWorldEditor` gained
@@ -124,6 +133,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   `normalize`, `cross`, `dot`, …), documented as placeholders SushiBLAS will own.
 
 ### Fixed
+- **Rotate gizmo direction flipping with camera angle.** Dragging a rotate ring while
+  viewing the axis from the opposite side used to spin the object backwards; the drag
+  math is now computed from world-space vectors (ray/plane intersection), which is
+  camera-orientation independent instead of a screen-space angle.
 - **Game view no longer selects objects.** Clicking in the Game viewport used to pick an
   entity through the id buffer, the same as the Scene view. Picking is now gated to the
   Scene view (a `pickable` flag on the viewport panel); the Game view is played, not

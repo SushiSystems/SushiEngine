@@ -33,6 +33,7 @@
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
 
+#include "gizmo_controller.hpp"
 #include "imgui_backend.hpp"
 #include "scene_camera.hpp"
 
@@ -96,16 +97,23 @@ namespace sushi::editor
              * @param pickable    Whether a left-click picks an entity. The Scene view
              *                    picks; the Game view passes false so clicking it never
              *                    selects (the game is played, not authored).
-             * @param gizmo_position When non-null, a translate gizmo is drawn at this
-             *                    world position and dragging it writes the new position
-             *                    back through the pointer. Null draws no gizmo.
+             * @param gizmo_target When non-null, the transform gizmo is drawn at this
+             *                    transform and a drag edits it in place. Null draws no
+             *                    gizmo. The return value reports whether it changed.
+             * @param gizmo_mode  Which handle set to draw (translate/rotate/scale).
+             * @param gizmo_space Local or World axis frame for the gizmo drag.
+             * @param gizmo_snap  Optional snapping applied to a gizmo drag.
              * @param display     When non-null, a display-selection combo is drawn over
              *                    the viewport (used by the Game view to choose which
              *                    display's camera it shows). Null draws no combo.
+             * @return Whether the gizmo edited @p gizmo_target this frame.
              */
-            void draw(bool& open, const SushiEngine::render::MeshInstance* instances,
+            bool draw(bool& open, const SushiEngine::render::MeshInstance* instances,
                       std::size_t count, std::uint32_t& selected_id, bool pickable = true,
-                      SushiEngine::Vec3* gizmo_position = nullptr,
+                      SushiEngine::sim::EntityTransform* gizmo_target = nullptr,
+                      GizmoMode gizmo_mode = GizmoMode::Translate,
+                      GizmoSpace gizmo_space = GizmoSpace::World,
+                      const GizmoSnap* gizmo_snap = nullptr,
                       const DisplaySelector* display = nullptr);
 
         private:
@@ -119,15 +127,8 @@ namespace sushi::editor
             std::unique_ptr<SushiEngine::render::ISceneView> view_;
             std::vector<ImTextureID> slot_textures_;
             bool looking_ = false;
-
-            // Translate-gizmo drag state. gizmo_axis_ is the axis being dragged (0=X,
-            // 1=Y, 2=Z, -1=none); the rest is captured at drag start so the mapping
-            // from mouse pixels to world units stays stable while the object moves.
-            int gizmo_axis_ = -1;
-            ImVec2 gizmo_start_mouse_{};
-            ImVec2 gizmo_axis_screen_{};
-            float gizmo_world_per_pixel_ = 0.0f;
-            SushiEngine::Vec3 gizmo_start_position_{};
+            bool panning_ = false;
+            GizmoController gizmo_;
     };
 } // namespace sushi::editor
 

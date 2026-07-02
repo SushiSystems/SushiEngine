@@ -49,6 +49,12 @@ namespace sushi::editor
         float mouse_dx = 0.0f;    /**< Horizontal mouse delta in pixels this frame. */
         float mouse_dy = 0.0f;    /**< Vertical mouse delta in pixels this frame. */
 
+        float wheel = 0.0f;       /**< Mouse-wheel notches this frame: dolly along forward. */
+
+        bool pan_active = false;  /**< Middle mouse held: pan in the view plane. */
+        float pan_dx = 0.0f;      /**< Horizontal mouse delta while panning, in pixels. */
+        float pan_dy = 0.0f;      /**< Vertical mouse delta while panning, in pixels. */
+
         float dt = 0.0f; /**< Frame time in seconds, for rate-independent motion. */
     };
 } // namespace sushi::editor
