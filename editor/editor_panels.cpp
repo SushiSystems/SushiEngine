@@ -224,6 +224,11 @@ namespace sushi::editor
                 context.selected_entity = world->create("Entity");
                 editor_log(context, "Created entity 'Entity'.");
             }
+            if (ImGui::MenuItem("Camera", nullptr, false, world != nullptr))
+            {
+                context.selected_entity = world->create_camera("Camera");
+                editor_log(context, "Created camera 'Camera'.");
+            }
             ImGui::EndMenu();
         }
 
@@ -425,7 +430,52 @@ namespace sushi::editor
             }
         }
 
-        if (ImGui::CollapsingHeader("Renderer", ImGuiTreeNodeFlags_DefaultOpen))
+        if (world->is_camera(id))
+        {
+            if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                SushiEngine::sim::CameraParams params = world->camera_params(id);
+                bool changed = false;
+
+                float fov_degrees =
+                    static_cast<float>(params.vertical_fov_radians) * 57.29578f;
+                if (ImGui::DragFloat("FOV (deg)", &fov_degrees, 0.5f, 10.0f, 170.0f, "%.1f"))
+                {
+                    params.vertical_fov_radians =
+                        static_cast<SushiEngine::Scalar>(fov_degrees / 57.29578f);
+                    changed = true;
+                }
+                float near_plane = static_cast<float>(params.near_plane);
+                float far_plane = static_cast<float>(params.far_plane);
+                if (ImGui::DragFloat("Near", &near_plane, 0.01f, 0.001f, 10.0f, "%.3f"))
+                {
+                    params.near_plane = static_cast<SushiEngine::Scalar>(near_plane);
+                    changed = true;
+                }
+                if (ImGui::DragFloat("Far", &far_plane, 1.0f, 1.0f, 10000.0f, "%.1f"))
+                {
+                    params.far_plane = static_cast<SushiEngine::Scalar>(far_plane);
+                    changed = true;
+                }
+                int display_index = static_cast<int>(params.display_index);
+                if (ImGui::DragInt("Display", &display_index, 0.1f, 0, 15))
+                {
+                    params.display_index = static_cast<std::uint32_t>(display_index < 0 ? 0 : display_index);
+                    changed = true;
+                }
+                int priority = static_cast<int>(params.priority);
+                if (ImGui::DragInt("Priority", &priority, 0.1f))
+                {
+                    params.priority = priority;
+                    changed = true;
+                }
+                changed |= ImGui::Checkbox("Active", &params.active);
+
+                if (changed)
+                    world->set_camera_params(id, params);
+            }
+        }
+        else if (ImGui::CollapsingHeader("Renderer", ImGuiTreeNodeFlags_DefaultOpen))
         {
             const SushiEngine::Vec3 current = world->color(id);
             float color[3] = {static_cast<float>(current.x), static_cast<float>(current.y),

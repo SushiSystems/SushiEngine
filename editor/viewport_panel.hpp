@@ -50,6 +50,21 @@ namespace sushi::editor
      * The offscreen colour target is registered with the ImGui backend as a texture,
      * re-registered on resize.
      */
+    /**
+     * @brief A viewport's display-selection control: the choices and the current pick.
+     *
+     * The Game view can host two or more cameras on different displays; this lets the
+     * panel offer a combo to pick which display's resolved camera it shows, so the
+     * cameras do not conflict. The host owns the storage; the panel only reads the
+     * options and writes the chosen display back.
+     */
+    struct DisplaySelector
+    {
+        const std::uint32_t* displays = nullptr; /**< Available display indices. */
+        std::size_t count = 0;                   /**< Number of options. */
+        std::uint32_t* selected = nullptr;       /**< The chosen display, written on change. */
+    };
+
     class ViewportPanel
     {
         public:
@@ -78,13 +93,20 @@ namespace sushi::editor
              * @param count       Number of instances.
              * @param selected_id The highlighted instance id; updated when the user
              *                    left-clicks the viewport to pick (0 clears it).
+             * @param pickable    Whether a left-click picks an entity. The Scene view
+             *                    picks; the Game view passes false so clicking it never
+             *                    selects (the game is played, not authored).
              * @param gizmo_position When non-null, a translate gizmo is drawn at this
              *                    world position and dragging it writes the new position
              *                    back through the pointer. Null draws no gizmo.
+             * @param display     When non-null, a display-selection combo is drawn over
+             *                    the viewport (used by the Game view to choose which
+             *                    display's camera it shows). Null draws no combo.
              */
             void draw(bool& open, const SushiEngine::render::MeshInstance* instances,
-                      std::size_t count, std::uint32_t& selected_id,
-                      SushiEngine::Vec3* gizmo_position = nullptr);
+                      std::size_t count, std::uint32_t& selected_id, bool pickable = true,
+                      SushiEngine::Vec3* gizmo_position = nullptr,
+                      const DisplaySelector* display = nullptr);
 
         private:
             void resize_to(std::uint32_t width, std::uint32_t height);

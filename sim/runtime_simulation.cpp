@@ -84,6 +84,19 @@ namespace SushiEngine
             {
                 Vec3 color;
             };
+            // A camera entity's lens and routing. Its pose comes from Transform +
+            // Orientation; this adds the projection and which display it drives. Its own
+            // archetype (no Tint), so camera entities are never drawn as cubes and never
+            // match the spin/orbit systems. Trivially copyable like every component.
+            struct Camera
+            {
+                Scalar vertical_fov_radians = Scalar(1.0471976);
+                Scalar near_plane = Scalar(0.1);
+                Scalar far_plane = Scalar(500);
+                std::uint32_t display_index = 0;
+                std::int32_t priority = 0;
+                bool active = true;
+            };
 
             constexpr Scalar DT = Scalar(1.0 / 60.0);
             constexpr std::size_t SEED_CUBE_COUNT = 24;
@@ -111,6 +124,7 @@ namespace SushiEngine
                         world_.reserve<Transform, Orientation, SpinStep, OrbitState, Tint>(
                             CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Tint>(CHUNK_CAPACITY);
+                        world_.reserve<Transform, Orientation, Camera>(CHUNK_CAPACITY);
                         seed_world();
                         register_systems();
                         extract(); // a valid snapshot before the first tick
@@ -168,7 +182,8 @@ namespace SushiEngine
                     Vec3 color(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        if (record == nullptr || !world_.alive(record->entity))
+                        if (record == nullptr || record->is_camera ||
+                            !world_.alive(record->entity))
                             return Vec3{};
                         return world_.get<Tint>(record->entity).color;
                     }
@@ -228,9 +243,64 @@ namespace SushiEngine
                     void set_color(EntityId id, const Vec3& value) override
                     {
                         Record* record = find(id);
-                        if (record == nullptr || !world_.alive(record->entity))
+                        if (record == nullptr || record->is_camera ||
+                            !world_.alive(record->entity))
                             return;
                         world_.get<Tint>(record->entity).color = value;
+                        extract();
+                    }
+
+                    EntityId create_camera(const std::string& display_name) override
+                    {
+                        // A default camera looking down -Z from a few units back, so the
+                        // seeded scene is visible without any rotation authoring yet.
+                        Transform transform;
+                        transform.position = Vec3{0, Scalar(3), Scalar(12)};
+                        const Entity entity =
+                            world_.spawn(transform, Orientation{}, Camera{});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        records_.emplace(id, Record{entity, display_name, true, false, true});
+                        extract();
+                        return id;
+                    }
+
+                    bool is_camera(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->is_camera;
+                    }
+
+                    CameraParams camera_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !record->is_camera ||
+                            !world_.alive(record->entity))
+                            return CameraParams{};
+                        const Camera& c = world_.get<Camera>(record->entity);
+                        CameraParams params;
+                        params.vertical_fov_radians = c.vertical_fov_radians;
+                        params.near_plane = c.near_plane;
+                        params.far_plane = c.far_plane;
+                        params.display_index = c.display_index;
+                        params.priority = c.priority;
+                        params.active = c.active;
+                        return params;
+                    }
+
+                    void set_camera_params(EntityId id, const CameraParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->is_camera ||
+                            !world_.alive(record->entity))
+                            return;
+                        Camera& c = world_.get<Camera>(record->entity);
+                        c.vertical_fov_radians = params.vertical_fov_radians;
+                        c.near_plane = params.near_plane;
+                        c.far_plane = params.far_plane;
+                        c.display_index = params.display_index;
+                        c.priority = params.priority;
+                        c.active = params.active;
                         extract();
                     }
 
@@ -252,6 +322,7 @@ namespace SushiEngine
                         std::string name;
                         bool visible = true;
                         bool animated = false;
+                        bool is_camera = false;
                     };
 
                     const Record* find(EntityId id) const noexcept
@@ -311,12 +382,42 @@ namespace SushiEngine
                             records_.emplace(id, Record{entity, label, true, true});
                         }
 
-                        scene_.camera.position = Vec3{0, Scalar(7), Scalar(12)};
-                        scene_.camera.target = Vec3{0, Scalar(0.75), 0};
-                        scene_.camera.up = Vec3{0, 1, 0};
-                        scene_.camera.vertical_fov_radians = Scalar(1.0471976);
-                        scene_.camera.near_plane = Scalar(0.1);
-                        scene_.camera.far_plane = Scalar(500);
+                        // One camera entity drives the Game view. It is a real entity in
+                        // the hierarchy (posed by its transform), not a hidden field.
+                        create_camera("Main Camera");
+                    }
+
+                    /** @brief The camera used when no active camera exists, so the Game view is never black. */
+                    static CameraState default_camera() noexcept
+                    {
+                        CameraState state;
+                        state.position = Vec3{0, Scalar(7), Scalar(12)};
+                        state.target = Vec3{0, Scalar(0.75), 0};
+                        state.up = Vec3{0, 1, 0};
+                        state.vertical_fov_radians = Scalar(1.0471976);
+                        state.near_plane = Scalar(0.1);
+                        state.far_plane = Scalar(500);
+                        return state;
+                    }
+
+                    /** @brief Derives eye/target/up from a camera entity's pose and lens. */
+                    static CameraState camera_state_of(const Transform& transform,
+                                                       const Orientation& orientation,
+                                                       const Camera& camera) noexcept
+                    {
+                        const Mat4 rotation = mat4_from_quat(orientation.rotation);
+                        // Column-major basis: right = col0, up = col1, +Z = col2. A camera
+                        // looks down its local -Z, so forward is the negated third column.
+                        const Vec3 forward{-rotation.m[8], -rotation.m[9], -rotation.m[10]};
+                        const Vec3 up{rotation.m[4], rotation.m[5], rotation.m[6]};
+                        CameraState state;
+                        state.position = transform.position;
+                        state.target = transform.position + forward;
+                        state.up = up;
+                        state.vertical_fov_radians = camera.vertical_fov_radians;
+                        state.near_plane = camera.near_plane;
+                        state.far_plane = camera.far_plane;
+                        return state;
                     }
 
                     /**
@@ -363,15 +464,35 @@ namespace SushiEngine
                     {
                         scene_.instances.clear();
                         scene_.instances.reserve(order_.size());
+
+                        // Per display, keep the active camera with the highest priority.
+                        struct Winner { std::int32_t priority; CameraState state; };
+                        std::unordered_map<std::uint32_t, Winner> winners;
+
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->visible ||
-                                !world_.alive(record->entity))
+                            if (record == nullptr || !world_.alive(record->entity))
                                 continue;
                             const Transform& transform = world_.get<Transform>(record->entity);
                             const Orientation& orientation =
                                 world_.get<Orientation>(record->entity);
+
+                            if (record->is_camera)
+                            {
+                                const Camera& camera = world_.get<Camera>(record->entity);
+                                if (!camera.active)
+                                    continue;
+                                const CameraState state =
+                                    camera_state_of(transform, orientation, camera);
+                                const auto it = winners.find(camera.display_index);
+                                if (it == winners.end() || camera.priority > it->second.priority)
+                                    winners[camera.display_index] = Winner{camera.priority, state};
+                                continue;
+                            }
+
+                            if (!record->visible)
+                                continue;
                             const Tint& tint = world_.get<Tint>(record->entity);
                             RenderInstance instance;
                             instance.id = id;
@@ -380,6 +501,19 @@ namespace SushiEngine
                             instance.color = tint.color;
                             scene_.instances.push_back(instance);
                         }
+
+                        // Publish the resolved cameras sorted by display, and pick the
+                        // lowest-display one as the default so a single-viewport host works.
+                        scene_.display_cameras.clear();
+                        scene_.display_cameras.reserve(winners.size());
+                        for (const auto& entry : winners)
+                            scene_.display_cameras.push_back(DisplayCamera{entry.first, entry.second.state});
+                        std::sort(scene_.display_cameras.begin(), scene_.display_cameras.end(),
+                                  [](const DisplayCamera& a, const DisplayCamera& b)
+                                  { return a.display < b.display; });
+                        scene_.camera = scene_.display_cameras.empty()
+                                            ? default_camera()
+                                            : scene_.display_cameras.front().state;
                     }
 
                     /** @brief A pleasant colour ramp over t in [0, 1); avoids muddy greys. */

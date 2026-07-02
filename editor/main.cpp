@@ -170,10 +170,31 @@ int main(int, char**)
             }
             context.world_entity_count = simulation->entity_count();
 
-            // Pose the Game camera from the world's camera this frame.
-            const SushiEngine::sim::CameraState& game = scene.camera;
-            game_camera.set_pose(game.position, game.target, game.up,
-                                 game.vertical_fov_radians, game.near_plane, game.far_plane);
+            // Resolve which display the Game view shows: the selected display's camera
+            // if present, else the default. Also gather the display options for the
+            // Game panel's selector so two cameras on different displays never conflict.
+            std::vector<std::uint32_t> displays;
+            displays.reserve(scene.display_cameras.size());
+            const SushiEngine::sim::CameraState* game = &scene.camera;
+            bool selected_display_present = false;
+            for (const SushiEngine::sim::DisplayCamera& display_camera : scene.display_cameras)
+            {
+                displays.push_back(display_camera.display);
+                if (display_camera.display == context.game_display)
+                {
+                    game = &display_camera.state;
+                    selected_display_present = true;
+                }
+            }
+            // If the chosen display vanished (its camera was deleted), fall back to the
+            // first available so the Game view keeps rendering.
+            if (!selected_display_present && !scene.display_cameras.empty())
+            {
+                context.game_display = scene.display_cameras.front().display;
+                game = &scene.display_cameras.front().state;
+            }
+            game_camera.set_pose(game->position, game->target, game->up,
+                                 game->vertical_fov_radians, game->near_plane, game->far_plane);
 
             imgui.new_frame();
 
@@ -202,10 +223,18 @@ int main(int, char**)
 
             if (context.panels.scene_view)
                 scene_view.draw(context.panels.scene_view, instances.data(), instances.size(),
-                                selected, gizmo_pointer);
+                                selected, true, gizmo_pointer);
             if (context.panels.game_view)
+            {
+                // The Game view is played, not authored: no picking, no gizmo. It offers
+                // a display selector so multiple cameras can target different displays.
+                sushi::editor::DisplaySelector selector;
+                selector.displays = displays.data();
+                selector.count = displays.size();
+                selector.selected = &context.game_display;
                 game_view.draw(context.panels.game_view, instances.data(), instances.size(),
-                               selected);
+                               selected, false, nullptr, &selector);
+            }
 
             // Apply a gizmo drag only when the selection did not change this frame (a
             // pick and a drag are mutually exclusive) and the position actually moved.

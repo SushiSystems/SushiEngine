@@ -188,8 +188,13 @@ plain-toolchain lane is held by `sandbox` and `render_probe`, not the editor.
 
 Each `tick()` runs the schedule and an **extract** pass reads the world's shared-USM
 columns back on the host (via `World::get`) into a read-only `RenderScene`
-(`RenderInstance` — an `EntityId` + transform + colour — and a `CameraState`) the
-editor draws; the editor ticks only while the toolbar is Playing, binding the existing
+(`RenderInstance` — an `EntityId` + transform + colour — and the resolved cameras) the
+editor draws. Cameras are ECS entities too (a `Camera` component: lens plus a
+`display_index`/`priority`/`active` routing), posed by their transform; the extract picks,
+per display, the active camera with the highest priority into `RenderScene::display_cameras`,
+and the Game view chooses which display it shows so two cameras never conflict. The
+Scene view authors the world (pick, gizmo); the Game view is played, not authored, so it
+does not pick. the editor ticks only while the toolbar is Playing, binding the existing
 `PlayState`. The extract is a host copy today. A later interop milestone promotes it to
 a device-shared sink pinned to a render thread, so the scheduler can overlap the next
 step's simulation with the current step's draw and skip the round-trip.

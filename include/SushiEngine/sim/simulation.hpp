@@ -95,6 +95,30 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The authorable parameters of a camera entity.
+         *
+         * The lens (fov, clip planes) plus how the camera is routed: which display it
+         * drives, its priority among cameras on that display, and whether it is active.
+         * The eye/target/up frame is not here — it comes from the entity's transform.
+         */
+        struct CameraParams
+        {
+            Scalar vertical_fov_radians = Scalar(1.0471976); /**< Vertical FOV in radians. */
+            Scalar near_plane = Scalar(0.1);                 /**< Near clip distance (> 0). */
+            Scalar far_plane = Scalar(500);                  /**< Far clip distance (> near). */
+            std::uint32_t display_index = 0;                 /**< Which display this camera drives. */
+            std::int32_t priority = 0;                       /**< Higher wins on a shared display. */
+            bool active = true;                              /**< Whether it contributes at all. */
+        };
+
+        /** @brief The resolved camera for one display: the winner among its cameras. */
+        struct DisplayCamera
+        {
+            std::uint32_t display = 0; /**< The display index this camera drives. */
+            CameraState state;         /**< The pose and lens to render it with. */
+        };
+
+        /**
          * @brief A read-only snapshot of the world for one frame.
          *
          * Rebuilt by the simulation's extract step after every `tick()`; the host
@@ -104,8 +128,9 @@ namespace SushiEngine
          */
         struct RenderScene
         {
-            std::vector<RenderInstance> instances; /**< Every drawable object this frame. */
-            CameraState camera;                    /**< The world's game camera. */
+            std::vector<RenderInstance> instances;       /**< Every drawable object this frame. */
+            std::vector<DisplayCamera> display_cameras;  /**< The resolved camera per display. */
+            CameraState camera;                          /**< The default game camera (lowest display). */
         };
 
         /**
@@ -168,6 +193,28 @@ namespace SushiEngine
 
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
+
+                /**
+                 * @brief Creates a camera entity: a pose plus a `CameraParams`.
+                 *
+                 * A camera is a first-class entity (it appears in the hierarchy and has a
+                 * transform) but carries no mesh, so it is not drawn as an object; instead
+                 * it contributes to the resolved `RenderScene::display_cameras`. Its lens
+                 * defaults to a standard perspective on display 0.
+                 *
+                 * @param name Display name for the new camera.
+                 * @return The new camera's stable id.
+                 */
+                virtual EntityId create_camera(const std::string& name) = 0;
+
+                /** @brief Whether @p id is a camera entity. */
+                virtual bool is_camera(EntityId id) const noexcept = 0;
+
+                /** @brief The camera's parameters (defaults if @p id is not a camera). */
+                virtual CameraParams camera_params(EntityId id) const = 0;
+
+                /** @brief Writes a camera entity's parameters; a no-op for non-cameras. */
+                virtual void set_camera_params(EntityId id, const CameraParams& params) = 0;
         };
 
         /**

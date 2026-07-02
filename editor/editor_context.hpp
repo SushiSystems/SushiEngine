@@ -116,6 +116,9 @@ namespace sushi::editor
 
         std::size_t world_entity_count = 0;
 
+        // Which display the Game view renders, chosen from the resolved cameras.
+        std::uint32_t game_display = 0;
+
         // The persisted editor/project settings and their store. The store is owned by
         // main() and injected; panels read and edit `preferences` and set
         // `preferences_dirty` so the loop persists the change once per frame rather

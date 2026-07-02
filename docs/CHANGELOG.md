@@ -9,6 +9,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Camera component with display selection.** Cameras are now first-class ECS entities
+  (a `Camera` component: fov, clip planes, `display_index`, `priority`, `active`), posed
+  by their transform and appearing in the Hierarchy. `IWorldEditor` gained
+  `create_camera` / `is_camera` / `camera_params` / `set_camera_params`, and `RenderScene`
+  now carries the resolved camera per display (`display_cameras`) — the extract step
+  picks, for each display, the active camera with the highest priority. The Game view
+  has a display dropdown to choose which display it shows, so two or more cameras on
+  different displays do not conflict, and the Inspector edits a selected camera's lens
+  and routing. A seeded "Main Camera" entity replaces the old hardcoded game camera.
 - **Editor Preferences with persisted settings.** An `Edit ▸ Preferences…` window edits
   General (Scalar precision, theme), Editor (autosave, camera move speed), and Scene
   (grid, snap) settings. Persistence sits behind an `IPreferencesStore` abstraction
@@ -113,6 +122,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   `Mat4`, `Quat`, and the vector/matrix/quaternion operations the renderer and camera
   need (`perspective`, `look_at`, `compose_transform`, `mat4_from_quat`, `mul`,
   `normalize`, `cross`, `dot`, …), documented as placeholders SushiBLAS will own.
+
+### Fixed
+- **Game view no longer selects objects.** Clicking in the Game viewport used to pick an
+  entity through the id buffer, the same as the Scene view. Picking is now gated to the
+  Scene view (a `pickable` flag on the viewport panel); the Game view is played, not
+  authored, so a click there never changes the selection.
 
 ### Changed
 - Editor now presents through Vulkan instead of OpenGL. The `se_editor` shell keeps

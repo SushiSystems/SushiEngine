@@ -24,6 +24,7 @@
 #include "viewport_panel.hpp"
 
 #include <cmath>
+#include <cstdio>
 
 namespace sushi::editor
 {
@@ -107,13 +108,41 @@ namespace sushi::editor
     }
 
     void ViewportPanel::draw(bool& open, const SushiEngine::render::MeshInstance* instances,
-                             std::size_t count, std::uint32_t& selected_id,
-                             SushiEngine::Vec3* gizmo_position)
+                             std::size_t count, std::uint32_t& selected_id, bool pickable,
+                             SushiEngine::Vec3* gizmo_position, const DisplaySelector* display)
     {
         if (!ImGui::Begin(title_, &open))
         {
             ImGui::End();
             return;
+        }
+
+        // Display selector (Game view): a combo over the resolved displays. Drawn before
+        // the image so it takes its own strip and the image keeps the correct aspect.
+        if (display != nullptr && display->displays != nullptr && display->selected != nullptr &&
+            display->count > 0)
+        {
+            int current = 0;
+            for (std::size_t i = 0; i < display->count; ++i)
+                if (display->displays[i] == *display->selected)
+                    current = static_cast<int>(i);
+            char label[32];
+            std::snprintf(label, sizeof(label), "Display %u", display->displays[current]);
+            ImGui::SetNextItemWidth(160.0f);
+            if (ImGui::BeginCombo("##display", label))
+            {
+                for (std::size_t i = 0; i < display->count; ++i)
+                {
+                    char item[32];
+                    std::snprintf(item, sizeof(item), "Display %u", display->displays[i]);
+                    const bool selected = static_cast<int>(i) == current;
+                    if (ImGui::Selectable(item, selected))
+                        *display->selected = display->displays[i];
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
         }
 
         const ImVec2 available = ImGui::GetContentRegionAvail();
@@ -254,7 +283,7 @@ namespace sushi::editor
         // Left-click in the viewport picks the entity under the cursor (right mouse is
         // reserved for navigation), unless the click grabbed a gizmo handle. The image
         // is drawn 1:1 with the target, so the local pixel is the cursor offset.
-        if (!gizmo_consumed_click && gizmo_axis_ < 0 && image_hovered &&
+        if (pickable && !gizmo_consumed_click && gizmo_axis_ < 0 && image_hovered &&
             ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         {
             const ImVec2 mouse = ImGui::GetIO().MousePos;
