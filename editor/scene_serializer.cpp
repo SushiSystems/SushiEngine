@@ -102,9 +102,23 @@ namespace sushi::editor
                                        {"priority", params.priority},
                                        {"active", params.active}};
             }
-            else
-            {
+
+            // Not mutually exclusive with camera, so it is captured independently
+            // rather than in the if/else above (a camera can also carry a Renderer).
+            const bool has_renderer = world.has_renderer(id);
+            entry["has_renderer"] = has_renderer;
+            if (has_renderer)
                 entry["color"] = vec3_to_json(world.color(id));
+
+            // Not mutually exclusive with camera/renderer, so it is its own field
+            // rather than sharing the if/else above.
+            const bool has_physics_body = world.has_physics_body(id);
+            entry["has_physics_body"] = has_physics_body;
+            if (has_physics_body)
+            {
+                const auto params = world.physics_body_params(id);
+                entry["physics_body"] = json{{"inv_mass", params.inv_mass},
+                                             {"inv_inertia", vec3_to_json(params.inv_inertia)}};
             }
 
             root.push_back(std::move(entry));
@@ -152,9 +166,26 @@ namespace sushi::editor
                 params.active = c.value("active", params.active);
                 world.set_camera_params(id, params);
             }
-            else if (!is_camera && entry.contains("color"))
-            {
+
+            // `create`/`create_camera` both attach a Renderer by default, so an
+            // explicit false must detach it; true is a no-op re-attach.
+            const bool has_renderer = entry.value("has_renderer", entry.contains("color"));
+            world.set_has_renderer(id, has_renderer);
+            if (has_renderer && entry.contains("color"))
                 world.set_color(id, vec3_from_json(entry["color"]));
+
+            if (entry.value("has_physics_body", false))
+            {
+                world.set_has_physics_body(id, true);
+                if (entry.contains("physics_body"))
+                {
+                    const json& p = entry["physics_body"];
+                    SushiEngine::sim::PhysicsBodyParams params;
+                    params.inv_mass = p.value("inv_mass", params.inv_mass);
+                    if (p.contains("inv_inertia"))
+                        params.inv_inertia = vec3_from_json(p["inv_inertia"]);
+                    world.set_physics_body_params(id, params);
+                }
             }
         }
 

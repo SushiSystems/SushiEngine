@@ -59,10 +59,31 @@ namespace SushiEngine
     /** @brief Unit-quaternion rotation. */
     using Quat = placeholder::Quat;
 
+    /**
+     * @brief Always-double 3-component vector for absolute (ECEF) world positions.
+     *
+     * Fixed at double precision regardless of the SE_SCALAR_DOUBLE build option,
+     * which only chooses @c Scalar. Planet-scale coordinates need the extra range;
+     * see FloatingOriginVec3 for the representation gameplay and physics actually
+     * compute with.
+     */
+    using WorldVec3 = placeholder::WorldVec3;
+
+    /** @brief Integer index of a floating-origin sector on the planet grid. */
+    using SectorCoord = placeholder::SectorCoord;
+
+    /**
+     * @brief A world position split into a sector index and a `Scalar`-precision
+     * local offset — the floating-origin representation used by sim and render.
+     */
+    using FloatingOriginVec3 = placeholder::FloatingOriginVec3;
+
     // Vector, matrix, and quaternion operations, from the same seam as the types.
     using placeholder::compose_transform;
+    using placeholder::conjugate;
     using placeholder::cross;
     using placeholder::dot;
+    using placeholder::from_floating_origin;
     using placeholder::length;
     using placeholder::look_at;
     using placeholder::mat4_from_quat;
@@ -70,6 +91,8 @@ namespace SushiEngine
     using placeholder::normalize;
     using placeholder::perspective;
     using placeholder::quat_axis_angle;
+    using placeholder::rotate;
     using placeholder::scaling;
+    using placeholder::to_floating_origin;
     using placeholder::translation;
 } // namespace SushiEngine

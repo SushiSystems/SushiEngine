@@ -905,9 +905,9 @@ namespace sushi::editor
         }
 
         // Unity-style modular components: Transform above is mandatory on every
-        // entity; Renderer and Camera are independently attached/detached below,
-        // each with its own "x" to remove it, plus an Add Component menu for
-        // whichever of the two is currently missing.
+        // entity; Renderer, Camera, and Rigid Body are independently attached/
+        // detached below, each with its own "x" to remove it, plus an Add Component
+        // menu for whichever are currently missing.
         if (world->is_camera(id))
         {
             bool keep_camera = true;
@@ -1016,8 +1016,55 @@ namespace sushi::editor
             }
         }
 
+        if (world->has_physics_body(id))
+        {
+            bool keep_physics = true;
+            const bool physics_open = ImGui::CollapsingHeader(
+                "Rigid Body", &keep_physics, ImGuiTreeNodeFlags_DefaultOpen);
+            if (!keep_physics)
+            {
+                context.history.record(*world);
+                world->set_has_physics_body(id, false);
+            }
+            else if (physics_open)
+            {
+                SushiEngine::sim::PhysicsBodyParams params = world->physics_body_params(id);
+                bool changed = false;
+
+                float inv_mass = static_cast<float>(params.inv_mass);
+                if (ImGui::DragFloat("Inverse Mass", &inv_mass, 0.01f, 0.0f, 100.0f, "%.3f"))
+                {
+                    params.inv_mass = static_cast<SushiEngine::Scalar>(inv_mass < 0.0f ? 0.0f : inv_mass);
+                    changed = true;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                float inv_inertia[3] = {static_cast<float>(params.inv_inertia.x),
+                                        static_cast<float>(params.inv_inertia.y),
+                                        static_cast<float>(params.inv_inertia.z)};
+                if (ImGui::DragFloat3("Inverse Inertia", inv_inertia, 0.01f, 0.0f, 100.0f, "%.3f"))
+                {
+                    params.inv_inertia = SushiEngine::Vec3{
+                        inv_inertia[0] < 0.0f ? 0.0f : inv_inertia[0],
+                        inv_inertia[1] < 0.0f ? 0.0f : inv_inertia[1],
+                        inv_inertia[2] < 0.0f ? 0.0f : inv_inertia[2]};
+                    changed = true;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                if (changed)
+                    world->set_physics_body_params(id, params);
+            }
+        }
+
         ImGui::Separator();
-        if (!world->has_renderer(id) || !world->is_camera(id))
+        if (!world->has_renderer(id) || !world->is_camera(id) || !world->has_physics_body(id))
         {
             if (ImGui::Button("Add Component"))
                 ImGui::OpenPopup("AddComponentPopup");
@@ -1032,6 +1079,11 @@ namespace sushi::editor
                 {
                     context.history.record(*world);
                     world->set_is_camera(id, true);
+                }
+                if (!world->has_physics_body(id) && ImGui::MenuItem("Rigid Body"))
+                {
+                    context.history.record(*world);
+                    world->set_has_physics_body(id, true);
                 }
                 ImGui::EndPopup();
             }
@@ -1333,11 +1385,19 @@ namespace sushi::editor
             if (playing || context.play_state == PlayState::Paused)
             {
                 context.play_state = PlayState::Stopped;
-                editor_log(context, "Playback stopped.");
+                if (context.simulation != nullptr && context.play_mode_snapshot.has_value())
+                {
+                    apply_scene(context.simulation->world(), *context.play_mode_snapshot);
+                    context.play_mode_snapshot.reset();
+                    select_only(context, SushiEngine::sim::NULL_ENTITY);
+                }
+                editor_log(context, "Playback stopped; scene restored.");
             }
             else
             {
                 context.play_state = PlayState::Playing;
+                if (context.simulation != nullptr)
+                    context.play_mode_snapshot = capture_scene(context.simulation->world());
                 editor_log(context, "Playback started.");
             }
         }

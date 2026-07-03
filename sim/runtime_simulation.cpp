@@ -41,6 +41,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -55,21 +56,6 @@ namespace SushiEngine
     {
         namespace
         {
-            /** @brief The inverse of a unit quaternion (its conjugate). */
-            Quat conjugate(const Quat& q) noexcept
-            {
-                return Quat{-q.x, -q.y, -q.z, q.w};
-            }
-
-            /** @brief Rotates @p v by unit quaternion @p q, via its equivalent matrix. */
-            Vec3 rotate_vector(const Quat& q, const Vec3& v) noexcept
-            {
-                const Mat4 r = mat4_from_quat(q);
-                return Vec3{r.m[0] * v.x + r.m[4] * v.y + r.m[8] * v.z,
-                          r.m[1] * v.x + r.m[5] * v.y + r.m[9] * v.z,
-                          r.m[2] * v.x + r.m[6] * v.y + r.m[10] * v.z};
-            }
-
             /** @brief a / b, treating a near-zero divisor as 1 so a degenerate parent scale never divides by zero. */
             Scalar safe_div(Scalar a, Scalar b) noexcept
             {
@@ -78,6 +64,15 @@ namespace SushiEngine
             }
 
             constexpr std::size_t CHUNK_CAPACITY = 256;
+
+            // Rigid Body tuning. Assumes tick() is called roughly once per 1/60s frame;
+            // SushiLoop's FixedTimestepClock (loop/fixed_timestep.hpp) is not wired into
+            // the editor's tick loop yet, so this is a fixed assumption, not a measured
+            // delta, and is a known simplification to revisit with that wiring.
+            constexpr Scalar PHYSICS_GRAVITY_Y = Scalar(-9.8);
+            constexpr std::size_t PHYSICS_SUBSTEPS_PER_TICK = 4;
+            constexpr Scalar PHYSICS_SUBSTEP_DT = Scalar(1.0 / 60.0) / Scalar(PHYSICS_SUBSTEPS_PER_TICK);
+            constexpr std::size_t PHYSICS_ITERATIONS = 8;
 
             /**
              * @brief The runtime-backed live world behind the ISimulation seam.
@@ -115,6 +110,21 @@ namespace SushiEngine
 
                     void tick() override
                     {
+                        if (physics_dirty_)
+                            rebuild_physics();
+                        if (physics_)
+                        {
+                            physics_->step(Vec3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                            for (const auto& [id, body_id] : physics_body_ids_)
+                            {
+                                const Record* record = find(id);
+                                if (record == nullptr || !world_.alive(record->entity))
+                                    continue;
+                                const Physics::RigidBody& solved = physics_->body(body_id);
+                                world_.get<Transform>(record->entity).position = solved.position;
+                                world_.get<Orientation>(record->entity).rotation = solved.orientation;
+                            }
+                        }
                         schedule_.run(world_);
                         extract();
                     }
@@ -194,6 +204,9 @@ namespace SushiEngine
                         const auto it = records_.find(id);
                         if (it == records_.end())
                             return;
+                        if (it->second.has_physics_body)
+                            physics_dirty_ = true;
+                        physics_body_ids_.erase(id);
                         CommandBuffer commands;
                         commands.destroy(it->second.entity);
                         commands.apply(world_);
@@ -255,6 +268,45 @@ namespace SushiEngine
                         migrate_components(
                             id, /*renderer=*/find(id) != nullptr && find(id)->has_renderer,
                             value);
+                    }
+
+                    bool has_physics_body(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_physics_body;
+                    }
+
+                    PhysicsBodyParams physics_body_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->physics_params : PhysicsBodyParams{};
+                    }
+
+                    void set_physics_body_params(EntityId id,
+                                                 const PhysicsBodyParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->physics_params = params;
+                        // Applied live when a body already exists, so editing mass/inertia
+                        // never forces a physics-world rebuild (see set_has_physics_body).
+                        const auto it = physics_body_ids_.find(id);
+                        if (physics_ && it != physics_body_ids_.end())
+                        {
+                            Physics::RigidBody& body = physics_->body(it->second);
+                            body.inv_mass = params.inv_mass;
+                            body.inv_inertia = params.inv_inertia;
+                        }
+                    }
+
+                    void set_has_physics_body(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_physics_body == value)
+                            return;
+                        record->has_physics_body = value;
+                        physics_dirty_ = true;
                     }
 
                     EntityId create_camera(const std::string& display_name) override
@@ -354,8 +406,8 @@ namespace SushiEngine
                                               safe_div(child_world.scale.z, parent_world.scale.z)};
                         new_local.rotation =
                             normalize(mul(conjugate(parent_world.rotation), child_world.rotation));
-                        const Vec3 delta = rotate_vector(conjugate(parent_world.rotation),
-                                                         child_world.position - parent_world.position);
+                        const Vec3 delta = rotate(conjugate(parent_world.rotation),
+                                                  child_world.position - parent_world.position);
                         new_local.position = Vec3{safe_div(delta.x, parent_world.scale.x),
                                                  safe_div(delta.y, parent_world.scale.y),
                                                  safe_div(delta.z, parent_world.scale.z)};
@@ -377,6 +429,11 @@ namespace SushiEngine
                         // entities start with one; `set_has_renderer` toggles it. Cameras
                         // default to none, matching Unity's empty-GameObject-with-Camera.
                         bool has_renderer = false;
+                        // Whether the entity is tracked by physics_ (see set_has_physics_body).
+                        // Unlike has_renderer/is_camera this needs no ECS migration, so it is
+                        // plain host bookkeeping rather than a component toggle.
+                        bool has_physics_body = false;
+                        PhysicsBodyParams physics_params{};
                     };
 
                     const Record* find(EntityId id) const noexcept
@@ -445,7 +502,7 @@ namespace SushiEngine
                                                           result.scale.y * it->position.y,
                                                           result.scale.z * it->position.z};
                             next.position =
-                                result.position + rotate_vector(result.rotation, scaled_local);
+                                result.position + rotate(result.rotation, scaled_local);
                             result = next;
                         }
                         return result;
@@ -514,6 +571,67 @@ namespace SushiEngine
                         record->has_renderer = renderer;
                         record->is_camera = camera;
                         extract();
+                    }
+
+                    /**
+                     * @brief Rebuilds physics_ from the current set of Rigid Body entities.
+                     *
+                     * A body-count change needs a fresh `PhysicsWorld` (it compiles a solve
+                     * graph sized to its bodies at `finalize()`, the same one-shot-build
+                     * contract as `XpbdSolver`/`ConstraintSolver`), so this snapshots every
+                     * currently-simulated body's live state first — position, orientation,
+                     * velocity — and carries it over, so toggling physics on one entity does
+                     * not reset every other rigid body already falling in the scene. A
+                     * brand-new rigid body instead seeds from its current `Transform`/
+                     * `Orientation`, at rest. Called lazily from `tick()`, never eagerly from
+                     * the toggle itself, so several Inspector edits in one frame cost one
+                     * rebuild, not one per edit.
+                     */
+                    void rebuild_physics()
+                    {
+                        std::unordered_map<EntityId, Physics::RigidBody> previous;
+                        if (physics_)
+                            for (const auto& [id, body_id] : physics_body_ids_)
+                                previous.emplace(id, physics_->body(body_id));
+
+                        physics_.reset();
+                        physics_body_ids_.clear();
+
+                        auto next_world =
+                            std::make_unique<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>>(
+                                runtime_);
+
+                        for (EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_physics_body ||
+                                !world_.alive(record->entity))
+                                continue;
+
+                            Physics::RigidBody body;
+                            const auto previous_it = previous.find(id);
+                            if (previous_it != previous.end())
+                            {
+                                body = previous_it->second;
+                            }
+                            else
+                            {
+                                body.position = world_.get<Transform>(record->entity).position;
+                                body.orientation = world_.get<Orientation>(record->entity).rotation;
+                            }
+                            body.inv_mass = record->physics_params.inv_mass;
+                            body.inv_inertia = record->physics_params.inv_inertia;
+
+                            physics_body_ids_.emplace(id, next_world->add_body(body));
+                        }
+
+                        if (!physics_body_ids_.empty())
+                        {
+                            next_world->finalize(PHYSICS_ITERATIONS, PHYSICS_SUBSTEP_DT,
+                                                 Physics::XpbdDistanceProjection{});
+                            physics_ = std::move(next_world);
+                        }
+                        physics_dirty_ = false;
                     }
 
 
@@ -652,6 +770,9 @@ namespace SushiEngine
                     std::unordered_map<EntityId, Record> records_;
                     EntityId next_id_ = 1;
                     RenderScene scene_;
+                    std::unique_ptr<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>> physics_;
+                    std::unordered_map<EntityId, Physics::BodyId> physics_body_ids_;
+                    bool physics_dirty_ = false;
             };
         } // namespace
 

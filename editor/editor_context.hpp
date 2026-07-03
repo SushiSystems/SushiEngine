@@ -30,6 +30,10 @@
 #include <string>
 #include <vector>
 
+#include <optional>
+
+#include <nlohmann/json.hpp>
+
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "command_history.hpp"
@@ -168,6 +172,12 @@ namespace sushi::editor
 
         PanelVisibility panels;
         PlayState play_state = PlayState::Stopped;
+
+        // The scene captured at the moment Play was pressed, restored verbatim on
+        // Stop (see scene_serializer.hpp's capture_scene/apply_scene) — mirrors
+        // Unity's edit-mode-is-never-mutated-by-play-mode guarantee. Empty means no
+        // Play session is in progress.
+        std::optional<nlohmann::json> play_mode_snapshot;
 
         // One-shot request from the toolbar's Step button: advance the world exactly
         // one tick this frame regardless of play_state (typically pressed while

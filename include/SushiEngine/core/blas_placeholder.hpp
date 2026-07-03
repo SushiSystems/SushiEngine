@@ -25,6 +25,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace SushiEngine
 {
@@ -119,6 +120,124 @@ namespace SushiEngine
         {
             const Float len = length(v);
             return len > Float(0) ? v * (Float(1) / len) : v;
+        }
+
+        /**
+         * @brief Always-double 3-component vector for absolute world coordinates.
+         *
+         * ECEF positions on a planet-sized world need double precision regardless of
+         * @c Float's build-time choice (SE_SCALAR_DOUBLE picks the render/simulation
+         * Scalar, not the coordinate system's absolute precision). WorldVec3 is that
+         * fixed precision, independent of the Scalar seam above.
+         */
+        struct WorldVec3
+        {
+            double x = 0;
+            double y = 0;
+            double z = 0;
+
+            /**
+             * @brief Componentwise sum.
+             * @param o The other vector to add.
+             * @return A new vector containing the sum.
+             */
+            constexpr WorldVec3 operator+(const WorldVec3& o) const noexcept
+            {
+                return WorldVec3{x + o.x, y + o.y, z + o.z};
+            }
+
+            /**
+             * @brief Componentwise difference.
+             * @param o The vector to subtract.
+             * @return A new vector containing this minus @p o.
+             */
+            constexpr WorldVec3 operator-(const WorldVec3& o) const noexcept
+            {
+                return WorldVec3{x - o.x, y - o.y, z - o.z};
+            }
+        };
+
+        /**
+         * @brief Integer index of a floating-origin sector on the planet grid.
+         *
+         * Each sector is a cube of world space @c sector_size units on a side; a
+         * sector's own corner is always within @c sector_size of the coordinates
+         * inside it, which is what keeps the local offset in FloatingOriginVec3
+         * representable in single precision even far from the world origin.
+         */
+        struct SectorCoord
+        {
+            std::int64_t x = 0;
+            std::int64_t y = 0;
+            std::int64_t z = 0;
+
+            /** @brief Componentwise equality. */
+            constexpr bool operator==(const SectorCoord& o) const noexcept
+            {
+                return x == o.x && y == o.y && z == o.z;
+            }
+
+            /** @brief Componentwise inequality. */
+            constexpr bool operator!=(const SectorCoord& o) const noexcept
+            {
+                return !(*this == o);
+            }
+        };
+
+        /**
+         * @brief A world position split into a sector index and a local offset.
+         *
+         * The sector's corner sits at @c sector * sector_size in world (ECEF) space;
+         * @c local is the offset from that corner, in @c Float precision. Rebasing
+         * (moving the local origin as an entity crosses a sector boundary) is what
+         * keeps @c local small, which is the entire point of a floating origin: it
+         * lets rendering, physics, and gameplay work in single precision without
+         * losing accuracy at planetary distances.
+         */
+        struct FloatingOriginVec3
+        {
+            SectorCoord sector;
+            Vec3 local;
+        };
+
+        /**
+         * @brief Decomposes an absolute world position into sector + local offset.
+         * @param world       Absolute position in world (ECEF) space.
+         * @param sector_size Side length of one sector, in world units (> 0).
+         * @return The sector containing @p world and the local offset within it.
+         */
+        inline FloatingOriginVec3 to_floating_origin(const WorldVec3& world,
+                                                      double sector_size) noexcept
+        {
+            const auto sector_index = [sector_size](double v) -> std::int64_t
+            {
+                return static_cast<std::int64_t>(std::floor(v / sector_size));
+            };
+            const SectorCoord sector{sector_index(world.x), sector_index(world.y),
+                                      sector_index(world.z)};
+            const WorldVec3 corner{sector.x * sector_size, sector.y * sector_size,
+                                    sector.z * sector_size};
+            return FloatingOriginVec3{
+                sector,
+                Vec3{static_cast<Float>(world.x - corner.x),
+                     static_cast<Float>(world.y - corner.y),
+                     static_cast<Float>(world.z - corner.z)}};
+        }
+
+        /**
+         * @brief Recomposes a sector + local offset into an absolute world position.
+         * @param position    Sector index and local offset to recompose.
+         * @param sector_size Side length of one sector, in world units (> 0); must
+         *                    match the value used to produce @p position.
+         * @return The absolute position in world (ECEF) space.
+         */
+        inline WorldVec3 from_floating_origin(const FloatingOriginVec3& position,
+                                               double sector_size) noexcept
+        {
+            return WorldVec3{
+                position.sector.x * sector_size + static_cast<double>(position.local.x),
+                position.sector.y * sector_size + static_cast<double>(position.local.y),
+                position.sector.z * sector_size + static_cast<double>(position.local.z)};
         }
 
         /**
@@ -247,6 +366,25 @@ namespace SushiEngine
                 a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
                 a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
                 a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+        }
+
+        /** @brief The conjugate (inverse, for unit quaternions) of @p q. */
+        inline Quat conjugate(const Quat& q) noexcept
+        {
+            return Quat{-q.x, -q.y, -q.z, q.w};
+        }
+
+        /**
+         * @brief Rotates @p v by unit quaternion @p q.
+         *
+         * Uses the standard two-cross-product form (no matrix build): with
+         * `qv = (q.x, q.y, q.z)`, `v' = v + 2*w*(qv x v) + 2*(qv x (qv x v))`.
+         */
+        inline Vec3 rotate(const Quat& q, const Vec3& v) noexcept
+        {
+            const Vec3 qv{q.x, q.y, q.z};
+            const Vec3 t = cross(qv, v) * Float(2);
+            return v + t * q.w + cross(qv, t);
         }
 
         /** @brief Unit quaternion; returns identity if degenerate. */

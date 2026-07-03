@@ -144,6 +144,45 @@ namespace SushiEngine
              */
             Entity entity_at(std::size_t row) const noexcept { return entities_[row]; }
 
+            /**
+             * @brief Number of component columns in this chunk, for generic column walks.
+             *
+             * `column(id)` requires knowing which component to look up; snapshotting
+             * (see `loop/rollback.hpp`) instead needs to walk every column of an
+             * arbitrary archetype without knowing its component set ahead of time.
+             */
+            std::size_t column_count() const noexcept { return columns_.size(); }
+
+            /** @brief The component id of the @p index'th column, in archetype order. */
+            ComponentId column_id(std::size_t index) const noexcept { return columns_[index].id; }
+
+            /** @brief The byte size of one element in the @p index'th column. */
+            std::size_t column_size(std::size_t index) const noexcept
+            {
+                return columns_[index].size;
+            }
+
+            /** @brief Base pointer of the @p index'th column, addressed by position. */
+            std::byte* column_at(std::size_t index) noexcept
+            {
+                return columns_[index].data.data();
+            }
+
+            /**
+             * @brief Overwrites the live count directly, bypassing row bookkeeping.
+             *
+             * For rollback restore only (`loop::RollbackBuffer::restore`): the caller
+             * guarantees no entity has spawned or been destroyed since the snapshot
+             * being restored, so every row's entity binding (see `entity_at`) is
+             * already correct and only component values are moving back in time, not
+             * the live/dead boundary itself. `allocate_row`/`remove_row` are the paths
+             * that keep the entity directory in sync with real spawn/destroy; this
+             * one does not, and must never be used outside a rollback restore.
+             *
+             * @param count The live row count to restore.
+             */
+            void restore_count(std::size_t count) noexcept { count_ = count; }
+
         private:
             /** @brief One component's contiguous backing array for this chunk. */
             struct Column

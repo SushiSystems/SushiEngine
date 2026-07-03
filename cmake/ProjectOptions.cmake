@@ -31,3 +31,11 @@ option(SE_BUILD_RENDER "Build the SushiEngine Vulkan renderer" OFF)
 # SE_SCALAR_DOUBLE compile definition on the SushiEngine INTERFACE target (see the
 # top-level CMakeLists.txt), consumed at the one seam in core/blas_placeholder.hpp.
 option(SE_SCALAR_DOUBLE "Use double-precision Scalar throughout the engine" OFF)
+
+# Determinism guard rail (SushiLoop M0/M1, docs/slop/SUSHILOOP.md): reassociation and
+# fused contraction let the compiler evaluate the same floating-point expression
+# differently between builds or optimisation levels, which breaks the "same input,
+# same result" contract rollback and replay depend on. ON by default so a plain
+# configure is deterministic out of the box; a specialised, non-sim target may turn
+# it off if it has no determinism obligation.
+option(SE_DETERMINISTIC_FP "Disable fast-math/FP-reassociation on the engine target" ON)

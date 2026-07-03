@@ -111,6 +111,20 @@ namespace SushiEngine
             bool active = true;                              /**< Whether it contributes at all. */
         };
 
+        /**
+         * @brief The authorable parameters of a "Rigid Body" entity.
+         *
+         * Mirrors `Physics::RigidBody`'s mass/inertia, in editor-facing form: no
+         * position/orientation (the entity's `Transform`/`Orientation` already carry
+         * those) and no simulated velocity (that lives in the physics world, not in
+         * anything the Inspector authors).
+         */
+        struct PhysicsBodyParams
+        {
+            Scalar inv_mass = Scalar(1);  /**< Inverse mass; 0 pins the body in place. */
+            Vec3 inv_inertia{0, 0, 0};    /**< Diagonal body-local inverse inertia; 0 = no rotation response. */
+        };
+
         /** @brief The resolved camera for one display: the winner among its cameras. */
         struct DisplayCamera
         {
@@ -264,6 +278,45 @@ namespace SushiEngine
                  * @param value Whether it should have a Camera after this call.
                  */
                 virtual void set_is_camera(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Whether @p id is driven by the physics world (a "Rigid Body").
+                 *
+                 * While attached, the simulation is the source of truth for the
+                 * entity's `Transform`/`Orientation` — `set_transform` still writes
+                 * through, but the next `tick()` overwrites it with the solved pose,
+                 * the same way a Rigidbody in Unity overrides manual transform edits
+                 * while simulating.
+                 */
+                virtual bool has_physics_body(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's authored mass/inertia (defaults if not a rigid body). */
+                virtual PhysicsBodyParams physics_body_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes a rigid body's mass/inertia; a no-op for non-rigid-bodies.
+                 *
+                 * Applied immediately to the live simulated body when one already
+                 * exists, so dragging the Inspector's mass slider does not force a
+                 * physics-world rebuild.
+                 */
+                virtual void set_physics_body_params(EntityId id,
+                                                     const PhysicsBodyParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches the physics simulation on an existing entity.
+                 *
+                 * Unlike Renderer/Camera, this needs no ECS component migration — the
+                 * entity's pose stays owned by `Transform`/`Orientation`; attaching only
+                 * starts (and detaching stops) a physics body tracking that pose. A
+                 * body count change is a physics-world rebuild (deferred to the next
+                 * `tick()`), analogous to how the ECS schedule recompiles only when its
+                 * chunk set changes.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should be physics-driven after this call.
+                 */
+                virtual void set_has_physics_body(EntityId id, bool value) = 0;
         };
 
         /**
