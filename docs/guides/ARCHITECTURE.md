@@ -34,7 +34,8 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 
 | Layer | Headers | Responsibility |
 |-------|---------|----------------|
-| Physics     | `physics/pgs_solver.hpp`, `physics/graph_coloring.hpp` | Graph-coloured PGS constraint solver (see §4). |
+| SushiLoop core | `loop/fixed_timestep.hpp`, `loop/rng.hpp`, `loop/input.hpp`, `loop/rollback.hpp`, `loop/net.hpp` | Fixed-step time, seeded RNG, per-tick input capture, rollback snapshots, and loopback network reconciliation (see §8, §9). |
+| Physics     | `physics/pgs_solver.hpp`, `physics/graph_coloring.hpp`, `physics/xpbd_solver.hpp`, `physics/rigid_body.hpp`, `physics/physics_world.hpp`, `physics/cloth.hpp` | Graph-coloured PGS solver, its unified XPBD rigid-body generalization, and cloth grids built from it (see §4). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
 | World       | `ecs/world.hpp` | Entities, archetypes, spawn/destroy, component access. |
@@ -108,6 +109,115 @@ array, an inverse-mass array, and a projection functor — so a new constraint t
 the colouring and the graph structure are reused unchanged. `DistanceConstraint` with
 `DistanceProjection` is the first concrete type, exercised by `examples/pgs_demo.cpp`
 (a hanging chain checked against a scalar reference).
+
+### 4.1. XPBD: the rigid-body generalization (SushiLoop M2)
+
+`physics/rigid_body.hpp`, `physics/xpbd_constraint.hpp`, and `physics/xpbd_solver.hpp`
+add the unified XPBD (position-based dynamics) solver `SUSHILOOP.md` calls for:
+one compliant-constraint framework meant to grow into rigid bodies, soft bodies,
+cloth, and rope, rather than a family of special-cased solvers living side by side.
+
+`RigidBody` extends the PGS solver's bare position + inverse mass with an
+orientation (`Quat`) and a diagonal, body-local inverse inertia tensor, plus the
+predicted pre-solve pose (`prev_position`/`prev_orientation`) XPBD's velocity update
+needs. `predict()`/`update_velocity()` are the two halves of one XPBD sub-step:
+integrate external forces into a predicted pose, solve constraints against that
+prediction, then recover velocity and angular velocity from how far the solve moved
+it — never from an explicit force/torque integration.
+
+`XpbdDistanceConstraint` generalizes `DistanceConstraint` to two attachment points
+(offsets in each body's own local frame, so an anchor at the origin recovers a
+plain rigid link) and adds `compliance` — XPBD's defining feature over plain PBD:
+a constraint's stiffness is a physical unit (inverse stiffness, really) instead of
+an artifact of iteration count or step size, so `compliance == 0` is a fully rigid
+constraint and identical PGS behaviour (verified in `test_xpbd_solver.cpp`: with
+zero inverse inertia and zero-offset anchors, no angular coupling can occur, so
+the two solvers' linear terms are the same arithmetic).
+
+`XpbdSolver<Constraint>` reuses `color_constraints`/`ColorBatches` unchanged — same
+graph-colouring, same compile-once-replay-every-frame structure as
+`ConstraintSolver` — but the shared resource is one `RigidBody` buffer instead of
+separate position/mass buffers, and each constraint carries a per-step Lagrange
+multiplier (`lambda`) that `solve()` resets to zero before every step, because the
+compliance term is only meaningful accumulated within a single step.
+`examples/xpbd_demo.cpp` ports `pgs_demo.cpp`'s hanging chain onto `RigidBody`/
+`XpbdSolver`, checked against a byte-for-byte host mirror of the projection.
+
+`physics/physics_world.hpp`'s `PhysicsWorld<Constraint>` is the layer above
+`XpbdSolver` that turns a one-shot solve into an actual loop: register bodies and
+constraints, `finalize()` once (uploads the bodies, compiles the graph — mirrors
+`XpbdSolver`'s own build-once-replay-every-frame split), then `step()` every frame
+runs predict → solve → derive-velocity for each requested sub-step. It takes no
+dependency on `ecs/` on purpose, keeping the layering direction in §2 intact; the
+ECS-facing half (mapping entities to body indices, syncing `Transform`/
+`Orientation` each frame) is a `sim/`-level concern that builds on this seam rather
+than being folded into it.
+
+**The editor's "Rigid Body" toggle** (`sim/runtime_simulation.cpp`) is the first
+consumer of that seam, and takes a different route from the generic
+`sim/physics_bridge.hpp` below: Renderer/Camera need an ECS component migration
+(`migrate_components`) because their data — colour, lens — lives in a component
+only present when attached, but a Rigid Body's data (position, orientation) is
+already `Transform`/`Orientation`, always present. So attaching/detaching physics
+is plain host bookkeeping in `RuntimeSimulation::Record` (`has_physics_body`,
+`physics_params`), and a `Physics::PhysicsWorld<XpbdDistanceConstraint>` (no
+constraints registered — this is free-body physics only, no joints yet) is rebuilt
+lazily in `tick()` whenever the physics-driven entity count changes, the same
+"rebuild only when the input set changes" discipline `Schedule` and `XpbdSolver`
+already follow. A rebuild snapshots every currently-simulated body's live state
+first, so toggling physics on one entity never resets another already-falling
+body in the scene; a brand-new body seeds from the entity's current `Transform`/
+`Orientation` at rest instead. `tick()` steps the world under gravity and writes
+the solved pose back before the ECS schedule runs, at a fixed assumed ~1/60s frame
+— `loop/fixed_timestep.hpp`'s `FixedTimestepClock` is not wired into this loop yet.
+`.sushiscene` (`editor/scene_serializer.cpp`) carries `has_physics_body`/
+`physics_body` as an independent field pair (not mutually exclusive with camera/
+renderer, unlike those two).
+
+`sim/physics_bridge.hpp` is that `sim/`-level half. `sim::PhysicsBody` is an
+ordinary component naming which `PhysicsWorld` body an entity owns (`INVALID` until
+registered — an entity can carry the component before it has one); this keeps the
+mapping in the ECS itself rather than a side table. `sim::initial_rigid_body()`
+reads an entity's current `Transform`/`Orientation` once, at
+`PhysicsWorld::add_body()` time, to seed the body's starting pose.
+`sim::sync_transforms_from_physics()` is the one direction wired up so far: every
+tick, after `PhysicsWorld::step()`, it walks every archetype matching
+`{PhysicsBody, Transform, Orientation}` (the same `World::query()` +
+per-chunk-column walk `Schedule::each` uses internally, but as a plain host loop —
+there is no parallel work here worth a graph node) and copies each registered
+body's solved position/orientation into the entity's `Transform`/`Orientation`.
+There is no reverse (ECS -> physics) sync yet — nothing today needs to teleport a
+physics-driven entity by editing its `Transform` directly — and no wiring into
+`RuntimeSimulation`'s tick loop or the editor yet; this is the seam, not the
+integration.
+
+### 4.2. Cloth (SushiLoop M5)
+
+`physics/cloth.hpp`'s `build_cloth_grid` is the confirmation of §4.1's claim that
+XPBD is one framework, not a family of special-cased solvers: cloth adds no new
+solver or constraint type, only a topology. It registers `rows * cols` `RigidBody`s
+(zero inverse inertia, so anchors implicitly at each body's own origin recover the
+same linear-only degeneration `xpbd_demo.cpp`'s hanging chain already relies on)
+into the caller's `PhysicsWorld<XpbdDistanceConstraint>`, with row 0 pinned
+(`inv_mass == 0`), and wires a structural `XpbdDistanceConstraint` to each right and
+below neighbour plus a shear constraint to each diagonal neighbour pair — the shear
+links are what keep the grid from collapsing into a parallelogram under load, since
+structural links alone only resist stretching along the grid axes. `ClothGrid`
+exposes the registered body ids by `(row, column)` so a caller (a demo, or later a
+gameplay layer) can address a specific grid point without recomputing the row-major
+indexing itself.
+
+`examples/cloth_demo.cpp` mirrors `xpbd_demo.cpp`: a device solve through
+`PhysicsWorld`, checked against a byte-for-byte host mirror of
+`XpbdDistanceProjection` run over the identical topology. `Integration_Cloth`
+(`tests/functional/integration/test_cloth.cpp`) proves the grid's shape (body/
+constraint counts, which row is pinned) and that the pinned row never moves while
+the rest of the grid falls and settles under gravity.
+
+Volumetric (tetrahedral) soft bodies are explicitly **not** built here — cloth is a
+2D constraint grid over point masses, not a general deformable-solid solver, and a
+tet-mesh XPBD extension (volume-preservation constraints, a different topology
+entirely) is a distinct future milestone, not a natural extension of this file.
 
 ## 5. The render seam
 
@@ -268,7 +378,13 @@ gizmo) and is the only place a selection is drawn
 highlighted; the Game view is played, not authored, so it neither picks nor receives the
 Scene selection. The editor ticks only while the toolbar is Playing (or on a one-shot
 `step_requested`, set by the toolbar's Step button and cleared every frame), binding the
-existing `PlayState`. The extract is a host copy today. A later interop milestone
+existing `PlayState`. Pressing Play captures the scene into
+`EditorContext::play_mode_snapshot` via `capture_scene`; pressing Stop re-applies it
+via `apply_scene` and clears the snapshot, so play-mode mutations (spawns, destroys,
+transform/physics edits) never leak into the edited scene, mirroring Unity's
+edit/play-mode separation — this reuses the same `capture_scene`/`apply_scene`
+round-trip `CommandHistory` already relies on for undo/redo, rather than a second
+snapshot mechanism. The extract is a host copy today. A later interop milestone
 promotes it to a device-shared sink pinned to a render thread, so the scheduler can
 overlap the next step's simulation with the current step's draw and skip the round-trip.
 
@@ -339,6 +455,17 @@ engine names the underlying type.
 
 This is the same discipline as §1: one seam, not parallel paths.
 
+The same seam also carries the planet-scale floating-origin types: `WorldVec3` is an
+always-double 3-vector for absolute ECEF positions (fixed precision, independent of
+`SE_SCALAR_DOUBLE`'s choice of `Scalar`), `SectorCoord` is an integer index of a fixed-size
+cube ("sector") in that world space, and `FloatingOriginVec3` pairs a `SectorCoord` with a
+`Scalar`-precision local offset from that sector's corner. `to_floating_origin`/
+`from_floating_origin` convert between `WorldVec3` and `FloatingOriginVec3` given a sector
+size. Keeping the local offset small (at most one sector wide) is what lets gameplay,
+physics, and rendering work in single precision at planetary distances instead of paying
+for double precision everywhere. These types are the SushiLoop M0 foundation
+(`docs/slop/SUSHILOOP.md`) and are not yet consumed by any simulation code.
+
 Because everything routes through this one seam, **precision is a build-time choice**.
 The `SE_SCALAR_DOUBLE` option (`cmake/ProjectOptions.cmake`) switches the placeholder's
 `Float` between `float` and `double`; it is threaded as a compile definition on the
@@ -374,7 +501,102 @@ environment on Windows, then drive configure/build/test/run. The same one-way
 dependency holds: the CLI reads the runtime's `dependencies/` tree but the engine
 never reaches back into runtime source.
 
-## 8. Milestones
+## 8. SushiLoop Snapshot: rollback (M3)
+
+`loop/rollback.hpp`'s `RollbackBuffer` is SushiLoop's Snapshot layer: a
+fixed-capacity ring of per-tick world snapshots, keyed directly by `Chunk*`.
+`capture(world, tick)` walks every archetype (`World::query` with the empty
+signature matches all of them, since `signature_contains` treats an empty `need`
+as a subset of everything) and every chunk, byte-copying each column's *live* rows
+(`count() * column_size`, not the chunk's full capacity). `restore(tick)` writes
+those bytes straight back into the same chunks and restores each chunk's live
+count via `Chunk::restore_count` — a rollback-only accessor that bypasses
+`allocate_row`/`remove_row`'s entity-directory bookkeeping entirely, which is safe
+only because of this class's central constraint: **no entity may spawn or be
+destroyed, and no chunk/archetype may be created, between a capture and its
+matching restore.** A `Chunk*` is stable identity only as long as the chunk it
+names keeps existing and keeps holding the same entities in the same rows;
+`RollbackBuffer` does not (yet) defend against a violation, which is why the
+constraint is documented as a hard scope boundary rather than handled generically.
+
+This also means capture is deliberately *not* the "only what changed" delta the
+design note (`docs/slop/SUSHILOOP.md`) ultimately wants — every live chunk is
+copied in full every tick. Real per-write dirty tracking needs something upstream
+(`Schedule`, `CommandBuffer`) to mark a chunk touched, which nothing does yet;
+getting the capture/restore/replay invariant right first, on the whole-chunk case,
+is this milestone's scope. `RollbackBuffer` also does not decide *when* to roll
+back or replay ticks forward afterward — that orchestration (a game loop, or
+later the Net layer's reconciliation) is the caller's job, the same way `Chunk`
+does not know what a system is.
+
+## 8.1. SushiLoop Net: loopback reconciliation (M4)
+
+`loop/net.hpp` (namespace `loop::net`) is SushiLoop's network layer, scoped
+deliberately narrow: **loopback only**. `LoopbackChannel<Command>` is an in-process,
+synchronous stand-in for a client-to-server command link — `client_send(tick,
+command)` records the client's own prediction into an `InputHistory<Command>` and
+queues it; `server_process(corrector)` drains the queue and returns one `Ack` per
+tick, where `corrector` (a caller-supplied callable) stands in for whatever a real
+server would compute authoritatively. There are no sockets, no threads, no
+serialization, and no general P2P/lockstep protocol here — those are out of scope
+for this milestone, the same way M3 scoped out per-write dirty tracking.
+
+Reconciliation (`net::reconcile`) is built entirely on the existing M3 machinery,
+not a parallel mechanism: for every ack that disagrees with what the client
+predicted for that tick, it corrects the client's `InputHistory` in place (a new
+`InputHistory::correct`, an overwrite rather than `record`'s append-only insert),
+tracks the earliest disagreeing tick, and — if any correction happened — calls
+`RollbackBuffer::restore` on that earliest tick and replays every tick from there
+through the caller's current tick, re-applying the (now-corrected) history via a
+caller-supplied `apply` function. Ticks the client already predicted correctly are
+simply re-simulated identically; only the mispredicted ticks change on replay. This
+is the direct generalization of §8's invariant (rollback+replay reproduces an
+uninterrupted run) to the case where the *input itself* changes underneath the
+replay, not just the tick range.
+
+`net::make_network_id(client_id, tick, spawn_sequence)` is the deterministic-id half
+M4 needs: an entity spawned mid-simulation must get the same id on server and
+client without a matching round-trip, so the id is derived from facts both sides
+already agree on from the numbered command stream itself — which client is
+spawning, which tick, and that spawn's index among the client's spawns that tick —
+packed into one 64-bit value, rather than assigned by whichever side's spawn call
+happens to run first.
+
+`Integration_NetReconciliation`
+(`tests/functional/integration/test_net_reconciliation.cpp`) proves the milestone's
+key invariant: a client that mispredicts several ticks and later reconciles against
+the server's authoritative commands converges to exactly what an uninterrupted
+server-only simulation would have produced. `Unit_NetworkId`
+(`tests/functional/unit/test_network_id.cpp`) covers `make_network_id`'s collision
+behaviour directly. Real transport, and rebasing `RollbackBuffer` across a
+structural change caused by network-driven spawns, remain later work.
+
+## 9. SushiLoop core
+
+`docs/slop/SUSHILOOP.md` is the design note; this section is the pointer from
+architecture to it. `loop/` holds the first, purely host-side layer of SushiLoop —
+plain C++, no runtime or SYCL involvement — that the fixed-tick sim/net/snapshot
+work (M1 onward) builds on:
+
+- **`FixedTimestepClock`** (`loop/fixed_timestep.hpp`) turns real elapsed time into a
+  whole number of fixed simulation steps plus a leftover interpolation fraction. It
+  never reads the wall clock itself — the host accumulates real delta time into it —
+  which is what keeps the *number* of ticks a run performs independent of timing
+  jitter, a determinism precondition.
+- **`RngState`** (`loop/rng.hpp`) is a trivially copyable xorshift128+ generator,
+  storable as an ECS component so seeded randomness travels with the world through
+  snapshots and rollback instead of living in a hidden global.
+- **`InputHistory<Command>`** (`loop/input.hpp`) is the per-tick, numbered command
+  buffer shape that networked input capture and rollback replay (M3/M4) will read
+  and write; the command type itself is left to the game.
+
+None of this is wired into `Schedule`/`World` yet — that is later SushiLoop
+milestones' job. `SE_DETERMINISTIC_FP` (`cmake/ProjectOptions.cmake`, default `ON`)
+disables fast-math and FP contraction on the `SushiEngine` INTERFACE target, closing
+off two ways a build could make the same floating-point expression evaluate
+differently between runs.
+
+## 10. Milestones
 
 - **WP-3 — the ECS layer (done).** Archetype-chunk storage, systems scheduled by
   component access, deferred spawn/destroy via a command buffer, compiled once and
@@ -386,6 +608,33 @@ never reaches back into runtime source.
   distance constraints (§4), generic over the constraint type, validated against a
   scalar reference. Next constraint types (contacts, joints) and rigid-body state
   build on the same colouring and graph structure.
+- **SushiLoop M2 — XPBD core (done).** The unified rigid-body XPBD solver (§4.1),
+  generalizing the PGS distance constraint to two rigid bodies' attachment points
+  with a compliance term, validated against a scalar reference and against the
+  original PGS demo's chain shape in the zero-inertia case. Contacts, joints, soft
+  bodies, and cloth (M5) are further constraint types over the same solver. The
+  editor's "Rigid Body" Inspector toggle (§4.1) is the first consumer, currently
+  free-body only (no joints).
+- **SushiLoop M3 — Snapshot/rollback core (done).** `loop::RollbackBuffer` (§8),
+  per-tick per-chunk byte snapshots with restore, proven against the milestone's
+  key invariant (rollback-and-replay bit-identical to an uninterrupted run).
+  Scoped to no structural change across a capture/restore pair and whole-chunk
+  (not per-write-dirty) capture; both are follow-on work, not this milestone's.
+  M4 (network, reconciliation) and M3's own dirty-tracking refinement build on
+  this without changing its capture/restore contract.
+- **SushiLoop M4 — Network layer (done).** `loop::net` (§8.1): a loopback-only,
+  in-process client/server command channel (`LoopbackChannel<Command>`) and
+  server-authoritative reconciliation (`net::reconcile`) built on M3's
+  `RollbackBuffer` unchanged, plus deterministic entity identity
+  (`net::make_network_id`) so client and server agree on a spawned entity's id
+  without a matching round-trip. No real sockets/threads/serialization — that is
+  explicitly out of scope, same as the whole-chunk capture scoping in M3.
+- **SushiLoop M5 — Soft bodies and cloth (done).** `Physics::build_cloth_grid`
+  (§4.2): a pinned-top grid of `RigidBody`s connected by structural and shear
+  `XpbdDistanceConstraint`s over the existing `PhysicsWorld`, no new solver or
+  constraint type. `examples/cloth_demo.cpp` and `Integration_Cloth` validate it
+  the same way `xpbd_demo.cpp`/`Integration_PhysicsWorld` validate the hanging
+  chain. Volumetric (tetrahedral) soft bodies are out of scope.
 - **Rendering (in progress).** A greenfield Vulkan 1.3 renderer behind an RHI
   abstraction (§5), reaching first pixels headlessly (`render_probe`) and now driving
   the editor window; live simulation state enters as the opaque sink node of §5.

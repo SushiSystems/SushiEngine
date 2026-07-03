@@ -9,6 +9,150 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Cloth grids over the XPBD solver (SushiLoop M5).** `Physics::build_cloth_grid`
+  (`physics/cloth.hpp`) wires a pinned-top grid of point-mass `RigidBody`s into a
+  `PhysicsWorld<XpbdDistanceConstraint>` with structural (horizontal/vertical
+  neighbour) and shear (diagonal neighbour) constraints — no new solver or
+  constraint type, reusing the same `XpbdDistanceConstraint`/`XpbdDistanceProjection`
+  `xpbd_demo.cpp`'s hanging chain already uses. New `examples/cloth_demo.cpp` mirrors
+  `xpbd_demo.cpp`'s structure (device solve checked against a byte-for-byte host
+  mirror of the projection); `Integration_Cloth`
+  (`tests/functional/integration/test_cloth.cpp`) proves the grid's topology (body
+  counts, which row is pinned) and that the pinned row never moves while the rest of
+  the grid settles under gravity. Volumetric (tetrahedral) soft bodies are
+  explicitly out of scope. See `docs/slop/SUSHILOOP.md`.
+- **Floating-origin round-trip stress coverage at planet scale and beyond
+  (`tests/functional/unit/test_floating_origin_stress.cpp`).** Extends
+  `Unit_FloatingOrigin` with round-trip and decomposition checks at Earth-radius
+  (~6.378e6 m) and interplanetary/extreme magnitudes (~1e9, ~1e12), proving
+  ARCHITECTURE.md §6's claim that the local offset stays small and
+  `Scalar`-precision-accurate on round-trip no matter how far the absolute
+  coordinate is from the world origin.
+- **`loop::net`, SushiLoop's Net layer (M4): loopback-only, server-authoritative
+  reconciliation (`loop/net.hpp`).** `LoopbackChannel<Command>` simulates an
+  in-process, synchronous client/server command exchange reusing
+  `InputHistory<Command>`/`TickId` — the client predicts and sends a command per
+  tick, the server (a caller-supplied corrector function) returns an authoritative
+  ack per tick. `net::reconcile` sits on top of the existing `loop::RollbackBuffer`
+  unchanged: whenever an ack disagrees with what the client predicted, it corrects
+  the client's `InputHistory` (new `InputHistory::correct`, an overwrite instead of
+  `record`'s append-only insert), rolls the world back to the earliest such tick via
+  `RollbackBuffer::restore`, and replays every tick forward through the current one.
+  `net::make_network_id(client_id, tick, spawn_sequence)` derives a deterministic
+  `NetworkId` so an entity spawned during simulation gets the same id on server and
+  client without a separate matching step. Explicitly out of scope: real
+  sockets/threads, serialization, encryption, compression, and general P2P/lockstep
+  protocols — this is host-side, loopback-only, per the milestone's stated scope.
+  `Integration_NetReconciliation`
+  (`tests/functional/integration/test_net_reconciliation.cpp`) proves the milestone's
+  key invariant: a client that mispredicts several ticks and later reconciles
+  against the server's authoritative commands converges to exactly what an
+  uninterrupted server-only simulation would have produced.
+  `Unit_NetworkId` (`tests/functional/unit/test_network_id.cpp`) proves the id is
+  reproducible from the same inputs and does not collide across client, tick, or
+  spawn-sequence. See `docs/slop/SUSHILOOP.md`.
+- **Editor Play/Stop now restores the scene, like Unity's edit/play-mode split.**
+  Pressing Play captures the whole scene (`editor::capture_scene`) into
+  `EditorContext::play_mode_snapshot`; pressing Stop re-applies it
+  (`editor::apply_scene`) and discards the snapshot, so any spawns, destroys,
+  transform edits, or component toggles made while playing vanish on Stop instead
+  of persisting into the edited scene. Fixed two `capture_scene`/`apply_scene`
+  round-trip gaps this depended on: `has_renderer` is now captured as its own
+  field (previously a Renderer-less entity came back with one on restore), and a
+  camera entity's Renderer/colour is now captured independently of `is_camera`
+  (previously mutually exclusive, so a camera with a Renderer attached lost it).
+- **`loop::RollbackBuffer`, SushiLoop's Snapshot layer (M3).** A fixed-capacity ring
+  of per-tick, per-chunk world snapshots (`loop/rollback.hpp`): `capture(world,
+  tick)` copies every live chunk's component column bytes; `restore(tick)` writes
+  them back, evicting the oldest tick once the ring is full. Scoped to no
+  structural change (no spawn/destroy, no new archetype/chunk) between a capture
+  and its matching restore — real per-write dirty tracking and rebasing across
+  structural change are later work. `Chunk` gained the column-walking accessors
+  (`column_count`/`column_id`/`column_size`/`column_at`) and a rollback-only
+  `restore_count` this needed. `Integration_Rollback`
+  (`tests/functional/integration/test_rollback.cpp`) proves the milestone's key
+  invariant: a world rolled back mid-run and replayed forward with the same
+  recorded input stream ends up bit-identical to an uninterrupted run, and that a
+  restore of an evicted tick correctly fails. See `docs/slop/SUSHILOOP.md`.
+- **Rigid Body: the editor's first-class physics toggle.** Any entity can now
+  attach/detach physics the same way it attaches/detaches a Renderer or Camera —
+  `IWorldEditor::has_physics_body`/`set_has_physics_body`/`physics_body_params`/
+  `set_physics_body_params` (`sim/simulation.hpp`'s new `PhysicsBodyParams`: inverse
+  mass and diagonal inverse inertia), an Inspector "Rigid Body" panel (Add
+  Component menu, mass/inertia drag fields, remove via the header's "x"), and
+  `.sushiscene` save/load support (`has_physics_body`/`physics_body` fields).
+  Unlike Renderer/Camera this needs no ECS component migration — `Transform`/
+  `Orientation` stay the components, physics only starts/stops tracking them —
+  so `RuntimeSimulation` (`sim/runtime_simulation.cpp`) instead owns a
+  `Physics::PhysicsWorld<XpbdDistanceConstraint>` rebuilt lazily (on the next
+  `tick()`, not eagerly on toggle) whenever the physics-driven entity count
+  changes, carrying over every still-live body's simulated state (position,
+  orientation, velocity) across the rebuild so unrelated toggles never reset
+  already-falling bodies. `tick()` steps the physics world under gravity and
+  writes the solved pose back into `Transform`/`Orientation` before running the
+  ECS schedule. No joints/constraints yet — this is free-body physics only; see
+  `docs/slop/SUSHILOOP.md`.
+- **`Physics::PhysicsWorld`, the sub-stepped XPBD loop (`physics/physics_world.hpp`).**
+  Wraps `XpbdSolver` with the register-then-run lifecycle a physics scene actually
+  needs: `add_body()`/`add_constraint()`, one `finalize()` that uploads the bodies
+  and compiles the solve graph, then `step(linear_acceleration, substeps)` runs
+  predict / solve / derive-velocity per sub-step. Deliberately has no ECS
+  dependency — `physics/` stays below `ecs/` in the engine's layering, so this is
+  usable standalone and is the seam a later ECS-facing sync layer builds on, not
+  something that layer gets folded into. `Integration_PhysicsWorld`
+  (`tests/functional/integration/test_physics_world.cpp`) proves a pinned/weight
+  pair settles at rest length under the loop's own gravity integration.
+- **The ECS-facing physics bridge (`sim/physics_bridge.hpp`).** `sim::PhysicsBody`
+  names which `PhysicsWorld` body a physics-driven entity owns (`INVALID` until
+  registered); `sim::initial_rigid_body()` builds a body's starting XPBD state from
+  an entity's current `Transform`/`Orientation` at registration time; and
+  `sim::sync_transforms_from_physics()` writes every registered entity's solved
+  pose back each tick. Deliberately one-directional (physics -> ECS) and lives in
+  `sim/`, not `physics/`, keeping `PhysicsWorld` itself free of any ECS dependency.
+  `Integration_PhysicsBridge`
+  (`tests/functional/integration/test_physics_bridge.cpp`) proves a registered
+  entity's `Transform` tracks its falling body while an unregistered entity is left
+  untouched.
+- **Unified rigid-body XPBD solver (SushiLoop M2).** New `Physics::RigidBody`
+  (`physics/rigid_body.hpp`: position, orientation, generalized inverse mass —
+  inverse mass plus a diagonal body-local inverse inertia tensor — with
+  `predict()`/`update_velocity()` implementing XPBD's predict/solve/derive-velocity
+  step) and `Physics::XpbdDistanceConstraint`/`XpbdDistanceProjection`
+  (`physics/xpbd_constraint.hpp`, `physics/xpbd_solver.hpp`): the rigid-body
+  generalization of the existing PGS `DistanceConstraint`, with two attachment
+  points (in each body's local frame) and an XPBD `compliance` term (`0` = fully
+  rigid, matching PGS). `Physics::XpbdSolver<Constraint>` reuses the existing
+  `color_constraints`/`ColorBatches` graph-colouring unchanged, over a single
+  `RigidBody` buffer, compiled once and replayed every step exactly like
+  `ConstraintSolver`. Also adds `rotate()`/`conjugate()` to the value-type seam
+  (`core/types.hpp`) for quaternion-vector rotation. New `examples/xpbd_demo.cpp`
+  ports `pgs_demo.cpp`'s hanging chain onto the new solver, and
+  `Integration_XpbdSolver` (`tests/functional/integration/test_xpbd_solver.cpp`)
+  validates it against a scalar reference and the PGS chain's shape in the
+  zero-inertia case. See `docs/slop/SUSHILOOP.md`.
+- **SushiLoop core skeleton (M1).** New `SushiEngine::loop` namespace
+  (`include/SushiEngine/loop/`), pulled into the `SushiEngine.hpp` umbrella header:
+  `FixedTimestepClock` (accumulator-based fixed-step time, no wall-clock reads —
+  the host feeds it real elapsed time and it says how many fixed ticks are due,
+  plus the leftover interpolation fraction for rendering); `RngState`/`seed_rng`/
+  `next_u64`/`next_unit` (a trivially copyable xorshift128+ generator so seeded
+  randomness can live in a component and travel with rollback snapshots); and
+  `InputHistory<Command>` (a numbered, per-tick command buffer, the shape
+  networked input capture and replay will use). A new `SE_DETERMINISTIC_FP` CMake
+  option (default `ON`) adds `-fno-fast-math -ffp-contract=off` to the
+  `SushiEngine` INTERFACE target on clang/gcc, closing off the two easiest ways a
+  build could make floating-point results non-reproducible. A new
+  `Integration_DeterministicReplay` test proves the end-to-end claim: replaying
+  the same numbered input stream against two fresh worlds with the same seeded
+  `RngState` produces bit-identical entity state. See `docs/slop/SUSHILOOP.md`.
+- **Floating-origin world types (SushiLoop M0).** `core/types.hpp` gains `WorldVec3`
+  (an always-double 3-vector for absolute ECEF positions, independent of the
+  `SE_SCALAR_DOUBLE`-selected `Scalar`), `SectorCoord` (an integer floating-origin
+  sector index), and `FloatingOriginVec3` (a sector index plus a `Scalar`-precision
+  local offset). `to_floating_origin`/`from_floating_origin` convert between the two
+  representations. This is the type-seam foundation for SushiLoop's planet-scale,
+  floating-origin world space (`docs/slop/SUSHILOOP.md`); no simulation code consumes
+  it yet.
 - **The editor starts scene-less.** `create_simulation()` no longer seeds a hardcoded
   demo world of spinning/orbiting cubes and a "Main Camera"; the live world starts
   completely empty, matching a fresh project. Use `File ▸ New Scene`, `New Entity`, the

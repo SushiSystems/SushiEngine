@@ -39,9 +39,20 @@ target_link_libraries(SushiEngine INTERFACE sushiruntime)
 target_compile_definitions(SushiEngine INTERFACE
     $<$<BOOL:${SE_SCALAR_DOUBLE}>:SE_SCALAR_DOUBLE>)
 
-# The sandbox is the ECS worked example; pgs_demo is the physics constraint solver.
+# Determinism guard rail (see cmake/ProjectOptions.cmake): forbid the compiler from
+# reordering floating-point operations or fusing multiply-adds, either of which can
+# change a result's bit pattern between builds and would silently break replay.
+# clang/gcc only — MSVC's equivalent (/fp:strict) is not wired up here because the
+# engine's primary compiler is the intel/llvm clang++ SYCL toolchain.
+target_compile_options(SushiEngine INTERFACE
+    $<$<AND:$<BOOL:${SE_DETERMINISTIC_FP}>,$<CXX_COMPILER_ID:Clang,AppleClang,GNU>>:-fno-fast-math;-ffp-contract=off>)
+
+# The sandbox is the ECS worked example; pgs_demo/xpbd_demo are the physics
+# constraint solvers (plain PGS and its rigid-body XPBD generalization).
 add_sushi_sycl_executable(sandbox sandbox/main.cpp)
 add_sushi_sycl_executable(pgs_demo examples/pgs_demo.cpp)
+add_sushi_sycl_executable(xpbd_demo examples/xpbd_demo.cpp)
+add_sushi_sycl_executable(cloth_demo examples/cloth_demo.cpp)
 
 # --- Optional subdirectories --------------------------------------------------
 # The editor presents through the Vulkan renderer, so turning the editor on turns

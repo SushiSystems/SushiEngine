@@ -38,9 +38,19 @@ add_executable(se_functional_tests
     functional/unit/test_world.cpp
     functional/unit/test_command_buffer.cpp
     functional/unit/test_graph_coloring.cpp
+    functional/unit/test_floating_origin.cpp
+    functional/unit/test_floating_origin_stress.cpp
+    functional/unit/test_network_id.cpp
 
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp
+    functional/integration/test_xpbd_solver.cpp
+    functional/integration/test_physics_world.cpp
+    functional/integration/test_physics_bridge.cpp
+    functional/integration/test_rollback.cpp
+    functional/integration/test_deterministic_replay.cpp
+    functional/integration/test_net_reconciliation.cpp
+    functional/integration/test_cloth.cpp
 
     functional/regression/test_regression.cpp
 )

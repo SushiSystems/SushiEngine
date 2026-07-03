@@ -27,8 +27,9 @@
  * @file SushiEngine.hpp
  * @brief Umbrella header for the engine. One include pulls in the value-type seam,
  *        the full ECS surface (entities, components, archetype storage, the world,
- *        the deferred command buffer, and the system schedule), and the physics
- *        constraint solver.
+ *        the deferred command buffer, and the system schedule), the physics
+ *        constraint solver, and SushiLoop's core (fixed-step time, seeded RNG,
+ *        per-tick input capture).
  */
 
 #include <SushiEngine/core/types.hpp>
@@ -42,3 +43,13 @@
 #include <SushiEngine/physics/constraint.hpp>
 #include <SushiEngine/physics/graph_coloring.hpp>
 #include <SushiEngine/physics/pgs_solver.hpp>
+#include <SushiEngine/physics/rigid_body.hpp>
+#include <SushiEngine/physics/xpbd_constraint.hpp>
+#include <SushiEngine/physics/xpbd_solver.hpp>
+#include <SushiEngine/physics/physics_world.hpp>
+#include <SushiEngine/physics/cloth.hpp>
+#include <SushiEngine/loop/fixed_timestep.hpp>
+#include <SushiEngine/loop/input.hpp>
+#include <SushiEngine/loop/rng.hpp>
+#include <SushiEngine/loop/rollback.hpp>
+#include <SushiEngine/loop/net.hpp>
