@@ -1063,8 +1063,73 @@ namespace sushi::editor
             }
         }
 
+        if (world->has_cloth(id))
+        {
+            bool keep_cloth = true;
+            const bool cloth_open = ImGui::CollapsingHeader(
+                "Cloth", &keep_cloth, ImGuiTreeNodeFlags_DefaultOpen);
+            if (!keep_cloth)
+            {
+                context.history.record(*world);
+                world->set_has_cloth(id, false);
+            }
+            else if (cloth_open)
+            {
+                SushiEngine::sim::ClothParams params = world->cloth_params(id);
+                bool changed = false;
+
+                int rows = static_cast<int>(params.rows);
+                if (ImGui::DragInt("Rows", &rows, 0.1f, 1, 64))
+                {
+                    params.rows = static_cast<std::size_t>(rows < 1 ? 1 : rows);
+                    changed = true;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                int cols = static_cast<int>(params.cols);
+                if (ImGui::DragInt("Columns", &cols, 0.1f, 1, 64))
+                {
+                    params.cols = static_cast<std::size_t>(cols < 1 ? 1 : cols);
+                    changed = true;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                float spacing = static_cast<float>(params.spacing);
+                if (ImGui::DragFloat("Spacing", &spacing, 0.01f, 0.01f, 10.0f, "%.3f"))
+                {
+                    params.spacing = static_cast<SushiEngine::Scalar>(spacing < 0.01f ? 0.01f : spacing);
+                    changed = true;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                float compliance = static_cast<float>(params.compliance);
+                if (ImGui::DragFloat("Compliance", &compliance, 0.0001f, 0.0f, 1.0f, "%.5f"))
+                {
+                    params.compliance = static_cast<SushiEngine::Scalar>(compliance < 0.0f ? 0.0f : compliance);
+                    changed = true;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                if (changed)
+                    world->set_cloth_params(id, params);
+            }
+        }
+
         ImGui::Separator();
-        if (!world->has_renderer(id) || !world->is_camera(id) || !world->has_physics_body(id))
+        if (!world->has_renderer(id) || !world->is_camera(id) || !world->has_physics_body(id) ||
+            !world->has_cloth(id))
         {
             if (ImGui::Button("Add Component"))
                 ImGui::OpenPopup("AddComponentPopup");
@@ -1084,6 +1149,11 @@ namespace sushi::editor
                 {
                     context.history.record(*world);
                     world->set_has_physics_body(id, true);
+                }
+                if (!world->has_cloth(id) && ImGui::MenuItem("Cloth"))
+                {
+                    context.history.record(*world);
+                    world->set_has_cloth(id, true);
                 }
                 ImGui::EndPopup();
             }

@@ -47,6 +47,8 @@
 #include <vector>
 
 #include <SushiEngine/SushiEngine.hpp>
+#include <SushiEngine/loop/fixed_timestep.hpp>
+#include <SushiEngine/physics/cloth.hpp>
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
@@ -65,13 +67,14 @@ namespace SushiEngine
 
             constexpr std::size_t CHUNK_CAPACITY = 256;
 
-            // Rigid Body tuning. Assumes tick() is called roughly once per 1/60s frame;
-            // SushiLoop's FixedTimestepClock (loop/fixed_timestep.hpp) is not wired into
-            // the editor's tick loop yet, so this is a fixed assumption, not a measured
-            // delta, and is a known simplification to revisit with that wiring.
+            // Rigid Body tuning. The outer fixed step is FIXED_TICK_DT_SECONDS, owned
+            // by the loop::FixedTimestepClock every RuntimeSimulation instance keeps;
+            // the physics sub-step duration is derived from it (fixed_dt / substeps
+            // per tick) rather than hardcoded separately, so there is exactly one
+            // source of truth for the tick duration.
+            constexpr Scalar FIXED_TICK_DT_SECONDS = Scalar(1.0 / 60.0);
             constexpr Scalar PHYSICS_GRAVITY_Y = Scalar(-9.8);
             constexpr std::size_t PHYSICS_SUBSTEPS_PER_TICK = 4;
-            constexpr Scalar PHYSICS_SUBSTEP_DT = Scalar(1.0 / 60.0) / Scalar(PHYSICS_SUBSTEPS_PER_TICK);
             constexpr std::size_t PHYSICS_ITERATIONS = 8;
 
             /**
@@ -89,7 +92,8 @@ namespace SushiEngine
                     RuntimeSimulation()
                         : runtime_(SushiRuntime::API::Runtime::create()),
                           world_(runtime_, CHUNK_CAPACITY),
-                          schedule_(runtime_)
+                          schedule_(runtime_),
+                          clock_(FIXED_TICK_DT_SECONDS)
                     {
                         // Reserve every archetype up front so neither the seed, the
                         // editor's first create, nor a later Add/Remove Component
@@ -108,25 +112,17 @@ namespace SushiEngine
 
                     // --- ISimulation -------------------------------------------------
 
-                    void tick() override
+                    void tick(Scalar real_delta_seconds) override
                     {
-                        if (physics_dirty_)
-                            rebuild_physics();
-                        if (physics_)
-                        {
-                            physics_->step(Vec3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
-                            for (const auto& [id, body_id] : physics_body_ids_)
-                            {
-                                const Record* record = find(id);
-                                if (record == nullptr || !world_.alive(record->entity))
-                                    continue;
-                                const Physics::RigidBody& solved = physics_->body(body_id);
-                                world_.get<Transform>(record->entity).position = solved.position;
-                                world_.get<Orientation>(record->entity).rotation = solved.orientation;
-                            }
-                        }
-                        schedule_.run(world_);
-                        extract();
+                        clock_.accumulate(real_delta_seconds);
+                        while (clock_.consume_step())
+                            step_once();
+                        interpolation_ = clock_.interpolation();
+                    }
+
+                    Scalar fixed_dt_seconds() const noexcept override
+                    {
+                        return clock_.fixed_dt();
                     }
 
                     const RenderScene& render_scene() const noexcept override
@@ -207,6 +203,9 @@ namespace SushiEngine
                         if (it->second.has_physics_body)
                             physics_dirty_ = true;
                         physics_body_ids_.erase(id);
+                        if (it->second.has_cloth)
+                            cloth_dirty_ = true;
+                        cloth_grids_.erase(id);
                         CommandBuffer commands;
                         commands.destroy(it->second.entity);
                         commands.apply(world_);
@@ -307,6 +306,56 @@ namespace SushiEngine
                             return;
                         record->has_physics_body = value;
                         physics_dirty_ = true;
+                    }
+
+                    bool has_cloth(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_cloth;
+                    }
+
+                    ClothParams cloth_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->cloth_params : ClothParams{};
+                    }
+
+                    void set_cloth_params(EntityId id, const ClothParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->cloth_params = params;
+                        // Rows/cols change the grid's body count, so — unlike a Rigid
+                        // Body's mass/inertia — every parameter edit here forces a
+                        // rebuild rather than being applied live.
+                        if (record->has_cloth)
+                            cloth_dirty_ = true;
+                    }
+
+                    void set_has_cloth(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_cloth == value)
+                            return;
+                        record->has_cloth = value;
+                        cloth_dirty_ = true;
+                    }
+
+                    std::vector<Vec3> cloth_particle_positions(EntityId id) const override
+                    {
+                        std::vector<Vec3> positions;
+                        const Record* record = find(id);
+                        if (record == nullptr || !record->has_cloth || !physics_cloth_)
+                            return positions;
+                        const auto grid_it = cloth_grids_.find(id);
+                        if (grid_it == cloth_grids_.end())
+                            return positions;
+                        const Physics::ClothGrid& grid = grid_it->second;
+                        positions.reserve(grid.bodies.size());
+                        for (const Physics::BodyId body_id : grid.bodies)
+                            positions.push_back(physics_cloth_->body(body_id).position);
+                        return positions;
                     }
 
                     EntityId create_camera(const std::string& display_name) override
@@ -434,6 +483,11 @@ namespace SushiEngine
                         // plain host bookkeeping rather than a component toggle.
                         bool has_physics_body = false;
                         PhysicsBodyParams physics_params{};
+                        // Whether a cloth grid is tracked by physics_cloth_ (see
+                        // set_has_cloth). Same plain-host-bookkeeping treatment as
+                        // has_physics_body: cloth needs no ECS component migration.
+                        bool has_cloth = false;
+                        ClothParams cloth_params{};
                     };
 
                     const Record* find(EntityId id) const noexcept
@@ -519,6 +573,45 @@ namespace SushiEngine
                     {
                         const auto it = records_.find(id);
                         return it != records_.end() ? &it->second : nullptr;
+                    }
+
+                    /** @brief The physics sub-step duration: the clock's fixed step split into equal sub-steps. */
+                    Scalar substep_dt() const noexcept
+                    {
+                        return clock_.fixed_dt() / Scalar(PHYSICS_SUBSTEPS_PER_TICK);
+                    }
+
+                    /**
+                     * @brief Runs exactly one fixed simulation step: physics, then the schedule, then extract.
+                     *
+                     * Called once per whole fixed step `tick()`'s clock reports, so a
+                     * hitched host frame that accumulates more than one step's worth of
+                     * real time replays this deterministically once per step rather than
+                     * scaling a single step by however long the frame took.
+                     */
+                    void step_once()
+                    {
+                        if (physics_dirty_)
+                            rebuild_physics();
+                        if (physics_)
+                        {
+                            physics_->step(Vec3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                            for (const auto& [id, body_id] : physics_body_ids_)
+                            {
+                                const Record* record = find(id);
+                                if (record == nullptr || !world_.alive(record->entity))
+                                    continue;
+                                const Physics::RigidBody& solved = physics_->body(body_id);
+                                world_.get<Transform>(record->entity).position = solved.position;
+                                world_.get<Orientation>(record->entity).rotation = solved.orientation;
+                            }
+                        }
+                        if (cloth_dirty_)
+                            rebuild_cloth();
+                        if (physics_cloth_)
+                            physics_cloth_->step(Vec3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                        schedule_.run(world_);
+                        extract();
                     }
 
                     /**
@@ -627,13 +720,67 @@ namespace SushiEngine
 
                         if (!physics_body_ids_.empty())
                         {
-                            next_world->finalize(PHYSICS_ITERATIONS, PHYSICS_SUBSTEP_DT,
+                            next_world->finalize(PHYSICS_ITERATIONS, substep_dt(),
                                                  Physics::XpbdDistanceProjection{});
                             physics_ = std::move(next_world);
                         }
                         physics_dirty_ = false;
                     }
 
+                    /**
+                     * @brief Rebuilds physics_cloth_ from the current set of Cloth entities.
+                     *
+                     * Unlike `rebuild_physics`, no live state is carried over: a rows/
+                     * cols/spacing change replaces the grid's topology outright, so
+                     * there is nothing meaningful to preserve across the rebuild
+                     * (compare a Rigid Body, whose identity and body count are stable
+                     * across a param edit). Each Cloth entity's grid originates at its
+                     * own `Transform::position`, mirroring how a Rigid Body seeds from
+                     * its `Transform`/`Orientation` rather than authoring its own pose.
+                     * Called lazily from `step_once()`, same "rebuild only when the
+                     * input set changes" discipline as `rebuild_physics`.
+                     */
+                    void rebuild_cloth()
+                    {
+                        physics_cloth_.reset();
+                        cloth_grids_.clear();
+
+                        auto next_world =
+                            std::make_unique<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>>(
+                                runtime_);
+
+                        for (EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_cloth ||
+                                !world_.alive(record->entity) ||
+                                record->cloth_params.rows == 0 || record->cloth_params.cols == 0)
+                                continue;
+
+                            const Vec3 origin = world_.get<Transform>(record->entity).position;
+                            Physics::ClothGrid grid = Physics::build_cloth_grid(
+                                *next_world, record->cloth_params.rows, record->cloth_params.cols,
+                                record->cloth_params.spacing, origin, record->cloth_params.compliance);
+                            cloth_grids_.emplace(id, std::move(grid));
+                        }
+
+                        bool has_bodies = false;
+                        for (const auto& entry : cloth_grids_)
+                            if (!entry.second.bodies.empty())
+                                has_bodies = true;
+
+                        if (has_bodies)
+                        {
+                            next_world->finalize(PHYSICS_ITERATIONS, substep_dt(),
+                                                 Physics::XpbdDistanceProjection{});
+                            physics_cloth_ = std::move(next_world);
+                        }
+                        else
+                        {
+                            cloth_grids_.clear();
+                        }
+                        cloth_dirty_ = false;
+                    }
 
                     /** @brief The camera used when no active camera exists, so the Game view is never black. */
                     static CameraState default_camera() noexcept
@@ -766,6 +913,10 @@ namespace SushiEngine
                     SushiRuntime::API::Runtime runtime_;
                     World world_;
                     Schedule schedule_;
+                    loop::FixedTimestepClock clock_;
+                    // The clock's leftover fraction after the most recent tick(), for a
+                    // future render-interpolation consumer; not read anywhere yet.
+                    Scalar interpolation_ = 0;
                     std::vector<EntityId> order_;
                     std::unordered_map<EntityId, Record> records_;
                     EntityId next_id_ = 1;
@@ -773,6 +924,16 @@ namespace SushiEngine
                     std::unique_ptr<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>> physics_;
                     std::unordered_map<EntityId, Physics::BodyId> physics_body_ids_;
                     bool physics_dirty_ = false;
+                    // A separate PhysicsWorld from physics_ rather than sharing one:
+                    // rebuild_physics()'s snapshot-and-carry-over discipline (see its
+                    // Doxygen) is keyed on individual free bodies and would need to
+                    // special-case an entire pinned grid to avoid corrupting it on
+                    // every unrelated Rigid Body toggle, so keeping cloth in its own
+                    // PhysicsWorld<XpbdDistanceConstraint> (same constraint type, a
+                    // different instance) leaves rebuild_physics() untouched.
+                    std::unique_ptr<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>> physics_cloth_;
+                    std::unordered_map<EntityId, Physics::ClothGrid> cloth_grids_;
+                    bool cloth_dirty_ = false;
             };
         } // namespace
 

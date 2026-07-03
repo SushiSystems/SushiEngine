@@ -121,6 +121,19 @@ namespace sushi::editor
                                              {"inv_inertia", vec3_to_json(params.inv_inertia)}};
             }
 
+            // Not mutually exclusive with any of the above, so it is its own field
+            // pair too.
+            const bool has_cloth = world.has_cloth(id);
+            entry["has_cloth"] = has_cloth;
+            if (has_cloth)
+            {
+                const auto params = world.cloth_params(id);
+                entry["cloth"] = json{{"rows", params.rows},
+                                      {"cols", params.cols},
+                                      {"spacing", params.spacing},
+                                      {"compliance", params.compliance}};
+            }
+
             root.push_back(std::move(entry));
         }
 
@@ -185,6 +198,21 @@ namespace sushi::editor
                     if (p.contains("inv_inertia"))
                         params.inv_inertia = vec3_from_json(p["inv_inertia"]);
                     world.set_physics_body_params(id, params);
+                }
+            }
+
+            if (entry.value("has_cloth", false))
+            {
+                world.set_has_cloth(id, true);
+                if (entry.contains("cloth"))
+                {
+                    const json& c = entry["cloth"];
+                    SushiEngine::sim::ClothParams params;
+                    params.rows = c.value("rows", params.rows);
+                    params.cols = c.value("cols", params.cols);
+                    params.spacing = c.value("spacing", params.spacing);
+                    params.compliance = c.value("compliance", params.compliance);
+                    world.set_cloth_params(id, params);
                 }
             }
         }

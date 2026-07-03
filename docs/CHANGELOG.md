@@ -8,7 +8,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Changed
+- **`RuntimeSimulation` wires `loop::FixedTimestepClock` into its tick loop instead
+  of assuming a fixed ~1/60s real frame.** `ISimulation::tick()` now takes a
+  `real_delta_seconds` parameter — the editor's main loop measures real elapsed
+  frame time and passes it in, rather than the simulation assuming it. Internally,
+  `RuntimeSimulation` accumulates the delta into an owned `FixedTimestepClock` and
+  runs one full step (physics + ECS schedule + render extract) per whole fixed step
+  the clock reports (zero, one, or more, e.g. on a hitch). The physics sub-step
+  duration now derives from the clock's fixed step instead of a separately
+  hardcoded constant. The clock's leftover interpolation fraction is computed and
+  stored for a future render-interpolation consumer, not yet wired to one.
+
 ### Added
+- **The editor's "Cloth" toggle wires `Physics::build_cloth_grid` into
+  `RuntimeSimulation`'s live tick loop.** A new `IWorldEditor::set_has_cloth`/
+  `has_cloth`/`cloth_params`/`set_cloth_params` surface (mirroring the existing
+  "Rigid Body" toggle) attaches a simulated cloth grid to an entity — rows,
+  columns, spacing, and XPBD compliance are authorable, the grid originates at
+  the entity's `Transform::position`, and it steps every fixed tick in its own
+  `PhysicsWorld<XpbdDistanceConstraint>` (kept separate from the Rigid Body
+  world so cloth's full-rebuild-on-param-change discipline never disturbs
+  `rebuild_physics()`'s live-state carry-over for free bodies). The grid stays a
+  single host-side record, not one ECS entity per particle; its world-space
+  particle positions are readable via the new `IWorldEditor::cloth_particle_positions`
+  for a future debug draw or renderer, since `RenderScene::instances` cannot yet
+  express a multi-vertex deforming mesh — cloth is simulated and inspectable but
+  not yet drawn in the viewport (see ARCHITECTURE.md §4.2). The Inspector's
+  "Cloth" section (Rows/Columns/Spacing/Compliance) and `.sushiscene`
+  (`has_cloth`/`cloth`) mirror the Rigid Body toggle's UI and serialization.
 - **Cloth grids over the XPBD solver (SushiLoop M5).** `Physics::build_cloth_grid`
   (`physics/cloth.hpp`) wires a pinned-top grid of point-mass `RigidBody`s into a
   `PhysicsWorld<XpbdDistanceConstraint>` with structural (horizontal/vertical

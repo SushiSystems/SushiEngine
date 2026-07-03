@@ -125,6 +125,25 @@ namespace SushiEngine
             Vec3 inv_inertia{0, 0, 0};    /**< Diagonal body-local inverse inertia; 0 = no rotation response. */
         };
 
+        /**
+         * @brief The authorable parameters of a "Cloth" entity.
+         *
+         * Mirrors `Physics::build_cloth_grid`'s arguments, minus `origin` (the
+         * entity's `Transform::position` supplies that, the same way a Rigid Body's
+         * starting pose comes from `Transform`/`Orientation` rather than its own
+         * field) and minus the world the grid is built into (that is
+         * `RuntimeSimulation`-internal, not authorable). Row 0 of the grid is always
+         * pinned, matching `build_cloth_grid`'s only supported topology today —
+         * pinning just the corners is not yet exposed (see ARCHITECTURE.md §4.2).
+         */
+        struct ClothParams
+        {
+            std::size_t rows = 4;      /**< Grid rows (>= 1); row 0 is pinned. */
+            std::size_t cols = 4;      /**< Grid columns (>= 1). */
+            Scalar spacing = Scalar(0.5); /**< Distance between adjacent grid points. */
+            Scalar compliance = Scalar(0); /**< XPBD compliance of every constraint; 0 is rigid. */
+        };
+
         /** @brief The resolved camera for one display: the winner among its cameras. */
         struct DisplayCamera
         {
@@ -317,6 +336,54 @@ namespace SushiEngine
                  * @param value Whether it should be physics-driven after this call.
                  */
                 virtual void set_has_physics_body(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Whether @p id owns a simulated cloth grid.
+                 *
+                 * Like `has_physics_body`, cloth needs no ECS component migration —
+                 * the grid is host-side bookkeeping keyed by `EntityId`, not a
+                 * per-particle entity (see ARCHITECTURE.md §4.2). The entity's own
+                 * `Transform`/`Orientation` are left alone; the grid's world positions
+                 * are read separately via `cloth_particle_positions`.
+                 */
+                virtual bool has_cloth(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's authored cloth grid parameters (defaults if not cloth). */
+                virtual ClothParams cloth_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes a cloth entity's grid parameters; a no-op for non-cloth entities.
+                 *
+                 * Unlike a Rigid Body's mass/inertia, a parameter change here alters
+                 * the grid's body count, so it is treated the same as attaching/
+                 * detaching: applied lazily, on the next `tick()`, via a full rebuild.
+                 */
+                virtual void set_cloth_params(EntityId id, const ClothParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a simulated cloth grid on an existing entity.
+                 *
+                 * Deferred to the next `tick()`, same as `set_has_physics_body` — a
+                 * grid (body/constraint count) change is a physics-world rebuild, not
+                 * an immediate mutation.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should own a cloth grid after this call.
+                 */
+                virtual void set_has_cloth(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief The cloth grid's current world-space particle positions.
+                 *
+                 * Row-major (`row * cols + col`, matching `Physics::ClothGrid`), read
+                 * directly off the live simulated bodies; empty if @p id is not a
+                 * cloth entity or its grid has not been built yet (the tick right
+                 * after `set_has_cloth(id, true)`). This is the read-only seam a
+                 * future debug draw or a real deforming mesh renderer would consume —
+                 * neither exists yet, so today nothing draws the grid (see
+                 * ARCHITECTURE.md §4.2).
+                 */
+                virtual std::vector<Vec3> cloth_particle_positions(EntityId id) const = 0;
         };
 
         /**
@@ -333,14 +400,30 @@ namespace SushiEngine
                 virtual ~ISimulation() = default;
 
                 /**
-                 * @brief Advances the world by one fixed simulation step.
+                 * @brief Advances the world by zero or more fixed simulation steps.
                  *
-                 * Runs the schedule on the runtime (the systems execute as SYCL
-                 * kernels) and refreshes the render snapshot. The step is fixed and
-                 * deterministic, so a host gates motion by choosing whether to call
-                 * this (play/pause), not by scaling a delta into device code.
+                 * Feeds @p real_delta_seconds into an internal `loop::FixedTimestepClock`
+                 * and runs the schedule on the runtime (the systems execute as SYCL
+                 * kernels) once per whole fixed step the clock reports — zero if the
+                 * caller has been ticking faster than the fixed rate, more than one if a
+                 * host frame hitched. Each individual step is fixed and deterministic; a
+                 * host still gates motion by choosing whether to call this at all
+                 * (play/pause), not by scaling @p real_delta_seconds into device code.
+                 *
+                 * @param real_delta_seconds Wall-clock time since the last call, in
+                 * seconds, as measured by the host (never read from inside the sim).
                  */
-                virtual void tick() = 0;
+                virtual void tick(Scalar real_delta_seconds) = 0;
+
+                /**
+                 * @brief The duration of one fixed simulation step, in seconds.
+                 *
+                 * The size of the step `tick()`'s internal `loop::FixedTimestepClock`
+                 * advances by; a host uses this to force exactly one step (e.g. a
+                 * "Step" button while paused) by calling `tick(fixed_dt_seconds())`
+                 * regardless of how much real time actually elapsed.
+                 */
+                virtual Scalar fixed_dt_seconds() const noexcept = 0;
 
                 /** @brief The snapshot extracted after the most recent `tick()`. */
                 virtual const RenderScene& render_scene() const noexcept = 0;

@@ -174,6 +174,21 @@ the solved pose back before the ECS schedule runs, at a fixed assumed ~1/60s fra
 `physics_body` as an independent field pair (not mutually exclusive with camera/
 renderer, unlike those two).
 
+`RuntimeSimulation` now owns a `loop::FixedTimestepClock` (§9) instead of assuming
+a fixed ~1/60s frame: `ISimulation::tick()` takes the host's measured real elapsed
+time (`real_delta_seconds`) instead of no argument, accumulates it into the clock,
+and runs one full step — physics, then the ECS schedule, then the render snapshot
+extract — once per whole fixed step the clock reports (zero on a fast host frame,
+more than one after a hitch). The physics sub-step duration is derived from the
+clock's fixed step (`fixed_dt() / PHYSICS_SUBSTEPS_PER_TICK`) rather than a second,
+separately hardcoded constant, so there is one source of truth for tick duration.
+The editor's main loop (`editor/main.cpp`) is the one place that reads the wall
+clock, measuring real frame time and passing it to `tick()`; the "Step" toolbar
+button instead calls `tick(fixed_dt_seconds())` to force exactly one step regardless
+of elapsed time. The clock's leftover interpolation fraction is computed and stored
+on `RuntimeSimulation` after each `tick()` but has no consumer yet — render
+interpolation is a later milestone.
+
 `sim/physics_bridge.hpp` is that `sim/`-level half. `sim::PhysicsBody` is an
 ordinary component naming which `PhysicsWorld` body an entity owns (`INVALID` until
 registered — an entity can carry the component before it has one); this keeps the
@@ -218,6 +233,39 @@ Volumetric (tetrahedral) soft bodies are explicitly **not** built here — cloth
 2D constraint grid over point masses, not a general deformable-solid solver, and a
 tet-mesh XPBD extension (volume-preservation constraints, a different topology
 entirely) is a distinct future milestone, not a natural extension of this file.
+
+**The editor's "Cloth" toggle** (`sim/runtime_simulation.cpp`) wires
+`build_cloth_grid` into the live tick loop, following the same route §4.1's Rigid
+Body toggle takes rather than `sim/physics_bridge.hpp`: a cloth grid is a single
+host-side record — `RuntimeSimulation::Record::has_cloth`/`cloth_params`
+(`sim::ClothParams`: rows, columns, spacing, compliance) — not one ECS entity per
+grid point. Unlike a Rigid Body, whose count is the only thing that forces
+`rebuild_physics()`, *any* `ClothParams` edit forces a rebuild (`cloth_dirty_`),
+because rows/cols change the grid's body count and there is no meaningful partial
+state to carry across a topology change the way a falling free body's position/
+velocity survives an unrelated Rigid Body toggle. A rebuild is a wholesale replace:
+every Cloth entity's grid is torn down and rebuilt from its current
+`Transform::position` as the grid origin, at rest, every time. Cloth lives in its
+own `Physics::PhysicsWorld<XpbdDistanceConstraint>` (`physics_cloth_`), separate
+from the Rigid Body world (`physics_`) — same constraint type, a second instance —
+specifically so this full-rebuild-on-any-change discipline never forces
+`rebuild_physics()`'s free-body snapshot-and-carry-over logic to special-case an
+entire pinned grid. `step_once()` steps `physics_cloth_` under the same gravity and
+sub-step count as `physics_`, immediately after it, both driven by the fixed step
+`loop::FixedTimestepClock` reports (§4.1) — there is no separately hardcoded cloth
+tick rate.
+
+Cloth's world-space particle positions are exposed read-only via
+`IWorldEditor::cloth_particle_positions(id)` (row-major, matching
+`Physics::ClothGrid`), rather than through `RenderScene::instances` — that type is
+strictly one entity, one fixed-mesh instance today, and cannot express a
+multi-vertex deforming mesh. This means **a Cloth entity currently simulates and is
+Inspector-editable but draws nothing in either viewport.** No debug line-list draw
+path exists yet to fall back on either (`GizmoController` only draws the
+translate/rotate/scale gizmo, not arbitrary geometry) — wiring either a real
+skinned-mesh render path or a debug edge overlay is deferred to a follow-up, not
+built speculatively here. `.sushiscene` carries `has_cloth`/`cloth` as an
+independent field pair, the same shape as `has_physics_body`/`physics_body`.
 
 ## 5. The render seam
 
@@ -582,7 +630,10 @@ work (M1 onward) builds on:
   whole number of fixed simulation steps plus a leftover interpolation fraction. It
   never reads the wall clock itself — the host accumulates real delta time into it —
   which is what keeps the *number* of ticks a run performs independent of timing
-  jitter, a determinism precondition.
+  jitter, a determinism precondition. `RuntimeSimulation` (§4.1) now owns one of
+  these and is its first consumer: the editor's main loop measures real frame time
+  and feeds it into `ISimulation::tick(real_delta_seconds)`, keeping the one
+  wall-clock read outside `sim/` entirely.
 - **`RngState`** (`loop/rng.hpp`) is a trivially copyable xorshift128+ generator,
   storable as an ECS component so seeded randomness travels with the world through
   snapshots and rollback instead of living in a hidden global.
