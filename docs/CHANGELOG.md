@@ -21,6 +21,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   stored for a future render-interpolation consumer, not yet wired to one.
 
 ### Added
+- **`loop::net::reconcile`/`LoopbackChannel` wired into a live client/server demo
+  and test with a real gameplay `Command`.** `examples/net_demo.cpp` and
+  `tests/functional/integration/test_net_client_server.cpp` replace M4's
+  synthetic-only proof (a toy `Scalar` command) with `PlayerCommand`, a two-axis
+  movement input mapped onto a player entity's `Position` — the smallest command
+  shape with an obvious mapping to something real. "Client" and "server" are
+  modelled as two logical roles in one process, each owning its own `ecs::World`,
+  matching M4's loopback-only scope (`docs/slop/SUSHILOOP.md`). The harness
+  proves the whole chain live: per-tick prediction into `InputHistory`, batched
+  `LoopbackChannel::server_process` acks, `net::reconcile` rolling back and
+  replaying on misprediction, convergence to an uninterrupted authoritative-only
+  baseline, and `net::make_network_id` agreeing across an independent
+  client-side and server-side spawn of the same logical entity with no matching
+  round trip. The network-id spawn is deliberately kept outside the ticks that
+  get captured/rolled back, since `RollbackBuffer` still cannot survive a
+  structural change (spawn/destroy) inside a rolled-back range — that remains
+  later work, not solved here (see ARCHITECTURE.md §8.1). The prior toy-command
+  `test_net_reconciliation.cpp`/`test_network_id.cpp` are kept as narrower unit-
+  level proofs of the mechanics in isolation. Real transport (sockets) and
+  editor Play-mode wiring remain out of scope, per M4's design.
 - **The editor's "Cloth" toggle wires `Physics::build_cloth_grid` into
   `RuntimeSimulation`'s live tick loop.** A new `IWorldEditor::set_has_cloth`/
   `has_cloth`/`cloth_params`/`set_cloth_params` surface (mirroring the existing

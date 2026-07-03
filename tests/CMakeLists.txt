@@ -50,6 +50,7 @@ add_executable(se_functional_tests
     functional/integration/test_rollback.cpp
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp
+    functional/integration/test_net_client_server.cpp
     functional/integration/test_cloth.cpp
 
     functional/regression/test_regression.cpp

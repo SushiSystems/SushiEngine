@@ -612,12 +612,38 @@ happens to run first.
 
 `Integration_NetReconciliation`
 (`tests/functional/integration/test_net_reconciliation.cpp`) proves the milestone's
-key invariant: a client that mispredicts several ticks and later reconciles against
-the server's authoritative commands converges to exactly what an uninterrupted
-server-only simulation would have produced. `Unit_NetworkId`
-(`tests/functional/unit/test_network_id.cpp`) covers `make_network_id`'s collision
-behaviour directly. Real transport, and rebasing `RollbackBuffer` across a
-structural change caused by network-driven spawns, remain later work.
+key invariant with a toy `Scalar` command: a client that mispredicts several ticks
+and later reconciles against the server's authoritative commands converges to
+exactly what an uninterrupted server-only simulation would have produced.
+`Unit_NetworkId` (`tests/functional/unit/test_network_id.cpp`) covers
+`make_network_id`'s collision behaviour directly. Both are kept as narrow, isolated
+proofs of `net.hpp`'s mechanics.
+
+**`examples/net_demo.cpp` and `Integration_NetClientServer`**
+(`tests/functional/integration/test_net_client_server.cpp`) wire the same machinery
+into a live client/server harness driven by a real gameplay command instead of the
+toy one. `PlayerCommand` — two movement axes, applied to a player entity's
+`Position` — is the `Command` SushiLoop's real command stream now uses; it is
+deliberately game-side (defined at the point of use, not in `loop/`), matching
+`input.hpp`'s stance that the command type is left to the game. "Client" and
+"server" are modelled as two logical roles in one process, each owning its own
+`ecs::World`, which is the honest shape of a loopback-only milestone — there is no
+second process or thread to model them as. The harness proves the full chain live:
+per-tick prediction into `InputHistory`, batched `LoopbackChannel::server_process`
+acks, `net::reconcile` rolling back and replaying on misprediction, and convergence
+to an uninterrupted authoritative-only baseline world — then, in a second phase
+kept strictly outside the ticks captured by `RollbackBuffer`, `make_network_id`
+proves its agreement against an actual independent spawn on both the client's and
+the server's `World`, with no matching round trip.
+
+That second phase's placement is deliberate, not incidental: `RollbackBuffer`
+still cannot survive a spawn or destroy inside a tick range it might roll back and
+replay (§8's hard constraint), and this milestone does not attempt to lift that —
+the demo and test sidestep it by never spawning within the reconciled window,
+rather than solving rebasing across a structural change. Real transport (sockets),
+and rebasing `RollbackBuffer` across a network-driven structural change, remain
+later work; so does wiring any of this into the editor's Play mode, which still
+runs `RuntimeSimulation` directly with no client/server split.
 
 ## 9. SushiLoop core
 

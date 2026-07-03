@@ -53,6 +53,7 @@ add_sushi_sycl_executable(sandbox sandbox/main.cpp)
 add_sushi_sycl_executable(pgs_demo examples/pgs_demo.cpp)
 add_sushi_sycl_executable(xpbd_demo examples/xpbd_demo.cpp)
 add_sushi_sycl_executable(cloth_demo examples/cloth_demo.cpp)
+add_sushi_sycl_executable(net_demo examples/net_demo.cpp)
 
 # --- Optional subdirectories --------------------------------------------------
 # The editor presents through the Vulkan renderer, so turning the editor on turns
