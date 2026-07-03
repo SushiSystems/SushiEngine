@@ -46,8 +46,8 @@ namespace SushiEngine
         {
             std::uint32_t a = 0; /**< First body index. */
             std::uint32_t b = 0; /**< Second body index. */
-            Vec3 local_anchor_a; /**< Attachment point on body @c a, in its local frame. */
-            Vec3 local_anchor_b; /**< Attachment point on body @c b, in its local frame. */
+            Vector3 local_anchor_a; /**< Attachment point on body @c a, in its local frame. */
+            Vector3 local_anchor_b; /**< Attachment point on body @c b, in its local frame. */
             Scalar rest_length = Scalar(0); /**< Target distance between the attachment points. */
 
             /**

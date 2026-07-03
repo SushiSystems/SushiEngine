@@ -45,8 +45,8 @@ using namespace SushiEngine;
 
 namespace
 {
-    struct Position { Vec3 v; };
-    struct Random   { loop::RngState state; };
+    struct Position { Vector3 v; };
+    struct Random   { Loop::RngState state; };
 
     constexpr Scalar      FIXED_DT               = Scalar(0.02);
     constexpr std::size_t ENTITIES               = 8;
@@ -60,7 +60,7 @@ namespace
         for (Entity e : entities)
         {
             Random& rnd = world.get<Random>(e);
-            const double jitter = loop::next_unit(rnd.state) - 0.5;
+            const double jitter = Loop::next_unit(rnd.state) - 0.5;
             Position& pos = world.get<Position>(e);
             pos.v.x += command * FIXED_DT;
             pos.v.y += Scalar(jitter) * FIXED_DT;
@@ -73,7 +73,7 @@ namespace
         std::vector<Entity> entities;
         for (std::size_t i = 0; i < ENTITIES; ++i)
             entities.push_back(
-                world.spawn(Position{}, Random{loop::seed_rng(std::uint64_t(i) + 1)}));
+                world.spawn(Position{}, Random{Loop::seed_rng(std::uint64_t(i) + 1)}));
         return entities;
     }
 }
@@ -82,15 +82,15 @@ TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
 {
     auto& runtime = Harness::shared_runtime();
 
-    loop::InputHistory<Scalar> input;
-    loop::RngState input_rng = loop::seed_rng(0xABCDEFu);
-    for (loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
-        input.record(tick, Scalar(loop::next_unit(input_rng)) - Scalar(0.5));
+    Loop::InputHistory<Scalar> input;
+    Loop::RngState input_rng = Loop::seed_rng(0xABCDEFu);
+    for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
+        input.record(tick, Scalar(Loop::next_unit(input_rng)) - Scalar(0.5));
 
     // Baseline: straight through, no rollback.
     World baseline_world(runtime, CHUNK_CAPACITY);
     std::vector<Entity> baseline_entities = seed_world(baseline_world);
-    for (loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
+    for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         step(baseline_world, baseline_entities, *input.find(tick));
 
     // Rolled-back run: capture every tick up to TICK_ROLLBACK_HAPPENS, then rewind to
@@ -98,8 +98,8 @@ TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
     World rolled_world(runtime, CHUNK_CAPACITY);
     std::vector<Entity> rolled_entities = seed_world(rolled_world);
 
-    loop::RollbackBuffer rollback(TOTAL_TICKS);
-    for (loop::TickId tick = 0; tick < TICK_ROLLBACK_HAPPENS; ++tick)
+    Loop::RollbackBuffer rollback(TOTAL_TICKS);
+    for (Loop::TickId tick = 0; tick < TICK_ROLLBACK_HAPPENS; ++tick)
     {
         rollback.capture(rolled_world, tick);
         step(rolled_world, rolled_entities, *input.find(tick));
@@ -108,14 +108,14 @@ TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
     ASSERT_TRUE(rollback.has(ROLLBACK_TARGET_TICK));
     ASSERT_TRUE(rollback.restore(ROLLBACK_TARGET_TICK));
 
-    for (loop::TickId tick = ROLLBACK_TARGET_TICK; tick < TOTAL_TICKS; ++tick)
+    for (Loop::TickId tick = ROLLBACK_TARGET_TICK; tick < TOTAL_TICKS; ++tick)
         step(rolled_world, rolled_entities, *input.find(tick));
 
     ASSERT_EQ(baseline_entities.size(), rolled_entities.size());
     for (std::size_t i = 0; i < baseline_entities.size(); ++i)
     {
-        const Vec3 expected = baseline_world.get<Position>(baseline_entities[i]).v;
-        const Vec3 actual = rolled_world.get<Position>(rolled_entities[i]).v;
+        const Vector3 expected = baseline_world.get<Position>(baseline_entities[i]).v;
+        const Vector3 actual = rolled_world.get<Position>(rolled_entities[i]).v;
         EXPECT_EQ(actual.x, expected.x) << "entity " << i;
         EXPECT_EQ(actual.y, expected.y) << "entity " << i;
         EXPECT_EQ(actual.z, expected.z) << "entity " << i;
@@ -128,8 +128,8 @@ TEST(Integration_Rollback, RestoreOfEvictedTickFails)
     World world(runtime, CHUNK_CAPACITY);
     std::vector<Entity> entities = seed_world(world);
 
-    loop::RollbackBuffer rollback(4); // small ring: tick 0 will be evicted quickly
-    for (loop::TickId tick = 0; tick < 10; ++tick)
+    Loop::RollbackBuffer rollback(4); // small ring: tick 0 will be evicted quickly
+    for (Loop::TickId tick = 0; tick < 10; ++tick)
     {
         rollback.capture(world, tick);
         step(world, entities, Scalar(0));

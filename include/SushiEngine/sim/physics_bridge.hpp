@@ -53,7 +53,7 @@
 
 namespace SushiEngine
 {
-    namespace sim
+    namespace Simulation
     {
         /**
          * @brief Names the `Physics::PhysicsWorld` body a physics-driven entity owns.
@@ -86,7 +86,7 @@ namespace SushiEngine
          */
         inline Physics::RigidBody initial_rigid_body(const World& world, Entity entity,
                                                       Scalar inv_mass,
-                                                      Vec3 inv_inertia = Vec3{0, 0, 0})
+                                                      Vector3 inv_inertia = Vector3{0, 0, 0})
         {
             Physics::RigidBody body;
             body.position = world.get<Transform>(entity).position;
@@ -139,5 +139,5 @@ namespace SushiEngine
                 }
             }
         }
-    } // namespace sim
+    } // namespace Simulation
 } // namespace SushiEngine

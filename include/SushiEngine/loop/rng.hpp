@@ -38,7 +38,7 @@
 
 namespace SushiEngine
 {
-    namespace loop
+    namespace Loop
     {
         /**
          * @brief Deterministic xorshift128+ generator state, storable as a component.
@@ -108,5 +108,5 @@ namespace SushiEngine
             constexpr double SCALE = 1.0 / (std::uint64_t(1) << MANTISSA_BITS);
             return double(next_u64(state) >> (64 - MANTISSA_BITS)) * SCALE;
         }
-    } // namespace loop
+    } // namespace Loop
 } // namespace SushiEngine

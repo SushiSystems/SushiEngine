@@ -118,7 +118,7 @@ one compliant-constraint framework meant to grow into rigid bodies, soft bodies,
 cloth, and rope, rather than a family of special-cased solvers living side by side.
 
 `RigidBody` extends the PGS solver's bare position + inverse mass with an
-orientation (`Quat`) and a diagonal, body-local inverse inertia tensor, plus the
+orientation (`Quaternion`) and a diagonal, body-local inverse inertia tensor, plus the
 predicted pre-solve pose (`prev_position`/`prev_orientation`) XPBD's velocity update
 needs. `predict()`/`update_velocity()` are the two halves of one XPBD sub-step:
 integrate external forces into a predicted pose, solve constraints against that
@@ -174,7 +174,7 @@ the solved pose back before the ECS schedule runs, at a fixed assumed ~1/60s fra
 `physics_body` as an independent field pair (not mutually exclusive with camera/
 renderer, unlike those two).
 
-`RuntimeSimulation` now owns a `loop::FixedTimestepClock` (§9) instead of assuming
+`RuntimeSimulation` now owns a `Loop::FixedTimestepClock` (§9) instead of assuming
 a fixed ~1/60s frame: `ISimulation::tick()` takes the host's measured real elapsed
 time (`real_delta_seconds`) instead of no argument, accumulates it into the clock,
 and runs one full step — physics, then the ECS schedule, then the render snapshot
@@ -189,13 +189,13 @@ of elapsed time. The clock's leftover interpolation fraction is computed and sto
 on `RuntimeSimulation` after each `tick()` but has no consumer yet — render
 interpolation is a later milestone.
 
-`sim/physics_bridge.hpp` is that `sim/`-level half. `sim::PhysicsBody` is an
+`sim/physics_bridge.hpp` is that `sim/`-level half. `Simulation::PhysicsBody` is an
 ordinary component naming which `PhysicsWorld` body an entity owns (`INVALID` until
 registered — an entity can carry the component before it has one); this keeps the
-mapping in the ECS itself rather than a side table. `sim::initial_rigid_body()`
+mapping in the ECS itself rather than a side table. `Simulation::initial_rigid_body()`
 reads an entity's current `Transform`/`Orientation` once, at
 `PhysicsWorld::add_body()` time, to seed the body's starting pose.
-`sim::sync_transforms_from_physics()` is the one direction wired up so far: every
+`Simulation::sync_transforms_from_physics()` is the one direction wired up so far: every
 tick, after `PhysicsWorld::step()`, it walks every archetype matching
 `{PhysicsBody, Transform, Orientation}` (the same `World::query()` +
 per-chunk-column walk `Schedule::each` uses internally, but as a plain host loop —
@@ -238,7 +238,7 @@ entirely) is a distinct future milestone, not a natural extension of this file.
 `build_cloth_grid` into the live tick loop, following the same route §4.1's Rigid
 Body toggle takes rather than `sim/physics_bridge.hpp`: a cloth grid is a single
 host-side record — `RuntimeSimulation::Record::has_cloth`/`cloth_params`
-(`sim::ClothParams`: rows, columns, spacing, compliance) — not one ECS entity per
+(`Simulation::ClothParams`: rows, columns, spacing, compliance) — not one ECS entity per
 grid point. Unlike a Rigid Body, whose count is the only thing that forces
 `rebuild_physics()`, *any* `ClothParams` edit forces a rebuild (`cloth_dirty_`),
 because rows/cols change the grid's body count and there is no meaningful partial
@@ -252,7 +252,7 @@ specifically so this full-rebuild-on-any-change discipline never forces
 `rebuild_physics()`'s free-body snapshot-and-carry-over logic to special-case an
 entire pinned grid. `step_once()` steps `physics_cloth_` under the same gravity and
 sub-step count as `physics_`, immediately after it, both driven by the fixed step
-`loop::FixedTimestepClock` reports (§4.1) — there is no separately hardcoded cloth
+`Loop::FixedTimestepClock` reports (§4.1) — there is no separately hardcoded cloth
 tick rate.
 
 Cloth's world-space particle positions are exposed read-only via
@@ -496,19 +496,19 @@ The engine takes its scalar, vector, matrix, and quaternion types — and the
 operations on them — from `core/types.hpp` and nowhere else. Those types belong to
 **SushiBLAS** (tensors, and the floats derived from them). Until that library exists,
 `core/types.hpp` aliases a minimal placeholder in `core/blas_placeholder.hpp`, which
-now carries `Vec3`, `Mat4`, `Quat` and the handful of operations the renderer and
+now carries `Vector3`, `Mat4`, `Quaternion` and the handful of operations the renderer and
 camera need (`perspective`, `look_at`, `compose_transform`, `mul`, …). When SushiBLAS lands, re-point `core/types.hpp` at it
 and delete the placeholder — a single-file change, because nothing else in the
 engine names the underlying type.
 
 This is the same discipline as §1: one seam, not parallel paths.
 
-The same seam also carries the planet-scale floating-origin types: `WorldVec3` is an
+The same seam also carries the planet-scale floating-origin types: `WorldVector3` is an
 always-double 3-vector for absolute ECEF positions (fixed precision, independent of
 `SE_SCALAR_DOUBLE`'s choice of `Scalar`), `SectorCoord` is an integer index of a fixed-size
-cube ("sector") in that world space, and `FloatingOriginVec3` pairs a `SectorCoord` with a
+cube ("sector") in that world space, and `FloatingOriginVector3` pairs a `SectorCoord` with a
 `Scalar`-precision local offset from that sector's corner. `to_floating_origin`/
-`from_floating_origin` convert between `WorldVec3` and `FloatingOriginVec3` given a sector
+`from_floating_origin` convert between `WorldVector3` and `FloatingOriginVector3` given a sector
 size. Keeping the local offset small (at most one sector wide) is what lets gameplay,
 physics, and rendering work in single precision at planetary distances instead of paying
 for double precision everywhere. These types are the SushiLoop M0 foundation
@@ -579,7 +579,7 @@ does not know what a system is.
 
 ## 8.1. SushiLoop Net: loopback reconciliation (M4)
 
-`loop/net.hpp` (namespace `loop::net`) is SushiLoop's network layer, scoped
+`loop/net.hpp` (namespace `Loop::Net`) is SushiLoop's network layer, scoped
 deliberately narrow: **loopback only**. `LoopbackChannel<Command>` is an in-process,
 synchronous stand-in for a client-to-server command link — `client_send(tick,
 command)` records the client's own prediction into an `InputHistory<Command>` and
@@ -692,14 +692,14 @@ differently between runs.
   bodies, and cloth (M5) are further constraint types over the same solver. The
   editor's "Rigid Body" Inspector toggle (§4.1) is the first consumer, currently
   free-body only (no joints).
-- **SushiLoop M3 — Snapshot/rollback core (done).** `loop::RollbackBuffer` (§8),
+- **SushiLoop M3 — Snapshot/rollback core (done).** `Loop::RollbackBuffer` (§8),
   per-tick per-chunk byte snapshots with restore, proven against the milestone's
   key invariant (rollback-and-replay bit-identical to an uninterrupted run).
   Scoped to no structural change across a capture/restore pair and whole-chunk
   (not per-write-dirty) capture; both are follow-on work, not this milestone's.
   M4 (network, reconciliation) and M3's own dirty-tracking refinement build on
   this without changing its capture/restore contract.
-- **SushiLoop M4 — Network layer (done).** `loop::net` (§8.1): a loopback-only,
+- **SushiLoop M4 — Network layer (done).** `Loop::Net` (§8.1): a loopback-only,
   in-process client/server command channel (`LoopbackChannel<Command>`) and
   server-authoritative reconciliation (`net::reconcile`) built on M3's
   `RollbackBuffer` unchanged, plus deterministic entity identity

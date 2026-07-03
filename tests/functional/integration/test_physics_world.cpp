@@ -55,30 +55,30 @@ TEST(Integration_PhysicsWorld, PinnedPairSettlesAtRestLength)
     PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_runtime());
 
     RigidBody anchor;
-    anchor.position = Vec3{0, 0, 0};
+    anchor.position = Vector3{0, 0, 0};
     anchor.inv_mass = Scalar(0); // pinned
     const BodyId anchor_id = world.add_body(anchor);
 
     RigidBody weight;
-    weight.position = Vec3{0, -REST_LENGTH, 0};
+    weight.position = Vector3{0, -REST_LENGTH, 0};
     weight.inv_mass = Scalar(1);
     const BodyId weight_id = world.add_body(weight);
 
     world.add_constraint(XpbdDistanceConstraint{
-        anchor_id, weight_id, Vec3{0, 0, 0}, Vec3{0, 0, 0}, REST_LENGTH, Scalar(0)});
+        anchor_id, weight_id, Vector3{0, 0, 0}, Vector3{0, 0, 0}, REST_LENGTH, Scalar(0)});
 
     world.finalize(ITERATIONS, SUBSTEP_DT, XpbdDistanceProjection{});
     ASSERT_EQ(world.color_count(), 1u);
 
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
-        world.step(Vec3{0, GRAVITY_Y, 0}, SUBSTEPS_PER_FRAME);
+        world.step(Vector3{0, GRAVITY_Y, 0}, SUBSTEPS_PER_FRAME);
 
     EXPECT_EQ(world.compile_count(), 1u);
 
     // The anchor never moves (pinned); the weight settles directly below it.
-    EXPECT_TRUE(Harness::approx_equal(world.body(anchor_id).position, Vec3{0, 0, 0}, Scalar(1e-6)));
+    EXPECT_TRUE(Harness::approx_equal(world.body(anchor_id).position, Vector3{0, 0, 0}, Scalar(1e-6)));
 
-    const Vec3 d = world.body(weight_id).position - world.body(anchor_id).position;
+    const Vector3 d = world.body(weight_id).position - world.body(anchor_id).position;
     const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
     EXPECT_NEAR(double(dist), double(REST_LENGTH), 0.02);
     EXPECT_NEAR(double(d.x), 0.0, 0.02);

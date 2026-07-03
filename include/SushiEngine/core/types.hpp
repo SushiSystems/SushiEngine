@@ -37,7 +37,7 @@
  *     namespace SushiEngine
  *     {
  *         using Scalar = SushiBLAS::Float;
- *         using Vec3   = SushiBLAS::Vec3;
+ *         using Vector3   = SushiBLAS::Vector3;
  *     }
  *
  * and delete core/blas_placeholder.hpp. Nothing else in the engine changes.
@@ -51,23 +51,23 @@ namespace SushiEngine
     using Scalar = placeholder::Float;
 
     /** @brief Three-component vector used for positions and velocities. */
-    using Vec3 = placeholder::Vec3;
+    using Vector3 = placeholder::Vector3;
 
     /** @brief Column-major 4x4 matrix for transforms and camera projections. */
     using Mat4 = placeholder::Mat4;
 
     /** @brief Unit-quaternion rotation. */
-    using Quat = placeholder::Quat;
+    using Quaternion = placeholder::Quaternion;
 
     /**
      * @brief Always-double 3-component vector for absolute (ECEF) world positions.
      *
      * Fixed at double precision regardless of the SE_SCALAR_DOUBLE build option,
      * which only chooses @c Scalar. Planet-scale coordinates need the extra range;
-     * see FloatingOriginVec3 for the representation gameplay and physics actually
+     * see FloatingOriginVector3 for the representation gameplay and physics actually
      * compute with.
      */
-    using WorldVec3 = placeholder::WorldVec3;
+    using WorldVector3 = placeholder::WorldVector3;
 
     /** @brief Integer index of a floating-origin sector on the planet grid. */
     using SectorCoord = placeholder::SectorCoord;
@@ -76,7 +76,7 @@ namespace SushiEngine
      * @brief A world position split into a sector index and a `Scalar`-precision
      * local offset — the floating-origin representation used by sim and render.
      */
-    using FloatingOriginVec3 = placeholder::FloatingOriginVec3;
+    using FloatingOriginVector3 = placeholder::FloatingOriginVector3;
 
     // Vector, matrix, and quaternion operations, from the same seam as the types.
     using placeholder::compose_transform;
@@ -86,11 +86,11 @@ namespace SushiEngine
     using placeholder::from_floating_origin;
     using placeholder::length;
     using placeholder::look_at;
-    using placeholder::mat4_from_quat;
+    using placeholder::mat4_from_quaternion;
     using placeholder::mul;
     using placeholder::normalize;
     using placeholder::perspective;
-    using placeholder::quat_axis_angle;
+    using placeholder::quaternion_axis_angle;
     using placeholder::rotate;
     using placeholder::scaling;
     using placeholder::to_floating_origin;

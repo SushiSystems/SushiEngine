@@ -44,9 +44,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             /**
              * @brief A Vulkan 1.3 device with a VMA allocator and a graphics queue.
@@ -109,6 +109,6 @@ namespace SushiEngine
                     std::uint32_t graphics_queue_family_ = 0;
                     DeviceInfo info_{};
             };
-        } // namespace vulkan
-    } // namespace render
+        } // namespace Vulkan
+    } // namespace Render
 } // namespace SushiEngine

@@ -35,7 +35,7 @@
  * milestone. What this file proves is the *shape* SushiLoop's real network layer
  * will follow: a numbered command stream (reusing `InputHistory<Command>`/
  * `TickId`), a server that is the single source of truth for a tick's command, and
- * a client that predicts locally and reconciles by replaying `loop::RollbackBuffer`
+ * a client that predicts locally and reconciles by replaying `Loop::RollbackBuffer`
  * forward whenever the server's authoritative command disagrees with what the
  * client guessed.
  *
@@ -58,9 +58,9 @@
 
 namespace SushiEngine
 {
-    namespace loop
+    namespace Loop
     {
-        namespace net
+        namespace Net
         {
             /** @brief A stable id for a connected participant (server is not a client). */
             using ClientId = std::uint32_t;
@@ -179,12 +179,6 @@ namespace SushiEngine
                     /** @brief The client's own predicted command history. */
                     InputHistory<Command>& client_history() noexcept { return client_history_; }
 
-                    /** @brief The server's authoritative command history. */
-                    const InputHistory<Command>& server_history() const noexcept
-                    {
-                        return server_history_;
-                    }
-
                 private:
                     struct Packet
                     {
@@ -257,6 +251,6 @@ namespace SushiEngine
 
                 return true;
             }
-        } // namespace net
-    } // namespace loop
+        } // namespace Net
+    } // namespace Loop
 } // namespace SushiEngine

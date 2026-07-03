@@ -41,9 +41,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             /** @brief One RGBA8 pixel read back from the rendered image. */
             struct Pixel
@@ -79,6 +79,6 @@ namespace SushiEngine
             TriangleRenderResult render_triangle_offscreen(VulkanDevice& device,
                                                            std::uint32_t width,
                                                            std::uint32_t height);
-        } // namespace vulkan
-    } // namespace render
+        } // namespace Vulkan
+    } // namespace Render
 } // namespace SushiEngine

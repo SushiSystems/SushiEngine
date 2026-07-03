@@ -34,7 +34,7 @@ namespace SushiEngine
     /** @brief A process-stable numeric identity for a component type. */
     using ComponentId = std::uint32_t;
 
-    namespace detail
+    namespace Detail
     {
         /**
          * @brief Hands out the next free component id.
@@ -45,7 +45,7 @@ namespace SushiEngine
             static ComponentId counter = 0;
             return counter++;
         }
-    } // namespace detail
+    } // namespace Detail
 
     /**
      * @brief The stable id assigned to component type @p T on first use.
@@ -62,7 +62,7 @@ namespace SushiEngine
     {
         static_assert(std::is_trivially_copyable_v<T>,
                       "A component must be trivially copyable for device storage.");
-        static const ComponentId id = detail::next_component_id();
+        static const ComponentId id = Detail::next_component_id();
         return id;
     }
 

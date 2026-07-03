@@ -55,12 +55,12 @@ namespace
     constexpr Scalar      DT         = Scalar(0.016);
 
     // Host mirror of DistanceProjection, byte-for-byte the same arithmetic.
-    void project_host(const DistanceConstraint& c, std::vector<Vec3>& pos,
+    void project_host(const DistanceConstraint& c, std::vector<Vector3>& pos,
                       const std::vector<Scalar>& inv_mass)
     {
-        const Vec3 pa = pos[c.a];
-        const Vec3 pb = pos[c.b];
-        const Vec3 d = pa - pb;
+        const Vector3 pa = pos[c.a];
+        const Vector3 pb = pos[c.b];
+        const Vector3 d = pa - pb;
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         if (dist <= Scalar(1e-8))
             return;
@@ -80,17 +80,17 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
-    auto positions = runtime.buffer<Vec3>(N);
+    auto positions = runtime.buffer<Vector3>(N);
     auto inv_mass = runtime.buffer<Scalar>(N);
 
-    std::vector<Vec3> ref_pos(N);
+    std::vector<Vector3> ref_pos(N);
     std::vector<Scalar> ref_inv(N);
     std::vector<DistanceConstraint> constraints;
 
     // A horizontal chain; the first particle is pinned (inverse mass zero).
     for (std::uint32_t i = 0; i < N; ++i)
     {
-        const Vec3 p{Scalar(i) * SPACING, Scalar(0), Scalar(0)};
+        const Vector3 p{Scalar(i) * SPACING, Scalar(0), Scalar(0)};
         positions[i] = p;
         ref_pos[i] = p;
         const Scalar w = (i == 0) ? Scalar(0) : Scalar(1);
@@ -131,7 +131,7 @@ int main()
     Scalar max_error = Scalar(0);
     for (std::uint32_t i = 0; i < N; ++i)
     {
-        const Vec3 p = positions[i];
+        const Vector3 p = positions[i];
         max_error = abs_max(max_error, p.x - ref_pos[i].x);
         max_error = abs_max(max_error, p.y - ref_pos[i].y);
         max_error = abs_max(max_error, p.z - ref_pos[i].z);
@@ -140,7 +140,7 @@ int main()
     Scalar max_residual = Scalar(0);
     for (const DistanceConstraint& c : constraints)
     {
-        const Vec3 d = positions[c.a] - positions[c.b];
+        const Vector3 d = positions[c.a] - positions[c.b];
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         max_residual = abs_max(max_residual, dist - c.rest_length);
     }

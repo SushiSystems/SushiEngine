@@ -34,9 +34,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             namespace
             {
@@ -114,7 +114,7 @@ namespace SushiEngine
                 }
 
                 /** @brief Fills a push constant from a model matrix, colour, and pick ids. */
-                MeshPush make_push(const Mat4& view_projection, const Mat4& model, const Vec3& color,
+                MeshPush make_push(const Mat4& view_projection, const Mat4& model, const Vector3& color,
                                    std::uint32_t entity_id, std::uint32_t selected_id)
                 {
                     MeshPush push;
@@ -184,12 +184,12 @@ namespace SushiEngine
                 check(vkCreatePipelineLayout(device_.device(), &layout_info, nullptr, &layout_),
                       "vkCreatePipelineLayout");
 
-                VkShaderModule vertex_module = make_shader(device_.device(), shaders::mesh_vert_spv,
-                                                           shaders::mesh_vert_spv_word_count);
-                VkShaderModule mesh_fragment = make_shader(device_.device(), shaders::mesh_frag_spv,
-                                                           shaders::mesh_frag_spv_word_count);
-                VkShaderModule line_fragment = make_shader(device_.device(), shaders::line_frag_spv,
-                                                           shaders::line_frag_spv_word_count);
+                VkShaderModule vertex_module = make_shader(device_.device(), Shaders::mesh_vert_spv,
+                                                           Shaders::mesh_vert_spv_word_count);
+                VkShaderModule mesh_fragment = make_shader(device_.device(), Shaders::mesh_frag_spv,
+                                                           Shaders::mesh_frag_spv_word_count);
+                VkShaderModule line_fragment = make_shader(device_.device(), Shaders::line_frag_spv,
+                                                           Shaders::line_frag_spv_word_count);
 
                 VkVertexInputBindingDescription binding{};
                 binding.binding = 0;
@@ -649,7 +649,7 @@ namespace SushiEngine
                 vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
                 vkCmdBindVertexBuffers(slot.cmd, 0, 1, &grid_vertices_.buffer, &zero_offset);
                 const MeshPush grid_push =
-                    make_push(view_projection, Mat4{}, Vec3{0.32f, 0.33f, 0.40f}, NO_PICK, NO_PICK);
+                    make_push(view_projection, Mat4{}, Vector3{0.32f, 0.33f, 0.40f}, NO_PICK, NO_PICK);
                 vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &grid_push);
                 vkCmdDraw(slot.cmd, grid_vertices_.count, 1, 0, 0);
 
@@ -718,6 +718,6 @@ namespace SushiEngine
                 const std::uint32_t* pixels = static_cast<const std::uint32_t*>(slot.readback_mapped);
                 return pixels[static_cast<std::size_t>(y) * width_ + x];
             }
-        } // namespace vulkan
-    } // namespace render
+        } // namespace Vulkan
+    } // namespace Render
 } // namespace SushiEngine

@@ -76,7 +76,7 @@ namespace SushiEngine
          * @param tolerance Maximum allowed absolute difference on each component.
          * @return Whether every component pair is within tolerance.
          */
-        inline bool approx_equal(const Vec3& a, const Vec3& b, Scalar tolerance)
+        inline bool approx_equal(const Vector3& a, const Vector3& b, Scalar tolerance)
         {
             return approx_equal(a.x, b.x, tolerance) &&
                    approx_equal(a.y, b.y, tolerance) &&

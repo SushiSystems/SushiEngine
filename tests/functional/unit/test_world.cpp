@@ -38,8 +38,8 @@ using namespace SushiEngine;
 
 namespace
 {
-    struct Position { Vec3 v; };
-    struct Velocity { Vec3 v; };
+    struct Position { Vector3 v; };
+    struct Velocity { Vector3 v; };
     struct Health   { Scalar value; };
 }
 
@@ -47,21 +47,21 @@ TEST(Unit_World, SpawnReturnsLiveHandleWithStoredComponents)
 {
     World world(Harness::shared_runtime(), 256);
 
-    const Entity e = world.spawn(Position{Vec3{1, 2, 3}}, Velocity{Vec3{4, 5, 6}});
+    const Entity e = world.spawn(Position{Vector3{1, 2, 3}}, Velocity{Vector3{4, 5, 6}});
 
     EXPECT_TRUE(world.alive(e));
-    EXPECT_TRUE(Harness::approx_equal(world.get<Position>(e).v, Vec3{1, 2, 3}, Scalar(0)));
-    EXPECT_TRUE(Harness::approx_equal(world.get<Velocity>(e).v, Vec3{4, 5, 6}, Scalar(0)));
+    EXPECT_TRUE(Harness::approx_equal(world.get<Position>(e).v, Vector3{1, 2, 3}, Scalar(0)));
+    EXPECT_TRUE(Harness::approx_equal(world.get<Velocity>(e).v, Vector3{4, 5, 6}, Scalar(0)));
 }
 
 TEST(Unit_World, GetReturnsMutableReference)
 {
     World world(Harness::shared_runtime(), 256);
-    const Entity e = world.spawn(Position{Vec3{0, 0, 0}});
+    const Entity e = world.spawn(Position{Vector3{0, 0, 0}});
 
-    world.get<Position>(e).v = Vec3{7, 8, 9};
+    world.get<Position>(e).v = Vector3{7, 8, 9};
 
-    EXPECT_TRUE(Harness::approx_equal(world.get<Position>(e).v, Vec3{7, 8, 9}, Scalar(0)));
+    EXPECT_TRUE(Harness::approx_equal(world.get<Position>(e).v, Vector3{7, 8, 9}, Scalar(0)));
 }
 
 TEST(Unit_World, DestroyClearsLivenessAndStaleHandleStaysDead)

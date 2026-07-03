@@ -39,8 +39,8 @@ using namespace SushiEngine;
 
 namespace
 {
-    struct Position { Vec3 v; };
-    struct Velocity { Vec3 v; };
+    struct Position { Vector3 v; };
+    struct Velocity { Vector3 v; };
     struct Mass     { Scalar value; };
     struct Lifetime { Scalar value; };
 
@@ -51,8 +51,8 @@ namespace
 
     struct Reference
     {
-        Vec3 position;
-        Vec3 velocity;
+        Vector3 position;
+        Vector3 velocity;
         Scalar lifetime;
         Scalar mass;
     };
@@ -86,7 +86,7 @@ TEST(Integration_Schedule, MatchesScalarReferenceAndCompilesOnce)
     {
         const Scalar m = Scalar(1) + Scalar(i % 4);
         entities.push_back(world.spawn(Position{}, Velocity{}, Mass{m}, Lifetime{Scalar(100)}));
-        reference.push_back(Reference{Vec3{}, Vec3{}, Scalar(100), m});
+        reference.push_back(Reference{Vector3{}, Vector3{}, Scalar(100), m});
     }
 
     for (std::size_t frame = 0; frame < FRAMES; ++frame)

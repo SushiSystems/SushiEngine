@@ -50,8 +50,8 @@ using namespace SushiEngine;
 namespace
 {
     // Components. Distinct types so each gets its own component id and column.
-    struct Position { Vec3 v; };
-    struct Velocity { Vec3 v; };
+    struct Position { Vector3 v; };
+    struct Velocity { Vector3 v; };
     struct Mass     { Scalar value; };
     struct Lifetime { Scalar value; };
 
@@ -65,8 +65,8 @@ namespace
     // Independent scalar mirror of one entity, keyed by entity slot.
     struct Reference
     {
-        Vec3 position;
-        Vec3 velocity;
+        Vector3 position;
+        Vector3 velocity;
         Scalar mass;
         Scalar lifetime;
     };
@@ -116,7 +116,7 @@ int main()
         ++spawn_counter;
         const Entity e = world.spawn(Position{}, Velocity{}, Mass{m}, Lifetime{l});
         alive.push_back(e);
-        reference[e.index] = Reference{Vec3{}, Vec3{}, m, l};
+        reference[e.index] = Reference{Vector3{}, Vector3{}, m, l};
         ++total_spawned;
     };
 
@@ -173,8 +173,8 @@ int main()
     {
         if (!world.alive(e)) { ++mismatches; continue; }
         const Reference& r = reference[e.index];
-        const Vec3 p = world.get<Position>(e).v;
-        const Vec3 v = world.get<Velocity>(e).v;
+        const Vector3 p = world.get<Position>(e).v;
+        const Vector3 v = world.get<Velocity>(e).v;
         const Scalar life = world.get<Lifetime>(e).value;
         if (std::fabs(p.y - r.position.y) > tol ||
             std::fabs(v.y - r.velocity.y) > tol ||

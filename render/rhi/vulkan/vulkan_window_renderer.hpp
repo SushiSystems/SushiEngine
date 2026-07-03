@@ -46,9 +46,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             /**
              * @brief A windowed Vulkan renderer that presents a host's UI frames.
@@ -112,6 +112,6 @@ namespace SushiEngine
                     std::uint32_t image_index_ = 0;
                     bool frame_open_ = false;
             };
-        } // namespace vulkan
-    } // namespace render
+        } // namespace Vulkan
+    } // namespace Render
 } // namespace SushiEngine

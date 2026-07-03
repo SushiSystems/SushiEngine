@@ -91,6 +91,10 @@ you're editing.
   stay compact.
 - **Nested namespaces, Allman.** Write `namespace A\n{\n namespace B\n{` — not
   `namespace A::B`.
+- **Namespaces are `PascalCase`.** `SushiEngine::Simulation`, `SushiEngine::Editor`,
+  `SushiEngine::Render`, `SushiEngine::Render::Vulkan` — never a lowercase or
+  abbreviated segment (`sim`, `sushi::editor`, `vulkan`). A namespace name follows
+  the same abbreviation and acronym rules as a type name (below).
 - **C++17.** The codebase targets C++17, the same standard SushiRuntime compiles
   on across every toolchain. Do not reach for C++20/23 facilities.
 - **Comments are few and useful.** A short plain-English line that explains *why*,
@@ -102,8 +106,19 @@ you're editing.
 - **No separator comments.** Lines like `// <-----------`, `// =========`, or
   `// --------` are forbidden everywhere in the codebase.
 - **Naming.** Types `PascalCase`, functions/variables `snake_case`, members
-  trailing underscore (`impl_`), constants `UPPER_SNAKE`. No abbreviated type
-  names — spell `Statistics`, not `Stats`. Follow the surrounding code.
+  trailing underscore (`impl_`), constants `UPPER_SNAKE`. Follow the surrounding
+  code.
+- **No abbreviations, anywhere an identifier is spelled.** Spell the word out in
+  full: `Statistics` not `Stats`, `Vector3` not `Vec3`, `Quaternion` not `Quat`,
+  `Simulation` not `Sim`. This applies to types, namespaces, functions, variables,
+  and file names alike.
+- **Well-known acronyms are the exception, and stay fully upper-case.** An
+  initialism that is more recognizable as an acronym than spelled out keeps its
+  acronym casing even inside a `PascalCase` identifier or namespace segment:
+  `SushiEngine::API`, `PGSSolver`, `RHIDevice`. Do not title-case an acronym
+  (`Api`, `Pgs`) and do not invent new acronyms for the sake of brevity — this
+  exception is for terms the reader already knows as an acronym (API, PGS, RHI,
+  GPU, ECS, XPBD), not a shortcut around the no-abbreviation rule.
 - **Every source file carries the Apache 2.0 license header** used across the
   tree. Copy it verbatim into new files.
 

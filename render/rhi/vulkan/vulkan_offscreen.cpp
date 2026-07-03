@@ -32,9 +32,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             namespace
             {
@@ -172,11 +172,11 @@ namespace SushiEngine
 
                 // Pipeline: no vertex input, dynamic viewport/scissor, dynamic rendering.
                 VkShaderModule vertex_module =
-                    make_shader(vk_device, shaders::triangle_vert_spv,
-                                shaders::triangle_vert_spv_word_count);
+                    make_shader(vk_device, Shaders::triangle_vert_spv,
+                                Shaders::triangle_vert_spv_word_count);
                 VkShaderModule fragment_module =
-                    make_shader(vk_device, shaders::triangle_frag_spv,
-                                shaders::triangle_frag_spv_word_count);
+                    make_shader(vk_device, Shaders::triangle_frag_spv,
+                                Shaders::triangle_frag_spv_word_count);
 
                 VkPipelineShaderStageCreateInfo stages[2]{};
                 stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -386,6 +386,6 @@ namespace SushiEngine
 
                 return result;
             }
-        } // namespace vulkan
-    } // namespace render
+        } // namespace Vulkan
+    } // namespace Render
 } // namespace SushiEngine

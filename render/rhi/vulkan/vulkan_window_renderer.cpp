@@ -30,9 +30,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             namespace
             {
@@ -312,11 +312,11 @@ namespace SushiEngine
             {
                 return std::unique_ptr<ISceneView>(new VulkanSceneView(device_));
             }
-        } // namespace vulkan
+        } // namespace Vulkan
 
         std::unique_ptr<IWindowRenderer> create_window_renderer(const WindowRendererDesc& desc)
         {
-            return std::unique_ptr<IWindowRenderer>(new vulkan::VulkanWindowRenderer(desc));
+            return std::unique_ptr<IWindowRenderer>(new Vulkan::VulkanWindowRenderer(desc));
         }
-    } // namespace render
+    } // namespace Render
 } // namespace SushiEngine

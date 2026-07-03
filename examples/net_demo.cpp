@@ -21,10 +21,10 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// SushiLoop M4 worked example: loop::net::LoopbackChannel/reconcile driven by a
+// SushiLoop M4 worked example: Loop::Net::LoopbackChannel/reconcile driven by a
 // real per-tick gameplay Command (PlayerCommand, a two-axis movement input) rather
 // than the toy Scalar command the M4 unit/integration tests use, plus
-// loop::net::make_network_id proven against an actual client/server spawn.
+// Loop::Net::make_network_id proven against an actual client/server spawn.
 //
 // "Client" and "server" are modelled as two logical roles in one process, each
 // owning its own ecs::World — this is exactly the scope docs/slop/SUSHILOOP.md's
@@ -33,7 +33,7 @@
 // misprediction, so it is the ground truth the client must converge to.
 //
 // The demo is split into two phases that never overlap, by design, honouring
-// loop::RollbackBuffer's hard constraint (ARCHITECTURE.md SS8): no entity may
+// Loop::RollbackBuffer's hard constraint (ARCHITECTURE.md SS8): no entity may
 // spawn or be destroyed between a capture and its matching restore.
 //   Phase 1 (ticks 0..TOTAL_TICKS-1): the client predicts a movement command every
 //   tick, sometimes wrong; captures a rollback snapshot before applying it;
@@ -62,14 +62,14 @@ namespace
     constexpr Scalar      FIXED_DT       = Scalar(0.02);
     constexpr std::size_t CHUNK_CAPACITY = 32;
     constexpr std::size_t TOTAL_TICKS    = 30;
-    constexpr loop::net::ClientId CLIENT_ID = 1;
+    constexpr Loop::Net::ClientId CLIENT_ID = 1;
 
     // Mispredicted on the client; the server's authoritative command differs.
-    constexpr loop::TickId MISPREDICTED_TICKS[] = {5, 6, 12};
+    constexpr Loop::TickId MISPREDICTED_TICKS[] = {5, 6, 12};
 
-    bool is_mispredicted(loop::TickId tick)
+    bool is_mispredicted(Loop::TickId tick)
     {
-        for (loop::TickId mispredicted : MISPREDICTED_TICKS)
+        for (Loop::TickId mispredicted : MISPREDICTED_TICKS)
             if (mispredicted == tick)
                 return true;
         return false;
@@ -98,13 +98,13 @@ namespace
     /** @brief A player (or projectile) entity's world position. */
     struct Position
     {
-        Vec3 v;
+        Vector3 v;
     };
 
     /** @brief The network-stable identity a spawned entity carries, for Phase 2. */
     struct NetworkIdTag
     {
-        loop::net::NetworkId id;
+        Loop::Net::NetworkId id;
     };
 
     void apply_command(World& world, Entity player, const PlayerCommand& command)
@@ -117,14 +117,14 @@ namespace
     // The server's authoritative command for a tick: a small deterministic
     // sweep, standing in for whatever a real server would compute from its own
     // simulation (e.g. validated player input).
-    PlayerCommand authoritative_command(loop::TickId tick)
+    PlayerCommand authoritative_command(Loop::TickId tick)
     {
         return PlayerCommand{Scalar(tick % 3) - Scalar(1), Scalar((tick + 1) % 4) - Scalar(2)};
     }
 
     // The client's local prediction: correct everywhere except the mispredicted
     // ticks, where it guesses something else entirely.
-    PlayerCommand client_predicted_command(loop::TickId tick)
+    PlayerCommand client_predicted_command(Loop::TickId tick)
     {
         if (is_mispredicted(tick))
             return PlayerCommand{Scalar(-99), Scalar(99)};
@@ -147,7 +147,7 @@ int main()
     World baseline_world(runtime, CHUNK_CAPACITY);
     baseline_world.reserve<Position>(CHUNK_CAPACITY);
     const Entity baseline_player = baseline_world.spawn(Position{});
-    for (loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
+    for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         apply_command(baseline_world, baseline_player, authoritative_command(tick));
 
     // --- The server: driven straight through by its own authoritative stream ---
@@ -162,10 +162,10 @@ int main()
     client_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
     const Entity client_player = client_world.spawn(Position{});
 
-    loop::RollbackBuffer rollback(TOTAL_TICKS);
-    loop::net::LoopbackChannel<PlayerCommand> channel;
+    Loop::RollbackBuffer rollback(TOTAL_TICKS);
+    Loop::Net::LoopbackChannel<PlayerCommand> channel;
 
-    const auto apply = [&](World& world, loop::TickId tick, const PlayerCommand& command)
+    const auto apply = [&](World& world, Loop::TickId tick, const PlayerCommand& command)
     {
         (void)tick;
         apply_command(world, client_player, command);
@@ -174,7 +174,7 @@ int main()
     bool any_rollback_happened = false;
 
     // --- Phase 1: predict / send / (batched) reconcile, no structural change ---
-    for (loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
+    for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
     {
         rollback.capture(client_world, tick);
 
@@ -187,17 +187,17 @@ int main()
         // The server acknowledges every 5 ticks, simulating a batched, latent ack.
         if ((tick + 1) % 5 == 0 || tick + 1 == TOTAL_TICKS)
         {
-            std::vector<loop::net::Ack<PlayerCommand>> acks = channel.server_process(
-                [](loop::TickId t, PlayerCommand) { return authoritative_command(t); });
+            std::vector<Loop::Net::Ack<PlayerCommand>> acks = channel.server_process(
+                [](Loop::TickId t, PlayerCommand) { return authoritative_command(t); });
 
-            const bool rolled_back = loop::net::reconcile(
+            const bool rolled_back = Loop::Net::reconcile(
                 client_world, rollback, channel.client_history(), acks, tick, apply);
             any_rollback_happened = any_rollback_happened || rolled_back;
         }
     }
 
-    const Vec3 expected_position = baseline_world.get<Position>(baseline_player).v;
-    const Vec3 client_position = client_world.get<Position>(client_player).v;
+    const Vector3 expected_position = baseline_world.get<Position>(baseline_player).v;
+    const Vector3 client_position = client_world.get<Position>(client_player).v;
     const bool converged = nearly_equal(client_position.x, expected_position.x) &&
                             nearly_equal(client_position.y, expected_position.y) &&
                             nearly_equal(client_position.z, expected_position.z);
@@ -205,13 +205,13 @@ int main()
     // --- Phase 2: deterministic network ids across a real client/server spawn --
     // Outside the rollback window used above, so this never spawns between a
     // capture and its matching restore (RollbackBuffer's hard constraint).
-    constexpr loop::TickId SPAWN_TICK = TOTAL_TICKS;
-    constexpr loop::net::SpawnSequence SPAWN_SEQUENCE = 0;
+    constexpr Loop::TickId SPAWN_TICK = TOTAL_TICKS;
+    constexpr Loop::Net::SpawnSequence SPAWN_SEQUENCE = 0;
 
-    const loop::net::NetworkId client_computed_id =
-        loop::net::make_network_id(CLIENT_ID, SPAWN_TICK, SPAWN_SEQUENCE);
-    const loop::net::NetworkId server_computed_id =
-        loop::net::make_network_id(CLIENT_ID, SPAWN_TICK, SPAWN_SEQUENCE);
+    const Loop::Net::NetworkId client_computed_id =
+        Loop::Net::make_network_id(CLIENT_ID, SPAWN_TICK, SPAWN_SEQUENCE);
+    const Loop::Net::NetworkId server_computed_id =
+        Loop::Net::make_network_id(CLIENT_ID, SPAWN_TICK, SPAWN_SEQUENCE);
 
     // Client predicts the spawn locally...
     const Entity client_projectile =

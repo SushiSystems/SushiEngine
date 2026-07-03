@@ -41,7 +41,7 @@
 
 namespace SushiEngine
 {
-    namespace loop
+    namespace Loop
     {
         /** @brief A monotonically increasing simulation tick number. */
         using TickId = std::uint64_t;
@@ -128,5 +128,5 @@ namespace SushiEngine
 
                 std::vector<Entry> entries_;
         };
-    } // namespace loop
+    } // namespace Loop
 } // namespace SushiEngine

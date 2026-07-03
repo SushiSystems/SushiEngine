@@ -46,9 +46,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             /**
              * @brief An offscreen mesh/grid renderer sampled into the editor viewport.
@@ -136,6 +136,6 @@ namespace SushiEngine
                     std::uint32_t current_slot_ = 0;
                     std::uint32_t frame_counter_ = 0;
             };
-        } // namespace vulkan
-    } // namespace render
+        } // namespace Vulkan
+    } // namespace Render
 } // namespace SushiEngine

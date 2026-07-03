@@ -52,12 +52,12 @@ namespace
     constexpr Scalar        DT         = Scalar(0.016);
 
     // Byte-for-byte host mirror of DistanceProjection.
-    void project_host(const DistanceConstraint& c, std::vector<Vec3>& pos,
+    void project_host(const DistanceConstraint& c, std::vector<Vector3>& pos,
                       const std::vector<Scalar>& inv_mass)
     {
-        const Vec3 pa = pos[c.a];
-        const Vec3 pb = pos[c.b];
-        const Vec3 d = pa - pb;
+        const Vector3 pa = pos[c.a];
+        const Vector3 pb = pos[c.b];
+        const Vector3 d = pa - pb;
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         if (dist <= Scalar(1e-8))
             return;
@@ -75,16 +75,16 @@ namespace
 TEST(Integration_PgsSolver, HangingChainMatchesReference)
 {
     auto& runtime = Harness::shared_runtime();
-    auto positions = runtime.buffer<Vec3>(N);
+    auto positions = runtime.buffer<Vector3>(N);
     auto inv_mass = runtime.buffer<Scalar>(N);
 
-    std::vector<Vec3> ref_pos(N);
+    std::vector<Vector3> ref_pos(N);
     std::vector<Scalar> ref_inv(N);
     std::vector<DistanceConstraint> constraints;
 
     for (std::uint32_t i = 0; i < N; ++i)
     {
-        const Vec3 p{Scalar(i) * SPACING, Scalar(0), Scalar(0)};
+        const Vector3 p{Scalar(i) * SPACING, Scalar(0), Scalar(0)};
         positions[i] = p;
         ref_pos[i] = p;
         const Scalar w = (i == 0) ? Scalar(0) : Scalar(1); // pin the first body
@@ -121,7 +121,7 @@ TEST(Integration_PgsSolver, HangingChainMatchesReference)
     const Scalar tol = Scalar(0.02);
     for (std::uint32_t i = 0; i < N; ++i)
     {
-        const Vec3 p = positions[i];
+        const Vector3 p = positions[i];
         EXPECT_TRUE(Harness::approx_equal(p, ref_pos[i], tol))
             << "body " << i << " diverged from the reference";
     }
@@ -130,9 +130,9 @@ TEST(Integration_PgsSolver, HangingChainMatchesReference)
     Scalar max_residual = Scalar(0);
     for (const DistanceConstraint& c : constraints)
     {
-        const Vec3 pa = positions[c.a];
-        const Vec3 pb = positions[c.b];
-        const Vec3 d = pa - pb;
+        const Vector3 pa = positions[c.a];
+        const Vector3 pb = positions[c.b];
+        const Vector3 d = pa - pb;
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         max_residual = std::max(max_residual, std::fabs(dist - c.rest_length));
     }

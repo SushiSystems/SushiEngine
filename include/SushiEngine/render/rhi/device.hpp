@@ -45,7 +45,7 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
         /** @brief Which physical GPU the backend should prefer when several exist. */
         enum class DevicePreference
@@ -170,5 +170,5 @@ namespace SushiEngine
          * @return An owning handle to the live device.
          */
         std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDesc& desc);
-    } // namespace render
+    } // namespace Render
 } // namespace SushiEngine

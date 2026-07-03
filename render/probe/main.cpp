@@ -38,7 +38,7 @@
 namespace
 {
     /** @brief Sum of a pixel's colour channels — a cheap "is it lit?" measure. */
-    int brightness(const SushiEngine::render::vulkan::Pixel& pixel)
+    int brightness(const SushiEngine::Render::Vulkan::Pixel& pixel)
     {
         return int(pixel.r) + int(pixel.g) + int(pixel.b);
     }
@@ -48,9 +48,9 @@ int main()
 {
     try
     {
-        SushiEngine::render::RenderDeviceDesc desc;
-        SushiEngine::render::vulkan::VulkanDevice device(desc);
-        const SushiEngine::render::DeviceInfo& info = device.info();
+        SushiEngine::Render::RenderDeviceDesc desc;
+        SushiEngine::Render::Vulkan::VulkanDevice device(desc);
+        const SushiEngine::Render::DeviceInfo& info = device.info();
 
         const std::uint32_t version = info.api_version;
         std::printf("device: %s\n", info.name.c_str());
@@ -58,8 +58,8 @@ int main()
         std::printf("api: %u.%u.%u\n", (version >> 22) & 0x7Fu,
                     (version >> 12) & 0x3FFu, version & 0xFFFu);
 
-        const SushiEngine::render::vulkan::TriangleRenderResult frame =
-            SushiEngine::render::vulkan::render_triangle_offscreen(device, 64, 64);
+        const SushiEngine::Render::Vulkan::TriangleRenderResult frame =
+            SushiEngine::Render::Vulkan::render_triangle_offscreen(device, 64, 64);
 
         std::printf("center rgba: %u %u %u %u\n", frame.center.r, frame.center.g,
                     frame.center.b, frame.center.a);

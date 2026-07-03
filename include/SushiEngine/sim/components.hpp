@@ -44,13 +44,13 @@
 
 namespace SushiEngine
 {
-    namespace sim
+    namespace Simulation
     {
         /** @brief World position and scale. Mandatory on every entity, with Orientation. */
         struct Transform
         {
-            Vec3 position;
-            Vec3 scale{Vec3{1, 1, 1}};
+            Vector3 position;
+            Vector3 scale{Vector3{1, 1, 1}};
         };
 
         /**
@@ -62,19 +62,19 @@ namespace SushiEngine
          */
         struct Orientation
         {
-            Quat rotation;
+            Quaternion rotation;
         };
 
         /** @brief A precomputed per-step spin delta; present only on animated entities. */
         struct SpinStep
         {
-            Quat delta;
+            Quaternion delta;
         };
 
         /** @brief Precomputed per-step orbit motion; present only on animated entities. */
         struct OrbitState
         {
-            Vec3 center;
+            Vector3 center;
             Scalar radius = 0;
             Scalar cos_angle = 1;
             Scalar sin_angle = 0;
@@ -91,7 +91,7 @@ namespace SushiEngine
          */
         struct Tint
         {
-            Vec3 color;
+            Vector3 color;
         };
 
         /**
@@ -110,5 +110,5 @@ namespace SushiEngine
             std::int32_t priority = 0;
             bool active = true;
         };
-    } // namespace sim
+    } // namespace Simulation
 } // namespace SushiEngine

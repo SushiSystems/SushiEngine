@@ -52,7 +52,7 @@ device code of its own; kernels are instantiated in the consuming translation un
 ## Repository layout
 
 - `include/SushiEngine/core/types.hpp` — the single alias point for value types
-  (`Vec3`, `Scalar`), currently a placeholder.
+  (`Vector3`, `Scalar`), currently a placeholder.
 - `include/SushiEngine/ecs/` — entities, components, archetype chunks, world,
   command buffer, schedule.
 - `include/SushiEngine/physics/` — PGS solver and graph colouring.

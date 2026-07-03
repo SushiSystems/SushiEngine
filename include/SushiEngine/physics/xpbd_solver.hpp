@@ -68,30 +68,30 @@ namespace SushiEngine
                 RigidBody& body_a = bodies[c.a];
                 RigidBody& body_b = bodies[c.b];
 
-                const Vec3 anchor_a = rotate(body_a.orientation, c.local_anchor_a);
-                const Vec3 anchor_b = rotate(body_b.orientation, c.local_anchor_b);
-                const Vec3 p1 = body_a.position + anchor_a;
-                const Vec3 p2 = body_b.position + anchor_b;
-                const Vec3 d = p2 - p1;
+                const Vector3 anchor_a = rotate(body_a.orientation, c.local_anchor_a);
+                const Vector3 anchor_b = rotate(body_b.orientation, c.local_anchor_b);
+                const Vector3 p1 = body_a.position + anchor_a;
+                const Vector3 p2 = body_b.position + anchor_b;
+                const Vector3 d = p2 - p1;
                 const Scalar len = length(d);
                 if (len <= Scalar(1e-8))
                     return;
-                const Vec3 n = d * (Scalar(1) / len);
+                const Vector3 n = d * (Scalar(1) / len);
                 const Scalar error = len - c.rest_length;
 
                 // r x n, expressed in each body's own local frame (see rotate()'s
                 // doc comment: R(a x b) = (Ra) x (Rb), so rotating the world cross
                 // product back by the body's own orientation gives the same result
                 // as crossing the local anchor with the locally-expressed normal).
-                const Vec3 rxn_a =
+                const Vector3 rxn_a =
                     rotate(conjugate(body_a.orientation), cross(anchor_a, n));
-                const Vec3 rxn_b =
+                const Vector3 rxn_b =
                     rotate(conjugate(body_b.orientation), cross(anchor_b, n));
 
-                const Vec3 iixn_a{body_a.inv_inertia.x * rxn_a.x,
+                const Vector3 iixn_a{body_a.inv_inertia.x * rxn_a.x,
                                   body_a.inv_inertia.y * rxn_a.y,
                                   body_a.inv_inertia.z * rxn_a.z};
-                const Vec3 iixn_b{body_b.inv_inertia.x * rxn_b.x,
+                const Vector3 iixn_b{body_b.inv_inertia.x * rxn_b.x,
                                   body_b.inv_inertia.y * rxn_b.y,
                                   body_b.inv_inertia.z * rxn_b.z};
 
@@ -104,7 +104,7 @@ namespace SushiEngine
                 const Scalar delta_lambda = (-error - alpha_tilde * lambda) / (w + alpha_tilde);
                 lambda += delta_lambda;
 
-                const Vec3 impulse = n * delta_lambda;
+                const Vector3 impulse = n * delta_lambda;
                 body_a.position = body_a.position - impulse * body_a.inv_mass;
                 body_b.position = body_b.position + impulse * body_b.inv_mass;
 

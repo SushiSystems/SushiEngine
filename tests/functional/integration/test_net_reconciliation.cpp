@@ -44,7 +44,7 @@ using namespace SushiEngine;
 
 namespace
 {
-    struct Position { Vec3 v; };
+    struct Position { Vector3 v; };
 
     constexpr Scalar      FIXED_DT       = Scalar(0.02);
     constexpr std::size_t ENTITIES       = 6;
@@ -52,11 +52,11 @@ namespace
     constexpr std::size_t TOTAL_TICKS    = 30;
 
     // Mispredicted on the client; the server's true, authoritative values differ.
-    constexpr loop::TickId MISPREDICTED_TICKS[] = {5, 6, 12};
+    constexpr Loop::TickId MISPREDICTED_TICKS[] = {5, 6, 12};
 
-    bool is_mispredicted(loop::TickId tick)
+    bool is_mispredicted(Loop::TickId tick)
     {
-        for (loop::TickId mispredicted : MISPREDICTED_TICKS)
+        for (Loop::TickId mispredicted : MISPREDICTED_TICKS)
             if (mispredicted == tick)
                 return true;
         return false;
@@ -81,14 +81,14 @@ namespace
     }
 
     // The server's authoritative command for a tick.
-    Scalar authoritative_command(loop::TickId tick)
+    Scalar authoritative_command(Loop::TickId tick)
     {
         return Scalar(tick % 5) - Scalar(2);
     }
 
     // The client's local prediction for a tick: correct everywhere except the
     // mispredicted ticks, where it guesses something else entirely.
-    Scalar client_predicted_command(loop::TickId tick)
+    Scalar client_predicted_command(Loop::TickId tick)
     {
         if (is_mispredicted(tick))
             return Scalar(-999);
@@ -104,7 +104,7 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
     // authoritative command stream, no misprediction at all.
     World server_only_world(runtime, CHUNK_CAPACITY);
     std::vector<Entity> server_only_entities = seed_world(server_only_world);
-    for (loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
+    for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         apply_command(server_only_world, server_only_entities, authoritative_command(tick));
 
     // The client: predicts locally (sometimes wrong), captures a rollback
@@ -113,10 +113,10 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
     World client_world(runtime, CHUNK_CAPACITY);
     std::vector<Entity> client_entities = seed_world(client_world);
 
-    loop::RollbackBuffer rollback(TOTAL_TICKS);
-    loop::net::LoopbackChannel<Scalar> channel;
+    Loop::RollbackBuffer rollback(TOTAL_TICKS);
+    Loop::Net::LoopbackChannel<Scalar> channel;
 
-    const auto apply = [&](World& world, loop::TickId tick, const Scalar& command)
+    const auto apply = [&](World& world, Loop::TickId tick, const Scalar& command)
     {
         (void)tick;
         apply_command(world, client_entities, command);
@@ -124,7 +124,7 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
 
     bool any_rollback_happened = false;
 
-    for (loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
+    for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
     {
         rollback.capture(client_world, tick);
 
@@ -136,10 +136,10 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
         // everything sent so far, simulating a batched, latent acknowledgment.
         if ((tick + 1) % 5 == 0 || tick + 1 == TOTAL_TICKS)
         {
-            std::vector<loop::net::Ack<Scalar>> acks = channel.server_process(
-                [](loop::TickId t, Scalar) { return authoritative_command(t); });
+            std::vector<Loop::Net::Ack<Scalar>> acks = channel.server_process(
+                [](Loop::TickId t, Scalar) { return authoritative_command(t); });
 
-            const bool rolled_back = loop::net::reconcile(
+            const bool rolled_back = Loop::Net::reconcile(
                 client_world, rollback, channel.client_history(), acks, tick, apply);
             any_rollback_happened = any_rollback_happened || rolled_back;
         }
@@ -151,8 +151,8 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
     ASSERT_EQ(server_only_entities.size(), client_entities.size());
     for (std::size_t i = 0; i < server_only_entities.size(); ++i)
     {
-        const Vec3 expected = server_only_world.get<Position>(server_only_entities[i]).v;
-        const Vec3 actual = client_world.get<Position>(client_entities[i]).v;
+        const Vector3 expected = server_only_world.get<Position>(server_only_entities[i]).v;
+        const Vector3 actual = client_world.get<Position>(client_entities[i]).v;
         EXPECT_EQ(actual.x, expected.x) << "entity " << i;
         EXPECT_EQ(actual.y, expected.y) << "entity " << i;
         EXPECT_EQ(actual.z, expected.z) << "entity " << i;
@@ -165,10 +165,10 @@ TEST(Integration_NetReconciliation, NoReconciliationWhenServerAgreesWithClient)
     World world(runtime, CHUNK_CAPACITY);
     std::vector<Entity> entities = seed_world(world);
 
-    loop::RollbackBuffer rollback(TOTAL_TICKS);
-    loop::net::LoopbackChannel<Scalar> channel;
+    Loop::RollbackBuffer rollback(TOTAL_TICKS);
+    Loop::Net::LoopbackChannel<Scalar> channel;
 
-    for (loop::TickId tick = 0; tick < 5; ++tick)
+    for (Loop::TickId tick = 0; tick < 5; ++tick)
     {
         rollback.capture(world, tick);
         const Scalar command = authoritative_command(tick);
@@ -176,14 +176,14 @@ TEST(Integration_NetReconciliation, NoReconciliationWhenServerAgreesWithClient)
         apply_command(world, entities, command);
     }
 
-    std::vector<loop::net::Ack<Scalar>> acks =
-        channel.server_process([](loop::TickId t, Scalar sent) { (void)t; return sent; });
+    std::vector<Loop::Net::Ack<Scalar>> acks =
+        channel.server_process([](Loop::TickId t, Scalar sent) { (void)t; return sent; });
 
-    const auto apply = [&](World& w, loop::TickId t, const Scalar& command)
+    const auto apply = [&](World& w, Loop::TickId t, const Scalar& command)
     { (void)t; apply_command(w, entities, command); };
 
     const bool rolled_back =
-        loop::net::reconcile(world, rollback, channel.client_history(), acks, 4, apply);
+        Loop::Net::reconcile(world, rollback, channel.client_history(), acks, 4, apply);
 
     EXPECT_FALSE(rolled_back);
 }

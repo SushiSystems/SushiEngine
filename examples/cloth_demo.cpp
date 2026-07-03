@@ -57,23 +57,23 @@ namespace
         RigidBody& body_a = bodies[c.a];
         RigidBody& body_b = bodies[c.b];
 
-        const Vec3 anchor_a = rotate(body_a.orientation, c.local_anchor_a);
-        const Vec3 anchor_b = rotate(body_b.orientation, c.local_anchor_b);
-        const Vec3 p1 = body_a.position + anchor_a;
-        const Vec3 p2 = body_b.position + anchor_b;
-        const Vec3 d = p2 - p1;
+        const Vector3 anchor_a = rotate(body_a.orientation, c.local_anchor_a);
+        const Vector3 anchor_b = rotate(body_b.orientation, c.local_anchor_b);
+        const Vector3 p1 = body_a.position + anchor_a;
+        const Vector3 p2 = body_b.position + anchor_b;
+        const Vector3 d = p2 - p1;
         const Scalar len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         if (len <= Scalar(1e-8))
             return;
-        const Vec3 n = d * (Scalar(1) / len);
+        const Vector3 n = d * (Scalar(1) / len);
         const Scalar error = len - c.rest_length;
 
-        const Vec3 rxn_a = rotate(conjugate(body_a.orientation), cross(anchor_a, n));
-        const Vec3 rxn_b = rotate(conjugate(body_b.orientation), cross(anchor_b, n));
+        const Vector3 rxn_a = rotate(conjugate(body_a.orientation), cross(anchor_a, n));
+        const Vector3 rxn_b = rotate(conjugate(body_b.orientation), cross(anchor_b, n));
 
-        const Vec3 iixn_a{body_a.inv_inertia.x * rxn_a.x, body_a.inv_inertia.y * rxn_a.y,
+        const Vector3 iixn_a{body_a.inv_inertia.x * rxn_a.x, body_a.inv_inertia.y * rxn_a.y,
                           body_a.inv_inertia.z * rxn_a.z};
-        const Vec3 iixn_b{body_b.inv_inertia.x * rxn_b.x, body_b.inv_inertia.y * rxn_b.y,
+        const Vector3 iixn_b{body_b.inv_inertia.x * rxn_b.x, body_b.inv_inertia.y * rxn_b.y,
                           body_b.inv_inertia.z * rxn_b.z};
 
         const Scalar w = body_a.inv_mass + body_b.inv_mass + dot(rxn_a, iixn_a) +
@@ -85,7 +85,7 @@ namespace
         const Scalar delta_lambda = (-error - alpha_tilde * lambda) / (w + alpha_tilde);
         lambda += delta_lambda;
 
-        const Vec3 impulse = n * delta_lambda;
+        const Vector3 impulse = n * delta_lambda;
         body_a.position = body_a.position - impulse * body_a.inv_mass;
         body_b.position = body_b.position + impulse * body_b.inv_mass;
 
@@ -104,7 +104,7 @@ int main()
     PhysicsWorld<XpbdDistanceConstraint> world(runtime);
 
     const ClothGrid grid =
-        build_cloth_grid(world, ROWS, COLS, SPACING, Vec3{0, 0, 0}, Scalar(0));
+        build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));
 
     world.finalize(ITERATIONS, DT, XpbdDistanceProjection{});
 
@@ -123,19 +123,19 @@ int main()
         {
             if (col + 1 < COLS)
                 constraints.push_back(XpbdDistanceConstraint{
-                    grid.at(row, col), grid.at(row, col + 1), Vec3{0, 0, 0}, Vec3{0, 0, 0},
+                    grid.at(row, col), grid.at(row, col + 1), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     SPACING, Scalar(0)});
             if (row + 1 < ROWS)
                 constraints.push_back(XpbdDistanceConstraint{
-                    grid.at(row, col), grid.at(row + 1, col), Vec3{0, 0, 0}, Vec3{0, 0, 0},
+                    grid.at(row, col), grid.at(row + 1, col), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     SPACING, Scalar(0)});
             if (row + 1 < ROWS && col + 1 < COLS)
             {
                 constraints.push_back(XpbdDistanceConstraint{
-                    grid.at(row, col), grid.at(row + 1, col + 1), Vec3{0, 0, 0}, Vec3{0, 0, 0},
+                    grid.at(row, col), grid.at(row + 1, col + 1), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     diagonal, Scalar(0)});
                 constraints.push_back(XpbdDistanceConstraint{
-                    grid.at(row, col + 1), grid.at(row + 1, col), Vec3{0, 0, 0}, Vec3{0, 0, 0},
+                    grid.at(row, col + 1), grid.at(row + 1, col), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     diagonal, Scalar(0)});
             }
         }
@@ -144,10 +144,10 @@ int main()
 
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
     {
-        world.step(Vec3{0, GY, 0}, 1);
+        world.step(Vector3{0, GY, 0}, 1);
 
         for (RigidBody& body : ref_bodies)
-            predict(body, Vec3{0, GY, 0}, DT);
+            predict(body, Vector3{0, GY, 0}, DT);
 
         std::fill(ref_lambda.begin(), ref_lambda.end(), Scalar(0));
         for (std::size_t iteration = 0; iteration < ITERATIONS; ++iteration)
@@ -161,7 +161,7 @@ int main()
     Scalar max_error = Scalar(0);
     for (std::size_t i = 0; i < world.body_count(); ++i)
     {
-        const Vec3 p = world.body(BodyId(i)).position;
+        const Vector3 p = world.body(BodyId(i)).position;
         max_error = abs_max(max_error, p.x - ref_bodies[i].position.x);
         max_error = abs_max(max_error, p.y - ref_bodies[i].position.y);
         max_error = abs_max(max_error, p.z - ref_bodies[i].position.z);
@@ -170,7 +170,7 @@ int main()
     Scalar max_residual = Scalar(0);
     for (const XpbdDistanceConstraint& c : constraints)
     {
-        const Vec3 d = world.body(c.a).position - world.body(c.b).position;
+        const Vector3 d = world.body(c.a).position - world.body(c.b).position;
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         max_residual = abs_max(max_residual, dist - c.rest_length);
     }
@@ -188,8 +188,8 @@ int main()
     bool pinned_ok = true;
     for (std::size_t col = 0; col < COLS; ++col)
     {
-        const Vec3 p = world.body(grid.at(0, col)).position;
-        const Vec3 expected{Scalar(col) * SPACING, Scalar(0), Scalar(0)};
+        const Vector3 p = world.body(grid.at(0, col)).position;
+        const Vector3 expected{Scalar(col) * SPACING, Scalar(0), Scalar(0)};
         if (std::fabs(p.x - expected.x) > Scalar(1e-5) || std::fabs(p.y - expected.y) > Scalar(1e-5) ||
             std::fabs(p.z - expected.z) > Scalar(1e-5))
             pinned_ok = false;

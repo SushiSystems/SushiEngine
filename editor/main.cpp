@@ -25,10 +25,11 @@
 // dockspace and a Unity-style panel set — Hierarchy, Inspector, Project, and a
 // text editor. It edits an editor-side scene and the on-disk project; a live
 // viewport and world follow in later increments. The window (SdlWindow), the
-// graphics device and swapchain (render::IWindowRenderer), and the ImGui/Vulkan
+// graphics device and swapchain (Render::IWindowRenderer), and the ImGui/Vulkan
 // glue (ImGuiBackend) sit behind narrow seams, so this loop names no windowing or
 // graphics API directly and a different backend could replace either.
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -43,12 +44,12 @@
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
-#include "editor_context.hpp"
-#include "editor_panels.hpp"
-#include "imgui_backend.hpp"
-#include "preferences.hpp"
-#include "sdl_window.hpp"
-#include "viewport_panel.hpp"
+#include "core/editor_context.hpp"
+#include "ui/editor_panels.hpp"
+#include "ui/imgui_backend.hpp"
+#include "core/preferences.hpp"
+#include "window/sdl_window.hpp"
+#include "ui/viewport_panel.hpp"
 
 namespace
 {
@@ -111,7 +112,7 @@ namespace
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f),
                          ImGuiDockNodeFlags_PassthruCentralNode);
         if (needs_layout)
-            sushi::editor::build_default_layout(dockspace_id);
+            SushiEngine::Editor::build_default_layout(dockspace_id);
         ImGui::End();
         return needs_layout;
     }
@@ -121,13 +122,13 @@ int main(int, char**)
 {
     try
     {
-        sushi::editor::SdlWindow window("SushiEngine Editor", 1600, 900);
+        SushiEngine::Editor::SdlWindow window("SushiEngine Editor", 1600, 900);
 
         std::uint32_t width = 0;
         std::uint32_t height = 0;
         window.drawable_size(width, height);
 
-        SushiEngine::render::WindowRendererDesc desc;
+        SushiEngine::Render::WindowRendererDesc desc;
         desc.required_instance_extensions = window.vulkan_instance_extensions();
         desc.surface_factory = [&window](std::uint64_t instance)
         {
@@ -135,41 +136,41 @@ int main(int, char**)
         };
         desc.width = width != 0 ? width : 1600;
         desc.height = height != 0 ? height : 900;
-        std::unique_ptr<SushiEngine::render::IWindowRenderer> renderer =
-            SushiEngine::render::create_window_renderer(desc);
+        std::unique_ptr<SushiEngine::Render::IWindowRenderer> renderer =
+            SushiEngine::Render::create_window_renderer(desc);
 
-        sushi::editor::ImGuiBackend imgui(window, *renderer);
+        SushiEngine::Editor::ImGuiBackend imgui(window, *renderer);
 
         // Two Unity viewports, each a ViewportPanel over the same world but a
         // different injected camera: the Scene view flies freely, the Game view
         // follows the world's camera. The cameras are declared before the panels so
         // they outlive the references the panels hold.
-        sushi::editor::FlyCameraSource scene_camera;
-        sushi::editor::WorldCameraSource game_camera;
-        sushi::editor::ViewportPanel scene_view(*renderer, imgui, "Scene", scene_camera);
-        sushi::editor::ViewportPanel game_view(*renderer, imgui, "Game", game_camera);
+        SushiEngine::Editor::FlyCameraSource scene_camera;
+        SushiEngine::Editor::WorldCameraSource game_camera;
+        SushiEngine::Editor::ViewportPanel scene_view(*renderer, imgui, "Scene", scene_camera);
+        SushiEngine::Editor::ViewportPanel game_view(*renderer, imgui, "Game", game_camera);
 
         // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
         // seam. The editor sees only the abstraction and the extracted RenderScene;
         // the runtime, SYCL, and ECS stay inside sushi_sim.
-        std::unique_ptr<SushiEngine::sim::ISimulation> simulation =
-            SushiEngine::sim::create_simulation();
-        std::vector<SushiEngine::render::MeshInstance> instances;
+        std::unique_ptr<SushiEngine::Simulation::ISimulation> simulation =
+            SushiEngine::Simulation::create_simulation();
+        std::vector<SushiEngine::Render::MeshInstance> instances;
 
         // The world is the single source of truth for entities; the panels read and
         // edit it through the injected simulation. There is no editor-side scene model.
-        sushi::editor::EditorContext context;
+        SushiEngine::Editor::EditorContext context;
         context.simulation = simulation.get();
         context.world_entity_count = simulation->entity_count();
 
         // Load persisted preferences and apply the live-effective ones up front, so the
         // editor opens in the user's theme and camera speed. The store is injected into
         // the context for the Preferences window to display its path.
-        std::unique_ptr<sushi::editor::IPreferencesStore> preferences_store =
-            sushi::editor::create_preferences_store();
+        std::unique_ptr<SushiEngine::Editor::IPreferencesStore> preferences_store =
+            SushiEngine::Editor::create_preferences_store();
         context.preferences_store = preferences_store.get();
         context.preferences = preferences_store->load();
-        sushi::editor::apply_theme(context.preferences.theme);
+        SushiEngine::Editor::apply_theme(context.preferences.theme);
 
         // The Project panel's root: the last one the user browsed to, or a
         // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
@@ -185,14 +186,25 @@ int main(int, char**)
         }
         scene_camera.set_move_speed(context.preferences.camera_move_speed);
 
-        sushi::editor::editor_log(context, "Editor ready (Vulkan).");
-        sushi::editor::editor_log(context, "No scene open. Use File > New Scene or open a "
+        SushiEngine::Editor::editor_log(context, "Editor ready (Vulkan).");
+        SushiEngine::Editor::editor_log(context, "No scene open. Use File > New Scene or open a "
                                             ".sushiscene from the Project panel.");
 
         bool running = true;
         bool gizmo_was_dragging = false;
+        // The one wall-clock read in the editor loop: real elapsed time since the
+        // last frame, fed into ISimulation::tick() so its FixedTimestepClock can
+        // turn it into whole fixed steps. The sim itself never reads the clock.
+        std::chrono::steady_clock::time_point last_frame_time =
+            std::chrono::steady_clock::now();
         while (running)
         {
+            const std::chrono::steady_clock::time_point frame_time =
+                std::chrono::steady_clock::now();
+            const SushiEngine::Scalar real_delta_seconds =
+                std::chrono::duration<SushiEngine::Scalar>(frame_time - last_frame_time).count();
+            last_frame_time = frame_time;
+
             // A close request (the window's X, or File > Exit) is not obeyed directly;
             // it only sets close_requested, so draw_exit_confirm_modal below gets a
             // chance to hold the window open while unsaved changes are pending.
@@ -201,19 +213,21 @@ int main(int, char**)
 
             // Tick the world on the runtime only while playing, so the toolbar's
             // Play/Pause gates motion; then take the fresh snapshot to draw. Step
-            // advances exactly one tick regardless of play_state (normally pressed
-            // while Paused) and is a one-shot request the toolbar sets.
-            if (context.play_state == sushi::editor::PlayState::Playing ||
-                context.step_requested)
-                simulation->tick();
+            // advances exactly one fixed step (via a zero-length real delta plus a
+            // full accumulated one) regardless of play_state (normally pressed while
+            // Paused) and is a one-shot request the toolbar sets.
+            if (context.play_state == SushiEngine::Editor::PlayState::Playing)
+                simulation->tick(real_delta_seconds);
+            else if (context.step_requested)
+                simulation->tick(simulation->fixed_dt_seconds());
             context.step_requested = false;
 
-            const SushiEngine::sim::RenderScene& scene = simulation->render_scene();
+            const SushiEngine::Simulation::RenderScene& scene = simulation->render_scene();
             instances.clear();
             instances.reserve(scene.instances.size());
-            for (const SushiEngine::sim::RenderInstance& source : scene.instances)
+            for (const SushiEngine::Simulation::RenderInstance& source : scene.instances)
             {
-                SushiEngine::render::MeshInstance instance;
+                SushiEngine::Render::MeshInstance instance;
                 instance.model = source.model;
                 instance.color = source.color;
                 instance.id = static_cast<std::uint32_t>(source.id);
@@ -226,9 +240,9 @@ int main(int, char**)
             // Game panel's selector so two cameras on different displays never conflict.
             std::vector<std::uint32_t> displays;
             displays.reserve(scene.display_cameras.size());
-            const SushiEngine::sim::CameraState* game = &scene.camera;
+            const SushiEngine::Simulation::CameraState* game = &scene.camera;
             bool selected_display_present = false;
-            for (const SushiEngine::sim::DisplayCamera& display_camera : scene.display_cameras)
+            for (const SushiEngine::Simulation::DisplayCamera& display_camera : scene.display_cameras)
             {
                 displays.push_back(display_camera.display);
                 if (display_camera.display == context.game_display)
@@ -255,21 +269,21 @@ int main(int, char**)
             // a document or a rename field is not hijacked by the scene history.
             if (!ImGui::GetIO().WantTextInput && simulation != nullptr)
             {
-                SushiEngine::sim::IWorldEditor& editor_world = simulation->world();
+                SushiEngine::Simulation::IWorldEditor& editor_world = simulation->world();
                 const bool ctrl = ImGui::GetIO().KeyCtrl;
                 if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) &&
                     context.history.undo(editor_world))
-                    sushi::editor::select_only(context, SushiEngine::sim::NULL_ENTITY);
+                    SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
                 else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) &&
                          context.history.redo(editor_world))
-                    sushi::editor::select_only(context, SushiEngine::sim::NULL_ENTITY);
+                    SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
                 else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
-                    sushi::editor::save_current_scene(context);
+                    SushiEngine::Editor::save_current_scene(context);
             }
 
-            sushi::editor::draw_menu_bar(context);
-            sushi::editor::draw_status_bar(context);
-            sushi::editor::draw_toolbar_panel(context);
+            SushiEngine::Editor::draw_menu_bar(context);
+            SushiEngine::Editor::draw_status_bar(context);
+            SushiEngine::Editor::draw_toolbar_panel(context);
             // Selection is shared between the viewports and the panels. The scene
             // renderer speaks 32-bit ids; entity ids stay small, so the round-trip is
             // lossless. A left-click in either viewport picks the entity under it.
@@ -277,10 +291,10 @@ int main(int, char**)
 
             // The Scene view gets the transform gizmo at the selection; a drag edits a
             // local copy of the transform written back to the world afterwards.
-            SushiEngine::sim::IWorldEditor& world = simulation->world();
+            SushiEngine::Simulation::IWorldEditor& world = simulation->world();
             const bool has_selection = world.exists(context.selected_entity);
-            SushiEngine::sim::EntityTransform selected_transform;
-            SushiEngine::sim::EntityTransform* gizmo_target = nullptr;
+            SushiEngine::Simulation::EntityTransform selected_transform;
+            SushiEngine::Simulation::EntityTransform* gizmo_target = nullptr;
             if (has_selection)
             {
                 selected_transform = world.transform(context.selected_entity);
@@ -288,7 +302,7 @@ int main(int, char**)
             }
 
             // Gizmo snapping comes from the Scene preferences; off unless enabled there.
-            sushi::editor::GizmoSnap snap;
+            SushiEngine::Editor::GizmoSnap snap;
             snap.enabled = context.preferences.snap_enabled;
             snap.translate = context.preferences.snap_translate;
             snap.rotate_degrees = context.preferences.snap_rotate_degrees;
@@ -303,7 +317,7 @@ int main(int, char**)
             {
                 // The Game view is played, not authored: no picking, no gizmo. It offers
                 // a display selector so multiple cameras can target different displays.
-                sushi::editor::DisplaySelector selector;
+                SushiEngine::Editor::DisplaySelector selector;
                 selector.displays = displays.data();
                 selector.count = displays.size();
                 selector.selected = &context.game_display;
@@ -316,8 +330,8 @@ int main(int, char**)
                 const std::size_t game_instance_count =
                     scene.has_camera ? instances.size() : 0;
                 game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
-                               no_selection, false, nullptr, sushi::editor::GizmoMode::Translate,
-                               sushi::editor::GizmoSpace::World, nullptr, &selector);
+                               no_selection, false, nullptr, SushiEngine::Editor::GizmoMode::Translate,
+                               SushiEngine::Editor::GizmoSpace::World, nullptr, &selector);
             }
 
             // One undo step per whole drag, not one per frame: snapshot on the frame
@@ -339,8 +353,8 @@ int main(int, char**)
             // runs every frame regardless, and re-collapsing to one entity every frame
             // would fight the Hierarchy's Ctrl/Shift multi-select.
             if (selected != static_cast<std::uint32_t>(context.selected_entity))
-                sushi::editor::select_only(
-                    context, static_cast<SushiEngine::sim::EntityId>(selected));
+                SushiEngine::Editor::select_only(
+                    context, static_cast<SushiEngine::Simulation::EntityId>(selected));
             else
                 context.selected_entity = selected;
 
@@ -350,9 +364,9 @@ int main(int, char**)
                 (context.frame_selected_requested || context.align_with_view_requested ||
                  context.move_to_view_requested))
             {
-                const SushiEngine::sim::EntityTransform target =
+                const SushiEngine::Simulation::EntityTransform target =
                     world.transform(context.selected_entity);
-                sushi::editor::FlyCamera& fly = scene_camera.camera();
+                SushiEngine::Editor::FlyCamera& fly = scene_camera.camera();
                 if (context.frame_selected_requested)
                 {
                     // Teleport the camera beside the entity, keeping its facing.
@@ -361,14 +375,14 @@ int main(int, char**)
                 }
                 if (context.align_with_view_requested)
                 {
-                    SushiEngine::sim::EntityTransform aligned = target;
+                    SushiEngine::Simulation::EntityTransform aligned = target;
                     aligned.position = fly.position;
                     aligned.rotation = fly.orientation();
                     world.set_transform(context.selected_entity, aligned);
                 }
                 if (context.move_to_view_requested)
                 {
-                    SushiEngine::sim::EntityTransform moved = target;
+                    SushiEngine::Simulation::EntityTransform moved = target;
                     moved.position =
                         fly.position + fly.forward() * static_cast<SushiEngine::Scalar>(6);
                     world.set_transform(context.selected_entity, moved);
@@ -377,16 +391,16 @@ int main(int, char**)
             context.frame_selected_requested = false;
             context.align_with_view_requested = false;
             context.move_to_view_requested = false;
-            sushi::editor::draw_hierarchy_panel(context);
-            sushi::editor::draw_inspector_panel(context);
-            sushi::editor::draw_project_panel(context);
-            sushi::editor::draw_text_editor_panel(context);
-            sushi::editor::draw_console_panel(context);
-            sushi::editor::draw_statistics_panel(context);
-            sushi::editor::draw_preferences_window(context);
-            sushi::editor::draw_save_scene_as_modal(context, running);
-            sushi::editor::draw_exit_confirm_modal(context, running);
-            sushi::editor::draw_scene_action_confirm_modal(context);
+            SushiEngine::Editor::draw_hierarchy_panel(context);
+            SushiEngine::Editor::draw_inspector_panel(context);
+            SushiEngine::Editor::draw_project_panel(context);
+            SushiEngine::Editor::draw_text_editor_panel(context);
+            SushiEngine::Editor::draw_console_panel(context);
+            SushiEngine::Editor::draw_statistics_panel(context);
+            SushiEngine::Editor::draw_preferences_window(context);
+            SushiEngine::Editor::draw_save_scene_as_modal(context, running);
+            SushiEngine::Editor::draw_exit_confirm_modal(context, running);
+            SushiEngine::Editor::draw_scene_action_confirm_modal(context);
 
             // Persist preferences once per frame after any edit, and apply the fields
             // that take effect live (the camera speed; theme is applied on change).

@@ -153,9 +153,6 @@ namespace SushiEngine
              */
             std::size_t column_count() const noexcept { return columns_.size(); }
 
-            /** @brief The component id of the @p index'th column, in archetype order. */
-            ComponentId column_id(std::size_t index) const noexcept { return columns_[index].id; }
-
             /** @brief The byte size of one element in the @p index'th column. */
             std::size_t column_size(std::size_t index) const noexcept
             {
@@ -171,7 +168,7 @@ namespace SushiEngine
             /**
              * @brief Overwrites the live count directly, bypassing row bookkeeping.
              *
-             * For rollback restore only (`loop::RollbackBuffer::restore`): the caller
+             * For rollback restore only (`Loop::RollbackBuffer::restore`): the caller
              * guarantees no entity has spawned or been destroyed since the snapshot
              * being restored, so every row's entity binding (see `entity_at`) is
              * already correct and only component values are moving back in time, not

@@ -54,7 +54,7 @@
 
 namespace SushiEngine
 {
-    namespace sim
+    namespace Simulation
     {
         namespace
         {
@@ -68,7 +68,7 @@ namespace SushiEngine
             constexpr std::size_t CHUNK_CAPACITY = 256;
 
             // Rigid Body tuning. The outer fixed step is FIXED_TICK_DT_SECONDS, owned
-            // by the loop::FixedTimestepClock every RuntimeSimulation instance keeps;
+            // by the Loop::FixedTimestepClock every RuntimeSimulation instance keeps;
             // the physics sub-step duration is derived from it (fixed_dt / substeps
             // per tick) rather than hardcoded separately, so there is exactly one
             // source of truth for the tick duration.
@@ -166,12 +166,12 @@ namespace SushiEngine
                         return out;
                     }
 
-                    Vec3 color(EntityId id) const override
+                    Vector3 color(EntityId id) const override
                     {
                         const Record* record = find(id);
                         if (record == nullptr || !record->has_renderer ||
                             !world_.alive(record->entity))
-                            return Vec3{};
+                            return Vector3{};
                         return world_.get<Tint>(record->entity).color;
                     }
 
@@ -184,7 +184,7 @@ namespace SushiEngine
                     EntityId create(const std::string& display_name) override
                     {
                         const Entity entity = world_.spawn(Transform{}, Orientation{},
-                                                           Tint{Vec3{Scalar(0.8), Scalar(0.8),
+                                                           Tint{Vector3{Scalar(0.8), Scalar(0.8),
                                                                      Scalar(0.8)}});
                         const EntityId id = next_id_++;
                         order_.push_back(id);
@@ -240,7 +240,7 @@ namespace SushiEngine
                         extract();
                     }
 
-                    void set_color(EntityId id, const Vec3& value) override
+                    void set_color(EntityId id, const Vector3& value) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_renderer ||
@@ -342,9 +342,9 @@ namespace SushiEngine
                         cloth_dirty_ = true;
                     }
 
-                    std::vector<Vec3> cloth_particle_positions(EntityId id) const override
+                    std::vector<Vector3> cloth_particle_positions(EntityId id) const override
                     {
-                        std::vector<Vec3> positions;
+                        std::vector<Vector3> positions;
                         const Record* record = find(id);
                         if (record == nullptr || !record->has_cloth || !physics_cloth_)
                             return positions;
@@ -363,7 +363,7 @@ namespace SushiEngine
                         // A default camera looking down -Z from a few units back, so the
                         // seeded scene is visible without any rotation authoring yet.
                         Transform transform;
-                        transform.position = Vec3{0, Scalar(3), Scalar(12)};
+                        transform.position = Vector3{0, Scalar(3), Scalar(12)};
                         const Entity entity =
                             world_.spawn(transform, Orientation{}, Camera{});
                         const EntityId id = next_id_++;
@@ -450,14 +450,14 @@ namespace SushiEngine
                                                        : EntityTransform{};
 
                         EntityTransform new_local;
-                        new_local.scale = Vec3{safe_div(child_world.scale.x, parent_world.scale.x),
+                        new_local.scale = Vector3{safe_div(child_world.scale.x, parent_world.scale.x),
                                               safe_div(child_world.scale.y, parent_world.scale.y),
                                               safe_div(child_world.scale.z, parent_world.scale.z)};
                         new_local.rotation =
                             normalize(mul(conjugate(parent_world.rotation), child_world.rotation));
-                        const Vec3 delta = rotate(conjugate(parent_world.rotation),
+                        const Vector3 delta = rotate(conjugate(parent_world.rotation),
                                                   child_world.position - parent_world.position);
-                        new_local.position = Vec3{safe_div(delta.x, parent_world.scale.x),
+                        new_local.position = Vector3{safe_div(delta.x, parent_world.scale.x),
                                                  safe_div(delta.y, parent_world.scale.y),
                                                  safe_div(delta.z, parent_world.scale.z)};
 
@@ -548,11 +548,11 @@ namespace SushiEngine
                         for (auto it = chain.rbegin(); it != chain.rend(); ++it)
                         {
                             EntityTransform next;
-                            next.scale = Vec3{result.scale.x * it->scale.x,
+                            next.scale = Vector3{result.scale.x * it->scale.x,
                                              result.scale.y * it->scale.y,
                                              result.scale.z * it->scale.z};
                             next.rotation = normalize(mul(result.rotation, it->rotation));
-                            const Vec3 scaled_local = Vec3{result.scale.x * it->position.x,
+                            const Vector3 scaled_local = Vector3{result.scale.x * it->position.x,
                                                           result.scale.y * it->position.y,
                                                           result.scale.z * it->position.z};
                             next.position =
@@ -595,7 +595,7 @@ namespace SushiEngine
                             rebuild_physics();
                         if (physics_)
                         {
-                            physics_->step(Vec3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                            physics_->step(Vector3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
                             for (const auto& [id, body_id] : physics_body_ids_)
                             {
                                 const Record* record = find(id);
@@ -609,7 +609,7 @@ namespace SushiEngine
                         if (cloth_dirty_)
                             rebuild_cloth();
                         if (physics_cloth_)
-                            physics_cloth_->step(Vec3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                            physics_cloth_->step(Vector3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
                         schedule_.run(world_);
                         extract();
                     }
@@ -644,7 +644,7 @@ namespace SushiEngine
                         const Orientation o = world_.get<Orientation>(record->entity);
                         const Tint tint = record->has_renderer
                                               ? world_.get<Tint>(record->entity)
-                                              : Tint{Vec3{Scalar(0.8), Scalar(0.8), Scalar(0.8)}};
+                                              : Tint{Vector3{Scalar(0.8), Scalar(0.8), Scalar(0.8)}};
                         const Camera cam = record->is_camera ? world_.get<Camera>(record->entity)
                                                              : Camera{};
 
@@ -757,7 +757,7 @@ namespace SushiEngine
                                 record->cloth_params.rows == 0 || record->cloth_params.cols == 0)
                                 continue;
 
-                            const Vec3 origin = world_.get<Transform>(record->entity).position;
+                            const Vector3 origin = world_.get<Transform>(record->entity).position;
                             Physics::ClothGrid grid = Physics::build_cloth_grid(
                                 *next_world, record->cloth_params.rows, record->cloth_params.cols,
                                 record->cloth_params.spacing, origin, record->cloth_params.compliance);
@@ -786,9 +786,9 @@ namespace SushiEngine
                     static CameraState default_camera() noexcept
                     {
                         CameraState state;
-                        state.position = Vec3{0, Scalar(7), Scalar(12)};
-                        state.target = Vec3{0, Scalar(0.75), 0};
-                        state.up = Vec3{0, 1, 0};
+                        state.position = Vector3{0, Scalar(7), Scalar(12)};
+                        state.target = Vector3{0, Scalar(0.75), 0};
+                        state.up = Vector3{0, 1, 0};
                         state.vertical_fov_radians = Scalar(1.0471976);
                         state.near_plane = Scalar(0.1);
                         state.far_plane = Scalar(500);
@@ -800,11 +800,11 @@ namespace SushiEngine
                                                        const Orientation& orientation,
                                                        const Camera& camera) noexcept
                     {
-                        const Mat4 rotation = mat4_from_quat(orientation.rotation);
+                        const Mat4 rotation = mat4_from_quaternion(orientation.rotation);
                         // Column-major basis: right = col0, up = col1, +Z = col2. A camera
                         // looks down its local -Z, so forward is the negated third column.
-                        const Vec3 forward{-rotation.m[8], -rotation.m[9], -rotation.m[10]};
-                        const Vec3 up{rotation.m[4], rotation.m[5], rotation.m[6]};
+                        const Vector3 forward{-rotation.m[8], -rotation.m[9], -rotation.m[10]};
+                        const Vector3 up{rotation.m[4], rotation.m[5], rotation.m[6]};
                         CameraState state;
                         state.position = transform.position;
                         state.target = transform.position + forward;
@@ -913,7 +913,7 @@ namespace SushiEngine
                     SushiRuntime::API::Runtime runtime_;
                     World world_;
                     Schedule schedule_;
-                    loop::FixedTimestepClock clock_;
+                    Loop::FixedTimestepClock clock_;
                     // The clock's leftover fraction after the most recent tick(), for a
                     // future render-interpolation consumer; not read anywhere yet.
                     Scalar interpolation_ = 0;
@@ -941,5 +941,5 @@ namespace SushiEngine
         {
             return std::unique_ptr<ISimulation>(new RuntimeSimulation());
         }
-    } // namespace sim
+    } // namespace Simulation
 } // namespace SushiEngine

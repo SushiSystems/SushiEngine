@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_NetworkId: SushiLoop M4's deterministic entity identity
-// (loop::net::make_network_id). Two independent computations from the same
+// (Loop::Net::make_network_id). Two independent computations from the same
 // (client_id, tick, spawn_sequence) triple must always agree — the whole point is
 // that server and client each derive the same id without a matching round-trip —
 // and distinct inputs along any one axis must not collide within the packed range
@@ -35,7 +35,7 @@
 #include <SushiEngine/SushiEngine.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::loop::net;
+using namespace SushiEngine::Loop::net;
 
 TEST(Unit_NetworkId, SameInputsProduceTheSameId)
 {
@@ -71,7 +71,7 @@ TEST(Unit_NetworkId, NotAssignedByWhicheverSideSpawnsFirst)
     // spawn (client 3's second spawn on tick 42), in arbitrary evaluation order —
     // neither "wins", both compute the same value from the same facts.
     const ClientId client = 3;
-    const loop::TickId tick = 42;
+    const Loop::TickId tick = 42;
     const SpawnSequence sequence = 1;
 
     const NetworkId server_computed = make_network_id(client, tick, sequence);

@@ -56,7 +56,7 @@ TEST(Integration_Cloth, GridTopologyHasExpectedBodyAndConstraintCounts)
 {
     PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_runtime());
     const ClothGrid grid =
-        build_cloth_grid(world, ROWS, COLS, SPACING, Vec3{0, 0, 0}, Scalar(0));
+        build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));
 
     ASSERT_EQ(grid.rows, ROWS);
     ASSERT_EQ(grid.cols, COLS);
@@ -76,15 +76,15 @@ TEST(Integration_Cloth, PinnedTopRowNeverMovesWhileGridHangs)
 {
     PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_runtime());
     const ClothGrid grid =
-        build_cloth_grid(world, ROWS, COLS, SPACING, Vec3{0, 0, 0}, Scalar(0));
+        build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));
     world.finalize(ITERATIONS, SUBSTEP_DT, XpbdDistanceProjection{});
 
-    std::vector<Vec3> pinned_start;
+    std::vector<Vector3> pinned_start;
     for (std::size_t col = 0; col < COLS; ++col)
         pinned_start.push_back(world.body(grid.at(0, col)).position);
 
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
-        world.step(Vec3{0, GRAVITY_Y, 0}, SUBSTEPS_PER_FRAME);
+        world.step(Vector3{0, GRAVITY_Y, 0}, SUBSTEPS_PER_FRAME);
 
     EXPECT_EQ(world.compile_count(), 1u);
 
@@ -102,7 +102,7 @@ TEST(Integration_Cloth, PinnedTopRowNeverMovesWhileGridHangs)
     for (std::size_t row = 0; row < ROWS; ++row)
         for (std::size_t col = 0; col + 1 < COLS; ++col)
         {
-            const Vec3 d = world.body(grid.at(row, col)).position -
+            const Vector3 d = world.body(grid.at(row, col)).position -
                            world.body(grid.at(row, col + 1)).position;
             const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
             EXPECT_NEAR(double(dist), double(SPACING), 0.05);

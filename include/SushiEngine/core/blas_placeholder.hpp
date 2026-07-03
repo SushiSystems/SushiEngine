@@ -60,7 +60,7 @@ namespace SushiEngine
          * Only the operations the integrator needs are defined; everything richer
          * is SushiBLAS's job, not the engine's.
          */
-        struct Vec3
+        struct Vector3
         {
             Float x = 0;
             Float y = 0;
@@ -71,9 +71,9 @@ namespace SushiEngine
              * @param o The other vector to add.
              * @return A new vector containing the sum.
              */
-            constexpr Vec3 operator+(const Vec3& o) const noexcept
+            constexpr Vector3 operator+(const Vector3& o) const noexcept
             {
-                return Vec3{x + o.x, y + o.y, z + o.z};
+                return Vector3{x + o.x, y + o.y, z + o.z};
             }
 
             /**
@@ -81,9 +81,9 @@ namespace SushiEngine
              * @param s The scalar value to multiply by.
              * @return A new vector with scaled components.
              */
-            constexpr Vec3 operator*(Float s) const noexcept
+            constexpr Vector3 operator*(Float s) const noexcept
             {
-                return Vec3{x * s, y * s, z * s};
+                return Vector3{x * s, y * s, z * s};
             }
 
             /**
@@ -91,32 +91,32 @@ namespace SushiEngine
              * @param o The vector to subtract.
              * @return A new vector containing this minus @p o.
              */
-            constexpr Vec3 operator-(const Vec3& o) const noexcept
+            constexpr Vector3 operator-(const Vector3& o) const noexcept
             {
-                return Vec3{x - o.x, y - o.y, z - o.z};
+                return Vector3{x - o.x, y - o.y, z - o.z};
             }
         };
 
         /** @brief Dot product of two vectors. */
-        inline Float dot(const Vec3& a, const Vec3& b) noexcept
+        inline Float dot(const Vector3& a, const Vector3& b) noexcept
         {
             return a.x * b.x + a.y * b.y + a.z * b.z;
         }
 
         /** @brief Right-handed cross product a x b. */
-        inline Vec3 cross(const Vec3& a, const Vec3& b) noexcept
+        inline Vector3 cross(const Vector3& a, const Vector3& b) noexcept
         {
-            return Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+            return Vector3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
         }
 
         /** @brief Euclidean length of a vector. */
-        inline Float length(const Vec3& v) noexcept
+        inline Float length(const Vector3& v) noexcept
         {
             return std::sqrt(dot(v, v));
         }
 
         /** @brief Unit vector in the direction of @p v; returns @p v unchanged if degenerate. */
-        inline Vec3 normalize(const Vec3& v) noexcept
+        inline Vector3 normalize(const Vector3& v) noexcept
         {
             const Float len = length(v);
             return len > Float(0) ? v * (Float(1) / len) : v;
@@ -127,10 +127,10 @@ namespace SushiEngine
          *
          * ECEF positions on a planet-sized world need double precision regardless of
          * @c Float's build-time choice (SE_SCALAR_DOUBLE picks the render/simulation
-         * Scalar, not the coordinate system's absolute precision). WorldVec3 is that
+         * Scalar, not the coordinate system's absolute precision). WorldVector3 is that
          * fixed precision, independent of the Scalar seam above.
          */
-        struct WorldVec3
+        struct WorldVector3
         {
             double x = 0;
             double y = 0;
@@ -141,9 +141,9 @@ namespace SushiEngine
              * @param o The other vector to add.
              * @return A new vector containing the sum.
              */
-            constexpr WorldVec3 operator+(const WorldVec3& o) const noexcept
+            constexpr WorldVector3 operator+(const WorldVector3& o) const noexcept
             {
-                return WorldVec3{x + o.x, y + o.y, z + o.z};
+                return WorldVector3{x + o.x, y + o.y, z + o.z};
             }
 
             /**
@@ -151,9 +151,9 @@ namespace SushiEngine
              * @param o The vector to subtract.
              * @return A new vector containing this minus @p o.
              */
-            constexpr WorldVec3 operator-(const WorldVec3& o) const noexcept
+            constexpr WorldVector3 operator-(const WorldVector3& o) const noexcept
             {
-                return WorldVec3{x - o.x, y - o.y, z - o.z};
+                return WorldVector3{x - o.x, y - o.y, z - o.z};
             }
         };
 
@@ -162,7 +162,7 @@ namespace SushiEngine
          *
          * Each sector is a cube of world space @c sector_size units on a side; a
          * sector's own corner is always within @c sector_size of the coordinates
-         * inside it, which is what keeps the local offset in FloatingOriginVec3
+         * inside it, which is what keeps the local offset in FloatingOriginVector3
          * representable in single precision even far from the world origin.
          */
         struct SectorCoord
@@ -194,10 +194,10 @@ namespace SushiEngine
          * lets rendering, physics, and gameplay work in single precision without
          * losing accuracy at planetary distances.
          */
-        struct FloatingOriginVec3
+        struct FloatingOriginVector3
         {
             SectorCoord sector;
-            Vec3 local;
+            Vector3 local;
         };
 
         /**
@@ -206,7 +206,7 @@ namespace SushiEngine
          * @param sector_size Side length of one sector, in world units (> 0).
          * @return The sector containing @p world and the local offset within it.
          */
-        inline FloatingOriginVec3 to_floating_origin(const WorldVec3& world,
+        inline FloatingOriginVector3 to_floating_origin(const WorldVector3& world,
                                                       double sector_size) noexcept
         {
             const auto sector_index = [sector_size](double v) -> std::int64_t
@@ -215,11 +215,11 @@ namespace SushiEngine
             };
             const SectorCoord sector{sector_index(world.x), sector_index(world.y),
                                       sector_index(world.z)};
-            const WorldVec3 corner{sector.x * sector_size, sector.y * sector_size,
+            const WorldVector3 corner{sector.x * sector_size, sector.y * sector_size,
                                     sector.z * sector_size};
-            return FloatingOriginVec3{
+            return FloatingOriginVector3{
                 sector,
-                Vec3{static_cast<Float>(world.x - corner.x),
+                Vector3{static_cast<Float>(world.x - corner.x),
                      static_cast<Float>(world.y - corner.y),
                      static_cast<Float>(world.z - corner.z)}};
         }
@@ -231,10 +231,10 @@ namespace SushiEngine
          *                    match the value used to produce @p position.
          * @return The absolute position in world (ECEF) space.
          */
-        inline WorldVec3 from_floating_origin(const FloatingOriginVec3& position,
+        inline WorldVector3 from_floating_origin(const FloatingOriginVector3& position,
                                                double sector_size) noexcept
         {
-            return WorldVec3{
+            return WorldVector3{
                 position.sector.x * sector_size + static_cast<double>(position.local.x),
                 position.sector.y * sector_size + static_cast<double>(position.local.y),
                 position.sector.z * sector_size + static_cast<double>(position.local.z)};
@@ -268,7 +268,7 @@ namespace SushiEngine
         }
 
         /** @brief A translation matrix by @p t. */
-        inline Mat4 translation(const Vec3& t) noexcept
+        inline Mat4 translation(const Vector3& t) noexcept
         {
             Mat4 r{};
             r.m[12] = t.x;
@@ -278,7 +278,7 @@ namespace SushiEngine
         }
 
         /** @brief A non-uniform scale matrix by @p s. */
-        inline Mat4 scaling(const Vec3& s) noexcept
+        inline Mat4 scaling(const Vector3& s) noexcept
         {
             Mat4 r{};
             r.m[0] = s.x;
@@ -321,11 +321,11 @@ namespace SushiEngine
          * @param up     The world up direction.
          * @return The view (world-to-camera) matrix.
          */
-        inline Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up) noexcept
+        inline Mat4 look_at(const Vector3& eye, const Vector3& center, const Vector3& up) noexcept
         {
-            const Vec3 f = normalize(center - eye);
-            const Vec3 s = normalize(cross(f, up));
-            const Vec3 u = cross(s, f);
+            const Vector3 f = normalize(center - eye);
+            const Vector3 s = normalize(cross(f, up));
+            const Vector3 u = cross(s, f);
             Mat4 r{};
             r.m[0] = s.x;  r.m[4] = s.y;  r.m[8] = s.z;
             r.m[1] = u.x;  r.m[5] = u.y;  r.m[9] = u.z;
@@ -342,7 +342,7 @@ namespace SushiEngine
          * Trivially copyable; the component storage a Transform carries and the
          * renderer resolves to a matrix.
          */
-        struct Quat
+        struct Quaternion
         {
             Float x = 0;
             Float y = 0;
@@ -351,17 +351,17 @@ namespace SushiEngine
         };
 
         /** @brief A quaternion of @p angle radians about unit axis @p axis. */
-        inline Quat quat_axis_angle(const Vec3& axis, Float angle) noexcept
+        inline Quaternion quaternion_axis_angle(const Vector3& axis, Float angle) noexcept
         {
             const Float half = angle * Float(0.5);
             const Float s = std::sin(half);
-            return Quat{axis.x * s, axis.y * s, axis.z * s, std::cos(half)};
+            return Quaternion{axis.x * s, axis.y * s, axis.z * s, std::cos(half)};
         }
 
         /** @brief Hamilton product a * b (apply b then a). */
-        inline Quat mul(const Quat& a, const Quat& b) noexcept
+        inline Quaternion mul(const Quaternion& a, const Quaternion& b) noexcept
         {
-            return Quat{
+            return Quaternion{
                 a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
                 a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
                 a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
@@ -369,9 +369,9 @@ namespace SushiEngine
         }
 
         /** @brief The conjugate (inverse, for unit quaternions) of @p q. */
-        inline Quat conjugate(const Quat& q) noexcept
+        inline Quaternion conjugate(const Quaternion& q) noexcept
         {
-            return Quat{-q.x, -q.y, -q.z, q.w};
+            return Quaternion{-q.x, -q.y, -q.z, q.w};
         }
 
         /**
@@ -380,25 +380,25 @@ namespace SushiEngine
          * Uses the standard two-cross-product form (no matrix build): with
          * `qv = (q.x, q.y, q.z)`, `v' = v + 2*w*(qv x v) + 2*(qv x (qv x v))`.
          */
-        inline Vec3 rotate(const Quat& q, const Vec3& v) noexcept
+        inline Vector3 rotate(const Quaternion& q, const Vector3& v) noexcept
         {
-            const Vec3 qv{q.x, q.y, q.z};
-            const Vec3 t = cross(qv, v) * Float(2);
+            const Vector3 qv{q.x, q.y, q.z};
+            const Vector3 t = cross(qv, v) * Float(2);
             return v + t * q.w + cross(qv, t);
         }
 
         /** @brief Unit quaternion; returns identity if degenerate. */
-        inline Quat normalize(const Quat& q) noexcept
+        inline Quaternion normalize(const Quaternion& q) noexcept
         {
             const Float len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
             if (len <= Float(0))
-                return Quat{};
+                return Quaternion{};
             const Float inv = Float(1) / len;
-            return Quat{q.x * inv, q.y * inv, q.z * inv, q.w * inv};
+            return Quaternion{q.x * inv, q.y * inv, q.z * inv, q.w * inv};
         }
 
         /** @brief The rotation matrix equivalent to unit quaternion @p q. */
-        inline Mat4 mat4_from_quat(const Quat& q) noexcept
+        inline Mat4 mat4_from_quaternion(const Quaternion& q) noexcept
         {
             const Float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
             const Float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
@@ -417,10 +417,10 @@ namespace SushiEngine
          * @param scale    Per-axis scale.
          * @return translation * rotation * scale.
          */
-        inline Mat4 compose_transform(const Vec3& position, const Quat& rotation,
-                                      const Vec3& scale) noexcept
+        inline Mat4 compose_transform(const Vector3& position, const Quaternion& rotation,
+                                      const Vector3& scale) noexcept
         {
-            return mul(translation(position), mul(mat4_from_quat(rotation), scaling(scale)));
+            return mul(translation(position), mul(mat4_from_quaternion(rotation), scaling(scale)));
         }
     } // namespace placeholder
 } // namespace SushiEngine

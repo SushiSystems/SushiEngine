@@ -40,7 +40,7 @@
 
 namespace SushiEngine
 {
-    namespace loop
+    namespace Loop
     {
         /**
          * @brief Accumulates real elapsed time into whole fixed-step ticks.
@@ -103,5 +103,5 @@ namespace SushiEngine
                 Scalar fixed_dt_;
                 Scalar accumulator_ = 0;
         };
-    } // namespace loop
+    } // namespace Loop
 } // namespace SushiEngine

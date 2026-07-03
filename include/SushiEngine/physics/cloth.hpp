@@ -104,7 +104,7 @@ namespace SushiEngine
          */
         inline ClothGrid build_cloth_grid(PhysicsWorld<XpbdDistanceConstraint>& world,
                                           std::size_t rows, std::size_t cols, Scalar spacing,
-                                          Vec3 origin, Scalar compliance = Scalar(0))
+                                          Vector3 origin, Scalar compliance = Scalar(0))
         {
             ClothGrid grid;
             grid.rows = rows;
@@ -116,16 +116,16 @@ namespace SushiEngine
                 {
                     RigidBody body;
                     body.position =
-                        origin + Vec3{Scalar(col) * spacing, Scalar(0), Scalar(row) * spacing};
+                        origin + Vector3{Scalar(col) * spacing, Scalar(0), Scalar(row) * spacing};
                     body.inv_mass = (row == 0) ? Scalar(0) : Scalar(1);
-                    body.inv_inertia = Vec3{0, 0, 0};
+                    body.inv_inertia = Vector3{0, 0, 0};
                     grid.bodies.push_back(world.add_body(body));
                 }
 
             const auto link = [&](BodyId a, BodyId b, Scalar rest_length)
             {
                 world.add_constraint(XpbdDistanceConstraint{
-                    a, b, Vec3{0, 0, 0}, Vec3{0, 0, 0}, rest_length, compliance});
+                    a, b, Vector3{0, 0, 0}, Vector3{0, 0, 0}, rest_length, compliance});
             };
 
             const Scalar diagonal = spacing * Scalar(std::sqrt(2.0));

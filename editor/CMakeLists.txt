@@ -55,14 +55,14 @@ target_compile_features(sushi_imgui PUBLIC cxx_std_17)
 
 add_executable(se_editor
     main.cpp
-    editor_panels.cpp
-    sdl_window.cpp
-    imgui_backend.cpp
-    viewport_panel.cpp
-    gizmo_controller.cpp
-    preferences.cpp
-    scene_serializer.cpp
-    command_history.cpp)
+    ui/editor_panels.cpp
+    window/sdl_window.cpp
+    ui/imgui_backend.cpp
+    ui/viewport_panel.cpp
+    gizmo/gizmo_controller.cpp
+    core/preferences.cpp
+    serialization/scene_serializer.cpp
+    core/command_history.cpp)
 target_link_libraries(se_editor PRIVATE
     sushi_imgui sushi_render sushi_sim nlohmann_json::nlohmann_json)
 # ShellExecuteW (Project panel's "open with default app") needs Shell32.

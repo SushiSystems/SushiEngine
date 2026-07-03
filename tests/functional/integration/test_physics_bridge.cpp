@@ -51,33 +51,33 @@ namespace
 TEST(Integration_PhysicsBridge, RegisteredEntitySyncsAndUnregisteredDoesNot)
 {
     World world(Harness::shared_runtime(), 8);
-    world.reserve<sim::Transform, sim::Orientation, sim::PhysicsBody>(8);
+    world.reserve<Simulation::Transform, Simulation::Orientation, Simulation::PhysicsBody>(8);
 
     const Entity falling = world.spawn(
-        sim::Transform{Vec3{0, 10, 0}}, sim::Orientation{}, sim::PhysicsBody{});
+        Simulation::Transform{Vector3{0, 10, 0}}, Simulation::Orientation{}, Simulation::PhysicsBody{});
     const Entity untouched = world.spawn(
-        sim::Transform{Vec3{3, 3, 3}}, sim::Orientation{}, sim::PhysicsBody{});
+        Simulation::Transform{Vector3{3, 3, 3}}, Simulation::Orientation{}, Simulation::PhysicsBody{});
 
     PhysicsWorld<XpbdDistanceConstraint> physics(Harness::shared_runtime());
     const BodyId falling_id =
-        physics.add_body(sim::initial_rigid_body(world, falling, Scalar(1)));
+        physics.add_body(Simulation::initial_rigid_body(world, falling, Scalar(1)));
     // No constraints: a single free-falling body under gravity is enough to prove
     // the bridge, without pulling constraint mechanics into this test.
     physics.finalize(1, SUBSTEP_DT, XpbdDistanceProjection{});
 
-    world.get<sim::PhysicsBody>(falling).body_id = falling_id;
+    world.get<Simulation::PhysicsBody>(falling).body_id = falling_id;
     // `untouched` keeps PhysicsBody::INVALID: never registered with the physics world.
 
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
     {
-        physics.step(Vec3{0, Scalar(-9.8), 0}, SUBSTEPS_PER_FRAME);
-        sim::sync_transforms_from_physics(world, physics);
+        physics.step(Vector3{0, Scalar(-9.8), 0}, SUBSTEPS_PER_FRAME);
+        Simulation::sync_transforms_from_physics(world, physics);
     }
 
-    EXPECT_LT(world.get<sim::Transform>(falling).position.y, Scalar(10));
-    EXPECT_TRUE(Harness::approx_equal(world.get<sim::Transform>(falling).position,
+    EXPECT_LT(world.get<Simulation::Transform>(falling).position.y, Scalar(10));
+    EXPECT_TRUE(Harness::approx_equal(world.get<Simulation::Transform>(falling).position,
                                        physics.body(falling_id).position, Scalar(1e-6)));
 
-    EXPECT_TRUE(Harness::approx_equal(world.get<sim::Transform>(untouched).position,
-                                       Vec3{3, 3, 3}, Scalar(0)));
+    EXPECT_TRUE(Harness::approx_equal(world.get<Simulation::Transform>(untouched).position,
+                                       Vector3{3, 3, 3}, Scalar(0)));
 }

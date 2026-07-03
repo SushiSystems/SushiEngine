@@ -29,9 +29,9 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
-        namespace vulkan
+        namespace Vulkan
         {
             namespace
             {
@@ -165,11 +165,11 @@ namespace SushiEngine
                 handles.graphics_queue_family = graphics_queue_family_;
                 return handles;
             }
-        } // namespace vulkan
+        } // namespace Vulkan
 
         std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDesc& desc)
         {
-            return std::unique_ptr<IRenderDevice>(new vulkan::VulkanDevice(desc));
+            return std::unique_ptr<IRenderDevice>(new Vulkan::VulkanDevice(desc));
         }
-    } // namespace render
+    } // namespace Render
 } // namespace SushiEngine

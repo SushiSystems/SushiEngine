@@ -60,7 +60,7 @@
 
 namespace SushiEngine
 {
-    namespace loop
+    namespace Loop
     {
         /**
          * @brief A fixed-capacity ring of per-tick, per-chunk world snapshots.
@@ -183,5 +183,5 @@ namespace SushiEngine
                 std::size_t capacity_;
                 std::deque<Snapshot> ring_;
         };
-    } // namespace loop
+    } // namespace Loop
 } // namespace SushiEngine

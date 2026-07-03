@@ -43,7 +43,7 @@
 
 namespace SushiEngine
 {
-    namespace detail
+    namespace Detail
     {
         /** @brief The pointer type a kernel receives for one access: const for reads. */
         template <typename Access>
@@ -99,7 +99,7 @@ namespace SushiEngine
         {
             fn(i, reinterpret_cast<column_ptr_t<Access>>(cols[Is])...);
         }
-    } // namespace detail
+    } // namespace Detail
 
     /**
      * @brief Registers systems and compiles them to a replayable runtime graph.
@@ -151,14 +151,14 @@ namespace SushiEngine
                                 Chunk* c = chunk.get();
                                 std::vector<void*> reads, writes;
                                 const std::array<void*, sizeof...(Access)> cols = {
-                                    detail::column_base<Access>(*c, reads, writes)...};
+                                    Detail::column_base<Access>(*c, reads, writes)...};
 
                                 graph.add(
                                     SushiRuntime::API::sized([c] { return c->count(); }),
                                     reads, writes, world.chunk_capacity(),
                                     [fn, cols](std::size_t i)
                                     {
-                                        detail::invoke_system<Access...>(
+                                        Detail::invoke_system<Access...>(
                                             fn, i, cols,
                                             std::make_index_sequence<sizeof...(Access)>{});
                                     });

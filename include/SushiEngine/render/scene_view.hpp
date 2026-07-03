@@ -43,7 +43,7 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
         /** @brief A camera's world-to-clip transform, split into its two matrices. */
         struct CameraView
@@ -56,7 +56,7 @@ namespace SushiEngine
         struct MeshInstance
         {
             Mat4 model;              /**< Object-to-world transform. */
-            Vec3 color;              /**< Base colour. */
+            Vector3 color;              /**< Base colour. */
             std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
         };
 
@@ -140,5 +140,5 @@ namespace SushiEngine
                 /** @brief The slot produced by the most recent render(). */
                 virtual std::uint32_t current_slot() const noexcept = 0;
         };
-    } // namespace render
+    } // namespace Render
 } // namespace SushiEngine

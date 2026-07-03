@@ -47,7 +47,7 @@
 
 namespace SushiEngine
 {
-    namespace sim
+    namespace Simulation
     {
         /**
          * @brief A stable, editor-facing handle to one world entity.
@@ -64,9 +64,9 @@ namespace SushiEngine
         /** @brief An entity's authorable transform, as the inspector edits it. */
         struct EntityTransform
         {
-            Vec3 position;               /**< World position. */
-            Quat rotation;               /**< Orientation. */
-            Vec3 scale{Vec3{1, 1, 1}};   /**< Per-axis scale. */
+            Vector3 position;               /**< World position. */
+            Quaternion rotation;               /**< Orientation. */
+            Vector3 scale{Vector3{1, 1, 1}};   /**< Per-axis scale. */
         };
 
         /** @brief One drawable object extracted from the world: identity, transform, colour. */
@@ -74,7 +74,7 @@ namespace SushiEngine
         {
             EntityId id = NULL_ENTITY; /**< The entity this instance draws, for picking. */
             Mat4 model;                /**< Object-to-world transform composed from the entity's state. */
-            Vec3 color;                /**< Base colour. */
+            Vector3 color;                /**< Base colour. */
         };
 
         /**
@@ -86,9 +86,9 @@ namespace SushiEngine
          */
         struct CameraState
         {
-            Vec3 position;                  /**< Eye position in world space. */
-            Vec3 target;                    /**< Point the camera looks at. */
-            Vec3 up;                        /**< World up direction. */
+            Vector3 position;                  /**< Eye position in world space. */
+            Vector3 target;                    /**< Point the camera looks at. */
+            Vector3 up;                        /**< World up direction. */
             Scalar vertical_fov_radians = 1;/**< Vertical field of view in radians. */
             Scalar near_plane = Scalar(0.1);/**< Near clip distance (> 0). */
             Scalar far_plane = Scalar(500); /**< Far clip distance (> near). */
@@ -122,7 +122,7 @@ namespace SushiEngine
         struct PhysicsBodyParams
         {
             Scalar inv_mass = Scalar(1);  /**< Inverse mass; 0 pins the body in place. */
-            Vec3 inv_inertia{0, 0, 0};    /**< Diagonal body-local inverse inertia; 0 = no rotation response. */
+            Vector3 inv_inertia{0, 0, 0};    /**< Diagonal body-local inverse inertia; 0 = no rotation response. */
         };
 
         /**
@@ -196,7 +196,7 @@ namespace SushiEngine
                 virtual EntityTransform transform(EntityId id) const = 0;
 
                 /** @brief The entity's base colour (zero if it does not exist). */
-                virtual Vec3 color(EntityId id) const = 0;
+                virtual Vector3 color(EntityId id) const = 0;
 
                 /** @brief Whether the entity is drawn. */
                 virtual bool visible(EntityId id) const noexcept = 0;
@@ -223,7 +223,7 @@ namespace SushiEngine
                 virtual void set_transform(EntityId id, const EntityTransform& transform) = 0;
 
                 /** @brief Writes the entity's base colour. */
-                virtual void set_color(EntityId id, const Vec3& color) = 0;
+                virtual void set_color(EntityId id, const Vector3& color) = 0;
 
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
@@ -383,7 +383,7 @@ namespace SushiEngine
                  * neither exists yet, so today nothing draws the grid (see
                  * ARCHITECTURE.md §4.2).
                  */
-                virtual std::vector<Vec3> cloth_particle_positions(EntityId id) const = 0;
+                virtual std::vector<Vector3> cloth_particle_positions(EntityId id) const = 0;
         };
 
         /**
@@ -402,7 +402,7 @@ namespace SushiEngine
                 /**
                  * @brief Advances the world by zero or more fixed simulation steps.
                  *
-                 * Feeds @p real_delta_seconds into an internal `loop::FixedTimestepClock`
+                 * Feeds @p real_delta_seconds into an internal `Loop::FixedTimestepClock`
                  * and runs the schedule on the runtime (the systems execute as SYCL
                  * kernels) once per whole fixed step the clock reports — zero if the
                  * caller has been ticking faster than the fixed rate, more than one if a
@@ -418,7 +418,7 @@ namespace SushiEngine
                 /**
                  * @brief The duration of one fixed simulation step, in seconds.
                  *
-                 * The size of the step `tick()`'s internal `loop::FixedTimestepClock`
+                 * The size of the step `tick()`'s internal `Loop::FixedTimestepClock`
                  * advances by; a host uses this to force exactly one step (e.g. a
                  * "Step" button while paused) by calling `tick(fixed_dt_seconds())`
                  * regardless of how much real time actually elapsed.
@@ -447,5 +447,5 @@ namespace SushiEngine
          * @return An owned simulation; never null (throws on runtime bring-up failure).
          */
         std::unique_ptr<ISimulation> create_simulation();
-    } // namespace sim
+    } // namespace Simulation
 } // namespace SushiEngine

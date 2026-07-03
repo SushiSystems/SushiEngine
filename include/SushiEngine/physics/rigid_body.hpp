@@ -45,13 +45,13 @@ namespace SushiEngine
          */
         struct RigidBody
         {
-            Vec3 position;
-            Quat orientation{};
-            Vec3 prev_position;
-            Quat prev_orientation{};
-            Vec3 velocity;
-            Vec3 angular_velocity;
-            Vec3 inv_inertia;
+            Vector3 position;
+            Quaternion orientation{};
+            Vector3 prev_position;
+            Quaternion prev_orientation{};
+            Vector3 velocity;
+            Vector3 angular_velocity;
+            Vector3 inv_inertia;
             Scalar inv_mass = 0;
         };
 
@@ -60,18 +60,18 @@ namespace SushiEngine
          *
          * The angular equivalent of a positional impulse: `local_delta` is the
          * (small) local-frame rotation vector a constraint projection wants to add,
-         * folded in as `q += 0.5 * Quat(local_delta, 0) * q`, then renormalized. Used
+         * folded in as `q += 0.5 * Quaternion(local_delta, 0) * q`, then renormalized. Used
          * by both the predicted-pose integration below and constraint projections.
          *
          * @param q           The orientation to correct.
          * @param local_delta The rotation vector to apply, in @p q's local frame.
          * @return The corrected, renormalized orientation.
          */
-        inline Quat apply_angular_correction(const Quat& q, const Vec3& local_delta) noexcept
+        inline Quaternion apply_angular_correction(const Quaternion& q, const Vector3& local_delta) noexcept
         {
-            const Quat vq{local_delta.x, local_delta.y, local_delta.z, Scalar(0)};
-            const Quat dq = mul(vq, q);
-            const Quat updated{q.x + Scalar(0.5) * dq.x, q.y + Scalar(0.5) * dq.y,
+            const Quaternion vq{local_delta.x, local_delta.y, local_delta.z, Scalar(0)};
+            const Quaternion dq = mul(vq, q);
+            const Quaternion updated{q.x + Scalar(0.5) * dq.x, q.y + Scalar(0.5) * dq.y,
                                q.z + Scalar(0.5) * dq.z, q.w + Scalar(0.5) * dq.w};
             return normalize(updated);
         }
@@ -89,7 +89,7 @@ namespace SushiEngine
          * @param linear_acceleration  External acceleration for this sub-step (e.g. gravity).
          * @param h                    Sub-step duration, in seconds (> 0).
          */
-        inline void predict(RigidBody& body, Vec3 linear_acceleration, Scalar h) noexcept
+        inline void predict(RigidBody& body, Vector3 linear_acceleration, Scalar h) noexcept
         {
             body.prev_position = body.position;
             body.prev_orientation = body.orientation;
@@ -126,9 +126,9 @@ namespace SushiEngine
 
             body.velocity = (body.position - body.prev_position) * (Scalar(1) / h);
 
-            const Quat delta = mul(body.orientation, conjugate(body.prev_orientation));
+            const Quaternion delta = mul(body.orientation, conjugate(body.prev_orientation));
             const Scalar sign = delta.w < Scalar(0) ? Scalar(-1) : Scalar(1);
-            body.angular_velocity = Vec3{delta.x, delta.y, delta.z} * (sign * Scalar(2) / h);
+            body.angular_velocity = Vector3{delta.x, delta.y, delta.z} * (sign * Scalar(2) / h);
         }
     } // namespace Physics
 } // namespace SushiEngine

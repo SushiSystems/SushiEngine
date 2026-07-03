@@ -56,12 +56,12 @@ namespace SushiEngine
              * @param position The body position array, updated in place.
              * @param inv_mass The per-body inverse masses (zero pins a body).
              */
-            void operator()(const DistanceConstraint& c, Vec3* position,
+            void operator()(const DistanceConstraint& c, Vector3* position,
                             const Scalar* inv_mass) const
             {
-                const Vec3 pa = position[c.a];
-                const Vec3 pb = position[c.b];
-                const Vec3 delta = pa - pb;
+                const Vector3 pa = position[c.a];
+                const Vector3 pb = position[c.b];
+                const Vector3 delta = pa - pb;
                 const Scalar dist =
                     sycl::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
                 if (dist <= Scalar(1e-8))
@@ -117,7 +117,7 @@ namespace SushiEngine
                  */
                 template <typename Projection>
                 ConstraintSolver(SushiRuntime::API::Runtime& runtime,
-                                 SushiRuntime::API::Buffer<Vec3>& position,
+                                 SushiRuntime::API::Buffer<Vector3>& position,
                                  SushiRuntime::API::Buffer<Scalar>& inv_mass,
                                  const std::vector<Constraint>& constraints,
                                  std::size_t body_count, std::size_t iterations,
@@ -185,7 +185,7 @@ namespace SushiEngine
                                 SushiRuntime::InOut(position_),
                                 SushiRuntime::In(inv_mass_),
                                 SushiRuntime::In(batch),
-                                [projection](sycl::id<1> id, Vec3* position,
+                                [projection](sycl::id<1> id, Vector3* position,
                                              const Scalar* inv_mass, const Constraint* cons)
                                 {
                                     projection(cons[id[0]], position, inv_mass);
@@ -194,7 +194,7 @@ namespace SushiEngine
                 }
 
                 SushiRuntime::API::Runtime& runtime_;
-                SushiRuntime::API::Buffer<Vec3>& position_;
+                SushiRuntime::API::Buffer<Vector3>& position_;
                 SushiRuntime::API::Buffer<Scalar>& inv_mass_;
                 std::size_t iterations_;
                 ColorBatches colors_;

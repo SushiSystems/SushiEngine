@@ -9,6 +9,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Changed
+- **Naming convention overhaul: `PascalCase` namespaces, no abbreviations, and a
+  reorganized editor tree.** All namespaces are now `PascalCase`
+  (`SushiEngine::Editor`, `SushiEngine::Simulation`, `SushiEngine::Loop`,
+  `SushiEngine::Loop::Net`, `SushiEngine::Render`, `SushiEngine::Render::Vulkan`,
+  `SushiEngine::Render::Shaders`, `SushiEngine::Detail`), replacing the previous
+  mixed-case forms (`sushi::editor`, `sim`, `loop`, `net`, `render`, `vulkan`,
+  `shaders`, `detail`). `core/types.hpp` renames `Vec3`→`Vector3`,
+  `WorldVec3`→`WorldVector3`, `FloatingOriginVec3`→`FloatingOriginVector3`, and
+  `Quat`→`Quaternion`, with the corresponding `*_quat_*` helper functions renamed
+  to `*_quaternion_*`. `editor/` is split from a flat directory into
+  `core/`, `camera/`, `gizmo/`, `input/`, `serialization/`, `window/`, and `ui/`
+  subdirectories by responsibility. See `CONTRIBUTING.md` §4 for the full naming
+  rule, including the well-known-acronym exception (`API`, `PGS`, `RHI`, `GPU`,
+  `ECS`, `XPBD`).
+
+### Changed
 - **`RuntimeSimulation` wires `loop::FixedTimestepClock` into its tick loop instead
   of assuming a fixed ~1/60s real frame.** `ISimulation::tick()` now takes a
   `real_delta_seconds` parameter — the editor's main loop measures real elapsed

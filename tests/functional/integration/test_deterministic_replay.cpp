@@ -40,8 +40,8 @@ using namespace SushiEngine;
 
 namespace
 {
-    struct Position { Vec3 v; };
-    struct Random   { loop::RngState state; };
+    struct Position { Vector3 v; };
+    struct Random   { Loop::RngState state; };
 
     constexpr Scalar FIXED_DT       = Scalar(0.02);
     constexpr std::size_t ENTITIES  = 16;
@@ -57,7 +57,7 @@ namespace
         for (Entity e : entities)
         {
             Random& rnd = world.get<Random>(e);
-            const double jitter = loop::next_unit(rnd.state) - 0.5;
+            const double jitter = Loop::next_unit(rnd.state) - 0.5;
             Position& pos = world.get<Position>(e);
             pos.v.x += command * FIXED_DT;
             pos.v.y += Scalar(jitter) * FIXED_DT;
@@ -66,8 +66,8 @@ namespace
 
     // Runs a full, independent simulation: fresh world, fresh RngState seeds, the
     // same recorded input stream, and returns the final Position of every entity.
-    std::vector<Vec3> run(SushiRuntime::API::Runtime& runtime,
-                           const loop::InputHistory<Scalar>& input)
+    std::vector<Vector3> run(SushiRuntime::API::Runtime& runtime,
+                           const Loop::InputHistory<Scalar>& input)
     {
         World world(runtime, CAPACITY);
         world.reserve<Position, Random>(CAPACITY);
@@ -75,10 +75,10 @@ namespace
         std::vector<Entity> entities;
         for (std::size_t i = 0; i < ENTITIES; ++i)
             entities.push_back(
-                world.spawn(Position{}, Random{loop::seed_rng(std::uint64_t(i) + 1)}));
+                world.spawn(Position{}, Random{Loop::seed_rng(std::uint64_t(i) + 1)}));
 
-        loop::FixedTimestepClock clock(FIXED_DT);
-        loop::TickId tick = 0;
+        Loop::FixedTimestepClock clock(FIXED_DT);
+        Loop::TickId tick = 0;
         for (std::size_t frame = 0; frame < TICKS; ++frame)
         {
             clock.accumulate(FIXED_DT); // one host frame == exactly one fixed step
@@ -91,7 +91,7 @@ namespace
             }
         }
 
-        std::vector<Vec3> result;
+        std::vector<Vector3> result;
         result.reserve(entities.size());
         for (Entity e : entities)
             result.push_back(world.get<Position>(e).v);
@@ -104,13 +104,13 @@ TEST(Integration_DeterministicReplay, SameInputStreamProducesSameWorldState)
     // The input stream itself comes from a seeded RNG, standing in for a captured
     // player command sequence — deterministic, numbered by tick, and shared between
     // both runs exactly as a real replay would receive it over the network.
-    loop::InputHistory<Scalar> input;
-    loop::RngState input_rng = loop::seed_rng(0xC0FFEEu);
-    for (loop::TickId tick = 0; tick < TICKS; ++tick)
-        input.record(tick, Scalar(loop::next_unit(input_rng)) - Scalar(0.5));
+    Loop::InputHistory<Scalar> input;
+    Loop::RngState input_rng = Loop::seed_rng(0xC0FFEEu);
+    for (Loop::TickId tick = 0; tick < TICKS; ++tick)
+        input.record(tick, Scalar(Loop::next_unit(input_rng)) - Scalar(0.5));
 
-    const std::vector<Vec3> first = run(Harness::shared_runtime(), input);
-    const std::vector<Vec3> second = run(Harness::shared_runtime(), input);
+    const std::vector<Vector3> first = run(Harness::shared_runtime(), input);
+    const std::vector<Vector3> second = run(Harness::shared_runtime(), input);
 
     ASSERT_EQ(first.size(), second.size());
     for (std::size_t i = 0; i < first.size(); ++i)

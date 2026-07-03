@@ -44,7 +44,7 @@
 
 namespace SushiEngine
 {
-    namespace render
+    namespace Render
     {
         /** @brief Bring-up request for a windowed renderer. */
         struct WindowRendererDesc
@@ -135,5 +135,5 @@ namespace SushiEngine
          * @return An owning handle to the live windowed renderer.
          */
         std::unique_ptr<IWindowRenderer> create_window_renderer(const WindowRendererDesc& desc);
-    } // namespace render
+    } // namespace Render
 } // namespace SushiEngine

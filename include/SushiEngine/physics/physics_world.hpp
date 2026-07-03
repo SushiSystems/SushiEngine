@@ -142,7 +142,7 @@ namespace SushiEngine
                  * @param linear_acceleration External acceleration applied every sub-step.
                  * @param step_substeps       Number of sub-steps to run this call.
                  */
-                void step(Vec3 linear_acceleration, std::size_t step_substeps)
+                void step(Vector3 linear_acceleration, std::size_t step_substeps)
                 {
                     for (std::size_t s = 0; s < step_substeps; ++s)
                     {
