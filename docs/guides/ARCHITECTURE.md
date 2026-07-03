@@ -257,15 +257,55 @@ tick rate.
 
 Cloth's world-space particle positions are exposed read-only via
 `IWorldEditor::cloth_particle_positions(id)` (row-major, matching
-`Physics::ClothGrid`), rather than through `RenderScene::instances` — that type is
-strictly one entity, one fixed-mesh instance today, and cannot express a
-multi-vertex deforming mesh. This means **a Cloth entity currently simulates and is
-Inspector-editable but draws nothing in either viewport.** No debug line-list draw
-path exists yet to fall back on either (`GizmoController` only draws the
-translate/rotate/scale gizmo, not arbitrary geometry) — wiring either a real
-skinned-mesh render path or a debug edge overlay is deferred to a follow-up, not
-built speculatively here. `.sushiscene` carries `has_cloth`/`cloth` as an
+`Physics::ClothGrid`), and also flow into `RenderScene::cloth_instances`/
+`cloth_vertices` every `extract()`: a `Simulation::ClothInstance` per live grid
+(rows, cols, and an offset into the shared `cloth_vertices` array) rather than
+through `RenderScene::instances` — that type remains one entity, one fixed-mesh
+instance, and still cannot express a multi-vertex deforming mesh. The editor copies
+`cloth_instances`/`cloth_vertices` into `Render::ClothStrandView`s each frame
+(`editor/main.cpp`) and hands them to `ISceneView::render`'s optional strands
+parameter, which the Vulkan scene view draws as a grid-edge wireframe (horizontal
+then vertical neighbours) through its existing line pipeline — the same one the
+ground grid already used. `.sushiscene` carries `has_cloth`/`cloth` as an
 independent field pair, the same shape as `has_physics_body`/`physics_body`.
+
+### 4.3. Primitive shapes, colliders, and Terrain
+
+Three concerns previously conflated into one hardcoded cube now separate cleanly:
+what an entity *looks like*, what it *collides as*, and what drives its *motion*.
+`Simulation::ShapeParams`/`ColliderParams` (`sim/simulation.hpp`) are both
+`{PrimitiveKind kind; Vector3 params;}` pairs, editor-facing and, like
+`ClothParams`, plain host-side bookkeeping on `RuntimeSimulation::Record`
+(`has_shape`/`shape_params`, `has_collider`/`collider_params`) rather than ECS
+components — neither is read or written by any `Schedule` system, so there is
+nothing to gain from an archetype migration. `PrimitiveKind` (`Box`, `Sphere`,
+`Cylinder`, `Plane`) is declared in `sim/components.hpp` even though it backs no
+component, since it is the vocabulary both authoring structs share.
+
+`IWorldEditor::create_box`/`create_sphere`/`create_cylinder` each spawn a Renderer
+entity with a `Shape` and a `Collider` defaulted to the same kind/params — a
+created Box is collidable out of the box, and either can be edited or removed
+independently afterward. `create_terrain` spawns a large, thin flat `Box` Shape
+(the visual) paired with a `Plane` `Collider`, and — critically — **no Rigid
+Body/`PhysicsBody`**: nothing integrates Terrain's pose, which is what makes it
+immune to gravity, while its `Collider` still marks it as a future narrowphase
+participant. **No narrowphase or contact solver reads `Collider` data yet** — it
+is pure authoring data for a rigidbody/rigidbody and rigidbody/softbody contact-
+resolution milestone that has not been built; see §4.1's note that XPBD today has
+no collision detection at all, only distance constraints.
+
+`RenderInstance`/`Render::MeshInstance` both gained `shape_kind`/`shape_params`
+(mirrored as `Render::MeshKind` to keep the render seam free of any dependency on
+`Simulation`; the editor's per-frame copy loop maps one to the other). `extract()`
+now gates drawing on `has_shape` rather than `has_renderer` alone — a bare
+"Create Entity" is a plain `Transform` with no Shape, so it draws nothing, matching
+Unity's empty GameObject rather than the previous "every Renderer is a cube"
+behavior. The Vulkan scene view (`vulkan_scene_view.cpp`) builds a unit sphere and
+a unit cylinder alongside its existing unit cube in `create_geometry()`, and its
+draw pass groups instances by `MeshKind` to bind each mesh's buffers once per
+group; an instance's `shape_params` become a local scale multiplied into its model
+matrix before the MVP push constant (`shape_scale()`), so a default `{0.5,0.5,0.5}`
+Box still renders as the historical unit cube.
 
 ## 5. The render seam
 
@@ -291,15 +331,18 @@ consumer. The layering, from abstract to concrete:
   without a window, used by `render_probe` to validate the pipeline in CI.
 - **Scene view** (`render/scene_view.hpp`: `ISceneView`, created by
   `IWindowRenderer::create_scene_view()`): an offscreen camera view of a `MeshInstance`
-  set plus a ground grid, drawn from a `CameraView`. The Vulkan implementation
-  (`render/rhi/vulkan/vulkan_scene_view.*`) is double-buffered — the frame being
-  sampled by the UI is never the frame being drawn — and leaves its colour image
-  shader-readable so the editor samples it with `ImGui::Image`. It exposes only the
-  sampler/view handles a UI backend needs, never a full descriptor set. Alongside the
-  shaded image it renders a second `R32_UINT` **id target** carrying each instance's
-  picking id, copied to a host buffer each frame so `pick(x, y)` resolves a click to
-  the entity under the cursor (GPU id-buffer picking); `render` also takes the selected
-  id, which the mesh shader highlights.
+  set (each tagged with a `MeshKind` — Box, Sphere, or Cylinder — plus per-kind
+  shape params) plus a ground grid, drawn from a `CameraView`. The Vulkan
+  implementation (`render/rhi/vulkan/vulkan_scene_view.*`) is double-buffered — the
+  frame being sampled by the UI is never the frame being drawn — and leaves its
+  colour image shader-readable so the editor samples it with `ImGui::Image`. It
+  exposes only the sampler/view handles a UI backend needs, never a full descriptor
+  set. Alongside the shaded image it renders a second `R32_UINT` **id target**
+  carrying each instance's picking id, copied to a host buffer each frame so
+  `pick(x, y)` resolves a click to the entity under the cursor (GPU id-buffer
+  picking); `render` also takes the selected id, which the mesh shader highlights,
+  and an optional `ClothStrandView` list drawn as a wireframe through the same line
+  pipeline the ground grid uses (see §4.3).
 
 The editor composes these behind its own **windowing seam** (`editor/platform_window.hpp`
 `IPlatformWindow`, SDL implementation `editor/sdl_window.*`) and a **Dear ImGui ↔

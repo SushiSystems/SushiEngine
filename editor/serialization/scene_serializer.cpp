@@ -136,6 +136,26 @@ namespace SushiEngine
                                           {"compliance", params.compliance}};
                 }
 
+                // Not mutually exclusive with any of the above, so it is its own field
+                // pair too.
+                const bool has_shape = world.has_shape(id);
+                entry["has_shape"] = has_shape;
+                if (has_shape)
+                {
+                    const auto params = world.shape_params(id);
+                    entry["shape"] = json{{"kind", static_cast<std::uint32_t>(params.kind)},
+                                          {"params", vec3_to_json(params.params)}};
+                }
+
+                const bool has_collider = world.has_collider(id);
+                entry["has_collider"] = has_collider;
+                if (has_collider)
+                {
+                    const auto params = world.collider_params(id);
+                    entry["collider"] = json{{"kind", static_cast<std::uint32_t>(params.kind)},
+                                             {"params", vec3_to_json(params.params)}};
+                }
+
                 root.push_back(std::move(entry));
             }
 
@@ -215,6 +235,36 @@ namespace SushiEngine
                         params.spacing = c.value("spacing", params.spacing);
                         params.compliance = c.value("compliance", params.compliance);
                         world.set_cloth_params(id, params);
+                    }
+                }
+
+                if (entry.value("has_shape", false))
+                {
+                    world.set_has_shape(id, true);
+                    if (entry.contains("shape"))
+                    {
+                        const json& s = entry["shape"];
+                        SushiEngine::Simulation::ShapeParams params;
+                        params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
+                            s.value("kind", static_cast<std::uint32_t>(params.kind)));
+                        if (s.contains("params"))
+                            params.params = vec3_from_json(s["params"]);
+                        world.set_shape_params(id, params);
+                    }
+                }
+
+                if (entry.value("has_collider", false))
+                {
+                    world.set_has_collider(id, true);
+                    if (entry.contains("collider"))
+                    {
+                        const json& c = entry["collider"];
+                        SushiEngine::Simulation::ColliderParams params;
+                        params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
+                            c.value("kind", static_cast<std::uint32_t>(params.kind)));
+                        if (c.contains("params"))
+                            params.params = vec3_from_json(c["params"]);
+                        world.set_collider_params(id, params);
                     }
                 }
             }

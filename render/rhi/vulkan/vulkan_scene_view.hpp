@@ -73,7 +73,9 @@ namespace SushiEngine
                     std::uint32_t width() const noexcept override { return width_; }
                     std::uint32_t height() const noexcept override { return height_; }
                     void render(const CameraView& camera, const MeshInstance* instances,
-                                std::size_t count, std::uint32_t selected_id) override;
+                                std::size_t count, std::uint32_t selected_id,
+                                const ClothStrandView* strands = nullptr,
+                                std::size_t strand_count = 0) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
@@ -121,6 +123,7 @@ namespace SushiEngine
                     void create_sampler();
                     void create_targets();
                     void destroy_targets();
+                    void ensure_cloth_capacity(VkDeviceSize bytes);
 
                     VulkanDevice& device_;
                     VkPipelineLayout layout_ = VK_NULL_HANDLE;
@@ -129,7 +132,17 @@ namespace SushiEngine
                     VkSampler sampler_ = VK_NULL_HANDLE;
                     Buffer cube_vertices_;
                     Buffer cube_indices_;
+                    Buffer sphere_vertices_;
+                    Buffer sphere_indices_;
+                    Buffer cylinder_vertices_;
+                    Buffer cylinder_indices_;
                     Buffer grid_vertices_;
+                    // Host-visible and re-uploaded every frame a cloth grid is drawn, so
+                    // the buffer's declared capacity can grow but never shrinks between
+                    // frames (see ensure_cloth_capacity in the .cpp).
+                    Buffer cloth_vertices_;
+                    VkDeviceSize cloth_vertices_capacity_ = 0;
+                    void* cloth_vertices_mapped_ = nullptr;
                     Slot slots_[SLOTS];
                     std::uint32_t width_ = 16;
                     std::uint32_t height_ = 16;

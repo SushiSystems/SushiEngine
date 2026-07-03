@@ -44,6 +44,7 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/sim/components.hpp>
 
 namespace SushiEngine
 {
@@ -75,6 +76,16 @@ namespace SushiEngine
             EntityId id = NULL_ENTITY; /**< The entity this instance draws, for picking. */
             Mat4 model;                /**< Object-to-world transform composed from the entity's state. */
             Vector3 color;                /**< Base colour. */
+            PrimitiveKind shape_kind = PrimitiveKind::Box; /**< Which mesh to draw this instance with. */
+            Vector3 shape_params{Vector3{0.5, 0.5, 0.5}};     /**< Per-kind shape parameters, see @ref ShapeParams. */
+        };
+
+        /** @brief One simulated cloth grid's world-space wireframe, ready to draw. */
+        struct ClothInstance
+        {
+            std::uint32_t rows = 0;         /**< Grid rows. */
+            std::uint32_t cols = 0;         /**< Grid columns. */
+            std::uint32_t first_vertex = 0; /**< Offset of this grid's points into @ref RenderScene::cloth_vertices. */
         };
 
         /**
@@ -144,6 +155,40 @@ namespace SushiEngine
             Scalar compliance = Scalar(0); /**< XPBD compliance of every constraint; 0 is rigid. */
         };
 
+        /**
+         * @brief The authorable parameters of a "Shape" entity: its visual mesh.
+         *
+         * `kind` is fixed at creation (set by which `create_*` primitive call made
+         * the entity). `params` is editable and interpreted per `kind`: Box uses it
+         * as half-extents; Sphere uses `params.x` as radius; Cylinder uses
+         * `params.x` as radius and `params.y` as half-height. Plane is not a valid
+         * Shape kind (Terrain uses a thin, flat Box for its visual instead).
+         */
+        struct ShapeParams
+        {
+            PrimitiveKind kind = PrimitiveKind::Box;
+            Vector3 params{Vector3{0.5, 0.5, 0.5}};
+        };
+
+        /**
+         * @brief The authorable parameters of a "Collider" entity: its collision volume.
+         *
+         * Pure authoring data today: no narrowphase or contact solver reads it yet,
+         * so a Collider carries no mass or velocity of its own — whether it moves is
+         * entirely determined by whether the same entity also has a Rigid Body.
+         * A Collider with no Rigid Body (e.g. Terrain) is implicitly static and
+         * gravity-exempt, since nothing integrates its pose. `kind`/`params` follow
+         * the same convention as `ShapeParams`, plus Plane, which uses `params` as
+         * the collider's local-space normal (default {0, 1, 0}). A Collider's kind
+         * can be changed independently of any Shape on the same entity (e.g. a
+         * box-shaped visual with a simpler sphere collider).
+         */
+        struct ColliderParams
+        {
+            PrimitiveKind kind = PrimitiveKind::Box;
+            Vector3 params{Vector3{0.5, 0.5, 0.5}};
+        };
+
         /** @brief The resolved camera for one display: the winner among its cameras. */
         struct DisplayCamera
         {
@@ -165,6 +210,8 @@ namespace SushiEngine
             std::vector<DisplayCamera> display_cameras;  /**< The resolved camera per display. */
             CameraState camera;                          /**< The default game camera (lowest display), only meaningful when @ref has_camera is true. */
             bool has_camera = false;                     /**< Whether any active camera resolved this frame; false means nothing should be drawn as "the game". */
+            std::vector<ClothInstance> cloth_instances;  /**< Every simulated cloth grid this frame, as a wireframe topology. */
+            std::vector<Vector3> cloth_vertices;         /**< World-space points for every @ref cloth_instances entry, concatenated. */
         };
 
         /**
@@ -384,6 +431,83 @@ namespace SushiEngine
                  * ARCHITECTURE.md §4.2).
                  */
                 virtual std::vector<Vector3> cloth_particle_positions(EntityId id) const = 0;
+
+                /**
+                 * @brief Creates a Box entity: a Shape plus a matching Collider.
+                 *
+                 * The visual and the collider default to the same half-extents; either
+                 * can be edited or removed independently afterward through
+                 * `set_shape_params`/`set_has_collider`.
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create_box(const std::string& name) = 0;
+
+                /** @brief Creates a Sphere entity: a Shape plus a matching Collider. See `create_box`. */
+                virtual EntityId create_sphere(const std::string& name) = 0;
+
+                /** @brief Creates a Cylinder entity: a Shape plus a matching Collider. See `create_box`. */
+                virtual EntityId create_cylinder(const std::string& name) = 0;
+
+                /**
+                 * @brief Creates a flat Terrain entity: a large thin Box Shape plus a
+                 * Plane Collider, with no physics body.
+                 *
+                 * Terrain never carries a Rigid Body, which is what makes it immune to
+                 * gravity — nothing integrates its pose — while its `Collider` still
+                 * marks it as a participant for a future rigidbody/softbody
+                 * narrowphase, since collider data alone (not the absence of motion) is
+                 * what that milestone will query.
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create_terrain(const std::string& name) = 0;
+
+                /** @brief Whether @p id carries a visual Shape (Box/Sphere/Cylinder). */
+                virtual bool has_shape(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's shape kind/parameters (defaults if it has no Shape). */
+                virtual ShapeParams shape_params(EntityId id) const = 0;
+
+                /** @brief Writes a Shape entity's parameters; a no-op for entities without one. */
+                virtual void set_shape_params(EntityId id, const ShapeParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a Shape on an existing entity.
+                 *
+                 * Not offered directly in the Inspector's "Add Component" popup — a
+                 * Shape without sane defaults is only meaningful via `create_box`/
+                 * `create_sphere`/`create_cylinder`, which call this internally. Exposed
+                 * on the interface so scene load can restore a saved primitive's Shape
+                 * without re-deriving which `create_*` call originally made it.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should have a Shape after this call.
+                 */
+                virtual void set_has_shape(EntityId id, bool value) = 0;
+
+                /** @brief Whether @p id carries a Collider. */
+                virtual bool has_collider(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's collider kind/parameters (defaults if it has no Collider). */
+                virtual ColliderParams collider_params(EntityId id) const = 0;
+
+                /** @brief Writes a Collider's parameters; a no-op for entities without one. */
+                virtual void set_collider_params(EntityId id, const ColliderParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a Collider on an existing entity.
+                 *
+                 * Independent of any Shape the entity carries — a Collider can be added
+                 * to a bare entity as an invisible volume, or removed from a primitive
+                 * to make it visual-only.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should have a Collider after this call.
+                 */
+                virtual void set_has_collider(EntityId id, bool value) = 0;
         };
 
         /**

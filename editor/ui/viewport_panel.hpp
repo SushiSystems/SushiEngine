@@ -108,6 +108,8 @@ namespace SushiEngine
                  * @param display     When non-null, a display-selection combo is drawn over
                  *                    the viewport (used by the Game view to choose which
                  *                    display's camera it shows). Null draws no combo.
+                 * @param strands       Soft-body wireframes to draw this frame, or nullptr.
+                 * @param strand_count  Number of entries in @p strands.
                  * @return Whether the gizmo edited @p gizmo_target this frame.
                  */
                 bool draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
@@ -116,7 +118,9 @@ namespace SushiEngine
                           GizmoMode gizmo_mode = GizmoMode::Translate,
                           GizmoSpace gizmo_space = GizmoSpace::World,
                           const GizmoSnap* gizmo_snap = nullptr,
-                          const DisplaySelector* display = nullptr);
+                          const DisplaySelector* display = nullptr,
+                          const SushiEngine::Render::ClothStrandView* strands = nullptr,
+                          std::size_t strand_count = 0);
 
                 /** @brief Whether this panel's gizmo currently has a handle grabbed. */
                 bool gizmo_dragging() const noexcept { return gizmo_.dragging(); }

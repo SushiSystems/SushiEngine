@@ -358,6 +358,107 @@ namespace SushiEngine
                         return positions;
                     }
 
+                    EntityId create_box(const std::string& display_name) override
+                    {
+                        return create_primitive(display_name, PrimitiveKind::Box,
+                                                Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)});
+                    }
+
+                    EntityId create_sphere(const std::string& display_name) override
+                    {
+                        return create_primitive(display_name, PrimitiveKind::Sphere,
+                                                Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)});
+                    }
+
+                    EntityId create_cylinder(const std::string& display_name) override
+                    {
+                        return create_primitive(display_name, PrimitiveKind::Cylinder,
+                                                Vector3{Scalar(0.5), Scalar(1.0), Scalar(0.5)});
+                    }
+
+                    EntityId create_terrain(const std::string& display_name) override
+                    {
+                        // A large, thin flat Box stands in for the terrain's visual;
+                        // its Collider is Plane, and it never gets a physics body, so
+                        // nothing ever integrates its pose (see create_terrain's Doxygen).
+                        const Vector3 half_extents{Scalar(50), Scalar(0.1), Scalar(50)};
+                        const ColliderParams terrain_collider{PrimitiveKind::Plane, Vector3{0, 1, 0}};
+                        const EntityId id = create_primitive(display_name, PrimitiveKind::Box,
+                                                             half_extents, &terrain_collider);
+                        Record* record = find(id);
+                        if (record != nullptr)
+                            world_.get<Tint>(record->entity).color =
+                                Vector3{Scalar(0.35), Scalar(0.55), Scalar(0.3)};
+                        return id;
+                    }
+
+                    bool has_shape(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_shape;
+                    }
+
+                    ShapeParams shape_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->shape_params : ShapeParams{};
+                    }
+
+                    void set_shape_params(EntityId id, const ShapeParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_shape)
+                            return;
+                        record->shape_params = params;
+                        extract();
+                    }
+
+                    void set_has_shape(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_shape == value)
+                            return;
+                        record->has_shape = value;
+                        extract();
+                    }
+
+                    bool has_collider(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_collider;
+                    }
+
+                    ColliderParams collider_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->collider_params : ColliderParams{};
+                    }
+
+                    void set_collider_params(EntityId id, const ColliderParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_collider)
+                            return;
+                        record->collider_params = params;
+                    }
+
+                    void set_has_collider(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_collider == value)
+                            return;
+                        record->has_collider = value;
+                        // Attaching a Collider defaults it to match the entity's own
+                        // visual Shape when it has one, so a newly-added Collider on a
+                        // primitive is collidable out of the box; a bare entity falls
+                        // back to a unit Box volume.
+                        if (value)
+                            record->collider_params = record->has_shape
+                                                          ? ColliderParams{record->shape_params.kind,
+                                                                          record->shape_params.params}
+                                                          : ColliderParams{};
+                    }
+
                     EntityId create_camera(const std::string& display_name) override
                     {
                         // A default camera looking down -Z from a few units back, so the
@@ -488,7 +589,52 @@ namespace SushiEngine
                         // has_physics_body: cloth needs no ECS component migration.
                         bool has_cloth = false;
                         ClothParams cloth_params{};
+                        // Neither read nor written by any Schedule system, so — like
+                        // has_physics_body/has_cloth — these are plain host bookkeeping
+                        // rather than ECS components; no archetype migration needed.
+                        bool has_shape = false;
+                        ShapeParams shape_params{};
+                        bool has_collider = false;
+                        ColliderParams collider_params{};
                     };
+
+                    /**
+                     * @brief Shared implementation of `create_box`/`create_sphere`/
+                     * `create_cylinder`/`create_terrain`: a Renderer entity with a
+                     * Shape and a matching Collider.
+                     *
+                     * Factored out because every primitive entity is spawned the same
+                     * way — only the shape kind, default params, and (for Terrain)
+                     * collider kind/params differ between callers.
+                     *
+                     * @param display_name       Display name for the new entity.
+                     * @param kind               The visual Shape kind.
+                     * @param default_params     The Shape's initial params.
+                     * @param collider_override  When set, the Collider's kind/params, overriding
+                     *                           the default of matching the Shape exactly.
+                     * @return The new entity's stable id.
+                     */
+                    EntityId create_primitive(const std::string& display_name, PrimitiveKind kind,
+                                              const Vector3& default_params,
+                                              const ColliderParams* collider_override = nullptr)
+                    {
+                        const Entity entity = world_.spawn(
+                            Transform{}, Orientation{},
+                            Tint{Vector3{Scalar(0.8), Scalar(0.8), Scalar(0.8)}});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        record.has_renderer = true;
+                        record.has_shape = true;
+                        record.shape_params = ShapeParams{kind, default_params};
+                        record.has_collider = true;
+                        record.collider_params = collider_override != nullptr
+                                                     ? *collider_override
+                                                     : ColliderParams{kind, default_params};
+                        records_.emplace(id, record);
+                        extract();
+                        return id;
+                    }
 
                     const Record* find(EntityId id) const noexcept
                     {
@@ -852,8 +998,12 @@ namespace SushiEngine
                      *
                      * A host read of the shared-USM component columns (via `World::get`)
                      * composed into per-instance model matrices; invisible entities are
-                     * skipped. Run after every tick and after every edit so the view
-                     * always matches the world.
+                     * skipped. Drawing gates on `has_shape` rather than `has_renderer` —
+                     * a bare entity with a Renderer but no authored Shape has nothing to
+                     * draw a mesh from, matching how a bare "Create Entity" is a plain
+                     * Transform, not a disguised cube. Also rebuilds the cloth wireframe
+                     * list from every live grid's current particle positions. Run after
+                     * every tick and after every edit so the view always matches the world.
                      */
                     void extract()
                     {
@@ -886,14 +1036,39 @@ namespace SushiEngine
                                 continue;
                             }
 
-                            if (!record->visible || !record->has_renderer)
+                            if (!record->visible || !record->has_shape || !record->has_renderer)
                                 continue;
                             const Tint& tint = world_.get<Tint>(record->entity);
                             RenderInstance instance;
                             instance.id = id;
                             instance.model = world_matrix(id);
                             instance.color = tint.color;
+                            instance.shape_kind = record->shape_params.kind;
+                            instance.shape_params = record->shape_params.params;
                             scene_.instances.push_back(instance);
+                        }
+
+                        scene_.cloth_instances.clear();
+                        scene_.cloth_vertices.clear();
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_cloth || !record->visible)
+                                continue;
+                            const auto grid_it = cloth_grids_.find(id);
+                            if (grid_it == cloth_grids_.end() || !physics_cloth_)
+                                continue;
+                            const Physics::ClothGrid& grid = grid_it->second;
+                            ClothInstance cloth_instance;
+                            cloth_instance.rows = static_cast<std::uint32_t>(grid.rows);
+                            cloth_instance.cols = static_cast<std::uint32_t>(grid.cols);
+                            cloth_instance.first_vertex =
+                                static_cast<std::uint32_t>(scene_.cloth_vertices.size());
+                            scene_.cloth_vertices.reserve(scene_.cloth_vertices.size() +
+                                                          grid.bodies.size());
+                            for (const Physics::BodyId body_id : grid.bodies)
+                                scene_.cloth_vertices.push_back(physics_cloth_->body(body_id).position);
+                            scene_.cloth_instances.push_back(cloth_instance);
                         }
 
                         // Publish the resolved cameras sorted by display, and pick the

@@ -52,12 +52,43 @@ namespace SushiEngine
             Mat4 projection; /**< Camera-to-clip (Vulkan depth 0..1, Y-flipped). */
         };
 
+        /**
+         * @brief Which of the renderer's built-in unit meshes an instance draws with.
+         *
+         * A render-side enum rather than a reuse of `Simulation::PrimitiveKind`, so
+         * this header stays free of any dependency on the sim seam — the editor's
+         * per-frame copy from `RenderInstance` to `MeshInstance` (see editor/main.cpp)
+         * maps one to the other, the same place colour and transform are copied.
+         */
+        enum class MeshKind : std::uint32_t
+        {
+            Box,
+            Sphere,
+            Cylinder,
+        };
+
         /** @brief One mesh drawn this frame: its world transform, colour, and pick id. */
         struct MeshInstance
         {
             Mat4 model;              /**< Object-to-world transform. */
             Vector3 color;              /**< Base colour. */
             std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
+            MeshKind kind = MeshKind::Box; /**< Which unit mesh to draw this instance with. */
+            Vector3 shape_params{Vector3{0.5, 0.5, 0.5}}; /**< Box: half-extents. Sphere: radius in x. Cylinder: radius in x, half-height in y. */
+        };
+
+        /**
+         * @brief One simulated soft-body grid's world-space wireframe, ready to draw.
+         *
+         * A non-owning view: `vertices` points at `rows * cols` row-major points
+         * (matching `Physics::ClothGrid`) owned by the caller for the duration of
+         * the `render()` call that receives it.
+         */
+        struct ClothStrandView
+        {
+            std::uint32_t rows = 0;  /**< Grid rows. */
+            std::uint32_t cols = 0;  /**< Grid columns. */
+            const Vector3* vertices = nullptr; /**< Row-major world-space points, rows * cols long. */
         };
 
         /** @brief The id a pick returns when no instance covers the sampled pixel. */
@@ -110,9 +141,14 @@ namespace SushiEngine
                  * @param instances   Pointer to the mesh instances to draw.
                  * @param count       Number of instances.
                  * @param selected_id The instance id to highlight, or NO_PICK for none.
+                 * @param strands       Pointer to the soft-body wireframes to draw, or
+                 *                      nullptr for none.
+                 * @param strand_count  Number of entries in @p strands.
                  */
                 virtual void render(const CameraView& camera, const MeshInstance* instances,
-                                    std::size_t count, std::uint32_t selected_id) = 0;
+                                    std::size_t count, std::uint32_t selected_id,
+                                    const ClothStrandView* strands = nullptr,
+                                    std::size_t strand_count = 0) = 0;
 
                 /**
                  * @brief The instance id drawn at a pixel of the last rendered frame.

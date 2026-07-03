@@ -319,6 +319,49 @@ namespace SushiEngine
             {
                 return context.simulation != nullptr ? &context.simulation->world() : nullptr;
             }
+
+            // Shared "Create Entity" / "Objects > Box/Sphere/Cylinder/Terrain" menu
+            // items, reused by the GameObject menu, the hierarchy's row context menu,
+            // its empty-space context menu, and the filtered search view, so all four
+            // entry points create identically. The new entity is selected the same
+            // way every other creation path in this file already does.
+            void draw_create_object_menu_items(EditorContext& context, IWorldEditor* world)
+            {
+                if (ImGui::MenuItem("Create Entity", nullptr, false, world != nullptr))
+                {
+                    context.history.record(*world);
+                    select_only(context, world->create("Entity"));
+                    editor_log(context, "Created entity 'Entity'.");
+                }
+                if (ImGui::BeginMenu("Objects", world != nullptr))
+                {
+                    if (ImGui::MenuItem("Box"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_box("Box"));
+                        editor_log(context, "Created object 'Box'.");
+                    }
+                    if (ImGui::MenuItem("Sphere"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_sphere("Sphere"));
+                        editor_log(context, "Created object 'Sphere'.");
+                    }
+                    if (ImGui::MenuItem("Cylinder"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_cylinder("Cylinder"));
+                        editor_log(context, "Created object 'Cylinder'.");
+                    }
+                    if (ImGui::MenuItem("Terrain"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_terrain("Terrain"));
+                        editor_log(context, "Created object 'Terrain'.");
+                    }
+                    ImGui::EndMenu();
+                }
+            }
         }
 
         bool save_current_scene(EditorContext& context)
@@ -484,12 +527,7 @@ namespace SushiEngine
 
             if (ImGui::BeginMenu("GameObject"))
             {
-                if (ImGui::MenuItem("Create Empty", nullptr, false, world != nullptr))
-                {
-                    context.history.record(*world);
-                    select_only(context, world->create("Entity"));
-                    editor_log(context, "Created entity 'Entity'.");
-                }
+                draw_create_object_menu_items(context, world);
                 if (ImGui::MenuItem("Camera", nullptr, false, world != nullptr))
                 {
                     context.history.record(*world);
@@ -664,6 +702,8 @@ namespace SushiEngine
                     }
                     if (ImGui::MenuItem("Delete"))
                         delete_requested = true;
+                    ImGui::Separator();
+                    draw_create_object_menu_items(context, world);
                     ImGui::EndPopup();
                 }
 
@@ -789,6 +829,8 @@ namespace SushiEngine
                                     context.renaming_entity = id;
                                 if (ImGui::MenuItem("Delete"))
                                     delete_requested = true;
+                                ImGui::Separator();
+                                draw_create_object_menu_items(context, world);
                                 ImGui::EndPopup();
                             }
                         }
@@ -818,6 +860,16 @@ namespace SushiEngine
                     for (const EntityId id : world->entities())
                         if (world->parent(id) == NULL_ENTITY)
                             draw_entity_node(context, world, id, order, delete_requested);
+
+                    // Right-clicking blank space below the tree, not any row, so this
+                    // never fires on top of a row's own BeginPopupContextItem above.
+                    if (ImGui::BeginPopupContextWindow("hierarchy_empty_space",
+                                                        ImGuiPopupFlags_MouseButtonRight |
+                                                            ImGuiPopupFlags_NoOpenOverItems))
+                    {
+                        draw_create_object_menu_items(context, world);
+                        ImGui::EndPopup();
+                    }
                 }
             }
             ImGui::EndChild();
@@ -1065,6 +1117,138 @@ namespace SushiEngine
                 }
             }
 
+            if (world->has_shape(id))
+            {
+                ImGui::CollapsingHeader("Shape", ImGuiTreeNodeFlags_DefaultOpen |
+                                                     ImGuiTreeNodeFlags_Leaf |
+                                                     ImGuiTreeNodeFlags_NoTreePushOnOpen);
+                // No close box: a Shape is only created via the Objects submenu with
+                // sane per-kind defaults, so it is not independently removable here
+                // (compare Renderer/Rigid Body/Cloth, all addable/removable blind).
+                SushiEngine::Simulation::ShapeParams params = world->shape_params(id);
+                bool changed = false;
+
+                static const char* const KIND_NAMES[] = {"Box", "Sphere", "Cylinder", "Plane"};
+                ImGui::TextDisabled(
+                    "Kind: %s", KIND_NAMES[static_cast<std::size_t>(params.kind)]);
+
+                switch (params.kind)
+                {
+                    case SushiEngine::Simulation::PrimitiveKind::Box:
+                    {
+                        float half_extents[3] = {static_cast<float>(params.params.x),
+                                                 static_cast<float>(params.params.y),
+                                                 static_cast<float>(params.params.z)};
+                        if (ImGui::DragFloat3("Half Extents", half_extents, 0.01f, 0.01f, 1000.0f, "%.3f"))
+                        {
+                            params.params = SushiEngine::Vector3{half_extents[0], half_extents[1],
+                                                              half_extents[2]};
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case SushiEngine::Simulation::PrimitiveKind::Sphere:
+                    {
+                        float radius = static_cast<float>(params.params.x);
+                        if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.01f, 1000.0f, "%.3f"))
+                        {
+                            params.params.x = radius;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case SushiEngine::Simulation::PrimitiveKind::Cylinder:
+                    {
+                        float radius = static_cast<float>(params.params.x);
+                        float half_height = static_cast<float>(params.params.y);
+                        if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.01f, 1000.0f, "%.3f"))
+                        {
+                            params.params.x = radius;
+                            changed = true;
+                        }
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+                        if (ImGui::DragFloat("Half Height", &half_height, 0.01f, 0.01f, 1000.0f, "%.3f"))
+                        {
+                            params.params.y = half_height;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case SushiEngine::Simulation::PrimitiveKind::Plane:
+                        break;
+                }
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+
+                if (changed)
+                    world->set_shape_params(id, params);
+            }
+
+            if (world->has_collider(id))
+            {
+                bool keep_collider = true;
+                const bool collider_open = ImGui::CollapsingHeader(
+                    "Collider", &keep_collider, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_collider)
+                {
+                    context.history.record(*world);
+                    world->set_has_collider(id, false);
+                }
+                else if (collider_open)
+                {
+                    SushiEngine::Simulation::ColliderParams params = world->collider_params(id);
+                    bool changed = false;
+
+                    static const char* const KIND_NAMES[] = {"Box", "Sphere", "Cylinder", "Plane"};
+                    int kind_index = static_cast<int>(params.kind);
+                    if (ImGui::Combo("Kind", &kind_index, KIND_NAMES, 4))
+                    {
+                        context.history.record(*world);
+                        params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(kind_index);
+                        changed = true;
+                    }
+
+                    if (params.kind == SushiEngine::Simulation::PrimitiveKind::Plane)
+                    {
+                        float normal[3] = {static_cast<float>(params.params.x),
+                                          static_cast<float>(params.params.y),
+                                          static_cast<float>(params.params.z)};
+                        if (ImGui::DragFloat3("Normal", normal, 0.01f, -1.0f, 1.0f, "%.3f"))
+                        {
+                            params.params =
+                                SushiEngine::Vector3{normal[0], normal[1], normal[2]};
+                            changed = true;
+                        }
+                    }
+                    else
+                    {
+                        float values[3] = {static_cast<float>(params.params.x),
+                                          static_cast<float>(params.params.y),
+                                          static_cast<float>(params.params.z)};
+                        const char* label = params.kind == SushiEngine::Simulation::PrimitiveKind::Box
+                                               ? "Half Extents"
+                                               : "Radius / Half Height";
+                        if (ImGui::DragFloat3(label, values, 0.01f, 0.01f, 1000.0f, "%.3f"))
+                        {
+                            params.params = SushiEngine::Vector3{values[0], values[1], values[2]};
+                            changed = true;
+                        }
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (changed)
+                        world->set_collider_params(id, params);
+                }
+            }
+
             if (world->has_cloth(id))
             {
                 bool keep_cloth = true;
@@ -1131,7 +1315,7 @@ namespace SushiEngine
 
             ImGui::Separator();
             if (!world->has_renderer(id) || !world->is_camera(id) || !world->has_physics_body(id) ||
-                !world->has_cloth(id))
+                !world->has_cloth(id) || !world->has_collider(id))
             {
                 if (ImGui::Button("Add Component"))
                     ImGui::OpenPopup("AddComponentPopup");
@@ -1156,6 +1340,11 @@ namespace SushiEngine
                     {
                         context.history.record(*world);
                         world->set_has_cloth(id, true);
+                    }
+                    if (!world->has_collider(id) && ImGui::MenuItem("Collider"))
+                    {
+                        context.history.record(*world);
+                        world->set_has_collider(id, true);
                     }
                     ImGui::EndPopup();
                 }

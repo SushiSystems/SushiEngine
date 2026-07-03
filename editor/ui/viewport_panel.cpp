@@ -73,7 +73,9 @@ namespace SushiEngine
                                  std::size_t count, std::uint32_t& selected_id, bool pickable,
                                  SushiEngine::Simulation::EntityTransform* gizmo_target,
                                  GizmoMode gizmo_mode, GizmoSpace gizmo_space,
-                                 const GizmoSnap* gizmo_snap, const DisplaySelector* display)
+                                 const GizmoSnap* gizmo_snap, const DisplaySelector* display,
+                                 const SushiEngine::Render::ClothStrandView* strands,
+                                 std::size_t strand_count)
         {
             if (!ImGui::Begin(title_, &open))
             {
@@ -165,7 +167,7 @@ namespace SushiEngine
 
             const SushiEngine::Render::CameraView camera_view =
                 camera_.view(static_cast<float>(width) / static_cast<float>(height));
-            view_->render(camera_view, instances, count, selected_id);
+            view_->render(camera_view, instances, count, selected_id, strands, strand_count);
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
             ImGui::Image(slot_textures_[view_->current_slot()],

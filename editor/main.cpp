@@ -231,9 +231,28 @@ int main(int, char**)
                 instance.model = source.model;
                 instance.color = source.color;
                 instance.id = static_cast<std::uint32_t>(source.id);
+                // Simulation::PrimitiveKind and Render::MeshKind share Box/Sphere/Cylinder
+                // ordinal order by construction; Plane never reaches a RenderInstance
+                // (Terrain's visual Shape is always a Box).
+                instance.kind =
+                    static_cast<SushiEngine::Render::MeshKind>(source.shape_kind);
+                instance.shape_params = source.shape_params;
                 instances.push_back(instance);
             }
             context.world_entity_count = simulation->entity_count();
+
+            // Soft-body wireframes: one strand view per cloth grid, pointing directly
+            // into the snapshot's concatenated vertex buffer for this frame's lifetime.
+            std::vector<SushiEngine::Render::ClothStrandView> strands;
+            strands.reserve(scene.cloth_instances.size());
+            for (const SushiEngine::Simulation::ClothInstance& cloth : scene.cloth_instances)
+            {
+                SushiEngine::Render::ClothStrandView strand;
+                strand.rows = cloth.rows;
+                strand.cols = cloth.cols;
+                strand.vertices = scene.cloth_vertices.data() + cloth.first_vertex;
+                strands.push_back(strand);
+            }
 
             // Resolve which display the Game view shows: the selected display's camera
             // if present, else the default. Also gather the display options for the
@@ -312,7 +331,8 @@ int main(int, char**)
             if (context.panels.scene_view)
                 gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
                                                instances.size(), selected, true, gizmo_target,
-                                               context.gizmo_mode, context.gizmo_space, &snap);
+                                               context.gizmo_mode, context.gizmo_space, &snap,
+                                               nullptr, strands.data(), strands.size());
             if (context.panels.game_view)
             {
                 // The Game view is played, not authored: no picking, no gizmo. It offers
@@ -331,7 +351,8 @@ int main(int, char**)
                     scene.has_camera ? instances.size() : 0;
                 game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
                                no_selection, false, nullptr, SushiEngine::Editor::GizmoMode::Translate,
-                               SushiEngine::Editor::GizmoSpace::World, nullptr, &selector);
+                               SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
+                               strands.data(), strands.size());
             }
 
             // One undo step per whole drag, not one per frame: snapshot on the frame

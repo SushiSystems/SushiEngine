@@ -23,6 +23,7 @@
 
 #include "vulkan_scene_view.hpp"
 
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -136,6 +137,29 @@ namespace SushiEngine
                     push.entity_id = entity_id;
                     push.selected = selected_id;
                     return push;
+                }
+
+                /**
+                 * @brief The local scale that maps the renderer's unit mesh onto an
+                 * instance's authored shape params.
+                 *
+                 * Every unit mesh (see create_geometry) is built at the {0.5} scale a
+                 * default `ShapeParams` describes, so this is exactly `2 * params` for
+                 * Box (half-extents) and Cylinder (radius, half-height, radius), and a
+                 * uniform `2 * params.x` for Sphere (radius).
+                 */
+                Mat4 shape_scale(MeshKind kind, const Vector3& params) noexcept
+                {
+                    switch (kind)
+                    {
+                        case MeshKind::Sphere:
+                            return scaling(Vector3{params.x * 2, params.x * 2, params.x * 2});
+                        case MeshKind::Cylinder:
+                            return scaling(Vector3{params.x * 2, params.y * 2, params.x * 2});
+                        case MeshKind::Box:
+                        default:
+                            return scaling(Vector3{params.x * 2, params.y * 2, params.z * 2});
+                    }
                 }
             } // namespace
 
@@ -392,13 +416,145 @@ namespace SushiEngine
                 grid_vertices_ = upload(grid.data(), grid.size() * sizeof(Vertex),
                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                         static_cast<std::uint32_t>(grid.size()));
+
+                // Unit UV-sphere, radius 0.5, centred on the origin: one ring of
+                // vertices per latitude step plus the two poles, smooth-shaded (each
+                // vertex's normal is its own direction from the centre).
+                constexpr int SPHERE_RINGS = 16;
+                constexpr int SPHERE_SEGMENTS = 24;
+                std::vector<Vertex> sphere;
+                std::vector<std::uint16_t> sphere_index;
+                for (int ring = 0; ring <= SPHERE_RINGS; ++ring)
+                {
+                    const float v = static_cast<float>(ring) / SPHERE_RINGS;
+                    const float phi = v * 3.14159265f;
+                    for (int segment = 0; segment <= SPHERE_SEGMENTS; ++segment)
+                    {
+                        const float u = static_cast<float>(segment) / SPHERE_SEGMENTS;
+                        const float theta = u * 2.0f * 3.14159265f;
+                        const float nx = std::sin(phi) * std::cos(theta);
+                        const float ny = std::cos(phi);
+                        const float nz = std::sin(phi) * std::sin(theta);
+                        sphere.push_back({{nx * 0.5f, ny * 0.5f, nz * 0.5f}, {nx, ny, nz}});
+                    }
+                }
+                for (int ring = 0; ring < SPHERE_RINGS; ++ring)
+                {
+                    for (int segment = 0; segment < SPHERE_SEGMENTS; ++segment)
+                    {
+                        const std::uint16_t a =
+                            static_cast<std::uint16_t>(ring * (SPHERE_SEGMENTS + 1) + segment);
+                        const std::uint16_t b = static_cast<std::uint16_t>(a + SPHERE_SEGMENTS + 1);
+                        sphere_index.insert(sphere_index.end(),
+                                            {a, b, static_cast<std::uint16_t>(a + 1), b,
+                                             static_cast<std::uint16_t>(b + 1),
+                                             static_cast<std::uint16_t>(a + 1)});
+                    }
+                }
+
+                // Unit cylinder: radius 0.5, half-height 0.5, capped, centred on the
+                // origin with its axis along Y. Side vertices carry the radial normal;
+                // cap vertices are duplicated with the flat +-Y normal.
+                constexpr int CYLINDER_SEGMENTS = 24;
+                std::vector<Vertex> cylinder;
+                std::vector<std::uint16_t> cylinder_index;
+                for (int segment = 0; segment <= CYLINDER_SEGMENTS; ++segment)
+                {
+                    const float theta =
+                        static_cast<float>(segment) / CYLINDER_SEGMENTS * 2.0f * 3.14159265f;
+                    const float x = std::cos(theta) * 0.5f;
+                    const float z = std::sin(theta) * 0.5f;
+                    cylinder.push_back({{x, -0.5f, z}, {std::cos(theta), 0, std::sin(theta)}});
+                    cylinder.push_back({{x, 0.5f, z}, {std::cos(theta), 0, std::sin(theta)}});
+                }
+                for (int segment = 0; segment < CYLINDER_SEGMENTS; ++segment)
+                {
+                    const std::uint16_t a = static_cast<std::uint16_t>(segment * 2);
+                    const std::uint16_t b = static_cast<std::uint16_t>(a + 1);
+                    const std::uint16_t c = static_cast<std::uint16_t>(a + 2);
+                    const std::uint16_t d = static_cast<std::uint16_t>(a + 3);
+                    cylinder_index.insert(cylinder_index.end(), {a, c, b, b, c, d});
+                }
+                const std::uint16_t bottom_center =
+                    static_cast<std::uint16_t>(cylinder.size());
+                cylinder.push_back({{0, -0.5f, 0}, {0, -1, 0}});
+                const std::uint16_t top_center = static_cast<std::uint16_t>(cylinder.size());
+                cylinder.push_back({{0, 0.5f, 0}, {0, 1, 0}});
+                for (int segment = 0; segment < CYLINDER_SEGMENTS; ++segment)
+                {
+                    const float theta0 =
+                        static_cast<float>(segment) / CYLINDER_SEGMENTS * 2.0f * 3.14159265f;
+                    const float theta1 =
+                        static_cast<float>(segment + 1) / CYLINDER_SEGMENTS * 2.0f * 3.14159265f;
+                    const std::uint16_t bottom0 = static_cast<std::uint16_t>(cylinder.size());
+                    cylinder.push_back(
+                        {{std::cos(theta0) * 0.5f, -0.5f, std::sin(theta0) * 0.5f}, {0, -1, 0}});
+                    const std::uint16_t bottom1 = static_cast<std::uint16_t>(cylinder.size());
+                    cylinder.push_back(
+                        {{std::cos(theta1) * 0.5f, -0.5f, std::sin(theta1) * 0.5f}, {0, -1, 0}});
+                    cylinder_index.insert(cylinder_index.end(), {bottom_center, bottom1, bottom0});
+
+                    const std::uint16_t top0 = static_cast<std::uint16_t>(cylinder.size());
+                    cylinder.push_back(
+                        {{std::cos(theta0) * 0.5f, 0.5f, std::sin(theta0) * 0.5f}, {0, 1, 0}});
+                    const std::uint16_t top1 = static_cast<std::uint16_t>(cylinder.size());
+                    cylinder.push_back(
+                        {{std::cos(theta1) * 0.5f, 0.5f, std::sin(theta1) * 0.5f}, {0, 1, 0}});
+                    cylinder_index.insert(cylinder_index.end(), {top_center, top0, top1});
+                }
+
+                sphere_vertices_ = upload(sphere.data(), sphere.size() * sizeof(Vertex),
+                                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                          static_cast<std::uint32_t>(sphere.size()));
+                sphere_indices_ = upload(sphere_index.data(),
+                                         sphere_index.size() * sizeof(std::uint16_t),
+                                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                         static_cast<std::uint32_t>(sphere_index.size()));
+                cylinder_vertices_ = upload(cylinder.data(), cylinder.size() * sizeof(Vertex),
+                                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                           static_cast<std::uint32_t>(cylinder.size()));
+                cylinder_indices_ = upload(cylinder_index.data(),
+                                          cylinder_index.size() * sizeof(std::uint16_t),
+                                          VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                          static_cast<std::uint32_t>(cylinder_index.size()));
             }
 
             void VulkanSceneView::destroy_geometry()
             {
-                for (Buffer* buffer : {&cube_vertices_, &cube_indices_, &grid_vertices_})
+                for (Buffer* buffer : {&cube_vertices_, &cube_indices_, &sphere_vertices_,
+                                       &sphere_indices_, &cylinder_vertices_, &cylinder_indices_,
+                                       &grid_vertices_, &cloth_vertices_})
                     if (buffer->buffer != VK_NULL_HANDLE)
                         vmaDestroyBuffer(device_.allocator(), buffer->buffer, buffer->allocation);
+                cloth_vertices_capacity_ = 0;
+                cloth_vertices_mapped_ = nullptr;
+            }
+
+            void VulkanSceneView::ensure_cloth_capacity(VkDeviceSize bytes)
+            {
+                if (bytes <= cloth_vertices_capacity_)
+                    return;
+                if (cloth_vertices_.buffer != VK_NULL_HANDLE)
+                    vmaDestroyBuffer(device_.allocator(), cloth_vertices_.buffer,
+                                     cloth_vertices_.allocation);
+
+                VkBufferCreateInfo buffer_info{};
+                buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                buffer_info.size = bytes;
+                buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+
+                VmaAllocationCreateInfo alloc{};
+                alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                              VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+                cloth_vertices_ = Buffer{};
+                VmaAllocationInfo info{};
+                check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc,
+                                      &cloth_vertices_.buffer, &cloth_vertices_.allocation, &info),
+                      "vmaCreateBuffer(cloth)");
+                cloth_vertices_mapped_ = info.pMappedData;
+                cloth_vertices_capacity_ = bytes;
             }
 
             void VulkanSceneView::create_targets()
@@ -554,7 +710,8 @@ namespace SushiEngine
             }
 
             void VulkanSceneView::render(const CameraView& camera, const MeshInstance* instances,
-                                         std::size_t count, std::uint32_t selected_id)
+                                         std::size_t count, std::uint32_t selected_id,
+                                         const ClothStrandView* strands, std::size_t strand_count)
             {
                 const std::uint32_t index = frame_counter_ % SLOTS;
                 ++frame_counter_;
@@ -653,16 +810,91 @@ namespace SushiEngine
                 vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &grid_push);
                 vkCmdDraw(slot.cmd, grid_vertices_.count, 1, 0, 0);
 
-                // Instanced lit cubes; each carries its picking id and the selected id.
+                // Lit mesh instances, grouped by which unit mesh they draw with (three
+                // small passes over `instances` rather than three buckets built per
+                // frame) so each mesh's vertex/index buffers are bound once per group.
                 vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
-                vkCmdBindVertexBuffers(slot.cmd, 0, 1, &cube_vertices_.buffer, &zero_offset);
-                vkCmdBindIndexBuffer(slot.cmd, cube_indices_.buffer, 0, VK_INDEX_TYPE_UINT16);
-                for (std::size_t i = 0; i < count; ++i)
+                const struct { MeshKind kind; const Buffer* vertices; const Buffer* indices; }
+                mesh_groups[] = {
+                    {MeshKind::Box, &cube_vertices_, &cube_indices_},
+                    {MeshKind::Sphere, &sphere_vertices_, &sphere_indices_},
+                    {MeshKind::Cylinder, &cylinder_vertices_, &cylinder_indices_},
+                };
+                for (const auto& group : mesh_groups)
                 {
-                    const MeshPush push = make_push(view_projection, instances[i].model,
-                                                    instances[i].color, instances[i].id, selected_id);
-                    vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
-                    vkCmdDrawIndexed(slot.cmd, cube_indices_.count, 1, 0, 0, 0);
+                    bool bound = false;
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        if (instances[i].kind != group.kind)
+                            continue;
+                        if (!bound)
+                        {
+                            vkCmdBindVertexBuffers(slot.cmd, 0, 1, &group.vertices->buffer,
+                                                   &zero_offset);
+                            vkCmdBindIndexBuffer(slot.cmd, group.indices->buffer, 0,
+                                                 VK_INDEX_TYPE_UINT16);
+                            bound = true;
+                        }
+                        const Mat4 scaled_model =
+                            mul(instances[i].model, shape_scale(instances[i].kind,
+                                                                instances[i].shape_params));
+                        const MeshPush push = make_push(view_projection, scaled_model,
+                                                        instances[i].color, instances[i].id,
+                                                        selected_id);
+                        vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
+                        vkCmdDrawIndexed(slot.cmd, group.indices->count, 1, 0, 0, 0);
+                    }
+                }
+
+                // Soft-body wireframes: every strand's grid edges (horizontal, then
+                // vertical) concatenated into one line-list draw per strand, uploaded
+                // to the single host-visible cloth buffer just ahead of recording it.
+                if (strand_count > 0)
+                {
+                    std::size_t total_lines = 0;
+                    for (std::size_t s = 0; s < strand_count; ++s)
+                        if (strands[s].rows > 0 && strands[s].cols > 0)
+                            total_lines += strands[s].rows * (strands[s].cols - 1) +
+                                          (strands[s].rows - 1) * strands[s].cols;
+                    if (total_lines > 0)
+                    {
+                        ensure_cloth_capacity(total_lines * 2 * sizeof(Vertex));
+                        auto* dst = static_cast<Vertex*>(cloth_vertices_mapped_);
+                        std::uint32_t written = 0;
+                        for (std::size_t s = 0; s < strand_count; ++s)
+                        {
+                            const ClothStrandView& strand = strands[s];
+                            if (strand.rows == 0 || strand.cols == 0)
+                                continue;
+                            const auto at = [&](std::uint32_t row, std::uint32_t col)
+                            {
+                                const Vector3& p = strand.vertices[row * strand.cols + col];
+                                return Vertex{{static_cast<float>(p.x), static_cast<float>(p.y),
+                                              static_cast<float>(p.z)}, {0, 1, 0}};
+                            };
+                            for (std::uint32_t row = 0; row < strand.rows; ++row)
+                                for (std::uint32_t col = 0; col + 1 < strand.cols; ++col)
+                                {
+                                    dst[written++] = at(row, col);
+                                    dst[written++] = at(row, col + 1);
+                                }
+                            for (std::uint32_t col = 0; col < strand.cols; ++col)
+                                for (std::uint32_t row = 0; row + 1 < strand.rows; ++row)
+                                {
+                                    dst[written++] = at(row, col);
+                                    dst[written++] = at(row + 1, col);
+                                }
+                        }
+
+                        vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
+                        vkCmdBindVertexBuffers(slot.cmd, 0, 1, &cloth_vertices_.buffer, &zero_offset);
+                        const MeshPush cloth_push = make_push(view_projection, Mat4{},
+                                                              Vector3{0.85f, 0.85f, 0.9f}, NO_PICK,
+                                                              NO_PICK);
+                        vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
+                                          &cloth_push);
+                        vkCmdDraw(slot.cmd, written, 1, 0, 0);
+                    }
                 }
 
                 vkCmdEndRendering(slot.cmd);

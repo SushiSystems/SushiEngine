@@ -30,8 +30,12 @@ device code of its own; kernels are instantiated in the consuming translation un
   (`platform_window.hpp`, `render/window_renderer.hpp`, `imgui_backend.*`). The live
   world is the single source of truth for entities: the Hierarchy lists them and the
   Inspector edits the selection's name, visibility, transform, and colour straight
-  through to the ECS via the `IWorldEditor` surface. Left-clicking a cube in the
-  viewport selects it (GPU id-buffer picking), highlighted and synced with the
+  through to the ECS via the `IWorldEditor` surface. A plain "Create Entity" is a bare
+  Transform with nothing to draw; the Hierarchy's right-click menu (and the
+  GameObject menu) also offer Box, Sphere, Cylinder, and Terrain, each a Renderer
+  entity with a Shape (the visual mesh) and a matching Collider (collision-volume
+  authoring data — not yet consumed by any physics solver). Left-clicking an object in
+  the viewport selects it (GPU id-buffer picking), highlighted and synced with the
   Hierarchy, and a translate gizmo moves it. The scene is fully interactive: create,
   select, move, edit, and destroy entities against the one live world. Turning the editor on builds the renderer
   too; it needs SDL2 with its `[vulkan]` feature. A **Scene** panel shows a

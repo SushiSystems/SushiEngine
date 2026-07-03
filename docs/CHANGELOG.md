@@ -8,7 +8,36 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- **Primitive object creation: Box, Sphere, Cylinder, and Terrain.** The Hierarchy's
+  right-click menu, the GameObject menu, and the empty-space Hierarchy context menu
+  all gain "Create Entity" plus an "Objects" submenu (`IWorldEditor::create_box`/
+  `create_sphere`/`create_cylinder`/`create_terrain`). Each spawns a Renderer entity
+  with a new `ShapeParams` (Box/Sphere/Cylinder mesh + params) and a matching
+  `ColliderParams`; Terrain is a large, thin flat Box visual with a `Plane` Collider
+  and no physics body, so nothing integrates its pose (gravity-exempt by
+  construction). The Vulkan renderer gained unit sphere and cylinder meshes
+  alongside the existing cube, selected per-instance by `Render::MeshKind`, and
+  scaled to each instance's authored shape params.
+- **`Collider` component: pure collision-volume authoring data.** Independent of
+  any visual `Shape`, addable/removable through the Inspector's "Add Component"
+  popup (`IWorldEditor::has_collider`/`collider_params`/`set_collider_params`/
+  `set_has_collider`). Not yet consumed by any narrowphase or contact solver — a
+  data-only foundation for a future rigidbody/softbody collision milestone.
+- **Cloth grids now render as a wireframe.** `RenderScene` gained
+  `cloth_instances`/`cloth_vertices`, extracted every frame from each Cloth
+  entity's live simulated particle positions. `ISceneView::render` gained an
+  optional `ClothStrandView` list, drawn through the scene view's existing line
+  pipeline (previously only used for the ground grid) as horizontal/vertical grid
+  edges.
+
 ### Changed
+- **A plain "Create Entity" is now a bare `Transform`, not a disguised cube.**
+  `RuntimeSimulation::create()` no longer attaches a default Renderer/Tint; the
+  renderer now draws an entity only when it has both a Renderer and a `Shape`
+  (previously, having a Renderer alone drew the renderer's hardcoded cube mesh).
+  Existing "Renderer" toggling behavior is unchanged for entities that do have a
+  `Shape`.
 - **Naming convention overhaul: `PascalCase` namespaces, no abbreviations, and a
   reorganized editor tree.** All namespaces are now `PascalCase`
   (`SushiEngine::Editor`, `SushiEngine::Simulation`, `SushiEngine::Loop`,
