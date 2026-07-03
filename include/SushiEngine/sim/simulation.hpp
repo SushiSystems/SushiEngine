@@ -130,7 +130,8 @@ namespace SushiEngine
         {
             std::vector<RenderInstance> instances;       /**< Every drawable object this frame. */
             std::vector<DisplayCamera> display_cameras;  /**< The resolved camera per display. */
-            CameraState camera;                          /**< The default game camera (lowest display). */
+            CameraState camera;                          /**< The default game camera (lowest display), only meaningful when @ref has_camera is true. */
+            bool has_camera = false;                     /**< Whether any active camera resolved this frame; false means nothing should be drawn as "the game". */
         };
 
         /**
@@ -194,6 +195,26 @@ namespace SushiEngine
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
 
+                /**
+                 * @brief Whether the entity carries a Renderer component.
+                 *
+                 * Mirrors Unity's MeshRenderer: an entity always has a Transform, but
+                 * only draws (and has a `color()`) when a Renderer is attached.
+                 */
+                virtual bool has_renderer(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief Attaches or detaches the Renderer component.
+                 *
+                 * Attaching gives the entity a default colour; detaching stops it being
+                 * drawn. A no-op on an entity whose component set cannot be changed
+                 * (e.g. the seeded, animated demo cubes).
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should have a Renderer after this call.
+                 */
+                virtual void set_has_renderer(EntityId id, bool value) = 0;
+
                 /** @brief The entity's parent, or `NULL_ENTITY` if it is a root. */
                 virtual EntityId parent(EntityId id) const noexcept = 0;
 
@@ -230,6 +251,19 @@ namespace SushiEngine
 
                 /** @brief Writes a camera entity's parameters; a no-op for non-cameras. */
                 virtual void set_camera_params(EntityId id, const CameraParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches the Camera component on an existing entity.
+                 *
+                 * Unlike `create_camera` (which makes a new camera entity), this toggles
+                 * the Camera component on @p id in place, so any entity can become — or
+                 * stop being — a camera. Attaching gives it default lens parameters; a
+                 * no-op on an entity whose component set cannot be changed.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should have a Camera after this call.
+                 */
+                virtual void set_is_camera(EntityId id, bool value) = 0;
         };
 
         /**
@@ -268,9 +302,11 @@ namespace SushiEngine
         /**
          * @brief Creates the runtime-backed live world.
          *
-         * Brings up a SushiRuntime, seeds a small world of spinning, orbiting cubes
-         * and a game camera, and returns it behind the abstraction. The only place
-         * the runtime is constructed for the editor.
+         * Brings up a SushiRuntime and an empty ECS world with no entities and no
+         * scene loaded — the editor starts scene-less, matching a fresh project, and
+         * populates the world only via `IWorldEditor` (New Entity, GameObject menu) or
+         * by loading a `.sushiscene`. The only place the runtime is constructed for
+         * the editor.
          *
          * @return An owned simulation; never null (throws on runtime bring-up failure).
          */

@@ -186,18 +186,27 @@ int main(int, char**)
         scene_camera.set_move_speed(context.preferences.camera_move_speed);
 
         sushi::editor::editor_log(context, "Editor ready (Vulkan).");
-        sushi::editor::editor_log(context, "Live world seeded; press Play to tick it.");
+        sushi::editor::editor_log(context, "No scene open. Use File > New Scene or open a "
+                                            ".sushiscene from the Project panel.");
 
         bool running = true;
         bool gizmo_was_dragging = false;
         while (running)
         {
-            running = window.pump_events();
+            // A close request (the window's X, or File > Exit) is not obeyed directly;
+            // it only sets close_requested, so draw_exit_confirm_modal below gets a
+            // chance to hold the window open while unsaved changes are pending.
+            if (!window.pump_events())
+                context.close_requested = true;
 
             // Tick the world on the runtime only while playing, so the toolbar's
-            // Play/Pause gates motion; then take the fresh snapshot to draw.
-            if (context.play_state == sushi::editor::PlayState::Playing)
+            // Play/Pause gates motion; then take the fresh snapshot to draw. Step
+            // advances exactly one tick regardless of play_state (normally pressed
+            // while Paused) and is a one-shot request the toolbar sets.
+            if (context.play_state == sushi::editor::PlayState::Playing ||
+                context.step_requested)
                 simulation->tick();
+            context.step_requested = false;
 
             const SushiEngine::sim::RenderScene& scene = simulation->render_scene();
             instances.clear();
@@ -242,8 +251,8 @@ int main(int, char**)
 
             draw_dockspace();
 
-            // Global undo/redo shortcuts, gated off text-entry widgets so Ctrl+Z in a
-            // document or a rename field is not hijacked by the scene history.
+            // Global undo/redo/save shortcuts, gated off text-entry widgets so Ctrl+Z in
+            // a document or a rename field is not hijacked by the scene history.
             if (!ImGui::GetIO().WantTextInput && simulation != nullptr)
             {
                 SushiEngine::sim::IWorldEditor& editor_world = simulation->world();
@@ -254,9 +263,11 @@ int main(int, char**)
                 else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) &&
                          context.history.redo(editor_world))
                     sushi::editor::select_only(context, SushiEngine::sim::NULL_ENTITY);
+                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+                    sushi::editor::save_current_scene(context);
             }
 
-            sushi::editor::draw_menu_bar(context, running);
+            sushi::editor::draw_menu_bar(context);
             sushi::editor::draw_status_bar(context);
             sushi::editor::draw_toolbar_panel(context);
             // Selection is shared between the viewports and the panels. The scene
@@ -296,8 +307,16 @@ int main(int, char**)
                 selector.displays = displays.data();
                 selector.count = displays.size();
                 selector.selected = &context.game_display;
-                game_view.draw(context.panels.game_view, instances.data(), instances.size(),
-                               selected, false, nullptr, sushi::editor::GizmoMode::Translate,
+                // Pass no selection so the Scene view's pick never highlights in the
+                // Game view; it is not pickable here so nothing writes this back.
+                std::uint32_t no_selection = 0;
+                // With no active camera there is nothing to play the scene through, so
+                // the Game view draws zero instances (clears to black) rather than
+                // falling back to a synthetic default camera and rendering anyway.
+                const std::size_t game_instance_count =
+                    scene.has_camera ? instances.size() : 0;
+                game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
+                               no_selection, false, nullptr, sushi::editor::GizmoMode::Translate,
                                sushi::editor::GizmoSpace::World, nullptr, &selector);
             }
 
@@ -365,7 +384,8 @@ int main(int, char**)
             sushi::editor::draw_console_panel(context);
             sushi::editor::draw_statistics_panel(context);
             sushi::editor::draw_preferences_window(context);
-            sushi::editor::draw_save_scene_as_modal(context);
+            sushi::editor::draw_save_scene_as_modal(context, running);
+            sushi::editor::draw_exit_confirm_modal(context, running);
 
             // Persist preferences once per frame after any edit, and apply the fields
             // that take effect live (the camera speed; theme is applied on change).

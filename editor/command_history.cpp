@@ -44,6 +44,7 @@ namespace sushi::editor
         pending_.reset();
         push_bounded(undo_stack_, capture_scene(world));
         redo_stack_.clear();
+        ++revision_;
     }
 
     void CommandHistory::begin_change(SushiEngine::sim::IWorldEditor& world)
@@ -59,6 +60,7 @@ namespace sushi::editor
         push_bounded(undo_stack_, std::move(*pending_));
         pending_.reset();
         redo_stack_.clear();
+        ++revision_;
     }
 
     bool CommandHistory::undo(SushiEngine::sim::IWorldEditor& world)
@@ -70,6 +72,7 @@ namespace sushi::editor
         const nlohmann::json snapshot = std::move(undo_stack_.back());
         undo_stack_.pop_back();
         apply_scene(world, snapshot);
+        ++revision_;
         return true;
     }
 
@@ -82,6 +85,7 @@ namespace sushi::editor
         const nlohmann::json snapshot = std::move(redo_stack_.back());
         redo_stack_.pop_back();
         apply_scene(world, snapshot);
+        ++revision_;
         return true;
     }
 } // namespace sushi::editor

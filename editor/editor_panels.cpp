@@ -319,7 +319,28 @@ namespace sushi::editor
         }
     }
 
-    void draw_menu_bar(EditorContext& context, bool& running)
+    bool save_current_scene(EditorContext& context)
+    {
+        IWorldEditor* world = world_of(context);
+        if (world == nullptr)
+            return false;
+        if (context.scene_path.empty())
+        {
+            context.save_scene_as_name = "Scene.sushiscene";
+            context.show_save_scene_as = true;
+            return false;
+        }
+        if (save_scene(*world, context.scene_path))
+        {
+            context.saved_scene_revision = context.history.revision();
+            editor_log(context, "Saved scene '" + context.scene_path + "'.");
+            return true;
+        }
+        editor_log(context, "Failed to save scene '" + context.scene_path + "'.");
+        return false;
+    }
+
+    void draw_menu_bar(EditorContext& context)
     {
         if (!ImGui::BeginMainMenuBar())
             return;
@@ -343,18 +364,8 @@ namespace sushi::editor
                 select_only(context, NULL_ENTITY);
                 editor_log(context, "New scene.");
             }
-            if (ImGui::MenuItem("Save Scene", nullptr, false, world != nullptr))
-            {
-                if (context.scene_path.empty())
-                {
-                    context.save_scene_as_name = "Scene.sushiscene";
-                    context.show_save_scene_as = true;
-                }
-                else if (save_scene(*world, context.scene_path))
-                    editor_log(context, "Saved scene '" + context.scene_path + "'.");
-                else
-                    editor_log(context, "Failed to save scene '" + context.scene_path + "'.");
-            }
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, world != nullptr))
+                (void)save_current_scene(context);
             if (ImGui::MenuItem("Save Scene As...", nullptr, false, world != nullptr))
             {
                 context.save_scene_as_name =
@@ -362,7 +373,7 @@ namespace sushi::editor
                 context.show_save_scene_as = true;
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Save", "Ctrl+S", false,
+            if (ImGui::MenuItem("Save", nullptr, false,
                                 context.active_document >= 0))
             {
                 Document& document = context.documents[static_cast<std::size_t>(
@@ -372,7 +383,7 @@ namespace sushi::editor
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4"))
-                running = false;
+                context.close_requested = true;
             ImGui::EndMenu();
         }
 
@@ -817,9 +828,21 @@ namespace sushi::editor
             }
         }
 
+        // Unity-style modular components: Transform above is mandatory on every
+        // entity; Renderer and Camera are independently attached/detached below,
+        // each with its own "x" to remove it, plus an Add Component menu for
+        // whichever of the two is currently missing.
         if (world->is_camera(id))
         {
-            if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+            bool keep_camera = true;
+            const bool camera_open = ImGui::CollapsingHeader(
+                "Camera", &keep_camera, ImGuiTreeNodeFlags_DefaultOpen);
+            if (!keep_camera)
+            {
+                context.history.record(*world);
+                world->set_is_camera(id, false);
+            }
+            else if (camera_open)
             {
                 SushiEngine::sim::CameraParams params = world->camera_params(id);
                 bool changed = false;
@@ -891,17 +914,51 @@ namespace sushi::editor
                     world->set_camera_params(id, params);
             }
         }
-        else if (ImGui::CollapsingHeader("Renderer", ImGuiTreeNodeFlags_DefaultOpen))
+
+        if (world->has_renderer(id))
         {
-            const SushiEngine::Vec3 current = world->color(id);
-            float color[3] = {static_cast<float>(current.x), static_cast<float>(current.y),
-                              static_cast<float>(current.z)};
-            if (ImGui::ColorEdit3("Color", color))
-                world->set_color(id, SushiEngine::Vec3{color[0], color[1], color[2]});
-            if (ImGui::IsItemActivated())
-                context.history.begin_change(*world);
-            if (ImGui::IsItemDeactivatedAfterEdit())
-                context.history.end_change();
+            bool keep_renderer = true;
+            const bool renderer_open = ImGui::CollapsingHeader(
+                "Renderer", &keep_renderer, ImGuiTreeNodeFlags_DefaultOpen);
+            if (!keep_renderer)
+            {
+                context.history.record(*world);
+                world->set_has_renderer(id, false);
+            }
+            else if (renderer_open)
+            {
+                const SushiEngine::Vec3 current = world->color(id);
+                float color[3] = {static_cast<float>(current.x),
+                                  static_cast<float>(current.y),
+                                  static_cast<float>(current.z)};
+                if (ImGui::ColorEdit3("Color", color))
+                    world->set_color(id, SushiEngine::Vec3{color[0], color[1], color[2]});
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(*world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+            }
+        }
+
+        ImGui::Separator();
+        if (!world->has_renderer(id) || !world->is_camera(id))
+        {
+            if (ImGui::Button("Add Component"))
+                ImGui::OpenPopup("AddComponentPopup");
+            if (ImGui::BeginPopup("AddComponentPopup"))
+            {
+                if (!world->has_renderer(id) && ImGui::MenuItem("Renderer"))
+                {
+                    context.history.record(*world);
+                    world->set_has_renderer(id, true);
+                }
+                if (!world->is_camera(id) && ImGui::MenuItem("Camera"))
+                {
+                    context.history.record(*world);
+                    world->set_is_camera(id, true);
+                }
+                ImGui::EndPopup();
+            }
         }
 
         ImGui::End();
@@ -1046,6 +1103,7 @@ namespace sushi::editor
                         if (world != nullptr && load_scene(*world, path_string))
                         {
                             context.scene_path = path_string;
+                            context.saved_scene_revision = context.history.revision();
                             select_only(context, NULL_ENTITY);
                             editor_log(context, "Loaded scene '" + path_string + "'.");
                         }
@@ -1067,6 +1125,7 @@ namespace sushi::editor
                             if (world != nullptr && load_scene(*world, path_string))
                             {
                                 context.scene_path = path_string;
+                                context.saved_scene_revision = context.history.revision();
                                 select_only(context, NULL_ENTITY);
                                 editor_log(context, "Loaded scene '" + path_string + "'.");
                             }
@@ -1235,7 +1294,10 @@ namespace sushi::editor
         }
         ImGui::SameLine();
         if (ImGui::Button("Step"))
+        {
+            context.step_requested = true;
             editor_log(context, "Stepped one frame.");
+        }
         ImGui::EndDisabled();
 
         ImGui::SameLine();
@@ -1350,6 +1412,13 @@ namespace sushi::editor
             if (ImGui::BeginMenuBar())
             {
                 IWorldEditor* world = world_of(context);
+                const std::string scene_name =
+                    context.scene_path.empty()
+                        ? std::string("Untitled")
+                        : fs::path(context.scene_path).filename().string();
+                ImGui::Text("Scene: %s%s", scene_name.c_str(),
+                            scene_is_dirty(context) ? "*" : "");
+                ImGui::Separator();
                 const bool has_selection =
                     world != nullptr && world->exists(context.selected_entity);
                 ImGui::Text("Selected: %s",
@@ -1379,7 +1448,7 @@ namespace sushi::editor
         }
     }
 
-    void draw_save_scene_as_modal(EditorContext& context)
+    void draw_save_scene_as_modal(EditorContext& context, bool& running)
     {
         if (!context.show_save_scene_as)
             return;
@@ -1407,18 +1476,74 @@ namespace sushi::editor
                 if (world != nullptr && save_scene(*world, path.string()))
                 {
                     context.scene_path = path.string();
+                    context.saved_scene_revision = context.history.revision();
                     editor_log(context, "Saved scene '" + context.scene_path + "'.");
+                    // This save-as was raised to unblock a pending window close (Ctrl+S
+                    // or "Save" from the unsaved-changes prompt with no scene path yet).
+                    if (context.exit_after_save)
+                        running = false;
                 }
                 else
                 {
                     editor_log(context, "Failed to save scene '" + path.string() + "'.");
                 }
                 context.show_save_scene_as = false;
+                context.exit_after_save = false;
                 ImGui::CloseCurrentPopup();
             }
             else if (cancelled)
             {
+                // A cancelled save-as also aborts any pending close it was raised for.
+                if (context.exit_after_save)
+                    context.close_requested = false;
                 context.show_save_scene_as = false;
+                context.exit_after_save = false;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
+    void draw_exit_confirm_modal(EditorContext& context, bool& running)
+    {
+        if (!context.close_requested)
+            return;
+        // A Save-As triggered by this same close is still pending; wait for it
+        // (it resolves close_requested/running itself on save or cancel).
+        if (context.show_save_scene_as)
+            return;
+        if (!scene_is_dirty(context))
+        {
+            running = false;
+            return;
+        }
+
+        const char* popup_id = "Unsaved Changes";
+        ImGui::OpenPopup(popup_id);
+        if (ImGui::BeginPopupModal(popup_id, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::Text("The scene has unsaved changes. Save before closing?");
+            ImGui::Spacing();
+
+            if (ImGui::Button("Save"))
+            {
+                if (context.scene_path.empty())
+                    context.exit_after_save = true; // save_current_scene opens Save As
+                if (save_current_scene(context))
+                    running = false; // saved straight to an existing path
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Don't Save"))
+            {
+                running = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel"))
+            {
+                context.close_requested = false;
                 ImGui::CloseCurrentPopup();
             }
 

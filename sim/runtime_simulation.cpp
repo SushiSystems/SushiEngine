@@ -46,6 +46,7 @@
 #include <vector>
 
 #include <SushiEngine/SushiEngine.hpp>
+#include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine
@@ -54,52 +55,28 @@ namespace SushiEngine
     {
         namespace
         {
-            // Components. Rotation is split from translation into its own column so the
-            // spin and orbit systems write disjoint components and the dependency
-            // tracker runs them in parallel. All are trivially copyable (enforced by
-            // component_id), and kept in this single TU so their component ids agree.
-            struct Transform
+            /** @brief The inverse of a unit quaternion (its conjugate). */
+            Quat conjugate(const Quat& q) noexcept
             {
-                Vec3 position;
-                Vec3 scale{Vec3{1, 1, 1}};
-            };
-            struct Orientation
-            {
-                Quat rotation;
-            };
-            struct SpinStep
-            {
-                Quat delta; // per-step rotation, precomputed on the host
-            };
-            struct OrbitState
-            {
-                Vec3 center;
-                Scalar radius = 0;
-                Scalar cos_angle = 1; // current orbit angle as a unit (cos, sin) pair
-                Scalar sin_angle = 0;
-                Scalar step_cos = 1;  // per-step rotation of that pair, precomputed
-                Scalar step_sin = 0;
-            };
-            struct Tint
-            {
-                Vec3 color;
-            };
-            // A camera entity's lens and routing. Its pose comes from Transform +
-            // Orientation; this adds the projection and which display it drives. Its own
-            // archetype (no Tint), so camera entities are never drawn as cubes and never
-            // match the spin/orbit systems. Trivially copyable like every component.
-            struct Camera
-            {
-                Scalar vertical_fov_radians = Scalar(1.0471976);
-                Scalar near_plane = Scalar(0.1);
-                Scalar far_plane = Scalar(500);
-                std::uint32_t display_index = 0;
-                std::int32_t priority = 0;
-                bool active = true;
-            };
+                return Quat{-q.x, -q.y, -q.z, q.w};
+            }
 
-            constexpr Scalar DT = Scalar(1.0 / 60.0);
-            constexpr std::size_t SEED_CUBE_COUNT = 24;
+            /** @brief Rotates @p v by unit quaternion @p q, via its equivalent matrix. */
+            Vec3 rotate_vector(const Quat& q, const Vec3& v) noexcept
+            {
+                const Mat4 r = mat4_from_quat(q);
+                return Vec3{r.m[0] * v.x + r.m[4] * v.y + r.m[8] * v.z,
+                          r.m[1] * v.x + r.m[5] * v.y + r.m[9] * v.z,
+                          r.m[2] * v.x + r.m[6] * v.y + r.m[10] * v.z};
+            }
+
+            /** @brief a / b, treating a near-zero divisor as 1 so a degenerate parent scale never divides by zero. */
+            Scalar safe_div(Scalar a, Scalar b) noexcept
+            {
+                constexpr Scalar EPSILON = Scalar(1e-8);
+                return (b > EPSILON || b < -EPSILON) ? a / b : a;
+            }
+
             constexpr std::size_t CHUNK_CAPACITY = 256;
 
             /**
@@ -119,15 +96,19 @@ namespace SushiEngine
                           world_(runtime_, CHUNK_CAPACITY),
                           schedule_(runtime_)
                     {
-                        // Reserve both archetypes up front so neither the seed nor the
-                        // editor's first create allocates a chunk mid-run.
+                        // Reserve every archetype up front so neither the seed, the
+                        // editor's first create, nor a later Add/Remove Component
+                        // toggle allocates a chunk mid-run. Transform + Orientation are
+                        // mandatory on every entity; Tint (Renderer) and Camera are
+                        // independently pluggable, so all four combinations exist.
                         world_.reserve<Transform, Orientation, SpinStep, OrbitState, Tint>(
                             CHUNK_CAPACITY);
+                        world_.reserve<Transform, Orientation>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Tint>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Camera>(CHUNK_CAPACITY);
-                        seed_world();
+                        world_.reserve<Transform, Orientation, Tint, Camera>(CHUNK_CAPACITY);
                         register_systems();
-                        extract(); // a valid snapshot before the first tick
+                        extract(); // a valid (empty) snapshot before the first tick
                     }
 
                     // --- ISimulation -------------------------------------------------
@@ -182,7 +163,7 @@ namespace SushiEngine
                     Vec3 color(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        if (record == nullptr || record->is_camera ||
+                        if (record == nullptr || !record->has_renderer ||
                             !world_.alive(record->entity))
                             return Vec3{};
                         return world_.get<Tint>(record->entity).color;
@@ -201,7 +182,9 @@ namespace SushiEngine
                                                                      Scalar(0.8)}});
                         const EntityId id = next_id_++;
                         order_.push_back(id);
-                        records_.emplace(id, Record{entity, display_name, true, false});
+                        Record record{entity, display_name, true, false};
+                        record.has_renderer = true;
+                        records_.emplace(id, record);
                         extract();
                         return id;
                     }
@@ -248,11 +231,30 @@ namespace SushiEngine
                     void set_color(EntityId id, const Vec3& value) override
                     {
                         Record* record = find(id);
-                        if (record == nullptr || record->is_camera ||
+                        if (record == nullptr || !record->has_renderer ||
                             !world_.alive(record->entity))
                             return;
                         world_.get<Tint>(record->entity).color = value;
                         extract();
+                    }
+
+                    bool has_renderer(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_renderer;
+                    }
+
+                    void set_has_renderer(EntityId id, bool value) override
+                    {
+                        migrate_components(id, value, /*camera=*/find(id) != nullptr &&
+                                                            find(id)->is_camera);
+                    }
+
+                    void set_is_camera(EntityId id, bool value) override
+                    {
+                        migrate_components(
+                            id, /*renderer=*/find(id) != nullptr && find(id)->has_renderer,
+                            value);
                     }
 
                     EntityId create_camera(const std::string& display_name) override
@@ -335,8 +337,30 @@ namespace SushiEngine
                             if (find(new_parent) == nullptr || is_descendant(new_parent, child))
                                 return;
                         }
+
+                        // Reparenting must not move the object: recompute the child's
+                        // local transform so its resolved world pose is unchanged,
+                        // rather than leaving it to be reinterpreted in the new
+                        // parent's space (which is what jumps it).
+                        const EntityTransform child_world = world_transform(child);
                         child_record->parent = new_parent;
-                        extract();
+                        const EntityTransform parent_world =
+                            new_parent != NULL_ENTITY ? world_transform(new_parent)
+                                                       : EntityTransform{};
+
+                        EntityTransform new_local;
+                        new_local.scale = Vec3{safe_div(child_world.scale.x, parent_world.scale.x),
+                                              safe_div(child_world.scale.y, parent_world.scale.y),
+                                              safe_div(child_world.scale.z, parent_world.scale.z)};
+                        new_local.rotation =
+                            normalize(mul(conjugate(parent_world.rotation), child_world.rotation));
+                        const Vec3 delta = rotate_vector(conjugate(parent_world.rotation),
+                                                         child_world.position - parent_world.position);
+                        new_local.position = Vec3{safe_div(delta.x, parent_world.scale.x),
+                                                 safe_div(delta.y, parent_world.scale.y),
+                                                 safe_div(delta.z, parent_world.scale.z)};
+
+                        set_transform(child, new_local);
                     }
 
                 private:
@@ -349,6 +373,10 @@ namespace SushiEngine
                         bool animated = false;
                         bool is_camera = false;
                         EntityId parent = NULL_ENTITY;
+                        // Whether the Tint (Renderer) component is attached. Editor-created
+                        // entities start with one; `set_has_renderer` toggles it. Cameras
+                        // default to none, matching Unity's empty-GameObject-with-Camera.
+                        bool has_renderer = false;
                     };
 
                     const Record* find(EntityId id) const noexcept
@@ -379,15 +407,20 @@ namespace SushiEngine
                     }
 
                     /**
-                     * @brief Composes an entity's object-to-world matrix along its parent chain.
+                     * @brief Composes an entity's world-space TRS along its parent chain.
                      *
-                     * Local transforms multiply from root to leaf (parent * ... * local); a
-                     * bounded walk guards against a corrupt chain rather than recursing
-                     * unboundedly.
+                     * Position/rotation/scale are chained directly (world_scale =
+                     * parent_scale * local_scale, world_rotation = parent_rotation *
+                     * local_rotation, world_position = parent_position + parent_rotation
+                     * applied to parent_scale * local_position) rather than through a
+                     * general Mat4 product, so scale never introduces shear and the
+                     * result can be inverted — reparenting needs exactly that inverse to
+                     * keep an object's world pose fixed across the move. A bounded walk
+                     * guards against a corrupt chain rather than recursing unboundedly.
                      */
-                    Mat4 world_matrix(EntityId id) const
+                    EntityTransform world_transform(EntityId id) const
                     {
-                        std::vector<Mat4> chain;
+                        std::vector<EntityTransform> chain;
                         std::size_t guard = records_.size() + 1;
                         for (EntityId current = id;
                              current != NULL_ENTITY && guard > 0; --guard)
@@ -397,13 +430,32 @@ namespace SushiEngine
                                 break;
                             const Transform& t = world_.get<Transform>(record->entity);
                             const Orientation& o = world_.get<Orientation>(record->entity);
-                            chain.push_back(compose_transform(t.position, o.rotation, t.scale));
+                            chain.push_back(EntityTransform{t.position, o.rotation, t.scale});
                             current = record->parent;
                         }
-                        Mat4 result;
+                        EntityTransform result; // identity
                         for (auto it = chain.rbegin(); it != chain.rend(); ++it)
-                            result = mul(result, *it);
+                        {
+                            EntityTransform next;
+                            next.scale = Vec3{result.scale.x * it->scale.x,
+                                             result.scale.y * it->scale.y,
+                                             result.scale.z * it->scale.z};
+                            next.rotation = normalize(mul(result.rotation, it->rotation));
+                            const Vec3 scaled_local = Vec3{result.scale.x * it->position.x,
+                                                          result.scale.y * it->position.y,
+                                                          result.scale.z * it->position.z};
+                            next.position =
+                                result.position + rotate_vector(result.rotation, scaled_local);
+                            result = next;
+                        }
                         return result;
+                    }
+
+                    /** @brief The object-to-world matrix for @p id, built from @ref world_transform. */
+                    Mat4 world_matrix(EntityId id) const
+                    {
+                        const EntityTransform world = world_transform(id);
+                        return compose_transform(world.position, world.rotation, world.scale);
                     }
 
                     Record* find(EntityId id) noexcept
@@ -413,54 +465,57 @@ namespace SushiEngine
                     }
 
                     /**
-                     * @brief Places the demo cubes on a ring and precomputes their motion.
+                     * @brief Attaches or detaches the Renderer (Tint) and Camera
+                     * components on @p id, moving it between ECS archetypes as needed.
                      *
-                     * Each cube gets a per-step spin quaternion and a per-step orbit
-                     * rotation (as a cos/sin pair), both computed here on the host so
-                     * the kernels never call a transcendental or capture host state.
+                     * The ECS has no in-place add/remove: an entity's component set is
+                     * fixed by its archetype, so "pluggable" components are implemented
+                     * by destroying the old entity and spawning a new one in the target
+                     * archetype, carrying over Transform/Orientation and whichever of
+                     * Tint/Camera survive the toggle (defaulted if newly attached). Seeded,
+                     * animated entities (SpinStep/OrbitState) are not migrated — their
+                     * component set is fixed for the demo, matching how they are not
+                     * otherwise editable while playing.
+                     *
+                     * @param id       The entity to update.
+                     * @param renderer Whether it should carry a Tint (Renderer) after this call.
+                     * @param camera   Whether it should carry a Camera after this call.
                      */
-                    void seed_world()
+                    void migrate_components(EntityId id, bool renderer, bool camera)
                     {
-                        const Vec3 spin_axis = normalize(Vec3{0, 1, 0});
-                        for (std::size_t i = 0; i < SEED_CUBE_COUNT; ++i)
-                        {
-                            const Scalar t = Scalar(i) / Scalar(SEED_CUBE_COUNT);
-                            const Scalar ring_angle = t * Scalar(6.2831853);
-                            const Scalar radius = Scalar(4.5);
+                        Record* record = find(id);
+                        if (record == nullptr || record->animated ||
+                            !world_.alive(record->entity))
+                            return;
+                        if (record->has_renderer == renderer && record->is_camera == camera)
+                            return;
 
-                            OrbitState orbit;
-                            orbit.center = Vec3{0, Scalar(0.75), 0};
-                            orbit.radius = radius;
-                            orbit.cos_angle = std::cos(ring_angle);
-                            orbit.sin_angle = std::sin(ring_angle);
-                            const Scalar orbit_speed = Scalar(0.4) + t * Scalar(0.6);
-                            orbit.step_cos = std::cos(orbit_speed * DT);
-                            orbit.step_sin = std::sin(orbit_speed * DT);
+                        const Transform t = world_.get<Transform>(record->entity);
+                        const Orientation o = world_.get<Orientation>(record->entity);
+                        const Tint tint = record->has_renderer
+                                              ? world_.get<Tint>(record->entity)
+                                              : Tint{Vec3{Scalar(0.8), Scalar(0.8), Scalar(0.8)}};
+                        const Camera cam = record->is_camera ? world_.get<Camera>(record->entity)
+                                                             : Camera{};
 
-                            Transform transform;
-                            transform.position = Vec3{orbit.center.x + radius * orbit.cos_angle,
-                                                      orbit.center.y,
-                                                      orbit.center.z + radius * orbit.sin_angle};
-                            transform.scale = Vec3{Scalar(0.6), Scalar(0.6), Scalar(0.6)};
+                        world_.destroy(record->entity);
 
-                            const Scalar spin_speed = Scalar(1.5) + t * Scalar(2.5);
-                            SpinStep spin{quat_axis_angle(spin_axis, spin_speed * DT)};
+                        Entity new_entity;
+                        if (renderer && camera)
+                            new_entity = world_.spawn(t, o, tint, cam);
+                        else if (renderer)
+                            new_entity = world_.spawn(t, o, tint);
+                        else if (camera)
+                            new_entity = world_.spawn(t, o, cam);
+                        else
+                            new_entity = world_.spawn(t, o);
 
-                            Tint tint{hue(t)};
-
-                            const Entity entity =
-                                world_.spawn(transform, Orientation{}, spin, orbit, tint);
-                            const EntityId id = next_id_++;
-                            order_.push_back(id);
-                            char label[16];
-                            std::snprintf(label, sizeof(label), "Cube %02zu", i);
-                            records_.emplace(id, Record{entity, label, true, true});
-                        }
-
-                        // One camera entity drives the Game view. It is a real entity in
-                        // the hierarchy (posed by its transform), not a hidden field.
-                        create_camera("Main Camera");
+                        record->entity = new_entity;
+                        record->has_renderer = renderer;
+                        record->is_camera = camera;
+                        extract();
                     }
+
 
                     /** @brief The camera used when no active camera exists, so the Game view is never black. */
                     static CameraState default_camera() noexcept
@@ -566,7 +621,7 @@ namespace SushiEngine
                                 continue;
                             }
 
-                            if (!record->visible)
+                            if (!record->visible || !record->has_renderer)
                                 continue;
                             const Tint& tint = world_.get<Tint>(record->entity);
                             RenderInstance instance;
@@ -585,18 +640,9 @@ namespace SushiEngine
                         std::sort(scene_.display_cameras.begin(), scene_.display_cameras.end(),
                                   [](const DisplayCamera& a, const DisplayCamera& b)
                                   { return a.display < b.display; });
-                        scene_.camera = scene_.display_cameras.empty()
-                                            ? default_camera()
-                                            : scene_.display_cameras.front().state;
-                    }
-
-                    /** @brief A pleasant colour ramp over t in [0, 1); avoids muddy greys. */
-                    static Vec3 hue(Scalar t)
-                    {
-                        const Scalar a = t * Scalar(6.2831853);
-                        return Vec3{Scalar(0.5) + Scalar(0.45) * std::cos(a),
-                                    Scalar(0.5) + Scalar(0.45) * std::cos(a + Scalar(2.094)),
-                                    Scalar(0.5) + Scalar(0.45) * std::cos(a + Scalar(4.188))};
+                        scene_.has_camera = !scene_.display_cameras.empty();
+                        scene_.camera = scene_.has_camera ? scene_.display_cameras.front().state
+                                                          : default_camera();
                     }
 
                     SushiRuntime::API::Runtime runtime_;

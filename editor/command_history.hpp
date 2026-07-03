@@ -24,6 +24,7 @@
 #ifndef SUSHIENGINE_EDITOR_COMMAND_HISTORY_HPP
 #define SUSHIENGINE_EDITOR_COMMAND_HISTORY_HPP
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -98,10 +99,22 @@ namespace sushi::editor
             /** @brief Whether @ref redo would do anything. */
             bool can_redo() const noexcept { return !redo_stack_.empty(); }
 
+            /**
+             * @brief A counter bumped by every world-mutating operation this history
+             * records or replays (@ref record, a committed @ref end_change, @ref undo,
+             * @ref redo).
+             *
+             * Lets a host detect "the world changed since I last saved" without
+             * comparing snapshots: stash this value at save time and compare it each
+             * frame against the stashed one to know whether the scene is dirty.
+             */
+            std::uint64_t revision() const noexcept { return revision_; }
+
         private:
             std::vector<nlohmann::json> undo_stack_;
             std::vector<nlohmann::json> redo_stack_;
             std::optional<nlohmann::json> pending_;
+            std::uint64_t revision_ = 0;
     };
 } // namespace sushi::editor
 

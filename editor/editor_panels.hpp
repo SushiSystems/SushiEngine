@@ -32,10 +32,25 @@ namespace sushi::editor
 {
     /**
      * @brief Draw the top menu bar (File / GameObject / Window).
-     * @param context Shared editor state the menu acts on (world, documents).
-     * @param running Set to false when the user chooses File > Exit.
+     * @param context Shared editor state the menu acts on (world, documents). File >
+     *                Exit sets @ref EditorContext::close_requested rather than exiting
+     *                directly, so the caller's close-confirm modal gets a chance to run.
      */
-    void draw_menu_bar(EditorContext& context, bool& running);
+    void draw_menu_bar(EditorContext& context);
+
+    /**
+     * @brief Save the open scene: straight to @c scene_path if set, else via the
+     * Save-As prompt.
+     *
+     * Shared by the File > Save Scene menu item, the Ctrl+S shortcut, and the
+     * unsaved-changes close prompt's Save button, so all three save the same way and
+     * agree on when the scene becomes clean (see @ref scene_is_dirty).
+     *
+     * @param context Shared editor state; saves through the world editor.
+     * @return True if the scene was written to an existing path; false if it failed,
+     *         or if it deferred to the Save-As prompt because there was no path yet.
+     */
+    bool save_current_scene(EditorContext& context);
 
     /**
      * @brief Draw the Hierarchy panel: the live world's entities.
@@ -118,8 +133,25 @@ namespace sushi::editor
      * @ref EditorContext::scene_path so a later Save goes straight to disk.
      *
      * @param context Shared editor state; edits the save-as buffer and the scene path.
+     * @param running Cleared on a successful save that was raised to unblock a pending
+     *                window close (see @ref EditorContext::exit_after_save).
      */
-    void draw_save_scene_as_modal(EditorContext& context);
+    void draw_save_scene_as_modal(EditorContext& context, bool& running);
+
+    /**
+     * @brief Draw the "unsaved changes" confirm prompt when the window close was
+     * requested while the scene is dirty.
+     *
+     * A no-op unless @ref EditorContext::close_requested is set. If the scene is
+     * clean, closes immediately (clears @p running). Otherwise offers Save / Don't
+     * Save / Cancel; Save routes through @ref save_current_scene, deferring to the
+     * Save-As modal (via @ref EditorContext::exit_after_save) if the scene has never
+     * been saved.
+     *
+     * @param context Shared editor state.
+     * @param running Cleared to end the main loop once the close is confirmed.
+     */
+    void draw_exit_confirm_modal(EditorContext& context, bool& running);
 
     /**
      * @brief Apply a theme to ImGui's active style.

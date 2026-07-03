@@ -9,6 +9,66 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **The editor starts scene-less.** `create_simulation()` no longer seeds a hardcoded
+  demo world of spinning/orbiting cubes and a "Main Camera"; the live world starts
+  completely empty, matching a fresh project. Use `File ▸ New Scene`, `New Entity`, the
+  GameObject menu, or open a `.sushiscene` from the Project panel to populate it. This
+  also removes the one case where a component could not be added/removed on an
+  existing entity: the seeded demo cubes were flagged `animated` and exempt from
+  `migrate_components`, which is what made `set_has_renderer`/`set_is_camera` silently
+  no-op on them; entities created or loaded through the normal paths were never
+  affected.
+- **Unsaved-scene tracking and Ctrl+S.** `CommandHistory` now exposes a `revision()`
+  counter bumped by every recording/undo/redo operation; `EditorContext` compares it
+  against the revision stashed at the last successful New/Open/Save
+  (`saved_scene_revision`, via the new `scene_is_dirty()`) to know whether the scene
+  has unsaved changes. The status bar shows the open scene's name with a trailing `*`
+  while dirty. Ctrl+S now saves the scene directly (previously only `File ▸ Save Scene`
+  did, and only as a menu label with no keybinding); `Save Scene`/Ctrl+S/the new
+  close-confirm prompt all go through one `save_current_scene()` so they agree on when
+  the scene becomes clean.
+- **Confirm-before-close on unsaved changes.** Closing the window (the title bar's X or
+  `File ▸ Exit`) no longer exits immediately: both now set
+  `EditorContext::close_requested`, and the main loop's new `draw_exit_confirm_modal`
+  closes right away if the scene is clean, or offers Save / Don't Save / Cancel if it
+  is dirty. Save reuses `save_current_scene()`, deferring to the existing Save-As
+  prompt (via `EditorContext::exit_after_save`) when the scene has never been saved.
+
+### Fixed
+- **Game view rendered even with no active camera.** With every camera entity either
+  deleted or deactivated, the Game view previously fell back to a synthetic default
+  camera and kept drawing whatever renderers existed. `RenderScene` now carries a
+  `has_camera` flag; the Game view draws zero instances (clears to black) when it is
+  false, since there is nothing to play the scene through.
+
+### Added
+- **Unity-style modular components (Renderer, Camera).** Every entity keeps a
+  mandatory Transform + Orientation; the Renderer (`Tint`) and Camera components are
+  now independently attachable/detachable per entity via `IWorldEditor::set_has_renderer`
+  and the new `IWorldEditor::set_is_camera` (in-place camera toggle, distinct from
+  `create_camera`, which still makes a fresh camera entity), with a matching
+  `has_renderer` query. The Inspector's Camera and Renderer headers each carry a
+  remove ("x") control, and an "Add Component" menu offers whichever is missing. The
+  ECS has no in-place component add/remove, so a toggle migrates the entity into the
+  matching archetype (destroy + respawn, carrying Transform/Orientation and any
+  surviving Tint/Camera value); seeded, animated demo cubes are exempt. All of
+  SushiEngine's built-in ECS components (`Transform`, `Orientation`, `SpinStep`,
+  `OrbitState`, `Tint`, `Camera`) are now declared in one place,
+  `include/SushiEngine/sim/components.hpp`, instead of inline in
+  `sim/runtime_simulation.cpp`.
+- **Toolbar Step now advances the world.** Previously logged a message without
+  ticking; a one-shot `EditorContext::step_requested` flag now drives exactly one
+  `ISimulation::tick()` on the next frame regardless of play state, then clears.
+- **Reparenting preserves world transform.** `IWorldEditor::set_parent` now recomputes
+  the child's local transform so its resolved world-space pose is unchanged across a
+  reparent, instead of reinterpreting the existing local transform in the new
+  parent's space (which used to visibly jump the object). World-transform composition
+  changed from a general `Mat4` chain-multiply to a shear-free hierarchical TRS chain
+  (`world_scale = parent_scale * local_scale`, etc., matching Unity's model), which is
+  what makes solving for the compensating local transform tractable.
+- **Game view no longer highlights the Scene selection.** Selection picking and
+  highlighting are Scene-view-only; the Game view is played, not authored, and no
+  longer receives the current selection id.
 - **Hierarchy multi-select (Ctrl/Shift-click).** Ctrl+click toggles an entity's
   membership in the selection; Shift+click selects every entity between the last
   clicked ("anchor") entity and the clicked one, ranging over the tree's depth-first

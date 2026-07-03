@@ -215,14 +215,33 @@ text editing is not hijacked) drive it. Because undo/redo swaps the whole world,
 entity ids are not preserved across the step, so both clear the current selection
 rather than risk it aliasing an unrelated new entity.
 
+`CommandHistory::revision()` is a counter bumped by every `record()`, committed
+`end_change()`, `undo()`, and `redo()` — a cheap "has the world changed" signal a host
+can compare against a stashed value without diffing snapshots. `EditorContext` stashes
+it as `saved_scene_revision` on every successful New/Open/Save; `scene_is_dirty()`
+(`editor_context.hpp`) is just the inequality of the two, and backs both the status
+bar's `*` on the scene name and the close-confirm prompt below. Ctrl+S and
+`File ▸ Save Scene` both go through `save_current_scene()` (`editor_panels.*`), which
+saves straight to `scene_path` if set or opens the existing Save-As prompt if the
+scene has never been saved, so all three save entry points (menu, shortcut,
+close-confirm) agree on when the scene becomes clean. Closing the window (the title
+bar's X or `File ▸ Exit`) sets `EditorContext::close_requested` instead of exiting
+directly; the main loop's `draw_exit_confirm_modal` lets the frame close immediately
+if the scene is clean, otherwise prompts Save/Don't Save/Cancel, deferring to the
+Save-As modal (tracked by `EditorContext::exit_after_save`) when Save has no path yet.
+
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
 plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.
 The concrete world lives in one compiled library, `sushi_sim` (`sim/`), the single
 place device code exists outside an example: it owns a `SushiRuntime::API::Runtime`,
-an ECS `World`, and a `Schedule`, and drives a small world of spinning, orbiting
-cubes. Two systems over disjoint components (`spin` writes orientation, `orbit`
-writes position) let the dependency tracker run them in parallel; every value a
+an ECS `World`, and a `Schedule`, and starts with no entities — every archetype is
+pre-reserved up front so the editor's own creates never trigger a mid-run chunk
+allocation, but nothing is seeded into them. Two systems over disjoint components
+(`spin` writes orientation, `orbit` writes position) are registered for entities
+that carry `SpinStep`/`OrbitState`, which today only exist if authored directly
+against `World` (no editor path attaches them); the dependency tracker still runs
+them in parallel whenever such entities are present. Every value a
 kernel reads is precomputed on the host into a component so the kernels are pure
 arithmetic that capture no host state — the discipline that keeps them legal device
 code (see §3). This is dependency inversion at the largest seam in the engine: the
@@ -238,40 +257,74 @@ columns back on the host (via `World::get`) into a read-only `RenderScene`
 editor draws. Cameras are ECS entities too (a `Camera` component: lens plus a
 `display_index`/`priority`/`active` routing), posed by their transform; the extract picks,
 per display, the active camera with the highest priority into `RenderScene::display_cameras`,
-and the Game view chooses which display it shows so two cameras never conflict. The
-Scene view authors the world (pick, gizmo); the Game view is played, not authored, so it
-does not pick. the editor ticks only while the toolbar is Playing, binding the existing
-`PlayState`. The extract is a host copy today. A later interop milestone promotes it to
-a device-shared sink pinned to a render thread, so the scheduler can overlap the next
-step's simulation with the current step's draw and skip the round-trip.
+and the Game view chooses which display it shows so two cameras never conflict.
+`RenderScene::has_camera` reports whether any camera resolved at all; the Game view
+draws zero instances when it is false rather than falling back to a synthetic default
+camera, since there is then nothing to play the scene through. `create_simulation()`
+seeds no demo entities — the live world starts empty, and `default_camera()` exists
+only to give `RenderScene::camera` a well-formed value when `has_camera` is false, not
+as something the Game view renders through. The Scene view authors the world (pick,
+gizmo) and is the only place a selection is drawn
+highlighted; the Game view is played, not authored, so it neither picks nor receives the
+Scene selection. The editor ticks only while the toolbar is Playing (or on a one-shot
+`step_requested`, set by the toolbar's Step button and cleared every frame), binding the
+existing `PlayState`. The extract is a host copy today. A later interop milestone
+promotes it to a device-shared sink pinned to a render thread, so the scheduler can
+overlap the next step's simulation with the current step's draw and skip the round-trip.
+
+All of SushiEngine's built-in ECS components — `Transform`, `Orientation`, `SpinStep`,
+`OrbitState`, `Tint`, `Camera` — are declared in one place,
+`include/SushiEngine/sim/components.hpp`, rather than inline in `runtime_simulation.cpp`;
+component registration order across translation units must agree (see §3), so keeping
+the canonical set in one header is what makes that guarantee easy to keep as more
+consumers are added. Transform + Orientation are mandatory on every entity; Tint (the
+Renderer component) and Camera are independently pluggable per entity — Unity-style
+add/remove — through `IWorldEditor::set_has_renderer`/`has_renderer` and
+`set_is_camera`/`is_camera` (distinct from `create_camera`, which spawns a fresh camera
+entity). The ECS has no in-place component add/remove — an entity's component set is
+fixed by its archetype — so a toggle is implemented as a migration: destroy the entity
+and respawn it into the archetype matching the new component set, carrying over
+Transform/Orientation and any surviving Tint/Camera value (`RuntimeSimulation::migrate_components`).
+Seeded, animated demo cubes (`SpinStep`/`OrbitState`) are exempt from migration — their
+component set is fixed for the demo.
 
 The **world is the single source of truth for entities** — there is no separate
 editor-side scene model. The editor reads and writes it through `IWorldEditor`, split
 from `ISimulation` so a panel that only inspects or edits depends on the narrow surface
 (interface segregation): entities are addressed by a stable `EntityId`, queried
-(`entities`, `name`, `transform`, `color`, `visible`) and mutated (`create`, `destroy`,
-`set_name`, `set_transform`, `set_color`, `set_visible`). Transform and colour are real
-ECS components the surface writes through; names, visibility, and parenting are
-host-side editor metadata the simulation keeps beside each entity's handle
-(`parent`/`set_parent`). Editor-created entities carry no motion components, so the
-spin/orbit systems never match them and they stay authorable while the world plays —
-only the seeded demo cubes are system-driven. The Hierarchy renders these entities as a
-tree (drag-and-drop reparents; dropping on empty space unparents to root), guarded
-against cycles by walking the candidate parent's own ancestor chain before accepting a
-drop, and the Inspector edits the selection; the editor GUI goes through Dear ImGui.
-`EditorContext` splits selection in two: `selected_entity` is the single "primary"
-target the Inspector, viewport gizmo, and Align/Move-to-View act on, while
-`selected_entities` is the Hierarchy's full multi-selection (Ctrl+click toggles
+(`entities`, `name`, `transform`, `color`, `visible`, `has_renderer`, `is_camera`) and
+mutated (`create`, `destroy`, `set_name`, `set_transform`, `set_color`, `set_visible`,
+`set_has_renderer`, `set_is_camera`). Transform, colour, and the Camera lens are real ECS
+components the surface writes through; names, visibility, and parenting are host-side
+editor metadata the simulation keeps beside each entity's handle (`parent`/`set_parent`).
+Editor-created entities carry no motion components, so the spin/orbit systems never match
+them and they stay authorable while the world plays — only the seeded demo cubes are
+system-driven. The Hierarchy renders these entities as a tree (drag-and-drop reparents;
+dropping on empty space unparents to root), guarded against cycles by walking the
+candidate parent's own ancestor chain before accepting a drop, and the Inspector edits
+the selection — including, for Camera and Renderer, an "x" on the header to detach the
+component and an "Add Component" menu offering whichever is missing; the editor GUI goes
+through Dear ImGui. `EditorContext` splits selection in two: `selected_entity` is the
+single "primary" target the Inspector, viewport gizmo, and Align/Move-to-View act on,
+while `selected_entities` is the Hierarchy's full multi-selection (Ctrl+click toggles
 membership; Shift+click ranges from `selection_anchor` — the last plain or Ctrl click —
 over the tree's depth-first display order, or the filtered order when a search filter
 narrows the list). A plain click collapses both back to one entity
 (`select_only`/`toggle_selected`/`is_selected` in `editor_context.hpp`); `Delete` acts on
 the whole vector.
-Because parenting is host metadata rather than an ECS `Parent` component, the extract
-pass composes each entity's object-to-world matrix by walking its parent chain on the
-host (`RuntimeSimulation::world_matrix`, bounded by the live entity count against a
+
+Because parenting is host metadata rather than an ECS `Parent` component, both the
+extract pass and a reparent walk the parent chain on the host
+(`RuntimeSimulation::world_transform`, bounded by the live entity count against a
 corrupt chain) rather than in a kernel — the same host-copy-first posture as extract
-itself, revisited only if parenting needs to affect systems running on the device.
+itself, revisited only if parenting needs to affect systems running on the device. World
+pose is composed as a shear-free hierarchical TRS chain rather than a general `Mat4`
+product (`world_scale = parent_scale * local_scale`, `world_rotation = parent_rotation *
+local_rotation`, `world_position = parent_position + parent_rotation ∘ (parent_scale *
+local_position)`, matching Unity's model) precisely because that form is invertible:
+`set_parent` uses the inverse to recompute the child's local transform at the moment of
+reparenting, so its resolved world-space pose is unchanged by the move rather than being
+reinterpreted (and visibly jumping) in the new parent's space.
 
 ## 6. The value-type seam
 

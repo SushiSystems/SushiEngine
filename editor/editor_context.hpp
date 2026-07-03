@@ -127,6 +127,21 @@ namespace sushi::editor
         // CommandHistory) and the menu/keyboard shortcuts drive undo()/redo().
         CommandHistory history;
 
+        // The history revision as of the last successful save/load, so `scene_is_dirty`
+        // can tell "changed since save" apart from "never changed" without diffing
+        // snapshots. Set from `history.revision()` by New/Save/Save As/Open.
+        std::uint64_t saved_scene_revision = 0;
+
+        // Set when the OS asks to close the window; the main loop holds the window
+        // open and shows a confirm-close modal instead of exiting immediately when the
+        // scene is dirty (see `scene_is_dirty`).
+        bool close_requested = false;
+
+        // Set when the Save-As modal was opened to unblock a pending close (the scene
+        // had never been saved). On a successful save it lets the modal finish the
+        // close; on cancel it aborts the pending close instead of leaving it stuck.
+        bool exit_after_save = false;
+
         // Project panel state: the single selected file/folder (full path, empty if
         // none), the path currently in inline rename, and the name-search filter
         // applied to the current folder's contents.
@@ -139,6 +154,11 @@ namespace sushi::editor
 
         PanelVisibility panels;
         PlayState play_state = PlayState::Stopped;
+
+        // One-shot request from the toolbar's Step button: advance the world exactly
+        // one tick this frame regardless of play_state (typically pressed while
+        // Paused), then the main loop clears it.
+        bool step_requested = false;
 
         std::string hierarchy_filter;
 
@@ -198,6 +218,18 @@ namespace sushi::editor
                     static_cast<std::ptrdiff_t>(context.console_lines.size() -
                                                 MAX_CONSOLE_LINES));
         }
+    }
+
+    /**
+     * @brief Whether the scene has unsaved changes.
+     *
+     * True whenever the undo history has advanced past the revision recorded at the
+     * last successful New/Open/Save, so the title bar's "*" and the close-confirm
+     * modal always agree with what Ctrl+Z/Y would actually undo back to.
+     */
+    inline bool scene_is_dirty(const EditorContext& context) noexcept
+    {
+        return context.history.revision() != context.saved_scene_revision;
     }
 
     /** @brief Whether @p id is part of the current Hierarchy multi-selection. */
