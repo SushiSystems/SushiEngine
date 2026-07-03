@@ -340,6 +340,89 @@ namespace sushi::editor
         return false;
     }
 
+    namespace
+    {
+        // Wipes the live world back to empty. Shared by the immediate path (scene
+        // already clean) and `perform_pending_scene_action` (scene was dirty and the
+        // unsaved-changes prompt just resolved it).
+        void new_scene(EditorContext& context)
+        {
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr)
+                return;
+            context.history.record(*world);
+            for (const EntityId id : world->entities())
+                world->destroy(id);
+            context.scene_path.clear();
+            context.saved_scene_revision = context.history.revision();
+            select_only(context, NULL_ENTITY);
+            editor_log(context, "New scene.");
+        }
+
+        // Loads @p path over the live world. Shared by the immediate path and
+        // `perform_pending_scene_action`.
+        void open_scene(EditorContext& context, const std::string& path)
+        {
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr)
+                return;
+            if (load_scene(*world, path))
+            {
+                context.scene_path = path;
+                context.saved_scene_revision = context.history.revision();
+                select_only(context, NULL_ENTITY);
+                editor_log(context, "Loaded scene '" + path + "'.");
+            }
+            else
+            {
+                editor_log(context, "Failed to load scene '" + path + "'.");
+            }
+        }
+
+        // Runs whichever scene replacement was parked in `pending_scene_action`, then
+        // clears it. Called once the unsaved-changes prompt (or its absence, when the
+        // scene was already clean) has cleared the way.
+        void perform_pending_scene_action(EditorContext& context)
+        {
+            switch (context.pending_scene_action)
+            {
+                case EditorContext::PendingSceneAction::New:
+                    new_scene(context);
+                    break;
+                case EditorContext::PendingSceneAction::Open:
+                    open_scene(context, context.pending_scene_open_path);
+                    break;
+                case EditorContext::PendingSceneAction::None:
+                    break;
+            }
+            context.pending_scene_action = EditorContext::PendingSceneAction::None;
+            context.pending_scene_open_path.clear();
+        }
+    }
+
+    // Requests a scene replacement (New or Open), deferring to the unsaved-changes
+    // prompt when the current scene is dirty rather than discarding it silently.
+    void request_new_scene(EditorContext& context)
+    {
+        if (scene_is_dirty(context))
+            context.pending_scene_action = EditorContext::PendingSceneAction::New;
+        else
+            new_scene(context);
+    }
+
+    void request_open_scene(EditorContext& context, const std::string& path)
+    {
+        if (scene_is_dirty(context))
+        {
+            context.pending_scene_action = EditorContext::PendingSceneAction::Open;
+            context.pending_scene_open_path = path;
+        }
+        else
+        {
+            open_scene(context, path);
+        }
+    }
+
     void draw_menu_bar(EditorContext& context)
     {
         if (!ImGui::BeginMainMenuBar())
@@ -356,14 +439,7 @@ namespace sushi::editor
             }
             ImGui::Separator();
             if (ImGui::MenuItem("New Scene", nullptr, false, world != nullptr))
-            {
-                context.history.record(*world);
-                for (const EntityId id : world->entities())
-                    world->destroy(id);
-                context.scene_path.clear();
-                select_only(context, NULL_ENTITY);
-                editor_log(context, "New scene.");
-            }
+                request_new_scene(context);
             if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, world != nullptr))
                 (void)save_current_scene(context);
             if (ImGui::MenuItem("Save Scene As...", nullptr, false, world != nullptr))
@@ -1099,14 +1175,7 @@ namespace sushi::editor
                         context.current_directory = path_string;
                     else if (entry.path().extension() == ".sushiscene")
                     {
-                        IWorldEditor* world = world_of(context);
-                        if (world != nullptr && load_scene(*world, path_string))
-                        {
-                            context.scene_path = path_string;
-                            context.saved_scene_revision = context.history.revision();
-                            select_only(context, NULL_ENTITY);
-                            editor_log(context, "Loaded scene '" + path_string + "'.");
-                        }
+                        request_open_scene(context, path_string);
                     }
                     else if (has_text_extension(entry.path()))
                         open_document(context, entry.path());
@@ -1121,14 +1190,7 @@ namespace sushi::editor
                     {
                         if (entry.path().extension() == ".sushiscene")
                         {
-                            IWorldEditor* world = world_of(context);
-                            if (world != nullptr && load_scene(*world, path_string))
-                            {
-                                context.scene_path = path_string;
-                                context.saved_scene_revision = context.history.revision();
-                                select_only(context, NULL_ENTITY);
-                                editor_log(context, "Loaded scene '" + path_string + "'.");
-                            }
+                            request_open_scene(context, path_string);
                         }
                         else if (has_text_extension(entry.path()))
                             open_document(context, entry.path());
@@ -1479,9 +1541,12 @@ namespace sushi::editor
                     context.saved_scene_revision = context.history.revision();
                     editor_log(context, "Saved scene '" + context.scene_path + "'.");
                     // This save-as was raised to unblock a pending window close (Ctrl+S
-                    // or "Save" from the unsaved-changes prompt with no scene path yet).
+                    // or "Save" from the unsaved-changes prompt with no scene path yet)
+                    // or a pending New/Open scene request; finish whichever is waiting.
                     if (context.exit_after_save)
                         running = false;
+                    else if (context.pending_scene_action != EditorContext::PendingSceneAction::None)
+                        perform_pending_scene_action(context);
                 }
                 else
                 {
@@ -1493,9 +1558,12 @@ namespace sushi::editor
             }
             else if (cancelled)
             {
-                // A cancelled save-as also aborts any pending close it was raised for.
+                // A cancelled save-as also aborts any pending close or pending
+                // New/Open scene request it was raised for.
                 if (context.exit_after_save)
                     context.close_requested = false;
+                context.pending_scene_action = EditorContext::PendingSceneAction::None;
+                context.pending_scene_open_path.clear();
                 context.show_save_scene_as = false;
                 context.exit_after_save = false;
                 ImGui::CloseCurrentPopup();
@@ -1544,6 +1612,54 @@ namespace sushi::editor
             if (ImGui::Button("Cancel"))
             {
                 context.close_requested = false;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
+    void draw_scene_action_confirm_modal(EditorContext& context)
+    {
+        if (context.pending_scene_action == EditorContext::PendingSceneAction::None)
+            return;
+        // A Save-As triggered by this same request is still pending; wait for it
+        // (draw_save_scene_as_modal resolves pending_scene_action itself on save or
+        // cancel).
+        if (context.show_save_scene_as)
+            return;
+        if (!scene_is_dirty(context))
+        {
+            perform_pending_scene_action(context);
+            return;
+        }
+
+        const char* popup_id = "Unsaved Changes##scene_action";
+        ImGui::OpenPopup(popup_id);
+        if (ImGui::BeginPopupModal(popup_id, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::Text("The scene has unsaved changes. Save before continuing?");
+            ImGui::Spacing();
+
+            if (ImGui::Button("Save"))
+            {
+                if (save_current_scene(context))
+                    perform_pending_scene_action(context); // saved straight to an existing path
+                // else: save_current_scene opened the Save-As modal, which finishes the
+                // pending action once the save completes.
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Don't Save"))
+            {
+                perform_pending_scene_action(context);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel"))
+            {
+                context.pending_scene_action = EditorContext::PendingSceneAction::None;
+                context.pending_scene_open_path.clear();
                 ImGui::CloseCurrentPopup();
             }
 

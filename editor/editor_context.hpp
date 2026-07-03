@@ -142,6 +142,20 @@ namespace sushi::editor
         // close; on cancel it aborts the pending close instead of leaving it stuck.
         bool exit_after_save = false;
 
+        // A New Scene / Open Scene request raised while the current scene was dirty,
+        // parked here so the unsaved-changes prompt can run first. `None` means no
+        // action is pending; `pending_scene_open_path` holds the target for `Open`
+        // (unused, empty for `New`). Resolved by `perform_pending_scene_action`, which
+        // the prompt's Save/Don't Save buttons call once the scene is safe to replace.
+        enum class PendingSceneAction
+        {
+            None,
+            New,
+            Open
+        };
+        PendingSceneAction pending_scene_action = PendingSceneAction::None;
+        std::string pending_scene_open_path;
+
         // Project panel state: the single selected file/folder (full path, empty if
         // none), the path currently in inline rename, and the name-search filter
         // applied to the current folder's contents.

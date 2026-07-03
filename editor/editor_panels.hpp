@@ -154,6 +154,19 @@ namespace sushi::editor
     void draw_exit_confirm_modal(EditorContext& context, bool& running);
 
     /**
+     * @brief Draw the "unsaved changes" confirm prompt for a pending New/Open Scene
+     * request made while the current scene was dirty.
+     *
+     * A no-op unless @ref EditorContext::pending_scene_action is set. If the scene is
+     * clean, runs the pending action immediately. Otherwise offers Save / Don't Save /
+     * Cancel; Save routes through @ref save_current_scene, deferring to the Save-As
+     * modal if the scene has never been saved.
+     *
+     * @param context Shared editor state.
+     */
+    void draw_scene_action_confirm_modal(EditorContext& context);
+
+    /**
      * @brief Apply a theme to ImGui's active style.
      *
      * Kept as a free function so both startup (from the loaded preferences) and the
