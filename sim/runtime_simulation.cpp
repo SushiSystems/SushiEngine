@@ -240,6 +240,68 @@ namespace SushiEngine
                         extract();
                     }
 
+                    EntityTransform world_transform(EntityId id) const override
+                    {
+                        std::vector<EntityTransform> chain;
+                        std::size_t guard = records_.size() + 1;
+                        for (EntityId current = id;
+                             current != NULL_ENTITY && guard > 0; --guard)
+                        {
+                            const Record* record = find(current);
+                            if (record == nullptr || !world_.alive(record->entity))
+                                break;
+                            const Transform& t = world_.get<Transform>(record->entity);
+                            const Orientation& o = world_.get<Orientation>(record->entity);
+                            chain.push_back(EntityTransform{t.position, o.rotation, t.scale});
+                            current = record->parent;
+                        }
+                        EntityTransform result; // identity
+                        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+                        {
+                            EntityTransform next;
+                            next.scale = Vector3{result.scale.x * it->scale.x,
+                                             result.scale.y * it->scale.y,
+                                             result.scale.z * it->scale.z};
+                            next.rotation = normalize(mul(result.rotation, it->rotation));
+                            const Vector3 scaled_local = Vector3{result.scale.x * it->position.x,
+                                                          result.scale.y * it->position.y,
+                                                          result.scale.z * it->position.z};
+                            next.position =
+                                result.position + rotate(result.rotation, scaled_local);
+                            result = next;
+                        }
+                        return result;
+                    }
+
+                    void set_world_transform(EntityId id, const EntityTransform& world) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return;
+
+                        if (record->parent == NULL_ENTITY)
+                        {
+                            set_transform(id, world);
+                            return;
+                        }
+
+                        const EntityTransform parent_world = world_transform(record->parent);
+
+                        EntityTransform new_local;
+                        new_local.scale = Vector3{safe_div(world.scale.x, parent_world.scale.x),
+                                              safe_div(world.scale.y, parent_world.scale.y),
+                                              safe_div(world.scale.z, parent_world.scale.z)};
+                        new_local.rotation =
+                            normalize(mul(conjugate(parent_world.rotation), world.rotation));
+                        const Vector3 delta = rotate(conjugate(parent_world.rotation),
+                                                  world.position - parent_world.position);
+                        new_local.position = Vector3{safe_div(delta.x, parent_world.scale.x),
+                                                 safe_div(delta.y, parent_world.scale.y),
+                                                 safe_div(delta.z, parent_world.scale.z)};
+
+                        set_transform(id, new_local);
+                    }
+
                     void set_color(EntityId id, const Vector3& value) override
                     {
                         Record* record = find(id);
@@ -565,6 +627,28 @@ namespace SushiEngine
                         set_transform(child, new_local);
                     }
 
+                    void move_entity(EntityId id, EntityId target, bool insert_after) override
+                    {
+                        if (id == target || id == NULL_ENTITY || target == NULL_ENTITY)
+                            return;
+
+                        auto it_id = std::find(order_.begin(), order_.end(), id);
+                        auto it_target = std::find(order_.begin(), order_.end(), target);
+
+                        if (it_id == order_.end() || it_target == order_.end())
+                            return;
+
+                        order_.erase(it_id);
+
+                        // Iterator might have been invalidated, so find again
+                        it_target = std::find(order_.begin(), order_.end(), target);
+
+                        if (insert_after)
+                            order_.insert(it_target + 1, id);
+                        else
+                            order_.insert(it_target, id);
+                    }
+
                 private:
                     /** @brief The editor metadata paired with each entity's ECS handle. */
                     struct Record
@@ -663,50 +747,7 @@ namespace SushiEngine
                         return false;
                     }
 
-                    /**
-                     * @brief Composes an entity's world-space TRS along its parent chain.
-                     *
-                     * Position/rotation/scale are chained directly (world_scale =
-                     * parent_scale * local_scale, world_rotation = parent_rotation *
-                     * local_rotation, world_position = parent_position + parent_rotation
-                     * applied to parent_scale * local_position) rather than through a
-                     * general Mat4 product, so scale never introduces shear and the
-                     * result can be inverted — reparenting needs exactly that inverse to
-                     * keep an object's world pose fixed across the move. A bounded walk
-                     * guards against a corrupt chain rather than recursing unboundedly.
-                     */
-                    EntityTransform world_transform(EntityId id) const
-                    {
-                        std::vector<EntityTransform> chain;
-                        std::size_t guard = records_.size() + 1;
-                        for (EntityId current = id;
-                             current != NULL_ENTITY && guard > 0; --guard)
-                        {
-                            const Record* record = find(current);
-                            if (record == nullptr || !world_.alive(record->entity))
-                                break;
-                            const Transform& t = world_.get<Transform>(record->entity);
-                            const Orientation& o = world_.get<Orientation>(record->entity);
-                            chain.push_back(EntityTransform{t.position, o.rotation, t.scale});
-                            current = record->parent;
-                        }
-                        EntityTransform result; // identity
-                        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
-                        {
-                            EntityTransform next;
-                            next.scale = Vector3{result.scale.x * it->scale.x,
-                                             result.scale.y * it->scale.y,
-                                             result.scale.z * it->scale.z};
-                            next.rotation = normalize(mul(result.rotation, it->rotation));
-                            const Vector3 scaled_local = Vector3{result.scale.x * it->position.x,
-                                                          result.scale.y * it->position.y,
-                                                          result.scale.z * it->position.z};
-                            next.position =
-                                result.position + rotate(result.rotation, scaled_local);
-                            result = next;
-                        }
-                        return result;
-                    }
+
 
                     /** @brief The object-to-world matrix for @p id, built from @ref world_transform. */
                     Mat4 world_matrix(EntityId id) const

@@ -33,6 +33,7 @@
 #include <fstream>
 #include <sstream>
 #include <system_error>
+#include <unordered_map>
 
 #include <filesystem>
 
@@ -320,18 +321,25 @@ namespace SushiEngine
                 return context.simulation != nullptr ? &context.simulation->world() : nullptr;
             }
 
-            // Shared "Create Entity" / "Objects > Box/Sphere/Cylinder/Terrain" menu
-            // items, reused by the GameObject menu, the hierarchy's row context menu,
-            // its empty-space context menu, and the filtered search view, so all four
-            // entry points create identically. The new entity is selected the same
-            // way every other creation path in this file already does.
+            // Shared "Create Empty Entity" / "Camera" / "Objects > Box/Sphere/Cylinder/
+            // Terrain" menu items, reused by the Entity menu, the hierarchy's row context
+            // menu, its empty-space context menu, and the filtered search view, so all
+            // entry points create identically — the Entity menu can never drift out of
+            // sync with the Hierarchy's right-click menu. The new entity is selected the
+            // same way every other creation path in this file already does.
             void draw_create_object_menu_items(EditorContext& context, IWorldEditor* world)
             {
-                if (ImGui::MenuItem("Create Entity", nullptr, false, world != nullptr))
+                if (ImGui::MenuItem("Create Empty Entity", nullptr, false, world != nullptr))
                 {
                     context.history.record(*world);
                     select_only(context, world->create("Entity"));
                     editor_log(context, "Created entity 'Entity'.");
+                }
+                if (ImGui::MenuItem("Camera", nullptr, false, world != nullptr))
+                {
+                    context.history.record(*world);
+                    select_only(context, world->create_camera("Camera"));
+                    editor_log(context, "Created camera 'Camera'.");
                 }
                 if (ImGui::BeginMenu("Objects", world != nullptr))
                 {
@@ -362,6 +370,130 @@ namespace SushiEngine
                     ImGui::EndMenu();
                 }
             }
+
+            // Shared Copy/Cut/Paste menu items, reused everywhere
+            // `draw_create_object_menu_items` is (see its comment) so clipboard actions
+            // never drift out of sync between the Edit menu and the Hierarchy either.
+            void draw_clipboard_menu_items(EditorContext& context, IWorldEditor* world)
+            {
+                const bool has_selection = world != nullptr && !context.selected_entities.empty();
+                if (ImGui::MenuItem("Copy", "Ctrl+C", false, has_selection))
+                    copy_selection(context);
+                if (ImGui::MenuItem("Cut", "Ctrl+X", false, has_selection))
+                    cut_selection(context);
+                if (ImGui::MenuItem("Paste", "Ctrl+V", false,
+                                    world != nullptr && !context.clipboard.empty()))
+                    paste_clipboard(context);
+            }
+        }
+
+        void copy_selection(EditorContext& context)
+        {
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr || context.selected_entities.empty())
+                return;
+
+            context.clipboard.clear();
+            context.clipboard.reserve(context.selected_entities.size());
+            for (const EntityId id : context.selected_entities)
+            {
+                ClipboardEntity entry;
+                entry.original = id;
+                entry.original_parent = world->parent(id);
+                entry.name = world->name(id);
+                entry.transform = world->transform(id);
+                entry.color = world->color(id);
+                entry.visible = world->visible(id);
+                entry.has_renderer = world->has_renderer(id);
+                entry.is_camera = world->is_camera(id);
+                entry.camera_params = world->camera_params(id);
+                entry.has_physics_body = world->has_physics_body(id);
+                entry.physics_body_params = world->physics_body_params(id);
+                entry.has_cloth = world->has_cloth(id);
+                entry.cloth_params = world->cloth_params(id);
+                entry.has_shape = world->has_shape(id);
+                entry.shape_params = world->shape_params(id);
+                entry.has_collider = world->has_collider(id);
+                entry.collider_params = world->collider_params(id);
+                context.clipboard.push_back(entry);
+            }
+            editor_log(context, "Copied " + std::to_string(context.clipboard.size()) + " entit" +
+                                     (context.clipboard.size() == 1 ? "y" : "ies") + ".");
+        }
+
+        void cut_selection(EditorContext& context)
+        {
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr || context.selected_entities.empty())
+                return;
+
+            copy_selection(context);
+            context.history.record(*world);
+            for (const EntityId id : context.selected_entities)
+                world->destroy(id);
+            select_only(context, NULL_ENTITY);
+            editor_log(context, "Cut " + std::to_string(context.clipboard.size()) + " entit" +
+                                     (context.clipboard.size() == 1 ? "y" : "ies") + ".");
+        }
+
+        void paste_clipboard(EditorContext& context)
+        {
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr || context.clipboard.empty())
+                return;
+
+            context.history.record(*world);
+
+            std::unordered_map<EntityId, EntityId> original_to_new;
+            std::vector<EntityId> pasted;
+            pasted.reserve(context.clipboard.size());
+
+            for (const ClipboardEntity& entry : context.clipboard)
+            {
+                const EntityId id = world->create(entry.name);
+                world->set_transform(id, entry.transform);
+                world->set_color(id, entry.color);
+                world->set_visible(id, entry.visible);
+                world->set_has_renderer(id, entry.has_renderer);
+                world->set_is_camera(id, entry.is_camera);
+                if (entry.is_camera)
+                    world->set_camera_params(id, entry.camera_params);
+                world->set_has_physics_body(id, entry.has_physics_body);
+                if (entry.has_physics_body)
+                    world->set_physics_body_params(id, entry.physics_body_params);
+                world->set_has_cloth(id, entry.has_cloth);
+                if (entry.has_cloth)
+                    world->set_cloth_params(id, entry.cloth_params);
+                world->set_has_shape(id, entry.has_shape);
+                if (entry.has_shape)
+                    world->set_shape_params(id, entry.shape_params);
+                world->set_has_collider(id, entry.has_collider);
+                if (entry.has_collider)
+                    world->set_collider_params(id, entry.collider_params);
+
+                original_to_new[entry.original] = id;
+                pasted.push_back(id);
+            }
+
+            // Second pass: internal parent/child links between copied entities take
+            // priority; anything else falls back to the original's external parent
+            // (still alive) so a paste-in-place keeps its old spot in the hierarchy.
+            for (std::size_t i = 0; i < context.clipboard.size(); ++i)
+            {
+                const ClipboardEntity& entry = context.clipboard[i];
+                const EntityId new_id = pasted[i];
+                const auto mapped = original_to_new.find(entry.original_parent);
+                if (mapped != original_to_new.end())
+                    world->set_parent(new_id, mapped->second);
+                else if (world->exists(entry.original_parent))
+                    world->set_parent(new_id, entry.original_parent);
+            }
+
+            context.selected_entity = pasted.empty() ? NULL_ENTITY : pasted.back();
+            context.selection_anchor = context.selected_entity;
+            context.selected_entities = pasted;
+            editor_log(context, "Pasted " + std::to_string(pasted.size()) + " entit" +
+                                     (pasted.size() == 1 ? "y" : "ies") + ".");
         }
 
         bool save_current_scene(EditorContext& context)
@@ -520,20 +652,16 @@ namespace SushiEngine
                     world != nullptr && context.history.redo(*world))
                     select_only(context, NULL_ENTITY);
                 ImGui::Separator();
+                draw_clipboard_menu_items(context, world);
+                ImGui::Separator();
                 if (ImGui::MenuItem("Preferences...", nullptr))
                     context.show_preferences = true;
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("GameObject"))
+            if (ImGui::BeginMenu("Entity"))
             {
                 draw_create_object_menu_items(context, world);
-                if (ImGui::MenuItem("Camera", nullptr, false, world != nullptr))
-                {
-                    context.history.record(*world);
-                    select_only(context, world->create_camera("Camera"));
-                    editor_log(context, "Created camera 'Camera'.");
-                }
                 ImGui::Separator();
                 const bool has_selection =
                     world != nullptr && world->exists(context.selected_entity);
@@ -676,11 +804,57 @@ namespace SushiEngine
                 if (ImGui::BeginDragDropTarget())
                 {
                     if (const ImGuiPayload* payload =
-                            ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
+                            ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY", ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
                     {
                         const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
-                        context.history.record(*world);
-                        world->set_parent(dragged, id);
+                        
+                        ImVec2 mouse_pos = ImGui::GetMousePos();
+                        ImVec2 item_pos = ImGui::GetItemRectMin();
+                        ImVec2 item_size = ImGui::GetItemRectSize();
+                        
+                        bool drop_before = mouse_pos.y < item_pos.y + item_size.y * 0.25f;
+                        bool drop_after = mouse_pos.y > item_pos.y + item_size.y * 0.75f;
+                        
+                        if (payload->IsDelivery())
+                        {
+                            context.history.record(*world);
+                            if (drop_before)
+                            {
+                                world->set_parent(dragged, world->parent(id));
+                                world->move_entity(dragged, id, false);
+                            }
+                            else if (drop_after)
+                            {
+                                world->set_parent(dragged, world->parent(id));
+                                world->move_entity(dragged, id, true);
+                            }
+                            else
+                            {
+                                world->set_parent(dragged, id);
+                            }
+                        }
+                        else
+                        {
+                            if (drop_before)
+                            {
+                                ImGui::GetWindowDrawList()->AddLine(
+                                    item_pos, ImVec2(item_pos.x + item_size.x, item_pos.y),
+                                    IM_COL32(255, 255, 0, 255), 2.0f);
+                            }
+                            else if (drop_after)
+                            {
+                                ImGui::GetWindowDrawList()->AddLine(
+                                    ImVec2(item_pos.x, item_pos.y + item_size.y),
+                                    ImVec2(item_pos.x + item_size.x, item_pos.y + item_size.y),
+                                    IM_COL32(255, 255, 0, 255), 2.0f);
+                            }
+                            else
+                            {
+                                ImGui::GetWindowDrawList()->AddRect(
+                                    item_pos, ImVec2(item_pos.x + item_size.x, item_pos.y + item_size.y),
+                                    IM_COL32(255, 255, 0, 255), 0.0f, 0, 2.0f);
+                            }
+                        }
                     }
                     ImGui::EndDragDropTarget();
                 }
@@ -702,6 +876,8 @@ namespace SushiEngine
                     }
                     if (ImGui::MenuItem("Delete"))
                         delete_requested = true;
+                    ImGui::Separator();
+                    draw_clipboard_menu_items(context, world);
                     ImGui::Separator();
                     draw_create_object_menu_items(context, world);
                     ImGui::EndPopup();
@@ -830,6 +1006,8 @@ namespace SushiEngine
                                 if (ImGui::MenuItem("Delete"))
                                     delete_requested = true;
                                 ImGui::Separator();
+                                draw_clipboard_menu_items(context, world);
+                                ImGui::Separator();
                                 draw_create_object_menu_items(context, world);
                                 ImGui::EndPopup();
                             }
@@ -867,9 +1045,16 @@ namespace SushiEngine
                                                         ImGuiPopupFlags_MouseButtonRight |
                                                             ImGuiPopupFlags_NoOpenOverItems))
                     {
+                        draw_clipboard_menu_items(context, world);
+                        ImGui::Separator();
                         draw_create_object_menu_items(context, world);
                         ImGui::EndPopup();
                     }
+                }
+
+                if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
+                {
+                    select_only(context, NULL_ENTITY);
                 }
             }
             ImGui::EndChild();
@@ -1139,7 +1324,7 @@ namespace SushiEngine
                         float half_extents[3] = {static_cast<float>(params.params.x),
                                                  static_cast<float>(params.params.y),
                                                  static_cast<float>(params.params.z)};
-                        if (ImGui::DragFloat3("Half Extents", half_extents, 0.01f, 0.01f, 1000.0f, "%.3f"))
+                        if (ImGui::DragFloat3("Half Extents##Shape", half_extents, 0.01f, 0.01f, 1000.0f, "%.3f"))
                         {
                             params.params = SushiEngine::Vector3{half_extents[0], half_extents[1],
                                                               half_extents[2]};
@@ -1231,8 +1416,8 @@ namespace SushiEngine
                                           static_cast<float>(params.params.y),
                                           static_cast<float>(params.params.z)};
                         const char* label = params.kind == SushiEngine::Simulation::PrimitiveKind::Box
-                                               ? "Half Extents"
-                                               : "Radius / Half Height";
+                                               ? "Half Extents##Collider"
+                                               : "Radius / Half Height##Collider";
                         if (ImGui::DragFloat3(label, values, 0.01f, 0.01f, 1000.0f, "%.3f"))
                         {
                             params.params = SushiEngine::Vector3{values[0], values[1], values[2]};

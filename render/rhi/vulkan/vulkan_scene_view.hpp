@@ -84,7 +84,7 @@ namespace SushiEngine
                 private:
                     static constexpr std::uint32_t SLOTS = 2;
                     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
-                    static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
+                    static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D24_UNORM_S8_UINT;
                     static constexpr VkFormat ID_FORMAT = VK_FORMAT_R32_UINT;
 
                     /** @brief A VMA-backed buffer with its element count. */
@@ -129,6 +129,7 @@ namespace SushiEngine
                     VkPipelineLayout layout_ = VK_NULL_HANDLE;
                     VkPipeline mesh_pipeline_ = VK_NULL_HANDLE;
                     VkPipeline line_pipeline_ = VK_NULL_HANDLE;
+                    VkPipeline outline_pipeline_ = VK_NULL_HANDLE;
                     VkSampler sampler_ = VK_NULL_HANDLE;
                     Buffer cube_vertices_;
                     Buffer cube_indices_;

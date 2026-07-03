@@ -8,7 +8,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Fixed
+- **Viewport gizmo incorrectly applied local transforms as world transforms on child objects.**
+  The Scene viewport's transform gizmo now correctly uses `world_transform` and writes back through the new `set_world_transform` API on `IWorldEditor`. This prevents objects from jumping to incorrect positions when manipulated after being reparented, keeping the gizmo correctly anchored in world space.
+
 ### Added
+- **Hierarchy drag-and-drop reordering.** Entities can now be reordered among their siblings by dragging and dropping them within the Hierarchy panel. A drop indicator shows where the entity will be inserted (before or after the target).
+- **Hierarchy empty-space deselection.** Clicking on empty space within the Hierarchy panel now clears the active selection.
+
+### Added
+- **Entity Copy/Cut/Paste**, with Ctrl+C/Ctrl+X/Ctrl+V shortcuts, in the Edit menu
+  and every Hierarchy context menu. Implemented entirely through existing
+  `IWorldEditor` getters/setters (no new engine primitive): Copy snapshots the
+  selection's full authored state (transform, colour, visibility, Renderer/Camera/
+  Rigid Body/Cloth/Shape/Collider) into `EditorContext::clipboard`; Paste replays it
+  onto freshly created entities, preserving internal parent/child links within the
+  pasted set and re-parenting to the original external parent otherwise; Cut is
+  Copy followed by deleting the originals.
 - **Primitive object creation: Box, Sphere, Cylinder, and Terrain.** The Hierarchy's
   right-click menu, the GameObject menu, and the empty-space Hierarchy context menu
   all gain "Create Entity" plus an "Objects" submenu (`IWorldEditor::create_box`/
@@ -32,6 +48,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   edges.
 
 ### Changed
+- **The "GameObject" menu is renamed "Entity"**, and "Create Entity" is renamed
+  "Create Empty Entity" everywhere it appears (menu bar, Hierarchy right-click, and
+  the Hierarchy's empty-space context menu). Camera creation moved into the shared
+  `draw_create_object_menu_items` helper so the Entity menu and every Hierarchy
+  context menu offer identical creation options — previously Camera existed only in
+  the top menu, out of sync with the Hierarchy's right-click menu.
 - **A plain "Create Entity" is now a bare `Transform`, not a disguised cube.**
   `RuntimeSimulation::create()` no longer attaches a default Renderer/Tint; the
   renderer now draws an entity only when it has both a Renderer and a `Shape`

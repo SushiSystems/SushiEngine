@@ -141,6 +141,27 @@ namespace SushiEngine
                 SushiEngine::mul(camera_view.projection, camera_view.view);
             const Vector3 pivot = transform.position;
 
+            // Calculate a scale factor to keep the gizmo roughly constant size on screen.
+            const SushiEngine::Scalar* m = view_projection.m;
+            float w = static_cast<float>(m[3] * pivot.x + m[7] * pivot.y + m[11] * pivot.z + m[15]);
+            if (std::abs(w) < 0.0001f) w = 1.0f;
+
+            float proj_y = static_cast<float>(camera_view.projection.m[5]);
+            if (std::abs(proj_y) < 0.0001f) proj_y = 1.0f;
+
+            float frustum_height;
+            if (std::abs(static_cast<float>(camera_view.projection.m[15])) > 0.0001f)
+            {
+                // Orthographic projection
+                frustum_height = 2.0f / std::abs(proj_y);
+            }
+            else
+            {
+                // Perspective projection
+                frustum_height = std::abs(w) * 2.0f / std::abs(proj_y);
+            }
+            const float gizmo_scale = frustum_height * 0.15f; // Increased from 0.08f for better visibility
+
             // Scale always drags in local axes (see GizmoSpace); Translate/Rotate honour space_.
             const bool use_local = mode == GizmoMode::Scale || space == GizmoSpace::Local;
 
@@ -170,7 +191,7 @@ namespace SushiEngine
                 // measures the signed angle swept between world-space vectors — this is
                 // exact regardless of which side of the axis the camera views from, unlike
                 // a screen-space angle (which inverts on the far side).
-                const float ring_radius = 1.0f;
+                const float ring_radius = 1.0f * gizmo_scale;
                 constexpr int SEGMENTS = 48;
 
                 // Basis for each ring: two axes perpendicular to the ring's own axis.
@@ -282,7 +303,7 @@ namespace SushiEngine
 
             // Translate and Scale share axis handles from the pivot; only the drag mapping
             // and the tip glyph differ. Scale also gets a centre handle for uniform scale.
-            const float handle_length = 1.2f;
+            const float handle_length = 1.2f * gizmo_scale;
             ImVec2 tip_screen[3];
             bool tip_ok[3] = {false, false, false};
 

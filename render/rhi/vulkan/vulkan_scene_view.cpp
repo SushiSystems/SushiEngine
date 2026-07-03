@@ -32,6 +32,8 @@
 #include "mesh.vert.h"
 #include "mesh.frag.h"
 #include "line.frag.h"
+#include "outline.frag.h"
+#include "outline.vert.h"
 
 namespace SushiEngine
 {
@@ -262,12 +264,22 @@ namespace SushiEngine
                 depth.depthTestEnable = VK_TRUE;
                 depth.depthWriteEnable = VK_TRUE;
                 depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+                depth.stencilTestEnable = VK_TRUE;
+                depth.front.compareOp = VK_COMPARE_OP_ALWAYS;
+                depth.front.passOp = VK_STENCIL_OP_REPLACE;
+                depth.front.failOp = VK_STENCIL_OP_KEEP;
+                depth.front.depthFailOp = VK_STENCIL_OP_KEEP;
+                depth.front.compareMask = 0xFF;
+                depth.front.writeMask = 0xFF;
+                depth.front.reference = 0;
+                depth.back = depth.front;
 
-                const VkDynamicState dynamic_states[2] = {VK_DYNAMIC_STATE_VIEWPORT,
-                                                          VK_DYNAMIC_STATE_SCISSOR};
+                const VkDynamicState dynamic_states[3] = {VK_DYNAMIC_STATE_VIEWPORT,
+                                                          VK_DYNAMIC_STATE_SCISSOR,
+                                                          VK_DYNAMIC_STATE_STENCIL_REFERENCE};
                 VkPipelineDynamicStateCreateInfo dynamic{};
                 dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                dynamic.dynamicStateCount = 2;
+                dynamic.dynamicStateCount = 3;
                 dynamic.pDynamicStates = dynamic_states;
 
                 const VkFormat color_formats[2] = {COLOR_FORMAT, ID_FORMAT};
@@ -276,6 +288,7 @@ namespace SushiEngine
                 rendering_info.colorAttachmentCount = 2;
                 rendering_info.pColorAttachmentFormats = color_formats;
                 rendering_info.depthAttachmentFormat = DEPTH_FORMAT;
+                rendering_info.stencilAttachmentFormat = DEPTH_FORMAT;
 
                 // The two pipelines differ only in topology, cull mode, and fragment
                 // shader; everything else is shared, so build them from one template.
@@ -331,6 +344,78 @@ namespace SushiEngine
                 line_pipeline_ = build(VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
                                        VK_CULL_MODE_NONE, line_fragment);
 
+                VkShaderModule outline_vertex = make_shader(device_.device(),
+                                                            Shaders::outline_vert_spv,
+                                                            Shaders::outline_vert_spv_word_count);
+                VkShaderModule outline_fragment = make_shader(device_.device(),
+                                                             Shaders::outline_frag_spv,
+                                                             Shaders::outline_frag_spv_word_count);
+
+                auto build_outline = [&](VkShaderModule fragment) -> VkPipeline
+                {
+                    VkPipelineShaderStageCreateInfo stages[2]{};
+                    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+                    stages[0].module = vertex_module;
+                    stages[0].pName = "main";
+                    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    stages[1].module = fragment;
+                    stages[1].pName = "main";
+
+                    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+                    input_assembly.sType =
+                        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+                    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+                    VkPipelineRasterizationStateCreateInfo raster{};
+                    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+                    raster.polygonMode = VK_POLYGON_MODE_LINE;
+                    raster.cullMode = VK_CULL_MODE_NONE;
+                    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                    raster.lineWidth = 8.0f;
+                    raster.depthBiasEnable = VK_TRUE;
+                    raster.depthBiasConstantFactor = -2.0f;
+                    raster.depthBiasClamp = 0.0f;
+                    raster.depthBiasSlopeFactor = -2.0f;
+
+                    VkPipelineDepthStencilStateCreateInfo depth_outline = depth;
+                    depth_outline.depthWriteEnable = VK_FALSE;
+                    depth_outline.depthTestEnable = VK_TRUE;
+                    depth_outline.stencilTestEnable = VK_TRUE;
+                    depth_outline.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+                    depth_outline.front.passOp = VK_STENCIL_OP_KEEP;
+                    depth_outline.front.failOp = VK_STENCIL_OP_KEEP;
+                    depth_outline.front.depthFailOp = VK_STENCIL_OP_KEEP;
+                    depth_outline.front.reference = 1;
+                    depth_outline.back = depth_outline.front;
+
+                    VkGraphicsPipelineCreateInfo info{};
+                    info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+                    info.pNext = &rendering_info;
+                    info.stageCount = 2;
+                    info.pStages = stages;
+                    info.pVertexInputState = &vertex_input;
+                    info.pInputAssemblyState = &input_assembly;
+                    info.pViewportState = &viewport_state;
+                    info.pRasterizationState = &raster;
+                    info.pMultisampleState = &multisample;
+                    info.pDepthStencilState = &depth_outline;
+                    info.pColorBlendState = &blend;
+                    info.pDynamicState = &dynamic;
+                    info.layout = layout_;
+
+                    VkPipeline pipeline = VK_NULL_HANDLE;
+                    check(vkCreateGraphicsPipelines(device_.device(), VK_NULL_HANDLE, 1, &info,
+                                                    nullptr, &pipeline),
+                          "vkCreateGraphicsPipelines(outline)");
+                    return pipeline;
+                };
+
+                outline_pipeline_ = build_outline(outline_fragment);
+
+                vkDestroyShaderModule(device_.device(), outline_vertex, nullptr);
+                vkDestroyShaderModule(device_.device(), outline_fragment, nullptr);
                 vkDestroyShaderModule(device_.device(), line_fragment, nullptr);
                 vkDestroyShaderModule(device_.device(), mesh_fragment, nullptr);
                 vkDestroyShaderModule(device_.device(), vertex_module, nullptr);
@@ -338,6 +423,8 @@ namespace SushiEngine
 
             void VulkanSceneView::destroy_pipelines()
             {
+                if (outline_pipeline_ != VK_NULL_HANDLE)
+                    vkDestroyPipeline(device_.device(), outline_pipeline_, nullptr);
                 if (line_pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), line_pipeline_, nullptr);
                 if (mesh_pipeline_ != VK_NULL_HANDLE)
@@ -611,7 +698,7 @@ namespace SushiEngine
                     VkImageViewCreateInfo depth_view = color_view;
                     depth_view.image = slot.depth;
                     depth_view.format = DEPTH_FORMAT;
-                    depth_view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                    depth_view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
                     check(vkCreateImageView(device_.device(), &depth_view, nullptr,
                                             &slot.depth_view),
                           "vkCreateImageView(depth)");
@@ -740,10 +827,10 @@ namespace SushiEngine
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, color_src_stage,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, color_src_access,
                            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-                transition(slot.cmd, slot.depth, VK_IMAGE_ASPECT_DEPTH_BIT,
-                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                transition(slot.cmd, slot.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, 0,
+                           VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, 0,
                            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
                 // The id target is rebuilt every frame, so its prior contents are
                 // discarded (UNDEFINED) before it is cleared and drawn into.
@@ -775,7 +862,7 @@ namespace SushiEngine
                 VkRenderingAttachmentInfo depth_attachment{};
                 depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
                 depth_attachment.imageView = slot.depth_view;
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                 depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
                 depth_attachment.clearValue.depthStencil = {1.0f, 0};
@@ -787,6 +874,7 @@ namespace SushiEngine
                 rendering.colorAttachmentCount = 2;
                 rendering.pColorAttachments = color_attachments;
                 rendering.pDepthAttachment = &depth_attachment;
+                rendering.pStencilAttachment = &depth_attachment;
                 vkCmdBeginRendering(slot.cmd, &rendering);
 
                 VkViewport viewport{};
@@ -804,6 +892,7 @@ namespace SushiEngine
                 // Ground grid: a single flat-coloured line draw.
                 const std::uint32_t stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
                 vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
+                vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                 vkCmdBindVertexBuffers(slot.cmd, 0, 1, &grid_vertices_.buffer, &zero_offset);
                 const MeshPush grid_push =
                     make_push(view_projection, Mat4{}, Vector3{0.32f, 0.33f, 0.40f}, NO_PICK, NO_PICK);
@@ -841,8 +930,43 @@ namespace SushiEngine
                         const MeshPush push = make_push(view_projection, scaled_model,
                                                         instances[i].color, instances[i].id,
                                                         selected_id);
+                        vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                                 (instances[i].id == selected_id) ? 1 : 0);
                         vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
                         vkCmdDrawIndexed(slot.cmd, group.indices->count, 1, 0, 0, 0);
+                    }
+                }
+
+                // Outline rendering: render solid scaled shape of the selected object, masked by stencil.
+                if (selected_id != NO_PICK)
+                {
+                    vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                      outline_pipeline_);
+                    vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
+                    for (const auto& group : mesh_groups)
+                    {
+                        bool bound = false;
+                        for (std::size_t i = 0; i < count; ++i)
+                        {
+                            if (instances[i].kind != group.kind || instances[i].id != selected_id)
+                                continue;
+                            if (!bound)
+                            {
+                                vkCmdBindVertexBuffers(slot.cmd, 0, 1, &group.vertices->buffer,
+                                                       &zero_offset);
+                                vkCmdBindIndexBuffer(slot.cmd, group.indices->buffer, 0,
+                                                     VK_INDEX_TYPE_UINT16);
+                                bound = true;
+                            }
+                            const Mat4 scaled_model =
+                                mul(instances[i].model, shape_scale(instances[i].kind,
+                                                                    instances[i].shape_params));
+                            const MeshPush push = make_push(view_projection, scaled_model,
+                                                            instances[i].color, instances[i].id,
+                                                            selected_id);
+                            vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
+                            vkCmdDrawIndexed(slot.cmd, group.indices->count, 1, 0, 0, 0);
+                        }
                     }
                 }
 

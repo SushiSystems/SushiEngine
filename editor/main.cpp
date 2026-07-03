@@ -298,6 +298,12 @@ int main(int, char**)
                     SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
                 else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
                     SushiEngine::Editor::save_current_scene(context);
+                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
+                    SushiEngine::Editor::copy_selection(context);
+                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_X, false))
+                    SushiEngine::Editor::cut_selection(context);
+                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_V, false))
+                    SushiEngine::Editor::paste_clipboard(context);
             }
 
             SushiEngine::Editor::draw_menu_bar(context);
@@ -316,7 +322,7 @@ int main(int, char**)
             SushiEngine::Simulation::EntityTransform* gizmo_target = nullptr;
             if (has_selection)
             {
-                selected_transform = world.transform(context.selected_entity);
+                selected_transform = world.world_transform(context.selected_entity);
                 gizmo_target = &selected_transform;
             }
 
@@ -368,7 +374,7 @@ int main(int, char**)
             // (a pick and a drag are mutually exclusive).
             if (has_selection && gizmo_edited &&
                 selected == static_cast<std::uint32_t>(context.selected_entity))
-                world.set_transform(context.selected_entity, selected_transform);
+                world.set_world_transform(context.selected_entity, selected_transform);
             // A viewport click always replaces the whole selection (no multi-select
             // there yet), but only when it actually changed the pick this frame — this
             // runs every frame regardless, and re-collapsing to one entity every frame
@@ -380,13 +386,13 @@ int main(int, char**)
                 context.selected_entity = selected;
 
             // Service the Scene-camera / framing requests raised by the Hierarchy
-            // (double-click) and the GameObject menu, now that the selection is settled.
+            // (double-click) and the Entity menu, now that the selection is settled.
             if (world.exists(context.selected_entity) &&
                 (context.frame_selected_requested || context.align_with_view_requested ||
                  context.move_to_view_requested))
             {
                 const SushiEngine::Simulation::EntityTransform target =
-                    world.transform(context.selected_entity);
+                    world.world_transform(context.selected_entity);
                 SushiEngine::Editor::FlyCamera& fly = scene_camera.camera();
                 if (context.frame_selected_requested)
                 {
@@ -399,14 +405,14 @@ int main(int, char**)
                     SushiEngine::Simulation::EntityTransform aligned = target;
                     aligned.position = fly.position;
                     aligned.rotation = fly.orientation();
-                    world.set_transform(context.selected_entity, aligned);
+                    world.set_world_transform(context.selected_entity, aligned);
                 }
                 if (context.move_to_view_requested)
                 {
                     SushiEngine::Simulation::EntityTransform moved = target;
                     moved.position =
                         fly.position + fly.forward() * static_cast<SushiEngine::Scalar>(6);
-                    world.set_transform(context.selected_entity, moved);
+                    world.set_world_transform(context.selected_entity, moved);
                 }
             }
             context.frame_selected_requested = false;

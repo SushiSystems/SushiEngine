@@ -28,9 +28,6 @@ void main()
     float diffuse = max(dot(normalize(v_normal), light_direction), 0.0);
     vec3 shaded = v_color * (0.25 + 0.75 * diffuse);
 
-    if (pc.selected != 0u && pc.entity_id == pc.selected)
-        shaded = mix(shaded, vec3(1.0, 0.7, 0.2), 0.5) + vec3(0.15);
-
     out_color = vec4(shaded, 1.0);
     out_id = pc.entity_id;
 }

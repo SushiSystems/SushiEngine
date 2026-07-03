@@ -242,6 +242,9 @@ namespace SushiEngine
                 /** @brief The entity's transform (identity if it does not exist). */
                 virtual EntityTransform transform(EntityId id) const = 0;
 
+                /** @brief The entity's world transform. */
+                virtual EntityTransform world_transform(EntityId id) const = 0;
+
                 /** @brief The entity's base colour (zero if it does not exist). */
                 virtual Vector3 color(EntityId id) const = 0;
 
@@ -266,8 +269,21 @@ namespace SushiEngine
                 /** @brief Sets the entity's display name. */
                 virtual void set_name(EntityId id, const std::string& name) = 0;
 
-                /** @brief Writes the entity's transform components. */
-                virtual void set_transform(EntityId id, const EntityTransform& transform) = 0;
+                /**
+                 * @brief Writes the entity's local transform component.
+                 *
+                 * @param id    Entity to update.
+                 * @param local The new local transform.
+                 */
+                virtual void set_transform(EntityId id, const EntityTransform& local) = 0;
+
+                /**
+                 * @brief Sets the entity's world transform by recomputing its local transform.
+                 *
+                 * @param id    Entity to update.
+                 * @param world The new world transform.
+                 */
+                virtual void set_world_transform(EntityId id, const EntityTransform& world) = 0;
 
                 /** @brief Writes the entity's base colour. */
                 virtual void set_color(EntityId id, const Vector3& color) = 0;
@@ -309,6 +325,15 @@ namespace SushiEngine
                  * @param new_parent The new parent, or `NULL_ENTITY` for root.
                  */
                 virtual void set_parent(EntityId child, EntityId new_parent) = 0;
+
+                /**
+                 * @brief Changes the display order of an entity relative to a target entity.
+                 *
+                 * @param id The entity to move.
+                 * @param target The target entity to move relative to.
+                 * @param insert_after If true, moves @p id after @p target. If false, moves @p id before @p target.
+                 */
+                virtual void move_entity(EntityId id, EntityId target, bool insert_after) = 0;
 
                 /**
                  * @brief Creates a camera entity: a pose plus a `CameraParams`.
@@ -564,7 +589,7 @@ namespace SushiEngine
          *
          * Brings up a SushiRuntime and an empty ECS world with no entities and no
          * scene loaded — the editor starts scene-less, matching a fresh project, and
-         * populates the world only via `IWorldEditor` (New Entity, GameObject menu) or
+         * populates the world only via `IWorldEditor` (New Entity, Entity menu) or
          * by loading a `.sushiscene`. The only place the runtime is constructed for
          * the editor.
          *

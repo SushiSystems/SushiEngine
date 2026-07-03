@@ -58,6 +58,10 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.frag"
     mesh_frag_spv MESH_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/line.frag"
     line_frag_spv LINE_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.frag"
+    outline_frag_spv OUTLINE_FRAG_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.vert"
+    outline_vert_spv OUTLINE_VERT_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
@@ -70,7 +74,9 @@ add_library(sushi_render STATIC
     "${TRIANGLE_FRAG_HEADER}"
     "${MESH_VERT_HEADER}"
     "${MESH_FRAG_HEADER}"
-    "${LINE_FRAG_HEADER}")
+    "${LINE_FRAG_HEADER}"
+    "${OUTLINE_FRAG_HEADER}"
+    "${OUTLINE_VERT_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")

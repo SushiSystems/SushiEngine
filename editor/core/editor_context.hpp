@@ -93,6 +93,37 @@ namespace SushiEngine
         };
 
         /**
+         * @brief One entity's full authored state, snapshotted for copy/cut/paste.
+         *
+         * Captured entirely through `IWorldEditor` getters (see `copy_selection`), so
+         * pasting an entity is just replaying the matching setters on a freshly created
+         * one — no serialization format and no new engine-side clone primitive needed.
+         * `original`/`original_parent` are used only to rebuild internal parent/child
+         * relationships within a multi-entity paste; they are not valid after the source
+         * entity is gone (e.g. once Cut has deleted it).
+         */
+        struct ClipboardEntity
+        {
+            SushiEngine::Simulation::EntityId original = SushiEngine::Simulation::NULL_ENTITY;
+            SushiEngine::Simulation::EntityId original_parent = SushiEngine::Simulation::NULL_ENTITY;
+            std::string name;
+            SushiEngine::Simulation::EntityTransform transform;
+            SushiEngine::Vector3 color{};
+            bool visible = true;
+            bool has_renderer = false;
+            bool is_camera = false;
+            SushiEngine::Simulation::CameraParams camera_params;
+            bool has_physics_body = false;
+            SushiEngine::Simulation::PhysicsBodyParams physics_body_params;
+            bool has_cloth = false;
+            SushiEngine::Simulation::ClothParams cloth_params;
+            bool has_shape = false;
+            SushiEngine::Simulation::ShapeParams shape_params;
+            bool has_collider = false;
+            SushiEngine::Simulation::ColliderParams collider_params;
+        };
+
+        /**
          * @brief Shared, mutable editor state passed to every panel each frame.
          *
          * A single aggregate the panels read and write: the scene being edited, the
@@ -188,6 +219,10 @@ namespace SushiEngine
 
             std::string hierarchy_filter;
 
+            // Snapshot of the last Copy/Cut, replayed by Paste (see `ClipboardEntity`).
+            // Cut fills this exactly like Copy, then additionally deletes the originals.
+            std::vector<ClipboardEntity> clipboard;
+
             std::vector<std::string> console_lines;
 
             std::size_t world_entity_count = 0;
@@ -201,8 +236,8 @@ namespace SushiEngine
             GizmoMode gizmo_mode = GizmoMode::Translate;
             GizmoSpace gizmo_space = GizmoSpace::World;
 
-            // One-shot camera/selection requests raised by the Hierarchy and GameObject
-            // menu and serviced by the main loop, which owns the Scene camera and world:
+            // One-shot camera/selection requests raised by the Hierarchy and Entity menu
+            // and serviced by the main loop, which owns the Scene camera and world:
             //   frame  — move the Scene camera to look at the selection (double-click).
             //   align  — move the selection to the Scene camera's pose (Align With View).
             //   moveto — move the selection in front of the Scene camera (Move to View).

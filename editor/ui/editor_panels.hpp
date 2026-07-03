@@ -33,7 +33,7 @@ namespace SushiEngine
     namespace Editor
     {
         /**
-         * @brief Draw the top menu bar (File / GameObject / Window).
+         * @brief Draw the top menu bar (File / Edit / Entity / Window).
          * @param context Shared editor state the menu acts on (world, documents). File >
          *                Exit sets @ref EditorContext::close_requested rather than exiting
          *                directly, so the caller's close-confirm modal gets a chance to run.
@@ -53,6 +53,42 @@ namespace SushiEngine
          *         or if it deferred to the Save-As prompt because there was no path yet.
          */
         bool save_current_scene(EditorContext& context);
+
+        /**
+         * @brief Snapshots the current Hierarchy selection into @ref EditorContext::clipboard.
+         *
+         * Shared by the Edit > Copy menu item, its Ctrl+C shortcut, and every Hierarchy
+         * context menu, so all entry points copy the same way. A no-op with no world or
+         * an empty selection.
+         *
+         * @param context Shared editor state; reads the selection and world, writes the clipboard.
+         */
+        void copy_selection(EditorContext& context);
+
+        /**
+         * @brief Copies the current selection (see @ref copy_selection), then deletes it.
+         *
+         * Shared by the Edit > Cut menu item, its Ctrl+X shortcut, and every Hierarchy
+         * context menu. Cut, like a text editor's, removes the originals immediately —
+         * Paste recreates them from the snapshot, it does not "move" a pending clipboard.
+         *
+         * @param context Shared editor state; mutates the world and selection.
+         */
+        void cut_selection(EditorContext& context);
+
+        /**
+         * @brief Recreates the entities captured in @ref EditorContext::clipboard.
+         *
+         * Internal parent/child relationships among the copied entities are preserved;
+         * an entity whose original parent was not part of the clipboard is re-parented
+         * to that same external parent (still a paste-in-place, not a paste-to-root),
+         * falling back to root if that parent no longer exists. The new entities become
+         * the selection. Shared by the Edit > Paste menu item, its Ctrl+V shortcut, and
+         * every Hierarchy context menu.
+         *
+         * @param context Shared editor state; mutates the world and selection.
+         */
+        void paste_clipboard(EditorContext& context);
 
         /**
          * @brief Draw the Hierarchy panel: the live world's entities.

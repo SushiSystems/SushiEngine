@@ -307,6 +307,17 @@ group; an instance's `shape_params` become a local scale multiplied into its mod
 matrix before the MVP push constant (`shape_scale()`), so a default `{0.5,0.5,0.5}`
 Box still renders as the historical unit cube.
 
+Entity creation ("Create Empty Entity", Camera, and the Box/Sphere/Cylinder/Terrain
+`Objects` submenu) lives in one place, `draw_create_object_menu_items` in
+`editor_panels.cpp`, called by the Entity menu and every Hierarchy context menu
+(row, filtered-search row, empty space) so they can never drift apart. Copy/Cut/
+Paste follow the same pattern via `draw_clipboard_menu_items`: Copy snapshots the
+selection through `IWorldEditor`'s getters into `EditorContext::ClipboardEntity`
+entries (transform, colour, visibility, and every optional component's attached-
+flag/params), Paste replays them through the matching setters onto newly `create`d
+entities, and Cut is Copy immediately followed by `destroy` on the originals — no
+new engine-side clone primitive, just existing `IWorldEditor` surface replayed.
+
 ## 5. The render seam
 
 Rendering does not belong inside the runtime — the runtime knows no graphics, just
