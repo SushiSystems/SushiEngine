@@ -297,11 +297,12 @@ int main(int, char**)
                 instance.kind =
                     static_cast<SushiEngine::Render::MeshKind>(source.shape_kind);
                 instance.shape_params = source.shape_params;
+                instance.material = source.material;
                 instances.push_back(instance);
             }
             context.world_entity_count = simulation->entity_count();
 
-            // Soft-body wireframes: one strand view per cloth grid, pointing directly
+            // Soft-body meshes: one strand view per cloth grid, pointing directly
             // into the snapshot's concatenated vertex buffer for this frame's lifetime.
             std::vector<SushiEngine::Render::ClothStrandView> strands;
             strands.reserve(scene.cloth_instances.size());
@@ -311,6 +312,8 @@ int main(int, char**)
                 strand.rows = cloth.rows;
                 strand.cols = cloth.cols;
                 strand.vertices = scene.cloth_vertices.data() + cloth.first_vertex;
+                strand.color = cloth.color;
+                strand.id = static_cast<std::uint32_t>(cloth.id);
                 strands.push_back(strand);
             }
 
@@ -434,10 +437,17 @@ int main(int, char**)
 
             bool gizmo_edited = false;
             if (context.panels.scene_view)
+            {
                 gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
-                                               instances.size(), selected, true, gizmo_target,
-                                               context.gizmo_mode, context.gizmo_space, &snap,
-                                               nullptr, strands.data(), strands.size(), &scene_ui);
+                                               instances.size(), scene.environment, selected, true,
+                                               gizmo_target, context.gizmo_mode, context.gizmo_space,
+                                               &snap, nullptr, strands.data(), strands.size(),
+                                               &scene_ui);
+                // The Scene view is the surface the UI is authored against, so its size
+                // drives every Canvas's layout — the per-frame equivalent of a window
+                // resize event for a full-viewport UI root.
+                world.set_ui_target_size(scene_view.target_width(), scene_view.target_height());
+            }
             if (context.panels.game_view)
             {
                 // The Game view is played, not authored: no picking, no gizmo. It offers
@@ -455,7 +465,8 @@ int main(int, char**)
                 const std::size_t game_instance_count =
                     scene.has_camera ? instances.size() : 0;
                 game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
-                               no_selection, false, nullptr, SushiEngine::Editor::GizmoMode::Translate,
+                               scene.environment, no_selection, false, nullptr,
+                               SushiEngine::Editor::GizmoMode::Translate,
                                SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
                                strands.data(), strands.size(), &game_ui);
             }
@@ -536,6 +547,7 @@ int main(int, char**)
             context.move_to_view_requested = false;
             SushiEngine::Editor::draw_hierarchy_panel(context);
             SushiEngine::Editor::draw_inspector_panel(context);
+            SushiEngine::Editor::draw_environment_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);

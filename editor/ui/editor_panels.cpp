@@ -742,6 +742,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Game", nullptr, &context.panels.game_view);
                 ImGui::MenuItem("Hierarchy", nullptr, &context.panels.hierarchy);
                 ImGui::MenuItem("Inspector", nullptr, &context.panels.inspector);
+                ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                 ImGui::MenuItem("Console", nullptr, &context.panels.console);
@@ -1540,6 +1541,39 @@ namespace SushiEngine
                     if (ImGui::IsItemDeactivatedAfterEdit())
                         context.history.end_change();
 
+                    // PBR material: metallic / roughness / emissive. Albedo is the Color
+                    // above, so only the surface-response fields are authored here.
+                    SushiEngine::Render::Material material = world->material(id);
+                    bool material_changed = false;
+                    if (ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f))
+                        material_changed = true;
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+                    if (ImGui::SliderFloat("Roughness", &material.roughness, 0.045f, 1.0f))
+                        material_changed = true;
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+                    float emissive[3] = {static_cast<float>(material.emissive.x),
+                                         static_cast<float>(material.emissive.y),
+                                         static_cast<float>(material.emissive.z)};
+                    if (ImGui::ColorEdit3("Emissive", emissive,
+                                          ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float))
+                    {
+                        material.emissive =
+                            SushiEngine::Vector3{emissive[0], emissive[1], emissive[2]};
+                        material_changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+                    if (material_changed)
+                        world->set_material(id, material);
+
                     // The mesh is the Renderer's own property (Unity's MeshFilter folded
                     // into the MeshRenderer here): its primitive kind and per-kind
                     // dimensions are edited inline, and a Renderer with no mesh yet can be
@@ -2018,6 +2052,98 @@ namespace SushiEngine
                 }
                 ImGui::EndPopup();
             }
+
+            ImGui::End();
+        }
+
+        void draw_environment_panel(EditorContext& context)
+        {
+            if (!context.panels.environment)
+                return;
+            if (!ImGui::Begin("Environment", &context.panels.environment))
+            {
+                ImGui::End();
+                return;
+            }
+
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr)
+            {
+                ImGui::TextUnformatted("No scene open.");
+                ImGui::End();
+                return;
+            }
+
+            SushiEngine::Render::Environment environment = world->environment();
+            bool changed = false;
+
+            if (ImGui::CollapsingHeader("Sun", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                // Author the sun as azimuth/elevation, derived from and written back into
+                // its unit direction so the panel holds no state of its own.
+                const SushiEngine::Vector3 dir =
+                    SushiEngine::normalize(environment.sun.direction);
+                float elevation = std::asin(static_cast<float>(
+                    dir.y < -1.0 ? -1.0 : (dir.y > 1.0 ? 1.0 : dir.y))) * 57.29578f;
+                float azimuth = std::atan2(static_cast<float>(dir.z),
+                                           static_cast<float>(dir.x)) * 57.29578f;
+                bool sun_moved = false;
+                if (ImGui::SliderFloat("Elevation", &elevation, -10.0f, 90.0f, "%.1f deg"))
+                    sun_moved = true;
+                if (ImGui::SliderFloat("Azimuth", &azimuth, -180.0f, 180.0f, "%.1f deg"))
+                    sun_moved = true;
+                if (sun_moved)
+                {
+                    const float e = elevation / 57.29578f;
+                    const float a = azimuth / 57.29578f;
+                    environment.sun.direction = SushiEngine::Vector3{
+                        std::cos(e) * std::cos(a), std::sin(e), std::cos(e) * std::sin(a)};
+                    changed = true;
+                }
+
+                float sun_color[3] = {static_cast<float>(environment.sun.color.x),
+                                      static_cast<float>(environment.sun.color.y),
+                                      static_cast<float>(environment.sun.color.z)};
+                if (ImGui::ColorEdit3("Sun Color", sun_color))
+                {
+                    environment.sun.color =
+                        SushiEngine::Vector3{sun_color[0], sun_color[1], sun_color[2]};
+                    changed = true;
+                }
+                if (ImGui::SliderFloat("Sun Intensity", &environment.sun.intensity, 0.0f, 40.0f))
+                    changed = true;
+            }
+
+            if (ImGui::CollapsingHeader("Atmosphere", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (ImGui::Checkbox("Atmosphere Enabled", &environment.atmosphere.enabled))
+                    changed = true;
+                if (ImGui::SliderFloat("Exposure", &environment.exposure, 0.02f, 1.0f))
+                    changed = true;
+            }
+
+            if (ImGui::CollapsingHeader("Clouds"))
+            {
+                if (ImGui::Checkbox("Clouds Enabled", &environment.clouds.enabled))
+                    changed = true;
+                if (ImGui::SliderFloat("Coverage", &environment.clouds.coverage, 0.0f, 1.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Density", &environment.clouds.density, 0.0f, 1.0f))
+                    changed = true;
+            }
+
+            if (ImGui::CollapsingHeader("Stars"))
+            {
+                if (ImGui::Checkbox("Stars Enabled", &environment.stars.enabled))
+                    changed = true;
+                if (ImGui::SliderFloat("Star Brightness", &environment.stars.brightness, 0.0f, 4.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Star Density", &environment.stars.density, 0.0f, 1.0f))
+                    changed = true;
+            }
+
+            if (changed)
+                world->set_environment(environment);
 
             ImGui::End();
         }

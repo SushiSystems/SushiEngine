@@ -180,6 +180,20 @@ namespace SushiEngine
                         return world_.get<Tint>(record->entity).color;
                     }
 
+                    Render::Material material(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        Render::Material material = record != nullptr ? record->material
+                                                                      : Render::Material{};
+                        material.albedo = color(id);
+                        return material;
+                    }
+
+                    Render::Environment environment() const override
+                    {
+                        return scene_.environment;
+                    }
+
                     bool visible(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -213,6 +227,8 @@ namespace SushiEngine
                             physics_dirty_ = true;
                         if (it->second.has_cloth)
                             cloth_dirty_ = true;
+                        if (world_.alive(it->second.ui_mirror))
+                            world_.destroy(it->second.ui_mirror);
                         CommandBuffer commands;
                         commands.destroy(it->second.entity);
                         commands.apply(world_);
@@ -323,6 +339,21 @@ namespace SushiEngine
                             !world_.alive(record->entity))
                             return;
                         world_.get<Tint>(record->entity).color = value;
+                        extract();
+                    }
+
+                    void set_material(EntityId id, const Render::Material& value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->material = value;
+                        extract();
+                    }
+
+                    void set_environment(const Render::Environment& value) override
+                    {
+                        scene_.environment = value;
                         extract();
                     }
 
@@ -548,6 +579,9 @@ namespace SushiEngine
                             record->has_ui = true;
                             record->ui_params = UIElementParams{};
                             record->ui_params.kind = UIElementKind::Canvas;
+                            record->ui_params.size_x = static_cast<Scalar>(ui_target_size_.x);
+                            record->ui_params.size_y = static_cast<Scalar>(ui_target_size_.y);
+                            sync_ui_mirror(*record);
                         }
                         extract();
                         return id;
@@ -562,6 +596,7 @@ namespace SushiEngine
                         {
                             record->has_ui = true;
                             record->ui_params = default_ui_params(kind);
+                            sync_ui_mirror(*record);
                         }
                         if (parent != NULL_ENTITY && find(parent) != nullptr)
                             set_parent(id, parent);
@@ -594,6 +629,7 @@ namespace SushiEngine
                         if (record == nullptr || !record->has_ui)
                             return;
                         record->ui_params = params;
+                        sync_ui_mirror(*record);
                         extract();
                     }
 
@@ -605,7 +641,27 @@ namespace SushiEngine
                         record->has_ui = value;
                         if (value)
                             record->ui_params = default_ui_params(UIElementKind::Image);
+                        sync_ui_mirror(*record);
                         extract();
+                    }
+
+                    void set_ui_target_size(std::uint32_t width, std::uint32_t height) override
+                    {
+                        ui_target_size_.x = width > 0 ? width : 1;
+                        ui_target_size_.y = height > 0 ? height : 1;
+                        for (auto& entry : records_)
+                        {
+                            if (!entry.second.has_ui ||
+                                entry.second.ui_params.kind != UIElementKind::Canvas)
+                                continue;
+                            // In the default ConstantPixelSize mode a Canvas's rect always
+                            // fills the actual target regardless of this size, but keeping the
+                            // authored value in step with the viewport keeps the inspector's
+                            // display honest and gives ScaleWithScreenSize the same tracking.
+                            entry.second.ui_params.size_x = static_cast<Scalar>(ui_target_size_.x);
+                            entry.second.ui_params.size_y = static_cast<Scalar>(ui_target_size_.y);
+                            sync_ui_mirror(entry.second);
+                        }
                     }
 
                     std::vector<std::string> script_components(EntityId id) const override
@@ -807,6 +863,10 @@ namespace SushiEngine
                         // entities start with one; `set_has_renderer` toggles it. Cameras
                         // default to none, matching Unity's empty-GameObject-with-Camera.
                         bool has_renderer = false;
+                        // The PBR material's metallic/roughness/emissive (albedo comes from
+                        // the Tint each extract). Host bookkeeping keyed on EntityId, like
+                        // the shape/collider params below — no ECS component.
+                        Render::Material material{};
                         // Whether the entity is tracked by physics_ (see set_has_physics_body).
                         // Unlike has_renderer/is_camera this needs no ECS migration, so it is
                         // plain host bookkeeping rather than a component toggle.
@@ -830,6 +890,12 @@ namespace SushiEngine
                         // any Schedule system.
                         bool has_ui = false;
                         UIElementParams ui_params{};
+                        // The real ECS entity mirroring `ui_params` into `UI::` components
+                        // (RectTransform/Canvas/UIImage/UIText/UIButton per `ui_mirror_kind`),
+                        // so `SushiEngine::UI::resolve_rect` is the one and only layout
+                        // formula anything in the engine or editor reads — see sync_ui_mirror.
+                        Entity ui_mirror{};
+                        UIElementKind ui_mirror_kind = UIElementKind::Image;
                         // User-defined "script" components: authoring data only (the
                         // engine has no scripting VM), attached and edited per entity
                         // and serialized with the scene.
@@ -929,6 +995,133 @@ namespace SushiEngine
                                 break;
                         }
                         return params;
+                    }
+
+                    /** @brief Converts an authored `UIElementParams` rect into a `UI::RectTransform`. */
+                    static UI::RectTransform to_rect_transform(const UIElementParams& params) noexcept
+                    {
+                        UI::RectTransform transform;
+                        transform.anchor_min = UI::Vector2{params.anchor_min_x, params.anchor_min_y};
+                        transform.anchor_max = UI::Vector2{params.anchor_max_x, params.anchor_max_y};
+                        transform.pivot = UI::Vector2{params.pivot_x, params.pivot_y};
+                        transform.anchored_position = UI::Vector2{params.position_x, params.position_y};
+                        transform.size_delta = UI::Vector2{params.size_x, params.size_y};
+                        return transform;
+                    }
+
+                    /** @brief Converts an authored fill/text colour into a `UI::Color` at full alpha-scaled opacity. */
+                    static UI::Color to_ui_color(const Vector3& color, Scalar alpha) noexcept
+                    {
+                        return UI::Color{color.x, color.y, color.z, alpha};
+                    }
+
+                    /**
+                     * @brief Mirrors @p record's `ui_params` into a real `UI::`-component ECS entity.
+                     *
+                     * `World` fixes an entity's component set at spawn time (no add/remove after
+                     * the fact), so a UI record's mirror entity is destroyed and respawned
+                     * whenever the required `UI::` component combination changes (i.e. when its
+                     * `UIElementKind` changes, or the UI is first attached); otherwise the
+                     * existing mirror's components are updated in place. This is the single
+                     * point where host-side `UIElementParams` bookkeeping is reconciled with the
+                     * real `SushiEngine::UI::` components that `SushiEngine::UI::resolve_rect`
+                     * actually lays out — the editor and any runtime UI overlay both read the
+                     * mirror's `UI::ComputedRect`/`UI::RectTransform`, so there is exactly one
+                     * UI layout mechanism in the engine.
+                     *
+                     * @param record The UI record to mirror; a no-op if it carries no UI.
+                     */
+                    void sync_ui_mirror(Record& record)
+                    {
+                        if (!record.has_ui)
+                        {
+                            if (world_.alive(record.ui_mirror))
+                                world_.destroy(record.ui_mirror);
+                            record.ui_mirror = Entity{};
+                            return;
+                        }
+
+                        const UIElementKind kind = record.ui_params.kind;
+                        const bool needs_respawn =
+                            !world_.alive(record.ui_mirror) || record.ui_mirror_kind != kind;
+                        const UI::RectTransform transform = to_rect_transform(record.ui_params);
+
+                        if (needs_respawn)
+                        {
+                            if (world_.alive(record.ui_mirror))
+                                world_.destroy(record.ui_mirror);
+
+                            switch (kind)
+                            {
+                                case UIElementKind::Canvas:
+                                    record.ui_mirror = world_.spawn(
+                                        UI::Canvas{UI::Vector2{record.ui_params.size_x,
+                                                               record.ui_params.size_y}},
+                                        transform, UI::ComputedRect{});
+                                    break;
+                                case UIElementKind::Text:
+                                {
+                                    UI::UIText text{};
+                                    UI::set_text(text, record.ui_params.text);
+                                    text.font_size = record.ui_params.font_size;
+                                    text.color = to_ui_color(record.ui_params.color,
+                                                             record.ui_params.alpha);
+                                    record.ui_mirror =
+                                        world_.spawn(transform, UI::ComputedRect{}, text);
+                                    break;
+                                }
+                                case UIElementKind::Button:
+                                {
+                                    UI::UIButton button{};
+                                    record.ui_mirror = world_.spawn(
+                                        transform, UI::ComputedRect{},
+                                        UI::UIImage{to_ui_color(record.ui_params.color,
+                                                                record.ui_params.alpha)},
+                                        button);
+                                    world_.get<UI::UIButton>(record.ui_mirror).target_graphic =
+                                        record.ui_mirror;
+                                    break;
+                                }
+                                case UIElementKind::Image:
+                                case UIElementKind::Panel:
+                                default:
+                                    record.ui_mirror = world_.spawn(
+                                        transform, UI::ComputedRect{},
+                                        UI::UIImage{to_ui_color(record.ui_params.color,
+                                                                record.ui_params.alpha)});
+                                    break;
+                            }
+                            record.ui_mirror_kind = kind;
+                            return;
+                        }
+
+                        world_.get<UI::RectTransform>(record.ui_mirror) = transform;
+                        switch (kind)
+                        {
+                            case UIElementKind::Canvas:
+                                world_.get<UI::Canvas>(record.ui_mirror).reference_size =
+                                    UI::Vector2{record.ui_params.size_x, record.ui_params.size_y};
+                                break;
+                            case UIElementKind::Text:
+                            {
+                                UI::UIText& text = world_.get<UI::UIText>(record.ui_mirror);
+                                UI::set_text(text, record.ui_params.text);
+                                text.font_size = record.ui_params.font_size;
+                                text.color =
+                                    to_ui_color(record.ui_params.color, record.ui_params.alpha);
+                                break;
+                            }
+                            case UIElementKind::Button:
+                                world_.get<UI::UIImage>(record.ui_mirror).color =
+                                    to_ui_color(record.ui_params.color, record.ui_params.alpha);
+                                break;
+                            case UIElementKind::Image:
+                            case UIElementKind::Panel:
+                            default:
+                                world_.get<UI::UIImage>(record.ui_mirror).color =
+                                    to_ui_color(record.ui_params.color, record.ui_params.alpha);
+                                break;
+                        }
                     }
 
                     /**
@@ -1333,6 +1526,10 @@ namespace SushiEngine
                             instance.color = tint.color;
                             instance.shape_kind = record->shape_params.kind;
                             instance.shape_params = record->shape_params.params;
+                            // Albedo tracks the entity's Tint; the rest of the PBR material is
+                            // the authored per-entity record.
+                            instance.material = record->material;
+                            instance.material.albedo = tint.color;
                             scene_.instances.push_back(instance);
                         }
 
@@ -1373,6 +1570,7 @@ namespace SushiEngine
                             if (positions.empty())
                                 continue;
                             ClothInstance cloth_instance;
+                            cloth_instance.id = id;
                             cloth_instance.rows = rows;
                             cloth_instance.cols = cols;
                             cloth_instance.first_vertex =
@@ -1406,6 +1604,13 @@ namespace SushiEngine
                     std::vector<EntityId> order_;
                     std::unordered_map<EntityId, Record> records_;
                     EntityId next_id_ = 1;
+                    // The most recent size a host reported via set_ui_target_size(), used to
+                    // keep a Canvas's authored size tracking the actual viewport.
+                    struct
+                    {
+                        std::uint32_t x = 1280;
+                        std::uint32_t y = 720;
+                    } ui_target_size_;
                     RenderScene scene_;
                     // The physics solve, behind a precision-agnostic seam. It owns the
                     // rigid and cloth PhysicsWorlds (in whichever precision `precision_`

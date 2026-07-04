@@ -62,6 +62,7 @@ namespace SushiEngine
             bool console = true;
             bool statistics = true;
             bool toolbar = true;
+            bool environment = true;
         };
 
         /**

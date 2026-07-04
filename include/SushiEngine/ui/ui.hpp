@@ -292,7 +292,7 @@ namespace SushiEngine
                         Rect rect;
                         if (element.is_canvas)
                         {
-                            rect = Rect{Vector2{0, 0}, screen_size};
+                            rect = resolve_canvas_rect(screen_size, world_.get<Canvas>(element.entity));
                         }
                         else
                         {

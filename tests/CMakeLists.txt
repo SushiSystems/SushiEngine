@@ -43,6 +43,7 @@ add_executable(se_functional_tests
     functional/unit/test_network_id.cpp
     functional/unit/test_ui_layout.cpp
     functional/unit/test_collision.cpp
+    functional/unit/test_cloth_mesh.cpp
 
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp

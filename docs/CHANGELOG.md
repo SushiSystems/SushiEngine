@@ -9,6 +9,42 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **PBR materials, a physical sky, and a WGS84 planet.** The scene view grew from a
+  single hard-coded directional light into a full lit environment rendered in three
+  HDR passes. A new neutral seam `render/environment.hpp` carries the sun
+  (`DirectionalLight`), the `Wgs84` ellipsoid (a = 6378137 m, 1/f = 298.257223563),
+  and the `AtmosphereParams`/`PlanetParams`/`CloudParams`/`StarParams`/`Material`
+  that describe how the planet is lit and surrounded — authored by the simulation
+  (`RenderScene::environment`, `RenderInstance::material`) and consumed by
+  `ISceneView::render`, which now takes a `const Environment&` and the camera's world
+  position.
+  - **Materials.** `MeshInstance` carries a metallic-roughness `Material`; the new
+    `pbr.frag` shades every mesh with a Cook-Torrance BRDF (GGX + Smith + Schlick)
+    lit by the sun and an ambient floor, replacing the old flat `mesh.frag`.
+  - **Sky.** `sky.frag` ray-marches, in camera-relative space, the WGS84 ellipsoid
+    ground, Rayleigh + Mie single-scattering atmosphere, a procedural cloud layer,
+    and a hashed star field, composited over the opaque scene by the sampled depth
+    (aerial perspective included). As the camera climbs the atmosphere thins to black
+    space and the stars emerge — the near-surface-to-orbit transition, driven by
+    optical depth rather than a hard switch.
+  - **HDR pipeline.** The offscreen target is now linear `R16G16B16A16_SFLOAT`; a
+    `tonemap.frag` (exposure + ACES + gamma) resolves it into the `R8G8B8A8_UNORM`
+    image the editor samples. The scene view gained a per-frame uniform block (its
+    first descriptor set) shared by all passes, plus the sky and tonemap pipelines.
+  - **Authoring.** The editor's new **Environment** panel authors the sun
+    (azimuth/elevation, colour, intensity), atmosphere on/off, exposure, clouds, and
+    stars; the Inspector gained a metallic/roughness/emissive material section.
+    `IWorldEditor` grew `environment()`/`set_environment()` and
+    `material()`/`set_material()`.
+- **Cloth renders as a shaded, pickable mesh.** `render/cloth_mesh.hpp`'s new
+  `triangulate_cloth_grid` turns a cloth grid's row-major particle positions into a
+  triangle list with averaged per-vertex normals; the Vulkan scene view now uploads
+  that mesh into a host-visible index/vertex buffer pair and draws it through the
+  same lit `mesh_pipeline_` Box/Sphere/Cylinder use, instead of a flat-coloured,
+  unpickable grid-edge wireframe. `Render::ClothStrandView` and `Simulation::
+  ClothInstance` gained `color`/`id` fields (defaulted to the wireframe's old fixed
+  tint, since cloth entities carry no `Tint` component), so a cloth sheet now
+  shades, picks, and outline-highlights like any other object.
 - **Two-way cloth↔rigid coupling, true oriented-box (OBB) contacts, and a broadphase.**
   The rigid and cloth worlds are now driven in lockstep (predict → solve both, resolve the
   contacts that span them, then derive velocity for both), so a cloth sheet pushes back on

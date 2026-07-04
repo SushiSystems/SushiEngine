@@ -263,12 +263,21 @@ Cloth's world-space particle positions are exposed read-only via
 `cloth_vertices` every `extract()`: a `Simulation::ClothInstance` per live grid
 (rows, cols, and an offset into the shared `cloth_vertices` array) rather than
 through `RenderScene::instances` — that type remains one entity, one fixed-mesh
-instance, and still cannot express a multi-vertex deforming mesh. The editor copies
-`cloth_instances`/`cloth_vertices` into `Render::ClothStrandView`s each frame
-(`editor/main.cpp`) and hands them to `ISceneView::render`'s optional strands
-parameter, which the Vulkan scene view draws as a grid-edge wireframe (horizontal
-then vertical neighbours) through its existing line pipeline — the same one the
-ground grid already used. `.sushiscene` carries `has_cloth`/`cloth` as an
+instance, and still cannot express a multi-vertex deforming mesh. `Simulation::
+ClothInstance` also carries the owning entity's `id` (for picking) and a `color`,
+defaulted to the same fixed tint the wireframe used to hardcode — cloth entities
+carry no `Tint` component yet, so there is nothing else to read a colour from. The
+editor copies `cloth_instances`/`cloth_vertices`/`id`/`color` into
+`Render::ClothStrandView`s each frame (`editor/main.cpp`) and hands them to
+`ISceneView::render`'s optional strands parameter. The Vulkan scene view
+triangulates each strand's grid (`render/cloth_mesh.hpp`'s
+`triangulate_cloth_grid` — two triangles per quad, per-vertex normals averaged
+from the adjacent triangles) into a host-visible vertex/index buffer pair and
+draws it through the same lit `mesh_pipeline_` Box/Sphere/Cylinder use (already
+double-sided, since a triangulated cloth sheet is single-sided geometry that can
+flip), so a cloth grid now shades and picks like any other object instead of
+drawing as a bare grid-edge wireframe; its outline pass is extended the same way
+as the primitive shapes'. `.sushiscene` carries `has_cloth`/`cloth` as an
 independent field pair, the same shape as `has_physics_body`/`physics_body`.
 
 ### 4.3. Primitive shapes, colliders, and Terrain
@@ -441,8 +450,12 @@ consumer. The layering, from abstract to concrete:
   carrying each instance's picking id, copied to a host buffer each frame so
   `pick(x, y)` resolves a click to the entity under the cursor (GPU id-buffer
   picking); `render` also takes the selected id, which the mesh shader highlights,
-  and an optional `ClothStrandView` list drawn as a wireframe through the same line
-  pipeline the ground grid uses (see §4.3).
+  and an optional `ClothStrandView` list, triangulated per frame and drawn shaded
+  and pickable through the same mesh pipeline Box/Sphere/Cylinder use (see §4.2).
+- **Lighting, materials, and the sky (§5.1).** `render` also takes a
+  `const Render::Environment&` and the camera's world position, and draws the frame
+  in three HDR passes rather than one, giving PBR meshes and a WGS84 planet with a
+  physical atmosphere.
 
 The editor composes these behind its own **windowing seam** (`editor/platform_window.hpp`
 `IPlatformWindow`, SDL implementation `editor/sdl_window.*`) and a **Dear ImGui ↔
@@ -632,6 +645,48 @@ local_position)`, matching Unity's model) precisely because that form is inverti
 `set_parent` uses the inverse to recompute the child's local transform at the moment of
 reparenting, so its resolved world-space pose is unchanged by the move rather than being
 reinterpreted (and visibly jumping) in the new parent's space.
+
+### 5.1. Lighting, materials, and the sky
+
+The environment the renderer lights against is a neutral seam,
+`render/environment.hpp`, depending only on `core/types.hpp` — so the simulation
+authors it and the renderer consumes it without either depending on the other. It
+holds the sun (`DirectionalLight`), the `Wgs84` ellipsoid (equatorial radius
+6378137 m, inverse flattening 298.257223563), and the `AtmosphereParams`,
+`PlanetParams`, `CloudParams`, `StarParams`, and metallic-roughness `Material` that
+describe how the planet is lit and surrounded. The simulation carries one
+`Environment` on `RenderScene` and a `Material` per `RenderInstance` (its albedo kept
+in sync with the entity's `Tint`), authored through `IWorldEditor`'s
+`environment()`/`set_environment()` and `material()`/`set_material()`; the editor's
+**Environment** panel and the Inspector's material section drive them.
+
+`ISceneView::render` takes the `Environment` and the camera's world position and draws
+the frame in **three HDR passes** (the Vulkan scene view's targets are now linear
+`R16G16B16A16_SFLOAT`, resolved to the `R8G8B8A8_UNORM` image the editor samples):
+
+1. **Opaque** — the grid, meshes, and cloth into the HDR colour + `R32_UINT` id +
+   depth targets. `pbr.frag` shades each mesh with a Cook-Torrance metallic-roughness
+   BRDF (GGX distribution, Smith geometry, Schlick Fresnel) lit by the sun and an
+   ambient floor, reading a per-frame scene uniform block — the scene view's first
+   descriptor set, shared by every pass.
+2. **Sky** — one fullscreen ray march (`sky.frag`) that works in **camera-relative
+   space** (the camera is the origin; the planet centre arrives relative to it, so
+   planet-scale metres never leave double precision on the CPU). It intersects the
+   WGS84 ellipsoid for the lit ground, integrates Rayleigh + Mie single scattering
+   through the atmosphere shell, ray-marches a procedural cloud layer, and adds a
+   hashed star field — composited over the opaque scene by the sampled depth, so
+   geometry occludes the sky and thin air is added over it as aerial perspective. The
+   star field is faded by the atmosphere's optical depth, so as the camera climbs the
+   blue sky thins into black space and the stars emerge: the near-surface-to-orbit
+   transition falls out of the physics rather than a hard switch.
+3. **Tonemap** — `tonemap.frag` applies exposure, the ACES filmic curve, and a gamma
+   encode, resolving the HDR composite into the sampled LDR image.
+
+The planet is drawn analytically in the sky pass rather than as tessellated terrain,
+which is why a real WGS84 Earth and its atmosphere render with no level-of-detail
+machinery; the ground grid the editor shows sits tangent to the ellipsoid at the local
+origin. The existing floating-origin / ECEF types (§6) anchor the camera's world
+position that the sky pass places the planet relative to.
 
 ## 6. The value-type seam
 

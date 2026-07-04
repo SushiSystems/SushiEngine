@@ -42,7 +42,13 @@ device code of its own; kernels are instantiated in the consuming translation un
   select, move, edit, and destroy entities against the one live world. Turning the editor on builds the renderer
   too; it needs SDL2 with its `[vulkan]` feature. A **Scene** panel shows a
   Vulkan-rendered 3D viewport navigated with a Unity-style fly camera — right-mouse
-  look plus WASD/QE and Shift to boost. The viewport draws a **live ECS world**
+  look plus WASD/QE and Shift to boost. Meshes are shaded with **PBR
+  metallic-roughness** materials under a directional sun, and the scene is wrapped in
+  a **physical sky**: a ray-marched WGS84 planet with a Rayleigh/Mie atmosphere,
+  procedural clouds, and stars, rendered through an HDR pipeline (ACES tonemapping).
+  Climb away from the surface and the blue sky thins into black space and constellations;
+  an **Environment** panel authors the sun, atmosphere, clouds, stars, and exposure.
+  The viewport draws a **live ECS world**
   ticked on SushiRuntime: a ring of spinning, orbiting cubes, ticked only while the
   toolbar is Playing. The world lives behind a plain-C++ simulation seam
   (`include/SushiEngine/sim/simulation.hpp`), implemented by the `sushi_sim` library

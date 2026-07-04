@@ -40,16 +40,28 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/render/environment.hpp>
 
 namespace SushiEngine
 {
     namespace Render
     {
-        /** @brief A camera's world-to-clip transform, split into its two matrices. */
+        /**
+         * @brief A camera's world-to-clip transform plus its world position.
+         *
+         * @c view and @c projection shade the meshes; @c world_position is the camera's
+         * absolute (ECEF-anchored) eye in double precision, which the atmosphere/planet
+         * pass needs to place the planet relative to the camera without single-precision
+         * blow-up at planet scale. @c near_plane / @c far_plane linearise the sampled
+         * depth in the sky pass for aerial perspective.
+         */
         struct CameraView
         {
             Mat4 view; /**< World-to-camera. */
             Mat4 projection; /**< Camera-to-clip (Vulkan depth 0..1, Y-flipped). */
+            WorldVector3 world_position{}; /**< Absolute eye position, metres. */
+            float near_plane = 0.1f;  /**< Near clip distance, for depth linearisation. */
+            float far_plane = 1000.0f; /**< Far clip distance, for depth linearisation. */
         };
 
         /**
@@ -67,28 +79,33 @@ namespace SushiEngine
             Cylinder,
         };
 
-        /** @brief One mesh drawn this frame: its world transform, colour, and pick id. */
+        /** @brief One mesh drawn this frame: its world transform, material, and pick id. */
         struct MeshInstance
         {
             Mat4 model;              /**< Object-to-world transform. */
-            Vector3 color;              /**< Base colour. */
+            Vector3 color;              /**< Base colour; also seeds @ref material.albedo. */
             std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
             MeshKind kind = MeshKind::Box; /**< Which unit mesh to draw this instance with. */
             Vector3 shape_params{Vector3{0.5, 0.5, 0.5}}; /**< Box: half-extents. Sphere: radius in x. Cylinder: radius in x, half-height in y. */
+            Material material{}; /**< PBR metallic-roughness surface this instance shades with. */
         };
 
         /**
-         * @brief One simulated soft-body grid's world-space wireframe, ready to draw.
+         * @brief One simulated soft-body grid's world-space points, ready to triangulate and draw.
          *
          * A non-owning view: `vertices` points at `rows * cols` row-major points
          * (matching `Physics::ClothGrid`) owned by the caller for the duration of
-         * the `render()` call that receives it.
+         * the `render()` call that receives it. The scene view triangulates the grid
+         * (see `triangulate_cloth_grid`) and draws it as a shaded, pickable mesh
+         * rather than a wireframe.
          */
         struct ClothStrandView
         {
             std::uint32_t rows = 0;  /**< Grid rows. */
             std::uint32_t cols = 0;  /**< Grid columns. */
             const Vector3* vertices = nullptr; /**< Row-major world-space points, rows * cols long. */
+            Vector3 color{Vector3{0.85, 0.85, 0.9}}; /**< Base colour. */
+            std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
         };
 
         /** @brief The id a pick returns when no instance covers the sampled pixel. */
@@ -137,7 +154,9 @@ namespace SushiEngine
                  * its colour image ready to sample. Same-queue ordering makes the
                  * result visible to the UI submit that follows.
                  *
-                 * @param camera      The view and projection to render from.
+                 * @param camera      The view, projection, and world eye to render from.
+                 * @param environment The sun, planet, atmosphere, clouds, and stars to
+                 *                    light and surround the scene with this frame.
                  * @param instances   Pointer to the mesh instances to draw.
                  * @param count       Number of instances.
                  * @param selected_id The instance id to highlight, or NO_PICK for none.
@@ -145,7 +164,8 @@ namespace SushiEngine
                  *                      nullptr for none.
                  * @param strand_count  Number of entries in @p strands.
                  */
-                virtual void render(const CameraView& camera, const MeshInstance* instances,
+                virtual void render(const CameraView& camera, const Environment& environment,
+                                    const MeshInstance* instances,
                                     std::size_t count, std::uint32_t selected_id,
                                     const ClothStrandView* strands = nullptr,
                                     std::size_t strand_count = 0) = 0;

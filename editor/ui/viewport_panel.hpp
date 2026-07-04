@@ -152,7 +152,8 @@ namespace SushiEngine
                  * @return Whether the gizmo edited @p gizmo_target this frame.
                  */
                 bool draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
-                          std::size_t count, std::uint32_t& selected_id, bool pickable = true,
+                          std::size_t count, const SushiEngine::Render::Environment& environment,
+                          std::uint32_t& selected_id, bool pickable = true,
                           SushiEngine::Simulation::EntityTransform* gizmo_target = nullptr,
                           GizmoMode gizmo_mode = GizmoMode::Translate,
                           GizmoSpace gizmo_space = GizmoSpace::World,
@@ -166,6 +167,12 @@ namespace SushiEngine
 
                 /** @brief Whether a UI element is currently being dragged (moved or resized). */
                 bool ui_dragging() const noexcept { return ui_drag_index_ >= 0; }
+
+                /** @brief The panel's current pixel width, as last sized by `draw`. */
+                std::uint32_t target_width() const noexcept { return view_->width(); }
+
+                /** @brief The panel's current pixel height, as last sized by `draw`. */
+                std::uint32_t target_height() const noexcept { return view_->height(); }
 
             private:
                 void resize_to(std::uint32_t width, std::uint32_t height);

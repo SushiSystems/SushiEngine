@@ -44,6 +44,7 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/sim/components.hpp>
 
 namespace SushiEngine
@@ -91,17 +92,20 @@ namespace SushiEngine
         {
             EntityId id = NULL_ENTITY; /**< The entity this instance draws, for picking. */
             Mat4 model;                /**< Object-to-world transform composed from the entity's state. */
-            Vector3 color;                /**< Base colour. */
+            Vector3 color;                /**< Base colour; also drives @ref material.albedo. */
             PrimitiveKind shape_kind = PrimitiveKind::Box; /**< Which mesh to draw this instance with. */
             Vector3 shape_params{Vector3{0.5, 0.5, 0.5}};     /**< Per-kind shape parameters, see @ref ShapeParams. */
+            Render::Material material{}; /**< PBR metallic-roughness surface (albedo synced from @ref color). */
         };
 
-        /** @brief One simulated cloth grid's world-space wireframe, ready to draw. */
+        /** @brief One simulated cloth grid's world-space points, ready to draw. */
         struct ClothInstance
         {
+            EntityId id = NULL_ENTITY;      /**< The entity this cloth grid draws, for picking. */
             std::uint32_t rows = 0;         /**< Grid rows. */
             std::uint32_t cols = 0;         /**< Grid columns. */
             std::uint32_t first_vertex = 0; /**< Offset of this grid's points into @ref RenderScene::cloth_vertices. */
+            Vector3 color{Vector3{0.85, 0.85, 0.9}}; /**< Base colour; cloth entities carry no Tint yet, so this is a fixed default. */
         };
 
         /**
@@ -324,6 +328,7 @@ namespace SushiEngine
             bool has_camera = false;                     /**< Whether any active camera resolved this frame; false means nothing should be drawn as "the game". */
             std::vector<ClothInstance> cloth_instances;  /**< Every simulated cloth grid this frame, as a wireframe topology. */
             std::vector<Vector3> cloth_vertices;         /**< World-space points for every @ref cloth_instances entry, concatenated. */
+            Render::Environment environment;             /**< The sun, WGS84 planet, atmosphere, clouds, and stars lighting this frame. */
         };
 
         /**
@@ -359,6 +364,12 @@ namespace SushiEngine
 
                 /** @brief The entity's base colour (zero if it does not exist). */
                 virtual Vector3 color(EntityId id) const = 0;
+
+                /** @brief The entity's PBR material (defaults if it does not exist). */
+                virtual Render::Material material(EntityId id) const = 0;
+
+                /** @brief The scene-global lighting environment (sun, planet, atmosphere). */
+                virtual Render::Environment environment() const = 0;
 
                 /** @brief Whether the entity is drawn. */
                 virtual bool visible(EntityId id) const noexcept = 0;
@@ -399,6 +410,18 @@ namespace SushiEngine
 
                 /** @brief Writes the entity's base colour. */
                 virtual void set_color(EntityId id, const Vector3& color) = 0;
+
+                /**
+                 * @brief Writes the entity's PBR material.
+                 *
+                 * The material's @c albedo is kept in sync with the entity's base colour by
+                 * the extract step, so authoring albedo here is overridden by @ref set_color;
+                 * the metallic, roughness, and emissive fields are what this authors.
+                 */
+                virtual void set_material(EntityId id, const Render::Material& material) = 0;
+
+                /** @brief Writes the scene-global lighting environment. */
+                virtual void set_environment(const Render::Environment& environment) = 0;
 
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
@@ -747,6 +770,23 @@ namespace SushiEngine
                 /** @brief Detaches the script component named @p type_name; a no-op if absent. */
                 virtual void remove_script_component(EntityId id,
                                                      const std::string& type_name) = 0;
+
+                /**
+                 * @brief Tells the world the pixel size the UI is currently being viewed at.
+                 *
+                 * Every UI entity's layout (see `UIElementParams`/`SushiEngine::UI::resolve_rect`)
+                 * resolves against a Canvas's rect, and a full-viewport Canvas's rect is the
+                 * screen it fills — so the host (the editor's viewport panel, or the runtime
+                 * window) calls this once per frame with its current pixel size before reading
+                 * back `ui_params`/the UI overlay, the same way a resize event drives any other
+                 * screen-space layout. A host with more than one UI-bearing surface (e.g. Scene
+                 * and Game views) calls it with whichever surface's size should currently drive
+                 * layout; the most recent call wins.
+                 *
+                 * @param width  Target width in pixels (clamped to at least 1).
+                 * @param height Target height in pixels (clamped to at least 1).
+                 */
+                virtual void set_ui_target_size(std::uint32_t width, std::uint32_t height) = 0;
         };
 
         /**

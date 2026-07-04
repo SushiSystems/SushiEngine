@@ -27,13 +27,17 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "mesh.vert.h"
-#include "mesh.frag.h"
+#include "pbr.frag.h"
 #include "line.frag.h"
 #include "outline.frag.h"
 #include "outline.vert.h"
+#include "fullscreen.vert.h"
+#include "sky.frag.h"
+#include "tonemap.frag.h"
 
 namespace SushiEngine
 {
@@ -51,23 +55,52 @@ namespace SushiEngine
                 };
 
                 /**
-                 * @brief Per-draw push constant: MVP, the normal basis with colour in w,
-                 *        the draw's picking id, and the currently selected id for highlight.
+                 * @brief Per-draw push constant: the model matrix, the PBR material, an
+                 *        optional screen-space outline shift, and the pick/selection ids.
                  *
                  * 120 bytes, within the 128-byte push-constant floor every Vulkan device
-                 * guarantees. The MVP is an explicit @c float[16] rather than an engine
-                 * @c Mat4: GPU data is 32-bit regardless of the engine's Scalar precision,
-                 * so a double-precision build narrows to float exactly here at the upload
-                 * boundary and the shader's @c mat4 layout is unchanged.
+                 * guarantees. The clip transform is finished in the shader from the model
+                 * matrix and the scene block's view/projection, so no MVP is packed here.
+                 * Matrices and colours are explicit @c float arrays: GPU data is 32-bit
+                 * regardless of the engine's Scalar precision, so a double-precision build
+                 * narrows to float exactly here at the upload boundary.
                  */
                 struct MeshPush
                 {
-                    float mvp[16];
-                    float n0[4];
-                    float n1[4];
-                    float n2[4];
+                    float model[16];
+                    float albedo_metallic[4];    // xyz = albedo, w = metallic
+                    float emissive_roughness[4]; // xyz = emissive, w = roughness
+                    float outline_shift[4];      // xy = screen-space shift, zw spare
                     std::uint32_t entity_id;
                     std::uint32_t selected;
+                };
+
+                /**
+                 * @brief Per-frame scene uniform block, shared by every pass (std140).
+                 *
+                 * Mirrors the `SceneBlock` in the shaders exactly: two matrices followed by
+                 * fifteen vec4s. Kept as flat @c float arrays so the C++ side never disagrees
+                 * with the GLSL std140 packing (every member is 16-byte aligned).
+                 */
+                struct SceneUbo
+                {
+                    float view[16];
+                    float proj[16];
+                    float cam_forward[4];   // xyz = unit forward, w = camera pos x
+                    float cam_right[4];     // xyz = right * tan(fovx/2), w = camera pos y
+                    float cam_up[4];        // xyz = up * tan(fovy/2), w = camera pos z
+                    float planet_center[4]; // xyz = centre relative to camera, w = surface radius
+                    float planet_radii[4];  // xyz = ellipsoid semi-axes, w = atmosphere height
+                    float sun_dir[4];       // xyz = direction to sun, w = intensity
+                    float sun_color[4];     // xyz = colour, w = exposure
+                    float ambient[4];       // xyz = ambient radiance
+                    float rayleigh[4];      // xyz = per-metre Rayleigh, w = Mie coefficient
+                    float scatter[4];       // x = Mie g, y = Rayleigh H, z = Mie H, w = altitude
+                    float ground_albedo[4]; // xyz
+                    float ocean_color[4];   // xyz
+                    float cloud_params[4];  // base_alt, top_alt, coverage, density
+                    float star_params[4];   // brightness, density, atmo_enabled, stars_enabled
+                    float misc[4];          // near, far, time, clouds_enabled
                 };
 
                 void check(VkResult result, const char* what)
@@ -116,29 +149,37 @@ namespace SushiEngine
                     vkCmdPipelineBarrier2(cmd, &dependency);
                 }
 
-                /** @brief Fills a push constant from a model matrix, colour, and pick ids. */
-                MeshPush make_push(const Mat4& view_projection, const Mat4& model, const Vector3& color,
-                                   std::uint32_t entity_id, std::uint32_t selected_id)
+                /** @brief Fills a push constant from a model matrix, material, and pick ids. */
+                MeshPush make_push(const Mat4& model, const Material& material,
+                                   std::uint32_t entity_id, std::uint32_t selected_id,
+                                   float outline_shift = 0.0f)
                 {
-                    MeshPush push;
-                    const Mat4 mvp = mul(view_projection, model);
+                    MeshPush push{};
                     for (int i = 0; i < 16; ++i)
-                        push.mvp[i] = static_cast<float>(mvp.m[i]);
-                    push.n0[0] = static_cast<float>(model.m[0]);
-                    push.n0[1] = static_cast<float>(model.m[1]);
-                    push.n0[2] = static_cast<float>(model.m[2]);
-                    push.n1[0] = static_cast<float>(model.m[4]);
-                    push.n1[1] = static_cast<float>(model.m[5]);
-                    push.n1[2] = static_cast<float>(model.m[6]);
-                    push.n2[0] = static_cast<float>(model.m[8]);
-                    push.n2[1] = static_cast<float>(model.m[9]);
-                    push.n2[2] = static_cast<float>(model.m[10]);
-                    push.n0[3] = static_cast<float>(color.x);
-                    push.n1[3] = static_cast<float>(color.y);
-                    push.n2[3] = static_cast<float>(color.z);
+                        push.model[i] = static_cast<float>(model.m[i]);
+                    push.albedo_metallic[0] = static_cast<float>(material.albedo.x);
+                    push.albedo_metallic[1] = static_cast<float>(material.albedo.y);
+                    push.albedo_metallic[2] = static_cast<float>(material.albedo.z);
+                    push.albedo_metallic[3] = material.metallic;
+                    push.emissive_roughness[0] = static_cast<float>(material.emissive.x);
+                    push.emissive_roughness[1] = static_cast<float>(material.emissive.y);
+                    push.emissive_roughness[2] = static_cast<float>(material.emissive.z);
+                    push.emissive_roughness[3] = material.roughness;
+                    push.outline_shift[0] = outline_shift;
+                    push.outline_shift[1] = outline_shift;
                     push.entity_id = entity_id;
                     push.selected = selected_id;
                     return push;
+                }
+
+                /** @brief A flat, unlit material carrying just a colour (grid, cloth defaults). */
+                Material flat_material(const Vector3& color)
+                {
+                    Material material;
+                    material.albedo = color;
+                    material.metallic = 0.0f;
+                    material.roughness = 0.9f;
+                    return material;
                 }
 
                 /**
@@ -168,6 +209,7 @@ namespace SushiEngine
             VulkanSceneView::VulkanSceneView(VulkanDevice& device) : device_(device)
             {
                 create_sampler();
+                create_descriptors();
                 create_pipelines();
                 create_geometry();
                 create_targets();
@@ -179,8 +221,62 @@ namespace SushiEngine
                 destroy_targets();
                 destroy_geometry();
                 destroy_pipelines();
+                destroy_descriptors();
                 if (sampler_ != VK_NULL_HANDLE)
                     vkDestroySampler(device_.device(), sampler_, nullptr);
+            }
+
+            void VulkanSceneView::create_descriptors()
+            {
+                // One set layout for every pass: binding 0 is the per-frame scene UBO
+                // (read by vertex and fragment stages), bindings 1 and 2 are combined
+                // image samplers the sky/tonemap passes read (depth, hdr / composite).
+                VkDescriptorSetLayoutBinding bindings[3]{};
+                bindings[0].binding = 0;
+                bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                bindings[0].descriptorCount = 1;
+                bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+                bindings[1].binding = 1;
+                bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[1].descriptorCount = 1;
+                bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                bindings[2].binding = 2;
+                bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[2].descriptorCount = 1;
+                bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                VkDescriptorSetLayoutCreateInfo layout_info{};
+                layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                layout_info.bindingCount = 3;
+                layout_info.pBindings = bindings;
+                check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
+                                                  &set_layout_),
+                      "vkCreateDescriptorSetLayout");
+
+                // Three sets per slot (mesh, sky, tonemap); pool reset and reallocated
+                // whenever the targets are rebuilt (see create_targets).
+                VkDescriptorPoolSize sizes[2]{};
+                sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                sizes[0].descriptorCount = SLOTS * 3;
+                sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                sizes[1].descriptorCount = SLOTS * 3 * 2;
+
+                VkDescriptorPoolCreateInfo pool_info{};
+                pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+                pool_info.maxSets = SLOTS * 3;
+                pool_info.poolSizeCount = 2;
+                pool_info.pPoolSizes = sizes;
+                check(vkCreateDescriptorPool(device_.device(), &pool_info, nullptr,
+                                             &descriptor_pool_),
+                      "vkCreateDescriptorPool");
+            }
+
+            void VulkanSceneView::destroy_descriptors()
+            {
+                if (descriptor_pool_ != VK_NULL_HANDLE)
+                    vkDestroyDescriptorPool(device_.device(), descriptor_pool_, nullptr);
+                if (set_layout_ != VK_NULL_HANDLE)
+                    vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
             }
 
             void VulkanSceneView::create_sampler()
@@ -205,6 +301,8 @@ namespace SushiEngine
 
                 VkPipelineLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+                layout_info.setLayoutCount = 1;
+                layout_info.pSetLayouts = &set_layout_;
                 layout_info.pushConstantRangeCount = 1;
                 layout_info.pPushConstantRanges = &range;
                 check(vkCreatePipelineLayout(device_.device(), &layout_info, nullptr, &layout_),
@@ -212,8 +310,8 @@ namespace SushiEngine
 
                 VkShaderModule vertex_module = make_shader(device_.device(), Shaders::mesh_vert_spv,
                                                            Shaders::mesh_vert_spv_word_count);
-                VkShaderModule mesh_fragment = make_shader(device_.device(), Shaders::mesh_frag_spv,
-                                                           Shaders::mesh_frag_spv_word_count);
+                VkShaderModule mesh_fragment = make_shader(device_.device(), Shaders::pbr_frag_spv,
+                                                           Shaders::pbr_frag_spv_word_count);
                 VkShaderModule line_fragment = make_shader(device_.device(), Shaders::line_frag_spv,
                                                            Shaders::line_frag_spv_word_count);
 
@@ -282,7 +380,7 @@ namespace SushiEngine
                 dynamic.dynamicStateCount = 3;
                 dynamic.pDynamicStates = dynamic_states;
 
-                const VkFormat color_formats[2] = {COLOR_FORMAT, ID_FORMAT};
+                const VkFormat color_formats[2] = {HDR_FORMAT, ID_FORMAT};
                 VkPipelineRenderingCreateInfo rendering_info{};
                 rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
                 rendering_info.colorAttachmentCount = 2;
@@ -414,6 +512,97 @@ namespace SushiEngine
 
                 outline_pipeline_ = build_outline(outline_fragment);
 
+                // Fullscreen post passes (sky, tonemap): a vertex-only triangle, no depth,
+                // no vertex input, one colour attachment. The sky pass targets the HDR
+                // composite; the tonemap pass targets the LDR resolve image.
+                VkShaderModule fullscreen_vertex =
+                    make_shader(device_.device(), Shaders::fullscreen_vert_spv,
+                                Shaders::fullscreen_vert_spv_word_count);
+                VkShaderModule sky_fragment = make_shader(device_.device(), Shaders::sky_frag_spv,
+                                                          Shaders::sky_frag_spv_word_count);
+                VkShaderModule tonemap_fragment =
+                    make_shader(device_.device(), Shaders::tonemap_frag_spv,
+                                Shaders::tonemap_frag_spv_word_count);
+
+                auto build_fullscreen = [&](VkShaderModule fragment, VkFormat color_format) -> VkPipeline
+                {
+                    VkPipelineShaderStageCreateInfo stages[2]{};
+                    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+                    stages[0].module = fullscreen_vertex;
+                    stages[0].pName = "main";
+                    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    stages[1].module = fragment;
+                    stages[1].pName = "main";
+
+                    VkPipelineVertexInputStateCreateInfo empty_input{};
+                    empty_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+                    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+                    input_assembly.sType =
+                        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+                    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+                    VkPipelineRasterizationStateCreateInfo raster{};
+                    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+                    raster.polygonMode = VK_POLYGON_MODE_FILL;
+                    raster.cullMode = VK_CULL_MODE_NONE;
+                    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                    raster.lineWidth = 1.0f;
+
+                    VkPipelineDepthStencilStateCreateInfo no_depth{};
+                    no_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+
+                    VkPipelineColorBlendAttachmentState blend_attachment{};
+                    blend_attachment.colorWriteMask =
+                        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                    VkPipelineColorBlendStateCreateInfo fullscreen_blend{};
+                    fullscreen_blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+                    fullscreen_blend.attachmentCount = 1;
+                    fullscreen_blend.pAttachments = &blend_attachment;
+
+                    const VkDynamicState fullscreen_dynamic_states[2] = {VK_DYNAMIC_STATE_VIEWPORT,
+                                                                         VK_DYNAMIC_STATE_SCISSOR};
+                    VkPipelineDynamicStateCreateInfo fullscreen_dynamic{};
+                    fullscreen_dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+                    fullscreen_dynamic.dynamicStateCount = 2;
+                    fullscreen_dynamic.pDynamicStates = fullscreen_dynamic_states;
+
+                    VkPipelineRenderingCreateInfo fullscreen_rendering{};
+                    fullscreen_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+                    fullscreen_rendering.colorAttachmentCount = 1;
+                    fullscreen_rendering.pColorAttachmentFormats = &color_format;
+
+                    VkGraphicsPipelineCreateInfo info{};
+                    info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+                    info.pNext = &fullscreen_rendering;
+                    info.stageCount = 2;
+                    info.pStages = stages;
+                    info.pVertexInputState = &empty_input;
+                    info.pInputAssemblyState = &input_assembly;
+                    info.pViewportState = &viewport_state;
+                    info.pRasterizationState = &raster;
+                    info.pMultisampleState = &multisample;
+                    info.pDepthStencilState = &no_depth;
+                    info.pColorBlendState = &fullscreen_blend;
+                    info.pDynamicState = &fullscreen_dynamic;
+                    info.layout = layout_;
+
+                    VkPipeline pipeline = VK_NULL_HANDLE;
+                    check(vkCreateGraphicsPipelines(device_.device(), VK_NULL_HANDLE, 1, &info,
+                                                    nullptr, &pipeline),
+                          "vkCreateGraphicsPipelines(fullscreen)");
+                    return pipeline;
+                };
+
+                sky_pipeline_ = build_fullscreen(sky_fragment, HDR_FORMAT);
+                tonemap_pipeline_ = build_fullscreen(tonemap_fragment, RESOLVE_FORMAT);
+
+                vkDestroyShaderModule(device_.device(), tonemap_fragment, nullptr);
+                vkDestroyShaderModule(device_.device(), sky_fragment, nullptr);
+                vkDestroyShaderModule(device_.device(), fullscreen_vertex, nullptr);
                 vkDestroyShaderModule(device_.device(), outline_vertex, nullptr);
                 vkDestroyShaderModule(device_.device(), outline_fragment, nullptr);
                 vkDestroyShaderModule(device_.device(), line_fragment, nullptr);
@@ -423,6 +612,10 @@ namespace SushiEngine
 
             void VulkanSceneView::destroy_pipelines()
             {
+                if (tonemap_pipeline_ != VK_NULL_HANDLE)
+                    vkDestroyPipeline(device_.device(), tonemap_pipeline_, nullptr);
+                if (sky_pipeline_ != VK_NULL_HANDLE)
+                    vkDestroyPipeline(device_.device(), sky_pipeline_, nullptr);
                 if (outline_pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), outline_pipeline_, nullptr);
                 if (line_pipeline_ != VK_NULL_HANDLE)
@@ -610,104 +803,204 @@ namespace SushiEngine
             {
                 for (Buffer* buffer : {&cube_vertices_, &cube_indices_, &sphere_vertices_,
                                        &sphere_indices_, &cylinder_vertices_, &cylinder_indices_,
-                                       &grid_vertices_, &cloth_vertices_})
+                                       &grid_vertices_, &cloth_vertices_, &cloth_indices_})
                     if (buffer->buffer != VK_NULL_HANDLE)
                         vmaDestroyBuffer(device_.allocator(), buffer->buffer, buffer->allocation);
                 cloth_vertices_capacity_ = 0;
                 cloth_vertices_mapped_ = nullptr;
+                cloth_indices_capacity_ = 0;
+                cloth_indices_mapped_ = nullptr;
             }
 
-            void VulkanSceneView::ensure_cloth_capacity(VkDeviceSize bytes)
+            void VulkanSceneView::ensure_cloth_capacity(VkDeviceSize vertex_bytes,
+                                                        VkDeviceSize index_bytes)
             {
-                if (bytes <= cloth_vertices_capacity_)
-                    return;
-                if (cloth_vertices_.buffer != VK_NULL_HANDLE)
-                    vmaDestroyBuffer(device_.allocator(), cloth_vertices_.buffer,
-                                     cloth_vertices_.allocation);
+                const auto grow = [&](Buffer& buffer, VkDeviceSize& capacity, void*& mapped,
+                                      VkDeviceSize bytes, VkBufferUsageFlags usage,
+                                      const char* what)
+                {
+                    if (bytes <= capacity)
+                        return;
+                    if (buffer.buffer != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), buffer.buffer, buffer.allocation);
 
-                VkBufferCreateInfo buffer_info{};
-                buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                buffer_info.size = bytes;
-                buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+                    VkBufferCreateInfo buffer_info{};
+                    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    buffer_info.size = bytes;
+                    buffer_info.usage = usage;
 
-                VmaAllocationCreateInfo alloc{};
-                alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                              VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    VmaAllocationCreateInfo alloc{};
+                    alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                  VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-                cloth_vertices_ = Buffer{};
-                VmaAllocationInfo info{};
-                check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc,
-                                      &cloth_vertices_.buffer, &cloth_vertices_.allocation, &info),
-                      "vmaCreateBuffer(cloth)");
-                cloth_vertices_mapped_ = info.pMappedData;
-                cloth_vertices_capacity_ = bytes;
+                    buffer = Buffer{};
+                    VmaAllocationInfo info{};
+                    check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc, &buffer.buffer,
+                                          &buffer.allocation, &info),
+                          what);
+                    mapped = info.pMappedData;
+                    capacity = bytes;
+                };
+
+                grow(cloth_vertices_, cloth_vertices_capacity_, cloth_vertices_mapped_,
+                    vertex_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "vmaCreateBuffer(cloth vertices)");
+                grow(cloth_indices_, cloth_indices_capacity_, cloth_indices_mapped_, index_bytes,
+                    VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "vmaCreateBuffer(cloth indices)");
             }
 
             void VulkanSceneView::create_targets()
             {
+                // The descriptor sets are tied to this size's images, so the pool is reset
+                // and the sets reallocated whenever the targets are (re)built.
+                check(vkResetDescriptorPool(device_.device(), descriptor_pool_, 0),
+                      "vkResetDescriptorPool");
+
                 for (Slot& slot : slots_)
                 {
-                    VkImageCreateInfo color_info{};
-                    color_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-                    color_info.imageType = VK_IMAGE_TYPE_2D;
-                    color_info.format = COLOR_FORMAT;
-                    color_info.extent = {width_, height_, 1};
-                    color_info.mipLevels = 1;
-                    color_info.arrayLayers = 1;
-                    color_info.samples = VK_SAMPLE_COUNT_1_BIT;
-                    color_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-                    color_info.usage =
-                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
                     VmaAllocationCreateInfo image_alloc{};
                     image_alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                    check(vmaCreateImage(device_.allocator(), &color_info, &image_alloc,
-                                         &slot.color, &slot.color_allocation, nullptr),
-                          "vmaCreateImage(color)");
 
-                    VkImageCreateInfo depth_info = color_info;
-                    depth_info.format = DEPTH_FORMAT;
-                    depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-                    check(vmaCreateImage(device_.allocator(), &depth_info, &image_alloc,
-                                         &slot.depth, &slot.depth_allocation, nullptr),
-                          "vmaCreateImage(depth)");
+                    auto make_image = [&](VkFormat format, VkImageUsageFlags usage, VkImage& image,
+                                          VmaAllocation& allocation, const char* what)
+                    {
+                        VkImageCreateInfo info{};
+                        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                        info.imageType = VK_IMAGE_TYPE_2D;
+                        info.format = format;
+                        info.extent = {width_, height_, 1};
+                        info.mipLevels = 1;
+                        info.arrayLayers = 1;
+                        info.samples = VK_SAMPLE_COUNT_1_BIT;
+                        info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                        info.usage = usage;
+                        check(vmaCreateImage(device_.allocator(), &info, &image_alloc, &image,
+                                             &allocation, nullptr), what);
+                    };
 
-                    // The id target the mesh pass writes; copied to a host buffer each
-                    // frame so a click can read the entity under the cursor.
-                    VkImageCreateInfo id_info = color_info;
-                    id_info.format = ID_FORMAT;
-                    id_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-                    check(vmaCreateImage(device_.allocator(), &id_info, &image_alloc,
-                                         &slot.id, &slot.id_allocation, nullptr),
-                          "vmaCreateImage(id)");
+                    auto make_view = [&](VkImage image, VkFormat format, VkImageAspectFlags aspect,
+                                         VkImageView& view, const char* what)
+                    {
+                        VkImageViewCreateInfo info{};
+                        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                        info.image = image;
+                        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                        info.format = format;
+                        info.subresourceRange.aspectMask = aspect;
+                        info.subresourceRange.levelCount = 1;
+                        info.subresourceRange.layerCount = 1;
+                        check(vkCreateImageView(device_.device(), &info, nullptr, &view), what);
+                    };
 
-                    VkImageViewCreateInfo color_view{};
-                    color_view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-                    color_view.image = slot.color;
-                    color_view.viewType = VK_IMAGE_VIEW_TYPE_2D;
-                    color_view.format = COLOR_FORMAT;
-                    color_view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                    color_view.subresourceRange.levelCount = 1;
-                    color_view.subresourceRange.layerCount = 1;
-                    check(vkCreateImageView(device_.device(), &color_view, nullptr,
-                                            &slot.color_view),
-                          "vkCreateImageView(color)");
+                    // HDR scene target (opaque pass writes, sky pass samples); HDR composite
+                    // (sky pass writes, tonemap samples); LDR resolve (tonemap writes, editor
+                    // samples). Depth carries SAMPLED so the sky pass can read it.
+                    make_image(HDR_FORMAT,
+                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               slot.hdr, slot.hdr_allocation, "vmaCreateImage(hdr)");
+                    make_image(HDR_FORMAT,
+                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               slot.composite, slot.composite_allocation, "vmaCreateImage(composite)");
+                    make_image(RESOLVE_FORMAT,
+                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               slot.resolve, slot.resolve_allocation, "vmaCreateImage(resolve)");
+                    make_image(DEPTH_FORMAT,
+                               VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               slot.depth, slot.depth_allocation, "vmaCreateImage(depth)");
+                    make_image(ID_FORMAT,
+                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                               slot.id, slot.id_allocation, "vmaCreateImage(id)");
 
-                    VkImageViewCreateInfo depth_view = color_view;
-                    depth_view.image = slot.depth;
-                    depth_view.format = DEPTH_FORMAT;
-                    depth_view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-                    check(vkCreateImageView(device_.device(), &depth_view, nullptr,
-                                            &slot.depth_view),
-                          "vkCreateImageView(depth)");
+                    make_view(slot.hdr, HDR_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT, slot.hdr_view,
+                              "vkCreateImageView(hdr)");
+                    make_view(slot.composite, HDR_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT,
+                              slot.composite_view, "vkCreateImageView(composite)");
+                    make_view(slot.resolve, RESOLVE_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT,
+                              slot.resolve_view, "vkCreateImageView(resolve)");
+                    make_view(slot.depth, DEPTH_FORMAT,
+                              VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, slot.depth_view,
+                              "vkCreateImageView(depth)");
+                    make_view(slot.depth, DEPTH_FORMAT, VK_IMAGE_ASPECT_DEPTH_BIT,
+                              slot.depth_sample_view, "vkCreateImageView(depth sample)");
+                    make_view(slot.id, ID_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT, slot.id_view,
+                              "vkCreateImageView(id)");
 
-                    VkImageViewCreateInfo id_view = color_view;
-                    id_view.image = slot.id;
-                    id_view.format = ID_FORMAT;
-                    check(vkCreateImageView(device_.device(), &id_view, nullptr, &slot.id_view),
-                          "vkCreateImageView(id)");
+                    // Per-frame scene uniform buffer, host-visible and mapped.
+                    VkBufferCreateInfo ubo_info{};
+                    ubo_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    ubo_info.size = sizeof(SceneUbo);
+                    ubo_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                    VmaAllocationCreateInfo ubo_alloc{};
+                    ubo_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    ubo_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                      VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    VmaAllocationInfo ubo_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &ubo_info, &ubo_alloc, &slot.ubo,
+                                          &slot.ubo_allocation, &ubo_mapped),
+                          "vmaCreateBuffer(ubo)");
+                    slot.ubo_mapped = ubo_mapped.pMappedData;
+
+                    // Allocate the three descriptor sets and point them at this slot's UBO
+                    // and sampled images (the layout each will be sampled in is fixed).
+                    VkDescriptorSetLayout layouts[3] = {set_layout_, set_layout_, set_layout_};
+                    VkDescriptorSetAllocateInfo set_info{};
+                    set_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                    set_info.descriptorPool = descriptor_pool_;
+                    set_info.descriptorSetCount = 3;
+                    set_info.pSetLayouts = layouts;
+                    VkDescriptorSet sets[3]{};
+                    check(vkAllocateDescriptorSets(device_.device(), &set_info, sets),
+                          "vkAllocateDescriptorSets");
+                    slot.mesh_set = sets[0];
+                    slot.sky_set = sets[1];
+                    slot.tonemap_set = sets[2];
+
+                    VkDescriptorBufferInfo ubo_desc{};
+                    ubo_desc.buffer = slot.ubo;
+                    ubo_desc.range = sizeof(SceneUbo);
+
+                    auto image_desc = [&](VkImageView view)
+                    {
+                        VkDescriptorImageInfo info{};
+                        info.sampler = sampler_;
+                        info.imageView = view;
+                        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        return info;
+                    };
+                    const VkDescriptorImageInfo depth_desc = image_desc(slot.depth_sample_view);
+                    const VkDescriptorImageInfo hdr_desc = image_desc(slot.hdr_view);
+                    const VkDescriptorImageInfo composite_desc = image_desc(slot.composite_view);
+
+                    VkWriteDescriptorSet writes[7]{};
+                    auto write_ubo = [&](VkWriteDescriptorSet& w, VkDescriptorSet set)
+                    {
+                        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                        w.dstSet = set;
+                        w.dstBinding = 0;
+                        w.descriptorCount = 1;
+                        w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                        w.pBufferInfo = &ubo_desc;
+                    };
+                    auto write_image = [&](VkWriteDescriptorSet& w, VkDescriptorSet set,
+                                           std::uint32_t binding, const VkDescriptorImageInfo& info)
+                    {
+                        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                        w.dstSet = set;
+                        w.dstBinding = binding;
+                        w.descriptorCount = 1;
+                        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                        w.pImageInfo = &info;
+                    };
+                    write_ubo(writes[0], slot.mesh_set);
+                    write_ubo(writes[1], slot.sky_set);
+                    write_image(writes[2], slot.sky_set, 1, depth_desc);
+                    write_image(writes[3], slot.sky_set, 2, hdr_desc);
+                    write_ubo(writes[4], slot.tonemap_set);
+                    write_image(writes[5], slot.tonemap_set, 1, composite_desc);
+                    // The mesh set never samples bindings 1/2, but give them a valid view so
+                    // the set is fully initialised.
+                    write_image(writes[6], slot.mesh_set, 1, depth_desc);
+                    vkUpdateDescriptorSets(device_.device(), 7, writes, 0, nullptr);
 
                     // Host-visible readback buffer sized to the id image, filled by a
                     // copy at the end of each render so pick() reads it without a stall.
@@ -757,20 +1050,32 @@ namespace SushiEngine
                         vkDestroyFence(device_.device(), slot.fence, nullptr);
                     if (slot.pool != VK_NULL_HANDLE)
                         vkDestroyCommandPool(device_.device(), slot.pool, nullptr);
+                    if (slot.ubo != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.ubo, slot.ubo_allocation);
                     if (slot.readback != VK_NULL_HANDLE)
                         vmaDestroyBuffer(device_.allocator(), slot.readback, slot.readback_allocation);
                     if (slot.id_view != VK_NULL_HANDLE)
                         vkDestroyImageView(device_.device(), slot.id_view, nullptr);
                     if (slot.id != VK_NULL_HANDLE)
                         vmaDestroyImage(device_.allocator(), slot.id, slot.id_allocation);
+                    if (slot.depth_sample_view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), slot.depth_sample_view, nullptr);
                     if (slot.depth_view != VK_NULL_HANDLE)
                         vkDestroyImageView(device_.device(), slot.depth_view, nullptr);
                     if (slot.depth != VK_NULL_HANDLE)
                         vmaDestroyImage(device_.allocator(), slot.depth, slot.depth_allocation);
-                    if (slot.color_view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device_.device(), slot.color_view, nullptr);
-                    if (slot.color != VK_NULL_HANDLE)
-                        vmaDestroyImage(device_.allocator(), slot.color, slot.color_allocation);
+                    if (slot.resolve_view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), slot.resolve_view, nullptr);
+                    if (slot.resolve != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), slot.resolve, slot.resolve_allocation);
+                    if (slot.composite_view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), slot.composite_view, nullptr);
+                    if (slot.composite != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), slot.composite, slot.composite_allocation);
+                    if (slot.hdr_view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), slot.hdr_view, nullptr);
+                    if (slot.hdr != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), slot.hdr, slot.hdr_allocation);
                     slot = Slot{};
                 }
             }
@@ -792,11 +1097,12 @@ namespace SushiEngine
             {
                 SceneViewTexture texture;
                 texture.sampler = sampler_;
-                texture.image_view = slots_[slot].color_view;
+                texture.image_view = slots_[slot].resolve_view;
                 return texture;
             }
 
-            void VulkanSceneView::render(const CameraView& camera, const MeshInstance* instances,
+            void VulkanSceneView::render(const CameraView& camera, const Environment& environment,
+                                         const MeshInstance* instances,
                                          std::size_t count, std::uint32_t selected_id,
                                          const ClothStrandView* strands, std::size_t strand_count)
             {
@@ -810,30 +1116,126 @@ namespace SushiEngine
                 check(vkResetFences(device_.device(), 1, &slot.fence), "vkResetFences");
                 check(vkResetCommandPool(device_.device(), slot.pool, 0), "vkResetCommandPool");
 
+                // Fill the per-frame scene uniform block from the camera and environment.
+                // The sky pass works in camera-relative space, so the planet centre and the
+                // ray basis are all expressed relative to the camera eye recovered here.
+                {
+                    const Mat4& V = camera.view;
+                    const Mat4& P = camera.projection;
+                    const double right[3] = {V.m[0], V.m[4], V.m[8]};
+                    const double up[3] = {V.m[1], V.m[5], V.m[9]};
+                    const double fwd[3] = {-V.m[2], -V.m[6], -V.m[10]};
+                    const double eye[3] = {
+                        -(V.m[0] * V.m[12] + V.m[1] * V.m[13] + V.m[2] * V.m[14]),
+                        -(V.m[4] * V.m[12] + V.m[5] * V.m[13] + V.m[6] * V.m[14]),
+                        -(V.m[8] * V.m[12] + V.m[9] * V.m[13] + V.m[10] * V.m[14])};
+                    const double tan_half_x = P.m[0] != 0.0 ? 1.0 / P.m[0] : 1.0;
+                    const double tan_half_y = P.m[5] != 0.0 ? 1.0 / (-P.m[5]) : 1.0;
+
+                    const double a = environment.planet.semi_major;
+                    const double b = environment.planet.semi_minor();
+                    // Planet anchored so its equatorial surface passes through the local
+                    // origin (the ground grid), centre straight down by a.
+                    const double center_local[3] = {0.0, -a, 0.0};
+                    const double to_center[3] = {eye[0] - center_local[0], eye[1] - center_local[1],
+                                                 eye[2] - center_local[2]};
+                    const double altitude =
+                        std::sqrt(to_center[0] * to_center[0] + to_center[1] * to_center[1] +
+                                  to_center[2] * to_center[2]) - a;
+
+                    const Vector3 sun_dir = normalize(environment.sun.direction);
+
+                    SceneUbo ubo{};
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        ubo.view[i] = static_cast<float>(V.m[i]);
+                        ubo.proj[i] = static_cast<float>(P.m[i]);
+                    }
+                    ubo.cam_forward[0] = static_cast<float>(fwd[0]);
+                    ubo.cam_forward[1] = static_cast<float>(fwd[1]);
+                    ubo.cam_forward[2] = static_cast<float>(fwd[2]);
+                    ubo.cam_forward[3] = static_cast<float>(eye[0]);
+                    ubo.cam_right[0] = static_cast<float>(right[0] * tan_half_x);
+                    ubo.cam_right[1] = static_cast<float>(right[1] * tan_half_x);
+                    ubo.cam_right[2] = static_cast<float>(right[2] * tan_half_x);
+                    ubo.cam_right[3] = static_cast<float>(eye[1]);
+                    ubo.cam_up[0] = static_cast<float>(-up[0] * tan_half_y);
+                    ubo.cam_up[1] = static_cast<float>(-up[1] * tan_half_y);
+                    ubo.cam_up[2] = static_cast<float>(-up[2] * tan_half_y);
+                    ubo.cam_up[3] = static_cast<float>(eye[2]);
+                    ubo.planet_center[0] = static_cast<float>(center_local[0] - eye[0]);
+                    ubo.planet_center[1] = static_cast<float>(center_local[1] - eye[1]);
+                    ubo.planet_center[2] = static_cast<float>(center_local[2] - eye[2]);
+                    ubo.planet_center[3] = static_cast<float>(a);
+                    ubo.planet_radii[0] = static_cast<float>(a);
+                    ubo.planet_radii[1] = static_cast<float>(a);
+                    ubo.planet_radii[2] = static_cast<float>(b);
+                    ubo.planet_radii[3] = environment.atmosphere.height;
+                    ubo.sun_dir[0] = static_cast<float>(sun_dir.x);
+                    ubo.sun_dir[1] = static_cast<float>(sun_dir.y);
+                    ubo.sun_dir[2] = static_cast<float>(sun_dir.z);
+                    ubo.sun_dir[3] = environment.sun.intensity;
+                    ubo.sun_color[0] = static_cast<float>(environment.sun.color.x);
+                    ubo.sun_color[1] = static_cast<float>(environment.sun.color.y);
+                    ubo.sun_color[2] = static_cast<float>(environment.sun.color.z);
+                    ubo.sun_color[3] = environment.exposure;
+                    ubo.ambient[0] = static_cast<float>(environment.ambient.x);
+                    ubo.ambient[1] = static_cast<float>(environment.ambient.y);
+                    ubo.ambient[2] = static_cast<float>(environment.ambient.z);
+                    ubo.rayleigh[0] = static_cast<float>(environment.atmosphere.rayleigh_coefficient.x);
+                    ubo.rayleigh[1] = static_cast<float>(environment.atmosphere.rayleigh_coefficient.y);
+                    ubo.rayleigh[2] = static_cast<float>(environment.atmosphere.rayleigh_coefficient.z);
+                    ubo.rayleigh[3] = environment.atmosphere.mie_coefficient;
+                    ubo.scatter[0] = environment.atmosphere.mie_anisotropy;
+                    ubo.scatter[1] = environment.atmosphere.rayleigh_scale_height;
+                    ubo.scatter[2] = environment.atmosphere.mie_scale_height;
+                    ubo.scatter[3] = static_cast<float>(altitude);
+                    ubo.ground_albedo[0] = static_cast<float>(environment.surface.ground_albedo.x);
+                    ubo.ground_albedo[1] = static_cast<float>(environment.surface.ground_albedo.y);
+                    ubo.ground_albedo[2] = static_cast<float>(environment.surface.ground_albedo.z);
+                    ubo.ocean_color[0] = static_cast<float>(environment.surface.ocean_color.x);
+                    ubo.ocean_color[1] = static_cast<float>(environment.surface.ocean_color.y);
+                    ubo.ocean_color[2] = static_cast<float>(environment.surface.ocean_color.z);
+                    ubo.cloud_params[0] = environment.clouds.base_altitude;
+                    ubo.cloud_params[1] = environment.clouds.top_altitude;
+                    ubo.cloud_params[2] = environment.clouds.coverage;
+                    ubo.cloud_params[3] = environment.clouds.density;
+                    ubo.star_params[0] = environment.stars.brightness;
+                    ubo.star_params[1] = environment.stars.density;
+                    ubo.star_params[2] = environment.atmosphere.enabled ? 1.0f : 0.0f;
+                    ubo.star_params[3] = environment.stars.enabled ? 1.0f : 0.0f;
+                    ubo.misc[0] = camera.near_plane;
+                    ubo.misc[1] = camera.far_plane;
+                    ubo.misc[2] = static_cast<float>(frame_counter_) * 0.016f;
+                    ubo.misc[3] = environment.clouds.enabled ? 1.0f : 0.0f;
+                    std::memcpy(slot.ubo_mapped, &ubo, sizeof(SceneUbo));
+                }
+
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
                 check(vkBeginCommandBuffer(slot.cmd, &begin), "vkBeginCommandBuffer");
 
-                const VkImageLayout color_from = slot.ever_rendered
-                                                     ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                                                     : VK_IMAGE_LAYOUT_UNDEFINED;
-                const VkPipelineStageFlags2 color_src_stage =
-                    slot.ever_rendered ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
-                                       : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-                const VkAccessFlags2 color_src_access =
-                    slot.ever_rendered ? VK_ACCESS_2_SHADER_SAMPLED_READ_BIT : 0;
-                transition(slot.cmd, slot.color, VK_IMAGE_ASPECT_COLOR_BIT, color_from,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, color_src_stage,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, color_src_access,
+                VkViewport viewport{};
+                viewport.width = static_cast<float>(width_);
+                viewport.height = static_cast<float>(height_);
+                viewport.maxDepth = 1.0f;
+                VkRect2D scissor{};
+                scissor.extent = {width_, height_};
+
+                const VkDeviceSize zero_offset = 0;
+                const std::uint32_t stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                // ---- Opaque pass: grid + lit meshes + cloth into the HDR + id targets. ----
+                transition(slot.cmd, slot.hdr, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
                            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
                 transition(slot.cmd, slot.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, 0,
                            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
-                // The id target is rebuilt every frame, so its prior contents are
-                // discarded (UNDEFINED) before it is cleared and drawn into.
                 transition(slot.cmd, slot.id, VK_IMAGE_ASPECT_COLOR_BIT,
                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
@@ -842,11 +1244,11 @@ namespace SushiEngine
 
                 VkRenderingAttachmentInfo color_attachment{};
                 color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                color_attachment.imageView = slot.color_view;
+                color_attachment.imageView = slot.hdr_view;
                 color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                 color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                color_attachment.clearValue.color = {{0.05f, 0.06f, 0.08f, 1.0f}};
+                color_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
                 VkRenderingAttachmentInfo id_attachment{};
                 id_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -864,7 +1266,7 @@ namespace SushiEngine
                 depth_attachment.imageView = slot.depth_view;
                 depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 depth_attachment.clearValue.depthStencil = {1.0f, 0};
 
                 VkRenderingInfo rendering{};
@@ -877,25 +1279,17 @@ namespace SushiEngine
                 rendering.pStencilAttachment = &depth_attachment;
                 vkCmdBeginRendering(slot.cmd, &rendering);
 
-                VkViewport viewport{};
-                viewport.width = static_cast<float>(width_);
-                viewport.height = static_cast<float>(height_);
-                viewport.maxDepth = 1.0f;
                 vkCmdSetViewport(slot.cmd, 0, 1, &viewport);
-                VkRect2D scissor{};
-                scissor.extent = {width_, height_};
                 vkCmdSetScissor(slot.cmd, 0, 1, &scissor);
-
-                const Mat4 view_projection = mul(camera.projection, camera.view);
-                const VkDeviceSize zero_offset = 0;
+                vkCmdBindDescriptorSets(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
+                                        &slot.mesh_set, 0, nullptr);
 
                 // Ground grid: a single flat-coloured line draw.
-                const std::uint32_t stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
                 vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
                 vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                 vkCmdBindVertexBuffers(slot.cmd, 0, 1, &grid_vertices_.buffer, &zero_offset);
                 const MeshPush grid_push =
-                    make_push(view_projection, Mat4{}, Vector3{0.32f, 0.33f, 0.40f}, NO_PICK, NO_PICK);
+                    make_push(Mat4{}, flat_material(Vector3{0.32f, 0.33f, 0.40f}), NO_PICK, NO_PICK);
                 vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &grid_push);
                 vkCmdDraw(slot.cmd, grid_vertices_.count, 1, 0, 0);
 
@@ -927,9 +1321,8 @@ namespace SushiEngine
                         const Mat4 scaled_model =
                             mul(instances[i].model, shape_scale(instances[i].kind,
                                                                 instances[i].shape_params));
-                        const MeshPush push = make_push(view_projection, scaled_model,
-                                                        instances[i].color, instances[i].id,
-                                                        selected_id);
+                        const MeshPush push = make_push(scaled_model, instances[i].material,
+                                                        instances[i].id, selected_id);
                         vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
                                                  (instances[i].id == selected_id) ? 1 : 0);
                         vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
@@ -961,69 +1354,203 @@ namespace SushiEngine
                             const Mat4 scaled_model =
                                 mul(instances[i].model, shape_scale(instances[i].kind,
                                                                     instances[i].shape_params));
-                            const MeshPush push = make_push(view_projection, scaled_model,
-                                                            instances[i].color, instances[i].id,
-                                                            selected_id);
+                            const MeshPush push = make_push(scaled_model,
+                                                            flat_material(instances[i].color),
+                                                            instances[i].id, selected_id, 0.006f);
                             vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
                             vkCmdDrawIndexed(slot.cmd, group.indices->count, 1, 0, 0, 0);
                         }
                     }
                 }
 
-                // Soft-body wireframes: every strand's grid edges (horizontal, then
-                // vertical) concatenated into one line-list draw per strand, uploaded
-                // to the single host-visible cloth buffer just ahead of recording it.
+                // Soft-body meshes: every strand's grid triangulated (see
+                // triangulate_cloth_grid) and concatenated into one indexed draw per
+                // strand, uploaded to the host-visible cloth buffers just ahead of
+                // recording it. Drawn with the same lit mesh pipeline Box/Sphere/
+                // Cylinder use (already double-sided) so cloth shades and picks like
+                // any other object instead of drawing as a bare wireframe.
                 if (strand_count > 0)
                 {
-                    std::size_t total_lines = 0;
+                    std::vector<ClothVertex> triangulated_vertices;
+                    std::vector<std::uint32_t> triangulated_indices;
+                    std::vector<Vertex> all_vertices;
+                    std::vector<std::uint32_t> all_indices;
+                    std::vector<std::pair<std::uint32_t, std::uint32_t>> draw_ranges;
+                    draw_ranges.reserve(strand_count);
+
                     for (std::size_t s = 0; s < strand_count; ++s)
-                        if (strands[s].rows > 0 && strands[s].cols > 0)
-                            total_lines += strands[s].rows * (strands[s].cols - 1) +
-                                          (strands[s].rows - 1) * strands[s].cols;
-                    if (total_lines > 0)
                     {
-                        ensure_cloth_capacity(total_lines * 2 * sizeof(Vertex));
-                        auto* dst = static_cast<Vertex*>(cloth_vertices_mapped_);
-                        std::uint32_t written = 0;
+                        const ClothStrandView& strand = strands[s];
+                        triangulate_cloth_grid(strand.vertices, strand.rows, strand.cols,
+                                               triangulated_vertices, triangulated_indices);
+                        if (triangulated_indices.empty())
+                            continue;
+
+                        const std::uint32_t base_vertex =
+                            static_cast<std::uint32_t>(all_vertices.size());
+                        for (const ClothVertex& vertex : triangulated_vertices)
+                            all_vertices.push_back(
+                                Vertex{{static_cast<float>(vertex.position.x),
+                                       static_cast<float>(vertex.position.y),
+                                       static_cast<float>(vertex.position.z)},
+                                      {static_cast<float>(vertex.normal.x),
+                                       static_cast<float>(vertex.normal.y),
+                                       static_cast<float>(vertex.normal.z)}});
+
+                        const std::uint32_t index_offset =
+                            static_cast<std::uint32_t>(all_indices.size());
+                        for (std::uint32_t index : triangulated_indices)
+                            all_indices.push_back(base_vertex + index);
+                        draw_ranges.emplace_back(
+                            index_offset, static_cast<std::uint32_t>(triangulated_indices.size()));
+                    }
+
+                    if (!all_indices.empty())
+                    {
+                        ensure_cloth_capacity(all_vertices.size() * sizeof(Vertex),
+                                             all_indices.size() * sizeof(std::uint32_t));
+                        std::memcpy(cloth_vertices_mapped_, all_vertices.data(),
+                                   all_vertices.size() * sizeof(Vertex));
+                        std::memcpy(cloth_indices_mapped_, all_indices.data(),
+                                   all_indices.size() * sizeof(std::uint32_t));
+
+                        vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
+                        vkCmdBindVertexBuffers(slot.cmd, 0, 1, &cloth_vertices_.buffer, &zero_offset);
+                        vkCmdBindIndexBuffer(slot.cmd, cloth_indices_.buffer, 0,
+                                             VK_INDEX_TYPE_UINT32);
+                        std::size_t range = 0;
                         for (std::size_t s = 0; s < strand_count; ++s)
                         {
                             const ClothStrandView& strand = strands[s];
-                            if (strand.rows == 0 || strand.cols == 0)
+                            if (strand.rows < 2 || strand.cols < 2)
                                 continue;
-                            const auto at = [&](std::uint32_t row, std::uint32_t col)
-                            {
-                                const Vector3& p = strand.vertices[row * strand.cols + col];
-                                return Vertex{{static_cast<float>(p.x), static_cast<float>(p.y),
-                                              static_cast<float>(p.z)}, {0, 1, 0}};
-                            };
-                            for (std::uint32_t row = 0; row < strand.rows; ++row)
-                                for (std::uint32_t col = 0; col + 1 < strand.cols; ++col)
-                                {
-                                    dst[written++] = at(row, col);
-                                    dst[written++] = at(row, col + 1);
-                                }
-                            for (std::uint32_t col = 0; col < strand.cols; ++col)
-                                for (std::uint32_t row = 0; row + 1 < strand.rows; ++row)
-                                {
-                                    dst[written++] = at(row, col);
-                                    dst[written++] = at(row + 1, col);
-                                }
+                            const auto [index_offset, index_count] = draw_ranges[range++];
+                            vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                                     (strand.id == selected_id) ? 1 : 0);
+                            const MeshPush cloth_push = make_push(Mat4{}, flat_material(strand.color),
+                                                                  strand.id, selected_id);
+                            vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
+                                              &cloth_push);
+                            vkCmdDrawIndexed(slot.cmd, index_count, 1, index_offset, 0, 0);
                         }
 
-                        vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
-                        vkCmdBindVertexBuffers(slot.cmd, 0, 1, &cloth_vertices_.buffer, &zero_offset);
-                        const MeshPush cloth_push = make_push(view_projection, Mat4{},
-                                                              Vector3{0.85f, 0.85f, 0.9f}, NO_PICK,
-                                                              NO_PICK);
-                        vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
-                                          &cloth_push);
-                        vkCmdDraw(slot.cmd, written, 1, 0, 0);
+                        // Outline pass for a selected cloth mesh, masked the same way as
+                        // the Box/Sphere/Cylinder outline above.
+                        if (selected_id != NO_PICK)
+                        {
+                            vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                              outline_pipeline_);
+                            vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
+                            range = 0;
+                            for (std::size_t s = 0; s < strand_count; ++s)
+                            {
+                                const ClothStrandView& strand = strands[s];
+                                if (strand.rows < 2 || strand.cols < 2)
+                                    continue;
+                                const auto [index_offset, index_count] = draw_ranges[range++];
+                                if (strand.id != selected_id)
+                                    continue;
+                                const MeshPush cloth_push = make_push(Mat4{},
+                                                                      flat_material(strand.color),
+                                                                      strand.id, selected_id, 0.006f);
+                                vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
+                                                  &cloth_push);
+                                vkCmdDrawIndexed(slot.cmd, index_count, 1, index_offset, 0, 0);
+                            }
+                        }
                     }
                 }
 
                 vkCmdEndRendering(slot.cmd);
 
-                transition(slot.cmd, slot.color, VK_IMAGE_ASPECT_COLOR_BIT,
+                // Make the HDR scene and the depth buffer readable by the sky pass.
+                transition(slot.cmd, slot.hdr, VK_IMAGE_ASPECT_COLOR_BIT,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                transition(slot.cmd, slot.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+                           VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                           VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                // ---- Sky pass: planet + atmosphere + clouds + stars into the composite. ----
+                transition(slot.cmd, slot.composite, VK_IMAGE_ASPECT_COLOR_BIT,
+                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+                VkRenderingAttachmentInfo sky_attachment{};
+                sky_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                sky_attachment.imageView = slot.composite_view;
+                sky_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                sky_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                sky_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                VkRenderingInfo sky_rendering{};
+                sky_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                sky_rendering.renderArea.extent = {width_, height_};
+                sky_rendering.layerCount = 1;
+                sky_rendering.colorAttachmentCount = 1;
+                sky_rendering.pColorAttachments = &sky_attachment;
+                vkCmdBeginRendering(slot.cmd, &sky_rendering);
+                vkCmdSetViewport(slot.cmd, 0, 1, &viewport);
+                vkCmdSetScissor(slot.cmd, 0, 1, &scissor);
+                vkCmdBindDescriptorSets(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
+                                        &slot.sky_set, 0, nullptr);
+                vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sky_pipeline_);
+                vkCmdDraw(slot.cmd, 3, 1, 0, 0);
+                vkCmdEndRendering(slot.cmd);
+
+                transition(slot.cmd, slot.composite, VK_IMAGE_ASPECT_COLOR_BIT,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                // ---- Tonemap pass: resolve the HDR composite into the LDR image ImGui reads. ----
+                const VkImageLayout resolve_from = slot.ever_rendered
+                                                       ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                                       : VK_IMAGE_LAYOUT_UNDEFINED;
+                const VkPipelineStageFlags2 resolve_src_stage =
+                    slot.ever_rendered ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                                       : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                const VkAccessFlags2 resolve_src_access =
+                    slot.ever_rendered ? VK_ACCESS_2_SHADER_SAMPLED_READ_BIT : 0;
+                transition(slot.cmd, slot.resolve, VK_IMAGE_ASPECT_COLOR_BIT, resolve_from,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, resolve_src_stage,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, resolve_src_access,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+                VkRenderingAttachmentInfo tonemap_attachment{};
+                tonemap_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                tonemap_attachment.imageView = slot.resolve_view;
+                tonemap_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                tonemap_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                tonemap_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                VkRenderingInfo tonemap_rendering{};
+                tonemap_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                tonemap_rendering.renderArea.extent = {width_, height_};
+                tonemap_rendering.layerCount = 1;
+                tonemap_rendering.colorAttachmentCount = 1;
+                tonemap_rendering.pColorAttachments = &tonemap_attachment;
+                vkCmdBeginRendering(slot.cmd, &tonemap_rendering);
+                vkCmdSetViewport(slot.cmd, 0, 1, &viewport);
+                vkCmdSetScissor(slot.cmd, 0, 1, &scissor);
+                vkCmdBindDescriptorSets(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
+                                        &slot.tonemap_set, 0, nullptr);
+                vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, tonemap_pipeline_);
+                vkCmdDraw(slot.cmd, 3, 1, 0, 0);
+                vkCmdEndRendering(slot.cmd);
+
+                transition(slot.cmd, slot.resolve, VK_IMAGE_ASPECT_COLOR_BIT,
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,

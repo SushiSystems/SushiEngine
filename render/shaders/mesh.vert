@@ -1,31 +1,52 @@
 #version 450
 
 // Shared vertex shader for the scene view's lit meshes and flat grid lines. The
-// push constant carries the full model-view-projection plus the model's 3x3 normal
-// basis smuggled into three vec4 columns, whose w channels carry the instance
-// colour — this keeps the whole per-draw payload at 112 bytes, within the 128-byte
-// push-constant floor every Vulkan device guarantees.
+// per-frame camera (view, projection) comes from the scene uniform block; the
+// per-draw model matrix and material come from the push constant. World-space
+// position and normal are handed to the fragment stage so the PBR shader can light
+// in world space against the scene's directional sun.
+
+layout(set = 0, binding = 0) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_params;
+    vec4 star_params;
+    vec4 misc;
+} scene;
+
+layout(push_constant) uniform Push
+{
+    mat4 model;
+    vec4 albedo_metallic;    // xyz = albedo, w = metallic
+    vec4 emissive_roughness; // xyz = emissive, w = roughness
+    vec4 outline_shift;      // xy = screen-space outline shift, zw spare
+    uint entity_id;
+    uint selected;
+} pc;
 
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
 
-layout(push_constant) uniform Push
-{
-    mat4 mvp;
-    vec4 n0;       // xyz = normal-basis column 0, w = colour.r
-    vec4 n1;       // xyz = normal-basis column 1, w = colour.g
-    vec4 n2;       // xyz = normal-basis column 2, w = colour.b
-    uint entity_id; // this draw's picking id (0 = none), written to the id target
-    uint selected;  // the currently selected id, for highlight (0 = nothing selected)
-} pc;
-
-layout(location = 0) out vec3 v_normal;
-layout(location = 1) out vec3 v_color;
+layout(location = 0) out vec3 v_world_position;
+layout(location = 1) out vec3 v_world_normal;
 
 void main()
 {
-    gl_Position = pc.mvp * vec4(in_position, 1.0);
-    mat3 normal_basis = mat3(pc.n0.xyz, pc.n1.xyz, pc.n2.xyz);
-    v_normal = normal_basis * in_normal;
-    v_color = vec3(pc.n0.w, pc.n1.w, pc.n2.w);
+    vec4 world = pc.model * vec4(in_position, 1.0);
+    v_world_position = world.xyz;
+    v_world_normal = mat3(pc.model) * in_normal;
+    gl_Position = scene.proj * scene.view * world;
 }

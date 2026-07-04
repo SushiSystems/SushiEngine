@@ -1,47 +1,63 @@
 #version 450
 
-// Vertex shader for selected object outline: scales the object outward from
-// its screen-space center to produce a clean, continuous silhouette outline
-// without breaking apart sharp edges.
+// Vertex shader for the selected object's outline: transforms with the scene camera
+// and the per-draw model matrix, then nudges the vertex outward in screen space by
+// the push-constant shift so the silhouette reads as a clean, continuous outline
+// without breaking apart at sharp edges.
 
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_normal;
+layout(set = 0, binding = 0) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_params;
+    vec4 star_params;
+    vec4 misc;
+} scene;
 
 layout(push_constant) uniform Push
 {
-    mat4 mvp;
-    vec4 n0;
-    vec4 n1;
-    vec4 n2;
+    mat4 model;
+    vec4 albedo_metallic;
+    vec4 emissive_roughness;
+    vec4 outline_shift;      // xy = screen-space shift
     uint entity_id;
     uint selected;
 } pc;
 
-layout(location = 0) out vec3 v_normal;
-layout(location = 1) out vec3 v_color;
+layout(location = 0) in vec3 in_position;
+layout(location = 1) in vec3 in_normal;
+
+layout(location = 0) out vec3 v_world_position;
+layout(location = 1) out vec3 v_world_normal;
 
 void main()
 {
-    // The shift is provided in n0.w (x) and n1.w (y)
-    vec2 shift = vec2(pc.n0.w, pc.n1.w);
-    
-    // Calculate aspect ratio to ensure the shift is circular
-    float aspect = pc.mvp[0][0] != 0.0 ? abs(pc.mvp[1][1] / pc.mvp[0][0]) : 1.0;
-    
-    vec4 clip_pos = pc.mvp * vec4(in_position, 1.0);
-    if (clip_pos.w > 0.0001) {
+    mat4 mvp = scene.proj * scene.view * pc.model;
+    vec2 shift = pc.outline_shift.xy;
+    float aspect = mvp[0][0] != 0.0 ? abs(mvp[1][1] / mvp[0][0]) : 1.0;
+
+    vec4 clip_pos = mvp * vec4(in_position, 1.0);
+    if (clip_pos.w > 0.0001)
+    {
         vec2 ndc_pos = clip_pos.xy / clip_pos.w;
-        
-        // Apply shift (which is in physical pixel distance, e.g. 0.012)
-        // We divide x by aspect to keep it physically uniform on screen
         ndc_pos.x += shift.x / aspect;
         ndc_pos.y += shift.y;
-        
         clip_pos.xy = ndc_pos * clip_pos.w;
     }
     gl_Position = clip_pos;
-    
-    mat3 normal_basis = mat3(pc.n0.xyz, pc.n1.xyz, pc.n2.xyz);
-    v_normal = normal_basis * in_normal;
-    v_color = vec3(pc.n0.w, pc.n1.w, pc.n2.w);
+
+    v_world_position = (pc.model * vec4(in_position, 1.0)).xyz;
+    v_world_normal = mat3(pc.model) * in_normal;
 }

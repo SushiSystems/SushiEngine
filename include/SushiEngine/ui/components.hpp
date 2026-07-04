@@ -67,16 +67,35 @@ namespace SushiEngine
         };
 
         /**
+         * @brief How a Canvas reconciles its actual screen size with its authored resolution.
+         *
+         * Mirrors Unity `CanvasScaler`'s "Scale With Screen Size" mode: `ConstantPixelSize`
+         * lays child elements out in real screen pixels (today's behaviour, and the
+         * default); `ScaleWithScreenSize` instead solves the canvas as if it were
+         * `reference_size` and blends the width- and height-based scale factors per
+         * `match_width_or_height` (see @ref Canvas).
+         */
+        enum class CanvasScaleMode : std::uint32_t
+        {
+            ConstantPixelSize,
+            ScaleWithScreenSize,
+        };
+
+        /**
          * @brief Marks an entity as a UI root and names its design resolution.
          *
          * A Canvas's own `ComputedRect` is the screen rectangle the layout is solved
-         * against; `reference_size` is the resolution the UI was authored at, for a
-         * future scale-with-screen mode (not yet applied — layout uses the actual
-         * screen size today).
+         * against; `reference_size` is the resolution the UI was authored at. In
+         * `ScaleWithScreenSize` mode the canvas's effective size for child layout is
+         * `reference_size` scaled by a factor blended between the width ratio and the
+         * height ratio of actual-to-reference size, weighted by `match_width_or_height`
+         * (0 = match width only, 1 = match height only) — exactly Unity's formula.
          */
         struct Canvas
         {
             Vector2 reference_size{Vector2{Scalar(1280), Scalar(720)}};
+            CanvasScaleMode scale_mode = CanvasScaleMode::ConstantPixelSize;
+            Scalar match_width_or_height = Scalar(0);
         };
 
         /**
