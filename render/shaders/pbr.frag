@@ -75,9 +75,11 @@ void main()
     float roughness = clamp(pc.emissive_roughness.w, 0.045, 1.0);
     vec3 emissive = pc.emissive_roughness.xyz;
 
-    vec3 camera_pos = vec3(scene.cam_forward.w, scene.cam_right.w, scene.cam_up.w);
+    // Meshes shade in camera-relative space: v_world_position is the fragment's offset
+    // from the camera (the model matrix had the eye subtracted before upload), so the
+    // camera sits at the origin of this frame and the view direction is just -position.
     vec3 n = normalize(v_world_normal);
-    vec3 view_dir = normalize(camera_pos - v_world_position);
+    vec3 view_dir = normalize(-v_world_position);
     // Double-sided: flip the normal toward the viewer so back faces (e.g. cloth) light.
     if (dot(n, view_dir) < 0.0)
         n = -n;

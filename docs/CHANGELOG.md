@@ -8,6 +8,46 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Fixed
+- **Mesh jitter at planetary distances.** The scene view now renders meshes,
+  the ground grid, and cloth in camera-relative space: `make_push` subtracts
+  the camera eye from each model's translation in double precision before the
+  `float` cast, cloth points are offset by the eye as they are written to their
+  buffer, and the uploaded view matrix carries no translation. Previously both
+  the model and view matrices baked absolute world translations that lost all
+  sub-metre precision the moment they were cast to `float` for the GPU (a ~16 m
+  quantisation at 1.5e8 m from the origin), so geometry far from the origin —
+  or seen from a far-off camera — visibly jittered even in the double-precision
+  build. `pbr.frag` matches the new frame by taking the view direction as
+  `-v_world_position` (the camera is at the origin of camera-relative space).
+  The sky pass was already camera-relative and is unchanged.
+
+### Changed
+- **`Scalar` is now always double precision; the `SE_SCALAR_DOUBLE` build option
+  is removed.** The engine simulates planet- and solar-scale worlds, where single
+  precision quantises camera and transform math to roughly a metre at 10 000 km
+  from the origin (float32's ~7 significant digits) — the cause of the camera
+  "wandering" and rotation locking that motivated this change. Double is now the
+  engine's one and only boundary/render `Scalar`; there is no compile-time toggle.
+  The placeholder's `Float` is a plain `using Float = double`, the option and its
+  `target_compile_definitions` plumbing are gone from `cmake/ProjectOptions.cmake`,
+  the top-level and `render/` `CMakeLists.txt`, and the `se` CLI (`--double`, the
+  `scalar_double` config field, and `current_precision()` are removed). The
+  editor's Preferences precision setting now selects only the physics-solve
+  precision (`Simulation::Precision`, a live runtime choice) and defaults to
+  double. GPU data is unaffected: the upload path already narrows to 32-bit
+  camera-relative at the push-constant boundary.
+- **Editor camera controls honour the `Scalar` precision seam.** `FlyCamera`,
+  `CameraController`, and `FlyCameraSource::set_move_speed` now store and
+  compute in `Scalar` (always double) instead of hard-coded `float`.
+  `InputState` fields remain `float`
+  (they come from ImGui pixel deltas) and are `static_cast` to `Scalar` at the
+  computation boundary, so the full camera pipeline — position, orientation,
+  projection, and all controller parameters — runs at the same precision as the
+  rest of the engine. No API change at the `ISceneCamera` interface; callers
+  that pass `float` (e.g. `Preferences::camera_move_speed`) still compile
+  through implicit widening.
+
 ### Added
 - **PBR materials, a physical sky, and a WGS84 planet.** The scene view grew from a
   single hard-coded directional light into a full lit environment rendered in three

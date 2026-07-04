@@ -43,12 +43,12 @@ namespace SushiEngine
          */
         struct CameraController
         {
-            float look_sensitivity = 0.0032f; /**< Radians of turn per pixel of mouse move. */
-            float move_speed = 6.0f;          /**< Base fly speed in units per second. */
-            float boost_multiplier = 4.0f;    /**< Speed multiplier while Shift is held. */
-            float pitch_limit = 1.5533f;      /**< Clamp pitch to just under +/- 90 degrees. */
-            float zoom_step = 0.8f;           /**< Units dollied per wheel notch. */
-            float pan_speed = 0.01f;          /**< World units panned per pixel of mouse move. */
+            SushiEngine::Scalar look_sensitivity = SushiEngine::Scalar(0.0032); /**< Radians of turn per pixel of mouse move. */
+            SushiEngine::Scalar move_speed = SushiEngine::Scalar(6);           /**< Base fly speed in units per second. */
+            SushiEngine::Scalar boost_multiplier = SushiEngine::Scalar(4);     /**< Speed multiplier while Shift is held. */
+            SushiEngine::Scalar pitch_limit = SushiEngine::Scalar(1.5533);     /**< Clamp pitch to just under +/- 90 degrees. */
+            SushiEngine::Scalar zoom_step = SushiEngine::Scalar(0.8);          /**< Units dollied per wheel notch. */
+            SushiEngine::Scalar pan_speed = SushiEngine::Scalar(0.01);         /**< World units panned per pixel of mouse move. */
 
             /**
              * @brief Applies one frame of input to @p camera.
@@ -60,32 +60,32 @@ namespace SushiEngine
                 // Wheel dolly and middle-mouse pan work whether or not look is active, so
                 // the view can be framed without holding right mouse (Unity Scene nav).
                 if (input.wheel != 0.0f)
-                    camera.position = camera.position + camera.forward() * (input.wheel * zoom_step);
+                    camera.position = camera.position + camera.forward() * (static_cast<SushiEngine::Scalar>(input.wheel) * zoom_step);
                 if (input.pan_active && (input.pan_dx != 0.0f || input.pan_dy != 0.0f))
                 {
                     const SushiEngine::Vector3 right = camera.right();
                     const SushiEngine::Vector3 up = SushiEngine::cross(right, camera.forward());
-                    camera.position = camera.position + right * (-input.pan_dx * pan_speed) +
-                                      up * (input.pan_dy * pan_speed);
+                    camera.position = camera.position + right * (-static_cast<SushiEngine::Scalar>(input.pan_dx) * pan_speed) +
+                                      up * (static_cast<SushiEngine::Scalar>(input.pan_dy) * pan_speed);
                 }
 
                 if (!input.look_active)
                     return;
 
-                camera.yaw_radians += input.mouse_dx * look_sensitivity;
-                camera.pitch_radians -= input.mouse_dy * look_sensitivity;
+                camera.yaw_radians += static_cast<SushiEngine::Scalar>(input.mouse_dx) * look_sensitivity;
+                camera.pitch_radians -= static_cast<SushiEngine::Scalar>(input.mouse_dy) * look_sensitivity;
                 if (camera.pitch_radians > pitch_limit)
                     camera.pitch_radians = pitch_limit;
                 if (camera.pitch_radians < -pitch_limit)
                     camera.pitch_radians = -pitch_limit;
 
-                const float speed =
-                    move_speed * (input.fast ? boost_multiplier : 1.0f) * input.dt;
+                const SushiEngine::Scalar speed =
+                    move_speed * (input.fast ? boost_multiplier : SushiEngine::Scalar(1)) * static_cast<SushiEngine::Scalar>(input.dt);
                 const SushiEngine::Vector3 forward = camera.forward();
                 const SushiEngine::Vector3 right = camera.right();
-                const SushiEngine::Vector3 world_up{0.0f, 1.0f, 0.0f};
+                const SushiEngine::Vector3 world_up{SushiEngine::Scalar(0), SushiEngine::Scalar(1), SushiEngine::Scalar(0)};
 
-                SushiEngine::Vector3 delta{0.0f, 0.0f, 0.0f};
+                SushiEngine::Vector3 delta{SushiEngine::Scalar(0), SushiEngine::Scalar(0), SushiEngine::Scalar(0)};
                 if (input.forward) delta = delta + forward;
                 if (input.back)    delta = delta - forward;
                 if (input.right)   delta = delta + right;

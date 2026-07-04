@@ -25,18 +25,15 @@
 
 /**
  * @file physics_simulation.hpp
- * @brief The runtime-precision physics seam, split out of `RuntimeSimulation`.
+ * @brief The physics seam, split out of `RuntimeSimulation`.
  *
  * `IPhysicsSimulation` is the abstraction the live world drives its rigid bodies and
- * cloth through, in the fixed boundary `Scalar` precision. `PhysicsSimulation<T>` is
- * the implementation, computing the XPBD solve in element type `T` (`float` or
- * `double`) and converting at this boundary, so the ECS and renderer never see the
- * solver's precision. Both `PhysicsSimulation<float>` and `PhysicsSimulation<double>`
- * are compiled into the simulation library, and `create_physics_simulation` picks one
- * at runtime — which is what makes the engine's float/double choice a live decision
- * rather than a build flag. Extracting this also gives `RuntimeSimulation` one fewer
- * responsibility: it marshals entity poses to and from descriptors here and no longer
- * owns a `PhysicsWorld` (single responsibility).
+ * cloth through, in the fixed boundary `Scalar` precision. `PhysicsSimulation` is the
+ * implementation, computing the XPBD solve in `double` and converting at this
+ * boundary, so the ECS and renderer never see the solver's internals. Extracting this
+ * also gives `RuntimeSimulation` one fewer responsibility: it marshals entity poses to
+ * and from descriptors here and no longer owns a `PhysicsWorld` (single
+ * responsibility).
  */
 
 #include <cstddef>
@@ -222,16 +219,13 @@ namespace SushiEngine
         };
 
         /**
-         * @brief An `IPhysicsSimulation` whose solve runs in element type @p T.
+         * @brief The `IPhysicsSimulation` implementation; the XPBD solve runs in `double`.
          *
-         * Owns a `Physics::PhysicsWorld` of the matching precision for rigid bodies and
-         * another for cloth (kept separate so a rigid-body rebuild's velocity carry-over
-         * never has to special-case a pinned grid), and converts every boundary value
-         * between `Scalar` and `T` at this class's edge.
-         *
-         * @tparam T The solve precision (`float` or `double`).
+         * Owns a `Physics::PhysicsWorld` for rigid bodies and another for cloth (kept
+         * separate so a rigid-body rebuild's velocity carry-over never has to
+         * special-case a pinned grid), and converts every boundary value between
+         * `Scalar` and `T` at this class's edge.
          */
-        template <typename T>
         class PhysicsSimulation final : public IPhysicsSimulation
         {
             public:
@@ -438,6 +432,7 @@ namespace SushiEngine
                 }
 
             private:
+                using T = double;
                 using Constraint = Physics::XpbdDistanceConstraintT<T>;
                 using Projection = Physics::XpbdDistanceProjectionT<T>;
                 using World = Physics::PhysicsWorld<Constraint>;
@@ -554,21 +549,14 @@ namespace SushiEngine
         };
 
         /**
-         * @brief Creates the physics simulation of the requested precision.
-         *
-         * Instantiates `PhysicsSimulation<float>` or `PhysicsSimulation<double>`,
-         * compiling both into the library so the choice is made here, at runtime.
-         *
-         * @param precision The solve precision to run in.
-         * @param runtime   The runtime backing the physics buffers and graphs.
+         * @brief Creates the physics simulation.
+         * @param runtime The runtime backing the physics buffers and graphs.
          * @return An owned physics simulation; never null.
          */
         inline std::unique_ptr<IPhysicsSimulation> create_physics_simulation(
-            Precision precision, SushiRuntime::API::Runtime& runtime)
+            SushiRuntime::API::Runtime& runtime)
         {
-            if (precision == Precision::Double)
-                return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation<double>(runtime));
-            return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation<float>(runtime));
+            return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation(runtime));
         }
     } // namespace Simulation
 } // namespace SushiEngine

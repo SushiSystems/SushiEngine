@@ -62,12 +62,12 @@ namespace SushiEngine
     /**
      * @brief The vector and quaternion types, parametric on element type.
      *
-     * `Vector3`/`Quaternion` above fix the element to `Scalar` — the boundary
-     * precision that crosses the render seam. Simulation code that must compute in a
-     * runtime-selected precision (float or double in the same build) uses these
-     * templates directly, e.g. `Vector3T<double>`, so a physics solver can run in one
-     * precision while the renderer draws in another. This is the seam that makes the
-     * float/double choice a runtime decision rather than a build-time one.
+     * `Vector3`/`Quaternion` above fix the element to `Scalar` (always double) — the
+     * boundary precision that crosses the render seam. Simulation code that must
+     * compute in a runtime-selected solve precision uses these templates directly,
+     * e.g. `Vector3T<float>`, so a physics solver can run in one precision while the
+     * boundary and renderer stay double. This is the seam that makes the physics
+     * solve's float/double choice a runtime decision.
      */
     template <typename T>
     using Vector3T = placeholder::Vector3T<T>;
@@ -79,10 +79,10 @@ namespace SushiEngine
     /**
      * @brief Always-double 3-component vector for absolute (ECEF) world positions.
      *
-     * Fixed at double precision regardless of the SE_SCALAR_DOUBLE build option,
-     * which only chooses @c Scalar. Planet-scale coordinates need the extra range;
-     * see FloatingOriginVector3 for the representation gameplay and physics actually
-     * compute with.
+     * Double precision, like @c Scalar; a distinct type to mark absolute ECEF
+     * coordinates apart from floating-origin local offsets. Planet-scale coordinates
+     * need the range; see FloatingOriginVector3 for the representation gameplay and
+     * physics actually compute with.
      */
     using WorldVector3 = placeholder::WorldVector3;
 

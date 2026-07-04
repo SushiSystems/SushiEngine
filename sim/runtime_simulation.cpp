@@ -90,13 +90,12 @@ namespace SushiEngine
             class RuntimeSimulation final : public ISimulation, public IWorldEditor
             {
                 public:
-                    explicit RuntimeSimulation(Precision precision)
+                    explicit RuntimeSimulation()
                         : runtime_(SushiRuntime::API::Runtime::create()),
                           world_(runtime_, CHUNK_CAPACITY),
                           schedule_(runtime_),
                           clock_(FIXED_TICK_DT_SECONDS),
-                          precision_(precision),
-                          physics_(create_physics_simulation(precision, runtime_))
+                          physics_(create_physics_simulation(runtime_))
                     {
                         // Reserve every archetype up front so neither the seed, the
                         // editor's first create, nor a later Add/Remove Component
@@ -127,8 +126,6 @@ namespace SushiEngine
                     {
                         return clock_.fixed_dt();
                     }
-
-                    Precision precision() const noexcept override { return precision_; }
 
                     const RenderScene& render_scene() const noexcept override
                     {
@@ -1612,19 +1609,17 @@ namespace SushiEngine
                         std::uint32_t y = 720;
                     } ui_target_size_;
                     RenderScene scene_;
-                    // The physics solve, behind a precision-agnostic seam. It owns the
-                    // rigid and cloth PhysicsWorlds (in whichever precision `precision_`
-                    // selected); this class only marshals entity poses to and from it.
-                    Precision precision_;
+                    // The physics solve, behind a seam. It owns the rigid and cloth
+                    // PhysicsWorlds; this class only marshals entity poses to and from it.
                     std::unique_ptr<IPhysicsSimulation> physics_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
             };
         } // namespace
 
-        std::unique_ptr<ISimulation> create_simulation(Precision precision)
+        std::unique_ptr<ISimulation> create_simulation()
         {
-            return std::unique_ptr<ISimulation>(new RuntimeSimulation(precision));
+            return std::unique_ptr<ISimulation>(new RuntimeSimulation());
         }
     } // namespace Simulation
 } // namespace SushiEngine

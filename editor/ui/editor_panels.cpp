@@ -2800,20 +2800,6 @@ namespace SushiEngine
 
             if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                // The physics-solve precision is a runtime choice: changing it rebuilds
-                // the live simulation in the new precision (preserving the scene), no
-                // rebuild of the binary needed. The render/ECS boundary Scalar is a
-                // separate, build-time option and is not what this selects.
-                const char* precision_items[] = {"Single (float)", "Double"};
-                int precision_index = preferences.precision == ScalarPrecision::Double ? 1 : 0;
-                if (ImGui::Combo("Physics precision", &precision_index, precision_items, 2))
-                {
-                    preferences.precision =
-                        precision_index == 1 ? ScalarPrecision::Double : ScalarPrecision::Single;
-                    changed = true;
-                }
-                ImGui::TextDisabled("Applied live to the physics solve.");
-
                 const char* theme_items[] = {"Dark", "Light", "Classic"};
                 int theme_index = static_cast<int>(preferences.theme);
                 if (ImGui::Combo("Theme", &theme_index, theme_items, 3))

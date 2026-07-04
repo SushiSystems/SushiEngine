@@ -44,15 +44,11 @@ namespace
 
     // The tolerance a round trip must meet, scaled to the magnitude under test:
     // a Scalar-precision local offset carries roughly its own type's relative
-    // precision (~1e-7 for float, ~1e-15 for double), independent of how far the
-    // sector itself is from the origin, since the offset is always < SECTOR_SIZE.
+    // precision (~1e-15 for double), independent of how far the sector itself is
+    // from the origin, since the offset is always < SECTOR_SIZE.
     double round_trip_tolerance()
     {
-#ifdef SE_SCALAR_DOUBLE
         return SECTOR_SIZE * 1e-12;
-#else
-        return SECTOR_SIZE * 1e-5;
-#endif
     }
 }
 

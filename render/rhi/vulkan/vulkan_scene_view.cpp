@@ -149,14 +149,36 @@ namespace SushiEngine
                     vkCmdPipelineBarrier2(cmd, &dependency);
                 }
 
-                /** @brief Fills a push constant from a model matrix, material, and pick ids. */
-                MeshPush make_push(const Mat4& model, const Material& material,
+                /**
+                 * @brief Fills a push constant from a model matrix, material, and pick ids.
+                 *
+                 * Renders camera-relative: the world translation column of @p model has the
+                 * camera @p eye subtracted from it in double precision before the float cast,
+                 * so what reaches the GPU is the object's offset from the camera — a small
+                 * number that keeps full float precision even when the absolute position is
+                 * at planetary range. The uploaded view matrix carries no translation to
+                 * match (see the scene-uniform fill), so the two never double-count the eye.
+                 *
+                 * @param model     Object-to-world transform (absolute, double when built so).
+                 * @param eye        Camera world position, metres; subtracted from @p model's
+                 *                   translation. Pass all-zero for geometry already expressed
+                 *                   relative to the eye.
+                 * @param material  PBR surface the instance shades with.
+                 * @param entity_id Picking id written to the id target.
+                 * @param selected_id The id currently highlighted (drives the outline shift).
+                 * @param outline_shift Screen-space outline expansion, 0 for the lit pass.
+                 * @return The filled push constant.
+                 */
+                MeshPush make_push(const Mat4& model, const double eye[3], const Material& material,
                                    std::uint32_t entity_id, std::uint32_t selected_id,
                                    float outline_shift = 0.0f)
                 {
                     MeshPush push{};
                     for (int i = 0; i < 16; ++i)
                         push.model[i] = static_cast<float>(model.m[i]);
+                    push.model[12] = static_cast<float>(model.m[12] - eye[0]);
+                    push.model[13] = static_cast<float>(model.m[13] - eye[1]);
+                    push.model[14] = static_cast<float>(model.m[14] - eye[2]);
                     push.albedo_metallic[0] = static_cast<float>(material.albedo.x);
                     push.albedo_metallic[1] = static_cast<float>(material.albedo.y);
                     push.albedo_metallic[2] = static_cast<float>(material.albedo.z);
@@ -1116,19 +1138,30 @@ namespace SushiEngine
                 check(vkResetFences(device_.device(), 1, &slot.fence), "vkResetFences");
                 check(vkResetCommandPool(device_.device(), slot.pool, 0), "vkResetCommandPool");
 
+                // Camera world position, recovered in double from the view matrix's rotation
+                // and translation columns. Every pass renders relative to this eye: the sky
+                // places the planet at `centre - eye`, and the mesh pass subtracts it from each
+                // model's translation and uploads a translation-free view (below). Hoisted to
+                // the draw loop's scope so the mesh/cloth pushes share the exact same origin the
+                // sky pass anchors to.
+                const double eye[3] = {
+                    -(camera.view.m[0] * camera.view.m[12] + camera.view.m[1] * camera.view.m[13] +
+                      camera.view.m[2] * camera.view.m[14]),
+                    -(camera.view.m[4] * camera.view.m[12] + camera.view.m[5] * camera.view.m[13] +
+                      camera.view.m[6] * camera.view.m[14]),
+                    -(camera.view.m[8] * camera.view.m[12] + camera.view.m[9] * camera.view.m[13] +
+                      camera.view.m[10] * camera.view.m[14])};
+                const double no_eye[3] = {0.0, 0.0, 0.0};
+
                 // Fill the per-frame scene uniform block from the camera and environment.
                 // The sky pass works in camera-relative space, so the planet centre and the
-                // ray basis are all expressed relative to the camera eye recovered here.
+                // ray basis are all expressed relative to the camera eye recovered above.
                 {
                     const Mat4& V = camera.view;
                     const Mat4& P = camera.projection;
                     const double right[3] = {V.m[0], V.m[4], V.m[8]};
                     const double up[3] = {V.m[1], V.m[5], V.m[9]};
                     const double fwd[3] = {-V.m[2], -V.m[6], -V.m[10]};
-                    const double eye[3] = {
-                        -(V.m[0] * V.m[12] + V.m[1] * V.m[13] + V.m[2] * V.m[14]),
-                        -(V.m[4] * V.m[12] + V.m[5] * V.m[13] + V.m[6] * V.m[14]),
-                        -(V.m[8] * V.m[12] + V.m[9] * V.m[13] + V.m[10] * V.m[14])};
                     const double tan_half_x = P.m[0] != 0.0 ? 1.0 / P.m[0] : 1.0;
                     const double tan_half_y = P.m[5] != 0.0 ? 1.0 / (-P.m[5]) : 1.0;
 
@@ -1151,6 +1184,12 @@ namespace SushiEngine
                         ubo.view[i] = static_cast<float>(V.m[i]);
                         ubo.proj[i] = static_cast<float>(P.m[i]);
                     }
+                    // Drop the eye translation: the mesh pass already subtracts the eye from
+                    // each model's translation (see make_push), so the view rotates that
+                    // camera-relative geometry without re-applying the eye.
+                    ubo.view[12] = 0.0f;
+                    ubo.view[13] = 0.0f;
+                    ubo.view[14] = 0.0f;
                     ubo.cam_forward[0] = static_cast<float>(fwd[0]);
                     ubo.cam_forward[1] = static_cast<float>(fwd[1]);
                     ubo.cam_forward[2] = static_cast<float>(fwd[2]);
@@ -1289,7 +1328,8 @@ namespace SushiEngine
                 vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                 vkCmdBindVertexBuffers(slot.cmd, 0, 1, &grid_vertices_.buffer, &zero_offset);
                 const MeshPush grid_push =
-                    make_push(Mat4{}, flat_material(Vector3{0.32f, 0.33f, 0.40f}), NO_PICK, NO_PICK);
+                    make_push(Mat4{}, eye, flat_material(Vector3{0.32f, 0.33f, 0.40f}), NO_PICK,
+                              NO_PICK);
                 vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &grid_push);
                 vkCmdDraw(slot.cmd, grid_vertices_.count, 1, 0, 0);
 
@@ -1321,7 +1361,7 @@ namespace SushiEngine
                         const Mat4 scaled_model =
                             mul(instances[i].model, shape_scale(instances[i].kind,
                                                                 instances[i].shape_params));
-                        const MeshPush push = make_push(scaled_model, instances[i].material,
+                        const MeshPush push = make_push(scaled_model, eye, instances[i].material,
                                                         instances[i].id, selected_id);
                         vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
                                                  (instances[i].id == selected_id) ? 1 : 0);
@@ -1354,7 +1394,7 @@ namespace SushiEngine
                             const Mat4 scaled_model =
                                 mul(instances[i].model, shape_scale(instances[i].kind,
                                                                     instances[i].shape_params));
-                            const MeshPush push = make_push(scaled_model,
+                            const MeshPush push = make_push(scaled_model, eye,
                                                             flat_material(instances[i].color),
                                                             instances[i].id, selected_id, 0.006f);
                             vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
@@ -1388,11 +1428,15 @@ namespace SushiEngine
 
                         const std::uint32_t base_vertex =
                             static_cast<std::uint32_t>(all_vertices.size());
+                        // Cloth points arrive as absolute world positions, so make them
+                        // camera-relative here (in double, before the float cast) exactly as
+                        // make_push does for a model translation. The cloth push then carries
+                        // no eye of its own (no_eye), since the offset is already in the buffer.
                         for (const ClothVertex& vertex : triangulated_vertices)
                             all_vertices.push_back(
-                                Vertex{{static_cast<float>(vertex.position.x),
-                                       static_cast<float>(vertex.position.y),
-                                       static_cast<float>(vertex.position.z)},
+                                Vertex{{static_cast<float>(vertex.position.x - eye[0]),
+                                       static_cast<float>(vertex.position.y - eye[1]),
+                                       static_cast<float>(vertex.position.z - eye[2])},
                                       {static_cast<float>(vertex.normal.x),
                                        static_cast<float>(vertex.normal.y),
                                        static_cast<float>(vertex.normal.z)}});
@@ -1427,7 +1471,8 @@ namespace SushiEngine
                             const auto [index_offset, index_count] = draw_ranges[range++];
                             vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
                                                      (strand.id == selected_id) ? 1 : 0);
-                            const MeshPush cloth_push = make_push(Mat4{}, flat_material(strand.color),
+                            const MeshPush cloth_push = make_push(Mat4{}, no_eye,
+                                                                  flat_material(strand.color),
                                                                   strand.id, selected_id);
                             vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
                                               &cloth_push);
@@ -1450,7 +1495,7 @@ namespace SushiEngine
                                 const auto [index_offset, index_count] = draw_ranges[range++];
                                 if (strand.id != selected_id)
                                     continue;
-                                const MeshPush cloth_push = make_push(Mat4{},
+                                const MeshPush cloth_push = make_push(Mat4{}, no_eye,
                                                                       flat_material(strand.color),
                                                                       strand.id, selected_id, 0.006f);
                                 vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),

@@ -41,17 +41,17 @@ namespace SushiEngine
          */
         struct FlyCamera
         {
-            SushiEngine::Vector3 position{0.0f, 2.5f, 7.0f};
-            float yaw_radians = -1.5707963f;  /**< 0 faces +X; this faces -Z. */
-            float pitch_radians = -0.30f;     /**< Negative looks slightly down. */
-            float fov_radians = 1.0471976f;   /**< 60 degrees vertical. */
-            float near_plane = 0.1f;
-            float far_plane = 500.0f;
+            SushiEngine::Vector3 position{SushiEngine::Scalar(0), SushiEngine::Scalar(2.5), SushiEngine::Scalar(7)};
+            SushiEngine::Scalar yaw_radians = SushiEngine::Scalar(-1.5707963);  /**< 0 faces +X; this faces -Z. */
+            SushiEngine::Scalar pitch_radians = SushiEngine::Scalar(-0.30);     /**< Negative looks slightly down. */
+            SushiEngine::Scalar fov_radians = SushiEngine::Scalar(1.0471976);   /**< 60 degrees vertical. */
+            SushiEngine::Scalar near_plane = SushiEngine::Scalar(0.1);
+            SushiEngine::Scalar far_plane = SushiEngine::Scalar(500);
 
             /** @brief Unit forward direction from the current yaw and pitch. */
             SushiEngine::Vector3 forward() const noexcept
             {
-                const float cos_pitch = std::cos(pitch_radians);
+                const SushiEngine::Scalar cos_pitch = std::cos(pitch_radians);
                 return SushiEngine::normalize(SushiEngine::Vector3{
                     cos_pitch * std::cos(yaw_radians), std::sin(pitch_radians),
                     cos_pitch * std::sin(yaw_radians)});
@@ -61,7 +61,7 @@ namespace SushiEngine
             SushiEngine::Vector3 right() const noexcept
             {
                 return SushiEngine::normalize(
-                    SushiEngine::cross(forward(), SushiEngine::Vector3{0.0f, 1.0f, 0.0f}));
+                    SushiEngine::cross(forward(), SushiEngine::Vector3{SushiEngine::Scalar(0), SushiEngine::Scalar(1), SushiEngine::Scalar(0)}));
             }
 
             /**
@@ -76,11 +76,11 @@ namespace SushiEngine
              */
             SushiEngine::Quaternion orientation() const noexcept
             {
-                const float yaw_theta = std::atan2(-std::cos(yaw_radians), -std::sin(yaw_radians));
+                const SushiEngine::Scalar yaw_theta = std::atan2(-std::cos(yaw_radians), -std::sin(yaw_radians));
                 const SushiEngine::Quaternion yaw_q =
-                    SushiEngine::quaternion_axis_angle(SushiEngine::Vector3{0.0f, 1.0f, 0.0f}, yaw_theta);
+                    SushiEngine::quaternion_axis_angle(SushiEngine::Vector3{SushiEngine::Scalar(0), SushiEngine::Scalar(1), SushiEngine::Scalar(0)}, yaw_theta);
                 const SushiEngine::Quaternion pitch_q =
-                    SushiEngine::quaternion_axis_angle(SushiEngine::Vector3{1.0f, 0.0f, 0.0f}, pitch_radians);
+                    SushiEngine::quaternion_axis_angle(SushiEngine::Vector3{SushiEngine::Scalar(1), SushiEngine::Scalar(0), SushiEngine::Scalar(0)}, pitch_radians);
                 return SushiEngine::normalize(SushiEngine::mul(yaw_q, pitch_q));
             }
 
@@ -88,7 +88,7 @@ namespace SushiEngine
             SushiEngine::Mat4 view_matrix() const noexcept
             {
                 return SushiEngine::look_at(position, position + forward(),
-                                            SushiEngine::Vector3{0.0f, 1.0f, 0.0f});
+                                            SushiEngine::Vector3{SushiEngine::Scalar(0), SushiEngine::Scalar(1), SushiEngine::Scalar(0)});
             }
 
             /**
@@ -98,7 +98,8 @@ namespace SushiEngine
              */
             SushiEngine::Mat4 projection(float aspect) const noexcept
             {
-                return SushiEngine::perspective(fov_radians, aspect > 0.0f ? aspect : 1.0f,
+                const SushiEngine::Scalar a = static_cast<SushiEngine::Scalar>(aspect);
+                return SushiEngine::perspective(fov_radians, a > SushiEngine::Scalar(0) ? a : SushiEngine::Scalar(1),
                                                 near_plane, far_plane);
             }
         };

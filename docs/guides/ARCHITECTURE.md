@@ -468,8 +468,11 @@ navigable `FlyCameraSource` (the **Scene** view) driving a fly camera
 (`editor/fly_camera.hpp`) through a stateless controller (`editor/camera_controller.hpp`)
 that reads a library-neutral `InputState` (`editor/input_state.hpp`) the panel fills
 from ImGui, and a `WorldCameraSource` (the **Game** view) posed each frame from the
-simulation's camera. So the same panel serves both viewports, the controller depends
-on no input source and stays unit-testable, and a new camera kind is a new
+simulation's camera. `FlyCamera` and `CameraController` store and compute in `Scalar`
+(§6), so the camera pipeline runs at the same precision as the rest of the engine —
+`InputState` fields stay `float` (ImGui pixel deltas) and are `static_cast`-ed to
+`Scalar` at the computation boundary. So the same panel serves both viewports, the
+controller depends on no input source and stays unit-testable, and a new camera kind is a new
 implementation rather than a new panel. Interaction closes the loop: a left-click picks
 via the id target and the Scene view draws the transform gizmo at the selection
 (`editor/gizmo_controller.*`, ImGui draw list, projecting through the camera), so an
@@ -486,9 +489,9 @@ the ray/plane math live in world space rather than screen space throughout.
 Editor and project settings sit behind a **preferences seam** (`editor/preferences.hpp`
 `IPreferencesStore`, JSON implementation writing a per-user `preferences.json`). The
 Preferences window edits a plain `Preferences` aggregate; the loop persists changes and
-applies the live-effective ones (theme, camera speed). Precision is the one setting the
-running editor cannot change — it is the compile-time `SE_SCALAR_DOUBLE` of §6 — so the
-window records intent and prompts a rebuild.
+applies the live-effective ones (theme, camera speed). The precision setting selects the
+physics-solve precision of §6 (a live runtime choice that rebuilds the running
+simulation from a scene snapshot); the boundary `Scalar` itself is always double.
 
 The **Project panel** (`editor/editor_panels.cpp`) is a two-pane file browser over the
 on-disk project: a recursive folder tree and a searchable icon-grid of the current
@@ -665,10 +668,17 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
 `R16G16B16A16_SFLOAT`, resolved to the `R8G8B8A8_UNORM` image the editor samples):
 
 1. **Opaque** — the grid, meshes, and cloth into the HDR colour + `R32_UINT` id +
-   depth targets. `pbr.frag` shades each mesh with a Cook-Torrance metallic-roughness
-   BRDF (GGX distribution, Smith geometry, Schlick Fresnel) lit by the sun and an
-   ambient floor, reading a per-frame scene uniform block — the scene view's first
-   descriptor set, shared by every pass.
+   depth targets, drawn in the same **camera-relative space** the sky pass uses. Each
+   model's translation has the camera eye subtracted in double precision before the
+   `float` cast (`make_push`), cloth points are offset by the eye as they are written
+   to their buffer, and the uploaded view matrix carries no translation — so a mesh
+   far from the ECEF origin reaches the GPU as a small offset from the camera and
+   keeps full `float` precision instead of jittering on the ~16 m grid a raw 1.5e8 m
+   coordinate collapses to. `pbr.frag` shades each mesh with a Cook-Torrance
+   metallic-roughness BRDF (GGX distribution, Smith geometry, Schlick Fresnel) lit by
+   the sun and an ambient floor, taking the view direction as `-v_world_position`
+   (the camera is the origin of this frame), and reads a per-frame scene uniform block
+   — the scene view's first descriptor set, shared by every pass.
 2. **Sky** — one fullscreen ray march (`sky.frag`) that works in **camera-relative
    space** (the camera is the origin; the planet centre arrives relative to it, so
    planet-scale metres never leave double precision on the CPU). It intersects the
@@ -701,36 +711,34 @@ engine names the underlying type.
 
 This is the same discipline as §1: one seam, not parallel paths.
 
-The same seam also carries the planet-scale floating-origin types: `WorldVector3` is an
-always-double 3-vector for absolute ECEF positions (fixed precision, independent of
-`SE_SCALAR_DOUBLE`'s choice of `Scalar`), `SectorCoord` is an integer index of a fixed-size
+The same seam also carries the planet-scale floating-origin types: `WorldVector3` is a
+double 3-vector for absolute ECEF positions (a distinct type from `Vector3` to mark
+absolute-vs-local intent), `SectorCoord` is an integer index of a fixed-size
 cube ("sector") in that world space, and `FloatingOriginVector3` pairs a `SectorCoord` with a
 `Scalar`-precision local offset from that sector's corner. `to_floating_origin`/
 `from_floating_origin` convert between `WorldVector3` and `FloatingOriginVector3` given a sector
-size. Keeping the local offset small (at most one sector wide) is what lets gameplay,
-physics, and rendering work in single precision at planetary distances instead of paying
-for double precision everywhere. These types are the SushiLoop M0 foundation
-(`docs/slop/SUSHILOOP.md`) and are not yet consumed by any simulation code.
+size. Keeping the local offset small (at most one sector wide) keeps a fragment's
+distance from the camera representable when it narrows to 32-bit at the GPU boundary,
+regardless of how far the sector is from the world origin. These types are the SushiLoop
+M0 foundation (`docs/slop/SUSHILOOP.md`) and are not yet consumed by any simulation code.
 
-Because everything routes through this one seam, **the boundary `Scalar` precision is a
-build-time choice**. The `SE_SCALAR_DOUBLE` option (`cmake/ProjectOptions.cmake`)
-switches the placeholder's `Float` between `float` and `double`; it is threaded as a
-compile definition on the `SushiEngine` INTERFACE target so every consumer — sandbox,
-`pgs_demo`, `sushi_sim` (and thus the editor), and the tests — agrees on
-`sizeof(Scalar)`. The boundary is compile-time because `Scalar` is baked into
-trivially-copyable components and device storage. The vector and quaternion types are,
-however, element-parametric (`Vector3T<T>`/`QuaternionT<T>`), and the physics layer
-templates on that element (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`), so the
+The boundary `Scalar` is **always double** — there is no build switch. The engine's
+purpose is to simulate planet- and solar-scale worlds, where single precision quantises
+camera and transform math to roughly a metre at 10 000 km out (float32 carries ~7
+significant digits), making it unusable at the seam; double is the engine's one and only
+`Scalar`. The placeholder's `Float` is a plain `using Float = double`
+(`core/blas_placeholder.hpp`), the sole reader of the choice. The vector and quaternion
+types are, however, element-parametric (`Vector3T<T>`/`QuaternionT<T>`), and the physics
+layer templates on that element (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`), so the
 **simulation's physics-solve precision is a separate runtime choice**
 (`Simulation::Precision`): both a float and a double solver are compiled into `sushi_sim`
 and `create_simulation(Precision)` picks one behind `Simulation::IPhysicsSimulation`,
 letting the editor switch physics precision live (rebuilding the world from a scene
-snapshot) without a rebuild of the binary. `sushi_render` is the one target that shares the value types (across
+snapshot) without a rebuild of the binary. `sushi_render` shares the value types (across
 `MeshInstance`/`CameraView`) without linking the engine target — it links the runtime
-otherwise — so it mirrors the same definition to keep the ABI in agreement. The Vulkan
-upload path narrows to 32-bit explicitly at the push-constant boundary, so GPU data and
-the shaders are identical in either build. The `se` CLI exposes it as `--double` on
-`se build`/`se editor` and a persisted `scalar_double` config field.
+otherwise. The Vulkan upload path narrows to 32-bit explicitly at the push-constant
+boundary, camera-relative, so absolute double positions never reach the GPU as a raw
+cast.
 
 ## 7. Validation and tooling
 

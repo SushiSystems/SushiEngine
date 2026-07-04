@@ -43,13 +43,9 @@ def build(
     no_test: bool = typer.Option(
         False, "--no-test",
         help="Skip compiling the test suite (SE_BUILD_TESTS=OFF). Tests build by default."),
-    double: bool = typer.Option(
-        False, "--double",
-        help="Build with double-precision Scalar (SE_SCALAR_DOUBLE=ON). "
-             "Compile-time; re-configures an existing tree. Default is single (float)."),
 ):
     """Configure and build the project against the SushiRuntime sibling."""
-    raise typer.Exit(project_svc.build(type, clean, tests=not no_test, double=double))
+    raise typer.Exit(project_svc.build(type, clean, tests=not no_test))
 
 
 @app.command("test")
@@ -110,12 +106,9 @@ def doxygen():
 def editor(
     no_run: bool = typer.Option(
         False, "--no-run", help="Build the editor but do not launch it."),
-    double: bool = typer.Option(
-        False, "--double",
-        help="Build with double-precision Scalar (SE_SCALAR_DOUBLE=ON). Default is single."),
 ):
     """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON)."""
-    raise typer.Exit(editor_svc.build_and_run(run=not no_run, double=double))
+    raise typer.Exit(editor_svc.build_and_run(run=not no_run))
 
 
 # --------------------------------------------------------------------------- #

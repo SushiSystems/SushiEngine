@@ -109,7 +109,7 @@ namespace SushiEngine
                  * @brief Sets the base fly speed, from the editor's camera-speed preference.
                  * @param units_per_second Base movement speed before the Shift boost.
                  */
-                void set_move_speed(float units_per_second) noexcept
+                void set_move_speed(SushiEngine::Scalar units_per_second) noexcept
                 {
                     controller_.move_speed = units_per_second;
                 }

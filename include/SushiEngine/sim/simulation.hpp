@@ -63,22 +63,6 @@ namespace SushiEngine
         /** @brief The null entity id; no entity carries it. */
         constexpr EntityId NULL_ENTITY = 0;
 
-        /**
-         * @brief The scalar precision the simulation's physics solve runs in.
-         *
-         * Chosen at runtime, not by a build flag: both a `float` and a `double`
-         * physics variant are compiled into the simulation library, and the factory
-         * instantiates the requested one. The ECS and the render boundary stay at the
-         * fixed `Scalar` precision; this only selects how the XPBD solve computes, so a
-         * host can offer float and double as a live preference (rebuilding the
-         * simulation to switch) rather than shipping two binaries.
-         */
-        enum class Precision
-        {
-            Single, /**< 32-bit float physics. */
-            Double, /**< 64-bit double physics, for planet-scale precision. */
-        };
-
         /** @brief An entity's authorable transform, as the inspector edits it. */
         struct EntityTransform
         {
@@ -828,9 +812,6 @@ namespace SushiEngine
                  */
                 virtual Scalar fixed_dt_seconds() const noexcept = 0;
 
-                /** @brief The scalar precision the physics solve is currently running in. */
-                virtual Precision precision() const noexcept = 0;
-
                 /** @brief The snapshot extracted after the most recent `tick()`. */
                 virtual const RenderScene& render_scene() const noexcept = 0;
 
@@ -850,11 +831,8 @@ namespace SushiEngine
          * by loading a `.sushiscene`. The only place the runtime is constructed for
          * the editor.
          *
-         * @param precision The scalar precision the physics solve runs in; both
-         *                  variants are compiled in, so a host may pass either and
-         *                  rebuild the simulation to switch precision at runtime.
          * @return An owned simulation; never null (throws on runtime bring-up failure).
          */
-        std::unique_ptr<ISimulation> create_simulation(Precision precision = Precision::Single);
+        std::unique_ptr<ISimulation> create_simulation();
     } // namespace Simulation
 } // namespace SushiEngine

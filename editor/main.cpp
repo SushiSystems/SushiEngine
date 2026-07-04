@@ -56,45 +56,6 @@
 
 namespace
 {
-    /** @brief Maps the editor's precision preference to the simulation's runtime precision. */
-    SushiEngine::Simulation::Precision to_sim_precision(
-        SushiEngine::Editor::ScalarPrecision precision) noexcept
-    {
-        return precision == SushiEngine::Editor::ScalarPrecision::Double
-                   ? SushiEngine::Simulation::Precision::Double
-                   : SushiEngine::Simulation::Precision::Single;
-    }
-
-    /**
-     * @brief Rebuilds the simulation in a new physics-solve precision, preserving the scene.
-     *
-     * Snapshots the world through the editor scene serializer, tears the old
-     * simulation (and its runtime) down before creating the new one so only one
-     * runtime is ever live at a time, then repopulates the fresh world from the
-     * snapshot. Selection is cleared because entity ids are not preserved across the
-     * clear-and-recreate.
-     *
-     * @param simulation The owned simulation to replace in place.
-     * @param context    The editor context whose `simulation` pointer is re-pointed.
-     * @param precision  The physics-solve precision to rebuild in.
-     */
-    void reinitialize_simulation(
-        std::unique_ptr<SushiEngine::Simulation::ISimulation>& simulation,
-        SushiEngine::Editor::EditorContext& context,
-        SushiEngine::Simulation::Precision precision)
-    {
-        nlohmann::json snapshot = SushiEngine::Editor::capture_scene(simulation->world());
-        simulation.reset();
-        simulation = SushiEngine::Simulation::create_simulation(precision);
-        context.simulation = simulation.get();
-        SushiEngine::Editor::apply_scene(simulation->world(), snapshot);
-        context.world_entity_count = simulation->entity_count();
-        SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
-    }
-} // namespace
-
-namespace
-{
     // Where user-authored projects live by default: never inside the engine's own
     // source tree (writing project code next to the engine's is exactly the mixing
     // the Project panel exists to avoid). Falls back to the current directory only if
@@ -196,10 +157,9 @@ int main(int, char**)
         // edit it through the injected simulation. There is no editor-side scene model.
         SushiEngine::Editor::EditorContext context;
 
-        // Load persisted preferences first, so the live world can be created at the
-        // user's chosen physics-solve precision (a runtime choice, not a build flag),
-        // and the editor opens in the user's theme and camera speed. The store is
-        // injected into the context for the Preferences window to display its path.
+        // Load persisted preferences first, so the editor opens in the user's theme
+        // and camera speed. The store is injected into the context for the
+        // Preferences window to display its path.
         std::unique_ptr<SushiEngine::Editor::IPreferencesStore> preferences_store =
             SushiEngine::Editor::create_preferences_store();
         context.preferences_store = preferences_store.get();
@@ -208,11 +168,9 @@ int main(int, char**)
 
         // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
         // seam. The editor sees only the abstraction and the extracted RenderScene;
-        // the runtime, SYCL, and ECS stay inside sushi_sim. Its physics runs in the
-        // preference's precision; changing that preference rebuilds it live.
+        // the runtime, SYCL, and ECS stay inside sushi_sim.
         std::unique_ptr<SushiEngine::Simulation::ISimulation> simulation =
-            SushiEngine::Simulation::create_simulation(
-                to_sim_precision(context.preferences.precision));
+            SushiEngine::Simulation::create_simulation();
         std::vector<SushiEngine::Render::MeshInstance> instances;
         context.simulation = simulation.get();
         context.world_entity_count = simulation->entity_count();
@@ -256,20 +214,6 @@ int main(int, char**)
             // chance to hold the window open while unsaved changes are pending.
             if (!window.pump_events())
                 context.close_requested = true;
-
-            // Apply a live physics-precision change from Preferences: rebuild the
-            // simulation in the new precision, preserving the scene. A one-shot — after
-            // the rebuild the running precision matches the preference again.
-            const SushiEngine::Simulation::Precision desired_precision =
-                to_sim_precision(context.preferences.precision);
-            if (simulation->precision() != desired_precision)
-            {
-                reinitialize_simulation(simulation, context, desired_precision);
-                SushiEngine::Editor::editor_log(
-                    context, desired_precision == SushiEngine::Simulation::Precision::Double
-                                 ? "Physics precision set to double (simulation rebuilt)."
-                                 : "Physics precision set to single (simulation rebuilt).");
-            }
 
             // Tick the world on the runtime only while playing, so the toolbar's
             // Play/Pause gates motion; then take the fresh snapshot to draw. Step

@@ -15,7 +15,7 @@ from . import discovery
 from . import project
 
 
-def build_and_run(run: bool = True, double: bool = False) -> int:
+def build_and_run(run: bool = True) -> int:
     console.header("Editor")
     root = find_project_root()
     cfg = load_config()
@@ -35,11 +35,9 @@ def build_and_run(run: bool = True, double: bool = False) -> int:
 
     # In-place configure with the editor flag on. Re-running configure is cheap;
     # CMake picks up the changed -D without a clean rebuild of the runtime.
-    scalar_double = double or cfg.scalar_double
-    args = project._configure_args(cfg, root, build_dir, "Release", tests=False,
-                                   scalar_double=scalar_double)
+    args = project._configure_args(cfg, root, build_dir, "Release", tests=False)
     args.append("-DSE_BUILD_EDITOR=ON")
-    console.info(f"Configuring (editor ON, {'double' if scalar_double else 'single'} precision)...")
+    console.info("Configuring (editor ON)...")
     if (rc := project._run(args, env, cwd=root)) != 0:
         console.error("CMake configure failed.")
         return rc
