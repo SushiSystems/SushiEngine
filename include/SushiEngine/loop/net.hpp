@@ -48,8 +48,11 @@
  * being authoritative over the numbering.
  */
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include <SushiEngine/ecs/world.hpp>
@@ -251,6 +254,113 @@ namespace SushiEngine
 
                 return true;
             }
+
+            /**
+             * @brief The seam a `Loop::App` reconciles against: a numbered command link.
+             *
+             * The loop never names a concrete transport — it submits each tick's
+             * command and polls for the server's authoritative acks through this
+             * interface, so single-player (no transport connected), an in-process
+             * `LoopbackTransport`, and a future real socket transport are
+             * interchangeable without the game's systems or the loop changing
+             * (dependency inversion). Making a game multiplayer is therefore one
+             * decision — which transport, if any, is connected — not a rewrite.
+             *
+             * @tparam Command The per-tick command type, matching `InputHistory<Command>`.
+             */
+            template <typename Command>
+            class INetworkTransport
+            {
+                public:
+                    virtual ~INetworkTransport() = default;
+
+                    /**
+                     * @brief Submits the client's own predicted command for @p tick.
+                     * @param tick    The tick this command applies to.
+                     * @param command The locally predicted command about to be simulated.
+                     */
+                    virtual void submit(TickId tick, const Command& command) = 0;
+
+                    /**
+                     * @brief Returns the authoritative acks that have arrived since the last poll.
+                     * @return One `Ack<Command>` per newly confirmed tick, in tick order;
+                     * empty when nothing new has arrived.
+                     */
+                    virtual std::vector<Ack<Command>> poll() = 0;
+            };
+
+            /**
+             * @brief An in-process `INetworkTransport` backed by a `LoopbackChannel`.
+             *
+             * Wraps the loopback client/server exchange behind the transport seam so a
+             * single-process client `App` can be made "networked" against an
+             * authoritative command function without a real socket. `submit` queues the
+             * client's command; `poll` drains the queue through the authority callback,
+             * optionally holding each ack for `latency_ticks` polls so the reconcile
+             * path exercises a genuine multi-tick rollback rather than an immediate
+             * one-tick correction. It is the concrete transport the tests and
+             * `examples/first_game.cpp` use to prove the multiplayer seam end to end.
+             *
+             * @tparam Command The per-tick command type; must support `operator==`.
+             */
+            template <typename Command>
+            class LoopbackTransport final : public INetworkTransport<Command>
+            {
+                public:
+                    /**
+                     * @brief Creates a loopback transport with an authoritative command source.
+                     * @param authority     Returns the server's authoritative command for a
+                     *                      tick given the client's proposed one — the identity
+                     *                      function to trust the client, or an override that
+                     *                      forces a mismatch to drive reconciliation.
+                     * @param latency_ticks Number of polls to hold each ack before releasing
+                     *                      it, modelling round-trip latency; 0 releases at once.
+                     */
+                    explicit LoopbackTransport(std::function<Command(TickId, Command)> authority,
+                                               std::size_t latency_ticks = 0)
+                        : authority_(std::move(authority)), latency_ticks_(latency_ticks) {}
+
+                    void submit(TickId tick, const Command& command) override
+                    {
+                        channel_.client_send(tick, command);
+                    }
+
+                    std::vector<Ack<Command>> poll() override
+                    {
+                        for (const Ack<Command>& ack : channel_.server_process(authority_))
+                            delayed_.push_back(Delayed{ack, latency_ticks_});
+
+                        std::vector<Ack<Command>> ready;
+                        std::vector<Delayed> still_waiting;
+                        for (Delayed& pending : delayed_)
+                        {
+                            if (pending.remaining == 0)
+                            {
+                                ready.push_back(pending.ack);
+                            }
+                            else
+                            {
+                                --pending.remaining;
+                                still_waiting.push_back(pending);
+                            }
+                        }
+                        delayed_ = std::move(still_waiting);
+                        return ready;
+                    }
+
+                private:
+                    /** @brief One ack held back until its latency countdown reaches zero. */
+                    struct Delayed
+                    {
+                        Ack<Command> ack;
+                        std::size_t remaining;
+                    };
+
+                    LoopbackChannel<Command> channel_;
+                    std::function<Command(TickId, Command)> authority_;
+                    std::size_t latency_ticks_;
+                    std::vector<Delayed> delayed_;
+            };
         } // namespace Net
     } // namespace Loop
 } // namespace SushiEngine
