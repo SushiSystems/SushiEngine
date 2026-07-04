@@ -49,6 +49,30 @@ namespace SushiEngine
             SushiEngine::Scalar pitch_limit = SushiEngine::Scalar(1.5533);     /**< Clamp pitch to just under +/- 90 degrees. */
             SushiEngine::Scalar zoom_step = SushiEngine::Scalar(0.8);          /**< Units dollied per wheel notch. */
             SushiEngine::Scalar pan_speed = SushiEngine::Scalar(0.01);         /**< World units panned per pixel of mouse move. */
+            bool altitude_adaptive = true;                                     /**< Scale all motion with height so ground-to-orbit flight is smooth. */
+            SushiEngine::Scalar reference_height = SushiEngine::Scalar(2);     /**< Height at which the scale is 1x; above it motion grows linearly. */
+
+            /**
+             * @brief The motion scale for the camera's current height above the ground.
+             *
+             * The scene anchors the ground plane at the local origin with up along +Y, so
+             * the camera's height is a direct altitude proxy. Motion scales linearly with
+             * it (clamped to at least 1x near the surface), so a fixed base speed carries
+             * the camera smoothly from a few metres above the ground out to orbital and
+             * interplanetary distances without the controls feeling glacial up high or
+             * uncontrollable down low — the standard space-sim camera behaviour.
+             *
+             * @param camera The camera whose height sets the scale.
+             * @return A multiplier applied to every translation this frame.
+             */
+            SushiEngine::Scalar motion_scale(const FlyCamera& camera) const noexcept
+            {
+                if (!altitude_adaptive)
+                    return SushiEngine::Scalar(1);
+                const SushiEngine::Scalar height =
+                    camera.position.y > reference_height ? camera.position.y : reference_height;
+                return height / reference_height;
+            }
 
             /**
              * @brief Applies one frame of input to @p camera.
@@ -57,16 +81,18 @@ namespace SushiEngine
              */
             void update(FlyCamera& camera, const InputState& input) const noexcept
             {
+                const SushiEngine::Scalar scale = motion_scale(camera);
+
                 // Wheel dolly and middle-mouse pan work whether or not look is active, so
                 // the view can be framed without holding right mouse (Unity Scene nav).
                 if (input.wheel != 0.0f)
-                    camera.position = camera.position + camera.forward() * (static_cast<SushiEngine::Scalar>(input.wheel) * zoom_step);
+                    camera.position = camera.position + camera.forward() * (static_cast<SushiEngine::Scalar>(input.wheel) * zoom_step * scale);
                 if (input.pan_active && (input.pan_dx != 0.0f || input.pan_dy != 0.0f))
                 {
                     const SushiEngine::Vector3 right = camera.right();
                     const SushiEngine::Vector3 up = SushiEngine::cross(right, camera.forward());
-                    camera.position = camera.position + right * (-static_cast<SushiEngine::Scalar>(input.pan_dx) * pan_speed) +
-                                      up * (static_cast<SushiEngine::Scalar>(input.pan_dy) * pan_speed);
+                    camera.position = camera.position + right * (-static_cast<SushiEngine::Scalar>(input.pan_dx) * pan_speed * scale) +
+                                      up * (static_cast<SushiEngine::Scalar>(input.pan_dy) * pan_speed * scale);
                 }
 
                 if (!input.look_active)
@@ -80,7 +106,8 @@ namespace SushiEngine
                     camera.pitch_radians = -pitch_limit;
 
                 const SushiEngine::Scalar speed =
-                    move_speed * (input.fast ? boost_multiplier : SushiEngine::Scalar(1)) * static_cast<SushiEngine::Scalar>(input.dt);
+                    move_speed * (input.fast ? boost_multiplier : SushiEngine::Scalar(1)) *
+                    scale * static_cast<SushiEngine::Scalar>(input.dt);
                 const SushiEngine::Vector3 forward = camera.forward();
                 const SushiEngine::Vector3 right = camera.right();
                 const SushiEngine::Vector3 world_up{SushiEngine::Scalar(0), SushiEngine::Scalar(1), SushiEngine::Scalar(0)};

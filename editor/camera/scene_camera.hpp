@@ -105,6 +105,9 @@ namespace SushiEngine
                 /** @brief The underlying fly camera, for inspection. */
                 FlyCamera& camera() noexcept { return camera_; }
 
+                /** @brief The navigation controller, for retuning speed/scaling per regime. */
+                CameraController& controller() noexcept { return controller_; }
+
                 /**
                  * @brief Sets the base fly speed, from the editor's camera-speed preference.
                  * @param units_per_second Base movement speed before the Shift boost.

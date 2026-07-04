@@ -101,6 +101,10 @@ namespace SushiEngine
                     float cloud_params[4];  // base_alt, top_alt, coverage, density
                     float star_params[4];   // brightness, density, atmo_enabled, stars_enabled
                     float misc[4];          // near, far, time, clouds_enabled
+                    float sky_counts[4];    // body_count, star_count
+                    // Solar-system bodies (4 vec4 each) and stars (2 vec4 each), std140.
+                    float bodies[SushiEngine::Render::MAX_CELESTIAL_BODIES * 4][4];
+                    float sky_stars[SushiEngine::Render::MAX_SKY_STARS * 2][4];
                 };
 
                 void check(VkResult result, const char* what)
@@ -1247,6 +1251,54 @@ namespace SushiEngine
                     ubo.misc[1] = camera.far_plane;
                     ubo.misc[2] = static_cast<float>(frame_counter_) * 0.016f;
                     ubo.misc[3] = environment.clouds.enabled ? 1.0f : 0.0f;
+
+                    // Far-field solar-system bodies and fixed stars. Their directions are
+                    // already in the scene's local frame — the same frame the sky pass
+                    // builds its view rays in — so they copy straight across, no rebasing.
+                    const int body_count =
+                        environment.body_count < MAX_CELESTIAL_BODIES ? environment.body_count
+                                                                      : MAX_CELESTIAL_BODIES;
+                    const int star_count = environment.sky_star_count < MAX_SKY_STARS
+                                               ? environment.sky_star_count
+                                               : MAX_SKY_STARS;
+                    ubo.sky_counts[0] = static_cast<float>(body_count);
+                    ubo.sky_counts[1] = static_cast<float>(star_count);
+                    // z: the near-field surface planet (ground/air) is on except in the
+                    // interplanetary regime, where the far-field bodies own the whole view.
+                    ubo.sky_counts[2] = environment.observer.space_mode ? 0.0f : 1.0f;
+                    ubo.sky_counts[3] = 0.0f;
+                    for (int i = 0; i < body_count; ++i)
+                    {
+                        const CelestialBody& body = environment.bodies[i];
+                        ubo.bodies[i * 4 + 0][0] = static_cast<float>(body.direction.x);
+                        ubo.bodies[i * 4 + 0][1] = static_cast<float>(body.direction.y);
+                        ubo.bodies[i * 4 + 0][2] = static_cast<float>(body.direction.z);
+                        ubo.bodies[i * 4 + 0][3] = body.angular_radius;
+                        ubo.bodies[i * 4 + 1][0] = static_cast<float>(body.color.x);
+                        ubo.bodies[i * 4 + 1][1] = static_cast<float>(body.color.y);
+                        ubo.bodies[i * 4 + 1][2] = static_cast<float>(body.color.z);
+                        ubo.bodies[i * 4 + 1][3] = body.brightness;
+                        ubo.bodies[i * 4 + 2][0] = static_cast<float>(body.sun_direction.x);
+                        ubo.bodies[i * 4 + 2][1] = static_cast<float>(body.sun_direction.y);
+                        ubo.bodies[i * 4 + 2][2] = static_cast<float>(body.sun_direction.z);
+                        ubo.bodies[i * 4 + 2][3] = static_cast<float>(body.is_star);
+                        ubo.bodies[i * 4 + 3][0] = body.distance_metres;
+                        ubo.bodies[i * 4 + 3][1] = body.mean_radius_metres;
+                        ubo.bodies[i * 4 + 3][2] = 0.0f;
+                        ubo.bodies[i * 4 + 3][3] = 0.0f;
+                    }
+                    for (int i = 0; i < star_count; ++i)
+                    {
+                        const SkyStar& star = environment.sky_stars[i];
+                        ubo.sky_stars[i * 2 + 0][0] = static_cast<float>(star.direction.x);
+                        ubo.sky_stars[i * 2 + 0][1] = static_cast<float>(star.direction.y);
+                        ubo.sky_stars[i * 2 + 0][2] = static_cast<float>(star.direction.z);
+                        ubo.sky_stars[i * 2 + 0][3] = star.brightness;
+                        ubo.sky_stars[i * 2 + 1][0] = static_cast<float>(star.color.x);
+                        ubo.sky_stars[i * 2 + 1][1] = static_cast<float>(star.color.y);
+                        ubo.sky_stars[i * 2 + 1][2] = static_cast<float>(star.color.z);
+                        ubo.sky_stars[i * 2 + 1][3] = 0.0f;
+                    }
                     std::memcpy(slot.ubo_mapped, &ubo, sizeof(SceneUbo));
                 }
 

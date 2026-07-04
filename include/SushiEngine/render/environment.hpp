@@ -40,6 +40,7 @@
  */
 
 #include <cmath>
+#include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
 
@@ -163,11 +164,116 @@ namespace SushiEngine
         };
 
         /**
+         * @brief A reference ellipsoid generalised beyond WGS84 to any body's surface.
+         *
+         * The same two constants @ref Wgs84 carries — equatorial radius and flattening —
+         * but named for use by any planet or moon whose surface the near-field regime
+         * ray-marches or meshes, not just Earth. WGS84 is one row of this; Mars, the Moon,
+         * and the rest supply their own so the ground pipeline is not Earth-specific.
+         */
+        struct ReferenceEllipsoid
+        {
+            double semi_major = 6378137.0;             /**< Equatorial radius a, metres. */
+            double inverse_flattening = 298.257223563; /**< 1/f (0 or huge for a sphere). */
+
+            /** @brief Polar radius b = a(1 - f), metres; a for a sphere (inverse_flattening 0). */
+            double semi_minor() const noexcept
+            {
+                return inverse_flattening != 0.0 ? semi_major * (1.0 - 1.0 / inverse_flattening)
+                                                 : semi_major;
+            }
+
+            /** @brief IUGG mean radius (2a + b)/3, metres. */
+            double mean_radius() const noexcept
+            {
+                return (2.0 * semi_major + semi_minor()) / 3.0;
+            }
+        };
+
+        /** @brief Maximum solar-system bodies the environment carries to the renderer. */
+        constexpr int MAX_CELESTIAL_BODIES = 16;
+
+        /** @brief Maximum catalogued stars the environment carries to the renderer. */
+        constexpr int MAX_SKY_STARS = 64;
+
+        /**
+         * @brief Which representation regime a body is drawn in this frame.
+         *
+         * The LOD ladder the camera climbs as it approaches a body: a sub-pixel @c Point,
+         * an analytically shaded @c Disk, a textured sphere @c Impostor, a real @c Mesh,
+         * and finally the on-@c Surface atmosphere/ground regime. The far-field sky pass
+         * handles Point/Disk/Impostor today; Mesh/Surface are the near-field hand-off.
+         */
+        enum class BodyLod : std::uint32_t
+        {
+            Point = 0,
+            Disk,
+            Impostor,
+            Mesh,
+            Surface,
+        };
+
+        /**
+         * @brief One solar-system body placed in the observer's sky this frame.
+         *
+         * The far-field seam: an ephemeris authors the local-frame @c direction to the
+         * body, its @c angular_radius, the @c sun_direction that lights it (for the phase
+         * terminator), and its @c color / @c brightness, so the sky pass draws a
+         * phase-lit disk without a mesh. @c heliocentric_position and @c mean_radius carry
+         * the true double-precision scale the near-field mesh/surface regimes and
+         * floating-origin rebasing need when the camera leaves Earth. Trivially copyable.
+         */
+        struct CelestialBody
+        {
+            Vector3 direction{Vector3{0.0, 1.0, 0.0}};       /**< Unit direction to the body, local ENU frame. */
+            Vector3 sun_direction{Vector3{0.0, 1.0, 0.0}};   /**< Unit direction from the body toward the sun, local frame (phase). */
+            Vector3 color{Vector3{1.0, 1.0, 1.0}};           /**< Linear RGB surface tint. */
+            WorldVector3 heliocentric_position{};            /**< Absolute heliocentric position, metres (fly-out / rebasing). */
+            float angular_radius = 0.0f;                     /**< Apparent angular radius, radians. */
+            float brightness = 1.0f;                         /**< Relative reflected/emitted radiance scale. */
+            float distance_metres = 0.0f;                    /**< Geocentric distance to the body, metres (LOD metric). */
+            float mean_radius_metres = 0.0f;                 /**< Physical mean radius, metres. */
+            BodyLod lod = BodyLod::Disk;                     /**< Representation regime this frame. */
+            std::uint32_t is_star = 0;                       /**< 1 if the body emits (the Sun), else 0. */
+        };
+
+        /**
+         * @brief One catalogued star placed in the observer's sky this frame.
+         *
+         * The fixed stars, rotated into the local ENU frame by the same topocentric
+         * transform as the bodies, so the constellations rise and set with sidereal time.
+         */
+        struct SkyStar
+        {
+            Vector3 direction{Vector3{0.0, 1.0, 0.0}}; /**< Unit direction to the star, local ENU frame. */
+            Vector3 color{Vector3{1.0, 1.0, 1.0}};     /**< Linear RGB tint from the star's B-V. */
+            float brightness = 1.0f;                   /**< Relative brightness from apparent magnitude. */
+            float pad = 0.0f;                          /**< Padding to a clean 32-byte stride. */
+        };
+
+        /**
+         * @brief Where and when the observer stands, driving the whole sky's orientation.
+         *
+         * The inputs an ephemeris propagates from: the epoch as a Julian Date and the
+         * observer's geodetic position. The scene anchors the ground at the equator, so
+         * @c latitude_radians defaults to 0; changing it re-points the celestial sphere.
+         */
+        struct SkyObserver
+        {
+            double julian_date = 2451545.0;    /**< Epoch as a Julian Date (J2000 default). */
+            double latitude_radians = 0.0;     /**< Observer geodetic latitude, radians. */
+            double longitude_radians = 0.0;    /**< Observer east longitude, radians. */
+            bool astronomical_sun = true;      /**< Drive the directional light from the ephemeris sun. */
+            bool space_mode = false;           /**< Interplanetary regime: bodies placed heliocentric, camera-relative, no ground. */
+        };
+
+        /**
          * @brief Everything the renderer needs to light and surround the scene this frame.
          *
          * Authored by the simulation, consumed by `ISceneView::render`. A single instance
-         * describes the sun, the planet it lights, the sky layers around it, and the
-         * camera's exposure — the whole environment, independent of the drawable meshes.
+         * describes the sun, the planet it lights, the sky layers around it, the far-field
+         * solar-system bodies and stars, and the camera's exposure — the whole
+         * environment, independent of the drawable meshes.
          */
         struct Environment
         {
@@ -179,6 +285,12 @@ namespace SushiEngine
             StarParams stars;            /**< The space-background star field. */
             Vector3 ambient{Vector3{0.03, 0.04, 0.06}}; /**< Flat ambient floor so shadowed faces are not black. */
             float exposure = 0.18f;      /**< Multiplier applied before tonemapping. */
+
+            SkyObserver observer;                        /**< Where/when the sky is seen from. */
+            CelestialBody bodies[MAX_CELESTIAL_BODIES]{}; /**< Far-field solar-system bodies this frame. */
+            int body_count = 0;                          /**< Number of populated @ref bodies entries. */
+            SkyStar sky_stars[MAX_SKY_STARS]{};          /**< Far-field catalogued stars this frame. */
+            int sky_star_count = 0;                      /**< Number of populated @ref sky_stars entries. */
         };
     } // namespace Render
 } // namespace SushiEngine

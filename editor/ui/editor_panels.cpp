@@ -2088,10 +2088,14 @@ namespace SushiEngine
                 float azimuth = std::atan2(static_cast<float>(dir.z),
                                            static_cast<float>(dir.x)) * 57.29578f;
                 bool sun_moved = false;
+                // The astronomical sun (Solar System section) overrides this manual
+                // direction downstream, so disable the sliders while it is on.
+                ImGui::BeginDisabled(context.sky_astronomical_sun);
                 if (ImGui::SliderFloat("Elevation", &elevation, -10.0f, 90.0f, "%.1f deg"))
                     sun_moved = true;
                 if (ImGui::SliderFloat("Azimuth", &azimuth, -180.0f, 180.0f, "%.1f deg"))
                     sun_moved = true;
+                ImGui::EndDisabled();
                 if (sun_moved)
                 {
                     const float e = elevation / 57.29578f;
@@ -2140,6 +2144,45 @@ namespace SushiEngine
                     changed = true;
                 if (ImGui::SliderFloat("Star Density", &environment.stars.density, 0.0f, 1.0f))
                     changed = true;
+            }
+
+            // The solar-system sky edits the editor context, not the world's environment:
+            // the ephemeris repopulates the bodies and stars from these each frame in the
+            // main loop, so scrubbing the date never re-extracts the world.
+            if (ImGui::CollapsingHeader("Solar System", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::Checkbox("Sky Enabled", &context.sky_enabled);
+                ImGui::SameLine();
+                ImGui::Checkbox("Astronomical Sun", &context.sky_astronomical_sun);
+
+                // Interplanetary flight: detaches from Earth's surface and flies the whole
+                // solar system in a heliocentric frame. The camera speed scales with the
+                // distance to the nearest body, so approaching a planet slows to a crawl.
+                ImGui::Checkbox("Space Mode (interplanetary)", &context.sky_space_mode);
+                if (context.sky_space_mode)
+                    ImGui::TextDisabled("Flying heliocentric. Fly toward a body to approach it.");
+
+                ImGui::InputInt("Year", &context.sky_date.year);
+                ImGui::SliderInt("Month", &context.sky_date.month, 1, 12);
+                ImGui::SliderInt("Day", &context.sky_date.day, 1, 31);
+                ImGui::SliderInt("Hour", &context.sky_date.hour, 0, 23);
+                ImGui::SliderInt("Minute", &context.sky_date.minute, 0, 59);
+
+                float latitude = static_cast<float>(context.sky_latitude_degrees);
+                if (ImGui::SliderFloat("Latitude", &latitude, -90.0f, 90.0f, "%.2f deg"))
+                    context.sky_latitude_degrees = latitude;
+                float longitude = static_cast<float>(context.sky_longitude_degrees);
+                if (ImGui::SliderFloat("Longitude", &longitude, -180.0f, 180.0f, "%.2f deg"))
+                    context.sky_longitude_degrees = longitude;
+
+                ImGui::Checkbox("Animate Time", &context.sky_animate);
+                float days_per_second = static_cast<float>(context.sky_days_per_second);
+                if (ImGui::SliderFloat("Days / Second", &days_per_second, 0.0f, 60.0f, "%.3f"))
+                    context.sky_days_per_second = days_per_second;
+                if (ImGui::Button("Reset Time Offset"))
+                    context.sky_accumulated_days = 0.0;
+                ImGui::SameLine();
+                ImGui::Text("Offset: %.2f d", context.sky_accumulated_days);
             }
 
             if (changed)

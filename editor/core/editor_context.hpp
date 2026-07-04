@@ -34,6 +34,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <SushiEngine/astro/julian_date.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "command_history.hpp"
@@ -259,6 +260,29 @@ namespace SushiEngine
             bool show_preferences = false;
 
             bool show_imgui_demo = false;
+
+            // Solar-system sky authoring, driven from the Environment panel. The civil
+            // epoch and observer position feed the ephemeris every frame (in main()),
+            // which repopulates the environment's bodies and stars without touching the
+            // world — so scrubbing the date or animating time costs no world re-extract.
+            // `sky_accumulated_days` is the running offset the animation clock adds to the
+            // authored epoch; latitude/longitude re-point the whole celestial sphere.
+            bool sky_enabled = true;
+            SushiEngine::Astro::CalendarDate sky_date{2026, 7, 4, 21, 0, 0.0};
+            double sky_latitude_degrees = 41.0;
+            double sky_longitude_degrees = 29.0;
+            bool sky_astronomical_sun = true;
+            bool sky_animate = false;
+            double sky_days_per_second = 0.02;
+            double sky_accumulated_days = 0.0;
+
+            // Interplanetary (space) regime. `sky_space_mode` is the requested state;
+            // `sky_space_active` tracks the applied state so main() can run the one-shot
+            // camera transition (save the surface pose on entry, restore it on exit).
+            // The space camera flies in a heliocentric ecliptic world frame in gigametres.
+            bool sky_space_mode = false;
+            bool sky_space_active = false;
+            SushiEngine::Vector3 sky_saved_surface_position{};
 
             // The catalog of user-defined "script" component types available in the
             // Add Component menu. Each entry is a definition (a type name plus default

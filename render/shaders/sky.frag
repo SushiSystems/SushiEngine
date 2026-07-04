@@ -33,7 +33,18 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 cloud_params;   // x = base alt, y = top alt, z = coverage, w = density
     vec4 star_params;    // x = brightness, y = density, z = atmosphere enabled, w = stars enabled
     vec4 misc;           // x = near, y = far, z = time, w = clouds enabled
+    vec4 sky_counts;     // x = body count, y = star count
+    // Solar-system bodies, 4 vec4 each:
+    //   [4i+0] = direction.xyz, angular radius; [4i+1] = colour.rgb, brightness;
+    //   [4i+2] = sun-facing direction.xyz, is-star flag;
+    //   [4i+3] = distance (m), mean radius (m).
+    vec4 bodies[64];
+    // Fixed stars, 2 vec4 each: [2i+0] = direction.xyz, brightness; [2i+1] = colour.rgb.
+    vec4 sky_stars[128];
 } scene;
+
+#define MAX_BODIES 16
+#define MAX_STARS 64
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
 layout(set = 0, binding = 2) uniform sampler2D hdr_color_texture;
@@ -175,8 +186,10 @@ void main()
         geometry_t = (-z_view) / cos_forward;
     }
 
-    // Ground and atmosphere intersections.
-    float ground_t = ray_ellipsoid(ro, rd, center, radii);
+    // Ground and atmosphere intersections. The surface planet is switched off in the
+    // interplanetary regime (sky_counts.z), where the far-field bodies own the whole view.
+    bool surface_enabled = scene.sky_counts.z > 0.5;
+    float ground_t = surface_enabled ? ray_ellipsoid(ro, rd, center, radii) : -1.0;
     bool ground_hit = ground_t > 0.0 && ground_t < geometry_t;
     vec2 atmo = ray_sphere(ro, rd, center, atmosphere_radius);
 
@@ -243,29 +256,117 @@ void main()
         sky_color += ground * total_transmittance;
     }
 
-    // Star field for rays that escape into space, faded by how much air they crossed.
-    if (scene.star_params.w > 0.5 && !ground_hit && geometry_t > 1e29)
+    bool escapes_to_space = !ground_hit && geometry_t > 1e29;
+    float air = clamp((total_transmittance.r + total_transmittance.g +
+                       total_transmittance.b) / 3.0, 0.0, 1.0);
+
+    // Real bright-star catalogue: each star is a small point at its true sky position,
+    // faded by the air the ray crossed so it fades into the lit atmosphere near the limb
+    // and washes out under the daytime in-scatter added above.
+    if (scene.star_params.w > 0.5 && escapes_to_space)
     {
-        vec3 dir = rd;
-        vec3 cell = floor(dir * 700.0);
-        float star = hash13(cell);
-        float visible = step(1.0 - scene.star_params.y * 0.06, star);
-        if (visible > 0.5)
+        int star_count = int(scene.sky_counts.y);
+        for (int i = 0; i < MAX_STARS; ++i)
         {
-            float twinkle = 0.6 + 0.4 * sin(scene.misc.z * 3.0 + star * 40.0);
-            float brightness = pow(hash13(cell + 3.7), 6.0) * scene.star_params.x * twinkle;
-            float air = clamp((total_transmittance.r + total_transmittance.g +
-                               total_transmittance.b) / 3.0, 0.0, 1.0);
-            sky_color += vec3(brightness) * 8.0 * air;
+            if (i >= star_count)
+                break;
+            vec3 star_dir = scene.sky_stars[i * 2 + 0].xyz;
+            float star_brightness = scene.sky_stars[i * 2 + 0].w;
+            vec3 star_color = scene.sky_stars[i * 2 + 1].xyz;
+            float cos_d = dot(rd, star_dir);
+            if (cos_d <= 0.0)
+                continue;
+            float angle = acos(clamp(cos_d, -1.0, 1.0));
+            float core = 1.0 - smoothstep(0.0, 0.0009, angle);
+            if (core > 0.0)
+            {
+                float twinkle = 0.85 + 0.15 * sin(scene.misc.z * 3.0 + float(i) * 12.9);
+                float mag = pow(star_brightness, 0.4) * twinkle;
+                sky_color += star_color * core * mag * scene.star_params.x * air * 2.0;
+            }
         }
     }
 
-    // Sun disk when looking near the sun through the atmosphere or from space.
-    if (!ground_hit && geometry_t > 1e29)
+    // Solar-system bodies, depth-ordered so the nearest body covering a ray occludes the
+    // rest — the Moon crossing in front of the Sun is a solar eclipse, in front of a
+    // planet an occultation. Each body picks its own LOD regime: a body large in the view
+    // (you are near it) is a true ray-traced sphere, precise because its camera-relative
+    // centre is small; a distant body is a phase-lit disk in direction space, which stays
+    // precise where a true sphere at 1e12 m would collapse in single precision. The Sun
+    // (is-star flag) is emissive; every other body is lit by its sun-facing direction.
+    if (escapes_to_space)
     {
-        float mu = dot(rd, sun);
-        float disk = smoothstep(0.9995, 0.9998, mu);
-        sky_color += sun_radiance * disk * total_transmittance;
+        int body_count = int(scene.sky_counts.x);
+        float nearest_distance = 1e30; // metres; smallest wins the pixel
+        vec3 body_result = vec3(0.0);
+        float body_coverage = 0.0;
+        for (int i = 0; i < MAX_BODIES; ++i)
+        {
+            if (i >= body_count)
+                break;
+            vec4 b0 = scene.bodies[i * 4 + 0];
+            vec4 b1 = scene.bodies[i * 4 + 1];
+            vec4 b2 = scene.bodies[i * 4 + 2];
+            vec4 b3 = scene.bodies[i * 4 + 3];
+            vec3 body_dir = b0.xyz;
+            float angular_radius = b0.w;
+            vec3 body_color = b1.rgb;
+            float body_brightness = b1.w;
+            vec3 body_sun = b2.xyz;
+            bool is_star = b2.w > 0.5;
+            float body_distance = b3.x;
+            float body_radius = b3.y;
+
+            float coverage = 0.0;
+            vec3 normal = body_dir; // surface normal at the covered point (toward observer)
+            if (angular_radius > 0.02)
+            {
+                // Near regime: intersect the real sphere at its camera-relative centre.
+                vec3 center = body_dir * body_distance;
+                vec2 hit = ray_sphere(vec3(0.0), rd, center, body_radius);
+                float t = hit.x > 0.0 ? hit.x : hit.y;
+                if (hit.y > 0.0 && t > 0.0)
+                {
+                    coverage = 1.0;
+                    normal = normalize(rd * t - center);
+                    body_distance = t; // order by the actual hit depth up close
+                }
+            }
+            else
+            {
+                // Far regime: a disk in direction space, clamped to a visible minimum size.
+                float draw_radius = max(angular_radius, 0.00055);
+                float cos_d = dot(rd, body_dir);
+                if (cos_d > 0.0)
+                {
+                    float angle = acos(clamp(cos_d, -1.0, 1.0));
+                    if (angle <= draw_radius)
+                    {
+                        float f = angle / draw_radius; // 0 centre .. 1 limb
+                        coverage = 1.0 - smoothstep(0.85, 1.0, f);
+                        vec3 tangent = normalize(rd - body_dir * cos_d);
+                        normal = tangent * f - body_dir * sqrt(max(0.0, 1.0 - f * f));
+                    }
+                }
+            }
+
+            if (coverage > 0.0 && body_distance < nearest_distance)
+            {
+                nearest_distance = body_distance;
+                vec3 color;
+                if (is_star)
+                    color = body_color * sun_radiance;
+                else
+                {
+                    float lambert = max(dot(normal, body_sun), 0.0);
+                    color = body_color * sun_radiance * (lambert * body_brightness + 0.015);
+                }
+                body_result = color;
+                body_coverage = coverage;
+            }
+        }
+        if (body_coverage > 0.0)
+            sky_color += body_result * body_coverage * total_transmittance;
     }
 
     // Cloud layer: march the spherical shell between base and top altitude, lit by sun.

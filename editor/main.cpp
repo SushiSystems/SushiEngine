@@ -41,6 +41,7 @@
 
 #include <vector>
 
+#include <SushiEngine/astro/ephemeris.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
@@ -379,11 +380,93 @@ int main(int, char**)
             game_ui.count = ui_overlay.size();
             game_ui.edit_mode = false;
 
+            // Solar-system sky: repopulate the far-field bodies and stars from the authored
+            // epoch and observer each frame. A local copy of the world's environment is
+            // mutated and handed to the viewports, so driving the ephemeris never
+            // re-extracts the world (unlike set_environment, which does).
+            SushiEngine::Render::Environment environment = scene.environment;
+            if (context.sky_enabled)
+            {
+                if (context.sky_animate)
+                    context.sky_accumulated_days +=
+                        real_delta_seconds * context.sky_days_per_second;
+                environment.observer.julian_date =
+                    SushiEngine::Astro::julian_date_from_calendar(context.sky_date) +
+                    context.sky_accumulated_days;
+                environment.observer.latitude_radians =
+                    context.sky_latitude_degrees * SushiEngine::Astro::DEGREES_TO_RADIANS;
+                environment.observer.longitude_radians =
+                    context.sky_longitude_degrees * SushiEngine::Astro::DEGREES_TO_RADIANS;
+                environment.observer.astronomical_sun = context.sky_astronomical_sun;
+
+                if (context.sky_space_mode)
+                {
+                    SushiEngine::Editor::FlyCamera& fly = scene_camera.camera();
+                    const double au_to_gm = SushiEngine::Astro::METRES_PER_ASTRONOMICAL_UNIT /
+                                            SushiEngine::Astro::METRES_PER_GIGAMETRE;
+                    if (!context.sky_space_active)
+                    {
+                        // Enter space: save the surface pose and drop the camera beside Earth.
+                        context.sky_saved_surface_position = fly.position;
+                        const SushiEngine::Vector3 earth_au =
+                            SushiEngine::Astro::planet_heliocentric_au(
+                                SushiEngine::Astro::BodyId::Earth,
+                                environment.observer.julian_date);
+                        const SushiEngine::Vector3 earth_world =
+                            SushiEngine::Astro::ecliptic_to_world(earth_au * au_to_gm);
+                        fly.position =
+                            earth_world + SushiEngine::Vector3{0.0, 0.03, 0.12};
+                        scene_camera.controller().altitude_adaptive = false;
+                        context.sky_space_active = true;
+                    }
+                    const SushiEngine::WorldVector3 camera_gm{fly.position.x, fly.position.y,
+                                                              fly.position.z};
+                    SushiEngine::Astro::fill_environment_space(environment, camera_gm);
+
+                    // Proximity-scaled flight speed: base speed tracks the nearest body's
+                    // surface, so approaching a planet slows the camera to a controllable
+                    // crawl while interplanetary hops stay fast. Units are gigametres.
+                    double nearest = 1e30;
+                    for (int i = 0; i < environment.body_count; ++i)
+                    {
+                        const double surface_distance =
+                            static_cast<double>(environment.bodies[i].distance_metres) -
+                            static_cast<double>(environment.bodies[i].mean_radius_metres);
+                        if (surface_distance < nearest)
+                            nearest = surface_distance;
+                    }
+                    double base_speed = nearest * 0.5;
+                    if (base_speed < 1.0e-4)
+                        base_speed = 1.0e-4;
+                    if (base_speed > 50.0)
+                        base_speed = 50.0;
+                    scene_camera.controller().move_speed =
+                        static_cast<SushiEngine::Scalar>(base_speed);
+                }
+                else
+                {
+                    if (context.sky_space_active)
+                    {
+                        // Exit space: restore the surface pose and ground-scaled navigation.
+                        scene_camera.camera().position = context.sky_saved_surface_position;
+                        scene_camera.controller().altitude_adaptive = true;
+                        scene_camera.controller().move_speed =
+                            context.preferences.camera_move_speed;
+                        context.sky_space_active = false;
+                    }
+                    SushiEngine::Astro::fill_environment_sky(environment);
+                }
+            }
+
             bool gizmo_edited = false;
             if (context.panels.scene_view)
             {
+                // In the interplanetary regime the world's metre-scale meshes are not part
+                // of the gigametre-scale solar system, so the Scene view draws none of them.
+                const std::size_t scene_instance_count =
+                    context.sky_space_mode ? 0 : instances.size();
                 gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
-                                               instances.size(), scene.environment, selected, true,
+                                               scene_instance_count, environment, selected, true,
                                                gizmo_target, context.gizmo_mode, context.gizmo_space,
                                                &snap, nullptr, strands.data(), strands.size(),
                                                &scene_ui);
@@ -409,7 +492,7 @@ int main(int, char**)
                 const std::size_t game_instance_count =
                     scene.has_camera ? instances.size() : 0;
                 game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
-                               scene.environment, no_selection, false, nullptr,
+                               environment, no_selection, false, nullptr,
                                SushiEngine::Editor::GizmoMode::Translate,
                                SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
                                strands.data(), strands.size(), &game_ui);
