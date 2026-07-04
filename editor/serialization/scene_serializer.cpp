@@ -23,7 +23,9 @@
 
 #include "scene_serializer.hpp"
 
+#include <cstdio>
 #include <fstream>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -68,6 +70,93 @@ namespace SushiEngine
                 q.z = j.value("z", SushiEngine::Scalar(0));
                 q.w = j.value("w", SushiEngine::Scalar(1));
                 return q;
+            }
+
+            json ui_to_json(const SushiEngine::Simulation::UIElementParams& p)
+            {
+                return json{{"kind", static_cast<std::uint32_t>(p.kind)},
+                            {"anchor_min", json{{"x", p.anchor_min_x}, {"y", p.anchor_min_y}}},
+                            {"anchor_max", json{{"x", p.anchor_max_x}, {"y", p.anchor_max_y}}},
+                            {"pivot", json{{"x", p.pivot_x}, {"y", p.pivot_y}}},
+                            {"position", json{{"x", p.position_x}, {"y", p.position_y}}},
+                            {"size", json{{"x", p.size_x}, {"y", p.size_y}}},
+                            {"color", vec3_to_json(p.color)},
+                            {"alpha", p.alpha},
+                            {"font_size", p.font_size},
+                            {"text", std::string(p.text)}};
+            }
+
+            SushiEngine::Simulation::UIElementParams ui_from_json(const json& j)
+            {
+                SushiEngine::Simulation::UIElementParams p;
+                p.kind = static_cast<SushiEngine::Simulation::UIElementKind>(
+                    j.value("kind", static_cast<std::uint32_t>(p.kind)));
+                if (j.contains("anchor_min"))
+                {
+                    p.anchor_min_x = j["anchor_min"].value("x", p.anchor_min_x);
+                    p.anchor_min_y = j["anchor_min"].value("y", p.anchor_min_y);
+                }
+                if (j.contains("anchor_max"))
+                {
+                    p.anchor_max_x = j["anchor_max"].value("x", p.anchor_max_x);
+                    p.anchor_max_y = j["anchor_max"].value("y", p.anchor_max_y);
+                }
+                if (j.contains("pivot"))
+                {
+                    p.pivot_x = j["pivot"].value("x", p.pivot_x);
+                    p.pivot_y = j["pivot"].value("y", p.pivot_y);
+                }
+                if (j.contains("position"))
+                {
+                    p.position_x = j["position"].value("x", p.position_x);
+                    p.position_y = j["position"].value("y", p.position_y);
+                }
+                if (j.contains("size"))
+                {
+                    p.size_x = j["size"].value("x", p.size_x);
+                    p.size_y = j["size"].value("y", p.size_y);
+                }
+                if (j.contains("color"))
+                    p.color = vec3_from_json(j["color"]);
+                p.alpha = j.value("alpha", p.alpha);
+                p.font_size = j.value("font_size", p.font_size);
+                const std::string text = j.value("text", std::string{});
+                std::snprintf(p.text, sizeof(p.text), "%s", text.c_str());
+                return p;
+            }
+
+            json script_to_json(const SushiEngine::Simulation::ScriptComponent& script)
+            {
+                json fields = json::array();
+                for (const SushiEngine::Simulation::ScriptField& field : script.fields)
+                    fields.push_back(json{{"name", field.name},
+                                          {"kind", static_cast<std::uint32_t>(field.kind)},
+                                          {"number", field.number},
+                                          {"flag", field.flag},
+                                          {"vector", vec3_to_json(field.vector)},
+                                          {"text", field.text}});
+                return json{{"type_name", script.type_name}, {"fields", std::move(fields)}};
+            }
+
+            SushiEngine::Simulation::ScriptComponent script_from_json(const json& j)
+            {
+                SushiEngine::Simulation::ScriptComponent script;
+                script.type_name = j.value("type_name", std::string{});
+                if (j.contains("fields") && j["fields"].is_array())
+                    for (const json& f : j["fields"])
+                    {
+                        SushiEngine::Simulation::ScriptField field;
+                        field.name = f.value("name", std::string{});
+                        field.kind = static_cast<SushiEngine::Simulation::ScriptFieldKind>(
+                            f.value("kind", static_cast<std::uint32_t>(field.kind)));
+                        field.number = f.value("number", field.number);
+                        field.flag = f.value("flag", field.flag);
+                        if (f.contains("vector"))
+                            field.vector = vec3_from_json(f["vector"]);
+                        field.text = f.value("text", std::string{});
+                        script.fields.push_back(field);
+                    }
+                return script;
             }
         } // namespace
 
@@ -154,6 +243,20 @@ namespace SushiEngine
                     const auto params = world.collider_params(id);
                     entry["collider"] = json{{"kind", static_cast<std::uint32_t>(params.kind)},
                                              {"params", vec3_to_json(params.params)}};
+                }
+
+                const bool has_ui = world.has_ui(id);
+                entry["has_ui"] = has_ui;
+                if (has_ui)
+                    entry["ui"] = ui_to_json(world.ui_params(id));
+
+                const std::vector<std::string> scripts = world.script_components(id);
+                if (!scripts.empty())
+                {
+                    json script_array = json::array();
+                    for (const std::string& type_name : scripts)
+                        script_array.push_back(script_to_json(world.script_component(id, type_name)));
+                    entry["scripts"] = std::move(script_array);
                 }
 
                 root.push_back(std::move(entry));
@@ -267,6 +370,17 @@ namespace SushiEngine
                         world.set_collider_params(id, params);
                     }
                 }
+
+                if (entry.value("has_ui", false))
+                {
+                    world.set_has_ui(id, true);
+                    if (entry.contains("ui"))
+                        world.set_ui_params(id, ui_from_json(entry["ui"]));
+                }
+
+                if (entry.contains("scripts") && entry["scripts"].is_array())
+                    for (const json& s : entry["scripts"])
+                        world.add_script_component(id, script_from_json(s));
             }
 
             // Parent links are resolved only after every entity exists, since a child

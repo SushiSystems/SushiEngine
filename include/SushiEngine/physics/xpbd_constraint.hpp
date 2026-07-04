@@ -42,13 +42,17 @@ namespace SushiEngine
          * the same shape `color_constraints<Constraint>()` expects, so the existing
          * graph-colouring is reused unchanged.
          */
-        struct XpbdDistanceConstraint
+        template <typename T>
+        struct XpbdDistanceConstraintT
         {
+            /** @brief The scalar element type, so a solver/world can derive its precision. */
+            using Real = T;
+
             std::uint32_t a = 0; /**< First body index. */
             std::uint32_t b = 0; /**< Second body index. */
-            Vector3 local_anchor_a; /**< Attachment point on body @c a, in its local frame. */
-            Vector3 local_anchor_b; /**< Attachment point on body @c b, in its local frame. */
-            Scalar rest_length = Scalar(0); /**< Target distance between the attachment points. */
+            Vector3T<T> local_anchor_a; /**< Attachment point on body @c a, in its local frame. */
+            Vector3T<T> local_anchor_b; /**< Attachment point on body @c b, in its local frame. */
+            T rest_length = 0; /**< Target distance between the attachment points. */
 
             /**
              * @brief XPBD compliance (inverse stiffness), in meters per Newton.
@@ -59,7 +63,15 @@ namespace SushiEngine
              * whose stiffness does not change with the solver's iteration count or
              * step size, which is XPBD's defining property over plain PBD.
              */
-            Scalar compliance = Scalar(0);
+            T compliance = 0;
         };
+
+        /**
+         * @brief The boundary distance constraint: `XpbdDistanceConstraintT` fixed to `Scalar`.
+         *
+         * The default every existing solver, world, and demo uses; a runtime-selected
+         * precision instantiates `XpbdDistanceConstraintT<double>` directly instead.
+         */
+        using XpbdDistanceConstraint = XpbdDistanceConstraintT<Scalar>;
     } // namespace Physics
 } // namespace SushiEngine

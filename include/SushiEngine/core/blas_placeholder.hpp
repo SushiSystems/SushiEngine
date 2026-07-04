@@ -37,16 +37,26 @@ namespace SushiEngine
      * the smallest device-usable placeholders the simulation needs. It is reached
      * only through core/types.hpp, so when SushiBLAS lands this whole file is
      * deleted and the seam re-pointed in one place. Do not reference it directly.
+     *
+     * The vector and quaternion types are parametric on their element type so a
+     * single build can compute in more than one precision at once — the boundary
+     * aliases (`Vector3`, `Quaternion`) fix that element to `Float`, while the
+     * physics/simulation core can instantiate `Vector3T<double>` beside it. This is
+     * what makes the engine's float/double choice a runtime decision (a
+     * precision-tagged simulation) rather than a build-time one, and it anticipates
+     * the parametric element type SushiBLAS will own.
      */
     namespace placeholder
     {
         /**
-         * @brief Scalar element type; maps to a SushiBLAS float later.
+         * @brief Scalar element type of the boundary types; maps to a SushiBLAS float later.
          *
          * Single precision by default; the SE_SCALAR_DOUBLE build option (declared in
          * cmake/ProjectOptions.cmake, threaded on the SushiEngine INTERFACE target)
-         * switches the whole engine to double. This one line is the entire precision
-         * seam — everything downstream is written in terms of @c Float, not a literal.
+         * switches the boundary/render `Scalar` to double. It picks the element of the
+         * `Vector3`/`Quaternion`/`Mat4` aliases below — the precision that crosses the
+         * `ISimulation` seam and reaches the renderer. The simulation core's own
+         * compute precision is chosen separately at runtime (see the namespace note).
          */
 #ifdef SE_SCALAR_DOUBLE
         using Float = double;
@@ -55,25 +65,28 @@ namespace SushiEngine
 #endif
 
         /**
-         * @brief A trivially copyable 3-component vector usable in device code.
+         * @brief A trivially copyable 3-component vector, parametric on element type.
          *
          * Only the operations the integrator needs are defined; everything richer
          * is SushiBLAS's job, not the engine's.
+         *
+         * @tparam T The element type (`float` or `double`).
          */
-        struct Vector3
+        template <typename T>
+        struct Vector3T
         {
-            Float x = 0;
-            Float y = 0;
-            Float z = 0;
+            T x = 0;
+            T y = 0;
+            T z = 0;
 
             /**
              * @brief Componentwise sum.
              * @param o The other vector to add.
              * @return A new vector containing the sum.
              */
-            constexpr Vector3 operator+(const Vector3& o) const noexcept
+            constexpr Vector3T operator+(const Vector3T& o) const noexcept
             {
-                return Vector3{x + o.x, y + o.y, z + o.z};
+                return Vector3T{x + o.x, y + o.y, z + o.z};
             }
 
             /**
@@ -81,9 +94,9 @@ namespace SushiEngine
              * @param s The scalar value to multiply by.
              * @return A new vector with scaled components.
              */
-            constexpr Vector3 operator*(Float s) const noexcept
+            constexpr Vector3T operator*(T s) const noexcept
             {
-                return Vector3{x * s, y * s, z * s};
+                return Vector3T{x * s, y * s, z * s};
             }
 
             /**
@@ -91,44 +104,130 @@ namespace SushiEngine
              * @param o The vector to subtract.
              * @return A new vector containing this minus @p o.
              */
-            constexpr Vector3 operator-(const Vector3& o) const noexcept
+            constexpr Vector3T operator-(const Vector3T& o) const noexcept
             {
-                return Vector3{x - o.x, y - o.y, z - o.z};
+                return Vector3T{x - o.x, y - o.y, z - o.z};
             }
         };
 
         /** @brief Dot product of two vectors. */
-        inline Float dot(const Vector3& a, const Vector3& b) noexcept
+        template <typename T>
+        inline T dot(const Vector3T<T>& a, const Vector3T<T>& b) noexcept
         {
             return a.x * b.x + a.y * b.y + a.z * b.z;
         }
 
         /** @brief Right-handed cross product a x b. */
-        inline Vector3 cross(const Vector3& a, const Vector3& b) noexcept
+        template <typename T>
+        inline Vector3T<T> cross(const Vector3T<T>& a, const Vector3T<T>& b) noexcept
         {
-            return Vector3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+            return Vector3T<T>{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+                               a.x * b.y - a.y * b.x};
         }
 
         /** @brief Euclidean length of a vector. */
-        inline Float length(const Vector3& v) noexcept
+        template <typename T>
+        inline T length(const Vector3T<T>& v) noexcept
         {
             return std::sqrt(dot(v, v));
         }
 
         /** @brief Unit vector in the direction of @p v; returns @p v unchanged if degenerate. */
-        inline Vector3 normalize(const Vector3& v) noexcept
+        template <typename T>
+        inline Vector3T<T> normalize(const Vector3T<T>& v) noexcept
         {
-            const Float len = length(v);
-            return len > Float(0) ? v * (Float(1) / len) : v;
+            const T len = length(v);
+            return len > T(0) ? v * (T(1) / len) : v;
         }
+
+        /**
+         * @brief A unit quaternion rotation, parametric on element type.
+         *
+         * `(x, y, z)` vector part and `w` scalar. Trivially copyable; the component
+         * storage a Transform carries and the renderer resolves to a matrix.
+         *
+         * @tparam T The element type (`float` or `double`).
+         */
+        template <typename T>
+        struct QuaternionT
+        {
+            T x = 0;
+            T y = 0;
+            T z = 0;
+            T w = 1;
+        };
+
+        /** @brief A quaternion of @p angle radians about unit axis @p axis. */
+        template <typename T>
+        inline QuaternionT<T> quaternion_axis_angle(const Vector3T<T>& axis, T angle) noexcept
+        {
+            const T half = angle * T(0.5);
+            const T s = std::sin(half);
+            return QuaternionT<T>{axis.x * s, axis.y * s, axis.z * s, std::cos(half)};
+        }
+
+        /** @brief Hamilton product a * b (apply b then a). */
+        template <typename T>
+        inline QuaternionT<T> mul(const QuaternionT<T>& a, const QuaternionT<T>& b) noexcept
+        {
+            return QuaternionT<T>{
+                a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+                a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+                a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+                a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+        }
+
+        /** @brief The conjugate (inverse, for unit quaternions) of @p q. */
+        template <typename T>
+        inline QuaternionT<T> conjugate(const QuaternionT<T>& q) noexcept
+        {
+            return QuaternionT<T>{-q.x, -q.y, -q.z, q.w};
+        }
+
+        /**
+         * @brief Rotates @p v by unit quaternion @p q.
+         *
+         * Uses the standard two-cross-product form (no matrix build): with
+         * `qv = (q.x, q.y, q.z)`, `v' = v + 2*w*(qv x v) + 2*(qv x (qv x v))`.
+         */
+        template <typename T>
+        inline Vector3T<T> rotate(const QuaternionT<T>& q, const Vector3T<T>& v) noexcept
+        {
+            const Vector3T<T> qv{q.x, q.y, q.z};
+            const Vector3T<T> t = cross(qv, v) * T(2);
+            return v + t * q.w + cross(qv, t);
+        }
+
+        /** @brief Unit quaternion; returns identity if degenerate. */
+        template <typename T>
+        inline QuaternionT<T> normalize(const QuaternionT<T>& q) noexcept
+        {
+            const T len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+            if (len <= T(0))
+                return QuaternionT<T>{};
+            const T inv = T(1) / len;
+            return QuaternionT<T>{q.x * inv, q.y * inv, q.z * inv, q.w * inv};
+        }
+
+        /**
+         * @brief The boundary 3-component vector: `Vector3T` fixed to `Float`.
+         *
+         * The precision that crosses the `ISimulation` seam and reaches the renderer.
+         * Simulation code that must compute in a different precision instantiates
+         * `Vector3T<T>` directly instead of this alias.
+         */
+        using Vector3 = Vector3T<Float>;
+
+        /** @brief The boundary unit quaternion: `QuaternionT` fixed to `Float`. */
+        using Quaternion = QuaternionT<Float>;
 
         /**
          * @brief Always-double 3-component vector for absolute world coordinates.
          *
          * ECEF positions on a planet-sized world need double precision regardless of
          * @c Float's build-time choice (SE_SCALAR_DOUBLE picks the render/simulation
-         * Scalar, not the coordinate system's absolute precision). WorldVector3 is that
-         * fixed precision, independent of the Scalar seam above.
+         * boundary Scalar, not the coordinate system's absolute precision). WorldVector3
+         * is that fixed precision, independent of the Scalar seam above.
          */
         struct WorldVector3
         {
@@ -245,7 +344,9 @@ namespace SushiEngine
          *
          * Element at row @c r, column @c c lives at @c m[c * 4 + r]. Only the
          * operations the renderer and camera need are provided; SushiBLAS owns the
-         * rest. Trivially copyable so it can cross into device code as data.
+         * rest. Trivially copyable so it can cross into device code as data. Fixed at
+         * `Float`: matrices are render-side (projection, view, model), never part of
+         * the simulation's compute precision.
          */
         struct Mat4
         {
@@ -334,67 +435,6 @@ namespace SushiEngine
             r.m[13] = -dot(u, eye);
             r.m[14] = dot(f, eye);
             return r;
-        }
-
-        /**
-         * @brief A unit quaternion rotation, @c (x, y, z) vector part and @c w scalar.
-         *
-         * Trivially copyable; the component storage a Transform carries and the
-         * renderer resolves to a matrix.
-         */
-        struct Quaternion
-        {
-            Float x = 0;
-            Float y = 0;
-            Float z = 0;
-            Float w = 1;
-        };
-
-        /** @brief A quaternion of @p angle radians about unit axis @p axis. */
-        inline Quaternion quaternion_axis_angle(const Vector3& axis, Float angle) noexcept
-        {
-            const Float half = angle * Float(0.5);
-            const Float s = std::sin(half);
-            return Quaternion{axis.x * s, axis.y * s, axis.z * s, std::cos(half)};
-        }
-
-        /** @brief Hamilton product a * b (apply b then a). */
-        inline Quaternion mul(const Quaternion& a, const Quaternion& b) noexcept
-        {
-            return Quaternion{
-                a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
-                a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
-                a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
-                a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
-        }
-
-        /** @brief The conjugate (inverse, for unit quaternions) of @p q. */
-        inline Quaternion conjugate(const Quaternion& q) noexcept
-        {
-            return Quaternion{-q.x, -q.y, -q.z, q.w};
-        }
-
-        /**
-         * @brief Rotates @p v by unit quaternion @p q.
-         *
-         * Uses the standard two-cross-product form (no matrix build): with
-         * `qv = (q.x, q.y, q.z)`, `v' = v + 2*w*(qv x v) + 2*(qv x (qv x v))`.
-         */
-        inline Vector3 rotate(const Quaternion& q, const Vector3& v) noexcept
-        {
-            const Vector3 qv{q.x, q.y, q.z};
-            const Vector3 t = cross(qv, v) * Float(2);
-            return v + t * q.w + cross(qv, t);
-        }
-
-        /** @brief Unit quaternion; returns identity if degenerate. */
-        inline Quaternion normalize(const Quaternion& q) noexcept
-        {
-            const Float len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-            if (len <= Float(0))
-                return Quaternion{};
-            const Float inv = Float(1) / len;
-            return Quaternion{q.x * inv, q.y * inv, q.z * inv, q.w * inv};
         }
 
         /** @brief The rotation matrix equivalent to unit quaternion @p q. */

@@ -92,6 +92,7 @@ namespace SushiEngine
          * diagonal neighbour pair, all at `rest_length` equal to the two points'
          * initial separation and the given @p compliance.
          *
+         * @tparam Constraint The world's constraint type; its `Real` sets the grid's precision.
          * @param world      The physics world to register bodies and constraints into;
          *                   must not have been `finalize()`d yet.
          * @param rows       Number of grid rows (>= 1); row 0 is pinned.
@@ -102,10 +103,15 @@ namespace SushiEngine
          *                   `0` is fully rigid, matching the hanging-chain demos.
          * @return The grid's body ids, addressable by (row, column).
          */
-        inline ClothGrid build_cloth_grid(PhysicsWorld<XpbdDistanceConstraint>& world,
-                                          std::size_t rows, std::size_t cols, Scalar spacing,
-                                          Vector3 origin, Scalar compliance = Scalar(0))
+        template <typename Constraint>
+        ClothGrid build_cloth_grid(PhysicsWorld<Constraint>& world,
+                                   std::size_t rows, std::size_t cols,
+                                   typename Constraint::Real spacing,
+                                   Vector3T<typename Constraint::Real> origin,
+                                   typename Constraint::Real compliance = 0)
         {
+            using Real = typename Constraint::Real;
+
             ClothGrid grid;
             grid.rows = rows;
             grid.cols = cols;
@@ -114,21 +120,21 @@ namespace SushiEngine
             for (std::size_t row = 0; row < rows; ++row)
                 for (std::size_t col = 0; col < cols; ++col)
                 {
-                    RigidBody body;
+                    RigidBodyT<Real> body;
                     body.position =
-                        origin + Vector3{Scalar(col) * spacing, Scalar(0), Scalar(row) * spacing};
-                    body.inv_mass = (row == 0) ? Scalar(0) : Scalar(1);
-                    body.inv_inertia = Vector3{0, 0, 0};
+                        origin + Vector3T<Real>{Real(col) * spacing, Real(0), Real(row) * spacing};
+                    body.inv_mass = (row == 0) ? Real(0) : Real(1);
+                    body.inv_inertia = Vector3T<Real>{0, 0, 0};
                     grid.bodies.push_back(world.add_body(body));
                 }
 
-            const auto link = [&](BodyId a, BodyId b, Scalar rest_length)
+            const auto link = [&](BodyId a, BodyId b, Real rest_length)
             {
-                world.add_constraint(XpbdDistanceConstraint{
-                    a, b, Vector3{0, 0, 0}, Vector3{0, 0, 0}, rest_length, compliance});
+                world.add_constraint(Constraint{
+                    a, b, Vector3T<Real>{0, 0, 0}, Vector3T<Real>{0, 0, 0}, rest_length, compliance});
             };
 
-            const Scalar diagonal = spacing * Scalar(std::sqrt(2.0));
+            const Real diagonal = spacing * Real(std::sqrt(2.0));
             for (std::size_t row = 0; row < rows; ++row)
                 for (std::size_t col = 0; col < cols; ++col)
                 {

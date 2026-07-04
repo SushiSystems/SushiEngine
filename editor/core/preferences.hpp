@@ -33,12 +33,13 @@ namespace SushiEngine
     namespace Editor
     {
         /**
-         * @brief The engine Scalar precision the editor is configured for.
+         * @brief The precision the live simulation's physics solve runs in.
          *
-         * Precision is a compile-time choice (SE_SCALAR_DOUBLE), so this records the
-         * user's intent for the next build rather than something the running editor can
-         * change live. @ref current_precision reports what this binary was actually built
-         * with, so the UI can flag a pending rebuild when the two disagree.
+         * A runtime choice, mapped to `Simulation::Precision`: changing it rebuilds the
+         * running simulation in the new precision (the scene is preserved), no rebuild of
+         * the binary required. This is distinct from the render/ECS boundary `Scalar`,
+         * which remains a build-time option (SE_SCALAR_DOUBLE) reported by
+         * @ref current_precision.
          */
         enum class ScalarPrecision
         {
@@ -60,8 +61,8 @@ namespace SushiEngine
          * A plain aggregate of values — no behaviour — so it can be copied, compared, and
          * serialized freely. The store (@ref IPreferencesStore) owns persistence; the
          * Preferences window edits an instance of this; and the editor applies the fields
-         * that take effect live (theme, grid, camera speed, snap). @ref precision is the
-         * one field that only takes effect on the next build.
+         * that take effect live (theme, grid, camera speed, snap, and @ref precision,
+         * which rebuilds the running simulation in the chosen physics-solve precision).
          */
         struct Preferences
         {

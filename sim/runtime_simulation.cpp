@@ -50,6 +50,7 @@
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/physics/cloth.hpp>
 #include <SushiEngine/sim/components.hpp>
+#include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine
@@ -89,11 +90,13 @@ namespace SushiEngine
             class RuntimeSimulation final : public ISimulation, public IWorldEditor
             {
                 public:
-                    RuntimeSimulation()
+                    explicit RuntimeSimulation(Precision precision)
                         : runtime_(SushiRuntime::API::Runtime::create()),
                           world_(runtime_, CHUNK_CAPACITY),
                           schedule_(runtime_),
-                          clock_(FIXED_TICK_DT_SECONDS)
+                          clock_(FIXED_TICK_DT_SECONDS),
+                          precision_(precision),
+                          physics_(create_physics_simulation(precision, runtime_))
                     {
                         // Reserve every archetype up front so neither the seed, the
                         // editor's first create, nor a later Add/Remove Component
@@ -124,6 +127,8 @@ namespace SushiEngine
                     {
                         return clock_.fixed_dt();
                     }
+
+                    Precision precision() const noexcept override { return precision_; }
 
                     const RenderScene& render_scene() const noexcept override
                     {
@@ -183,13 +188,14 @@ namespace SushiEngine
 
                     EntityId create(const std::string& display_name) override
                     {
-                        const Entity entity = world_.spawn(Transform{}, Orientation{},
-                                                           Tint{Vector3{Scalar(0.8), Scalar(0.8),
-                                                                     Scalar(0.8)}});
+                        // A truly empty entity: just the mandatory Transform/Orientation,
+                        // no Renderer and no mesh, matching Unity's empty GameObject. A
+                        // Renderer (and, bound to it, a mesh Shape) is added on demand
+                        // through Add Component, so a bare Create Entity never draws.
+                        const Entity entity = world_.spawn(Transform{}, Orientation{});
                         const EntityId id = next_id_++;
                         order_.push_back(id);
                         Record record{entity, display_name, true, false};
-                        record.has_renderer = true;
                         records_.emplace(id, record);
                         extract();
                         return id;
@@ -200,12 +206,13 @@ namespace SushiEngine
                         const auto it = records_.find(id);
                         if (it == records_.end())
                             return;
+                        // The physics simulation regenerates its body/grid set from the
+                        // surviving entities on the next rebuild, so a destroy only needs
+                        // to flag that rebuild — it holds no per-entity map to prune here.
                         if (it->second.has_physics_body)
                             physics_dirty_ = true;
-                        physics_body_ids_.erase(id);
                         if (it->second.has_cloth)
                             cloth_dirty_ = true;
-                        cloth_grids_.erase(id);
                         CommandBuffer commands;
                         commands.destroy(it->second.entity);
                         commands.apply(world_);
@@ -237,6 +244,13 @@ namespace SushiEngine
                         t.position = value.position;
                         t.scale = value.scale;
                         o.rotation = value.rotation;
+                        // While playing, a manual transform edit (e.g. dragging the gizmo)
+                        // must move the physics body too, otherwise the next tick overwrites
+                        // it with the solved pose. A no-op when the body does not exist yet
+                        // (before the first physics rebuild), which is when the rebuild
+                        // seeds from this same transform instead.
+                        if (record->has_physics_body)
+                            physics_->set_rigid_pose(id, value.position, value.rotation);
                         extract();
                     }
 
@@ -351,14 +365,9 @@ namespace SushiEngine
                             return;
                         record->physics_params = params;
                         // Applied live when a body already exists, so editing mass/inertia
-                        // never forces a physics-world rebuild (see set_has_physics_body).
-                        const auto it = physics_body_ids_.find(id);
-                        if (physics_ && it != physics_body_ids_.end())
-                        {
-                            Physics::RigidBody& body = physics_->body(it->second);
-                            body.inv_mass = params.inv_mass;
-                            body.inv_inertia = params.inv_inertia;
-                        }
+                        // never forces a physics-world rebuild (see set_has_physics_body);
+                        // a no-op inside the physics simulation when the entity has none.
+                        physics_->update_rigid_body_params(id, params.inv_mass, params.inv_inertia);
                     }
 
                     void set_has_physics_body(EntityId id, bool value) override
@@ -406,18 +415,10 @@ namespace SushiEngine
 
                     std::vector<Vector3> cloth_particle_positions(EntityId id) const override
                     {
-                        std::vector<Vector3> positions;
                         const Record* record = find(id);
-                        if (record == nullptr || !record->has_cloth || !physics_cloth_)
-                            return positions;
-                        const auto grid_it = cloth_grids_.find(id);
-                        if (grid_it == cloth_grids_.end())
-                            return positions;
-                        const Physics::ClothGrid& grid = grid_it->second;
-                        positions.reserve(grid.bodies.size());
-                        for (const Physics::BodyId body_id : grid.bodies)
-                            positions.push_back(physics_cloth_->body(body_id).position);
-                        return positions;
+                        if (record == nullptr || !record->has_cloth)
+                            return {};
+                        return physics_->cloth_positions(id);
                     }
 
                     EntityId create_box(const std::string& display_name) override
@@ -451,6 +452,23 @@ namespace SushiEngine
                         if (record != nullptr)
                             world_.get<Tint>(record->entity).color =
                                 Vector3{Scalar(0.35), Scalar(0.55), Scalar(0.3)};
+                        return id;
+                    }
+
+                    EntityId create_cloth(const std::string& display_name) override
+                    {
+                        // A bare entity that owns a cloth grid: no Renderer/Shape (the
+                        // cloth draws as a wireframe strand set, not a solid mesh). The
+                        // grid seeds from the entity's Transform::position, so moving
+                        // the entity moves the pinned top edge.
+                        const Entity entity = world_.spawn(Transform{}, Orientation{});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        record.has_cloth = true;
+                        records_.emplace(id, record);
+                        cloth_dirty_ = true;
+                        extract();
                         return id;
                     }
 
@@ -519,6 +537,132 @@ namespace SushiEngine
                                                           ? ColliderParams{record->shape_params.kind,
                                                                           record->shape_params.params}
                                                           : ColliderParams{};
+                    }
+
+                    EntityId create_canvas(const std::string& display_name) override
+                    {
+                        const EntityId id = create(display_name);
+                        Record* record = find(id);
+                        if (record != nullptr)
+                        {
+                            record->has_ui = true;
+                            record->ui_params = UIElementParams{};
+                            record->ui_params.kind = UIElementKind::Canvas;
+                        }
+                        extract();
+                        return id;
+                    }
+
+                    EntityId create_ui_element(const std::string& display_name, UIElementKind kind,
+                                               EntityId parent) override
+                    {
+                        const EntityId id = create(display_name);
+                        Record* record = find(id);
+                        if (record != nullptr)
+                        {
+                            record->has_ui = true;
+                            record->ui_params = default_ui_params(kind);
+                        }
+                        if (parent != NULL_ENTITY && find(parent) != nullptr)
+                            set_parent(id, parent);
+                        extract();
+                        return id;
+                    }
+
+                    bool has_ui(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_ui;
+                    }
+
+                    bool is_canvas(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_ui &&
+                               record->ui_params.kind == UIElementKind::Canvas;
+                    }
+
+                    UIElementParams ui_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->ui_params : UIElementParams{};
+                    }
+
+                    void set_ui_params(EntityId id, const UIElementParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_ui)
+                            return;
+                        record->ui_params = params;
+                        extract();
+                    }
+
+                    void set_has_ui(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_ui == value)
+                            return;
+                        record->has_ui = value;
+                        if (value)
+                            record->ui_params = default_ui_params(UIElementKind::Image);
+                        extract();
+                    }
+
+                    std::vector<std::string> script_components(EntityId id) const override
+                    {
+                        std::vector<std::string> names;
+                        const Record* record = find(id);
+                        if (record != nullptr)
+                            for (const ScriptComponent& script : record->scripts)
+                                names.push_back(script.type_name);
+                        return names;
+                    }
+
+                    bool has_script_component(EntityId id,
+                                              const std::string& type_name) const override
+                    {
+                        return find_script(find(id), type_name) != nullptr;
+                    }
+
+                    ScriptComponent script_component(EntityId id,
+                                                     const std::string& type_name) const override
+                    {
+                        const ScriptComponent* script = find_script(find(id), type_name);
+                        return script != nullptr ? *script : ScriptComponent{};
+                    }
+
+                    void add_script_component(EntityId id, const ScriptComponent& component) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || find_script(record, component.type_name) != nullptr)
+                            return;
+                        record->scripts.push_back(component);
+                    }
+
+                    void set_script_component(EntityId id, const ScriptComponent& component) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        for (ScriptComponent& script : record->scripts)
+                            if (script.type_name == component.type_name)
+                            {
+                                script.fields = component.fields;
+                                return;
+                            }
+                    }
+
+                    void remove_script_component(EntityId id,
+                                                 const std::string& type_name) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->scripts.erase(
+                            std::remove_if(record->scripts.begin(), record->scripts.end(),
+                                           [&](const ScriptComponent& script)
+                                           { return script.type_name == type_name; }),
+                            record->scripts.end());
                     }
 
                     EntityId create_camera(const std::string& display_name) override
@@ -668,7 +812,7 @@ namespace SushiEngine
                         // plain host bookkeeping rather than a component toggle.
                         bool has_physics_body = false;
                         PhysicsBodyParams physics_params{};
-                        // Whether a cloth grid is tracked by physics_cloth_ (see
+                        // Whether a cloth grid is tracked by the physics simulation (see
                         // set_has_cloth). Same plain-host-bookkeeping treatment as
                         // has_physics_body: cloth needs no ECS component migration.
                         bool has_cloth = false;
@@ -680,6 +824,16 @@ namespace SushiEngine
                         ShapeParams shape_params{};
                         bool has_collider = false;
                         ColliderParams collider_params{};
+                        // A UI element (Canvas/Panel/Image/Text/Button). Like cloth,
+                        // this is host bookkeeping keyed on EntityId — no ECS
+                        // migration — since the UI overlay is drawn host-side, not by
+                        // any Schedule system.
+                        bool has_ui = false;
+                        UIElementParams ui_params{};
+                        // User-defined "script" components: authoring data only (the
+                        // engine has no scripting VM), attached and edited per entity
+                        // and serialized with the scene.
+                        std::vector<ScriptComponent> scripts{};
                     };
 
                     /**
@@ -724,6 +878,57 @@ namespace SushiEngine
                     {
                         const auto it = records_.find(id);
                         return it != records_.end() ? &it->second : nullptr;
+                    }
+
+                    /** @brief The script component named @p name on @p record, or null. */
+                    static const ScriptComponent* find_script(const Record* record,
+                                                              const std::string& name) noexcept
+                    {
+                        if (record == nullptr)
+                            return nullptr;
+                        for (const ScriptComponent& script : record->scripts)
+                            if (script.type_name == name)
+                                return &script;
+                        return nullptr;
+                    }
+
+                    /** @brief The default rect/paint for a freshly created UI element of @p kind. */
+                    static UIElementParams default_ui_params(UIElementKind kind)
+                    {
+                        UIElementParams params;
+                        params.kind = kind;
+                        switch (kind)
+                        {
+                            case UIElementKind::Canvas:
+                                params.anchor_min_x = 0;
+                                params.anchor_min_y = 0;
+                                params.anchor_max_x = 1;
+                                params.anchor_max_y = 1;
+                                params.position_x = 0;
+                                params.position_y = 0;
+                                params.size_x = Scalar(1280);
+                                params.size_y = Scalar(720);
+                                break;
+                            case UIElementKind::Text:
+                                params.size_x = Scalar(200);
+                                params.size_y = Scalar(40);
+                                params.color = Vector3{1, 1, 1};
+                                std::snprintf(params.text, sizeof(params.text), "%s", "Text");
+                                break;
+                            case UIElementKind::Button:
+                                params.size_x = Scalar(160);
+                                params.size_y = Scalar(48);
+                                params.color = Vector3{Scalar(0.26), Scalar(0.5), Scalar(0.85)};
+                                std::snprintf(params.text, sizeof(params.text), "%s", "Button");
+                                break;
+                            case UIElementKind::Image:
+                            case UIElementKind::Panel:
+                                params.size_x = Scalar(200);
+                                params.size_y = Scalar(120);
+                                params.color = Vector3{Scalar(0.85), Scalar(0.85), Scalar(0.9)};
+                                break;
+                        }
+                        return params;
                     }
 
                     /**
@@ -779,24 +984,39 @@ namespace SushiEngine
                     void step_once()
                     {
                         if (physics_dirty_)
-                            rebuild_physics();
-                        if (physics_)
                         {
-                            physics_->step(Vector3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
-                            for (const auto& [id, body_id] : physics_body_ids_)
-                            {
-                                const Record* record = find(id);
-                                if (record == nullptr || !world_.alive(record->entity))
-                                    continue;
-                                const Physics::RigidBody& solved = physics_->body(body_id);
-                                world_.get<Transform>(record->entity).position = solved.position;
-                                world_.get<Orientation>(record->entity).rotation = solved.orientation;
-                            }
+                            physics_->set_rigid_bodies(gather_rigid_descs(), PHYSICS_ITERATIONS,
+                                                       substep_dt());
+                            physics_dirty_ = false;
                         }
                         if (cloth_dirty_)
-                            rebuild_cloth();
-                        if (physics_cloth_)
-                            physics_cloth_->step(Vector3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                        {
+                            physics_->set_cloth_grids(gather_cloth_descs(), PHYSICS_ITERATIONS,
+                                                      substep_dt());
+                            cloth_dirty_ = false;
+                        }
+
+                        // Refresh the static collision planes every step — cheap, and it
+                        // tracks a moved terrain without extra dirty bookkeeping — then
+                        // step, which resolves rigid/rigid, rigid/plane, and cloth/rigid
+                        // contacts inside the solve.
+                        physics_->set_static_planes(gather_static_planes());
+                        physics_->step(Vector3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_physics_body ||
+                                !world_.alive(record->entity))
+                                continue;
+                            SolvedPose pose;
+                            if (physics_->rigid_pose(id, pose))
+                            {
+                                world_.get<Transform>(record->entity).position = pose.position;
+                                world_.get<Orientation>(record->entity).rotation = pose.orientation;
+                            }
+                        }
+
                         schedule_.run(world_);
                         extract();
                     }
@@ -854,119 +1074,146 @@ namespace SushiEngine
                     }
 
                     /**
-                     * @brief Rebuilds physics_ from the current set of Rigid Body entities.
+                     * @brief Collects a descriptor per Rigid Body entity for a rebuild.
                      *
-                     * A body-count change needs a fresh `PhysicsWorld` (it compiles a solve
-                     * graph sized to its bodies at `finalize()`, the same one-shot-build
-                     * contract as `XpbdSolver`/`ConstraintSolver`), so this snapshots every
-                     * currently-simulated body's live state first — position, orientation,
-                     * velocity — and carries it over, so toggling physics on one entity does
-                     * not reset every other rigid body already falling in the scene. A
-                     * brand-new rigid body instead seeds from its current `Transform`/
-                     * `Orientation`, at rest. Called lazily from `tick()`, never eagerly from
-                     * the toggle itself, so several Inspector edits in one frame cost one
-                     * rebuild, not one per edit.
+                     * The pose seeds a newly added body; the physics simulation ignores it
+                     * for a body it already tracks, carrying that body's live state over
+                     * instead (see `IPhysicsSimulation::set_rigid_bodies`). Built fresh each
+                     * rebuild from the current entity set, so a destroyed entity simply drops
+                     * out of the list.
+                     *
+                     * @return One descriptor per live physics-driven entity, in display order.
                      */
-                    void rebuild_physics()
+                    std::vector<RigidBodyDesc> gather_rigid_descs() const
                     {
-                        std::unordered_map<EntityId, Physics::RigidBody> previous;
-                        if (physics_)
-                            for (const auto& [id, body_id] : physics_body_ids_)
-                                previous.emplace(id, physics_->body(body_id));
-
-                        physics_.reset();
-                        physics_body_ids_.clear();
-
-                        auto next_world =
-                            std::make_unique<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>>(
-                                runtime_);
-
-                        for (EntityId id : order_)
+                        std::vector<RigidBodyDesc> descs;
+                        for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_physics_body ||
                                 !world_.alive(record->entity))
                                 continue;
-
-                            Physics::RigidBody body;
-                            const auto previous_it = previous.find(id);
-                            if (previous_it != previous.end())
+                            RigidBodyDesc desc;
+                            desc.id = id;
+                            desc.position = world_.get<Transform>(record->entity).position;
+                            desc.orientation = world_.get<Orientation>(record->entity).rotation;
+                            desc.inv_mass = record->physics_params.inv_mass;
+                            desc.inv_inertia = record->physics_params.inv_inertia;
+                            desc.radius = collision_radius(*record);
+                            // A Box collider (or, absent one, a Box visual) collides as an
+                            // oriented box; anything else falls back to a sphere of radius.
+                            if (record->has_collider)
                             {
-                                body = previous_it->second;
+                                desc.box = record->collider_params.kind == PrimitiveKind::Box;
+                                desc.half_extents = record->collider_params.params;
                             }
-                            else
+                            else if (record->has_shape)
                             {
-                                body.position = world_.get<Transform>(record->entity).position;
-                                body.orientation = world_.get<Orientation>(record->entity).rotation;
+                                desc.box = record->shape_params.kind == PrimitiveKind::Box;
+                                desc.half_extents = record->shape_params.params;
                             }
-                            body.inv_mass = record->physics_params.inv_mass;
-                            body.inv_inertia = record->physics_params.inv_inertia;
-
-                            physics_body_ids_.emplace(id, next_world->add_body(body));
+                            descs.push_back(desc);
                         }
-
-                        if (!physics_body_ids_.empty())
-                        {
-                            next_world->finalize(PHYSICS_ITERATIONS, substep_dt(),
-                                                 Physics::XpbdDistanceProjection{});
-                            physics_ = std::move(next_world);
-                        }
-                        physics_dirty_ = false;
+                        return descs;
                     }
 
                     /**
-                     * @brief Rebuilds physics_cloth_ from the current set of Cloth entities.
+                     * @brief The collision radius a body collides as (contacts treat bodies as spheres).
                      *
-                     * Unlike `rebuild_physics`, no live state is carried over: a rows/
-                     * cols/spacing change replaces the grid's topology outright, so
-                     * there is nothing meaningful to preserve across the rebuild
-                     * (compare a Rigid Body, whose identity and body count are stable
-                     * across a param edit). Each Cloth entity's grid originates at its
-                     * own `Transform::position`, mirroring how a Rigid Body seeds from
-                     * its `Transform`/`Orientation` rather than authoring its own pose.
-                     * Called lazily from `step_once()`, same "rebuild only when the
-                     * input set changes" discipline as `rebuild_physics`.
+                     * Taken from the entity's Collider if it has one, else its visual
+                     * Shape, else a unit default. A Box/Cylinder uses its smallest
+                     * half-extent so it rests on the ground at the right height rather
+                     * than hovering by its bounding radius.
                      */
-                    void rebuild_cloth()
+                    static Scalar collision_radius(const Record& record) noexcept
                     {
-                        physics_cloth_.reset();
-                        cloth_grids_.clear();
+                        const auto radius_of = [](PrimitiveKind kind, const Vector3& p) -> Scalar
+                        {
+                            switch (kind)
+                            {
+                                case PrimitiveKind::Sphere:
+                                    return p.x;
+                                case PrimitiveKind::Cylinder:
+                                    return p.x;
+                                case PrimitiveKind::Box:
+                                {
+                                    const Scalar xy = p.x < p.y ? p.x : p.y;
+                                    return xy < p.z ? xy : p.z;
+                                }
+                                case PrimitiveKind::Plane:
+                                    return Scalar(0.25);
+                            }
+                            return Scalar(0.5);
+                        };
+                        if (record.has_collider)
+                            return radius_of(record.collider_params.kind, record.collider_params.params);
+                        if (record.has_shape)
+                            return radius_of(record.shape_params.kind, record.shape_params.params);
+                        return Scalar(0.5);
+                    }
 
-                        auto next_world =
-                            std::make_unique<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>>(
-                                runtime_);
+                    /**
+                     * @brief Collects the scene's static collision planes from Plane colliders.
+                     *
+                     * Every entity carrying a `Plane` Collider (e.g. Terrain) becomes one
+                     * static half-space: its collider's local normal rotated into world
+                     * space at the entity's world position. Bodies and cloth are pushed
+                     * out of these each sub-step. An entity with a Plane collider and a
+                     * Rigid Body is skipped — a moving plane is not a static surface.
+                     *
+                     * @return One plane per static Plane collider in the scene.
+                     */
+                    std::vector<PlaneDesc> gather_static_planes() const
+                    {
+                        std::vector<PlaneDesc> planes;
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_collider ||
+                                record->has_physics_body || !world_.alive(record->entity) ||
+                                record->collider_params.kind != PrimitiveKind::Plane)
+                                continue;
+                            const EntityTransform world = world_transform(id);
+                            PlaneDesc plane;
+                            plane.point = world.position;
+                            plane.normal = rotate(world.rotation, record->collider_params.params);
+                            planes.push_back(plane);
+                        }
+                        return planes;
+                    }
 
-                        for (EntityId id : order_)
+                    /**
+                     * @brief Collects a descriptor per Cloth entity for a rebuild.
+                     *
+                     * Each grid originates at its entity's `Transform::position`, mirroring
+                     * how a Rigid Body seeds from its pose. Built fresh each rebuild, so a
+                     * destroyed or detached cloth simply drops out of the list; unlike a
+                     * Rigid Body no live state is carried over, since a rows/cols/spacing
+                     * change replaces the grid topology outright.
+                     *
+                     * @return One descriptor per live cloth entity with a non-degenerate grid.
+                     */
+                    std::vector<ClothDesc> gather_cloth_descs() const
+                    {
+                        std::vector<ClothDesc> descs;
+                        for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_cloth ||
                                 !world_.alive(record->entity) ||
                                 record->cloth_params.rows == 0 || record->cloth_params.cols == 0)
                                 continue;
-
-                            const Vector3 origin = world_.get<Transform>(record->entity).position;
-                            Physics::ClothGrid grid = Physics::build_cloth_grid(
-                                *next_world, record->cloth_params.rows, record->cloth_params.cols,
-                                record->cloth_params.spacing, origin, record->cloth_params.compliance);
-                            cloth_grids_.emplace(id, std::move(grid));
+                            ClothDesc desc;
+                            desc.id = id;
+                            desc.rows = record->cloth_params.rows;
+                            desc.cols = record->cloth_params.cols;
+                            desc.spacing = record->cloth_params.spacing;
+                            desc.origin = world_.get<Transform>(record->entity).position;
+                            desc.compliance = record->cloth_params.compliance;
+                            desc.thickness = record->cloth_params.spacing * Scalar(0.25);
+                            descs.push_back(desc);
                         }
-
-                        bool has_bodies = false;
-                        for (const auto& entry : cloth_grids_)
-                            if (!entry.second.bodies.empty())
-                                has_bodies = true;
-
-                        if (has_bodies)
-                        {
-                            next_world->finalize(PHYSICS_ITERATIONS, substep_dt(),
-                                                 Physics::XpbdDistanceProjection{});
-                            physics_cloth_ = std::move(next_world);
-                        }
-                        else
-                        {
-                            cloth_grids_.clear();
-                        }
-                        cloth_dirty_ = false;
+                        return descs;
                     }
 
                     /** @brief The camera used when no active camera exists, so the Game view is never black. */
@@ -1096,19 +1343,42 @@ namespace SushiEngine
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_cloth || !record->visible)
                                 continue;
-                            const auto grid_it = cloth_grids_.find(id);
-                            if (grid_it == cloth_grids_.end() || !physics_cloth_)
+                            std::uint32_t rows = 0;
+                            std::uint32_t cols = 0;
+                            std::vector<Vector3> positions;
+                            if (physics_->cloth_dimensions(id, rows, cols))
+                                positions = physics_->cloth_positions(id);
+                            if (positions.empty() && world_.alive(record->entity))
+                            {
+                                // No simulated grid yet (edit mode, before the first
+                                // tick): synthesize a flat resting sheet matching
+                                // build_cloth_grid's layout (origin + (col, 0, row) *
+                                // spacing) so a newly created Cloth is visible at once.
+                                // Once the world is played the simulated positions above
+                                // take over.
+                                rows = static_cast<std::uint32_t>(record->cloth_params.rows);
+                                cols = static_cast<std::uint32_t>(record->cloth_params.cols);
+                                if (rows == 0 || cols == 0)
+                                    continue;
+                                const Vector3 origin =
+                                    world_.get<Transform>(record->entity).position;
+                                const Scalar spacing = record->cloth_params.spacing;
+                                positions.reserve(static_cast<std::size_t>(rows) * cols);
+                                for (std::uint32_t r = 0; r < rows; ++r)
+                                    for (std::uint32_t c = 0; c < cols; ++c)
+                                        positions.push_back(
+                                            Vector3{origin.x + Scalar(c) * spacing, origin.y,
+                                                    origin.z + Scalar(r) * spacing});
+                            }
+                            if (positions.empty())
                                 continue;
-                            const Physics::ClothGrid& grid = grid_it->second;
                             ClothInstance cloth_instance;
-                            cloth_instance.rows = static_cast<std::uint32_t>(grid.rows);
-                            cloth_instance.cols = static_cast<std::uint32_t>(grid.cols);
+                            cloth_instance.rows = rows;
+                            cloth_instance.cols = cols;
                             cloth_instance.first_vertex =
                                 static_cast<std::uint32_t>(scene_.cloth_vertices.size());
-                            scene_.cloth_vertices.reserve(scene_.cloth_vertices.size() +
-                                                          grid.bodies.size());
-                            for (const Physics::BodyId body_id : grid.bodies)
-                                scene_.cloth_vertices.push_back(physics_cloth_->body(body_id).position);
+                            scene_.cloth_vertices.insert(scene_.cloth_vertices.end(),
+                                                         positions.begin(), positions.end());
                             scene_.cloth_instances.push_back(cloth_instance);
                         }
 
@@ -1137,25 +1407,19 @@ namespace SushiEngine
                     std::unordered_map<EntityId, Record> records_;
                     EntityId next_id_ = 1;
                     RenderScene scene_;
-                    std::unique_ptr<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>> physics_;
-                    std::unordered_map<EntityId, Physics::BodyId> physics_body_ids_;
+                    // The physics solve, behind a precision-agnostic seam. It owns the
+                    // rigid and cloth PhysicsWorlds (in whichever precision `precision_`
+                    // selected); this class only marshals entity poses to and from it.
+                    Precision precision_;
+                    std::unique_ptr<IPhysicsSimulation> physics_;
                     bool physics_dirty_ = false;
-                    // A separate PhysicsWorld from physics_ rather than sharing one:
-                    // rebuild_physics()'s snapshot-and-carry-over discipline (see its
-                    // Doxygen) is keyed on individual free bodies and would need to
-                    // special-case an entire pinned grid to avoid corrupting it on
-                    // every unrelated Rigid Body toggle, so keeping cloth in its own
-                    // PhysicsWorld<XpbdDistanceConstraint> (same constraint type, a
-                    // different instance) leaves rebuild_physics() untouched.
-                    std::unique_ptr<Physics::PhysicsWorld<Physics::XpbdDistanceConstraint>> physics_cloth_;
-                    std::unordered_map<EntityId, Physics::ClothGrid> cloth_grids_;
                     bool cloth_dirty_ = false;
             };
         } // namespace
 
-        std::unique_ptr<ISimulation> create_simulation()
+        std::unique_ptr<ISimulation> create_simulation(Precision precision)
         {
-            return std::unique_ptr<ISimulation>(new RuntimeSimulation());
+            return std::unique_ptr<ISimulation>(new RuntimeSimulation(precision));
         }
     } // namespace Simulation
 } // namespace SushiEngine

@@ -55,6 +55,19 @@ add_sushi_sycl_executable(xpbd_demo examples/xpbd_demo.cpp)
 add_sushi_sycl_executable(cloth_demo examples/cloth_demo.cpp)
 add_sushi_sycl_executable(net_demo examples/net_demo.cpp)
 
+# first_game is the smallest complete game written against the settled SushiLoop
+# authoring API (Loop::App): pure-ECS systems, a fixed-step deterministic loop, and
+# multiplayer reached by one connect() — headless and self-checking.
+add_sushi_sycl_executable(first_game examples/first_game.cpp)
+
+# ui_demo exercises the ECS UI (canvas + button): anchor layout, pointer-driven button
+# states, and click callbacks, checked headlessly.
+add_sushi_sycl_executable(ui_demo examples/ui_demo.cpp)
+
+# soft_body_demo exercises the volumetric XPBD lattice and positional contact
+# resolution (Phase 4 physics), checked headlessly.
+add_sushi_sycl_executable(soft_body_demo examples/soft_body_demo.cpp)
+
 # --- Optional subdirectories --------------------------------------------------
 # The editor presents through the Vulkan renderer, so turning the editor on turns
 # the renderer on too. Render must be added before the editor so the sushi_render

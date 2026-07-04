@@ -44,12 +44,54 @@
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
+#include <memory>
+
 #include "core/editor_context.hpp"
 #include "ui/editor_panels.hpp"
 #include "ui/imgui_backend.hpp"
 #include "core/preferences.hpp"
+#include "serialization/scene_serializer.hpp"
 #include "window/sdl_window.hpp"
 #include "ui/viewport_panel.hpp"
+
+namespace
+{
+    /** @brief Maps the editor's precision preference to the simulation's runtime precision. */
+    SushiEngine::Simulation::Precision to_sim_precision(
+        SushiEngine::Editor::ScalarPrecision precision) noexcept
+    {
+        return precision == SushiEngine::Editor::ScalarPrecision::Double
+                   ? SushiEngine::Simulation::Precision::Double
+                   : SushiEngine::Simulation::Precision::Single;
+    }
+
+    /**
+     * @brief Rebuilds the simulation in a new physics-solve precision, preserving the scene.
+     *
+     * Snapshots the world through the editor scene serializer, tears the old
+     * simulation (and its runtime) down before creating the new one so only one
+     * runtime is ever live at a time, then repopulates the fresh world from the
+     * snapshot. Selection is cleared because entity ids are not preserved across the
+     * clear-and-recreate.
+     *
+     * @param simulation The owned simulation to replace in place.
+     * @param context    The editor context whose `simulation` pointer is re-pointed.
+     * @param precision  The physics-solve precision to rebuild in.
+     */
+    void reinitialize_simulation(
+        std::unique_ptr<SushiEngine::Simulation::ISimulation>& simulation,
+        SushiEngine::Editor::EditorContext& context,
+        SushiEngine::Simulation::Precision precision)
+    {
+        nlohmann::json snapshot = SushiEngine::Editor::capture_scene(simulation->world());
+        simulation.reset();
+        simulation = SushiEngine::Simulation::create_simulation(precision);
+        context.simulation = simulation.get();
+        SushiEngine::Editor::apply_scene(simulation->world(), snapshot);
+        context.world_entity_count = simulation->entity_count();
+        SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
+    }
+} // namespace
 
 namespace
 {
@@ -150,27 +192,30 @@ int main(int, char**)
         SushiEngine::Editor::ViewportPanel scene_view(*renderer, imgui, "Scene", scene_camera);
         SushiEngine::Editor::ViewportPanel game_view(*renderer, imgui, "Game", game_camera);
 
-        // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
-        // seam. The editor sees only the abstraction and the extracted RenderScene;
-        // the runtime, SYCL, and ECS stay inside sushi_sim.
-        std::unique_ptr<SushiEngine::Simulation::ISimulation> simulation =
-            SushiEngine::Simulation::create_simulation();
-        std::vector<SushiEngine::Render::MeshInstance> instances;
-
         // The world is the single source of truth for entities; the panels read and
         // edit it through the injected simulation. There is no editor-side scene model.
         SushiEngine::Editor::EditorContext context;
-        context.simulation = simulation.get();
-        context.world_entity_count = simulation->entity_count();
 
-        // Load persisted preferences and apply the live-effective ones up front, so the
-        // editor opens in the user's theme and camera speed. The store is injected into
-        // the context for the Preferences window to display its path.
+        // Load persisted preferences first, so the live world can be created at the
+        // user's chosen physics-solve precision (a runtime choice, not a build flag),
+        // and the editor opens in the user's theme and camera speed. The store is
+        // injected into the context for the Preferences window to display its path.
         std::unique_ptr<SushiEngine::Editor::IPreferencesStore> preferences_store =
             SushiEngine::Editor::create_preferences_store();
         context.preferences_store = preferences_store.get();
         context.preferences = preferences_store->load();
         SushiEngine::Editor::apply_theme(context.preferences.theme);
+
+        // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
+        // seam. The editor sees only the abstraction and the extracted RenderScene;
+        // the runtime, SYCL, and ECS stay inside sushi_sim. Its physics runs in the
+        // preference's precision; changing that preference rebuilds it live.
+        std::unique_ptr<SushiEngine::Simulation::ISimulation> simulation =
+            SushiEngine::Simulation::create_simulation(
+                to_sim_precision(context.preferences.precision));
+        std::vector<SushiEngine::Render::MeshInstance> instances;
+        context.simulation = simulation.get();
+        context.world_entity_count = simulation->entity_count();
 
         // The Project panel's root: the last one the user browsed to, or a
         // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
@@ -192,6 +237,7 @@ int main(int, char**)
 
         bool running = true;
         bool gizmo_was_dragging = false;
+        bool ui_was_dragging = false;
         // The one wall-clock read in the editor loop: real elapsed time since the
         // last frame, fed into ISimulation::tick() so its FixedTimestepClock can
         // turn it into whole fixed steps. The sim itself never reads the clock.
@@ -210,6 +256,20 @@ int main(int, char**)
             // chance to hold the window open while unsaved changes are pending.
             if (!window.pump_events())
                 context.close_requested = true;
+
+            // Apply a live physics-precision change from Preferences: rebuild the
+            // simulation in the new precision, preserving the scene. A one-shot — after
+            // the rebuild the running precision matches the preference again.
+            const SushiEngine::Simulation::Precision desired_precision =
+                to_sim_precision(context.preferences.precision);
+            if (simulation->precision() != desired_precision)
+            {
+                reinitialize_simulation(simulation, context, desired_precision);
+                SushiEngine::Editor::editor_log(
+                    context, desired_precision == SushiEngine::Simulation::Precision::Double
+                                 ? "Physics precision set to double (simulation rebuilt)."
+                                 : "Physics precision set to single (simulation rebuilt).");
+            }
 
             // Tick the world on the runtime only while playing, so the toolbar's
             // Play/Pause gates motion; then take the fresh snapshot to draw. Step
@@ -333,12 +393,51 @@ int main(int, char**)
             snap.rotate_degrees = context.preferences.snap_rotate_degrees;
             snap.scale = context.preferences.snap_scale;
 
+            // UI overlay: every entity carrying a UI element, flattened with its UI
+            // parent resolved to an index, so the viewport can lay it out against the
+            // panel rect and paint canvases/panels/images/text/buttons over the 3D view.
+            std::vector<SushiEngine::Editor::UIOverlayElement> ui_overlay;
+            std::vector<SushiEngine::Simulation::EntityId> ui_ids;
+            for (const SushiEngine::Simulation::EntityId id : world.entities())
+            {
+                if (!world.has_ui(id) || !world.visible(id))
+                    continue;
+                SushiEngine::Editor::UIOverlayElement element;
+                element.id = static_cast<std::uint32_t>(id);
+                element.params = world.ui_params(id);
+                element.selected = id == context.selected_entity;
+                ui_overlay.push_back(element);
+                ui_ids.push_back(id);
+            }
+            for (std::size_t i = 0; i < ui_overlay.size(); ++i)
+            {
+                const SushiEngine::Simulation::EntityId parent_id = world.parent(ui_ids[i]);
+                for (std::size_t j = 0; j < ui_ids.size(); ++j)
+                    if (ui_ids[j] == parent_id)
+                    {
+                        ui_overlay[i].parent = static_cast<int>(j);
+                        break;
+                    }
+            }
+
+            // The Scene view edits the UI (translucent, interactive); the Game view shows
+            // it solid. Both draw the same (possibly just-dragged) elements.
+            SushiEngine::Editor::UIOverlay scene_ui;
+            scene_ui.elements = ui_overlay.data();
+            scene_ui.count = ui_overlay.size();
+            scene_ui.edit_mode = true;
+            scene_ui.selected_id = static_cast<std::uint32_t>(context.selected_entity);
+            SushiEngine::Editor::UIOverlay game_ui;
+            game_ui.elements = ui_overlay.data();
+            game_ui.count = ui_overlay.size();
+            game_ui.edit_mode = false;
+
             bool gizmo_edited = false;
             if (context.panels.scene_view)
                 gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
                                                instances.size(), selected, true, gizmo_target,
                                                context.gizmo_mode, context.gizmo_space, &snap,
-                                               nullptr, strands.data(), strands.size());
+                                               nullptr, strands.data(), strands.size(), &scene_ui);
             if (context.panels.game_view)
             {
                 // The Game view is played, not authored: no picking, no gizmo. It offers
@@ -358,8 +457,25 @@ int main(int, char**)
                 game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
                                no_selection, false, nullptr, SushiEngine::Editor::GizmoMode::Translate,
                                SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
-                               strands.data(), strands.size());
+                               strands.data(), strands.size(), &game_ui);
             }
+
+            // Fold the UI overlay's interaction into the shared selection/edit flow: a UI
+            // pick in the Scene view replaces the 3D pick this frame, and a UI drag writes
+            // the element's new rect back to the world.
+            if (scene_ui.picked_id != 0)
+                selected = scene_ui.picked_id;
+            const bool ui_is_dragging = scene_view.ui_dragging();
+            if (ui_is_dragging && !ui_was_dragging)
+                context.history.begin_change(world);
+            else if (!ui_is_dragging && ui_was_dragging)
+                context.history.end_change();
+            ui_was_dragging = ui_is_dragging;
+            if (scene_ui.edited_index >= 0 &&
+                static_cast<std::size_t>(scene_ui.edited_index) < ui_ids.size())
+                world.set_ui_params(
+                    ui_ids[static_cast<std::size_t>(scene_ui.edited_index)],
+                    ui_overlay[static_cast<std::size_t>(scene_ui.edited_index)].params);
 
             // One undo step per whole drag, not one per frame: snapshot on the frame
             // the handle is grabbed, commit on the frame it is released.

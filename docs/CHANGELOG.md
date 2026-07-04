@@ -8,6 +8,158 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- **Two-way cloth↔rigid coupling, true oriented-box (OBB) contacts, and a broadphase.**
+  The rigid and cloth worlds are now driven in lockstep (predict → solve both, resolve the
+  contacts that span them, then derive velocity for both), so a cloth sheet pushes back on
+  the rigid bodies it lands on rather than only draping over them. `collision.hpp` gained an
+  `OrientedBox` and SAT-based `collide_obb_obb`/`collide_obb_sphere`/`collide_obb_plane`, so
+  boxes collide as the boxes they look like (a box now rests flat on the ground at its
+  half-extent instead of hovering by a bounding sphere). A new `broadphase.hpp`
+  (`sweep_and_prune`) culls the O(n²) pair set to overlapping AABBs before the narrowphase,
+  and the unified pass (`contact_solver.hpp`'s `ContactBody`) resolves every candidate pair
+  two-way by inverse mass plus every body against the static planes.
+- **Play-mode transform edits move the physics.** Dragging a rigid body's transform while
+  the world is playing now teleports its physics body (velocity cleared) instead of being
+  overwritten by the next solved pose — `IPhysicsSimulation::set_rigid_pose`, called from
+  `set_transform` when the entity has a body.
+- **Live collision: rigid bodies rest and stack, cloth drapes over them.** Contacts are
+  now wired into the simulation's tick. `PhysicsWorld::step` gained a post-solve callback
+  (run each sub-step between the constraint solve and the velocity derivation, keeping the
+  world collider-agnostic); `PhysicsSimulation<T>` uses it to resolve rigid↔rigid and
+  rigid↔plane contacts, and — snapshotting the rigid bodies as sphere obstacles — cloth↔
+  rigid and cloth↔plane contacts, so a body landing on terrain loses its velocity and a
+  cloth sheet settles over a sphere. `RigidBodyDesc` carries a collision `radius` (from
+  the entity's Collider/Shape), `ClothDesc` a per-particle `thickness`, and the new
+  `IPhysicsSimulation::set_static_planes` supplies the scene's `Plane` colliders (e.g.
+  Terrain) each tick. `contact_solver.hpp` added multi-plane and static-sphere-obstacle
+  passes.
+- **In-viewport UI manipulation (RectTransform tool) + a non-blocking canvas.** The Scene
+  view's UI overlay is now interactive: click an element to select it, drag its body to
+  move it, and drag a corner handle to resize it — each writing the change straight back
+  to the element's `UIElementParams` (`ui_apply_screen_rect` inverts the layout formula),
+  as one undo step per drag. In the Scene view the overlay is drawn **translucent** with
+  outlines so a full-screen canvas no longer hides the 3D scene, and a canvas is never
+  picked by its body (clicks fall through to the scene or a child element); the Game view
+  still draws UI solid and non-interactive. (`ViewportPanel::draw` now takes a single
+  `UIOverlay*` — elements + edit-mode + interaction I/O — instead of an element
+  pointer/count.)
+- **Editor: Cloth object, UI authoring, custom components, and add/remove for every
+  component.** The `ISimulation`/`IWorldEditor` seam and the ImGui editor now expose the
+  full component set as attachable, detachable pieces:
+  - **Cloth** is a first-class object (`create_cloth`, Entity ▸ Objects ▸ Cloth). A new
+    Cloth renders immediately in edit mode as a flat resting sheet (synthesised in
+    `extract()` to match `build_cloth_grid`'s layout) and drapes once the world is played.
+  - **UI (Canvas + elements).** New seam types `UIElementKind` (Canvas/Panel/Image/Text/
+    Button) and `UIElementParams` (a uGUI RectTransform: anchors, pivot, offset, size,
+    colour, opacity, text). `create_canvas`/`create_ui_element` add them from Entity ▸ UI;
+    the Inspector edits every field; the viewports paint them as a 2D ImGui overlay
+    (`UIOverlayElement` + `paint_ui_overlay`) laid out against the panel rect, with button
+    hover/press tinting — a working canvas/button surface without a Vulkan 2D pass yet.
+  - **Custom (script) components.** `ScriptComponent`/`ScriptField`/`ScriptFieldKind` are a
+    data-driven, MonoBehaviour-style component: attach one from Add Component ▸ Scripts,
+    edit its typed fields (float/int/bool/vec3/colour/text) in the Inspector, and save it
+    with the scene. "New Script…" scaffolds a `<Name>.hpp` C++ system stub in the project,
+    opens it in the Text Editor, registers the type in the Add Component catalog, and
+    attaches it.
+  - **Shape is now a feature of the Renderer.** The mesh (kind + dimensions) is edited
+    inside the Renderer header and its lifetime is bound to the Renderer (adding a Renderer
+    gives it a Box mesh; removing it takes the mesh with it); the mesh kind is now editable
+    (Box/Sphere/Cylinder). `create()` makes a truly empty entity (no renderer), matching
+    Unity's empty GameObject.
+  - Every optional component (Renderer+Mesh, Camera, Rigid Body, Cloth, Collider, UI
+    Element, Scripts) is add/removable via Add Component and each header's close box, and
+    all of them round-trip through the scene serializer and the copy/cut/paste clipboard.
+- **Collision narrowphase and positional contacts.** `physics/collision.hpp` adds
+  element-parametric collider shapes (`SphereCollider<T>`, `PlaneCollider<T>`,
+  `BoxCollider<T>`) and pure `Contact`-generating narrowphase tests (sphere-plane,
+  sphere-sphere, box-sphere, box-plane), and `physics/contact_solver.hpp` resolves
+  penetration positionally (`resolve_plane_contacts`/`resolve_pair_contacts`/
+  `resolve_contacts`) between `predict` and `update_velocity`, so a body landing on a
+  surface loses its velocity as an inelastic contact — colliders now actually collide.
+  Covered by `Unit_Collision` (including a dropped particle coming to rest exactly on
+  the ground).
+- **Volumetric soft bodies.** `physics/soft_body.hpp`'s `build_soft_body_lattice`
+  wires an `nx*ny*nz` grid of particles held by structural (axis) and shear
+  (face-diagonal) XPBD distance constraints into a `PhysicsWorld` — the 3D
+  generalization of the cloth grid, reusing the graph-coloured solver with no new
+  constraint type, so a deformable block settles and recovers under gravity. Covered
+  by `Integration_SoftBody`; `examples/soft_body_demo.cpp` (`soft_body_demo` target)
+  drives both the lattice and a ground contact headlessly.
+
+- **ECS UI: a retained canvas/button system (Unity UGUI-shaped).** A new `SushiEngine::UI`
+  module (`include/SushiEngine/ui/`) where UI is built from ordinary entities: a
+  `Canvas` root and a tree of elements carrying a `RectTransform` (anchor/pivot/offset
+  layout), `UIImage`, `UIText`, and/or `UIButton`, linked by `UIParent`. `resolve_rect`
+  (`ui/layout.hpp`) is the pure UGUI anchor formula; the `UI` façade (`ui/ui.hpp`)
+  offers ergonomic `canvas`/`panel`/`image`/`label`/`button` builders over an existing
+  `World`, resolves every `ComputedRect` each frame, runs the button state machine and
+  press-and-release-inside click detection off a per-frame `PointerInput`, tints button
+  graphics per state, fires `on_click` callbacks, and yields a renderer-agnostic
+  `UIDrawList` of coloured rects and text runs. `examples/ui_demo.cpp` (`ui_demo`
+  target) and `Unit_UILayout` + `Integration_UI` tests cover layout, click, and button
+  states headlessly. The Vulkan overlay pass that rasterises the draw list and the
+  editor's UI-authoring panels are a following visual increment; the model, layout, and
+  interaction are complete and tested here.
+
+- **Runtime-selectable physics precision (float or double), live-switchable from the
+  editor.** `Simulation::Precision` and `create_simulation(Precision)` choose the
+  scalar the XPBD solve runs in; both a `float` and a `double` variant are compiled
+  into the simulation library, so the choice is made at runtime rather than by a build
+  flag. The physics is now reached through a new `Simulation::IPhysicsSimulation` seam
+  (`sim/physics_simulation.hpp`) with a templated `PhysicsSimulation<T>` implementation
+  that converts between the boundary `Scalar` and its solve precision `T`; extracting
+  this also removed the two `PhysicsWorld`s and their bookkeeping from
+  `RuntimeSimulation`, leaving it to marshal entity poses to and from descriptors
+  (single responsibility). The editor's Preferences "Physics precision" control now
+  applies live: changing it rebuilds the running simulation in the new precision via
+  the scene serializer, preserving the scene — no binary rebuild. `ISimulation` gained
+  `precision()`.
+
+### Changed
+- **The XPBD physics layer is now element-parametric.** `RigidBodyT<T>`,
+  `XpbdDistanceConstraintT<T>`, `XpbdDistanceProjectionT<T>`, and the `predict`/
+  `update_velocity`/`apply_angular_correction` helpers template on the scalar element;
+  `XpbdSolver<Constraint>`, `PhysicsWorld<Constraint>`, and `build_cloth_grid` derive
+  their precision from the constraint's `Real` typedef. Boundary aliases `RigidBody`,
+  `XpbdDistanceConstraint`, and `XpbdDistanceProjection` stay fixed to `Scalar`, so
+  every existing solver, world, bridge, demo, and test compiles and behaves
+  identically; a simulation can now instantiate `PhysicsWorld<XpbdDistanceConstraintT<double>>`
+  beside a float renderer. Builds on the parametric math types below.
+- **Placeholder math is now element-parametric (`Vector3T<T>`, `QuaternionT<T>`).**
+  `core/blas_placeholder.hpp` templates the vector and quaternion types (and their
+  operations) on the scalar element, exposed at engine scope as `Vector3T`/
+  `QuaternionT` in `core/types.hpp`. The boundary aliases `Vector3` and `Quaternion`
+  are unchanged — they fix the element to `Scalar` — so every existing use compiles
+  and behaves identically; the new templates let the simulation core compute in a
+  runtime-selected precision (float or double in one build) beside a fixed-precision
+  render boundary. `Mat4` and `WorldVector3` stay single-fixed-precision (render-side
+  and always-double respectively). Foundation for runtime float/double selection.
+
+### Added
+- **SushiLoop authoring API (`Loop::App<Command>`).** The settled surface a game is
+  written against: it composes the existing `World`, `Schedule`, `FixedTimestepClock`,
+  `CommandBuffer`, `InputHistory`, `RollbackBuffer`, and seeded `RngState` into one
+  fixed-step deterministic loop with an ergonomic, pure-ECS system-registration form
+  — `app.system<Read<A>, Write<B>>("name").each(fn)` — plus `on_start`/`on_command`/
+  `sample_command` lifecycle callbacks. It is **always multiplayer-ready**: every
+  tick's command is numbered into an `InputHistory` regardless of network state, and
+  the network is reached only through the new `Loop::Net::INetworkTransport<Command>`
+  abstraction, so making a game networked is one decision — `connect()` a transport —
+  with no change to its systems (dependency inversion). Header `loop/app.hpp`, pulled
+  into the umbrella `SushiEngine.hpp`.
+- **`Loop::Net::INetworkTransport<Command>` and `Loop::Net::LoopbackTransport<Command>`.**
+  The transport seam `Loop::App` reconciles against, and an in-process implementation
+  backed by the existing `LoopbackChannel` (with optional per-ack latency), so
+  single-player, loopback, and a future socket transport are interchangeable behind
+  one interface.
+- **`examples/first_game.cpp` (`first_game` target).** The first complete SushiLoop
+  game: two pure-ECS systems (input→velocity, velocity→position) run in a fixed-step
+  loop, checked against a closed-form reference for determinism, then re-run as a
+  mispredicting client that reconciles to an authoritative server — proving the
+  "one `connect()` makes it multiplayer" claim end to end. Headless, `RESULT: OK` on
+  success, `compile_count == 1`.
+
 ### Fixed
 - **Viewport gizmo incorrectly applied local transforms as world transforms on child objects.**
   The Scene viewport's transform gizmo now correctly uses `world_transform` and writes back through the new `set_world_transform` API on `IWorldEditor`. This prevents objects from jumping to incorrect positions when manipulated after being reparented, keeping the gizmo correctly anchored in world space.

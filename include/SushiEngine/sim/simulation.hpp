@@ -62,6 +62,22 @@ namespace SushiEngine
         /** @brief The null entity id; no entity carries it. */
         constexpr EntityId NULL_ENTITY = 0;
 
+        /**
+         * @brief The scalar precision the simulation's physics solve runs in.
+         *
+         * Chosen at runtime, not by a build flag: both a `float` and a `double`
+         * physics variant are compiled into the simulation library, and the factory
+         * instantiates the requested one. The ECS and the render boundary stay at the
+         * fixed `Scalar` precision; this only selects how the XPBD solve computes, so a
+         * host can offer float and double as a live preference (rebuilding the
+         * simulation to switch) rather than shipping two binaries.
+         */
+        enum class Precision
+        {
+            Single, /**< 32-bit float physics. */
+            Double, /**< 64-bit double physics, for planet-scale precision. */
+        };
+
         /** @brief An entity's authorable transform, as the inspector edits it. */
         struct EntityTransform
         {
@@ -187,6 +203,102 @@ namespace SushiEngine
         {
             PrimitiveKind kind = PrimitiveKind::Box;
             Vector3 params{Vector3{0.5, 0.5, 0.5}};
+        };
+
+        /**
+         * @brief Which kind of UI node a UI entity is.
+         *
+         * A `Canvas` is the full-viewport root every other UI element lays out
+         * inside; `Image` and `Panel` draw a filled rectangle; `Text` draws a
+         * label; `Button` draws a filled rectangle with a centred label and
+         * reacts to the pointer. Modelled the same way as `PrimitiveKind` — a
+         * plain host-side tag on the entity's UI record, not an ECS component —
+         * since no Schedule system reads it (see components.hpp).
+         */
+        enum class UIElementKind : std::uint32_t
+        {
+            Canvas,
+            Panel,
+            Image,
+            Text,
+            Button,
+        };
+
+        /**
+         * @brief The authorable parameters of a UI entity: a UGUI RectTransform plus paint.
+         *
+         * The rect follows Unity's uGUI model exactly: `anchor_min`/`anchor_max`
+         * are normalized [0,1] fractions of the parent rect, `pivot` is the
+         * element's own normalized handle, and `anchored_position`/`size_delta`
+         * are pixel offsets resolved against the anchored span (see
+         * `SushiEngine::UI::resolve_rect`). A `Canvas` ignores the rect and fills
+         * its viewport; its `size` doubles as the reference resolution for a future
+         * scaler. `text` is an inline fixed buffer (like `UI::UIText`) so the whole
+         * struct stays a trivially copyable value across the seam.
+         */
+        struct UIElementParams
+        {
+            UIElementKind kind = UIElementKind::Image;
+            Scalar anchor_min_x = Scalar(0.5);   /**< Left anchor, fraction of parent width. */
+            Scalar anchor_min_y = Scalar(0.5);   /**< Bottom anchor, fraction of parent height. */
+            Scalar anchor_max_x = Scalar(0.5);   /**< Right anchor, fraction of parent width. */
+            Scalar anchor_max_y = Scalar(0.5);   /**< Top anchor, fraction of parent height. */
+            Scalar pivot_x = Scalar(0.5);        /**< Element pivot X, normalized. */
+            Scalar pivot_y = Scalar(0.5);        /**< Element pivot Y, normalized. */
+            Scalar position_x = Scalar(0);       /**< Anchored position X, pixels. */
+            Scalar position_y = Scalar(0);       /**< Anchored position Y, pixels. */
+            Scalar size_x = Scalar(160);         /**< Width added to the anchored span, pixels. */
+            Scalar size_y = Scalar(40);          /**< Height added to the anchored span, pixels. */
+            Vector3 color{Vector3{Scalar(0.9), Scalar(0.9), Scalar(0.9)}}; /**< Fill/text colour. */
+            Scalar alpha = Scalar(1);            /**< Opacity in [0,1]. */
+            Scalar font_size = Scalar(18);       /**< Text/label point size. */
+            char text[64] = {};                  /**< Inline label text (Text/Button). */
+        };
+
+        /**
+         * @brief One value of a user-defined "script" component field.
+         *
+         * A tagged union-by-convention: `kind` picks which of the payload members
+         * is meaningful. This is the data-driven stand-in for a compiled
+         * MonoBehaviour field — the engine has no scripting VM, so a custom
+         * component is authoring data (a named, typed set of fields) the editor
+         * lets a user attach, edit, and serialize, alongside a generated C++ system
+         * stub they fill in. Unlike ECS components this is a boundary DTO, not a
+         * device type, so it need not be trivially copyable.
+         */
+        enum class ScriptFieldKind : std::uint32_t
+        {
+            Float,
+            Int,
+            Bool,
+            Vector3,
+            Color,
+            Text,
+        };
+
+        /** @brief One named, typed field of a script component instance. */
+        struct ScriptField
+        {
+            std::string name;                       /**< Field name as authored. */
+            ScriptFieldKind kind = ScriptFieldKind::Float;
+            Scalar number = Scalar(0);              /**< Float/Int payload. */
+            bool flag = false;                      /**< Bool payload. */
+            Vector3 vector{};                       /**< Vector3/Color payload. */
+            std::string text;                       /**< Text payload. */
+        };
+
+        /**
+         * @brief One user-defined "script" component attached to an entity.
+         *
+         * Named by `type_name` (the script's class name) and carrying a flat list
+         * of authored fields. Instances are stored per entity by the simulation the
+         * same way cloth parameters are — plain host bookkeeping keyed on
+         * `EntityId` — while the catalog of definitions lives in the editor.
+         */
+        struct ScriptComponent
+        {
+            std::string type_name;               /**< The script's type/class name. */
+            std::vector<ScriptField> fields;     /**< Its authored fields, in order. */
         };
 
         /** @brief The resolved camera for one display: the winner among its cameras. */
@@ -490,6 +602,21 @@ namespace SushiEngine
                  */
                 virtual EntityId create_terrain(const std::string& name) = 0;
 
+                /**
+                 * @brief Creates a Cloth entity: an entity owning a simulated cloth grid.
+                 *
+                 * The grid hangs from its pinned top row at the entity's
+                 * `Transform::position` with default rows/cols/spacing, so a freshly
+                 * created cloth is visible as a flat resting sheet in edit mode and
+                 * begins to drape as soon as the world is played. Equivalent to
+                 * creating an empty entity and `set_has_cloth(id, true)`, bundled so
+                 * the Entity menu can offer Cloth as a first-class object.
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create_cloth(const std::string& name) = 0;
+
                 /** @brief Whether @p id carries a visual Shape (Box/Sphere/Cylinder). */
                 virtual bool has_shape(EntityId id) const noexcept = 0;
 
@@ -533,6 +660,93 @@ namespace SushiEngine
                  * @param value Whether it should have a Collider after this call.
                  */
                 virtual void set_has_collider(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Creates a UI Canvas: the full-viewport root of a UI tree.
+                 *
+                 * A Canvas carries a UI element record with `UIElementKind::Canvas`;
+                 * every other UI element lays out inside the Canvas that is its
+                 * ancestor. It draws nothing itself but establishes the pixel rect
+                 * children resolve against (see @ref UIElementParams).
+                 *
+                 * @param name Display name for the new canvas.
+                 * @return The new canvas entity's stable id.
+                 */
+                virtual EntityId create_canvas(const std::string& name) = 0;
+
+                /**
+                 * @brief Creates a UI element (Panel/Image/Text/Button) under @p parent.
+                 *
+                 * The element is parented to @p parent (typically a Canvas) so it
+                 * inherits its layout rect; pass `NULL_ENTITY` to anchor it directly
+                 * to the viewport. Its rect defaults to a centred box the caller can
+                 * re-anchor via `set_ui_params`.
+                 *
+                 * @param name   Display name for the new element.
+                 * @param kind   Which UI element to create.
+                 * @param parent The UI ancestor to lay out inside, or `NULL_ENTITY`.
+                 * @return The new element entity's stable id.
+                 */
+                virtual EntityId create_ui_element(const std::string& name, UIElementKind kind,
+                                                   EntityId parent) = 0;
+
+                /** @brief Whether @p id carries a UI element record. */
+                virtual bool has_ui(EntityId id) const noexcept = 0;
+
+                /** @brief Whether @p id is a UI Canvas (a UI element of kind Canvas). */
+                virtual bool is_canvas(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's UI element parameters (defaults if it has no UI). */
+                virtual UIElementParams ui_params(EntityId id) const = 0;
+
+                /** @brief Writes a UI entity's element parameters; a no-op for non-UI entities. */
+                virtual void set_ui_params(EntityId id, const UIElementParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a UI element on an existing entity.
+                 *
+                 * Attaching defaults the entity to an `Image` element; the kind can
+                 * then be changed via `set_ui_params`. Detaching removes it from the
+                 * UI overlay. Like cloth, this is host-side bookkeeping needing no ECS
+                 * component migration.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should carry a UI element after this call.
+                 */
+                virtual void set_has_ui(EntityId id, bool value) = 0;
+
+                /** @brief The type names of every script component attached to @p id, in order. */
+                virtual std::vector<std::string> script_components(EntityId id) const = 0;
+
+                /** @brief Whether @p id carries a script component named @p type_name. */
+                virtual bool has_script_component(EntityId id,
+                                                  const std::string& type_name) const = 0;
+
+                /** @brief The named script component's authored fields (empty if absent). */
+                virtual ScriptComponent script_component(EntityId id,
+                                                         const std::string& type_name) const = 0;
+
+                /**
+                 * @brief Attaches a script component instance to @p id.
+                 *
+                 * A no-op if a component of the same `type_name` is already attached,
+                 * so re-adding never duplicates. The instance carries its own copy of
+                 * the field values (seeded by the editor from the definition catalog),
+                 * so later edits to the definition do not retroactively change it.
+                 *
+                 * @param id        The entity to update.
+                 * @param component The script component instance to attach.
+                 */
+                virtual void add_script_component(EntityId id,
+                                                  const ScriptComponent& component) = 0;
+
+                /** @brief Overwrites the fields of the like-named script component on @p id; a no-op if absent. */
+                virtual void set_script_component(EntityId id,
+                                                  const ScriptComponent& component) = 0;
+
+                /** @brief Detaches the script component named @p type_name; a no-op if absent. */
+                virtual void remove_script_component(EntityId id,
+                                                     const std::string& type_name) = 0;
         };
 
         /**
@@ -574,6 +788,9 @@ namespace SushiEngine
                  */
                 virtual Scalar fixed_dt_seconds() const noexcept = 0;
 
+                /** @brief The scalar precision the physics solve is currently running in. */
+                virtual Precision precision() const noexcept = 0;
+
                 /** @brief The snapshot extracted after the most recent `tick()`. */
                 virtual const RenderScene& render_scene() const noexcept = 0;
 
@@ -593,8 +810,11 @@ namespace SushiEngine
          * by loading a `.sushiscene`. The only place the runtime is constructed for
          * the editor.
          *
+         * @param precision The scalar precision the physics solve runs in; both
+         *                  variants are compiled in, so a host may pass either and
+         *                  rebuild the simulation to switch precision at runtime.
          * @return An owned simulation; never null (throws on runtime bring-up failure).
          */
-        std::unique_ptr<ISimulation> create_simulation();
+        std::unique_ptr<ISimulation> create_simulation(Precision precision = Precision::Single);
     } // namespace Simulation
 } // namespace SushiEngine

@@ -76,6 +76,9 @@ namespace SushiEngine
                  * @brief Creates an empty world backed by @p runtime.
                  * @param runtime The runtime that will back the body buffer and solve graph.
                  */
+                /** @brief The scalar precision, derived from the constraint type. */
+                using Real = typename Constraint::Real;
+
                 explicit PhysicsWorld(SushiRuntime::API::Runtime& runtime) noexcept
                     : runtime_(runtime) {}
 
@@ -89,7 +92,7 @@ namespace SushiEngine
                  * @param body The body's initial state.
                  * @return The body's stable index, valid for the world's lifetime.
                  */
-                BodyId add_body(const RigidBody& body)
+                BodyId add_body(const RigidBodyT<Real>& body)
                 {
                     pending_bodies_.push_back(body);
                     return BodyId(pending_bodies_.size() - 1);
@@ -118,10 +121,10 @@ namespace SushiEngine
                  * @param projection The per-constraint projection to apply.
                  */
                 template <typename Projection>
-                void finalize(std::size_t iterations, Scalar h, Projection projection)
+                void finalize(std::size_t iterations, Real h, Projection projection)
                 {
                     h_ = h;
-                    bodies_.emplace(runtime_.buffer<RigidBody>(pending_bodies_.size()));
+                    bodies_.emplace(runtime_.buffer<RigidBodyT<Real>>(pending_bodies_.size()));
                     for (std::size_t i = 0; i < pending_bodies_.size(); ++i)
                         (*bodies_)[i] = pending_bodies_[i];
 
@@ -142,7 +145,33 @@ namespace SushiEngine
                  * @param linear_acceleration External acceleration applied every sub-step.
                  * @param step_substeps       Number of sub-steps to run this call.
                  */
-                void step(Vector3 linear_acceleration, std::size_t step_substeps)
+                void step(Vector3T<Real> linear_acceleration, std::size_t step_substeps)
+                {
+                    step(linear_acceleration, step_substeps,
+                         [](RigidBodyT<Real>*, std::size_t) noexcept {});
+                }
+
+                /**
+                 * @brief `step()` with a host callback run each sub-step, after the solve.
+                 *
+                 * @p post_solve runs between the constraint solve and the velocity
+                 * derivation of every sub-step, receiving the body array so a caller can
+                 * apply extra positional corrections (contact resolution against colliders
+                 * the world itself knows nothing about). Because velocity is derived from
+                 * the post-callback position, a correction it makes is reflected in the
+                 * resulting velocity — a body pushed out of a surface loses the velocity
+                 * that drove it in, with no restitution term. `PhysicsWorld` stays
+                 * collider-agnostic: what the callback does is entirely the caller's (the
+                 * physics simulation injects the narrowphase here).
+                 *
+                 * @tparam PostSolve Callable as `void(RigidBodyT<Real>*, std::size_t)`.
+                 * @param linear_acceleration External acceleration applied every sub-step.
+                 * @param step_substeps       Number of sub-steps to run this call.
+                 * @param post_solve          Per-sub-step post-solve position callback.
+                 */
+                template <typename PostSolve>
+                void step(Vector3T<Real> linear_acceleration, std::size_t step_substeps,
+                          PostSolve post_solve)
                 {
                     for (std::size_t s = 0; s < step_substeps; ++s)
                     {
@@ -151,19 +180,53 @@ namespace SushiEngine
 
                         solver_->solve();
 
+                        if (body_count() > 0)
+                            post_solve(&(*bodies_)[0], body_count());
+
                         for (std::size_t i = 0; i < body_count(); ++i)
                             update_velocity((*bodies_)[i], h_);
                     }
+                }
+
+                /**
+                 * @brief The predict phase of one sub-step: integrate every body's pose.
+                 *
+                 * Exposed alongside @ref solve_constraints and @ref derive_velocity so a
+                 * caller can drive two worlds in lockstep — predict both, solve both,
+                 * resolve contacts spanning both, then derive velocity for both — which is
+                 * how the physics simulation couples rigid bodies and cloth two-way.
+                 * @param linear_acceleration External acceleration for this sub-step.
+                 */
+                void predict_substep(Vector3T<Real> linear_acceleration)
+                {
+                    for (std::size_t i = 0; i < body_count(); ++i)
+                        predict((*bodies_)[i], linear_acceleration, h_);
+                }
+
+                /** @brief The constraint-solve phase of one sub-step (the compiled sweep). */
+                void solve_constraints() { solver_->solve(); }
+
+                /** @brief The velocity-derivation phase: recover velocity from the solved pose. */
+                void derive_velocity()
+                {
+                    for (std::size_t i = 0; i < body_count(); ++i)
+                        update_velocity((*bodies_)[i], h_);
+                }
+
+                /** @brief Pointer to the contiguous body buffer, or null when empty. */
+                RigidBodyT<Real>* bodies_data() noexcept
+                {
+                    return body_count() > 0 ? &(*bodies_)[0] : nullptr;
                 }
 
                 /** @brief Number of registered bodies. */
                 std::size_t body_count() const noexcept { return pending_bodies_.size(); }
 
                 /** @brief Mutable access to a body's current state, by index. */
-                RigidBody& body(BodyId id) noexcept { return (*bodies_)[id]; }
+                RigidBodyT<Real>& body(BodyId id) noexcept { return (*bodies_)[id]; }
 
                 /** @brief Read-only access to a body's current state, by index. */
-                const RigidBody& body(BodyId id) const noexcept { return (*bodies_)[id]; }
+                const RigidBodyT<Real>& body(BodyId id) const noexcept { return (*bodies_)[id]; }
 
                 /** @brief Number of colours the constraints partitioned into. */
                 std::size_t color_count() const noexcept
@@ -182,10 +245,10 @@ namespace SushiEngine
 
             private:
                 SushiRuntime::API::Runtime& runtime_;
-                std::vector<RigidBody> pending_bodies_;
+                std::vector<RigidBodyT<Real>> pending_bodies_;
                 std::vector<Constraint> constraints_;
-                Scalar h_ = 0;
-                std::optional<SushiRuntime::API::Buffer<RigidBody>> bodies_;
+                Real h_ = 0;
+                std::optional<SushiRuntime::API::Buffer<RigidBodyT<Real>>> bodies_;
                 std::optional<XpbdSolver<Constraint>> solver_;
         };
     } // namespace Physics

@@ -41,6 +41,8 @@ add_executable(se_functional_tests
     functional/unit/test_floating_origin.cpp
     functional/unit/test_floating_origin_stress.cpp
     functional/unit/test_network_id.cpp
+    functional/unit/test_ui_layout.cpp
+    functional/unit/test_collision.cpp
 
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp
@@ -52,6 +54,9 @@ add_executable(se_functional_tests
     functional/integration/test_net_reconciliation.cpp
     functional/integration/test_net_client_server.cpp
     functional/integration/test_cloth.cpp
+    functional/integration/test_app.cpp
+    functional/integration/test_ui.cpp
+    functional/integration/test_soft_body.cpp
 
     functional/regression/test_regression.cpp
 )

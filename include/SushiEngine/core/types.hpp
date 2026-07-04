@@ -60,6 +60,23 @@ namespace SushiEngine
     using Quaternion = placeholder::Quaternion;
 
     /**
+     * @brief The vector and quaternion types, parametric on element type.
+     *
+     * `Vector3`/`Quaternion` above fix the element to `Scalar` — the boundary
+     * precision that crosses the render seam. Simulation code that must compute in a
+     * runtime-selected precision (float or double in the same build) uses these
+     * templates directly, e.g. `Vector3T<double>`, so a physics solver can run in one
+     * precision while the renderer draws in another. This is the seam that makes the
+     * float/double choice a runtime decision rather than a build-time one.
+     */
+    template <typename T>
+    using Vector3T = placeholder::Vector3T<T>;
+
+    /** @brief Element-parametric unit quaternion; see @ref Vector3T. */
+    template <typename T>
+    using QuaternionT = placeholder::QuaternionT<T>;
+
+    /**
      * @brief Always-double 3-component vector for absolute (ECEF) world positions.
      *
      * Fixed at double precision regardless of the SE_SCALAR_DOUBLE build option,

@@ -52,7 +52,8 @@ namespace SushiEngine
          * an infinitely stiff (hard) constraint — the rigid-body generalization of
          * `DistanceProjection`. A captureless functor, so it is device-copyable.
          */
-        struct XpbdDistanceProjection
+        template <typename T>
+        struct XpbdDistanceProjectionT
         {
             /**
              * @brief Applies one XPBD iteration of constraint @p c.
@@ -62,49 +63,49 @@ namespace SushiEngine
              *                current step; the caller resets it to zero once per step.
              * @param h       The sub-step duration used for this step, in seconds (> 0).
              */
-            void operator()(const XpbdDistanceConstraint& c, RigidBody* bodies,
-                            Scalar& lambda, Scalar h) const
+            void operator()(const XpbdDistanceConstraintT<T>& c, RigidBodyT<T>* bodies,
+                            T& lambda, T h) const
             {
-                RigidBody& body_a = bodies[c.a];
-                RigidBody& body_b = bodies[c.b];
+                RigidBodyT<T>& body_a = bodies[c.a];
+                RigidBodyT<T>& body_b = bodies[c.b];
 
-                const Vector3 anchor_a = rotate(body_a.orientation, c.local_anchor_a);
-                const Vector3 anchor_b = rotate(body_b.orientation, c.local_anchor_b);
-                const Vector3 p1 = body_a.position + anchor_a;
-                const Vector3 p2 = body_b.position + anchor_b;
-                const Vector3 d = p2 - p1;
-                const Scalar len = length(d);
-                if (len <= Scalar(1e-8))
+                const Vector3T<T> anchor_a = rotate(body_a.orientation, c.local_anchor_a);
+                const Vector3T<T> anchor_b = rotate(body_b.orientation, c.local_anchor_b);
+                const Vector3T<T> p1 = body_a.position + anchor_a;
+                const Vector3T<T> p2 = body_b.position + anchor_b;
+                const Vector3T<T> d = p2 - p1;
+                const T len = length(d);
+                if (len <= T(1e-8))
                     return;
-                const Vector3 n = d * (Scalar(1) / len);
-                const Scalar error = len - c.rest_length;
+                const Vector3T<T> n = d * (T(1) / len);
+                const T error = len - c.rest_length;
 
                 // r x n, expressed in each body's own local frame (see rotate()'s
                 // doc comment: R(a x b) = (Ra) x (Rb), so rotating the world cross
                 // product back by the body's own orientation gives the same result
                 // as crossing the local anchor with the locally-expressed normal).
-                const Vector3 rxn_a =
+                const Vector3T<T> rxn_a =
                     rotate(conjugate(body_a.orientation), cross(anchor_a, n));
-                const Vector3 rxn_b =
+                const Vector3T<T> rxn_b =
                     rotate(conjugate(body_b.orientation), cross(anchor_b, n));
 
-                const Vector3 iixn_a{body_a.inv_inertia.x * rxn_a.x,
+                const Vector3T<T> iixn_a{body_a.inv_inertia.x * rxn_a.x,
                                   body_a.inv_inertia.y * rxn_a.y,
                                   body_a.inv_inertia.z * rxn_a.z};
-                const Vector3 iixn_b{body_b.inv_inertia.x * rxn_b.x,
+                const Vector3T<T> iixn_b{body_b.inv_inertia.x * rxn_b.x,
                                   body_b.inv_inertia.y * rxn_b.y,
                                   body_b.inv_inertia.z * rxn_b.z};
 
-                const Scalar w = body_a.inv_mass + body_b.inv_mass +
+                const T w = body_a.inv_mass + body_b.inv_mass +
                                  dot(rxn_a, iixn_a) + dot(rxn_b, iixn_b);
-                if (w <= Scalar(0))
+                if (w <= T(0))
                     return;
 
-                const Scalar alpha_tilde = h > Scalar(0) ? c.compliance / (h * h) : Scalar(0);
-                const Scalar delta_lambda = (-error - alpha_tilde * lambda) / (w + alpha_tilde);
+                const T alpha_tilde = h > T(0) ? c.compliance / (h * h) : T(0);
+                const T delta_lambda = (-error - alpha_tilde * lambda) / (w + alpha_tilde);
                 lambda += delta_lambda;
 
-                const Vector3 impulse = n * delta_lambda;
+                const Vector3T<T> impulse = n * delta_lambda;
                 body_a.position = body_a.position - impulse * body_a.inv_mass;
                 body_b.position = body_b.position + impulse * body_b.inv_mass;
 
@@ -114,6 +115,11 @@ namespace SushiEngine
                     body_b.orientation, iixn_b * delta_lambda);
             }
         };
+
+        /**
+         * @brief The boundary distance projection: `XpbdDistanceProjectionT` fixed to `Scalar`.
+         */
+        using XpbdDistanceProjection = XpbdDistanceProjectionT<Scalar>;
 
         /**
          * @brief A compliant (XPBD) constraint solver over rigid bodies, compiled to a graph.
@@ -133,6 +139,9 @@ namespace SushiEngine
         class XpbdSolver
         {
             public:
+                /** @brief The scalar precision, derived from the constraint type. */
+                using Real = typename Constraint::Real;
+
                 /**
                  * @brief Colours the constraints and builds the replayable solve graph.
                  * @tparam Projection A device-callable projection for @p Constraint.
@@ -146,9 +155,9 @@ namespace SushiEngine
                  */
                 template <typename Projection>
                 XpbdSolver(SushiRuntime::API::Runtime& runtime,
-                          SushiRuntime::API::Buffer<RigidBody>& bodies,
+                          SushiRuntime::API::Buffer<RigidBodyT<Real>>& bodies,
                           const std::vector<Constraint>& constraints,
-                          std::size_t body_count, std::size_t iterations, Scalar h,
+                          std::size_t body_count, std::size_t iterations, Real h,
                           Projection projection)
                     : runtime_(runtime),
                       bodies_(bodies),
@@ -160,12 +169,12 @@ namespace SushiEngine
                     {
                         SushiRuntime::API::Buffer<Constraint> constraint_buffer =
                             runtime.buffer<Constraint>(batch.size());
-                        SushiRuntime::API::Buffer<Scalar> lambda_buffer =
-                            runtime.buffer<Scalar>(batch.size());
+                        SushiRuntime::API::Buffer<Real> lambda_buffer =
+                            runtime.buffer<Real>(batch.size());
                         for (std::size_t k = 0; k < batch.size(); ++k)
                         {
                             constraint_buffer[k] = constraints[batch[k]];
-                            lambda_buffer[k] = Scalar(0);
+                            lambda_buffer[k] = Real(0);
                         }
                         constraint_buffers_.push_back(std::move(constraint_buffer));
                         lambda_buffers_.push_back(std::move(lambda_buffer));
@@ -184,9 +193,9 @@ namespace SushiEngine
                  */
                 SushiRuntime::RunReport solve()
                 {
-                    for (SushiRuntime::API::Buffer<Scalar>& lambda_buffer : lambda_buffers_)
+                    for (SushiRuntime::API::Buffer<Real>& lambda_buffer : lambda_buffers_)
                         for (std::size_t k = 0; k < lambda_buffer.size(); ++k)
-                            lambda_buffer[k] = Scalar(0);
+                            lambda_buffer[k] = Real(0);
 
                     if (!graph_ || graph_->size() == 0)
                         return SushiRuntime::RunReport{};
@@ -223,15 +232,15 @@ namespace SushiEngine
                                 continue;
 
                             SushiRuntime::API::Buffer<Constraint>& cbuf = constraint_buffers_[color];
-                            SushiRuntime::API::Buffer<Scalar>& lbuf = lambda_buffers_[color];
-                            const Scalar h = h_;
+                            SushiRuntime::API::Buffer<Real>& lbuf = lambda_buffers_[color];
+                            const Real h = h_;
                             graph_->add(
                                 SushiRuntime::Extent{n},
                                 SushiRuntime::InOut(bodies_),
                                 SushiRuntime::In(cbuf),
                                 SushiRuntime::InOut(lbuf),
-                                [projection, h](sycl::id<1> id, RigidBody* bodies,
-                                                const Constraint* cons, Scalar* lambda)
+                                [projection, h](sycl::id<1> id, RigidBodyT<Real>* bodies,
+                                                const Constraint* cons, Real* lambda)
                                 {
                                     projection(cons[id[0]], bodies, lambda[id[0]], h);
                                 });
@@ -239,12 +248,12 @@ namespace SushiEngine
                 }
 
                 SushiRuntime::API::Runtime& runtime_;
-                SushiRuntime::API::Buffer<RigidBody>& bodies_;
+                SushiRuntime::API::Buffer<RigidBodyT<Real>>& bodies_;
                 std::size_t iterations_;
-                Scalar h_;
+                Real h_;
                 ColorBatches colors_;
                 std::vector<SushiRuntime::API::Buffer<Constraint>> constraint_buffers_;
-                std::vector<SushiRuntime::API::Buffer<Scalar>> lambda_buffers_;
+                std::vector<SushiRuntime::API::Buffer<Real>> lambda_buffers_;
                 std::optional<SushiRuntime::API::Graph> graph_;
         };
     } // namespace Physics

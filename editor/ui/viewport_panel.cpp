@@ -24,11 +24,208 @@
 #include "viewport_panel.hpp"
 
 #include <cstdio>
+#include <vector>
 
 namespace SushiEngine
 {
     namespace Editor
     {
+        namespace
+        {
+            /**
+             * @brief Resolves element @p i's pixel rect against its parent's, memoized.
+             *
+             * A `Canvas` fills its parent (the viewport); every other element follows
+             * the top-left, y-down uGUI formula (anchored span + size_delta, offset by
+             * the pivot). Recurses into the parent first so a child never resolves
+             * before the rect it lays out inside; the parent chain is acyclic (the
+             * simulation forbids reparent cycles), so the recursion always terminates.
+             *
+             * @return The element's rect as (min_x, min_y, width, height).
+             */
+            ImVec4 resolve_ui_rect(const UIOverlayElement* ui, std::size_t count,
+                                   std::vector<ImVec4>& rects, std::vector<char>& done,
+                                   const ImVec4& root, int i)
+            {
+                if (done[static_cast<std::size_t>(i)])
+                    return rects[static_cast<std::size_t>(i)];
+                done[static_cast<std::size_t>(i)] = 1;
+
+                const ImVec4 parent =
+                    (ui[i].parent >= 0 && ui[i].parent < static_cast<int>(count))
+                        ? resolve_ui_rect(ui, count, rects, done, root, ui[i].parent)
+                        : root;
+
+                const SushiEngine::Simulation::UIElementParams& p = ui[i].params;
+                ImVec4 rect;
+                if (p.kind == SushiEngine::Simulation::UIElementKind::Canvas)
+                {
+                    rect = parent;
+                }
+                else
+                {
+                    const float a_min_x = parent.x + static_cast<float>(p.anchor_min_x) * parent.z;
+                    const float a_max_x = parent.x + static_cast<float>(p.anchor_max_x) * parent.z;
+                    const float a_min_y = parent.y + static_cast<float>(p.anchor_min_y) * parent.w;
+                    const float a_max_y = parent.y + static_cast<float>(p.anchor_max_y) * parent.w;
+                    const float span_x = a_max_x - a_min_x;
+                    const float span_y = a_max_y - a_min_y;
+                    const float size_x = span_x + static_cast<float>(p.size_x);
+                    const float size_y = span_y + static_cast<float>(p.size_y);
+                    const float pivot_x =
+                        a_min_x + static_cast<float>(p.pivot_x) * span_x + static_cast<float>(p.position_x);
+                    const float pivot_y =
+                        a_min_y + static_cast<float>(p.pivot_y) * span_y + static_cast<float>(p.position_y);
+                    rect = ImVec4(pivot_x - static_cast<float>(p.pivot_x) * size_x,
+                                  pivot_y - static_cast<float>(p.pivot_y) * size_y, size_x, size_y);
+                }
+                rects[static_cast<std::size_t>(i)] = rect;
+                return rect;
+            }
+
+            /** @brief Packs a colour (0..1) and opacity into an ImGui ABGR value. */
+            ImU32 ui_color(const SushiEngine::Vector3& c, float alpha)
+            {
+                const auto channel = [](SushiEngine::Scalar v)
+                {
+                    const float f = static_cast<float>(v);
+                    const float clamped = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+                    return static_cast<int>(clamped * 255.0f + 0.5f);
+                };
+                const float a = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+                return IM_COL32(channel(c.x), channel(c.y), channel(c.z),
+                                static_cast<int>(a * 255.0f + 0.5f));
+            }
+
+            /** @brief Resolves every element's pixel rect against @p root, in one pass. */
+            void compute_ui_rects(const UIOverlay& ui, const ImVec4& root,
+                                  std::vector<ImVec4>& rects)
+            {
+                rects.assign(ui.count, ImVec4());
+                std::vector<char> done(ui.count, 0);
+                for (std::size_t i = 0; i < ui.count; ++i)
+                    resolve_ui_rect(ui.elements, ui.count, rects, done, root, static_cast<int>(i));
+            }
+
+            /** @brief Half-size of a corner resize handle, in pixels. */
+            constexpr float UI_HANDLE = 5.0f;
+
+            /**
+             * @brief Paints the UI overlay over the rendered viewport image.
+             *
+             * In edit mode fills are drawn translucent (so the 3D view shows through a
+             * canvas) with an outline, and the selected element gets an outline plus four
+             * corner resize handles; in play mode fills are solid — the runtime look.
+             *
+             * @param draw_list Panel draw list (clips to the panel, above the image).
+             * @param ui        The overlay (elements + edit-mode flag).
+             * @param rects     Each element's resolved pixel rect (see compute_ui_rects).
+             */
+            void paint_ui_overlay(ImDrawList* draw_list, const UIOverlay& ui,
+                                  const std::vector<ImVec4>& rects)
+            {
+                using Kind = SushiEngine::Simulation::UIElementKind;
+                ImFont* font = ImGui::GetFont();
+                const ImVec2 mouse = ImGui::GetIO().MousePos;
+                const bool mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+                // Translucent in edit mode so a full-screen canvas never hides the scene.
+                const float fill_scale = ui.edit_mode ? 0.35f : 1.0f;
+                for (std::size_t i = 0; i < ui.count; ++i)
+                {
+                    const SushiEngine::Simulation::UIElementParams& p = ui.elements[i].params;
+                    const ImVec4 r = rects[i];
+                    const ImVec2 mn(r.x, r.y);
+                    const ImVec2 mx(r.x + r.z, r.y + r.w);
+                    const float alpha = static_cast<float>(p.alpha);
+
+                    if (p.kind == Kind::Canvas)
+                    {
+                        // The canvas draws only a faint bound so its extent is visible.
+                        draw_list->AddRect(mn, mx, IM_COL32(120, 120, 130, 110));
+                    }
+                    else if (p.kind == Kind::Button)
+                    {
+                        const bool hovered = !ui.edit_mode && mouse.x >= mn.x && mouse.x <= mx.x &&
+                                             mouse.y >= mn.y && mouse.y <= mx.y;
+                        float tint = 1.0f;
+                        if (hovered)
+                            tint = mouse_down ? 0.8f : 1.15f;
+                        const SushiEngine::Vector3 shaded{p.color.x * tint, p.color.y * tint,
+                                                          p.color.z * tint};
+                        draw_list->AddRectFilled(mn, mx, ui_color(shaded, alpha * fill_scale), 4.0f);
+                        draw_list->AddRect(mn, mx, IM_COL32(20, 20, 25, 200), 4.0f);
+                        const float font_size = static_cast<float>(p.font_size);
+                        const ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, p.text);
+                        const ImVec2 text_pos(mn.x + (r.z - text_size.x) * 0.5f,
+                                              mn.y + (r.w - text_size.y) * 0.5f);
+                        draw_list->AddText(font, font_size, text_pos, IM_COL32(255, 255, 255, 255),
+                                           p.text);
+                    }
+                    else if (p.kind == Kind::Text)
+                    {
+                        const float font_size = static_cast<float>(p.font_size);
+                        draw_list->AddText(font, font_size, mn, ui_color(p.color, alpha), p.text);
+                        if (ui.edit_mode)
+                            draw_list->AddRect(mn, mx, IM_COL32(150, 150, 160, 90));
+                    }
+                    else // Panel / Image
+                    {
+                        draw_list->AddRectFilled(mn, mx, ui_color(p.color, alpha * fill_scale), 2.0f);
+                        if (ui.edit_mode)
+                            draw_list->AddRect(mn, mx, IM_COL32(150, 150, 160, 130), 2.0f);
+                    }
+
+                    if (ui.elements[i].selected && ui.edit_mode)
+                    {
+                        draw_list->AddRect(mn, mx, IM_COL32(255, 170, 40, 255), 2.0f, 0, 2.0f);
+                        if (p.kind != Kind::Canvas)
+                        {
+                            const ImVec2 corners[4] = {mn, ImVec2(mx.x, mn.y), ImVec2(mn.x, mx.y),
+                                                       mx};
+                            for (const ImVec2& c : corners)
+                                draw_list->AddRectFilled(ImVec2(c.x - UI_HANDLE, c.y - UI_HANDLE),
+                                                         ImVec2(c.x + UI_HANDLE, c.y + UI_HANDLE),
+                                                         IM_COL32(255, 170, 40, 255));
+                        }
+                    }
+                }
+            }
+
+            /** @brief The four corner points of a rect, in handle order (tl, tr, bl, br). */
+            void ui_corners(const ImVec4& r, ImVec2 out[4]) noexcept
+            {
+                out[0] = ImVec2(r.x, r.y);
+                out[1] = ImVec2(r.x + r.z, r.y);
+                out[2] = ImVec2(r.x, r.y + r.w);
+                out[3] = ImVec2(r.x + r.z, r.y + r.w);
+            }
+
+            /**
+             * @brief Rewrites @p p's position + size so its screen rect becomes @p target.
+             *
+             * The inverse of the layout formula (see resolve_ui_rect): given the desired
+             * pixel rect and the element's parent rect and anchors, back out the anchored
+             * position and size_delta. Lets a drag edit the rect directly in screen space.
+             */
+            void ui_apply_screen_rect(SushiEngine::Simulation::UIElementParams& p,
+                                      const ImVec4& parent, const ImVec4& target)
+            {
+                const float a_min_x = parent.x + static_cast<float>(p.anchor_min_x) * parent.z;
+                const float a_max_x = parent.x + static_cast<float>(p.anchor_max_x) * parent.z;
+                const float a_min_y = parent.y + static_cast<float>(p.anchor_min_y) * parent.w;
+                const float a_max_y = parent.y + static_cast<float>(p.anchor_max_y) * parent.w;
+                const float span_x = a_max_x - a_min_x;
+                const float span_y = a_max_y - a_min_y;
+                p.size_x = static_cast<SushiEngine::Scalar>(target.z - span_x);
+                p.size_y = static_cast<SushiEngine::Scalar>(target.w - span_y);
+                const float pivot_screen_x = target.x + static_cast<float>(p.pivot_x) * target.z;
+                const float pivot_screen_y = target.y + static_cast<float>(p.pivot_y) * target.w;
+                p.position_x = static_cast<SushiEngine::Scalar>(
+                    pivot_screen_x - a_min_x - static_cast<float>(p.pivot_x) * span_x);
+                p.position_y = static_cast<SushiEngine::Scalar>(
+                    pivot_screen_y - a_min_y - static_cast<float>(p.pivot_y) * span_y);
+            }
+        } // namespace
         ViewportPanel::ViewportPanel(SushiEngine::Render::IWindowRenderer& renderer,
                                      ImGuiBackend& imgui, const char* title, ISceneCamera& camera)
             : imgui_(imgui), title_(title), camera_(camera), view_(renderer.create_scene_view())
@@ -75,7 +272,7 @@ namespace SushiEngine
                                  GizmoMode gizmo_mode, GizmoSpace gizmo_space,
                                  const GizmoSnap* gizmo_snap, const DisplaySelector* display,
                                  const SushiEngine::Render::ClothStrandView* strands,
-                                 std::size_t strand_count)
+                                 std::size_t strand_count, UIOverlay* ui)
         {
             if (!ImGui::Begin(title_, &open))
             {
@@ -174,6 +371,117 @@ namespace SushiEngine
                          ImVec2(static_cast<float>(width), static_cast<float>(height)));
             const bool image_hovered = ImGui::IsItemHovered();
 
+            // UI overlay: canvases, panels, images, text, and buttons painted on top of
+            // the rendered image with ImGui's draw list — a 2D layer over the 3D view,
+            // laid out against the panel rect so it tracks the viewport size. In edit mode
+            // it is translucent and interactive: click to pick, drag to move, drag a
+            // corner handle to resize (writing back into the element's params).
+            bool ui_consumed = false;
+            std::vector<ImVec4> ui_rects;
+            if (ui != nullptr && ui->count > 0)
+            {
+                const ImVec4 root(image_origin.x, image_origin.y, static_cast<float>(width),
+                                  static_cast<float>(height));
+                compute_ui_rects(*ui, root, ui_rects);
+                paint_ui_overlay(ImGui::GetWindowDrawList(), *ui, ui_rects);
+
+                if (ui->edit_mode)
+                {
+                    using Kind = SushiEngine::Simulation::UIElementKind;
+                    const float dx = io.MouseDelta.x;
+                    const float dy = io.MouseDelta.y;
+
+                    // Continue an in-progress drag: move the body or resize by a corner.
+                    if (ui_drag_index_ >= 0 && ui_drag_index_ < static_cast<int>(ui->count) &&
+                        ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    {
+                        ui_consumed = true;
+                        const int parent = ui->elements[ui_drag_index_].parent;
+                        const ImVec4 parent_rect =
+                            (parent >= 0 && parent < static_cast<int>(ui->count)) ? ui_rects[parent]
+                                                                                  : root;
+                        ImVec4 rect = ui_rects[ui_drag_index_];
+                        if (ui_drag_handle_ == 0)
+                        {
+                            rect.x += dx;
+                            rect.y += dy;
+                        }
+                        else
+                        {
+                            float x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.z, y1 = rect.y + rect.w;
+                            switch (ui_drag_handle_)
+                            {
+                                case 1: x0 += dx; y0 += dy; break;
+                                case 2: x1 += dx; y0 += dy; break;
+                                case 3: x0 += dx; y1 += dy; break;
+                                default: x1 += dx; y1 += dy; break;
+                            }
+                            if (x1 - x0 < 4.0f) x1 = x0 + 4.0f;
+                            if (y1 - y0 < 4.0f) y1 = y0 + 4.0f;
+                            rect = ImVec4(x0, y0, x1 - x0, y1 - y0);
+                        }
+                        ui_apply_screen_rect(ui->elements[ui_drag_index_].params, parent_rect, rect);
+                        ui->edited_index = ui_drag_index_;
+                    }
+                    else
+                    {
+                        ui_drag_index_ = -1;
+                        ui_drag_handle_ = -1;
+                    }
+
+                    // Start a drag/pick on a fresh left-click over the panel.
+                    if (image_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                        ui_drag_index_ < 0)
+                    {
+                        const ImVec2 mouse = io.MousePos;
+                        int hit = -1;
+                        int handle = -1;
+                        // A grabbed corner of the already-selected element resizes it.
+                        for (std::size_t i = 0; i < ui->count; ++i)
+                        {
+                            if (ui->elements[i].id != ui->selected_id ||
+                                ui->elements[i].params.kind == Kind::Canvas)
+                                continue;
+                            ImVec2 corners[4];
+                            ui_corners(ui_rects[i], corners);
+                            for (int k = 0; k < 4; ++k)
+                                if (mouse.x >= corners[k].x - UI_HANDLE &&
+                                    mouse.x <= corners[k].x + UI_HANDLE &&
+                                    mouse.y >= corners[k].y - UI_HANDLE &&
+                                    mouse.y <= corners[k].y + UI_HANDLE)
+                                {
+                                    hit = static_cast<int>(i);
+                                    handle = k + 1;
+                                }
+                        }
+                        // Otherwise the topmost element body under the cursor is picked
+                        // and moved; a canvas is never picked by its body so it does not
+                        // swallow clicks meant for the scene behind it.
+                        if (hit < 0)
+                            for (int i = static_cast<int>(ui->count) - 1; i >= 0; --i)
+                            {
+                                if (ui->elements[i].params.kind == Kind::Canvas)
+                                    continue;
+                                const ImVec4& r = ui_rects[i];
+                                if (mouse.x >= r.x && mouse.x <= r.x + r.z && mouse.y >= r.y &&
+                                    mouse.y <= r.y + r.w)
+                                {
+                                    hit = i;
+                                    handle = 0;
+                                    break;
+                                }
+                            }
+                        if (hit >= 0)
+                        {
+                            ui->picked_id = ui->elements[hit].id;
+                            ui_drag_index_ = hit;
+                            ui_drag_handle_ = handle;
+                            ui_consumed = true;
+                        }
+                    }
+                }
+            }
+
             // Transform gizmo: the GizmoController owns the handle drawing and drag mapping
             // for the active mode. Handled before picking so grabbing a handle never
             // reselects the entity under the cursor.
@@ -190,7 +498,10 @@ namespace SushiEngine
             // Left-click in the viewport picks the entity under the cursor (right mouse is
             // reserved for navigation), unless the click grabbed a gizmo handle. The image
             // is drawn 1:1 with the target, so the local pixel is the cursor offset.
-            if (pickable && !gizmo.consumed_click && image_hovered &&
+            if (ui != nullptr)
+                ui->consumed_click = ui_consumed;
+
+            if (pickable && !gizmo.consumed_click && !ui_consumed && image_hovered &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
                 const ImVec2 mouse = ImGui::GetIO().MousePos;

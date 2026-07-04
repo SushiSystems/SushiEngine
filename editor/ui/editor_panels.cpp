@@ -367,6 +367,61 @@ namespace SushiEngine
                         select_only(context, world->create_terrain("Terrain"));
                         editor_log(context, "Created object 'Terrain'.");
                     }
+                    if (ImGui::MenuItem("Cloth"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_cloth("Cloth"));
+                        editor_log(context, "Created object 'Cloth'.");
+                    }
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("UI", world != nullptr))
+                {
+                    // Image/Text/Button parent to the selected UI entity (typically a
+                    // Canvas) so they lay out inside it; with no UI selected they anchor
+                    // straight to the viewport, still visible and re-parentable later.
+                    const EntityId ui_parent =
+                        world != nullptr && world->has_ui(context.selected_entity)
+                            ? context.selected_entity
+                            : NULL_ENTITY;
+                    if (ImGui::MenuItem("Canvas"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_canvas("Canvas"));
+                        editor_log(context, "Created UI 'Canvas'.");
+                    }
+                    if (ImGui::MenuItem("Panel"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_ui_element(
+                                                 "Panel", SushiEngine::Simulation::UIElementKind::Panel,
+                                                 ui_parent));
+                        editor_log(context, "Created UI 'Panel'.");
+                    }
+                    if (ImGui::MenuItem("Image"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_ui_element(
+                                                 "Image", SushiEngine::Simulation::UIElementKind::Image,
+                                                 ui_parent));
+                        editor_log(context, "Created UI 'Image'.");
+                    }
+                    if (ImGui::MenuItem("Text"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_ui_element(
+                                                 "Text", SushiEngine::Simulation::UIElementKind::Text,
+                                                 ui_parent));
+                        editor_log(context, "Created UI 'Text'.");
+                    }
+                    if (ImGui::MenuItem("Button"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_ui_element(
+                                                 "Button", SushiEngine::Simulation::UIElementKind::Button,
+                                                 ui_parent));
+                        editor_log(context, "Created UI 'Button'.");
+                    }
                     ImGui::EndMenu();
                 }
             }
@@ -415,6 +470,10 @@ namespace SushiEngine
                 entry.shape_params = world->shape_params(id);
                 entry.has_collider = world->has_collider(id);
                 entry.collider_params = world->collider_params(id);
+                entry.has_ui = world->has_ui(id);
+                entry.ui_params = world->ui_params(id);
+                for (const std::string& type_name : world->script_components(id))
+                    entry.scripts.push_back(world->script_component(id, type_name));
                 context.clipboard.push_back(entry);
             }
             editor_log(context, "Copied " + std::to_string(context.clipboard.size()) + " entit" +
@@ -470,6 +529,11 @@ namespace SushiEngine
                 world->set_has_collider(id, entry.has_collider);
                 if (entry.has_collider)
                     world->set_collider_params(id, entry.collider_params);
+                world->set_has_ui(id, entry.has_ui);
+                if (entry.has_ui)
+                    world->set_ui_params(id, entry.ui_params);
+                for (const SushiEngine::Simulation::ScriptComponent& script : entry.scripts)
+                    world->add_script_component(id, script);
 
                 original_to_new[entry.original] = id;
                 pasted.push_back(id);
@@ -1070,8 +1134,227 @@ namespace SushiEngine
             ImGui::End();
         }
 
+        namespace
+        {
+            /** @brief Whether @p name is a legal C++/script identifier. */
+            bool is_valid_identifier(const std::string& name)
+            {
+                if (name.empty())
+                    return false;
+                if (!(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_'))
+                    return false;
+                for (const char c : name)
+                    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+                        return false;
+                return true;
+            }
+
+            /** @brief Adds @p script's type to the Add Component catalog if it is not already there. */
+            void register_script_definition(EditorContext& context,
+                                            const SushiEngine::Simulation::ScriptComponent& script)
+            {
+                for (const SushiEngine::Simulation::ScriptComponent& definition :
+                     context.script_catalog)
+                    if (definition.type_name == script.type_name)
+                        return;
+                context.script_catalog.push_back(script);
+            }
+
+            /**
+             * @brief Draws editable widgets for every field of a script component.
+             *
+             * @param context Editor state, for the undo history around each edit.
+             * @param world   The world being edited (snapshotted for undo).
+             * @param script  The instance whose fields are drawn and mutated in place.
+             * @return Whether any field changed this frame.
+             */
+            bool draw_script_fields(EditorContext& context, IWorldEditor& world,
+                                    SushiEngine::Simulation::ScriptComponent& script)
+            {
+                using SushiEngine::Simulation::ScriptFieldKind;
+                bool changed = false;
+                if (script.fields.empty())
+                    ImGui::TextDisabled("No fields.");
+                for (std::size_t i = 0; i < script.fields.size(); ++i)
+                {
+                    SushiEngine::Simulation::ScriptField& field = script.fields[i];
+                    ImGui::PushID(static_cast<int>(i));
+                    const char* label = field.name.c_str();
+                    switch (field.kind)
+                    {
+                        case ScriptFieldKind::Float:
+                        {
+                            float value = static_cast<float>(field.number);
+                            if (ImGui::DragFloat(label, &value, 0.01f))
+                            {
+                                field.number = static_cast<SushiEngine::Scalar>(value);
+                                changed = true;
+                            }
+                            break;
+                        }
+                        case ScriptFieldKind::Int:
+                        {
+                            int value = static_cast<int>(field.number);
+                            if (ImGui::DragInt(label, &value))
+                            {
+                                field.number = static_cast<SushiEngine::Scalar>(value);
+                                changed = true;
+                            }
+                            break;
+                        }
+                        case ScriptFieldKind::Bool:
+                        {
+                            if (ImGui::Checkbox(label, &field.flag))
+                            {
+                                context.history.record(world);
+                                changed = true;
+                            }
+                            break;
+                        }
+                        case ScriptFieldKind::Vector3:
+                        {
+                            float value[3] = {static_cast<float>(field.vector.x),
+                                              static_cast<float>(field.vector.y),
+                                              static_cast<float>(field.vector.z)};
+                            if (ImGui::DragFloat3(label, value, 0.01f))
+                            {
+                                field.vector =
+                                    SushiEngine::Vector3{value[0], value[1], value[2]};
+                                changed = true;
+                            }
+                            break;
+                        }
+                        case ScriptFieldKind::Color:
+                        {
+                            float value[3] = {static_cast<float>(field.vector.x),
+                                              static_cast<float>(field.vector.y),
+                                              static_cast<float>(field.vector.z)};
+                            if (ImGui::ColorEdit3(label, value))
+                            {
+                                field.vector =
+                                    SushiEngine::Vector3{value[0], value[1], value[2]};
+                                changed = true;
+                            }
+                            break;
+                        }
+                        case ScriptFieldKind::Text:
+                        {
+                            if (ImGui::InputText(label, &field.text))
+                                changed = true;
+                            break;
+                        }
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+                    ImGui::PopID();
+                }
+                return changed;
+            }
+
+            /** @brief The C++ system stub scaffolded for a newly created script @p type_name. */
+            std::string script_stub_source(const std::string& type_name)
+            {
+                std::ostringstream out;
+                out << "// " << type_name << " — a SushiEngine custom component.\n"
+                    << "//\n"
+                    << "// Authored in the editor as a data-driven component (its fields are\n"
+                    << "// edited in the Inspector and saved with the scene). Fill in the ECS\n"
+                    << "// system below to give it behaviour, then register it on your\n"
+                    << "// Loop::App the same way the built-in systems are.\n"
+                    << "#pragma once\n\n"
+                    << "#include <SushiEngine/core/types.hpp>\n\n"
+                    << "struct " << type_name << "\n"
+                    << "{\n"
+                    << "    SushiEngine::Scalar speed = SushiEngine::Scalar(1);\n"
+                    << "};\n\n"
+                    << "// Example system (register with app.system<...>(\"" << type_name
+                    << "\").each(...)):\n"
+                    << "//\n"
+                    << "//   app.system<SushiEngine::Write<Transform>, SushiEngine::Read<"
+                    << type_name << ">>(\"" << type_name << "\")\n"
+                    << "//      .each([](std::size_t i, Transform* transform, const " << type_name
+                    << "* self)\n"
+                    << "//      {\n"
+                    << "//          transform[i].position.x += self[i].speed;\n"
+                    << "//      });\n";
+                return out.str();
+            }
+
+            /**
+             * @brief The New Script modal: names a custom component, scaffolds its C++
+             * stub in the project, registers it in the catalog, and attaches it.
+             *
+             * Driven by `context.show_new_script` (raised by the Add Component menu). On
+             * Create it seeds a one-field definition (a `speed` float, mirroring the
+             * generated stub), writes `<Name>.hpp` under the project root, opens it in
+             * the Text Editor, and attaches the component to the entity that requested it.
+             */
+            void draw_new_script_modal(EditorContext& context)
+            {
+                if (context.show_new_script)
+                {
+                    ImGui::OpenPopup("New Script");
+                    context.show_new_script = false;
+                }
+
+                const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+                ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+                if (!ImGui::BeginPopupModal("New Script", nullptr,
+                                            ImGuiWindowFlags_AlwaysAutoResize))
+                    return;
+
+                ImGui::InputText("Class Name", &context.new_script_name);
+                ImGui::TextDisabled("Creates <Name>.hpp in the project and attaches it.");
+
+                const bool valid = is_valid_identifier(context.new_script_name);
+                ImGui::BeginDisabled(!valid);
+                if (ImGui::Button("Create"))
+                {
+                    SushiEngine::Simulation::ScriptComponent definition;
+                    definition.type_name = context.new_script_name;
+                    SushiEngine::Simulation::ScriptField field;
+                    field.name = "speed";
+                    field.kind = SushiEngine::Simulation::ScriptFieldKind::Float;
+                    field.number = SushiEngine::Scalar(1);
+                    definition.fields.push_back(field);
+                    register_script_definition(context, definition);
+
+                    const fs::path path =
+                        fs::path(context.project_root) / (context.new_script_name + ".hpp");
+                    std::ofstream stream(path, std::ios::binary);
+                    if (stream)
+                    {
+                        stream << script_stub_source(context.new_script_name);
+                        stream.close();
+                        open_document(context, path);
+                        editor_log(context, "Created script '" + path.filename().string() + "'.");
+                    }
+                    else
+                    {
+                        editor_log(context, "Failed to write script '" + path.string() + "'.");
+                    }
+
+                    IWorldEditor* world = world_of(context);
+                    if (world != nullptr && world->exists(context.new_script_target))
+                    {
+                        context.history.record(*world);
+                        world->add_script_component(context.new_script_target, definition);
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+        } // namespace
+
         void draw_inspector_panel(EditorContext& context)
         {
+            draw_new_script_modal(context);
             if (!context.panels.inspector)
                 return;
             if (!ImGui::Begin("Inspector", &context.panels.inspector))
@@ -1237,7 +1520,11 @@ namespace SushiEngine
                     "Renderer", &keep_renderer, ImGuiTreeNodeFlags_DefaultOpen);
                 if (!keep_renderer)
                 {
+                    // The mesh (Shape) is a feature of the Renderer, so removing the
+                    // Renderer takes its mesh with it — a Renderer never lingers as an
+                    // invisible component and a mesh never survives without one to draw it.
                     context.history.record(*world);
+                    world->set_has_shape(id, false);
                     world->set_has_renderer(id, false);
                 }
                 else if (renderer_open)
@@ -1252,6 +1539,89 @@ namespace SushiEngine
                         context.history.begin_change(*world);
                     if (ImGui::IsItemDeactivatedAfterEdit())
                         context.history.end_change();
+
+                    // The mesh is the Renderer's own property (Unity's MeshFilter folded
+                    // into the MeshRenderer here): its primitive kind and per-kind
+                    // dimensions are edited inline, and a Renderer with no mesh yet can be
+                    // given one so it starts drawing.
+                    if (world->has_shape(id))
+                    {
+                        SushiEngine::Simulation::ShapeParams params = world->shape_params(id);
+                        bool changed = false;
+
+                        // Plane is not a drawable mesh (Terrain uses a thin Box), so only
+                        // the three solid primitives are offered as the Renderer's mesh.
+                        static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder"};
+                        int kind_index = static_cast<int>(params.kind);
+                        if (kind_index > 2)
+                            kind_index = 0;
+                        if (ImGui::Combo("Mesh", &kind_index, MESH_NAMES, 3))
+                        {
+                            context.history.record(*world);
+                            params.kind =
+                                static_cast<SushiEngine::Simulation::PrimitiveKind>(kind_index);
+                            changed = true;
+                        }
+
+                        switch (params.kind)
+                        {
+                            case SushiEngine::Simulation::PrimitiveKind::Sphere:
+                            {
+                                float radius = static_cast<float>(params.params.x);
+                                if (ImGui::DragFloat("Radius##Mesh", &radius, 0.01f, 0.01f,
+                                                     1000.0f, "%.3f"))
+                                {
+                                    params.params.x = radius;
+                                    changed = true;
+                                }
+                                break;
+                            }
+                            case SushiEngine::Simulation::PrimitiveKind::Cylinder:
+                            {
+                                float radius = static_cast<float>(params.params.x);
+                                float half_height = static_cast<float>(params.params.y);
+                                if (ImGui::DragFloat("Radius##Mesh", &radius, 0.01f, 0.01f,
+                                                     1000.0f, "%.3f"))
+                                {
+                                    params.params.x = radius;
+                                    changed = true;
+                                }
+                                if (ImGui::DragFloat("Half Height##Mesh", &half_height, 0.01f,
+                                                     0.01f, 1000.0f, "%.3f"))
+                                {
+                                    params.params.y = half_height;
+                                    changed = true;
+                                }
+                                break;
+                            }
+                            default:
+                            {
+                                float half_extents[3] = {static_cast<float>(params.params.x),
+                                                         static_cast<float>(params.params.y),
+                                                         static_cast<float>(params.params.z)};
+                                if (ImGui::DragFloat3("Half Extents##Mesh", half_extents, 0.01f,
+                                                      0.01f, 1000.0f, "%.3f"))
+                                {
+                                    params.params = SushiEngine::Vector3{
+                                        half_extents[0], half_extents[1], half_extents[2]};
+                                    changed = true;
+                                }
+                                break;
+                            }
+                        }
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+
+                        if (changed)
+                            world->set_shape_params(id, params);
+                    }
+                    else if (ImGui::SmallButton("Add Mesh"))
+                    {
+                        context.history.record(*world);
+                        world->set_has_shape(id, true);
+                    }
                 }
             }
 
@@ -1300,78 +1670,6 @@ namespace SushiEngine
                     if (changed)
                         world->set_physics_body_params(id, params);
                 }
-            }
-
-            if (world->has_shape(id))
-            {
-                ImGui::CollapsingHeader("Shape", ImGuiTreeNodeFlags_DefaultOpen |
-                                                     ImGuiTreeNodeFlags_Leaf |
-                                                     ImGuiTreeNodeFlags_NoTreePushOnOpen);
-                // No close box: a Shape is only created via the Objects submenu with
-                // sane per-kind defaults, so it is not independently removable here
-                // (compare Renderer/Rigid Body/Cloth, all addable/removable blind).
-                SushiEngine::Simulation::ShapeParams params = world->shape_params(id);
-                bool changed = false;
-
-                static const char* const KIND_NAMES[] = {"Box", "Sphere", "Cylinder", "Plane"};
-                ImGui::TextDisabled(
-                    "Kind: %s", KIND_NAMES[static_cast<std::size_t>(params.kind)]);
-
-                switch (params.kind)
-                {
-                    case SushiEngine::Simulation::PrimitiveKind::Box:
-                    {
-                        float half_extents[3] = {static_cast<float>(params.params.x),
-                                                 static_cast<float>(params.params.y),
-                                                 static_cast<float>(params.params.z)};
-                        if (ImGui::DragFloat3("Half Extents##Shape", half_extents, 0.01f, 0.01f, 1000.0f, "%.3f"))
-                        {
-                            params.params = SushiEngine::Vector3{half_extents[0], half_extents[1],
-                                                              half_extents[2]};
-                            changed = true;
-                        }
-                        break;
-                    }
-                    case SushiEngine::Simulation::PrimitiveKind::Sphere:
-                    {
-                        float radius = static_cast<float>(params.params.x);
-                        if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.01f, 1000.0f, "%.3f"))
-                        {
-                            params.params.x = radius;
-                            changed = true;
-                        }
-                        break;
-                    }
-                    case SushiEngine::Simulation::PrimitiveKind::Cylinder:
-                    {
-                        float radius = static_cast<float>(params.params.x);
-                        float half_height = static_cast<float>(params.params.y);
-                        if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.01f, 1000.0f, "%.3f"))
-                        {
-                            params.params.x = radius;
-                            changed = true;
-                        }
-                        if (ImGui::IsItemActivated())
-                            context.history.begin_change(*world);
-                        if (ImGui::IsItemDeactivatedAfterEdit())
-                            context.history.end_change();
-                        if (ImGui::DragFloat("Half Height", &half_height, 0.01f, 0.01f, 1000.0f, "%.3f"))
-                        {
-                            params.params.y = half_height;
-                            changed = true;
-                        }
-                        break;
-                    }
-                    case SushiEngine::Simulation::PrimitiveKind::Plane:
-                        break;
-                }
-                if (ImGui::IsItemActivated())
-                    context.history.begin_change(*world);
-                if (ImGui::IsItemDeactivatedAfterEdit())
-                    context.history.end_change();
-
-                if (changed)
-                    world->set_shape_params(id, params);
             }
 
             if (world->has_collider(id))
@@ -1498,41 +1796,227 @@ namespace SushiEngine
                 }
             }
 
-            ImGui::Separator();
-            if (!world->has_renderer(id) || !world->is_camera(id) || !world->has_physics_body(id) ||
-                !world->has_cloth(id) || !world->has_collider(id))
+            if (world->has_ui(id))
             {
-                if (ImGui::Button("Add Component"))
-                    ImGui::OpenPopup("AddComponentPopup");
-                if (ImGui::BeginPopup("AddComponentPopup"))
+                bool keep_ui = true;
+                const bool ui_open = ImGui::CollapsingHeader(
+                    "UI Element", &keep_ui, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_ui)
                 {
-                    if (!world->has_renderer(id) && ImGui::MenuItem("Renderer"))
-                    {
-                        context.history.record(*world);
-                        world->set_has_renderer(id, true);
-                    }
-                    if (!world->is_camera(id) && ImGui::MenuItem("Camera"))
-                    {
-                        context.history.record(*world);
-                        world->set_is_camera(id, true);
-                    }
-                    if (!world->has_physics_body(id) && ImGui::MenuItem("Rigid Body"))
-                    {
-                        context.history.record(*world);
-                        world->set_has_physics_body(id, true);
-                    }
-                    if (!world->has_cloth(id) && ImGui::MenuItem("Cloth"))
-                    {
-                        context.history.record(*world);
-                        world->set_has_cloth(id, true);
-                    }
-                    if (!world->has_collider(id) && ImGui::MenuItem("Collider"))
-                    {
-                        context.history.record(*world);
-                        world->set_has_collider(id, true);
-                    }
-                    ImGui::EndPopup();
+                    context.history.record(*world);
+                    world->set_has_ui(id, false);
                 }
+                else if (ui_open)
+                {
+                    SushiEngine::Simulation::UIElementParams params = world->ui_params(id);
+                    bool changed = false;
+
+                    static const char* const UI_KINDS[] = {"Canvas", "Panel", "Image", "Text",
+                                                           "Button"};
+                    int kind_index = static_cast<int>(params.kind);
+                    if (ImGui::Combo("Kind##UI", &kind_index, UI_KINDS, 5))
+                    {
+                        context.history.record(*world);
+                        params.kind =
+                            static_cast<SushiEngine::Simulation::UIElementKind>(kind_index);
+                        changed = true;
+                    }
+
+                    const bool is_canvas =
+                        params.kind == SushiEngine::Simulation::UIElementKind::Canvas;
+                    const bool has_text =
+                        params.kind == SushiEngine::Simulation::UIElementKind::Text ||
+                        params.kind == SushiEngine::Simulation::UIElementKind::Button;
+
+                    if (!is_canvas)
+                    {
+                        float anchor_min[2] = {static_cast<float>(params.anchor_min_x),
+                                               static_cast<float>(params.anchor_min_y)};
+                        if (ImGui::DragFloat2("Anchor Min", anchor_min, 0.01f, 0.0f, 1.0f, "%.2f"))
+                        {
+                            params.anchor_min_x = anchor_min[0];
+                            params.anchor_min_y = anchor_min[1];
+                            changed = true;
+                        }
+                        float anchor_max[2] = {static_cast<float>(params.anchor_max_x),
+                                               static_cast<float>(params.anchor_max_y)};
+                        if (ImGui::DragFloat2("Anchor Max", anchor_max, 0.01f, 0.0f, 1.0f, "%.2f"))
+                        {
+                            params.anchor_max_x = anchor_max[0];
+                            params.anchor_max_y = anchor_max[1];
+                            changed = true;
+                        }
+                        float pivot[2] = {static_cast<float>(params.pivot_x),
+                                          static_cast<float>(params.pivot_y)};
+                        if (ImGui::DragFloat2("Pivot", pivot, 0.01f, 0.0f, 1.0f, "%.2f"))
+                        {
+                            params.pivot_x = pivot[0];
+                            params.pivot_y = pivot[1];
+                            changed = true;
+                        }
+                        float position[2] = {static_cast<float>(params.position_x),
+                                             static_cast<float>(params.position_y)};
+                        if (ImGui::DragFloat2("Position", position, 1.0f, -8192.0f, 8192.0f, "%.0f"))
+                        {
+                            params.position_x = position[0];
+                            params.position_y = position[1];
+                            changed = true;
+                        }
+                    }
+
+                    float size[2] = {static_cast<float>(params.size_x),
+                                     static_cast<float>(params.size_y)};
+                    if (ImGui::DragFloat2(is_canvas ? "Reference Size" : "Size", size, 1.0f, 0.0f,
+                                          8192.0f, "%.0f"))
+                    {
+                        params.size_x = size[0];
+                        params.size_y = size[1];
+                        changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (!is_canvas)
+                    {
+                        float color[3] = {static_cast<float>(params.color.x),
+                                          static_cast<float>(params.color.y),
+                                          static_cast<float>(params.color.z)};
+                        if (ImGui::ColorEdit3("Color##UI", color))
+                        {
+                            params.color = SushiEngine::Vector3{color[0], color[1], color[2]};
+                            changed = true;
+                        }
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+
+                        float alpha = static_cast<float>(params.alpha);
+                        if (ImGui::DragFloat("Opacity", &alpha, 0.01f, 0.0f, 1.0f, "%.2f"))
+                        {
+                            params.alpha = static_cast<SushiEngine::Scalar>(alpha);
+                            changed = true;
+                        }
+                    }
+
+                    if (has_text)
+                    {
+                        float font_size = static_cast<float>(params.font_size);
+                        if (ImGui::DragFloat("Font Size", &font_size, 0.5f, 4.0f, 128.0f, "%.0f"))
+                        {
+                            params.font_size = static_cast<SushiEngine::Scalar>(font_size);
+                            changed = true;
+                        }
+                        std::string text = params.text;
+                        if (ImGui::InputText("Text", &text))
+                        {
+                            std::snprintf(params.text, sizeof(params.text), "%s", text.c_str());
+                            changed = true;
+                        }
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+                    }
+
+                    if (changed)
+                        world->set_ui_params(id, params);
+                }
+            }
+
+            // Script (custom) components. Any type discovered here that is not yet in
+            // the Add Component catalog is registered, so a scene loaded from disk
+            // repopulates the menu without a separate load hook.
+            for (const std::string& type_name : world->script_components(id))
+            {
+                register_script_definition(context, world->script_component(id, type_name));
+
+                bool keep_script = true;
+                ImGui::PushID(type_name.c_str());
+                const bool script_open = ImGui::CollapsingHeader(
+                    type_name.c_str(), &keep_script, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_script)
+                {
+                    context.history.record(*world);
+                    world->remove_script_component(id, type_name);
+                }
+                else if (script_open)
+                {
+                    SushiEngine::Simulation::ScriptComponent script =
+                        world->script_component(id, type_name);
+                    if (draw_script_fields(context, *world, script))
+                        world->set_script_component(id, script);
+                }
+                ImGui::PopID();
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Add Component"))
+                ImGui::OpenPopup("AddComponentPopup");
+            if (ImGui::BeginPopup("AddComponentPopup"))
+            {
+                if (!world->has_renderer(id) && ImGui::MenuItem("Renderer"))
+                {
+                    // A Renderer comes with a default Box mesh, since the mesh is the
+                    // Renderer's own property here (see the Renderer header above).
+                    context.history.record(*world);
+                    world->set_has_renderer(id, true);
+                    world->set_has_shape(id, true);
+                }
+                if (!world->is_camera(id) && ImGui::MenuItem("Camera"))
+                {
+                    context.history.record(*world);
+                    world->set_is_camera(id, true);
+                }
+                if (!world->has_physics_body(id) && ImGui::MenuItem("Rigid Body"))
+                {
+                    context.history.record(*world);
+                    world->set_has_physics_body(id, true);
+                }
+                if (!world->has_cloth(id) && ImGui::MenuItem("Cloth"))
+                {
+                    context.history.record(*world);
+                    world->set_has_cloth(id, true);
+                }
+                if (!world->has_collider(id) && ImGui::MenuItem("Collider"))
+                {
+                    context.history.record(*world);
+                    world->set_has_collider(id, true);
+                }
+                if (!world->has_ui(id) && ImGui::MenuItem("UI Element"))
+                {
+                    context.history.record(*world);
+                    world->set_has_ui(id, true);
+                }
+
+                // User-defined script components: every catalog entry not already on
+                // the entity, plus the New Script scaffold. This is the editor's
+                // MonoBehaviour-style "attach a custom component" surface.
+                if (ImGui::BeginMenu("Scripts"))
+                {
+                    for (const SushiEngine::Simulation::ScriptComponent& definition :
+                         context.script_catalog)
+                    {
+                        if (world->has_script_component(id, definition.type_name))
+                            continue;
+                        if (ImGui::MenuItem(definition.type_name.c_str()))
+                        {
+                            context.history.record(*world);
+                            world->add_script_component(id, definition);
+                        }
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("New Script..."))
+                    {
+                        context.show_new_script = true;
+                        context.new_script_name.clear();
+                        context.new_script_target = id;
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::EndPopup();
             }
 
             ImGui::End();
@@ -2190,29 +2674,19 @@ namespace SushiEngine
 
             if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                // Precision is a compile-time choice, so this records intent for the next
-                // build rather than changing the running engine. Flag the mismatch.
+                // The physics-solve precision is a runtime choice: changing it rebuilds
+                // the live simulation in the new precision (preserving the scene), no
+                // rebuild of the binary needed. The render/ECS boundary Scalar is a
+                // separate, build-time option and is not what this selects.
                 const char* precision_items[] = {"Single (float)", "Double"};
                 int precision_index = preferences.precision == ScalarPrecision::Double ? 1 : 0;
-                if (ImGui::Combo("Scalar precision", &precision_index, precision_items, 2))
+                if (ImGui::Combo("Physics precision", &precision_index, precision_items, 2))
                 {
                     preferences.precision =
                         precision_index == 1 ? ScalarPrecision::Double : ScalarPrecision::Single;
                     changed = true;
                 }
-                if (preferences.precision != current_precision())
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f),
-                                       "Rebuild required to apply precision.");
-                    ImGui::TextDisabled("Run: se editor %s",
-                                        preferences.precision == ScalarPrecision::Double
-                                            ? "--double"
-                                            : "(without --double)");
-                }
-                else
-                {
-                    ImGui::TextDisabled("Matches this build.");
-                }
+                ImGui::TextDisabled("Applied live to the physics solve.");
 
                 const char* theme_items[] = {"Dark", "Light", "Classic"};
                 int theme_index = static_cast<int>(preferences.theme);

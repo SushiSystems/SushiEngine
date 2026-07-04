@@ -121,6 +121,9 @@ namespace SushiEngine
             SushiEngine::Simulation::ShapeParams shape_params;
             bool has_collider = false;
             SushiEngine::Simulation::ColliderParams collider_params;
+            bool has_ui = false;
+            SushiEngine::Simulation::UIElementParams ui_params;
+            std::vector<SushiEngine::Simulation::ScriptComponent> scripts;
         };
 
         /**
@@ -255,6 +258,21 @@ namespace SushiEngine
             bool show_preferences = false;
 
             bool show_imgui_demo = false;
+
+            // The catalog of user-defined "script" component types available in the
+            // Add Component menu. Each entry is a definition (a type name plus default
+            // fields); attaching one copies it onto the entity as an instance. Seeded
+            // from scripts found when a scene loads and grown by the New Script dialog,
+            // so a project's custom components survive a save/load round-trip.
+            std::vector<SushiEngine::Simulation::ScriptComponent> script_catalog;
+
+            // New Script dialog state: the pending class name typed in the modal and
+            // whether it is open. Creating a script adds a definition to the catalog and
+            // scaffolds a C++ system stub in the project, opened in the Text Editor.
+            bool show_new_script = false;
+            std::string new_script_name;
+            SushiEngine::Simulation::EntityId new_script_target =
+                SushiEngine::Simulation::NULL_ENTITY;
         };
 
         /**

@@ -32,6 +32,7 @@
 
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
+#include <SushiEngine/sim/simulation.hpp>
 
 #include "../gizmo/gizmo_controller.hpp"
 #include "imgui_backend.hpp"
@@ -41,6 +42,44 @@ namespace SushiEngine
 {
     namespace Editor
     {
+        /**
+         * @brief One UI element to draw as a 2D overlay on top of a viewport.
+         *
+         * A flattened UI tree node: its authored `params` plus the index of its UI
+         * parent in the same array (or -1 when it anchors directly to the viewport).
+         * The panel resolves each element's pixel rect against its parent's — a
+         * top-left, y-down variant of Unity's uGUI RectTransform math — and paints it
+         * with ImGui's draw list over the rendered image, so canvases and buttons are
+         * visible while authoring without a dedicated Vulkan 2D pass.
+         */
+        struct UIOverlayElement
+        {
+            int parent = -1;                            /**< Index of the UI parent, or -1 for viewport-anchored. */
+            std::uint32_t id = 0;                       /**< The owning entity id (for picking; 0 = none). */
+            SushiEngine::Simulation::UIElementParams params; /**< The authored rect and paint. */
+            bool selected = false;                      /**< Whether to draw a selection outline and handles. */
+        };
+
+        /**
+         * @brief The UI layer drawn over a viewport, plus its interaction in/out.
+         *
+         * In edit mode the overlay is drawn translucent (so the 3D scene shows through
+         * a canvas rather than being covered) and is interactive: clicking an element
+         * picks it, dragging its body moves it, and dragging a corner handle resizes it,
+         * writing the change back into `elements[edited_index].params`. In play mode
+         * (the Game view) it is drawn solid and non-interactive — the runtime look.
+         */
+        struct UIOverlay
+        {
+            UIOverlayElement* elements = nullptr; /**< The flattened UI tree (mutated by drags). */
+            std::size_t count = 0;                /**< Number of elements. */
+            bool edit_mode = false;               /**< Translucent + interactive (Scene) vs solid (Game). */
+            std::uint32_t selected_id = 0;        /**< In: the selected UI entity (drives handles). */
+            std::uint32_t picked_id = 0;          /**< Out: UI entity clicked this frame (0 = none). */
+            bool consumed_click = false;          /**< Out: a UI pick/drag consumed the left click. */
+            int edited_index = -1;                /**< Out: element whose params changed this frame. */
+        };
+
         /**
          * @brief A Unity-style viewport panel: a Vulkan 3D view from an injected camera.
          *
@@ -120,10 +159,13 @@ namespace SushiEngine
                           const GizmoSnap* gizmo_snap = nullptr,
                           const DisplaySelector* display = nullptr,
                           const SushiEngine::Render::ClothStrandView* strands = nullptr,
-                          std::size_t strand_count = 0);
+                          std::size_t strand_count = 0, UIOverlay* ui = nullptr);
 
                 /** @brief Whether this panel's gizmo currently has a handle grabbed. */
                 bool gizmo_dragging() const noexcept { return gizmo_.dragging(); }
+
+                /** @brief Whether a UI element is currently being dragged (moved or resized). */
+                bool ui_dragging() const noexcept { return ui_drag_index_ >= 0; }
 
             private:
                 void resize_to(std::uint32_t width, std::uint32_t height);
@@ -137,6 +179,10 @@ namespace SushiEngine
                 std::vector<ImTextureID> slot_textures_;
                 bool looking_ = false;
                 bool panning_ = false;
+                // Active UI drag: the element index being dragged and which handle grabbed
+                // (0 = body/move, 1..4 = corner resize), or -1 when no drag is in progress.
+                int ui_drag_index_ = -1;
+                int ui_drag_handle_ = -1;
                 GizmoController gizmo_;
         };
     } // namespace Editor

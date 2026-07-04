@@ -43,17 +43,27 @@ namespace SushiEngine
          * on, per XPBD's core idea (Müller et al., "XPBD: Position-Based Simulation of
          * Compliant Constrained Dynamics").
          */
-        struct RigidBody
+        template <typename T>
+        struct RigidBodyT
         {
-            Vector3 position;
-            Quaternion orientation{};
-            Vector3 prev_position;
-            Quaternion prev_orientation{};
-            Vector3 velocity;
-            Vector3 angular_velocity;
-            Vector3 inv_inertia;
-            Scalar inv_mass = 0;
+            Vector3T<T> position;
+            QuaternionT<T> orientation{};
+            Vector3T<T> prev_position;
+            QuaternionT<T> prev_orientation{};
+            Vector3T<T> velocity;
+            Vector3T<T> angular_velocity;
+            Vector3T<T> inv_inertia;
+            T inv_mass = 0;
         };
+
+        /**
+         * @brief The boundary rigid body: `RigidBodyT` fixed to `Scalar`.
+         *
+         * The default precision every existing solver, bridge, and demo uses. A
+         * simulation running in a runtime-selected precision instantiates
+         * `RigidBodyT<double>` (or `<float>`) directly instead of this alias.
+         */
+        using RigidBody = RigidBodyT<Scalar>;
 
         /**
          * @brief Applies a rotation correction expressed in @p q's own local frame.
@@ -63,16 +73,19 @@ namespace SushiEngine
          * folded in as `q += 0.5 * Quaternion(local_delta, 0) * q`, then renormalized. Used
          * by both the predicted-pose integration below and constraint projections.
          *
+         * @tparam T The scalar element type.
          * @param q           The orientation to correct.
          * @param local_delta The rotation vector to apply, in @p q's local frame.
          * @return The corrected, renormalized orientation.
          */
-        inline Quaternion apply_angular_correction(const Quaternion& q, const Vector3& local_delta) noexcept
+        template <typename T>
+        inline QuaternionT<T> apply_angular_correction(const QuaternionT<T>& q,
+                                                       const Vector3T<T>& local_delta) noexcept
         {
-            const Quaternion vq{local_delta.x, local_delta.y, local_delta.z, Scalar(0)};
-            const Quaternion dq = mul(vq, q);
-            const Quaternion updated{q.x + Scalar(0.5) * dq.x, q.y + Scalar(0.5) * dq.y,
-                               q.z + Scalar(0.5) * dq.z, q.w + Scalar(0.5) * dq.w};
+            const QuaternionT<T> vq{local_delta.x, local_delta.y, local_delta.z, T(0)};
+            const QuaternionT<T> dq = mul(vq, q);
+            const QuaternionT<T> updated{q.x + T(0.5) * dq.x, q.y + T(0.5) * dq.y,
+                               q.z + T(0.5) * dq.z, q.w + T(0.5) * dq.w};
             return normalize(updated);
         }
 
@@ -85,23 +98,25 @@ namespace SushiEngine
          * afterward. A body with `inv_mass == 0` (or a zero `inv_inertia` axis) does not
          * move along that degree of freedom, matching a pinned/fixed body.
          *
+         * @tparam T The scalar element type.
          * @param body                 The body to predict; updated in place.
          * @param linear_acceleration  External acceleration for this sub-step (e.g. gravity).
          * @param h                    Sub-step duration, in seconds (> 0).
          */
-        inline void predict(RigidBody& body, Vector3 linear_acceleration, Scalar h) noexcept
+        template <typename T>
+        inline void predict(RigidBodyT<T>& body, Vector3T<T> linear_acceleration, T h) noexcept
         {
             body.prev_position = body.position;
             body.prev_orientation = body.orientation;
 
-            if (body.inv_mass > Scalar(0))
+            if (body.inv_mass > T(0))
             {
                 body.velocity = body.velocity + linear_acceleration * h;
                 body.position = body.position + body.velocity * h;
             }
 
-            if (body.inv_inertia.x > Scalar(0) || body.inv_inertia.y > Scalar(0) ||
-                body.inv_inertia.z > Scalar(0))
+            if (body.inv_inertia.x > T(0) || body.inv_inertia.y > T(0) ||
+                body.inv_inertia.z > T(0))
             {
                 body.orientation =
                     apply_angular_correction(body.orientation, body.angular_velocity * h);
@@ -116,19 +131,21 @@ namespace SushiEngine
          * taking the shorter rotational path (sign-correcting so the quaternion delta's
          * scalar part is non-negative).
          *
+         * @tparam T The scalar element type.
          * @param body The body whose pose was just solved; velocities updated in place.
          * @param h    Sub-step duration, in seconds (> 0).
          */
-        inline void update_velocity(RigidBody& body, Scalar h) noexcept
+        template <typename T>
+        inline void update_velocity(RigidBodyT<T>& body, T h) noexcept
         {
-            if (h <= Scalar(0))
+            if (h <= T(0))
                 return;
 
-            body.velocity = (body.position - body.prev_position) * (Scalar(1) / h);
+            body.velocity = (body.position - body.prev_position) * (T(1) / h);
 
-            const Quaternion delta = mul(body.orientation, conjugate(body.prev_orientation));
-            const Scalar sign = delta.w < Scalar(0) ? Scalar(-1) : Scalar(1);
-            body.angular_velocity = Vector3{delta.x, delta.y, delta.z} * (sign * Scalar(2) / h);
+            const QuaternionT<T> delta = mul(body.orientation, conjugate(body.prev_orientation));
+            const T sign = delta.w < T(0) ? T(-1) : T(1);
+            body.angular_velocity = Vector3T<T>{delta.x, delta.y, delta.z} * (sign * T(2) / h);
         }
     } // namespace Physics
 } // namespace SushiEngine

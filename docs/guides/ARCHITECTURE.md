@@ -34,7 +34,8 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 
 | Layer | Headers | Responsibility |
 |-------|---------|----------------|
-| SushiLoop core | `loop/fixed_timestep.hpp`, `loop/rng.hpp`, `loop/input.hpp`, `loop/rollback.hpp`, `loop/net.hpp` | Fixed-step time, seeded RNG, per-tick input capture, rollback snapshots, and loopback network reconciliation (see §8, §9). |
+| SushiLoop core | `loop/app.hpp`, `loop/fixed_timestep.hpp`, `loop/rng.hpp`, `loop/input.hpp`, `loop/rollback.hpp`, `loop/net.hpp` | The `Loop::App` authoring API over a fixed-step deterministic loop; plus seeded RNG, per-tick input capture, rollback snapshots, and loopback network reconciliation (see §8, §9, §10). |
+| UI | `ui/rect.hpp`, `ui/components.hpp`, `ui/layout.hpp`, `ui/interaction.hpp`, `ui/ui.hpp` | Retained ECS UI (Unity UGUI-shaped): `RectTransform`/`Canvas`/`UIImage`/`UIText`/`UIButton` components, the `resolve_rect` anchor solver, the pointer/click model, and the `UI` façade that builds, lays out, and drives a canvas of buttons (see §11). |
 | Physics     | `physics/pgs_solver.hpp`, `physics/graph_coloring.hpp`, `physics/xpbd_solver.hpp`, `physics/rigid_body.hpp`, `physics/physics_world.hpp`, `physics/cloth.hpp` | Graph-coloured PGS solver, its unified XPBD rigid-body generalization, and cloth grids built from it (see §4). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
@@ -160,14 +161,16 @@ consumer of that seam, and takes a different route from the generic
 only present when attached, but a Rigid Body's data (position, orientation) is
 already `Transform`/`Orientation`, always present. So attaching/detaching physics
 is plain host bookkeeping in `RuntimeSimulation::Record` (`has_physics_body`,
-`physics_params`), and a `Physics::PhysicsWorld<XpbdDistanceConstraint>` (no
-constraints registered — this is free-body physics only, no joints yet) is rebuilt
-lazily in `tick()` whenever the physics-driven entity count changes, the same
-"rebuild only when the input set changes" discipline `Schedule` and `XpbdSolver`
-already follow. A rebuild snapshots every currently-simulated body's live state
-first, so toggling physics on one entity never resets another already-falling
-body in the scene; a brand-new body seeds from the entity's current `Transform`/
-`Orientation` at rest instead. `tick()` steps the world under gravity and writes
+`physics_params`). The physics itself lives behind the `Simulation::IPhysicsSimulation`
+seam (`sim/physics_simulation.hpp`), not in `RuntimeSimulation`: whenever the
+physics-driven entity set changes, `tick()` gathers one `RigidBodyDesc` per Rigid Body
+entity and calls `set_rigid_bodies`, which rebuilds a free-body `PhysicsWorld` (no
+constraints registered — no joints yet) inside the seam, the same "rebuild only when
+the input set changes" discipline `Schedule` and `XpbdSolver` follow. That rebuild
+snapshots every currently-simulated body's live state first, so toggling physics on one
+entity never resets another already-falling body; a brand-new body seeds from its
+descriptor pose at rest instead. `RuntimeSimulation` only marshals poses across the
+seam and no longer owns a `PhysicsWorld` (single responsibility). `tick()` steps the world under gravity and writes
 the solved pose back before the ECS schedule runs, at a fixed assumed ~1/60s frame
 — `loop/fixed_timestep.hpp`'s `FixedTimestepClock` is not wired into this loop yet.
 `.sushiscene` (`editor/scene_serializer.cpp`) carries `has_physics_body`/
@@ -239,19 +242,18 @@ entirely) is a distinct future milestone, not a natural extension of this file.
 Body toggle takes rather than `sim/physics_bridge.hpp`: a cloth grid is a single
 host-side record — `RuntimeSimulation::Record::has_cloth`/`cloth_params`
 (`Simulation::ClothParams`: rows, columns, spacing, compliance) — not one ECS entity per
-grid point. Unlike a Rigid Body, whose count is the only thing that forces
-`rebuild_physics()`, *any* `ClothParams` edit forces a rebuild (`cloth_dirty_`),
-because rows/cols change the grid's body count and there is no meaningful partial
-state to carry across a topology change the way a falling free body's position/
-velocity survives an unrelated Rigid Body toggle. A rebuild is a wholesale replace:
-every Cloth entity's grid is torn down and rebuilt from its current
-`Transform::position` as the grid origin, at rest, every time. Cloth lives in its
-own `Physics::PhysicsWorld<XpbdDistanceConstraint>` (`physics_cloth_`), separate
-from the Rigid Body world (`physics_`) — same constraint type, a second instance —
-specifically so this full-rebuild-on-any-change discipline never forces
-`rebuild_physics()`'s free-body snapshot-and-carry-over logic to special-case an
-entire pinned grid. `step_once()` steps `physics_cloth_` under the same gravity and
-sub-step count as `physics_`, immediately after it, both driven by the fixed step
+grid point. Unlike a Rigid Body, whose count is the only thing that forces a rebuild,
+*any* `ClothParams` edit forces one (`cloth_dirty_`), because rows/cols change the
+grid's body count and there is no meaningful partial state to carry across a topology
+change the way a falling free body's position/velocity survives an unrelated Rigid Body
+toggle. `tick()` gathers one `ClothDesc` per Cloth entity and calls
+`IPhysicsSimulation::set_cloth_grids`; the rebuild is a wholesale replace, every grid
+torn down and rebuilt from its current `Transform::position` as the grid origin, at
+rest. Inside the seam, cloth lives in its own `PhysicsWorld`, separate from the Rigid
+Body world — same constraint type, a second instance — specifically so the
+full-rebuild-on-any-change discipline never forces the free-body snapshot-and-carry-over
+logic to special-case an entire pinned grid. `IPhysicsSimulation::step` advances both
+worlds under the same gravity and sub-step count, driven by the fixed step
 `Loop::FixedTimestepClock` reports (§4.1) — there is no separately hardcoded cloth
 tick rate.
 
@@ -297,10 +299,14 @@ no collision detection at all, only distance constraints.
 `RenderInstance`/`Render::MeshInstance` both gained `shape_kind`/`shape_params`
 (mirrored as `Render::MeshKind` to keep the render seam free of any dependency on
 `Simulation`; the editor's per-frame copy loop maps one to the other). `extract()`
-now gates drawing on `has_shape` rather than `has_renderer` alone — a bare
-"Create Entity" is a plain `Transform` with no Shape, so it draws nothing, matching
-Unity's empty GameObject rather than the previous "every Renderer is a cube"
-behavior. The Vulkan scene view (`vulkan_scene_view.cpp`) builds a unit sphere and
+gates drawing on `has_shape` **and** `has_renderer` together, because the mesh
+(Shape) is now a feature of the Renderer rather than an independent component: the
+Inspector edits the mesh kind and dimensions inside the Renderer header, adding a
+Renderer attaches a default Box mesh, and removing the Renderer takes the mesh with
+it (`editor_panels.cpp`). `create()` makes a truly empty entity — a plain
+`Transform`/`Orientation` with no Renderer and no mesh — so a bare "Create Entity"
+draws nothing, matching Unity's empty GameObject; the mesh kind is also now editable
+(Box↔Sphere↔Cylinder) rather than fixed at creation. The Vulkan scene view (`vulkan_scene_view.cpp`) builds a unit sphere and
 a unit cylinder alongside its existing unit cube in `create_geometry()`, and its
 draw pass groups instances by `MeshKind` to bind each mesh's buffers once per
 group; an instance's `shape_params` become a local scale multiplied into its model
@@ -317,6 +323,89 @@ entries (transform, colour, visibility, and every optional component's attached-
 flag/params), Paste replays them through the matching setters onto newly `create`d
 entities, and Cut is Copy immediately followed by `destroy` on the originals — no
 new engine-side clone primitive, just existing `IWorldEditor` surface replayed.
+
+### 4.3 Collision and soft bodies
+
+Two additions extend the XPBD physics without touching the graph-coloured solver.
+`physics/collision.hpp` is the narrowphase: element-parametric collider shapes
+(`SphereCollider<T>`, `PlaneCollider<T>`, `BoxCollider<T>`) and pure functions that
+return a `Contact` (unit normal from the first shape to the second, positive
+penetration depth) for each shape pair. They are geometry only — no runtime, ECS, or
+solver dependency — so they are unit-tested directly (`Unit_Collision`).
+`physics/contact_solver.hpp` consumes them: non-penetration is an inequality
+constraint that only pushes bodies apart, so rather than living in the compile-once
+`XpbdSolver` (whose constraint set is fixed) it is a positional projection pass
+regenerated from the narrowphase each sub-step, run between `predict` and
+`update_velocity`. Because `update_velocity` derives velocity from the post-projection
+position, a body that lands on a surface loses its downward velocity with no explicit
+restitution term (inelastic contact).
+
+`physics/soft_body.hpp` is the 3D counterpart of the cloth grid (§4.2):
+`build_soft_body_lattice` wires an `nx*ny*nz` particle grid held by structural (axis)
+and shear (face-diagonal) `XpbdDistanceConstraint`s into a `PhysicsWorld`, so the same
+solver runs a deformable block with no new constraint type — a mass-spring soft body
+(tetrahedral volume constraints are a later refinement). Both are validated headlessly
+(`Integration_SoftBody`, `examples/soft_body_demo.cpp`).
+
+Contacts are now wired into the **live tick**. `PhysicsWorld::step` takes an optional
+post-solve callback — run each sub-step between the constraint solve and the velocity
+derivation — so the world stays collider-agnostic while a caller injects a narrowphase.
+`PhysicsSimulation<T>` uses it: rigid bodies collide as spheres (radius from the entity's
+Collider/Shape) against each other and the scene's static `Plane` colliders (Terrain,
+supplied every tick via `set_static_planes`), and cloth particles collide against those
+planes and against the rigid bodies snapshotted as sphere obstacles — one-way coupling, so
+cloth drapes over a rigid without pushing back on it yet. So a body dropped on terrain
+comes to rest (its downward velocity absorbed with no restitution term, since velocity is
+derived from the post-contact position) and a cloth sheet settles over a sphere. Two-way
+cloth→rigid reaction, true box/oriented contacts (bodies collide as spheres today), and a
+broadphase are the follow-ups; rendering a deforming surface mesh (cloth and soft bodies
+reach the renderer as vertex sets, drawn as wireframes) is the remaining visual work.
+
+### 4.4 Editor authoring: cloth, UI, and custom components
+
+Every capability §4.1–§4.3 added is now authorable in the editor, all through the same
+plain-C++ `IWorldEditor` seam and all as attach/detach components.
+
+**Cloth as an object.** `create_cloth` (Entity ▸ Objects ▸ Cloth) makes a bare entity
+owning a cloth grid. So a fresh cloth is visible without pressing Play, `extract()`
+synthesises a flat resting sheet from `ClothParams` (matching `build_cloth_grid`'s
+`origin + (col, 0, row) * spacing` layout) whenever the physics grid has not been built
+yet; once the world is played the simulated particle positions take over. The wireframe
+already reached the renderer as `ClothStrandView`s (§5), so no render change was needed.
+
+**UI (Canvas + elements).** UI is a host-side record on the entity — `UIElementKind`
+(Canvas/Panel/Image/Text/Button) plus a `UIElementParams` that is a uGUI RectTransform
+(anchors, pivot, anchored position, size, colour, opacity, text) — the same
+no-ECS-migration bookkeeping as cloth, since nothing in the `Schedule` reads it.
+`create_canvas`/`create_ui_element` add them from Entity ▸ UI (elements parent to the
+selected UI entity so they lay out inside it). The editor draws the tree as a 2D overlay:
+each frame `main.cpp` flattens every UI entity into `UIOverlayElement`s (params + the
+index of the UI parent) and both viewports paint them with ImGui's draw list
+(`paint_ui_overlay`), resolving each rect against the panel rect via a top-left, y-down
+variant of the uGUI formula and tinting buttons on hover/press. This is a deliberate
+shortcut over a dedicated Vulkan 2D pass — it makes canvases and buttons visible and
+editable now; the engine-side `SushiEngine::UI` module (§11) remains the runtime path.
+
+The overlay is also a **RectTransform manipulator** in the Scene view: it is drawn
+translucent with outlines (a full-screen canvas therefore no longer hides the 3D scene,
+and a canvas is never picked by its body — clicks fall through to the scene or a child),
+clicking an element selects it, dragging its body moves it, and dragging a corner handle
+resizes it. Each drag inverts the layout formula (`ui_apply_screen_rect`) to write the new
+screen rect back as `position`/`size_delta`, and is one undo step (begin/end mirroring the
+transform gizmo). The Game view draws the same overlay solid and non-interactive. This is
+why `ViewportPanel::draw` takes a mutable `UIOverlay` (elements plus edit-mode and pick/
+edit outputs) rather than a const element array.
+
+**Custom (script) components.** The engine has no scripting VM, so a "custom component"
+is authoring data: `ScriptComponent` (a `type_name` and a list of `ScriptField`s, each a
+tagged float/int/bool/vec3/colour/text value). Instances live per entity on
+`RuntimeSimulation::Record::scripts`; the *catalog* of definitions lives in
+`EditorContext::script_catalog` and is repopulated from any script found while a scene
+loads, so the Add Component ▸ Scripts menu survives a round-trip. "New Script…" scaffolds
+a `<Name>.hpp` C++ system stub in the project (Apache header, a `struct`, and a commented
+`app.system<…>().each(…)` registration), opens it in the Text Editor, and registers +
+attaches the new type. Both UI params and script components serialize with the scene and
+travel through the copy/paste clipboard alongside the other optional components.
 
 ## 5. The render seam
 
@@ -568,13 +657,20 @@ physics, and rendering work in single precision at planetary distances instead o
 for double precision everywhere. These types are the SushiLoop M0 foundation
 (`docs/slop/SUSHILOOP.md`) and are not yet consumed by any simulation code.
 
-Because everything routes through this one seam, **precision is a build-time choice**.
-The `SE_SCALAR_DOUBLE` option (`cmake/ProjectOptions.cmake`) switches the placeholder's
-`Float` between `float` and `double`; it is threaded as a compile definition on the
-`SushiEngine` INTERFACE target so every consumer — sandbox, `pgs_demo`, `sushi_sim`
-(and thus the editor), and the tests — agrees on `sizeof(Scalar)`. It is compile-time,
-not runtime, because `Scalar` is baked into trivially-copyable components and device
-storage. `sushi_render` is the one target that shares the value types (across
+Because everything routes through this one seam, **the boundary `Scalar` precision is a
+build-time choice**. The `SE_SCALAR_DOUBLE` option (`cmake/ProjectOptions.cmake`)
+switches the placeholder's `Float` between `float` and `double`; it is threaded as a
+compile definition on the `SushiEngine` INTERFACE target so every consumer — sandbox,
+`pgs_demo`, `sushi_sim` (and thus the editor), and the tests — agrees on
+`sizeof(Scalar)`. The boundary is compile-time because `Scalar` is baked into
+trivially-copyable components and device storage. The vector and quaternion types are,
+however, element-parametric (`Vector3T<T>`/`QuaternionT<T>`), and the physics layer
+templates on that element (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`), so the
+**simulation's physics-solve precision is a separate runtime choice**
+(`Simulation::Precision`): both a float and a double solver are compiled into `sushi_sim`
+and `create_simulation(Precision)` picks one behind `Simulation::IPhysicsSimulation`,
+letting the editor switch physics precision live (rebuilding the world from a scene
+snapshot) without a rebuild of the binary. `sushi_render` is the one target that shares the value types (across
 `MeshInstance`/`CameraView`) without linking the engine target — it links the runtime
 otherwise — so it mirrors the same definition to keep the ABI in agreement. The Vulkan
 upload path narrows to 32-bit explicitly at the push-constant boundary, so GPU data and
@@ -720,9 +816,22 @@ work (M1 onward) builds on:
 - **`InputHistory<Command>`** (`loop/input.hpp`) is the per-tick, numbered command
   buffer shape that networked input capture and rollback replay (M3/M4) will read
   and write; the command type itself is left to the game.
+- **`Loop::App<Command>`** (`loop/app.hpp`) is the authoring API that ties the above
+  together into the settled surface a game is written against. It owns the
+  `SushiRuntime`, `World`, and `Schedule`, and drives one fixed-step deterministic
+  loop: each `step_once()` captures the tick's command into `InputHistory` (and a
+  `RollbackBuffer` snapshot when enabled), applies it via the game's `on_command`,
+  runs the `Schedule`, and applies the `CommandBuffer` barrier. Systems are declared
+  ergonomically with `app.system<Read<A>, Write<B>>("name").each(fn)`, a thin wrapper
+  over `Schedule::each` (via `SystemBuilder`). The loop is **always
+  multiplayer-ready**: the command stream is numbered every tick regardless of
+  network state, and the network is reached only through
+  `Loop::Net::INetworkTransport<Command>` (§8.1), so `connect()`-ing a transport
+  turns a single-player game networked with no change to its systems. This is the
+  point at which the SushiLoop core layers are wired into `Schedule`/`World` — the
+  standalone-game host, distinct from `sim/`'s editor-facing `ISimulation` (§4.1).
 
-None of this is wired into `Schedule`/`World` yet — that is later SushiLoop
-milestones' job. `SE_DETERMINISTIC_FP` (`cmake/ProjectOptions.cmake`, default `ON`)
+`SE_DETERMINISTIC_FP` (`cmake/ProjectOptions.cmake`, default `ON`)
 disables fast-math and FP contraction on the `SushiEngine` INTERFACE target, closing
 off two ways a build could make the same floating-point expression evaluate
 differently between runs.
@@ -779,3 +888,28 @@ differently between runs.
   the runtime behind the windowing, presentation, and ImGui-adapter seams of §5.
   Wiring these panels onto a live World, plus
   a viewport and play/pause, is the remaining work.
+
+## 11. UI (retained ECS canvas)
+
+The UI is retained and lives in the ECS, the same choice the rest of the engine
+makes: a `Canvas` is an entity, and every button, panel, and label is an entity under
+it carrying `ui/components.hpp` components — `RectTransform` (UGUI anchor/pivot/offset
+layout), `UIImage`, `UIText`, `UIButton`, linked by `UIParent`. So UI appears in the
+hierarchy, serializes with the scene, and (in a networked game) snapshots like any
+other component.
+
+`resolve_rect` (`ui/layout.hpp`) is the entire anchor model as a pure function of a
+parent rectangle and a `RectTransform`, so it is unit-tested (`Unit_UILayout`) with no
+world. The `UI` façade (`ui/ui.hpp`) is the authoring surface: `canvas`/`panel`/
+`image`/`label`/`button` builders spawn the entities into an existing `World` and keep
+a light ordered index (the same host-record pattern §4.1 uses), giving a deterministic
+paint and hit-test order. Each frame `update(screen_size, pointer)` resolves every
+`ComputedRect` (parents before children), runs the button state machine and
+press-and-release-inside click detection off an explicit per-frame `PointerInput`
+(input as a value, not a global — the same determinism discipline the sim follows),
+tints each button's graphic, and fires `on_click` callbacks. `build_draw_list()` emits
+a renderer-agnostic `UIDrawList` of coloured rects and text runs, in paint order — the
+seam a Vulkan 2D overlay pass (not yet written) consumes. `examples/ui_demo.cpp` and
+`Integration_UI` drive a canvas + button headlessly and assert layout, clicks, and
+button states. Rasterising the draw list and authoring UI in the editor's panels are
+the remaining visual work.
