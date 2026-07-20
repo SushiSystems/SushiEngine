@@ -8,6 +8,11 @@
 # on a stock toolchain. Interop with SushiRuntime (sharing USM with Vulkan) is a
 # later milestone layered on top of this device.
 #
+# The library is organised as the render-graph stack: graph/ derives barriers and
+# resource lifetimes, resources/ owns the caches and pools, passes/ holds one file
+# per pass, scene/ and geometry/ carry the shared scene data, and rhi/vulkan/ is the
+# only place Vulkan-specific device code lives.
+#
 # Vulkan, VMA, vk-bootstrap, and glslang come from vcpkg (declared in
 # cli/sushistack.deps.toml, provisioned by `ss install`).
 # ============================================================================
@@ -17,11 +22,19 @@ find_package(VulkanLoader CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 find_package(glslang CONFIG REQUIRED)
+# stb and cgltf are header-only. stb ships a find module (reached through vcpkg's
+# wrapper); cgltf ships nothing but the header, so it is located by the header itself
+# — the documented vcpkg approach for a port with no CMake export.
+find_package(Stb REQUIRED)
+find_path(CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
 
 # --- Build-time shader compilation ------------------------------------------
 # A host tool compiles GLSL to SPIR-V and emits a C++ header of embedded words, so
-# the renderer ships SPIR-V and carries no runtime shader-compiler dependency.
+# the renderer ships SPIR-V and needs no shader files at runtime. The same glslang
+# is also linked into the renderer, where it backs shader hot-reload against the
+# source tree during development.
 add_executable(shader_compiler tools/shader_compiler/main.cpp)
+target_include_directories(shader_compiler PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(shader_compiler PRIVATE
     glslang::glslang
     glslang::glslang-default-resource-limits
@@ -33,16 +46,27 @@ set_target_properties(shader_compiler PROPERTIES
 set(SHADER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${SHADER_GEN_DIR}")
 
-# sushi_compile_shader(<vert|frag> <input> <symbol> <out_var>)
+# Shared GLSL pulled in by #include; every shader depends on it, because the tool
+# resolves includes against the shader directory and cannot report what it read.
+set(SHADER_INCLUDES
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/pbr_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/temporal_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_sampling.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl")
+
+# sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
-#   SushiEngine::render::shaders::<symbol>; sets <out_var> to the generated header.
+#   SushiEngine::Render::Shaders::<symbol>; sets <out_var> to the generated header.
 function(sushi_compile_shader stage input symbol out_var)
     get_filename_component(name "${input}" NAME)
     set(output "${SHADER_GEN_DIR}/${name}.h")
     add_custom_command(
         OUTPUT "${output}"
         COMMAND shader_compiler ${stage} "${input}" "${output}" ${symbol}
-        DEPENDS shader_compiler "${input}"
+        DEPENDS shader_compiler "${input}" ${SHADER_INCLUDES}
         COMMENT "Compiling shader ${name} -> SPIR-V header"
         VERBATIM)
     set(${out_var} "${output}" PARENT_SCOPE)
@@ -54,45 +78,141 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.frag"
     triangle_frag_spv TRIANGLE_FRAG_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.vert"
     mesh_vert_spv MESH_VERT_HEADER)
-sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.frag"
-    mesh_frag_spv MESH_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/pbr.frag"
+    pbr_frag_spv PBR_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/line.frag"
     line_frag_spv LINE_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.frag"
     outline_frag_spv OUTLINE_FRAG_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.vert"
     outline_vert_spv OUTLINE_VERT_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.vert"
+    fullscreen_vert_spv FULLSCREEN_VERT_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sky.frag"
+    sky_frag_spv SKY_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud.frag"
+    cloud_frag_spv CLOUD_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/tonemap.frag"
+    tonemap_frag_spv TONEMAP_FRAG_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow.vert"
+    shadow_vert_spv SHADOW_VERT_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/contact_shadow.frag"
+    contact_shadow_frag_spv CONTACT_SHADOW_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_shadow.frag"
+    ray_shadow_frag_spv RAY_SHADOW_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_composite.frag"
+    cloud_composite_frag_spv CLOUD_COMPOSITE_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/taa.frag"
+    taa_frag_spv TAA_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fxaa.frag"
+    fxaa_frag_spv FXAA_FRAG_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shading_rate.comp"
+    shading_rate_comp_spv SHADING_RATE_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_volume.comp"
+    cloud_noise_volume_comp_spv CLOUD_NOISE_VOLUME_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_weather.comp"
+    cloud_noise_weather_comp_spv CLOUD_NOISE_WEATHER_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl_prefilter.comp"
+    ibl_prefilter_comp_spv IBL_PREFILTER_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl_irradiance.comp"
+    ibl_irradiance_comp_spv IBL_IRRADIANCE_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/brdf_lut.comp"
+    brdf_lut_comp_spv BRDF_LUT_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
+    shader_catalogue.cpp
+    graph/render_graph.cpp
+    graph/resource_state.cpp
+    graph/gpu_profiler.cpp
+    resources/transient_pool.cpp
+    resources/descriptor_allocator.cpp
+    resources/descriptor_heap.cpp
+    resources/pipeline_cache.cpp
+    resources/sampler_cache.cpp
+    resources/shader_library.cpp
+    scene/scene_layout.cpp
+    scene/scene_uniforms.cpp
+    scene/temporal_uniforms.cpp
+    scene/motion_system.cpp
+    scene/shadow_uniforms.cpp
+    raytracing/scene_accelerator.cpp
+    frame/temporal_jitter.cpp
+    frame/resolution_controller.cpp
+    geometry/mesh_registry.cpp
+    geometry/cloth_buffers.cpp
+    material/asset_library.cpp
+    material/texture_library.cpp
+    material/material_system.cpp
+    material/gltf_importer.cpp
+    textures/cloud_noise.cpp
+    passes/fullscreen.cpp
+    passes/ibl_pass.cpp
+    passes/opaque_pass.cpp
+    passes/sky_pass.cpp
+    passes/cloud_pass.cpp
+    passes/depth_only.cpp
+    passes/depth_prepass.cpp
+    passes/shadow_pass.cpp
+    passes/contact_shadow_pass.cpp
+    passes/ray_traced_shadow_pass.cpp
+    passes/cloud_composite_pass.cpp
+    passes/taa_pass.cpp
+    passes/fxaa_pass.cpp
+    passes/shading_rate_pass.cpp
+    passes/tonemap_pass.cpp
+    passes/picking_pass.cpp
     rhi/vulkan/vulkan_device.cpp
     rhi/vulkan/vulkan_offscreen.cpp
     rhi/vulkan/vulkan_window_renderer.cpp
     rhi/vulkan/vulkan_scene_view.cpp
     rhi/vulkan/vma_impl.cpp
+    material/stb_impl.cpp
     "${TRIANGLE_VERT_HEADER}"
     "${TRIANGLE_FRAG_HEADER}"
     "${MESH_VERT_HEADER}"
-    "${MESH_FRAG_HEADER}"
+    "${PBR_FRAG_HEADER}"
     "${LINE_FRAG_HEADER}"
     "${OUTLINE_FRAG_HEADER}"
-    "${OUTLINE_VERT_HEADER}")
+    "${OUTLINE_VERT_HEADER}"
+    "${FULLSCREEN_VERT_HEADER}"
+    "${SKY_FRAG_HEADER}"
+    "${CLOUD_FRAG_HEADER}"
+    "${TONEMAP_FRAG_HEADER}"
+    "${CLOUD_COMPOSITE_FRAG_HEADER}"
+    "${TAA_FRAG_HEADER}"
+    "${FXAA_FRAG_HEADER}"
+    "${SHADING_RATE_HEADER}"
+    "${SHADOW_VERT_HEADER}"
+    "${CONTACT_SHADOW_FRAG_HEADER}"
+    "${RAY_SHADOW_FRAG_HEADER}"
+    "${CLOUD_NOISE_VOLUME_HEADER}"
+    "${CLOUD_NOISE_WEATHER_HEADER}"
+    "${IBL_PREFILTER_HEADER}"
+    "${IBL_IRRADIANCE_HEADER}"
+    "${BRDF_LUT_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")
+# Shader hot-reload watches this directory when it exists, which is the case for a
+# development build from the source tree and not for a deployed binary.
+target_compile_definitions(sushi_render PRIVATE
+    SUSHI_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 target_link_libraries(sushi_render PUBLIC
     Vulkan::Headers
     Vulkan::Loader
     GPUOpen::VulkanMemoryAllocator
     vk-bootstrap::vk-bootstrap)
+target_link_libraries(sushi_render PRIVATE
+    glslang::glslang
+    glslang::glslang-default-resource-limits
+    glslang::SPIRV)
+# Both header-only libraries need exactly one translation unit to carry their
+# implementation; material/stb_impl.cpp is that unit for both.
+target_include_directories(sushi_render PRIVATE
+    "${Stb_INCLUDE_DIR}"
+    "${CGLTF_INCLUDE_DIR}")
 target_compile_features(sushi_render PUBLIC cxx_std_17)
-
-# The renderer shares the engine's value types (Mat4/Vec3) across the MeshInstance
-# and CameraView interface structs, so it must agree with every other target on the
-# Scalar precision even though it does not link the SushiEngine INTERFACE target
-# (that would pull in the runtime). Mirror the option here so sizeof(Mat4) matches.
-target_compile_definitions(sushi_render PUBLIC
-    $<$<BOOL:${SE_SCALAR_DOUBLE}>:SE_SCALAR_DOUBLE>)
 
 # Headless smoke test: brings the device up, renders the triangle offscreen, and
 # reads the pixels back to prove the pipeline path — the render analogue of the ECS

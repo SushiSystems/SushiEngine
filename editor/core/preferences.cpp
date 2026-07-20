@@ -61,16 +61,6 @@ namespace SushiEngine
     #endif
             }
 
-            const char* to_string(ScalarPrecision precision) noexcept
-            {
-                return precision == ScalarPrecision::Double ? "double" : "single";
-            }
-
-            ScalarPrecision precision_from(const std::string& value) noexcept
-            {
-                return value == "double" ? ScalarPrecision::Double : ScalarPrecision::Single;
-            }
-
             const char* to_string(EditorTheme theme) noexcept
             {
                 switch (theme)
@@ -107,7 +97,6 @@ namespace SushiEngine
                     Preferences load() override
                     {
                         Preferences preferences;
-                        preferences.precision = current_precision();
 
                         std::ifstream input(path_);
                         if (!input.is_open())
@@ -126,8 +115,6 @@ namespace SushiEngine
                         if (json.is_discarded() || !json.is_object())
                             return preferences;
 
-                        preferences.precision =
-                            precision_from(json.value("precision", to_string(preferences.precision)));
                         preferences.theme =
                             theme_from(json.value("theme", to_string(preferences.theme)));
                         preferences.grid_visible = json.value("grid_visible", preferences.grid_visible);
@@ -154,7 +141,6 @@ namespace SushiEngine
                         fs::create_directories(path_.parent_path(), error);
 
                         nlohmann::json json;
-                        json["precision"] = to_string(preferences.precision);
                         json["theme"] = to_string(preferences.theme);
                         json["grid_visible"] = preferences.grid_visible;
                         json["camera_move_speed"] = preferences.camera_move_speed;

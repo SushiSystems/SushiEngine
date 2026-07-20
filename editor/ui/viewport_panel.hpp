@@ -152,7 +152,8 @@ namespace SushiEngine
                  * @return Whether the gizmo edited @p gizmo_target this frame.
                  */
                 bool draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
-                          std::size_t count, std::uint32_t& selected_id, bool pickable = true,
+                          std::size_t count, const SushiEngine::Render::Environment& environment,
+                          std::uint32_t& selected_id, bool pickable = true,
                           SushiEngine::Simulation::EntityTransform* gizmo_target = nullptr,
                           GizmoMode gizmo_mode = GizmoMode::Translate,
                           GizmoSpace gizmo_space = GizmoSpace::World,
@@ -161,16 +162,42 @@ namespace SushiEngine
                           const SushiEngine::Render::ClothStrandView* strands = nullptr,
                           std::size_t strand_count = 0, UIOverlay* ui = nullptr);
 
+                /**
+                 * @brief Applies the host's fidelity/performance settings to this view.
+                 *
+                 * Per panel rather than global because the two viewports converge their
+                 * temporal history independently and may be sized very differently; the
+                 * host still passes both the same values today.
+                 *
+                 * @param settings The requested quality, anti-aliasing, and scaling.
+                 */
+                void set_render_settings(const SushiEngine::Render::RenderSettings& settings);
+
+                /**
+                 * @brief The internal resolution the last frame was rendered at.
+                 * @param width  Receives the internal render width in pixels.
+                 * @param height Receives the internal render height in pixels.
+                 */
+                void render_resolution(std::uint32_t& width,
+                                       std::uint32_t& height) const noexcept;
+
                 /** @brief Whether this panel's gizmo currently has a handle grabbed. */
                 bool gizmo_dragging() const noexcept { return gizmo_.dragging(); }
 
                 /** @brief Whether a UI element is currently being dragged (moved or resized). */
                 bool ui_dragging() const noexcept { return ui_drag_index_ >= 0; }
 
+                /** @brief The panel's current pixel width, as last sized by `draw`. */
+                std::uint32_t target_width() const noexcept { return view_->width(); }
+
+                /** @brief The panel's current pixel height, as last sized by `draw`. */
+                std::uint32_t target_height() const noexcept { return view_->height(); }
+
             private:
                 void resize_to(std::uint32_t width, std::uint32_t height);
                 void register_textures();
                 void unregister_textures();
+                void draw_gpu_profiler(const ImVec2& origin) const;
 
                 ImGuiBackend& imgui_;
                 const char* title_;

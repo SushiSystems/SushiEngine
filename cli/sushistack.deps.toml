@@ -67,3 +67,15 @@ required      = false
 linux_apt     = ["nlohmann-json3-dev"]
 windows_vcpkg = ["nlohmann-json"]
 check_cmd     = ["pkg-config", "--exists", "nlohmann_json"]
+
+[stb]
+description   = "stb_image / stb_image_write — header-only image decode for the renderer's texture library (albedo, normal, MR/ORM, height, emissive maps). Renderer is OFF by default, so this is optional for a plain library build."
+required      = false
+linux_apt     = ["libstb-dev"]
+windows_vcpkg = ["stb"]
+
+[cgltf]
+description   = "cgltf — header-only glTF 2.0 parser backing the renderer's mesh and material import (incl. KHR_materials_* extensions). Renderer is OFF by default, so this is optional for a plain library build."
+required      = false
+linux_apt     = []
+windows_vcpkg = ["cgltf"]

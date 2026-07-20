@@ -95,17 +95,24 @@ namespace SushiEngine
                     SushiEngine::Render::CameraView result;
                     result.view = camera_.view_matrix();
                     result.projection = camera_.projection(aspect_ratio);
+                    result.world_position = SushiEngine::WorldVector3{
+                        camera_.position.x, camera_.position.y, camera_.position.z};
+                    result.near_plane = camera_.near_plane;
+                    result.far_plane = camera_.far_plane;
                     return result;
                 }
 
                 /** @brief The underlying fly camera, for inspection. */
                 FlyCamera& camera() noexcept { return camera_; }
 
+                /** @brief The navigation controller, for retuning speed/scaling per regime. */
+                CameraController& controller() noexcept { return controller_; }
+
                 /**
                  * @brief Sets the base fly speed, from the editor's camera-speed preference.
                  * @param units_per_second Base movement speed before the Shift boost.
                  */
-                void set_move_speed(float units_per_second) noexcept
+                void set_move_speed(SushiEngine::Scalar units_per_second) noexcept
                 {
                     controller_.move_speed = units_per_second;
                 }
@@ -157,6 +164,10 @@ namespace SushiEngine
                     result.view = SushiEngine::look_at(position_, target_, up_);
                     result.projection =
                         SushiEngine::perspective(vertical_fov_, aspect_ratio, near_plane_, far_plane_);
+                    result.world_position =
+                        SushiEngine::WorldVector3{position_.x, position_.y, position_.z};
+                    result.near_plane = static_cast<float>(near_plane_);
+                    result.far_plane = static_cast<float>(far_plane_);
                     return result;
                 }
 

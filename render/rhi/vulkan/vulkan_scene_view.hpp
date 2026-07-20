@@ -25,22 +25,55 @@
 
 /**
  * @file vulkan_scene_view.hpp
- * @brief Vulkan implementation of ISceneView: an offscreen lit-mesh + grid pass.
+ * @brief Vulkan implementation of ISceneView: a render-graph frame orchestrator.
  *
- * Internal to the render library. Draws a ground grid and a set of mesh instances
- * into a double-buffered offscreen colour target (with a depth buffer) using Vulkan
- * 1.3 dynamic rendering, then leaves the colour image in a shader-readable layout so
- * the editor can sample it with ImGui. Geometry (a unit cube and the grid) lives in
- * host-visible VMA buffers built once; the two draw pipelines share one layout and
- * vertex shader.
+ * Internal to the render library. The view holds only what genuinely varies per
+ * view — its targets, its per-frame allocators, its soft-body buffers, its temporal
+ * history, and its passes — and reaches everything shared through the device's
+ * AssetLibrary. Its job each frame is one thing: build a FrameContext, let each pass
+ * register into the graph, compile, submit. It records no barrier and opens no render
+ * pass of its own.
+ *
+ * It also owns the frame's relationship to the frame before it: the jitter sequence,
+ * the previous camera, the accumulated history, and the resolution the governor chose.
+ * Those are per view because two viewports converge independently.
  */
 
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
+#include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/scene_view.hpp>
+
+#include "frame/frame_context.hpp"
+#include "frame/resolution_controller.hpp"
+#include "geometry/cloth_buffers.hpp"
+#include "graph/gpu_profiler.hpp"
+#include "graph/render_graph.hpp"
+#include "material/material_system.hpp"
+#include "passes/cloud_composite_pass.hpp"
+#include "passes/cloud_pass.hpp"
+#include "passes/contact_shadow_pass.hpp"
+#include "passes/depth_prepass.hpp"
+#include "passes/fxaa_pass.hpp"
+#include "passes/ibl_pass.hpp"
+#include "passes/opaque_pass.hpp"
+#include "passes/picking_pass.hpp"
+#include "passes/ray_traced_shadow_pass.hpp"
+#include "passes/shading_rate_pass.hpp"
+#include "passes/shadow_pass.hpp"
+#include "passes/sky_pass.hpp"
+#include "passes/taa_pass.hpp"
+#include "passes/tonemap_pass.hpp"
+#include "resources/descriptor_allocator.hpp"
+#include "resources/transient_pool.hpp"
+#include "raytracing/scene_accelerator.hpp"
+#include "scene/motion_system.hpp"
+#include "scene/shadow_uniforms.hpp"
 
 #include "vulkan_device.hpp"
 
@@ -48,22 +81,28 @@ namespace SushiEngine
 {
     namespace Render
     {
+        namespace Assets
+        {
+            class AssetLibrary;
+        }
+
         namespace Vulkan
         {
             /**
-             * @brief An offscreen mesh/grid renderer sampled into the editor viewport.
+             * @brief An offscreen scene renderer sampled into the editor viewport.
              *
-             * Owns two target slots so the frame being sampled by the UI is never the
-             * frame being drawn. Non-copyable: it owns Vulkan and VMA handles.
+             * Double-buffered so the frame being sampled by the UI is never the frame
+             * being drawn. Non-copyable: it owns Vulkan and VMA handles.
              */
             class VulkanSceneView final : public ISceneView
             {
                 public:
                     /**
-                     * @brief Builds the pipelines, geometry, and initial targets.
+                     * @brief Brings up the view's passes, allocators, and targets.
                      * @param device The live Vulkan device to render on.
+                     * @param assets The device's shared asset store and services.
                      */
-                    explicit VulkanSceneView(VulkanDevice& device);
+                    VulkanSceneView(VulkanDevice& device, Assets::AssetLibrary& assets);
                     ~VulkanSceneView() override;
 
                     VulkanSceneView(const VulkanSceneView&) = delete;
@@ -72,81 +111,125 @@ namespace SushiEngine
                     void resize(std::uint32_t width, std::uint32_t height) override;
                     std::uint32_t width() const noexcept override { return width_; }
                     std::uint32_t height() const noexcept override { return height_; }
-                    void render(const CameraView& camera, const MeshInstance* instances,
-                                std::size_t count, std::uint32_t selected_id,
+                    void set_settings(const RenderSettings& settings) override;
+                    const RenderSettings& settings() const noexcept override { return settings_; }
+                    void render_resolution(std::uint32_t& width,
+                                           std::uint32_t& height) const noexcept override;
+                    void render(const CameraView& camera, const Environment& environment,
+                                const MeshInstance* instances, std::size_t count,
+                                std::uint32_t selected_id,
                                 const ClothStrandView* strands = nullptr,
                                 std::size_t strand_count = 0) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
                     std::uint32_t current_slot() const noexcept override { return current_slot_; }
+                    std::size_t pass_timing_count() const noexcept override;
+                    ScenePassTiming pass_timing(std::size_t index) const noexcept override;
 
                 private:
+                    /** @brief How many frames may be in flight at once. */
                     static constexpr std::uint32_t SLOTS = 2;
-                    static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
-                    static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D24_UNORM_S8_UINT;
-                    static constexpr VkFormat ID_FORMAT = VK_FORMAT_R32_UINT;
 
-                    /** @brief A VMA-backed buffer with its element count. */
-                    struct Buffer
-                    {
-                        VkBuffer buffer = VK_NULL_HANDLE;
-                        VmaAllocation allocation = VK_NULL_HANDLE;
-                        std::uint32_t count = 0;
-                    };
-
-                    /** @brief One double-buffered offscreen target and its recording state. */
+                    /**
+                     * @brief One frame slot: its persistent targets and recording state.
+                     *
+                     * The transient pools are per slot rather than shared, because a pool
+                     * hands a resource back out as soon as its frame ends — sharing one
+                     * between slots would let this frame overwrite resources the previous
+                     * frame's submit is still reading.
+                     */
                     struct Slot
                     {
-                        VkImage color = VK_NULL_HANDLE;
-                        VmaAllocation color_allocation = VK_NULL_HANDLE;
-                        VkImageView color_view = VK_NULL_HANDLE;
-                        VkImage depth = VK_NULL_HANDLE;
-                        VmaAllocation depth_allocation = VK_NULL_HANDLE;
-                        VkImageView depth_view = VK_NULL_HANDLE;
-                        VkImage id = VK_NULL_HANDLE;
-                        VmaAllocation id_allocation = VK_NULL_HANDLE;
-                        VkImageView id_view = VK_NULL_HANDLE;
+                        VkImage resolve = VK_NULL_HANDLE;
+                        VmaAllocation resolve_allocation = VK_NULL_HANDLE;
+                        VkImageView resolve_view = VK_NULL_HANDLE;
+                        Graph::TextureState resolve_state{};
                         VkBuffer readback = VK_NULL_HANDLE;
                         VmaAllocation readback_allocation = VK_NULL_HANDLE;
                         void* readback_mapped = nullptr;
+                        Graph::BufferState readback_state{};
+                        VkBuffer uniforms = VK_NULL_HANDLE;
+                        VmaAllocation uniforms_allocation = VK_NULL_HANDLE;
+                        void* uniforms_mapped = nullptr;
+                        Graph::BufferState uniforms_state{};
+                        VkBuffer temporal = VK_NULL_HANDLE;
+                        VmaAllocation temporal_allocation = VK_NULL_HANDLE;
+                        void* temporal_mapped = nullptr;
+                        Graph::BufferState temporal_state{};
+                        VkBuffer shadow = VK_NULL_HANDLE;
+                        VmaAllocation shadow_allocation = VK_NULL_HANDLE;
+                        void* shadow_mapped = nullptr;
+                        Graph::BufferState shadow_state{};
                         VkCommandPool pool = VK_NULL_HANDLE;
                         VkCommandBuffer cmd = VK_NULL_HANDLE;
                         VkFence fence = VK_NULL_HANDLE;
                         bool ever_rendered = false;
+                        /** @brief Render extent the id target in this slot was written at. */
+                        std::uint32_t readback_width = 0;
+                        std::uint32_t readback_height = 0;
+                        std::unique_ptr<Resources::TexturePool> textures;
+                        std::unique_ptr<Resources::BufferPool> buffers;
                     };
 
-                    void create_pipelines();
-                    void destroy_pipelines();
-                    void create_geometry();
-                    void destroy_geometry();
-                    void create_sampler();
+                    /**
+                     * @brief One accumulated frame the temporal resolve reads and writes.
+                     *
+                     * Two of them, ping-ponged by frame parity rather than by frame slot:
+                     * the resolve needs the frame immediately before this one, and with
+                     * two slots in flight the other slot's image is two frames old.
+                     */
+                    struct History
+                    {
+                        VkImage image = VK_NULL_HANDLE;
+                        VmaAllocation allocation = VK_NULL_HANDLE;
+                        VkImageView view = VK_NULL_HANDLE;
+                        Graph::TextureState state{};
+                    };
+
+                    void create_slots();
                     void create_targets();
                     void destroy_targets();
-                    void ensure_cloth_capacity(VkDeviceSize bytes);
+                    Frame::FrameTargets declare_targets(Slot& slot, const Frame::FrameContext& frame);
+                    void update_render_extent();
+                    float measured_frame_milliseconds() const noexcept;
 
                     VulkanDevice& device_;
-                    VkPipelineLayout layout_ = VK_NULL_HANDLE;
-                    VkPipeline mesh_pipeline_ = VK_NULL_HANDLE;
-                    VkPipeline line_pipeline_ = VK_NULL_HANDLE;
-                    VkPipeline outline_pipeline_ = VK_NULL_HANDLE;
-                    VkSampler sampler_ = VK_NULL_HANDLE;
-                    Buffer cube_vertices_;
-                    Buffer cube_indices_;
-                    Buffer sphere_vertices_;
-                    Buffer sphere_indices_;
-                    Buffer cylinder_vertices_;
-                    Buffer cylinder_indices_;
-                    Buffer grid_vertices_;
-                    // Host-visible and re-uploaded every frame a cloth grid is drawn, so
-                    // the buffer's declared capacity can grow but never shrinks between
-                    // frames (see ensure_cloth_capacity in the .cpp).
-                    Buffer cloth_vertices_;
-                    VkDeviceSize cloth_vertices_capacity_ = 0;
-                    void* cloth_vertices_mapped_ = nullptr;
+                    Assets::AssetLibrary& assets_;
+                    Resources::DescriptorAllocator descriptors_;
+                    Geometry::ClothBuffers cloth_;
+                    Assets::MaterialSystem materials_;
+                    Scene::MotionSystem motion_;
+                    RayTracing::SceneAccelerator accelerator_;
+                    Graph::GpuProfiler profiler_;
+                    Graph::RenderGraph graph_;
+                    Passes::IblPass ibl_pass_;
+                    Passes::DepthPrepass depth_prepass_;
+                    Passes::ShadowPass shadow_pass_;
+                    Passes::ContactShadowPass contact_shadow_pass_;
+                    Passes::RayTracedShadowPass ray_shadow_pass_;
+                    Passes::OpaquePass opaque_pass_;
+                    Passes::ShadingRatePass shading_rate_pass_;
+                    Passes::SkyPass sky_pass_;
+                    Passes::CloudPass cloud_pass_;
+                    Passes::CloudCompositePass cloud_composite_pass_;
+                    Passes::TaaPass taa_pass_;
+                    Passes::TonemapPass tonemap_pass_;
+                    Passes::FxaaPass fxaa_pass_;
+                    Passes::PickingPass picking_pass_;
+                    std::vector<Passes::IRenderPass*> passes_;
+                    VkSampler ui_sampler_ = VK_NULL_HANDLE;
                     Slot slots_[SLOTS];
+                    History history_[2];
+                    RenderSettings settings_;
+                    Frame::ResolutionController resolution_;
+                    CameraView previous_camera_{};
+                    float previous_jitter_[2] = {0.0f, 0.0f};
+                    bool history_valid_ = false;
                     std::uint32_t width_ = 16;
                     std::uint32_t height_ = 16;
+                    std::uint32_t render_width_ = 16;
+                    std::uint32_t render_height_ = 16;
                     std::uint32_t current_slot_ = 0;
                     std::uint32_t frame_counter_ = 0;
             };

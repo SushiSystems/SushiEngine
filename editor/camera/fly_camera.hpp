@@ -33,62 +33,64 @@ namespace SushiEngine
     namespace Editor
     {
         /**
-         * @brief A yaw/pitch free-look camera, the editor Scene view's viewpoint.
+         * @brief A quaternion free-look camera, the editor Scene view's viewpoint.
          *
-         * Stores position and orientation as yaw and pitch (no roll, like Unity's Scene
-         * camera) and derives the basis vectors and matrices on demand. It holds only
-         * state and pure queries; the CameraController mutates it from input.
+         * Orientation is a single unit quaternion with the engine's facing convention:
+         * identity looks down -Z with +Y up. There is no global "up" baked in — the
+         * CameraController yaws about whatever up reference gravity supplies (the local
+         * vertical of the nearest planet), so the horizon stays level anywhere on any
+         * body, northern or southern hemisphere alike. It holds only state and pure
+         * queries; the CameraController mutates it from input.
          */
         struct FlyCamera
         {
-            SushiEngine::Vector3 position{0.0f, 2.5f, 7.0f};
-            float yaw_radians = -1.5707963f;  /**< 0 faces +X; this faces -Z. */
-            float pitch_radians = -0.30f;     /**< Negative looks slightly down. */
-            float fov_radians = 1.0471976f;   /**< 60 degrees vertical. */
-            float near_plane = 0.1f;
-            float far_plane = 500.0f;
+            SushiEngine::Vector3 position{SushiEngine::Scalar(0), SushiEngine::Scalar(2.5), SushiEngine::Scalar(7)};
+            /** Unit orientation; identity faces -Z. Default pitches 0.30 rad down. */
+            SushiEngine::Quaternion rotation = SushiEngine::quaternion_axis_angle(
+                SushiEngine::Vector3{SushiEngine::Scalar(1), SushiEngine::Scalar(0), SushiEngine::Scalar(0)},
+                SushiEngine::Scalar(-0.30));
+            SushiEngine::Scalar fov_radians = SushiEngine::Scalar(1.0471976);   /**< 60 degrees vertical. */
+            SushiEngine::Scalar near_plane = SushiEngine::Scalar(0.1);
+            SushiEngine::Scalar far_plane = SushiEngine::Scalar(500);
 
-            /** @brief Unit forward direction from the current yaw and pitch. */
+            /** @brief Unit forward direction (the rotated -Z axis). */
             SushiEngine::Vector3 forward() const noexcept
             {
-                const float cos_pitch = std::cos(pitch_radians);
-                return SushiEngine::normalize(SushiEngine::Vector3{
-                    cos_pitch * std::cos(yaw_radians), std::sin(pitch_radians),
-                    cos_pitch * std::sin(yaw_radians)});
+                return SushiEngine::rotate(rotation, SushiEngine::Vector3{
+                    SushiEngine::Scalar(0), SushiEngine::Scalar(0), SushiEngine::Scalar(-1)});
             }
 
-            /** @brief Unit right direction (forward x world-up). */
+            /** @brief Unit right direction (the rotated +X axis). */
             SushiEngine::Vector3 right() const noexcept
             {
-                return SushiEngine::normalize(
-                    SushiEngine::cross(forward(), SushiEngine::Vector3{0.0f, 1.0f, 0.0f}));
+                return SushiEngine::rotate(rotation, SushiEngine::Vector3{
+                    SushiEngine::Scalar(1), SushiEngine::Scalar(0), SushiEngine::Scalar(0)});
+            }
+
+            /** @brief Unit up direction (the rotated +Y axis). */
+            SushiEngine::Vector3 up() const noexcept
+            {
+                return SushiEngine::rotate(rotation, SushiEngine::Vector3{
+                    SushiEngine::Scalar(0), SushiEngine::Scalar(1), SushiEngine::Scalar(0)});
             }
 
             /**
              * @brief The camera's orientation as a quaternion, for aligning objects to it.
              *
-             * Built so that at the default yaw/pitch an identity-rotated object (which
-             * faces -Z, the engine's forward convention) matches the camera's facing.
-             * Used by "Align With View": a yaw about world up, then pitch about the local
-             * right axis.
+             * The stored rotation directly: an identity-rotated object faces -Z, the
+             * engine's forward convention, so "Align With View" can assign it verbatim.
              *
              * @return The unit quaternion whose forward (-Z) equals the camera's forward.
              */
             SushiEngine::Quaternion orientation() const noexcept
             {
-                const float yaw_theta = std::atan2(-std::cos(yaw_radians), -std::sin(yaw_radians));
-                const SushiEngine::Quaternion yaw_q =
-                    SushiEngine::quaternion_axis_angle(SushiEngine::Vector3{0.0f, 1.0f, 0.0f}, yaw_theta);
-                const SushiEngine::Quaternion pitch_q =
-                    SushiEngine::quaternion_axis_angle(SushiEngine::Vector3{1.0f, 0.0f, 0.0f}, pitch_radians);
-                return SushiEngine::normalize(SushiEngine::mul(yaw_q, pitch_q));
+                return rotation;
             }
 
             /** @brief The world-to-camera view matrix. */
             SushiEngine::Mat4 view_matrix() const noexcept
             {
-                return SushiEngine::look_at(position, position + forward(),
-                                            SushiEngine::Vector3{0.0f, 1.0f, 0.0f});
+                return SushiEngine::look_at(position, position + forward(), up());
             }
 
             /**
@@ -98,7 +100,8 @@ namespace SushiEngine
              */
             SushiEngine::Mat4 projection(float aspect) const noexcept
             {
-                return SushiEngine::perspective(fov_radians, aspect > 0.0f ? aspect : 1.0f,
+                const SushiEngine::Scalar a = static_cast<SushiEngine::Scalar>(aspect);
+                return SushiEngine::perspective(fov_radians, a > SushiEngine::Scalar(0) ? a : SushiEngine::Scalar(1),
                                                 near_plane, far_plane);
             }
         };

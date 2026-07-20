@@ -54,6 +54,7 @@ namespace SushiEngine
             Vector3T<T> angular_velocity;
             Vector3T<T> inv_inertia;
             T inv_mass = 0;
+            T drag_coefficient = 0; /**< Quadratic drag k: -k|v|v acceleration each predict; 0 disables. */
         };
 
         /**
@@ -112,6 +113,17 @@ namespace SushiEngine
             if (body.inv_mass > T(0))
             {
                 body.velocity = body.velocity + linear_acceleration * h;
+                // Quadratic aerodynamic drag, -k|v|v: opposes motion and grows with the
+                // square of speed, so a body reaches terminal velocity under gravity instead
+                // of accelerating without bound. Applied after the external acceleration and
+                // before the position update (semi-implicit, so it stays stable).
+                if (body.drag_coefficient > T(0))
+                {
+                    const T speed = length(body.velocity);
+                    if (speed > T(0))
+                        body.velocity =
+                            body.velocity - body.velocity * (body.drag_coefficient * speed * h);
+                }
                 body.position = body.position + body.velocity * h;
             }
 

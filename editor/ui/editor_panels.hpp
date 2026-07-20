@@ -108,6 +108,32 @@ namespace SushiEngine
         void draw_inspector_panel(EditorContext& context);
 
         /**
+         * @brief Draw the Environment panel: the scene-global sun, atmosphere, and sky.
+         *
+         * Authors the @ref SushiEngine::Render::Environment on the world editor — the sun
+         * azimuth/elevation, colour and intensity, atmosphere and cloud toggles, star
+         * field, and camera exposure — so the WGS84 planet's lighting and sky are edited
+         * live and saved with the scene.
+         *
+         * @param context Shared editor state; reads and writes the world's environment.
+         */
+        void draw_environment_panel(EditorContext& context);
+
+        /**
+         * @brief Draw the Rendering panel: how the viewports trade fidelity for frame time.
+         *
+         * Its own window rather than a section of Environment because it edits a
+         * different object for a different reason — Environment describes the world
+         * being drawn, this describes the machinery drawing it, and the two are saved
+         * and reset independently. Quality tier, anti-aliasing mode and its temporal
+         * parameters, the render scale, the dynamic-resolution governor, and
+         * variable-rate shading; the values are pushed to both viewports each frame.
+         *
+         * @param context Shared editor state; reads and writes @ref EditorContext::render_settings.
+         */
+        void draw_rendering_panel(EditorContext& context);
+
+        /**
          * @brief Draw the Project panel: a filesystem browser rooted at the project.
          *
          * Double-clicking a directory descends into it; double-clicking a file opens it

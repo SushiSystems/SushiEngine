@@ -1,0 +1,58 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// The split-sum BRDF integration term: for a given view angle and roughness, the
+// scale and bias that turn F0 into the environment's specular response. Generated once
+// at bring-up; it depends on nothing but the BRDF, so it never needs regenerating.
+// The same two values also drive the Kulla-Conty multi-scatter compensation in the
+// shading pass, which is why this LUT is a prerequisite for energy conservation and
+// not only for image-based lighting.
+
+#include "ibl_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rg16f) uniform writeonly image2D destination;
+
+layout(push_constant) uniform Params
+{
+    uint resolution;
+    uint sample_count;
+} params;
+
+void main()
+{
+    uvec2 texel = gl_GlobalInvocationID.xy;
+    if (texel.x >= params.resolution || texel.y >= params.resolution)
+        return;
+
+    float n_dot_v = max((float(texel.x) + 0.5) / float(params.resolution), 1e-3);
+    float roughness = (float(texel.y) + 0.5) / float(params.resolution);
+
+    vec3 v = vec3(sqrt(1.0 - n_dot_v * n_dot_v), 0.0, n_dot_v);
+    vec3 n = vec3(0.0, 0.0, 1.0);
+
+    float scale = 0.0;
+    float bias = 0.0;
+    for (uint i = 0u; i < params.sample_count; ++i)
+    {
+        vec3 h = importance_sample_ggx(hammersley(i, params.sample_count), n, roughness);
+        vec3 l = normalize(2.0 * dot(v, h) * h - v);
+        if (l.z <= 0.0)
+            continue;
+
+        float n_dot_l = l.z;
+        float n_dot_h = max(h.z, 0.0);
+        float v_dot_h = max(dot(v, h), 0.0);
+
+        float g = g_smith_ibl(n_dot_v, n_dot_l, roughness);
+        float g_visibility = g * v_dot_h / max(n_dot_h * n_dot_v, 1e-7);
+        float fresnel = pow(1.0 - v_dot_h, 5.0);
+        scale += (1.0 - fresnel) * g_visibility;
+        bias += fresnel * g_visibility;
+    }
+
+    imageStore(destination, ivec2(texel),
+               vec4(scale / float(params.sample_count), bias / float(params.sample_count),
+                    0.0, 0.0));
+}

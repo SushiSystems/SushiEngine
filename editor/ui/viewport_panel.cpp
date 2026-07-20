@@ -26,20 +26,54 @@
 #include <cstdio>
 #include <vector>
 
+#include <SushiEngine/ui/layout.hpp>
+
 namespace SushiEngine
 {
     namespace Editor
     {
         namespace
         {
+            /** @brief Builds the `UI::RectTransform` equivalent of an authored UI element's params. */
+            SushiEngine::UI::RectTransform ui_rect_transform(
+                const SushiEngine::Simulation::UIElementParams& p) noexcept
+            {
+                using SushiEngine::UI::Vector2;
+                SushiEngine::UI::RectTransform transform;
+                transform.anchor_min = Vector2{p.anchor_min_x, p.anchor_min_y};
+                transform.anchor_max = Vector2{p.anchor_max_x, p.anchor_max_y};
+                transform.pivot = Vector2{p.pivot_x, p.pivot_y};
+                transform.anchored_position = Vector2{p.position_x, p.position_y};
+                transform.size_delta = Vector2{p.size_x, p.size_y};
+                return transform;
+            }
+
+            /** @brief Converts a `SushiEngine::UI::Rect` to the panel's `ImVec4` (min_x, min_y, w, h). */
+            ImVec4 to_im_vec4(const SushiEngine::UI::Rect& rect) noexcept
+            {
+                return ImVec4(static_cast<float>(rect.min.x), static_cast<float>(rect.min.y),
+                              static_cast<float>(rect.size.x), static_cast<float>(rect.size.y));
+            }
+
+            /** @brief Converts an `ImVec4` (min_x, min_y, w, h) to a `SushiEngine::UI::Rect`. */
+            SushiEngine::UI::Rect to_ui_rect(const ImVec4& r) noexcept
+            {
+                return SushiEngine::UI::Rect{
+                    SushiEngine::UI::Vector2{SushiEngine::Scalar(r.x), SushiEngine::Scalar(r.y)},
+                    SushiEngine::UI::Vector2{SushiEngine::Scalar(r.z), SushiEngine::Scalar(r.w)}};
+            }
+
             /**
              * @brief Resolves element @p i's pixel rect against its parent's, memoized.
              *
-             * A `Canvas` fills its parent (the viewport); every other element follows
-             * the top-left, y-down uGUI formula (anchored span + size_delta, offset by
-             * the pivot). Recurses into the parent first so a child never resolves
-             * before the rect it lays out inside; the parent chain is acyclic (the
-             * simulation forbids reparent cycles), so the recursion always terminates.
+             * A `Canvas` fills its parent (the viewport); every other element resolves
+             * through `SushiEngine::UI::resolve_rect` — the same anchor formula the ECS
+             * `UI::` layer and the simulation's mirrored UI entities use, so the overlay
+             * is a caller of the one canonical resolver rather than a second
+             * implementation of its math. Recurses into the parent first so a child
+             * never resolves before the rect it lays out inside; the parent chain is
+             * acyclic (the simulation forbids reparent cycles), so the recursion always
+             * terminates.
              *
              * @return The element's rect as (min_x, min_y, width, height).
              */
@@ -57,28 +91,11 @@ namespace SushiEngine
                         : root;
 
                 const SushiEngine::Simulation::UIElementParams& p = ui[i].params;
-                ImVec4 rect;
-                if (p.kind == SushiEngine::Simulation::UIElementKind::Canvas)
-                {
-                    rect = parent;
-                }
-                else
-                {
-                    const float a_min_x = parent.x + static_cast<float>(p.anchor_min_x) * parent.z;
-                    const float a_max_x = parent.x + static_cast<float>(p.anchor_max_x) * parent.z;
-                    const float a_min_y = parent.y + static_cast<float>(p.anchor_min_y) * parent.w;
-                    const float a_max_y = parent.y + static_cast<float>(p.anchor_max_y) * parent.w;
-                    const float span_x = a_max_x - a_min_x;
-                    const float span_y = a_max_y - a_min_y;
-                    const float size_x = span_x + static_cast<float>(p.size_x);
-                    const float size_y = span_y + static_cast<float>(p.size_y);
-                    const float pivot_x =
-                        a_min_x + static_cast<float>(p.pivot_x) * span_x + static_cast<float>(p.position_x);
-                    const float pivot_y =
-                        a_min_y + static_cast<float>(p.pivot_y) * span_y + static_cast<float>(p.position_y);
-                    rect = ImVec4(pivot_x - static_cast<float>(p.pivot_x) * size_x,
-                                  pivot_y - static_cast<float>(p.pivot_y) * size_y, size_x, size_y);
-                }
+                const ImVec4 rect =
+                    p.kind == SushiEngine::Simulation::UIElementKind::Canvas
+                        ? parent
+                        : to_im_vec4(SushiEngine::UI::resolve_rect(to_ui_rect(parent),
+                                                                   ui_rect_transform(p)));
                 rects[static_cast<std::size_t>(i)] = rect;
                 return rect;
             }
@@ -203,27 +220,20 @@ namespace SushiEngine
             /**
              * @brief Rewrites @p p's position + size so its screen rect becomes @p target.
              *
-             * The inverse of the layout formula (see resolve_ui_rect): given the desired
-             * pixel rect and the element's parent rect and anchors, back out the anchored
-             * position and size_delta. Lets a drag edit the rect directly in screen space.
+             * Delegates to `SushiEngine::UI::apply_screen_rect`, the inverse of the same
+             * canonical `resolve_rect` formula `resolve_ui_rect` now calls — so a drag
+             * edit and the read-back path agree on one formula rather than each
+             * reimplementing it. Lets a drag edit the rect directly in screen space.
              */
             void ui_apply_screen_rect(SushiEngine::Simulation::UIElementParams& p,
                                       const ImVec4& parent, const ImVec4& target)
             {
-                const float a_min_x = parent.x + static_cast<float>(p.anchor_min_x) * parent.z;
-                const float a_max_x = parent.x + static_cast<float>(p.anchor_max_x) * parent.z;
-                const float a_min_y = parent.y + static_cast<float>(p.anchor_min_y) * parent.w;
-                const float a_max_y = parent.y + static_cast<float>(p.anchor_max_y) * parent.w;
-                const float span_x = a_max_x - a_min_x;
-                const float span_y = a_max_y - a_min_y;
-                p.size_x = static_cast<SushiEngine::Scalar>(target.z - span_x);
-                p.size_y = static_cast<SushiEngine::Scalar>(target.w - span_y);
-                const float pivot_screen_x = target.x + static_cast<float>(p.pivot_x) * target.z;
-                const float pivot_screen_y = target.y + static_cast<float>(p.pivot_y) * target.w;
-                p.position_x = static_cast<SushiEngine::Scalar>(
-                    pivot_screen_x - a_min_x - static_cast<float>(p.pivot_x) * span_x);
-                p.position_y = static_cast<SushiEngine::Scalar>(
-                    pivot_screen_y - a_min_y - static_cast<float>(p.pivot_y) * span_y);
+                SushiEngine::UI::RectTransform transform = ui_rect_transform(p);
+                SushiEngine::UI::apply_screen_rect(to_ui_rect(parent), to_ui_rect(target), transform);
+                p.position_x = transform.anchored_position.x;
+                p.position_y = transform.anchored_position.y;
+                p.size_x = transform.size_delta.x;
+                p.size_y = transform.size_delta.y;
             }
         } // namespace
         ViewportPanel::ViewportPanel(SushiEngine::Render::IWindowRenderer& renderer,
@@ -255,6 +265,53 @@ namespace SushiEngine
             slot_textures_.clear();
         }
 
+        void ViewportPanel::set_render_settings(
+            const SushiEngine::Render::RenderSettings& settings)
+        {
+            view_->set_settings(settings);
+        }
+
+        void ViewportPanel::render_resolution(std::uint32_t& width,
+                                              std::uint32_t& height) const noexcept
+        {
+            view_->render_resolution(width, height);
+        }
+
+        void ViewportPanel::draw_gpu_profiler(const ImVec2& origin) const
+        {
+            // Per-pass GPU times come from the render graph's timestamp queries and lag
+            // the displayed frame by one slot — they are the times of the last submit
+            // that completed, which is the most recent measurement that exists.
+            const std::size_t count = view_->pass_timing_count();
+            if (count == 0)
+                return;
+
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            const float line_height = ImGui::GetTextLineHeightWithSpacing();
+            const ImVec2 padding(8.0f, 6.0f);
+            const ImVec2 position(origin.x + 8.0f, origin.y + 8.0f);
+            const float box_height = line_height * static_cast<float>(count + 1) + padding.y * 2.0f;
+            draw_list->AddRectFilled(position,
+                                     ImVec2(position.x + 230.0f, position.y + box_height),
+                                     IM_COL32(12, 14, 18, 190), 4.0f);
+
+            float total = 0.0f;
+            for (std::size_t i = 0; i < count; ++i)
+                total += view_->pass_timing(i).milliseconds;
+
+            char text[96];
+            std::snprintf(text, sizeof(text), "GPU  %.3f ms", total);
+            ImVec2 cursor(position.x + padding.x, position.y + padding.y);
+            draw_list->AddText(cursor, IM_COL32(235, 235, 240, 255), text);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                cursor.y += line_height;
+                const SushiEngine::Render::ScenePassTiming timing = view_->pass_timing(i);
+                std::snprintf(text, sizeof(text), "%-18s %6.3f", timing.name, timing.milliseconds);
+                draw_list->AddText(cursor, IM_COL32(180, 186, 200, 255), text);
+            }
+        }
+
         void ViewportPanel::resize_to(std::uint32_t width, std::uint32_t height)
         {
             if (width == view_->width() && height == view_->height())
@@ -267,7 +324,9 @@ namespace SushiEngine
         }
 
         bool ViewportPanel::draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
-                                 std::size_t count, std::uint32_t& selected_id, bool pickable,
+                                 std::size_t count,
+                                 const SushiEngine::Render::Environment& environment,
+                                 std::uint32_t& selected_id, bool pickable,
                                  SushiEngine::Simulation::EntityTransform* gizmo_target,
                                  GizmoMode gizmo_mode, GizmoSpace gizmo_space,
                                  const GizmoSnap* gizmo_snap, const DisplaySelector* display,
@@ -364,12 +423,14 @@ namespace SushiEngine
 
             const SushiEngine::Render::CameraView camera_view =
                 camera_.view(static_cast<float>(width) / static_cast<float>(height));
-            view_->render(camera_view, instances, count, selected_id, strands, strand_count);
+            view_->render(camera_view, environment, instances, count, selected_id, strands,
+                          strand_count);
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
             ImGui::Image(slot_textures_[view_->current_slot()],
                          ImVec2(static_cast<float>(width), static_cast<float>(height)));
             const bool image_hovered = ImGui::IsItemHovered();
+            draw_gpu_profiler(image_origin);
 
             // UI overlay: canvases, panels, images, text, and buttons painted on top of
             // the rendered image with ImGui's draw list — a 2D layer over the 3D view,

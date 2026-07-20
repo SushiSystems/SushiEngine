@@ -9,6 +9,566 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Cascaded shadow maps for the sun.** Up to four cascades in one two-by-two atlas —
+  one image, one pass, one barrier, one profiler entry. Splits follow the practical
+  scheme (a blend of logarithmic and uniform); each cascade is bounded by a *sphere* and
+  its light-space origin snapped to whole shadow texels, which together are what stop the
+  edges crawling as the camera turns. Fitted entirely in camera-relative space, so a
+  scene six million metres from the world origin builds its shadow maps out of small
+  numbers. Percentage-closer filtered through a hardware comparison sampler, offset along
+  the geometric normal rather than biased into peter-panning, cross-faded between
+  cascades and faded out at the last one. The filter is percentage-closer **soft**
+  shadows: a blocker search measures how far above each receiver its occluders stand and
+  the penumbra is that gap times the sun's angular radius, so a contact stays crisp and a
+  silhouette high above the ground goes diffuse — the way a real sun shadow does. Sixteen
+  Poisson taps rotated per pixel, which the temporal resolve averages into a smooth
+  penumbra far more cheaply than the tap count it would take to be smooth alone. The
+  texel snap is anchored to the **world**, not to the camera-relative frame the fit works
+  in, since a grid snapped in that frame travels with the camera and stabilises nothing.
+  The analytic planet ground receives them too,
+  not only the meshes — it is the surface most of the scene stands on, and an object
+  casting onto nothing reads as floating over its own terrain. The atlas therefore has a
+  frame-global binding of its own rather than one of a pass's local image slots, since
+  the sky pass has all six of those spoken for.
+- **A depth prepass.** It runs the same `mesh.vert` the shading pass does with no
+  fragment stage, which is a correctness requirement and not an optimisation: the opaque
+  pass then tests against depths it recomputes itself, and only the same shader
+  guarantees the two agree bit for bit. It also rejects occluded fragments before the
+  material shader runs on them.
+- **Screen-space contact shadows.** A short march of the depth buffer toward the sun,
+  bounded in metres rather than pixels, recovering the centimetres of contact a cascade
+  texel is far too coarse to resolve. This is what the depth prepass exists for — the
+  answer has to be known before a surface is shaded.
+- **Clouds shadow lit surfaces.** The sky pass already marched the cloud medium to
+  shadow the analytic ground; a mesh standing on that ground now darkens with it, taking
+  the same quantity from the weather map for two fetches instead of an eight-step march
+  through three volumes. Same parameterisation, warp included, so both agree on where a
+  cloud is.
+- **`ShadowSettings`** on `RenderSettings`, and the editor Rendering panel exposes it:
+  cascade count and resolution, distance, split blend, both biases, filter radius,
+  cascade blend, and the contact march.
+- **Ray-traced sun shadows, on the Ultra tier.** A two-level acceleration structure —
+  one bottom-level per distinct mesh built once and kept, one top-level rebuilt each
+  frame from instance records — and a ray query traced from a fullscreen pass into a
+  screen-space visibility mask. Tracing asks the geometry directly, so there is no
+  cascade resolution, no boundary, no acne and no peter-panning; where it runs it
+  replaces the cascades rather than joining them, and resolves contact on its own.
+  Camera-relative like everything else: an instance transform has the eye subtracted in
+  double before the float cast. Writing a mask rather than tracing inside the material
+  shader is what keeps that shader one build for every device — turning the tier on adds
+  a pass, it does not fork the shading path. Needs `VK_KHR_acceleration_structure` and
+  `VK_KHR_ray_query`; without them the pass never
+  registers and the cascades are the whole story. The analytic planet ground is
+  ray-marched rather than rasterised and is not in the structure, so it keeps the
+  cascades.
+- **Motion vectors.** The geometry pass writes a third target: each pixel's screen
+  displacement since the previous frame, in UV. The current clip position already
+  exists; the previous one comes from a per-frame array of previous transforms that a
+  draw indexes with a single push-constant slot — the same shape as the material array,
+  and for the same reason. Both sides are camera-relative, each against its own frame's
+  eye, so the camera's own translation appears in the motion vector without planet-scale
+  metres ever entering single precision. Pixels with no geometry are reprojected from
+  the view ray instead, which is exact for the sky.
+- **Temporal anti-aliasing.** A jittered Halton projection, a history accumulated at
+  the output resolution, and a resolve with velocity dilation, YCoCg neighbourhood
+  clipping, Catmull-Rom history reconstruction, tone-weighted blending, and a sharpen
+  that offsets the temporal softening. Cheaper than MSAA at these resolutions and able
+  to remove shimmer MSAA cannot — specular, alpha-tested, and the ray-marched sky, which
+  is now jittered with the rest of the frame.
+- **Temporal upscaling.** Because the history lives on the output grid and every frame
+  samples a different sub-pixel position, rendering below the output resolution and
+  resolving into it recovers detail rather than blurring. `RenderSettings::render_scale`
+  is the manual lever; a vendor upscaler lands as a new `UpscaleMode` and a new pass.
+- **Dynamic resolution.** A governor drives the internal render scale from the GPU time
+  the Phase 0 timers measured, dropping resolution quickly when the budget is blown and
+  recovering gradually so it cannot oscillate. Steps are quantised to sixteenths, and
+  the temporal upscale is what makes the change hard to see.
+- **FXAA fallback.** A purely spatial filter over the encoded image for the low tier
+  and for a host that wants no frame-to-frame history at all. It shares nothing with the
+  temporal path — no motion vectors, no history, no jitter.
+- **Variable rate shading.** A compute pass derives a per-tile rate mask from the
+  previous frame's luminance contrast and this frame's motion, and the sky pass — the
+  frame's heaviest fill at planet scale — binds it. Ignored on a device without
+  `VK_KHR_fragment_shading_rate`, so no pass branches on support.
+- **`RenderSettings`**, a public seam separate from `Environment`: that describes the
+  world being drawn, this describes the machinery drawing it. Quality tier,
+  anti-aliasing mode, upscale mode, render scale, and the temporal, dynamic-resolution,
+  and shading-rate parameters. `ISceneView::set_settings` applies it; the editor's
+  editor gained a **Rendering** panel that edits it — its own window rather than a
+  section of Environment, on the same principle that separates the two structs. It also
+  reports the resolution the governor settled on, which is the only way to watch it
+  work.
+- **Textures, and a material model with Unity-Standard parity.** `Render::Material`
+  moves to its own header and grows the full authoring surface: albedo, packed
+  metallic-roughness (ORM supported), normal with a bump scale, height with
+  **parallax occlusion mapping** (self-shadowing and silhouette clipping included),
+  occlusion, emission with an HDR colour and intensity, a Unity-style **detail set**
+  (albedo, normal, mask), and per-set **tiling/offset**. Rendering state — surface
+  type and cutoff, cull mode, blend mode, render queue, shadow flags, wrap mode,
+  anisotropic filtering — is authored alongside. Every map is optional: an unset slot
+  resolves to a neutral default texture, so a material with no textures shades exactly
+  as it did before textures existed. A new inspector lays all of it out in the order
+  an artist expects.
+- **A GPU material system.** Authored materials are packed once per frame into a
+  storage-buffer array of fixed-layout records holding bindless heap indices, and a
+  draw carries a single material index in its push constant instead of a payload of
+  parameters — the shape the indirect-draw work in a later phase needs.
+- **Texture library with mip generation and streaming.** Images decode through stb,
+  upload with a GPU-generated mip chain, and register into the bindless heap; loads
+  deduplicate by path. Residency is mip-based against a budget: an over-budget texture
+  appears at a lower resolution and is upgraded later, at most one per frame, and no
+  upload ever blocks the frame.
+- **glTF 2.0 mesh and material import.** Every primitive in a file becomes one mesh,
+  baked into its node's world transform so multi-part assets assemble without a scene
+  graph on the render side. The core material maps across directly and the
+  `KHR_materials_*` extensions (clearcoat, sheen, transmission, volume, ior,
+  anisotropy, emissive_strength) drive the advanced lobes; spec-gloss is converted;
+  missing tangents are generated. `MeshInstance::mesh` draws an imported mesh in place
+  of a primitive, and `IWindowRenderer::assets()` is the seam a host loads through
+  without seeing a Vulkan type.
+- **Image-based lighting, captured from the engine's own sky.** Six faces of the
+  analytic atmosphere are rendered into a cubemap, GGX-prefiltered into a roughness
+  mip chain, and cosine-convolved into an irradiance cube; a split-sum BRDF LUT is
+  generated once at bring-up. This replaces the flat ambient constant, so indirect
+  light tracks the time of day for free. The capture is rate-limited and only runs
+  when the sun or the atmosphere has measurably moved.
+- **BRDF upgrade.** Height-correlated Smith visibility, **Kulla-Conty multi-scatter
+  energy compensation** (rough metals no longer lose most of their energy),
+  roughness-aware Fresnel, specular occlusion from AO, and dielectric F0 derived from
+  the material's index of refraction. Anisotropy, clearcoat, sheen, and thin-surface
+  transmission are available behind material flags, costing nothing when unused.
+
+### Changed
+- **The cloud composite left the display transform.** Resolving the half-resolution
+  cloud march over the sky used to be two lines at the top of `tonemap.frag`. It is its
+  own pass now, because the temporal resolve needs a complete linear HDR scene and the
+  display transform has to run after that — nothing may sit on both sides of it.
+  `tonemap.frag` is exposure, the tone curve, and the encode, and nothing else, which is
+  also the seam the post-processing stack will attach to.
+- **Vertex format upgraded to position, normal, tangent, UV0, UV1, and vertex
+  colour.** The built-in primitives are regenerated with analytic tangents and UVs;
+  imported meshes get generated tangents when a file omits them. A zero tangent is a
+  legal value meaning "none authored", and the shader then derives a frame from
+  screen-space derivatives, so a mesh without tangents still normal-maps.
+- **Device-level assets moved out of the scene view.** Textures, meshes, the bindless
+  heap, and the shader/pipeline/sampler caches now live in one `AssetLibrary` per
+  device, so two viewports drawing the same model share one upload and one pipeline.
+  The scene view keeps only what varies per view: its targets, its per-frame
+  allocators, its soft-body buffers, and its passes.
+
+- **A render graph, and the renderer split onto it.** `render/` is no longer one
+  ~2300-line class that hand-writes every barrier: passes now declare which textures
+  and buffers they read and write, and `render/graph/` derives the rest — every
+  `VkImageMemoryBarrier2`, every dynamic-rendering scope (viewport and scissor
+  included), which passes are dead and can be culled, and which transient targets may
+  share one allocation because their lifetimes do not overlap. The existing four
+  passes ported onto it unchanged, plus the picking readback, as one file each under
+  `render/passes/` behind a single `register_pass(graph, frame)` contract, so a new
+  effect is a new file rather than an edit to the god-class. `VulkanSceneView` is left
+  as a thin orchestrator; camera-relative rendering and reverse-Z are unchanged and
+  inherited by every pass.
+- **Per-pass GPU timings in the editor.** The graph brackets each pass with timestamp
+  queries and resolves them at the point the frame's fence has already been waited on,
+  so the measurement costs no stall. `ISceneView` gains `pass_timing_count()` /
+  `pass_timing()`, and the viewport panel draws the breakdown as an overlay — every
+  later pass can now be landed against a measured budget instead of a guess.
+- **Shader hot-reload.** Shaders still ship as build-time SPIR-V, but when the source
+  tree is present the renderer watches `render/shaders/` and recompiles changed files
+  in process with glslang, idles the device, and rebuilds every pipeline. A compile
+  error keeps the previous shader and reports on stderr. GLSL `#include` now works in
+  both the build-time tool and the reload path, and the shader compiler accepts
+  compute shaders.
+- **Disk-backed pipeline cache and pipeline libraries.** A `VkPipelineCache` is
+  persisted between runs so a second launch skips driver shader compilation, and where
+  `VK_EXT_graphics_pipeline_library` is available a pipeline is linked from four
+  independently cached halves so pipelines differing in one stage reuse the other
+  three. Devices without the extension fall back to monolithic creation.
+- **Bindless descriptor heap.** One global update-after-bind array of textures and
+  storage buffers, bound as set 1 of the shared scene pipeline layout when the device
+  supports descriptor indexing, with the cloud noise volumes registered into it.
+  Per-pass descriptor sets are now allocated from per-frame pools that are reset
+  wholesale, so resizing the viewport rebuilds no descriptor set.
+
+### Changed
+- **Cloud noise is generated on the GPU.** The Perlin-Worley shape, erosion detail,
+  anisotropic cirrus, and weather-map textures were built at startup on a
+  `std::thread` pool; they are now four compute dispatches in a single fenced submit,
+  taking that work off the host's bring-up path.
+- **Soft-body vertex buffers are per frame slot.** The cloth buffers were rewritten
+  every frame while a previous frame could still be reading them; each frame in flight
+  now owns its own, and they still only ever grow.
+- **Test coverage for the solar-system model, camera maths, and determinism guard
+  rails.** The `astro/` module (Julian date and sidereal time, Keplerian orbital
+  elements, the body catalogue, the summed gravity field and symplectic integrator,
+  the topocentric/body-orientation/surface/scene frames, the star catalogue, and the
+  `advance_astro_state` propagator + `fill_environment_sky` assembler) shipped with no
+  tests; it now has twelve dedicated suites (ten `Unit_*`, two `Integration_*`) that
+  verify it against astronomical reference landmarks (J2000 = JD 2451545.0, Earth ~1 AU,
+  WGS84 radii, ~9.8 m/s² surface gravity, Earth's ~0.9 Gm sphere of influence) and
+  against structural invariants — Kepler's equation satisfied, every frame transform
+  round-tripping to the identity, every basis right-handed orthonormal, and the
+  integrator conserving orbital energy over a full revolution. Adds `Unit_MathPrimitives`
+  for the previously-untested quaternion/matrix/`perspective`/`look_at` seam in
+  `core/types.hpp`, and `Unit_Rng` / `Unit_FixedTimestep` for the SushiLoop determinism
+  contract (identical seeds replay identically; a snapshotted RNG replays the future
+  exactly; the fixed-step count depends only on total elapsed time, not on frame
+  chunking). Shared test helpers gain a `WorldVector3` comparator and `is_unit` /
+  `is_orthonormal_basis`. All fifteen new files register into `se_functional_tests` and
+  pick up their CTest labels from the suite-name convention, so `ctest -L unit` and
+  `ctest -L integration` run them with the rest.
+- **Frame-local transform authoring: place things relative to a celestial body.** The
+  inspector's Transform section gains a **Reference** row — a body dropdown ("Scene" or any
+  catalogued body) plus a **Auto / Free / Surface** mode. With a body picked, Position and
+  Rotation are authored *frame-local*: **Surface** shows the position as **Latitude / Longitude /
+  Altitude** (the place-on-a-planet coordinate, via `surface_frame.hpp`'s geodetic conversion and
+  the body's spin `W(t)`), with ground-local rotation so "upright" is identity at any pole or
+  hemisphere; **Free** shows a Cartesian offset from the body's scene-frame centre. This is the
+  Unity-parent analogue with the body as the parent — so the whole solar system is placeable
+  through one Transform without ever typing a raw ~1e11 m number. New `IWorldEditor` surface:
+  `Simulation::EntityFrame` / `Simulation::FrameMode`, `entity_frame` / `set_entity_frame`,
+  and `frame_local_transform` / `set_frame_local_transform`, which convert between the
+  frame-local pose and the scene Transform through the scene-frame bijection at the master
+  epoch (`reference_center_scene`). This is an **authoring-boundary projection**: the scene
+  Transform stays the working truth the physics and renderer read, and the reference descriptor
+  is what's serialized (and, ahead, network-synced as the frame-independent value for
+  zero-conflict). A reference body of -1 is the scene root — entities that never pick a body are
+  unchanged. Old scenes' removed `has_astro_body` flag migrates to a Free reference on the
+  dominant body. Surface mode drives the existing surface anchoring.
+- **Solar-system dynamics modules: the gravity field, orbital integrator, and scene
+  bijection.** The astronomy that lets an entity move under real solar-system gravity, as
+  reusable modules. These back the per-body physics gravity field (see *Changed*) and,
+  ahead, the unified dynamic body's Free authority. (An earlier exclusive "Astro Body"
+  toggle that owned an entity's pose through a parallel path was folded into the one
+  dynamic-body concept before release — there is no separate astro mode, component, or
+  serialization key.) The modules:
+  - `astro/gravity_field.hpp` — `Astro::IGravityField` (the field behind a dependency-
+    inversion seam) and `Astro::SummedRailsGravityField` (the default on-rails summation),
+    so the orbital integrator names an abstraction, not a concrete model (a patched-conic
+    or full N-body field can replace it without the integrator changing).
+  - `astro/astro_dynamics.hpp` — a field-parameterised `Astro::integrate_step` overload
+    and `Astro::advance_astro_state()`, which joins one symplectic step and the SOI rebase
+    into the single per-step authority update the simulation drives.
+  - `astro/scene_frame.hpp` — `Astro::SceneFrame`, the exact rigid bijection between a
+    heliocentric-ecliptic position and the scene's local frame (position and direction,
+    both ways), reproducing the ephemeris's scene construction so a free body and the
+    planet it orbits line up. `astro/topocentric.hpp` factors the observer's East-Up-South
+    basis (`LocalSkyBasis`, `local_sky_basis`, `to_local`, and its new inverse `from_local`)
+    out of `ephemeris.hpp` so the ephemeris and the scene frame share one construction;
+    `astro/body_orientation.hpp` gains the inverse rotation `body_equatorial_to_ecliptic`.
+- **The simulation owns the master epoch (one clock for orbits and sky).** `ISimulation`
+  gains `julian_date()` / `set_julian_date()` / `set_time_scale_days_per_second()` and
+  `set_sky_observer()`: the sim advances the Julian Date by the fixed step (scaled by the
+  authored days-per-second) and the editor now drives the sky from that clock instead of a
+  separate accumulator, so free bodies, the planets they orbit, and the rendered sky are
+  all evaluated at the same instant. The sky animates under Play/Step; scrubbing the date
+  seeks the epoch.
+- **Planet-agnostic sky: three coordinate spaces and per-body spin.** The topocentric
+  ephemeris was written around Earth — the scene was always anchored to an Earth-geodetic
+  observer, positions rotated into Earth's equatorial frame, and the meridian driven by
+  Earth's sidereal time — so standing on another planet gave a broken, Earth-locked sky
+  (animated time showed no motion, and flying to a distant planet lost precision as its
+  coordinates reached ~1e11 m in the Earth-anchored frame). The sky is now built the same
+  way on any body:
+  - `SkyObserver` gains `observer_body` (the ephemeris body index the observer stands
+    on, Earth by default); `fill_environment_sky` anchors the scene origin to that body's
+    surface point and places every other body relative to it, in that body's own
+    equatorial frame — one construction, no Earth special case.
+  - New `astro/body_orientation.hpp`: `body_rotation_angle()` is the IAU prime-meridian
+    angle W(t) (each body's spin, retrograde where real), `ecliptic_to_body_equatorial()`
+    / `equatorial_to_body_equatorial()` rotate directions into the observer body's
+    equatorial frame. Earth is routed through the exact fixed-obliquity path and sidereal
+    time, so the home sky is bit-identical; every other body picks up its true pole and
+    day. This realises the **solar → planet → local** space contract: heliocentric
+    ecliptic (all bodies), body-fixed per-planet, and the observer's local scene frame.
+  - The editor re-anchors to whichever body the camera is on (the dominant near-field
+    body becomes `observer_body`), rebasing the camera on a change so the switch is
+    seamless. This replaces the Earth-only "ride-along" shim; "animate time" now shows the
+    sky move on every planet, and approaching any planet keeps full precision.
+- **Solar-system gravity field and planet-relative surface frames.** Three new
+  header-only modules under `include/SushiEngine/astro/` give the orbital regime a
+  real gravity model and a planet-relative transform basis, all double precision at
+  the render/sim seam:
+  - `astro/gravity.hpp` — `Astro::standard_gravitational_parameter()` (GM per body),
+    `Astro::gravity_field()` (the summed Newtonian field of every catalogue body at
+    its ephemeris position), a symplectic velocity-Verlet `Astro::integrate_step()`
+    that flies a `StateVector` through that field, and `Astro::sphere_of_influence_radius()`.
+    Planets stay on their analytic Keplerian rails (the gravity *sources*); only free
+    entities are integrated (the *subjects*) — an on-rails design that keeps the field
+    a deterministic function of position and time for lockstep.
+  - `astro/reference_frame.hpp` — `Astro::ReferenceFrame` (a body-centred, inertially
+    oriented frame), `frame_for()`, `to_frame()`/`to_heliocentric()`, `rebase()` (the
+    coordinate change a sphere-of-influence crossing triggers), and
+    `active_frame_body()` (the most local dominant attractor at a point).
+  - `astro/surface_frame.hpp` — the body-fixed surface frame that makes a
+    planet-relative pose work: `geodetic_to_body_fixed()`/`body_fixed_to_geodetic()`
+    (ECEF storage with lat/lon only as a boundary conversion), `geodetic_normal()`,
+    `local_tangent_basis()` (the East-North-Up rotation an entity's orientation is
+    composed onto, so "upright" is identity everywhere on a body — no
+    hemisphere-dependent tilt), `surface_gravity()`, and `surface_gravity_vector()`.
+  All three are fully body-parametric — every catalogued body from Mercury to Pluto,
+  plus the Moon, with no per-body branches.
+- **Planet-aware simulation gravity.** `RuntimeSimulation` now derives each step's
+  gravity from the scene's dominant celestial body: the real surface acceleration of
+  Earth, Mars, the Moon, or any catalogued body, directed at the planet's centre
+  rather than a fixed world "down". With no dominant body it falls back to the legacy
+  local demo gravity, leaving the plain physics sandboxes unchanged.
+- **Planet-relative orientation (surface anchoring).** An entity can be surface-anchored
+  through `IWorldEditor::set_surface_anchored` / `set_surface_local_orientation`: its
+  stored orientation is treated as *ground-local* (relative to the local East-North-Up
+  tangent frame on the dominant body), and the simulation composes the tangent frame
+  onto it each step. "Upright" is therefore identity everywhere on a body — an anchored
+  entity stands straight in the southern hemisphere and at the poles instead of tilting
+  with its position. Anchoring seeds the ground-local orientation from the entity's
+  current pose so it does not snap. Exposed in the editor as a **Surface Anchor**
+  component (Add Component menu, removable Inspector section) and persisted with the
+  scene.
+- **Planet collider for entities and the Scene camera.** With a dominant body present,
+  `RuntimeSimulation` keeps every entity — cameras included — outside the reference
+  ellipsoid each step and after every edit, pushing a sunk position radially out to the
+  true (flattened) surface; a penetrating rigid body is re-posed through the physics
+  seam so its velocity zeroes and the surface acts as a hard floor.
+- **Genus-driven, self-shadowing volumetric cloudscape.** The single cloud shell is
+  replaced by a `Render::Cloudscape` of up to `CLOUD_MAX_DECKS` genus decks. A new
+  `Render::CloudGenus` enumerates the ten WMO genera (cirrus, cirrocumulus,
+  cirrostratus, altocumulus, altostratus, nimbostratus, stratocumulus, stratus,
+  cumulus, cumulonimbus); `Render::cloud_genus_profile()` is the catalogue mapping
+  each to a physically-plausible `Render::CloudGenusProfile` (étage band, coverage,
+  density, a `stratiform` axis from cellular billows to flat sheet, an `anvil`
+  spread for deep convection, noise scales, wind, and base-noise kind). A
+  `Render::CloudDeck` names a genus and nudges its coverage/density; several decks
+  coexist as a real sky does. The sky pass ray marches the union shell of all
+  enabled decks in one pass and sums their densities, so decks composite and occlude
+  one another and a sample's light march toward the Sun crosses every deck above
+  it — high cirrus shadows the cumulus below it for free — and casts the combined
+  shadow onto the analytic ground (`ground_shadow_strength`). The base shape gains a
+  wind-stretched anisotropic `Cirriform` volume so cirrus reads as feathers, and the
+  cumulonimbus anvil towers to the tropopause. **Two-tier LOD**: the march budget
+  scales with camera altitude (dense in-atmosphere, coarse from orbit), so tall
+  cumulonimbus resolves from space at low cost; **empty-space skipping** strides the
+  air gaps between decks so samples land in cloud. Exposed in the editor's
+  Environment → Clouds panel as a shared "Medium" section plus a genus combo per
+  deck. **Breaking:** `Render::CloudParams` is removed in favour of
+  `Render::Cloudscape` + `Render::CloudDeck` + the genus catalogue.
+- **Dynamic night lighting from the Moon and stars.** A new
+  `Render::NightLighting` (`enabled`, `moon_intensity`, `star_intensity`) lets the
+  ephemeris drive `Environment::ambient` each frame from the real sky geometry:
+  the Sun's ambient dominates by day and hands off, as it sets, to a cool
+  moonlit ambient scaled by the Moon's illuminated fraction (its phase) and
+  altitude, plus a small starlight floor on a moonless night. Exposed in the
+  editor's Environment panel under a new "Night Lighting" section; only active
+  while the astronomical Sun drives the sky, so a manually authored ambient is
+  left untouched otherwise.
+- **The camera rides a moving planet.** `Environment` now reports the analytic
+  ground body (`dominant_body_id`, `dominant_center_metres`); the editor shifts
+  the camera by that body's scene-frame displacement each frame so it stays at a
+  fixed altitude over a non-Earth planet as the planet's orbit carries it through
+  the Earth-anchored frame while time animates (Earth was already tracked by its
+  observer-origin anchoring).
+
+### Changed
+- **Volumetric clouds read with real 3D volume instead of soft repeating blobs (phases 0–1).**
+  Two root causes of the synthetic look were fixed. *Frequency/scale:* the shape noise volume is
+  now `128³` and the detail volume `64³` (was `96³`/`32³`), and the cumuliform genus profiles'
+  `shape_scale`/`detail_scale` were retuned so a texel lands near cloud-feature scale — crisp
+  cauliflower silhouettes carved by fine erosion rather than kilometre-wide lumps. *Repetition:*
+  the shader's domain warp (`sky.frag`) is now two incommensurate octaves at wavelengths far
+  larger than the shape tile, bending the noise lattice off its grid so no lumps land at the tile
+  spacing the eye latches onto. *Lighting depth:* the light march toward the sun is now
+  cone-sampled with exponentially growing steps (crisp local self-shadow, soft outer shadow), and
+  a 3-octave Beer/Wrenninge multiple-scattering energy term (`cloud_sun_energy`) fills the deep
+  interior a single Beer term leaves black — dense cores read luminous and self-shadowed, the
+  main cue that a cloud has volume. Design notes in `docs/design/volumetric_clouds.md`.
+- **Clouds now draw over terrain, not only against open sky.** The cloud march was gated on
+  `!ground_hit`, so any ray that met the planet ground drew no cloud — flying above a deck and
+  looking down showed bare ground. The march now runs whenever clouds are enabled, entering at
+  the shell's top sphere and stopping at the nearer of the opaque geometry or the planet ground,
+  compositing the cloud over the ground colour already accumulated. Essential for the flight-sim
+  down-looking view.
+- **Realistic cloud distribution and a first optimization pass (phase 2 + 4a).** *Distribution:*
+  the weather/coverage field is now a broad weather-system scale times a finer clumping scale
+  sampled stretched along each deck's wind, so the sky breaks into wind-parallel clusters with
+  clear gaps (cloud streets) instead of an even carpet, and a broad self-warp hides the map tile.
+  *Optimization (toward mid-range GPUs):* a cheap density probe skips the expensive detail/dual-
+  scale evaluation in the empty air that dominates grazing and look-down rays; samples past a
+  distance threshold drop to the cheap density (distance LOD); the cone light march is recomputed
+  every other lit sample and reused between (it is the dominant cost); light taps 6→5; earlier
+  transmittance cutoff; max view-march budget 128→96.
+- **Half-resolution cloud pass (phase 4b).** The volumetric march is split out of `sky.frag`
+  into a dedicated `cloud.frag` that renders at half width and height into an HDR target
+  (`scattered.rgb`, `transmittance`); the tonemap pass upsamples it (linear) and composites it
+  over the full-resolution sky as `sky * transmittance + scattered`. The expensive march now runs
+  at a quarter of the pixels while the sun disk, stars, and planet relief stay sharp — the largest
+  single GPU saving for the cloudscape. The cloud density helpers remain in `sky.frag` for the
+  ground-shadow cast. (Depth-aware/temporal upsampling to remove half-res edge softening is a
+  future refinement.)
+- **Clouds read white, not grey.** With a strongly forward-scattering phase the clouds only lit
+  up when looking toward the sun and read grey otherwise. `cloud_sun_energy` now blends its
+  deeper multiple-scatter octaves toward isotropic and rescales by 4π, so a fully-lit sample
+  approaches the sun's radiance (white) from any angle while the light march still greys down the
+  self-shadowed side; the powder darkening default drops 1.0→0.3 and ambient fill 0.4→0.5.
+- **One-click weather presets in the cloud panel.** `Render::WeatherPreset`
+  (Clear / Fair Weather / Overcast / Storm) and `cloud_weather_preset` — a pure-data expansion
+  mirroring `cloud_genus_profile` — set the whole sky from one button. The editor's Clouds panel
+  leads with the preset buttons and tucks the per-deck and medium controls under an *Advanced*
+  node, so the common case needs no manual deck editing.
+- **Gravity is a per-body field, not one scene-wide vector.** `IPhysicsSimulation::step` now
+  takes a `Simulation::GravitySampler` (a `Vector3(const Vector3&)` mapping a body's position to
+  its acceleration) instead of a single gravity vector, and the solver samples it at each body's
+  own position every sub-step (`PhysicsWorld::predict_substep_field`). `RuntimeSimulation` builds
+  the sampler from the injected `Astro::IGravityField` — the *same* summed on-rails field the
+  orbital integrator uses (one gravity source) — by mapping each body's scene position to
+  heliocentric, sampling the field, and rotating the acceleration back into scene axes. Bodies
+  now feel the true field: 1/r² falloff with altitude, curvature toward the attractor, and
+  third-body terms, rather than one dominant term evaluated once at the scene origin. Sampling at
+  the current position each sub-step keeps the semi-implicit predict symplectic (orbit energy is
+  preserved). Non-astronomical scenes get a uniform-sampler fallback, unchanged. `PhysicsWorld`'s
+  own `step`/`predict_substep` (used by the demos and tests) keep the uniform-vector form.
+- **Scene surface anchoring uses the geodetic normal for "up".** The local East-North-Up
+  tangent frame an anchored entity's orientation composes onto now takes its vertical from
+  the ellipsoid gradient (`RuntimeSimulation::surface_normal_scene`, the scene-frame analogue
+  of `Astro::geodetic_normal`) instead of the geocentric radial `normalize(offset)`. On a
+  flattened body the two differ, so a surface-anchored entity now stands along the true local
+  vertical everywhere — a step toward folding all tangent-basis math onto
+  `surface_frame.hpp`.
+- **Rigid-body aerodynamic drag.** A Rigid Body gains a **Drag Coefficient** (`k`), applied in
+  the physics predict as a quadratic drag acceleration `-k|v|v` each sub-step (`Physics::predict`),
+  so a body reaches terminal velocity under gravity instead of accelerating without bound. Threaded
+  through `Simulation::PhysicsBodyParams`, `RigidBodyDesc`/`RigidBodyT`, and
+  `update_rigid_body_params` (live edits apply without a rebuild); exposed as an inspector field and
+  serialized. `0` disables it, so existing bodies are unchanged.
+- **The Scene fly-camera is no longer clamped to planet surfaces.** `CameraController::clamp_outside`
+  and its call in `editor/main.cpp` are removed; the editor camera flies freely and may enter a
+  body (Unity/Blender behaviour). The planet-scale depth range is already carried by the
+  infinite-far reverse-Z projection, so no radial clamp is needed. Entity/rigid-body surface
+  collision is unchanged.
+- **Real 1/r² gravity replaces the fixed surface-gravity stand-in.** When a scene has a
+  dominant celestial body, `RuntimeSimulation` now applies that body's true Newtonian pull
+  `-µ/r²` evaluated at the actual distance from its centre (via the frame-agnostic
+  `Astro::body_point_gravity`), so gravity falls off with altitude and curves toward the
+  planet instead of being pinned to the constant surface value `µ/a²`. Deep-space and
+  non-astronomical scenes keep the local demo gravity. `Astro::gravity_field()` is
+  refactored to sum the same per-body term (one source of truth).
+- **Realistic sky, horizon, and Sun.** The single-scattering sky pass gains a
+  cheap isotropic multiple-scattering fill so the twilight horizon stays hazy
+  instead of falling to black; hemispherical skylight now lights the analytic
+  ground (tinted by the atmosphere's Rayleigh coefficient) so the ground meets
+  the sky seamlessly at the limb rather than as a dark ring; the view-ray
+  scattering march is 32 steps with a quadratic, camera-clustered distribution so
+  the dense near-camera air is resolved and the far ground veils correctly at the
+  horizon. The Sun disk gets a physically based limb-darkening law (warming and
+  dimming toward the edge) and a scale-independent warm aureole that reddens as
+  it nears the horizon, so it no longer reads as a flat white cutout.
+
+### Fixed
+- **Viewport gizmo is now frame-aware for surface-anchored entities.** World-space handles are
+  meaningless on a curved planet (world +Y is "up" only at one point), so a surface-anchored
+  entity's gizmo now resolves against its local **East-North-Up** ground frame — `editor/main.cpp`
+  forces Local space there, and since the entity's orientation is stored ground-local and composed
+  onto the tangent frame, the handles come out as east/north/up. A gizmo **rotation** on such an
+  entity also sticks now: `set_transform` re-derives the stored ground-local orientation from the
+  edit, but only for a pure rotation (position unchanged), so the tangent frame is identical and the
+  round-trip is exact — a translation never touches it, keeping "upright" upright at every latitude.
+- **Solar eclipses are now visible.** The Sun and Moon already subtend near-equal angles from
+  Earth (the catalogue radii and real ephemeris distances are exact, and the sky pass sizes every
+  body by `asin(radius/distance)`), so the dark Moon disk *was* drawn over the Sun — but the Sun's
+  warm aureole and disk were added regardless of occlusion and blazed straight through it. `sky.frag`
+  now computes a per-frame `sun_eclipse` fraction (the circle-circle overlap of the Sun's disk by any
+  nearer body, `disk_overlap_fraction`) and uses it to dim the daylight, the disk, and the aureole
+  toward totality while revealing a thin corona at the limb — so a partial eclipse dusks the sky and a
+  total eclipse reads as a dark disk ringed with corona. No CPU/size change; the body sizes were
+  already physically exact.
+- **Environment → Travel "Earth" sent you to the wrong body.** The travel handler treated Earth
+  as a synonym for "home" (the scene origin) — but the scene origin is the *observer* body's
+  surface, which becomes whatever planet you last travelled to. So selecting Earth while standing
+  on another planet dropped you back on that planet. It now returns to the origin only for the body
+  you are already anchored to (`environment.observer.observer_body`), and travels to Earth's real
+  position otherwise, via the same body lookup every other destination uses.
+- **Planet-scale depth clipping and z-fighting (reverse-Z, infinite far).** The scene
+  view rendered with a fixed near/far of 0.1–500 m and a 24-bit unorm depth buffer, so
+  flying to planet scale clipped the horizon and distant geometry at 500 m and z-fought
+  badly. The projection (`perspective`) is now reverse-Z with an *infinite* far plane, the
+  depth buffer is `D32_SFLOAT_S8_UINT`, and the pipeline clears depth to 0 and compares
+  with `GREATER_OR_EQUAL` — spreading floating-point precision almost uniformly from a few
+  centimetres to 10^7 m and clipping nothing for distance. The selection outline's depth
+  bias flips sign to match, and the sky pass's "is there geometry here" tests flip to
+  `depth > 0` (its view-z reconstruction reads the projection directly, so it needs no
+  other change). Nothing is drawn with a far cutoff anymore.
+- **Mesh jitter at planetary distances.** The scene view now renders meshes,
+  the ground grid, and cloth in camera-relative space: `make_push` subtracts
+  the camera eye from each model's translation in double precision before the
+  `float` cast, cloth points are offset by the eye as they are written to their
+  buffer, and the uploaded view matrix carries no translation. Previously both
+  the model and view matrices baked absolute world translations that lost all
+  sub-metre precision the moment they were cast to `float` for the GPU (a ~16 m
+  quantisation at 1.5e8 m from the origin), so geometry far from the origin —
+  or seen from a far-off camera — visibly jittered even in the double-precision
+  build. `pbr.frag` matches the new frame by taking the view direction as
+  `-v_world_position` (the camera is at the origin of camera-relative space).
+  The sky pass was already camera-relative and is unchanged.
+
+### Changed
+- **`Scalar` is now always double precision; the `SE_SCALAR_DOUBLE` build option
+  is removed.** The engine simulates planet- and solar-scale worlds, where single
+  precision quantises camera and transform math to roughly a metre at 10 000 km
+  from the origin (float32's ~7 significant digits) — the cause of the camera
+  "wandering" and rotation locking that motivated this change. Double is now the
+  engine's one and only boundary/render `Scalar`; there is no compile-time toggle.
+  The placeholder's `Float` is a plain `using Float = double`, the option and its
+  `target_compile_definitions` plumbing are gone from `cmake/ProjectOptions.cmake`,
+  the top-level and `render/` `CMakeLists.txt`, and the `se` CLI (`--double`, the
+  `scalar_double` config field, and `current_precision()` are removed). The
+  editor's Preferences precision setting now selects only the physics-solve
+  precision (`Simulation::Precision`, a live runtime choice) and defaults to
+  double. GPU data is unaffected: the upload path already narrows to 32-bit
+  camera-relative at the push-constant boundary.
+- **Editor camera controls honour the `Scalar` precision seam.** `FlyCamera`,
+  `CameraController`, and `FlyCameraSource::set_move_speed` now store and
+  compute in `Scalar` (always double) instead of hard-coded `float`.
+  `InputState` fields remain `float`
+  (they come from ImGui pixel deltas) and are `static_cast` to `Scalar` at the
+  computation boundary, so the full camera pipeline — position, orientation,
+  projection, and all controller parameters — runs at the same precision as the
+  rest of the engine. No API change at the `ISceneCamera` interface; callers
+  that pass `float` (e.g. `Preferences::camera_move_speed`) still compile
+  through implicit widening.
+
+### Added
+- **PBR materials, a physical sky, and a WGS84 planet.** The scene view grew from a
+  single hard-coded directional light into a full lit environment rendered in three
+  HDR passes. A new neutral seam `render/environment.hpp` carries the sun
+  (`DirectionalLight`), the `Wgs84` ellipsoid (a = 6378137 m, 1/f = 298.257223563),
+  and the `AtmosphereParams`/`PlanetParams`/`CloudParams`/`StarParams`/`Material`
+  that describe how the planet is lit and surrounded — authored by the simulation
+  (`RenderScene::environment`, `RenderInstance::material`) and consumed by
+  `ISceneView::render`, which now takes a `const Environment&` and the camera's world
+  position.
+  - **Materials.** `MeshInstance` carries a metallic-roughness `Material`; the new
+    `pbr.frag` shades every mesh with a Cook-Torrance BRDF (GGX + Smith + Schlick)
+    lit by the sun and an ambient floor, replacing the old flat `mesh.frag`.
+  - **Sky.** `sky.frag` ray-marches, in camera-relative space, the WGS84 ellipsoid
+    ground, Rayleigh + Mie single-scattering atmosphere, a procedural cloud layer,
+    and a hashed star field, composited over the opaque scene by the sampled depth
+    (aerial perspective included). As the camera climbs the atmosphere thins to black
+    space and the stars emerge — the near-surface-to-orbit transition, driven by
+    optical depth rather than a hard switch.
+  - **HDR pipeline.** The offscreen target is now linear `R16G16B16A16_SFLOAT`; a
+    `tonemap.frag` (exposure + ACES + gamma) resolves it into the `R8G8B8A8_UNORM`
+    image the editor samples. The scene view gained a per-frame uniform block (its
+    first descriptor set) shared by all passes, plus the sky and tonemap pipelines.
+  - **Authoring.** The editor's new **Environment** panel authors the sun
+    (azimuth/elevation, colour, intensity), atmosphere on/off, exposure, clouds, and
+    stars; the Inspector gained a metallic/roughness/emissive material section.
+    `IWorldEditor` grew `environment()`/`set_environment()` and
+    `material()`/`set_material()`.
+- **Cloth renders as a shaded, pickable mesh.** `render/cloth_mesh.hpp`'s new
+  `triangulate_cloth_grid` turns a cloth grid's row-major particle positions into a
+  triangle list with averaged per-vertex normals; the Vulkan scene view now uploads
+  that mesh into a host-visible index/vertex buffer pair and draws it through the
+  same lit `mesh_pipeline_` Box/Sphere/Cylinder use, instead of a flat-coloured,
+  unpickable grid-edge wireframe. `Render::ClothStrandView` and `Simulation::
+  ClothInstance` gained `color`/`id` fields (defaulted to the wireframe's old fixed
+  tint, since cloth entities carry no `Tint` component), so a cloth sheet now
+  shades, picks, and outline-highlights like any other object.
 - **Two-way cloth↔rigid coupling, true oriented-box (OBB) contacts, and a broadphase.**
   The rigid and cloth worlds are now driven in lockstep (predict → solve both, resolve the
   contacts that span them, then derive velocity for both), so a cloth sheet pushes back on

@@ -32,21 +32,6 @@ namespace SushiEngine
 {
     namespace Editor
     {
-        /**
-         * @brief The precision the live simulation's physics solve runs in.
-         *
-         * A runtime choice, mapped to `Simulation::Precision`: changing it rebuilds the
-         * running simulation in the new precision (the scene is preserved), no rebuild of
-         * the binary required. This is distinct from the render/ECS boundary `Scalar`,
-         * which remains a build-time option (SE_SCALAR_DOUBLE) reported by
-         * @ref current_precision.
-         */
-        enum class ScalarPrecision
-        {
-            Single,
-            Double
-        };
-
         /** @brief The ImGui colour theme applied to the editor. */
         enum class EditorTheme
         {
@@ -61,12 +46,10 @@ namespace SushiEngine
          * A plain aggregate of values — no behaviour — so it can be copied, compared, and
          * serialized freely. The store (@ref IPreferencesStore) owns persistence; the
          * Preferences window edits an instance of this; and the editor applies the fields
-         * that take effect live (theme, grid, camera speed, snap, and @ref precision,
-         * which rebuilds the running simulation in the chosen physics-solve precision).
+         * that take effect live (theme, grid, camera speed, snap).
          */
         struct Preferences
         {
-            ScalarPrecision precision = ScalarPrecision::Single;
             EditorTheme theme = EditorTheme::Dark;
 
             bool grid_visible = true;
@@ -84,24 +67,6 @@ namespace SushiEngine
         };
 
         /**
-         * @brief The precision this binary was compiled with.
-         *
-         * Reads the SE_SCALAR_DOUBLE build macro, so the Preferences window can compare
-         * the user's chosen precision against reality and prompt a rebuild when they
-         * differ. Kept inline (rather than in the store) because it is a pure build fact.
-         *
-         * @return ScalarPrecision::Double under a double build, else ::Single.
-         */
-        inline ScalarPrecision current_precision() noexcept
-        {
-    #ifdef SE_SCALAR_DOUBLE
-            return ScalarPrecision::Double;
-    #else
-            return ScalarPrecision::Single;
-    #endif
-        }
-
-        /**
          * @brief Persistence for @ref Preferences, abstracted from any file format.
          *
          * The Preferences window and the editor loop depend on this interface, not on a
@@ -117,9 +82,7 @@ namespace SushiEngine
                 /**
                  * @brief Loads the persisted preferences, or defaults when none exist.
                  *
-                 * A first run (no file) yields a default-constructed @ref Preferences whose
-                 * @ref Preferences::precision is seeded from @ref current_precision so the
-                 * UI starts consistent with the running binary.
+                 * A first run (no file) yields a default-constructed @ref Preferences.
                  *
                  * @return The loaded (or default) preferences.
                  */

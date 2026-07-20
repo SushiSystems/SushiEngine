@@ -1,0 +1,30 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Generates the 2D weather map: R biases coverage and G biases cloud type across the
+// sky, both sampled by world x/z so the cloudscape varies from horizon to horizon.
+
+#include "cloud_noise_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D destination;
+
+layout(push_constant) uniform Params
+{
+    uint resolution;
+    uint kind; // unused; the two noise shaders share one pipeline layout
+} params;
+
+void main()
+{
+    uvec2 texel = gl_GlobalInvocationID.xy;
+    if (any(greaterThanEqual(texel, uvec2(params.resolution))))
+        return;
+
+    vec2 uv = vec2(texel) / float(params.resolution);
+    float coverage = noise_perlin_fbm(vec3(uv, 0.13), 3, 4);
+    float type = noise_perlin_fbm(vec3(uv, 0.71), 2, 4);
+    imageStore(destination, ivec2(texel),
+               vec4(clamp(coverage, 0.0, 1.0), clamp(type, 0.0, 1.0), 0.0, 1.0));
+}

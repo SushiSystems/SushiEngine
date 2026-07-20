@@ -40,6 +40,7 @@
 #include <memory>
 
 #include <SushiEngine/render/rhi/device.hpp>
+#include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
 namespace SushiEngine
@@ -89,6 +90,15 @@ namespace SushiEngine
 
                 /** @brief Minimum swapchain image count (ImGui's MinImageCount, >= 2). */
                 virtual std::uint32_t min_image_count() const noexcept = 0;
+
+                /**
+                 * @brief The device's shared texture and mesh asset store.
+                 *
+                 * Assets live on the device, not in a view: two viewports drawing the same
+                 * imported model share one upload. The reference stays valid for the
+                 * renderer's lifetime.
+                 */
+                virtual IAssetLibrary& assets() noexcept = 0;
 
                 /**
                  * @brief Begins a presented frame, clearing the acquired image.

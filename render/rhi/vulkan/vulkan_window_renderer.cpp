@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "material/asset_library.hpp"
 #include "vulkan_scene_view.hpp"
 
 namespace SushiEngine
@@ -91,14 +92,18 @@ namespace SushiEngine
                         "SushiEngine: a windowed renderer needs a surface factory");
                 create_swapchain(desc.width, desc.height);
                 create_frames();
+                assets_.reset(new Assets::AssetLibrary(device_));
             }
 
             VulkanWindowRenderer::~VulkanWindowRenderer()
             {
                 vkDeviceWaitIdle(device_.device());
+                assets_.reset();
                 destroy_frames();
                 destroy_swapchain();
             }
+
+            IAssetLibrary& VulkanWindowRenderer::assets() noexcept { return *assets_; }
 
             void VulkanWindowRenderer::create_swapchain(std::uint32_t width, std::uint32_t height)
             {
@@ -310,7 +315,7 @@ namespace SushiEngine
 
             std::unique_ptr<ISceneView> VulkanWindowRenderer::create_scene_view()
             {
-                return std::unique_ptr<ISceneView>(new VulkanSceneView(device_));
+                return std::unique_ptr<ISceneView>(new VulkanSceneView(device_, *assets_));
             }
         } // namespace Vulkan
 

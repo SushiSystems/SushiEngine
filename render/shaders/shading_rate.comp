@@ -1,0 +1,93 @@
+#version 450
+
+// Builds the per-tile fragment shading rate image the geometry pass is steered by.
+//
+// The premise: at planet-scale resolutions the frame is fill-rate bound, and most of
+// the screen carries no detail a per-pixel shading rate can resolve — flat sky, the
+// interior of a lit surface, anything moving fast enough that the temporal resolve will
+// blend it away regardless. Those tiles shade coarsely and the saving is real; edges
+// and still detail keep the full rate and the difference is invisible.
+//
+// Two signals drive it. Luminance contrast comes from the previous frame's resolved
+// image, because that is the only complete picture available before this frame's
+// geometry is drawn — a frame of latency on the mask costs nothing, since a tile that
+// gains detail simply shades coarsely once. Motion comes from this frame's velocity
+// target, which the geometry pass wrote before this dispatch.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, r8ui) uniform writeonly uimage2D rate_image;
+layout(set = 0, binding = 1) uniform sampler2D previous_color;
+layout(set = 0, binding = 2) uniform sampler2D velocity_texture;
+
+layout(push_constant) uniform Push
+{
+    uvec4 extents;      // xy = tiles, zw = texel size in pixels
+    vec4 thresholds;    // x = luminance, y = velocity, z = coarsest rate, w = history valid
+} pc;
+
+// Vulkan packs a rate as (log2(width) << 2) | log2(height).
+const uint RATE_1X1 = 0u;
+const uint RATE_2X1 = 4u;
+const uint RATE_2X2 = 5u;
+const uint RATE_4X4 = 10u;
+
+float luminance(vec3 colour)
+{
+    return dot(colour, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main()
+{
+    uvec2 tile = gl_GlobalInvocationID.xy;
+    if (tile.x >= pc.extents.x || tile.y >= pc.extents.y)
+        return;
+
+    // With no previous frame there is nothing to measure contrast against, and a wrong
+    // guess would coarsen the very first frames the eye is most likely to be studying.
+    if (pc.thresholds.w < 0.5)
+    {
+        imageStore(rate_image, ivec2(tile), uvec4(RATE_1X1));
+        return;
+    }
+
+    vec2 tiles = vec2(pc.extents.xy);
+    vec2 tile_uv = (vec2(tile) + 0.5) / tiles;
+    vec2 step_uv = 1.0 / tiles;
+
+    // Five taps across the tile: enough to catch an edge crossing it, cheap enough that
+    // the mask costs a small fraction of what it saves.
+    float centre = luminance(texture(previous_color, tile_uv).rgb);
+    float lowest = centre;
+    float highest = centre;
+    for (int i = 0; i < 4; ++i)
+    {
+        vec2 offset = vec2(i == 0 ? -0.5 : (i == 1 ? 0.5 : 0.0),
+                           i == 2 ? -0.5 : (i == 3 ? 0.5 : 0.0));
+        float tap = luminance(texture(previous_color, tile_uv + offset * step_uv).rgb);
+        lowest = min(lowest, tap);
+        highest = max(highest, tap);
+    }
+
+    // Relative, not absolute: the image is linear HDR, where a fixed contrast step
+    // means something entirely different in the sky than it does in a shadow.
+    float contrast = (highest - lowest) / max(highest, 1e-3);
+    float speed = length(texture(velocity_texture, tile_uv).rg);
+
+    uint rate = RATE_1X1;
+    if (contrast < pc.thresholds.x)
+        rate = RATE_2X2;
+    if (contrast < pc.thresholds.x * 0.5 && speed > pc.thresholds.y)
+        rate = RATE_4X4;
+    // Anisotropic detail — a horizon line, a contrail — reads as low contrast on one
+    // axis only, so halving just that axis keeps the other one sharp.
+    else if (contrast < pc.thresholds.x && speed > pc.thresholds.y * 0.5)
+        rate = RATE_2X1;
+
+    if (rate == RATE_4X4 && pc.thresholds.z < 4.0)
+        rate = RATE_2X2;
+    if (rate != RATE_1X1 && pc.thresholds.z < 2.0)
+        rate = RATE_1X1;
+
+    imageStore(rate_image, ivec2(tile), uvec4(rate));
+}

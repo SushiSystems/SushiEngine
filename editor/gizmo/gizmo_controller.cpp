@@ -237,7 +237,7 @@ namespace SushiEngine
                         if (snap.enabled)
                             delta = snap_to(delta, snap.rotate_degrees * DEG_TO_RAD);
                         const SushiEngine::Quaternion spin = SushiEngine::quaternion_axis_angle(
-                            use_local ? AXES[axis_] : axis_world_, delta);
+                            use_local ? AXES[axis_] : axis_world_, static_cast<SushiEngine::Scalar>(delta));
                         transform.rotation = SushiEngine::normalize(
                             use_local ? SushiEngine::mul(start_transform_.rotation, spin)
                                       : SushiEngine::mul(spin, start_transform_.rotation));

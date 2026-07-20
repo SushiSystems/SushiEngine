@@ -40,29 +40,26 @@ namespace SushiEngine
      *
      * The vector and quaternion types are parametric on their element type so a
      * single build can compute in more than one precision at once — the boundary
-     * aliases (`Vector3`, `Quaternion`) fix that element to `Float`, while the
-     * physics/simulation core can instantiate `Vector3T<double>` beside it. This is
-     * what makes the engine's float/double choice a runtime decision (a
-     * precision-tagged simulation) rather than a build-time one, and it anticipates
-     * the parametric element type SushiBLAS will own.
+     * aliases (`Vector3`, `Quaternion`) fix that element to `Float` (always double,
+     * see below), while the physics/simulation core can still instantiate a narrower
+     * `Vector3T<float>` beside it for a runtime-selected solve precision. This
+     * anticipates the parametric element type SushiBLAS will own.
      */
     namespace placeholder
     {
         /**
          * @brief Scalar element type of the boundary types; maps to a SushiBLAS float later.
          *
-         * Single precision by default; the SE_SCALAR_DOUBLE build option (declared in
-         * cmake/ProjectOptions.cmake, threaded on the SushiEngine INTERFACE target)
-         * switches the boundary/render `Scalar` to double. It picks the element of the
-         * `Vector3`/`Quaternion`/`Mat4` aliases below — the precision that crosses the
-         * `ISimulation` seam and reaches the renderer. The simulation core's own
-         * compute precision is chosen separately at runtime (see the namespace note).
+         * Always double. The engine simulates planet- and solar-scale worlds, where the
+         * ~1 m float32 quantisation at 1e7 m makes single precision unusable for camera
+         * and transform math; double is the engine's one and only boundary/render
+         * `Scalar`. It picks the element of the `Vector3`/`Quaternion`/`Mat4` aliases
+         * below — the precision that crosses the `ISimulation` seam and reaches the
+         * renderer (which then casts to float per draw, camera-relative). The physics
+         * solve's own compute precision is chosen separately at runtime (see the
+         * namespace note).
          */
-#ifdef SE_SCALAR_DOUBLE
         using Float = double;
-#else
-        using Float = float;
-#endif
 
         /**
          * @brief A trivially copyable 3-component vector, parametric on element type.
@@ -224,10 +221,10 @@ namespace SushiEngine
         /**
          * @brief Always-double 3-component vector for absolute world coordinates.
          *
-         * ECEF positions on a planet-sized world need double precision regardless of
-         * @c Float's build-time choice (SE_SCALAR_DOUBLE picks the render/simulation
-         * boundary Scalar, not the coordinate system's absolute precision). WorldVector3
-         * is that fixed precision, independent of the Scalar seam above.
+         * A distinct type from @c Vector3 to mark, at the type level, coordinates that
+         * are absolute ECEF rather than a floating-origin local offset. Both are double
+         * (@c Float is double), but the separation keeps absolute-vs-local intent
+         * explicit at every seam.
          */
         struct WorldVector3
         {
@@ -389,29 +386,38 @@ namespace SushiEngine
         }
 
         /**
-         * @brief A right-handed perspective projection for Vulkan clip space.
+         * @brief A right-handed reverse-Z perspective projection with an infinite far plane.
          *
-         * Maps depth to [0, 1] and flips Y so world up is screen up under Vulkan's
-         * inverted clip Y.
+         * Maps the near plane to clip depth 1 and infinity to 0 (reverse-Z), and flips Y
+         * so world up is screen up under Vulkan's inverted clip Y. Reverse-Z spreads a
+         * floating-point depth buffer's precision almost uniformly across the whole range,
+         * which is what lets one camera see a 5 cm prop and a planet 10^7 m away in the same
+         * frame without z-fighting; the infinite far plane means nothing is ever clipped for
+         * being too distant. The pipeline must clear depth to 0 and compare with
+         * GREATER_OR_EQUAL to match. @p far_plane is accepted for call-site compatibility but
+         * unused — there is no far clip.
          *
          * @param fovy_radians Vertical field of view in radians.
          * @param aspect       Width / height of the target.
-         * @param near_plane   Near clip distance (> 0).
-         * @param far_plane    Far clip distance (> near).
+         * @param near_plane   Near clip distance (> 0); the only precision knob.
+         * @param far_plane    Ignored (the far plane is at infinity).
          * @return The projection matrix.
          */
         inline Mat4 perspective(Float fovy_radians, Float aspect, Float near_plane,
                                 Float far_plane) noexcept
         {
+            (void)far_plane;
             const Float f = Float(1) / std::tan(fovy_radians * Float(0.5));
             Mat4 r{};
             for (Float& value : r.m)
                 value = 0;
             r.m[0] = f / aspect;
             r.m[5] = -f; // Vulkan Y flip
-            r.m[10] = far_plane / (near_plane - far_plane);
+            // Reverse-Z, infinite far: clip.z = near, clip.w = -z_view, so ndc.z =
+            // near / -z_view — 1 at the near plane, approaching 0 at infinity.
+            r.m[10] = 0;
             r.m[11] = -1;
-            r.m[14] = -(far_plane * near_plane) / (far_plane - near_plane);
+            r.m[14] = near_plane;
             return r;
         }
 

@@ -33,12 +33,6 @@ add_library(SushiEngine INTERFACE)
 target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(SushiEngine INTERFACE sushiruntime)
 
-# The precision choice reaches every consumer through this one INTERFACE definition:
-# sandbox, pgs_demo, sushi_sim (and thus the editor), and the tests all link
-# SushiEngine, so all agree on Scalar. core/blas_placeholder.hpp is the sole reader.
-target_compile_definitions(SushiEngine INTERFACE
-    $<$<BOOL:${SE_SCALAR_DOUBLE}>:SE_SCALAR_DOUBLE>)
-
 # Determinism guard rail (see cmake/ProjectOptions.cmake): forbid the compiler from
 # reordering floating-point operations or fusing multiply-adds, either of which can
 # change a result's bit pattern between builds and would silently break replay.

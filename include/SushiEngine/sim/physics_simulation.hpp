@@ -25,22 +25,20 @@
 
 /**
  * @file physics_simulation.hpp
- * @brief The runtime-precision physics seam, split out of `RuntimeSimulation`.
+ * @brief The physics seam, split out of `RuntimeSimulation`.
  *
  * `IPhysicsSimulation` is the abstraction the live world drives its rigid bodies and
- * cloth through, in the fixed boundary `Scalar` precision. `PhysicsSimulation<T>` is
- * the implementation, computing the XPBD solve in element type `T` (`float` or
- * `double`) and converting at this boundary, so the ECS and renderer never see the
- * solver's precision. Both `PhysicsSimulation<float>` and `PhysicsSimulation<double>`
- * are compiled into the simulation library, and `create_physics_simulation` picks one
- * at runtime — which is what makes the engine's float/double choice a live decision
- * rather than a build flag. Extracting this also gives `RuntimeSimulation` one fewer
- * responsibility: it marshals entity poses to and from descriptors here and no longer
- * owns a `PhysicsWorld` (single responsibility).
+ * cloth through, in the fixed boundary `Scalar` precision. `PhysicsSimulation` is the
+ * implementation, computing the XPBD solve in `double` and converting at this
+ * boundary, so the ECS and renderer never see the solver's internals. Extracting this
+ * also gives `RuntimeSimulation` one fewer responsibility: it marshals entity poses to
+ * and from descriptors here and no longer owns a `PhysicsWorld` (single
+ * responsibility).
  */
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -70,6 +68,7 @@ namespace SushiEngine
             Quaternion orientation;      /**< Seed orientation (used only for a newly added body). */
             Scalar inv_mass = Scalar(1); /**< Inverse mass; 0 pins the body. */
             Vector3 inv_inertia;         /**< Diagonal body-local inverse inertia. */
+            Scalar drag_coefficient = Scalar(0); /**< Quadratic drag: acceleration -k|v|v, m⁻¹; 0 disables. */
             Scalar radius = Scalar(0.5); /**< Collision radius when the body collides as a sphere. */
             bool box = false;            /**< Collide as an oriented box (else a sphere). */
             Vector3 half_extents{Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)}}; /**< Box half-extents. */
@@ -102,6 +101,18 @@ namespace SushiEngine
         };
 
         /**
+         * @brief Gravitational acceleration sampled at a body's world position.
+         *
+         * The seam through which the live world hands the physics a *field* rather than one
+         * scene-wide vector (dependency inversion — the solver names this abstraction, never
+         * the astronomy behind it). Boundary `Scalar` in and out; the host samples the true
+         * per-body field (falling off with altitude, curving toward the attractor) and the
+         * solver evaluates it once per body per sub-step. A uniform field is just a sampler
+         * that ignores its argument.
+         */
+        using GravitySampler = std::function<Vector3(const Vector3& position)>;
+
+        /**
          * @brief The precision-agnostic physics surface the live world drives.
          *
          * Every value crossing this interface is boundary `Scalar`; the implementation
@@ -132,13 +143,15 @@ namespace SushiEngine
                                               std::size_t iterations, Scalar substep_dt) = 0;
 
                 /**
-                 * @brief Updates a live body's mass/inertia without a rebuild; a no-op if absent.
-                 * @param id          The entity whose body to update.
-                 * @param inv_mass    New inverse mass.
-                 * @param inv_inertia New diagonal body-local inverse inertia.
+                 * @brief Updates a live body's mass/inertia/drag without a rebuild; a no-op if absent.
+                 * @param id               The entity whose body to update.
+                 * @param inv_mass         New inverse mass.
+                 * @param inv_inertia      New diagonal body-local inverse inertia.
+                 * @param drag_coefficient New quadratic drag coefficient.
                  */
                 virtual void update_rigid_body_params(EntityId id, Scalar inv_mass,
-                                                      const Vector3& inv_inertia) = 0;
+                                                      const Vector3& inv_inertia,
+                                                      Scalar drag_coefficient) = 0;
 
                 /**
                  * @brief Reads a body's solved pose.
@@ -215,23 +228,21 @@ namespace SushiEngine
                  * (snapshotted as sphere obstacles) — so rigid bodies rest and stack and
                  * cloth drapes over them.
                  *
-                 * @param gravity  External acceleration applied every sub-step.
+                 * @param gravity  The per-body gravitational field, sampled at each body's
+                 *                 position every sub-step.
                  * @param substeps Number of sub-steps this step.
                  */
-                virtual void step(const Vector3& gravity, std::size_t substeps) = 0;
+                virtual void step(const GravitySampler& gravity, std::size_t substeps) = 0;
         };
 
         /**
-         * @brief An `IPhysicsSimulation` whose solve runs in element type @p T.
+         * @brief The `IPhysicsSimulation` implementation; the XPBD solve runs in `double`.
          *
-         * Owns a `Physics::PhysicsWorld` of the matching precision for rigid bodies and
-         * another for cloth (kept separate so a rigid-body rebuild's velocity carry-over
-         * never has to special-case a pinned grid), and converts every boundary value
-         * between `Scalar` and `T` at this class's edge.
-         *
-         * @tparam T The solve precision (`float` or `double`).
+         * Owns a `Physics::PhysicsWorld` for rigid bodies and another for cloth (kept
+         * separate so a rigid-body rebuild's velocity carry-over never has to
+         * special-case a pinned grid), and converts every boundary value between
+         * `Scalar` and `T` at this class's edge.
          */
-        template <typename T>
         class PhysicsSimulation final : public IPhysicsSimulation
         {
             public:
@@ -277,6 +288,7 @@ namespace SushiEngine
                         }
                         body.inv_mass = T(desc.inv_mass);
                         body.inv_inertia = to_vector(desc.inv_inertia);
+                        body.drag_coefficient = T(desc.drag_coefficient);
                         // Shape data parallels body id (add order), so rigid_*_[BodyId]
                         // describes the body world->add_body returns.
                         rigid_radii_.push_back(T(desc.radius));
@@ -289,7 +301,8 @@ namespace SushiEngine
                 }
 
                 void update_rigid_body_params(EntityId id, Scalar inv_mass,
-                                              const Vector3& inv_inertia) override
+                                              const Vector3& inv_inertia,
+                                              Scalar drag_coefficient) override
                 {
                     if (!rigid_)
                         return;
@@ -299,6 +312,7 @@ namespace SushiEngine
                     Body& body = rigid_->body(it->second);
                     body.inv_mass = T(inv_mass);
                     body.inv_inertia = to_vector(inv_inertia);
+                    body.drag_coefficient = T(drag_coefficient);
                 }
 
                 bool rigid_pose(EntityId id, SolvedPose& out) const override
@@ -412,21 +426,27 @@ namespace SushiEngine
                     }
                 }
 
-                void step(const Vector3& gravity, std::size_t substeps) override
+                void step(const GravitySampler& gravity, std::size_t substeps) override
                 {
-                    const Vector3T<T> g = to_vector(gravity);
+                    // Convert at the boundary: the solver holds T-precision positions, the
+                    // sampler speaks boundary Scalar. Evaluated per body, per sub-step, so a
+                    // body that moves through the field feels the field change.
+                    const auto acceleration_at = [&gravity](const Vector3T<T>& position) noexcept
+                    {
+                        return to_vector(gravity(from_vector(position)));
+                    };
                     // Drive both worlds in lockstep so contacts spanning them (rigid↔cloth)
                     // are resolved before either derives its velocity — two-way coupling.
                     for (std::size_t s = 0; s < substeps; ++s)
                     {
                         if (rigid_)
                         {
-                            rigid_->predict_substep(g);
+                            rigid_->predict_substep_field(acceleration_at);
                             rigid_->solve_constraints();
                         }
                         if (cloth_)
                         {
-                            cloth_->predict_substep(g);
+                            cloth_->predict_substep_field(acceleration_at);
                             cloth_->solve_constraints();
                         }
                         resolve_contacts();
@@ -438,6 +458,7 @@ namespace SushiEngine
                 }
 
             private:
+                using T = double;
                 using Constraint = Physics::XpbdDistanceConstraintT<T>;
                 using Projection = Physics::XpbdDistanceProjectionT<T>;
                 using World = Physics::PhysicsWorld<Constraint>;
@@ -554,21 +575,14 @@ namespace SushiEngine
         };
 
         /**
-         * @brief Creates the physics simulation of the requested precision.
-         *
-         * Instantiates `PhysicsSimulation<float>` or `PhysicsSimulation<double>`,
-         * compiling both into the library so the choice is made here, at runtime.
-         *
-         * @param precision The solve precision to run in.
-         * @param runtime   The runtime backing the physics buffers and graphs.
+         * @brief Creates the physics simulation.
+         * @param runtime The runtime backing the physics buffers and graphs.
          * @return An owned physics simulation; never null.
          */
         inline std::unique_ptr<IPhysicsSimulation> create_physics_simulation(
-            Precision precision, SushiRuntime::API::Runtime& runtime)
+            SushiRuntime::API::Runtime& runtime)
         {
-            if (precision == Precision::Double)
-                return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation<double>(runtime));
-            return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation<float>(runtime));
+            return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation(runtime));
         }
     } // namespace Simulation
 } // namespace SushiEngine
