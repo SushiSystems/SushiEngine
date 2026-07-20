@@ -40,6 +40,8 @@
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
 
+#include <memory>
+
 #include <SushiEngine/render/window_renderer.hpp>
 
 #include "vulkan_device.hpp"
@@ -48,6 +50,11 @@ namespace SushiEngine
 {
     namespace Render
     {
+        namespace Assets
+        {
+            class AssetLibrary;
+        }
+
         namespace Vulkan
         {
             /**
@@ -80,6 +87,7 @@ namespace SushiEngine
                     void end_frame() override;
                     void wait_idle() override;
                     std::unique_ptr<ISceneView> create_scene_view() override;
+                    IAssetLibrary& assets() noexcept override;
 
                 private:
                     static constexpr std::uint32_t FRAMES_IN_FLIGHT = 2;
@@ -99,6 +107,10 @@ namespace SushiEngine
                     void destroy_frames();
 
                     VulkanDevice device_;
+                    // Held by pointer so the concrete asset library stays out of this
+                    // header: it drags in the whole resource stack, and nothing that
+                    // includes a window renderer needs to see it.
+                    std::unique_ptr<Assets::AssetLibrary> assets_;
                     vkb::Swapchain swapchain_{};
                     VkFormat format_ = VK_FORMAT_UNDEFINED;
                     VkExtent2D extent_{};

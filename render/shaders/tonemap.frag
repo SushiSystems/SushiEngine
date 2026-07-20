@@ -1,8 +1,11 @@
 #version 450
 
-// Resolves the linear HDR scene into the LDR image the editor samples with ImGui.
-// Applies the scene exposure, the ACES filmic tone curve, and a gamma encode (the
-// target is a plain UNORM image, not sRGB, so the transfer function is applied here).
+// The display transform, and nothing else: exposure, the ACES filmic tone curve, and
+// the gamma encode onto the plain UNORM target the editor samples with ImGui.
+//
+// It reads whatever the frame resolved to — the temporal resolve's output when
+// temporal anti-aliasing is on, the composited scene directly when it is not — so
+// this shader never learns which anti-aliasing mode the frame ran.
 
 layout(set = 0, binding = 0) uniform SceneBlock
 {

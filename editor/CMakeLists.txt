@@ -56,6 +56,7 @@ target_compile_features(sushi_imgui PUBLIC cxx_std_17)
 add_executable(se_editor
     main.cpp
     ui/editor_panels.cpp
+    ui/material_inspector.cpp
     window/sdl_window.cpp
     ui/imgui_backend.cpp
     ui/viewport_panel.cpp

@@ -23,21 +23,15 @@
 
 #include "vulkan_scene_view.hpp"
 
-#include <cmath>
 #include <cstring>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
 
-#include "mesh.vert.h"
-#include "pbr.frag.h"
-#include "line.frag.h"
-#include "outline.frag.h"
-#include "outline.vert.h"
-#include "fullscreen.vert.h"
-#include "sky.frag.h"
-#include "tonemap.frag.h"
+#include "frame/temporal_jitter.hpp"
+#include "material/asset_library.hpp"
+#include "resources/sampler_cache.hpp"
+#include "scene/scene_uniforms.hpp"
+#include "scene/shadow_uniforms.hpp"
+#include "scene/temporal_uniforms.hpp"
+#include "vulkan_check.hpp"
 
 namespace SushiEngine
 {
@@ -47,197 +41,95 @@ namespace SushiEngine
         {
             namespace
             {
-                /** @brief Interleaved position + normal, the scene view's only vertex format. */
-                struct Vertex
-                {
-                    float position[3];
-                    float normal[3];
-                };
+                /** @brief Upper bound on timed passes in one frame. */
+                constexpr std::uint32_t MAX_TIMED_PASSES = 16;
 
                 /**
-                 * @brief Per-draw push constant: the model matrix, the PBR material, an
-                 *        optional screen-space outline shift, and the pick/selection ids.
-                 *
-                 * 120 bytes, within the 128-byte push-constant floor every Vulkan device
-                 * guarantees. The clip transform is finished in the shader from the model
-                 * matrix and the scene block's view/projection, so no MVP is packed here.
-                 * Matrices and colours are explicit @c float arrays: GPU data is 32-bit
-                 * regardless of the engine's Scalar precision, so a double-precision build
-                 * narrows to float exactly here at the upload boundary.
+                 * @brief Describes one of the graph's colour targets.
+                 * @param width  Target width in pixels.
+                 * @param height Target height in pixels.
+                 * @param format The target's format.
+                 * @param name   Debug name reported by the graph.
+                 * @return The description to create the transient with.
                  */
-                struct MeshPush
+                Graph::TextureDesc color_target(std::uint32_t width, std::uint32_t height,
+                                                VkFormat format, const char* name)
                 {
-                    float model[16];
-                    float albedo_metallic[4];    // xyz = albedo, w = metallic
-                    float emissive_roughness[4]; // xyz = emissive, w = roughness
-                    float outline_shift[4];      // xy = screen-space shift, zw spare
-                    std::uint32_t entity_id;
-                    std::uint32_t selected;
-                };
-
-                /**
-                 * @brief Per-frame scene uniform block, shared by every pass (std140).
-                 *
-                 * Mirrors the `SceneBlock` in the shaders exactly: two matrices followed by
-                 * fifteen vec4s. Kept as flat @c float arrays so the C++ side never disagrees
-                 * with the GLSL std140 packing (every member is 16-byte aligned).
-                 */
-                struct SceneUbo
-                {
-                    float view[16];
-                    float proj[16];
-                    float cam_forward[4];   // xyz = unit forward, w = camera pos x
-                    float cam_right[4];     // xyz = right * tan(fovx/2), w = camera pos y
-                    float cam_up[4];        // xyz = up * tan(fovy/2), w = camera pos z
-                    float planet_center[4]; // xyz = centre relative to camera, w = surface radius
-                    float planet_radii[4];  // xyz = ellipsoid semi-axes, w = atmosphere height
-                    float sun_dir[4];       // xyz = direction to sun, w = intensity
-                    float sun_color[4];     // xyz = colour, w = exposure
-                    float ambient[4];       // xyz = ambient radiance
-                    float rayleigh[4];      // xyz = per-metre Rayleigh, w = Mie coefficient
-                    float scatter[4];       // x = Mie g, y = Rayleigh H, z = Mie H, w = altitude
-                    float ground_albedo[4]; // xyz
-                    float ocean_color[4];   // xyz
-                    float cloud_params[4];  // base_alt, top_alt, coverage, density
-                    float star_params[4];   // brightness, density, atmo_enabled, stars_enabled
-                    float misc[4];          // near, far, time, clouds_enabled
-                    float sky_counts[4];    // body_count, star_count
-                    // Solar-system bodies (4 vec4 each) and stars (2 vec4 each), std140.
-                    float bodies[SushiEngine::Render::MAX_CELESTIAL_BODIES * 4][4];
-                    float sky_stars[SushiEngine::Render::MAX_SKY_STARS * 2][4];
-                };
-
-                void check(VkResult result, const char* what)
-                {
-                    if (result != VK_SUCCESS)
-                        throw std::runtime_error(std::string("SushiEngine: ") + what +
-                                                 " failed (VkResult " +
-                                                 std::to_string(static_cast<int>(result)) + ")");
-                }
-
-                VkShaderModule make_shader(VkDevice device, const std::uint32_t* words,
-                                           std::size_t count)
-                {
-                    VkShaderModuleCreateInfo info{};
-                    info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-                    info.codeSize = count * sizeof(std::uint32_t);
-                    info.pCode = words;
-                    VkShaderModule module = VK_NULL_HANDLE;
-                    check(vkCreateShaderModule(device, &info, nullptr, &module),
-                          "vkCreateShaderModule");
-                    return module;
-                }
-
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect,
-                                VkImageLayout old_layout, VkImageLayout new_layout,
-                                VkPipelineStageFlags2 src_stage, VkPipelineStageFlags2 dst_stage,
-                                VkAccessFlags2 src_access, VkAccessFlags2 dst_access)
-                {
-                    VkImageMemoryBarrier2 barrier{};
-                    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = src_stage;
-                    barrier.srcAccessMask = src_access;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
-                    barrier.oldLayout = old_layout;
-                    barrier.newLayout = new_layout;
-                    barrier.image = image;
-                    barrier.subresourceRange.aspectMask = aspect;
-                    barrier.subresourceRange.levelCount = 1;
-                    barrier.subresourceRange.layerCount = 1;
-
-                    VkDependencyInfo dependency{};
-                    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                    dependency.imageMemoryBarrierCount = 1;
-                    dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    Graph::TextureDesc desc;
+                    desc.width = width;
+                    desc.height = height;
+                    desc.format = format;
+                    desc.name = name;
+                    return desc;
                 }
 
                 /**
-                 * @brief Fills a push constant from a model matrix, material, and pick ids.
-                 *
-                 * Renders camera-relative: the world translation column of @p model has the
-                 * camera @p eye subtracted from it in double precision before the float cast,
-                 * so what reaches the GPU is the object's offset from the camera — a small
-                 * number that keeps full float precision even when the absolute position is
-                 * at planetary range. The uploaded view matrix carries no translation to
-                 * match (see the scene-uniform fill), so the two never double-count the eye.
-                 *
-                 * @param model     Object-to-world transform (absolute, double when built so).
-                 * @param eye        Camera world position, metres; subtracted from @p model's
-                 *                   translation. Pass all-zero for geometry already expressed
-                 *                   relative to the eye.
-                 * @param material  PBR surface the instance shades with.
-                 * @param entity_id Picking id written to the id target.
-                 * @param selected_id The id currently highlighted (drives the outline shift).
-                 * @param outline_shift Screen-space outline expansion, 0 for the lit pass.
-                 * @return The filled push constant.
+                 * @brief Rounds a pixel count up to a whole number of tiles.
+                 * @param extent Pixels to cover.
+                 * @param tile   Pixels one tile covers.
+                 * @return The tile count, at least one.
                  */
-                MeshPush make_push(const Mat4& model, const double eye[3], const Material& material,
-                                   std::uint32_t entity_id, std::uint32_t selected_id,
-                                   float outline_shift = 0.0f)
+                std::uint32_t tile_count(std::uint32_t extent, std::uint32_t tile) noexcept
                 {
-                    MeshPush push{};
-                    for (int i = 0; i < 16; ++i)
-                        push.model[i] = static_cast<float>(model.m[i]);
-                    push.model[12] = static_cast<float>(model.m[12] - eye[0]);
-                    push.model[13] = static_cast<float>(model.m[13] - eye[1]);
-                    push.model[14] = static_cast<float>(model.m[14] - eye[2]);
-                    push.albedo_metallic[0] = static_cast<float>(material.albedo.x);
-                    push.albedo_metallic[1] = static_cast<float>(material.albedo.y);
-                    push.albedo_metallic[2] = static_cast<float>(material.albedo.z);
-                    push.albedo_metallic[3] = material.metallic;
-                    push.emissive_roughness[0] = static_cast<float>(material.emissive.x);
-                    push.emissive_roughness[1] = static_cast<float>(material.emissive.y);
-                    push.emissive_roughness[2] = static_cast<float>(material.emissive.z);
-                    push.emissive_roughness[3] = material.roughness;
-                    push.outline_shift[0] = outline_shift;
-                    push.outline_shift[1] = outline_shift;
-                    push.entity_id = entity_id;
-                    push.selected = selected_id;
-                    return push;
-                }
-
-                /** @brief A flat, unlit material carrying just a colour (grid, cloth defaults). */
-                Material flat_material(const Vector3& color)
-                {
-                    Material material;
-                    material.albedo = color;
-                    material.metallic = 0.0f;
-                    material.roughness = 0.9f;
-                    return material;
-                }
-
-                /**
-                 * @brief The local scale that maps the renderer's unit mesh onto an
-                 * instance's authored shape params.
-                 *
-                 * Every unit mesh (see create_geometry) is built at the {0.5} scale a
-                 * default `ShapeParams` describes, so this is exactly `2 * params` for
-                 * Box (half-extents) and Cylinder (radius, half-height, radius), and a
-                 * uniform `2 * params.x` for Sphere (radius).
-                 */
-                Mat4 shape_scale(MeshKind kind, const Vector3& params) noexcept
-                {
-                    switch (kind)
-                    {
-                        case MeshKind::Sphere:
-                            return scaling(Vector3{params.x * 2, params.x * 2, params.x * 2});
-                        case MeshKind::Cylinder:
-                            return scaling(Vector3{params.x * 2, params.y * 2, params.x * 2});
-                        case MeshKind::Box:
-                        default:
-                            return scaling(Vector3{params.x * 2, params.y * 2, params.z * 2});
-                    }
+                    return tile == 0 ? 1u : (extent + tile - 1) / tile;
                 }
             } // namespace
 
-            VulkanSceneView::VulkanSceneView(VulkanDevice& device) : device_(device)
+            VulkanSceneView::VulkanSceneView(VulkanDevice& device,
+                                             Assets::AssetLibrary& assets)
+                : device_(device), assets_(assets), descriptors_(device, SLOTS),
+                  cloth_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
+                  motion_(device, SLOTS), accelerator_(device, assets.meshes(), SLOTS),
+                  profiler_(device, SLOTS, MAX_TIMED_PASSES),
+                  graph_(device, &profiler_),
+                  ibl_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
+                            assets.layout(), assets.cloud_noise()),
+                  depth_prepass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                                 assets.meshes(), motion_),
+                  shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                               assets.meshes()),
+                  contact_shadow_pass_(device, assets.shaders(), assets.pipelines(),
+                                       assets.layout()),
+                  ray_shadow_pass_(device, assets.shaders(), assets.pipelines(), accelerator_),
+                  opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                               assets.meshes(), cloth_, materials_, motion_,
+                               assets.cloud_noise(), ibl_pass_),
+                  shading_rate_pass_(device, assets.shaders(), assets.pipelines()),
+                  sky_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                            assets.cloud_noise()),
+                  cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                              assets.cloud_noise()),
+                  cloud_composite_pass_(device, assets.shaders(), assets.pipelines(),
+                                        assets.layout()),
+                  taa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  tonemap_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  fxaa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout())
             {
-                create_sampler();
-                create_descriptors();
-                create_pipelines();
-                create_geometry();
+                // Registration order is execution order. The IBL chain is captured before
+                // anything samples it; the depth prepass runs first among the geometry so
+                // the contact-shadow march has a complete depth buffer to walk, and the
+                // cascades are drawn before the surfaces that sample them; the shading
+                // rate mask sits after the geometry pass
+                // because it reads that pass's motion vectors and before the sky because
+                // the sky is what it steers; the temporal resolve needs a complete scene,
+                // so it follows the cloud composite; and the display transform is last
+                // except for the spatial filter and the picking readback.
+                passes_ = {&ibl_pass_,
+                           &depth_prepass_,
+                           &shadow_pass_,
+                           &contact_shadow_pass_,
+                           &ray_shadow_pass_,
+                           &opaque_pass_,
+                           &shading_rate_pass_,
+                           &sky_pass_,
+                           &cloud_pass_,
+                           &cloud_composite_pass_,
+                           &taa_pass_,
+                           &tonemap_pass_,
+                           &fxaa_pass_,
+                           &picking_pass_};
+                ui_sampler_ = assets.samplers().get(Resources::SamplerDesc{});
+                create_slots();
                 create_targets();
             }
 
@@ -245,805 +137,23 @@ namespace SushiEngine
             {
                 vkDeviceWaitIdle(device_.device());
                 destroy_targets();
-                destroy_geometry();
-                destroy_pipelines();
-                destroy_descriptors();
-                if (sampler_ != VK_NULL_HANDLE)
-                    vkDestroySampler(device_.device(), sampler_, nullptr);
-            }
-
-            void VulkanSceneView::create_descriptors()
-            {
-                // One set layout for every pass: binding 0 is the per-frame scene UBO
-                // (read by vertex and fragment stages), bindings 1 and 2 are combined
-                // image samplers the sky/tonemap passes read (depth, hdr / composite).
-                VkDescriptorSetLayoutBinding bindings[3]{};
-                bindings[0].binding = 0;
-                bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                bindings[0].descriptorCount = 1;
-                bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-                bindings[1].binding = 1;
-                bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                bindings[1].descriptorCount = 1;
-                bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-                bindings[2].binding = 2;
-                bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                bindings[2].descriptorCount = 1;
-                bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-                VkDescriptorSetLayoutCreateInfo layout_info{};
-                layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 3;
-                layout_info.pBindings = bindings;
-                check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
-                                                  &set_layout_),
-                      "vkCreateDescriptorSetLayout");
-
-                // Three sets per slot (mesh, sky, tonemap); pool reset and reallocated
-                // whenever the targets are rebuilt (see create_targets).
-                VkDescriptorPoolSize sizes[2]{};
-                sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                sizes[0].descriptorCount = SLOTS * 3;
-                sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                sizes[1].descriptorCount = SLOTS * 3 * 2;
-
-                VkDescriptorPoolCreateInfo pool_info{};
-                pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-                pool_info.maxSets = SLOTS * 3;
-                pool_info.poolSizeCount = 2;
-                pool_info.pPoolSizes = sizes;
-                check(vkCreateDescriptorPool(device_.device(), &pool_info, nullptr,
-                                             &descriptor_pool_),
-                      "vkCreateDescriptorPool");
-            }
-
-            void VulkanSceneView::destroy_descriptors()
-            {
-                if (descriptor_pool_ != VK_NULL_HANDLE)
-                    vkDestroyDescriptorPool(device_.device(), descriptor_pool_, nullptr);
-                if (set_layout_ != VK_NULL_HANDLE)
-                    vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
-            }
-
-            void VulkanSceneView::create_sampler()
-            {
-                VkSamplerCreateInfo info{};
-                info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-                info.magFilter = VK_FILTER_LINEAR;
-                info.minFilter = VK_FILTER_LINEAR;
-                info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                check(vkCreateSampler(device_.device(), &info, nullptr, &sampler_),
-                      "vkCreateSampler");
-            }
-
-            void VulkanSceneView::create_pipelines()
-            {
-                VkPushConstantRange range{};
-                range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-                range.offset = 0;
-                range.size = sizeof(MeshPush);
-
-                VkPipelineLayoutCreateInfo layout_info{};
-                layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-                layout_info.setLayoutCount = 1;
-                layout_info.pSetLayouts = &set_layout_;
-                layout_info.pushConstantRangeCount = 1;
-                layout_info.pPushConstantRanges = &range;
-                check(vkCreatePipelineLayout(device_.device(), &layout_info, nullptr, &layout_),
-                      "vkCreatePipelineLayout");
-
-                VkShaderModule vertex_module = make_shader(device_.device(), Shaders::mesh_vert_spv,
-                                                           Shaders::mesh_vert_spv_word_count);
-                VkShaderModule mesh_fragment = make_shader(device_.device(), Shaders::pbr_frag_spv,
-                                                           Shaders::pbr_frag_spv_word_count);
-                VkShaderModule line_fragment = make_shader(device_.device(), Shaders::line_frag_spv,
-                                                           Shaders::line_frag_spv_word_count);
-
-                VkVertexInputBindingDescription binding{};
-                binding.binding = 0;
-                binding.stride = sizeof(Vertex);
-                binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-                VkVertexInputAttributeDescription attributes[2]{};
-                attributes[0].location = 0;
-                attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-                attributes[0].offset = offsetof(Vertex, position);
-                attributes[1].location = 1;
-                attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-                attributes[1].offset = offsetof(Vertex, normal);
-
-                VkPipelineVertexInputStateCreateInfo vertex_input{};
-                vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-                vertex_input.vertexBindingDescriptionCount = 1;
-                vertex_input.pVertexBindingDescriptions = &binding;
-                vertex_input.vertexAttributeDescriptionCount = 2;
-                vertex_input.pVertexAttributeDescriptions = attributes;
-
-                VkPipelineViewportStateCreateInfo viewport_state{};
-                viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-                viewport_state.viewportCount = 1;
-                viewport_state.scissorCount = 1;
-
-                VkPipelineMultisampleStateCreateInfo multisample{};
-                multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-                multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-                // Two colour attachments: the shaded image and the R32_UINT id target.
-                // Neither blends; the id attachment must not, as it is an integer format.
-                VkPipelineColorBlendAttachmentState blend_attachments[2]{};
-                for (VkPipelineColorBlendAttachmentState& attachment : blend_attachments)
-                    attachment.colorWriteMask =
-                        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-                VkPipelineColorBlendStateCreateInfo blend{};
-                blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-                blend.attachmentCount = 2;
-                blend.pAttachments = blend_attachments;
-
-                VkPipelineDepthStencilStateCreateInfo depth{};
-                depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-                depth.depthTestEnable = VK_TRUE;
-                depth.depthWriteEnable = VK_TRUE;
-                depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-                depth.stencilTestEnable = VK_TRUE;
-                depth.front.compareOp = VK_COMPARE_OP_ALWAYS;
-                depth.front.passOp = VK_STENCIL_OP_REPLACE;
-                depth.front.failOp = VK_STENCIL_OP_KEEP;
-                depth.front.depthFailOp = VK_STENCIL_OP_KEEP;
-                depth.front.compareMask = 0xFF;
-                depth.front.writeMask = 0xFF;
-                depth.front.reference = 0;
-                depth.back = depth.front;
-
-                const VkDynamicState dynamic_states[3] = {VK_DYNAMIC_STATE_VIEWPORT,
-                                                          VK_DYNAMIC_STATE_SCISSOR,
-                                                          VK_DYNAMIC_STATE_STENCIL_REFERENCE};
-                VkPipelineDynamicStateCreateInfo dynamic{};
-                dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                dynamic.dynamicStateCount = 3;
-                dynamic.pDynamicStates = dynamic_states;
-
-                const VkFormat color_formats[2] = {HDR_FORMAT, ID_FORMAT};
-                VkPipelineRenderingCreateInfo rendering_info{};
-                rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-                rendering_info.colorAttachmentCount = 2;
-                rendering_info.pColorAttachmentFormats = color_formats;
-                rendering_info.depthAttachmentFormat = DEPTH_FORMAT;
-                rendering_info.stencilAttachmentFormat = DEPTH_FORMAT;
-
-                // The two pipelines differ only in topology, cull mode, and fragment
-                // shader; everything else is shared, so build them from one template.
-                auto build = [&](VkPrimitiveTopology topology, VkCullModeFlags cull,
-                                 VkShaderModule fragment) -> VkPipeline
-                {
-                    VkPipelineShaderStageCreateInfo stages[2]{};
-                    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-                    stages[0].module = vertex_module;
-                    stages[0].pName = "main";
-                    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-                    stages[1].module = fragment;
-                    stages[1].pName = "main";
-
-                    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-                    input_assembly.sType =
-                        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-                    input_assembly.topology = topology;
-
-                    VkPipelineRasterizationStateCreateInfo raster{};
-                    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-                    raster.polygonMode = VK_POLYGON_MODE_FILL;
-                    raster.cullMode = cull;
-                    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-                    raster.lineWidth = 1.0f;
-
-                    VkGraphicsPipelineCreateInfo info{};
-                    info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-                    info.pNext = &rendering_info;
-                    info.stageCount = 2;
-                    info.pStages = stages;
-                    info.pVertexInputState = &vertex_input;
-                    info.pInputAssemblyState = &input_assembly;
-                    info.pViewportState = &viewport_state;
-                    info.pRasterizationState = &raster;
-                    info.pMultisampleState = &multisample;
-                    info.pDepthStencilState = &depth;
-                    info.pColorBlendState = &blend;
-                    info.pDynamicState = &dynamic;
-                    info.layout = layout_;
-
-                    VkPipeline pipeline = VK_NULL_HANDLE;
-                    check(vkCreateGraphicsPipelines(device_.device(), VK_NULL_HANDLE, 1, &info,
-                                                    nullptr, &pipeline),
-                          "vkCreateGraphicsPipelines");
-                    return pipeline;
-                };
-
-                mesh_pipeline_ = build(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                       VK_CULL_MODE_NONE, mesh_fragment);
-                line_pipeline_ = build(VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-                                       VK_CULL_MODE_NONE, line_fragment);
-
-                VkShaderModule outline_vertex = make_shader(device_.device(),
-                                                            Shaders::outline_vert_spv,
-                                                            Shaders::outline_vert_spv_word_count);
-                VkShaderModule outline_fragment = make_shader(device_.device(),
-                                                             Shaders::outline_frag_spv,
-                                                             Shaders::outline_frag_spv_word_count);
-
-                auto build_outline = [&](VkShaderModule fragment) -> VkPipeline
-                {
-                    VkPipelineShaderStageCreateInfo stages[2]{};
-                    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-                    stages[0].module = vertex_module;
-                    stages[0].pName = "main";
-                    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-                    stages[1].module = fragment;
-                    stages[1].pName = "main";
-
-                    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-                    input_assembly.sType =
-                        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-                    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-                    VkPipelineRasterizationStateCreateInfo raster{};
-                    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-                    raster.polygonMode = VK_POLYGON_MODE_LINE;
-                    raster.cullMode = VK_CULL_MODE_NONE;
-                    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-                    raster.lineWidth = 8.0f;
-                    raster.depthBiasEnable = VK_TRUE;
-                    raster.depthBiasConstantFactor = -2.0f;
-                    raster.depthBiasClamp = 0.0f;
-                    raster.depthBiasSlopeFactor = -2.0f;
-
-                    VkPipelineDepthStencilStateCreateInfo depth_outline = depth;
-                    depth_outline.depthWriteEnable = VK_FALSE;
-                    depth_outline.depthTestEnable = VK_TRUE;
-                    depth_outline.stencilTestEnable = VK_TRUE;
-                    depth_outline.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
-                    depth_outline.front.passOp = VK_STENCIL_OP_KEEP;
-                    depth_outline.front.failOp = VK_STENCIL_OP_KEEP;
-                    depth_outline.front.depthFailOp = VK_STENCIL_OP_KEEP;
-                    depth_outline.front.reference = 1;
-                    depth_outline.back = depth_outline.front;
-
-                    VkGraphicsPipelineCreateInfo info{};
-                    info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-                    info.pNext = &rendering_info;
-                    info.stageCount = 2;
-                    info.pStages = stages;
-                    info.pVertexInputState = &vertex_input;
-                    info.pInputAssemblyState = &input_assembly;
-                    info.pViewportState = &viewport_state;
-                    info.pRasterizationState = &raster;
-                    info.pMultisampleState = &multisample;
-                    info.pDepthStencilState = &depth_outline;
-                    info.pColorBlendState = &blend;
-                    info.pDynamicState = &dynamic;
-                    info.layout = layout_;
-
-                    VkPipeline pipeline = VK_NULL_HANDLE;
-                    check(vkCreateGraphicsPipelines(device_.device(), VK_NULL_HANDLE, 1, &info,
-                                                    nullptr, &pipeline),
-                          "vkCreateGraphicsPipelines(outline)");
-                    return pipeline;
-                };
-
-                outline_pipeline_ = build_outline(outline_fragment);
-
-                // Fullscreen post passes (sky, tonemap): a vertex-only triangle, no depth,
-                // no vertex input, one colour attachment. The sky pass targets the HDR
-                // composite; the tonemap pass targets the LDR resolve image.
-                VkShaderModule fullscreen_vertex =
-                    make_shader(device_.device(), Shaders::fullscreen_vert_spv,
-                                Shaders::fullscreen_vert_spv_word_count);
-                VkShaderModule sky_fragment = make_shader(device_.device(), Shaders::sky_frag_spv,
-                                                          Shaders::sky_frag_spv_word_count);
-                VkShaderModule tonemap_fragment =
-                    make_shader(device_.device(), Shaders::tonemap_frag_spv,
-                                Shaders::tonemap_frag_spv_word_count);
-
-                auto build_fullscreen = [&](VkShaderModule fragment, VkFormat color_format) -> VkPipeline
-                {
-                    VkPipelineShaderStageCreateInfo stages[2]{};
-                    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-                    stages[0].module = fullscreen_vertex;
-                    stages[0].pName = "main";
-                    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-                    stages[1].module = fragment;
-                    stages[1].pName = "main";
-
-                    VkPipelineVertexInputStateCreateInfo empty_input{};
-                    empty_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-                    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-                    input_assembly.sType =
-                        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-                    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-                    VkPipelineRasterizationStateCreateInfo raster{};
-                    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-                    raster.polygonMode = VK_POLYGON_MODE_FILL;
-                    raster.cullMode = VK_CULL_MODE_NONE;
-                    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-                    raster.lineWidth = 1.0f;
-
-                    VkPipelineDepthStencilStateCreateInfo no_depth{};
-                    no_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-
-                    VkPipelineColorBlendAttachmentState blend_attachment{};
-                    blend_attachment.colorWriteMask =
-                        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-                    VkPipelineColorBlendStateCreateInfo fullscreen_blend{};
-                    fullscreen_blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-                    fullscreen_blend.attachmentCount = 1;
-                    fullscreen_blend.pAttachments = &blend_attachment;
-
-                    const VkDynamicState fullscreen_dynamic_states[2] = {VK_DYNAMIC_STATE_VIEWPORT,
-                                                                         VK_DYNAMIC_STATE_SCISSOR};
-                    VkPipelineDynamicStateCreateInfo fullscreen_dynamic{};
-                    fullscreen_dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                    fullscreen_dynamic.dynamicStateCount = 2;
-                    fullscreen_dynamic.pDynamicStates = fullscreen_dynamic_states;
-
-                    VkPipelineRenderingCreateInfo fullscreen_rendering{};
-                    fullscreen_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-                    fullscreen_rendering.colorAttachmentCount = 1;
-                    fullscreen_rendering.pColorAttachmentFormats = &color_format;
-
-                    VkGraphicsPipelineCreateInfo info{};
-                    info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-                    info.pNext = &fullscreen_rendering;
-                    info.stageCount = 2;
-                    info.pStages = stages;
-                    info.pVertexInputState = &empty_input;
-                    info.pInputAssemblyState = &input_assembly;
-                    info.pViewportState = &viewport_state;
-                    info.pRasterizationState = &raster;
-                    info.pMultisampleState = &multisample;
-                    info.pDepthStencilState = &no_depth;
-                    info.pColorBlendState = &fullscreen_blend;
-                    info.pDynamicState = &fullscreen_dynamic;
-                    info.layout = layout_;
-
-                    VkPipeline pipeline = VK_NULL_HANDLE;
-                    check(vkCreateGraphicsPipelines(device_.device(), VK_NULL_HANDLE, 1, &info,
-                                                    nullptr, &pipeline),
-                          "vkCreateGraphicsPipelines(fullscreen)");
-                    return pipeline;
-                };
-
-                sky_pipeline_ = build_fullscreen(sky_fragment, HDR_FORMAT);
-                tonemap_pipeline_ = build_fullscreen(tonemap_fragment, RESOLVE_FORMAT);
-
-                vkDestroyShaderModule(device_.device(), tonemap_fragment, nullptr);
-                vkDestroyShaderModule(device_.device(), sky_fragment, nullptr);
-                vkDestroyShaderModule(device_.device(), fullscreen_vertex, nullptr);
-                vkDestroyShaderModule(device_.device(), outline_vertex, nullptr);
-                vkDestroyShaderModule(device_.device(), outline_fragment, nullptr);
-                vkDestroyShaderModule(device_.device(), line_fragment, nullptr);
-                vkDestroyShaderModule(device_.device(), mesh_fragment, nullptr);
-                vkDestroyShaderModule(device_.device(), vertex_module, nullptr);
-            }
-
-            void VulkanSceneView::destroy_pipelines()
-            {
-                if (tonemap_pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), tonemap_pipeline_, nullptr);
-                if (sky_pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), sky_pipeline_, nullptr);
-                if (outline_pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), outline_pipeline_, nullptr);
-                if (line_pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), line_pipeline_, nullptr);
-                if (mesh_pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), mesh_pipeline_, nullptr);
-                if (layout_ != VK_NULL_HANDLE)
-                    vkDestroyPipelineLayout(device_.device(), layout_, nullptr);
-            }
-
-            void VulkanSceneView::create_geometry()
-            {
-                // A host-visible buffer is enough for this small, static geometry and
-                // avoids a staging copy.
-                auto upload = [&](const void* data, VkDeviceSize bytes, VkBufferUsageFlags usage,
-                                  std::uint32_t count) -> Buffer
-                {
-                    VkBufferCreateInfo buffer_info{};
-                    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    buffer_info.size = bytes;
-                    buffer_info.usage = usage;
-
-                    VmaAllocationCreateInfo alloc{};
-                    alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                    alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                                  VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-                    Buffer result;
-                    result.count = count;
-                    VmaAllocationInfo info{};
-                    check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc,
-                                          &result.buffer, &result.allocation, &info),
-                          "vmaCreateBuffer");
-                    std::memcpy(info.pMappedData, data, static_cast<std::size_t>(bytes));
-                    return result;
-                };
-
-                // Unit cube centred on the origin, per-face normals for flat shading.
-                const float h = 0.5f;
-                const Vertex cube[] = {
-                    {{-h, -h, h}, {0, 0, 1}},  {{h, -h, h}, {0, 0, 1}},
-                    {{h, h, h}, {0, 0, 1}},    {{-h, h, h}, {0, 0, 1}},
-                    {{h, -h, -h}, {0, 0, -1}}, {{-h, -h, -h}, {0, 0, -1}},
-                    {{-h, h, -h}, {0, 0, -1}}, {{h, h, -h}, {0, 0, -1}},
-                    {{h, -h, h}, {1, 0, 0}},   {{h, -h, -h}, {1, 0, 0}},
-                    {{h, h, -h}, {1, 0, 0}},   {{h, h, h}, {1, 0, 0}},
-                    {{-h, -h, -h}, {-1, 0, 0}},{{-h, -h, h}, {-1, 0, 0}},
-                    {{-h, h, h}, {-1, 0, 0}},  {{-h, h, -h}, {-1, 0, 0}},
-                    {{-h, h, h}, {0, 1, 0}},   {{h, h, h}, {0, 1, 0}},
-                    {{h, h, -h}, {0, 1, 0}},   {{-h, h, -h}, {0, 1, 0}},
-                    {{-h, -h, -h}, {0, -1, 0}},{{h, -h, -h}, {0, -1, 0}},
-                    {{h, -h, h}, {0, -1, 0}},  {{-h, -h, h}, {0, -1, 0}},
-                };
-                std::uint16_t indices[36];
-                for (std::uint16_t face = 0; face < 6; ++face)
-                {
-                    const std::uint16_t base = static_cast<std::uint16_t>(face * 4);
-                    const std::uint16_t offsets[6] = {0, 1, 2, 2, 3, 0};
-                    for (int i = 0; i < 6; ++i)
-                        indices[face * 6 + i] = static_cast<std::uint16_t>(base + offsets[i]);
-                }
-
-                // Ground grid on the XZ plane; the normal is unused by the line shader.
-                std::vector<Vertex> grid;
-                const int extent = 10;
-                const float span = static_cast<float>(extent);
-                for (int i = -extent; i <= extent; ++i)
-                {
-                    const float t = static_cast<float>(i);
-                    grid.push_back({{-span, 0, t}, {0, 1, 0}});
-                    grid.push_back({{span, 0, t}, {0, 1, 0}});
-                    grid.push_back({{t, 0, -span}, {0, 1, 0}});
-                    grid.push_back({{t, 0, span}, {0, 1, 0}});
-                }
-
-                cube_vertices_ = upload(cube, sizeof(cube), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 24);
-                cube_indices_ = upload(indices, sizeof(indices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 36);
-                grid_vertices_ = upload(grid.data(), grid.size() * sizeof(Vertex),
-                                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                        static_cast<std::uint32_t>(grid.size()));
-
-                // Unit UV-sphere, radius 0.5, centred on the origin: one ring of
-                // vertices per latitude step plus the two poles, smooth-shaded (each
-                // vertex's normal is its own direction from the centre).
-                constexpr int SPHERE_RINGS = 16;
-                constexpr int SPHERE_SEGMENTS = 24;
-                std::vector<Vertex> sphere;
-                std::vector<std::uint16_t> sphere_index;
-                for (int ring = 0; ring <= SPHERE_RINGS; ++ring)
-                {
-                    const float v = static_cast<float>(ring) / SPHERE_RINGS;
-                    const float phi = v * 3.14159265f;
-                    for (int segment = 0; segment <= SPHERE_SEGMENTS; ++segment)
-                    {
-                        const float u = static_cast<float>(segment) / SPHERE_SEGMENTS;
-                        const float theta = u * 2.0f * 3.14159265f;
-                        const float nx = std::sin(phi) * std::cos(theta);
-                        const float ny = std::cos(phi);
-                        const float nz = std::sin(phi) * std::sin(theta);
-                        sphere.push_back({{nx * 0.5f, ny * 0.5f, nz * 0.5f}, {nx, ny, nz}});
-                    }
-                }
-                for (int ring = 0; ring < SPHERE_RINGS; ++ring)
-                {
-                    for (int segment = 0; segment < SPHERE_SEGMENTS; ++segment)
-                    {
-                        const std::uint16_t a =
-                            static_cast<std::uint16_t>(ring * (SPHERE_SEGMENTS + 1) + segment);
-                        const std::uint16_t b = static_cast<std::uint16_t>(a + SPHERE_SEGMENTS + 1);
-                        sphere_index.insert(sphere_index.end(),
-                                            {a, b, static_cast<std::uint16_t>(a + 1), b,
-                                             static_cast<std::uint16_t>(b + 1),
-                                             static_cast<std::uint16_t>(a + 1)});
-                    }
-                }
-
-                // Unit cylinder: radius 0.5, half-height 0.5, capped, centred on the
-                // origin with its axis along Y. Side vertices carry the radial normal;
-                // cap vertices are duplicated with the flat +-Y normal.
-                constexpr int CYLINDER_SEGMENTS = 24;
-                std::vector<Vertex> cylinder;
-                std::vector<std::uint16_t> cylinder_index;
-                for (int segment = 0; segment <= CYLINDER_SEGMENTS; ++segment)
-                {
-                    const float theta =
-                        static_cast<float>(segment) / CYLINDER_SEGMENTS * 2.0f * 3.14159265f;
-                    const float x = std::cos(theta) * 0.5f;
-                    const float z = std::sin(theta) * 0.5f;
-                    cylinder.push_back({{x, -0.5f, z}, {std::cos(theta), 0, std::sin(theta)}});
-                    cylinder.push_back({{x, 0.5f, z}, {std::cos(theta), 0, std::sin(theta)}});
-                }
-                for (int segment = 0; segment < CYLINDER_SEGMENTS; ++segment)
-                {
-                    const std::uint16_t a = static_cast<std::uint16_t>(segment * 2);
-                    const std::uint16_t b = static_cast<std::uint16_t>(a + 1);
-                    const std::uint16_t c = static_cast<std::uint16_t>(a + 2);
-                    const std::uint16_t d = static_cast<std::uint16_t>(a + 3);
-                    cylinder_index.insert(cylinder_index.end(), {a, c, b, b, c, d});
-                }
-                const std::uint16_t bottom_center =
-                    static_cast<std::uint16_t>(cylinder.size());
-                cylinder.push_back({{0, -0.5f, 0}, {0, -1, 0}});
-                const std::uint16_t top_center = static_cast<std::uint16_t>(cylinder.size());
-                cylinder.push_back({{0, 0.5f, 0}, {0, 1, 0}});
-                for (int segment = 0; segment < CYLINDER_SEGMENTS; ++segment)
-                {
-                    const float theta0 =
-                        static_cast<float>(segment) / CYLINDER_SEGMENTS * 2.0f * 3.14159265f;
-                    const float theta1 =
-                        static_cast<float>(segment + 1) / CYLINDER_SEGMENTS * 2.0f * 3.14159265f;
-                    const std::uint16_t bottom0 = static_cast<std::uint16_t>(cylinder.size());
-                    cylinder.push_back(
-                        {{std::cos(theta0) * 0.5f, -0.5f, std::sin(theta0) * 0.5f}, {0, -1, 0}});
-                    const std::uint16_t bottom1 = static_cast<std::uint16_t>(cylinder.size());
-                    cylinder.push_back(
-                        {{std::cos(theta1) * 0.5f, -0.5f, std::sin(theta1) * 0.5f}, {0, -1, 0}});
-                    cylinder_index.insert(cylinder_index.end(), {bottom_center, bottom1, bottom0});
-
-                    const std::uint16_t top0 = static_cast<std::uint16_t>(cylinder.size());
-                    cylinder.push_back(
-                        {{std::cos(theta0) * 0.5f, 0.5f, std::sin(theta0) * 0.5f}, {0, 1, 0}});
-                    const std::uint16_t top1 = static_cast<std::uint16_t>(cylinder.size());
-                    cylinder.push_back(
-                        {{std::cos(theta1) * 0.5f, 0.5f, std::sin(theta1) * 0.5f}, {0, 1, 0}});
-                    cylinder_index.insert(cylinder_index.end(), {top_center, top0, top1});
-                }
-
-                sphere_vertices_ = upload(sphere.data(), sphere.size() * sizeof(Vertex),
-                                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                          static_cast<std::uint32_t>(sphere.size()));
-                sphere_indices_ = upload(sphere_index.data(),
-                                         sphere_index.size() * sizeof(std::uint16_t),
-                                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                         static_cast<std::uint32_t>(sphere_index.size()));
-                cylinder_vertices_ = upload(cylinder.data(), cylinder.size() * sizeof(Vertex),
-                                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                           static_cast<std::uint32_t>(cylinder.size()));
-                cylinder_indices_ = upload(cylinder_index.data(),
-                                          cylinder_index.size() * sizeof(std::uint16_t),
-                                          VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                          static_cast<std::uint32_t>(cylinder_index.size()));
-            }
-
-            void VulkanSceneView::destroy_geometry()
-            {
-                for (Buffer* buffer : {&cube_vertices_, &cube_indices_, &sphere_vertices_,
-                                       &sphere_indices_, &cylinder_vertices_, &cylinder_indices_,
-                                       &grid_vertices_, &cloth_vertices_, &cloth_indices_})
-                    if (buffer->buffer != VK_NULL_HANDLE)
-                        vmaDestroyBuffer(device_.allocator(), buffer->buffer, buffer->allocation);
-                cloth_vertices_capacity_ = 0;
-                cloth_vertices_mapped_ = nullptr;
-                cloth_indices_capacity_ = 0;
-                cloth_indices_mapped_ = nullptr;
-            }
-
-            void VulkanSceneView::ensure_cloth_capacity(VkDeviceSize vertex_bytes,
-                                                        VkDeviceSize index_bytes)
-            {
-                const auto grow = [&](Buffer& buffer, VkDeviceSize& capacity, void*& mapped,
-                                      VkDeviceSize bytes, VkBufferUsageFlags usage,
-                                      const char* what)
-                {
-                    if (bytes <= capacity)
-                        return;
-                    if (buffer.buffer != VK_NULL_HANDLE)
-                        vmaDestroyBuffer(device_.allocator(), buffer.buffer, buffer.allocation);
-
-                    VkBufferCreateInfo buffer_info{};
-                    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    buffer_info.size = bytes;
-                    buffer_info.usage = usage;
-
-                    VmaAllocationCreateInfo alloc{};
-                    alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                    alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                                  VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-                    buffer = Buffer{};
-                    VmaAllocationInfo info{};
-                    check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc, &buffer.buffer,
-                                          &buffer.allocation, &info),
-                          what);
-                    mapped = info.pMappedData;
-                    capacity = bytes;
-                };
-
-                grow(cloth_vertices_, cloth_vertices_capacity_, cloth_vertices_mapped_,
-                    vertex_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "vmaCreateBuffer(cloth vertices)");
-                grow(cloth_indices_, cloth_indices_capacity_, cloth_indices_mapped_, index_bytes,
-                    VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "vmaCreateBuffer(cloth indices)");
-            }
-
-            void VulkanSceneView::create_targets()
-            {
-                // The descriptor sets are tied to this size's images, so the pool is reset
-                // and the sets reallocated whenever the targets are (re)built.
-                check(vkResetDescriptorPool(device_.device(), descriptor_pool_, 0),
-                      "vkResetDescriptorPool");
-
                 for (Slot& slot : slots_)
                 {
-                    VmaAllocationCreateInfo image_alloc{};
-                    image_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    slot.textures.reset();
+                    slot.buffers.reset();
+                    if (slot.fence != VK_NULL_HANDLE)
+                        vkDestroyFence(device_.device(), slot.fence, nullptr);
+                    if (slot.pool != VK_NULL_HANDLE)
+                        vkDestroyCommandPool(device_.device(), slot.pool, nullptr);
+                }
+            }
 
-                    auto make_image = [&](VkFormat format, VkImageUsageFlags usage, VkImage& image,
-                                          VmaAllocation& allocation, const char* what)
-                    {
-                        VkImageCreateInfo info{};
-                        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-                        info.imageType = VK_IMAGE_TYPE_2D;
-                        info.format = format;
-                        info.extent = {width_, height_, 1};
-                        info.mipLevels = 1;
-                        info.arrayLayers = 1;
-                        info.samples = VK_SAMPLE_COUNT_1_BIT;
-                        info.tiling = VK_IMAGE_TILING_OPTIMAL;
-                        info.usage = usage;
-                        check(vmaCreateImage(device_.allocator(), &info, &image_alloc, &image,
-                                             &allocation, nullptr), what);
-                    };
-
-                    auto make_view = [&](VkImage image, VkFormat format, VkImageAspectFlags aspect,
-                                         VkImageView& view, const char* what)
-                    {
-                        VkImageViewCreateInfo info{};
-                        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-                        info.image = image;
-                        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-                        info.format = format;
-                        info.subresourceRange.aspectMask = aspect;
-                        info.subresourceRange.levelCount = 1;
-                        info.subresourceRange.layerCount = 1;
-                        check(vkCreateImageView(device_.device(), &info, nullptr, &view), what);
-                    };
-
-                    // HDR scene target (opaque pass writes, sky pass samples); HDR composite
-                    // (sky pass writes, tonemap samples); LDR resolve (tonemap writes, editor
-                    // samples). Depth carries SAMPLED so the sky pass can read it.
-                    make_image(HDR_FORMAT,
-                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                               slot.hdr, slot.hdr_allocation, "vmaCreateImage(hdr)");
-                    make_image(HDR_FORMAT,
-                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                               slot.composite, slot.composite_allocation, "vmaCreateImage(composite)");
-                    make_image(RESOLVE_FORMAT,
-                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                               slot.resolve, slot.resolve_allocation, "vmaCreateImage(resolve)");
-                    make_image(DEPTH_FORMAT,
-                               VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                               slot.depth, slot.depth_allocation, "vmaCreateImage(depth)");
-                    make_image(ID_FORMAT,
-                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                               slot.id, slot.id_allocation, "vmaCreateImage(id)");
-
-                    make_view(slot.hdr, HDR_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT, slot.hdr_view,
-                              "vkCreateImageView(hdr)");
-                    make_view(slot.composite, HDR_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT,
-                              slot.composite_view, "vkCreateImageView(composite)");
-                    make_view(slot.resolve, RESOLVE_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT,
-                              slot.resolve_view, "vkCreateImageView(resolve)");
-                    make_view(slot.depth, DEPTH_FORMAT,
-                              VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, slot.depth_view,
-                              "vkCreateImageView(depth)");
-                    make_view(slot.depth, DEPTH_FORMAT, VK_IMAGE_ASPECT_DEPTH_BIT,
-                              slot.depth_sample_view, "vkCreateImageView(depth sample)");
-                    make_view(slot.id, ID_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT, slot.id_view,
-                              "vkCreateImageView(id)");
-
-                    // Per-frame scene uniform buffer, host-visible and mapped.
-                    VkBufferCreateInfo ubo_info{};
-                    ubo_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    ubo_info.size = sizeof(SceneUbo);
-                    ubo_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                    VmaAllocationCreateInfo ubo_alloc{};
-                    ubo_alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                    ubo_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                                      VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                    VmaAllocationInfo ubo_mapped{};
-                    check(vmaCreateBuffer(device_.allocator(), &ubo_info, &ubo_alloc, &slot.ubo,
-                                          &slot.ubo_allocation, &ubo_mapped),
-                          "vmaCreateBuffer(ubo)");
-                    slot.ubo_mapped = ubo_mapped.pMappedData;
-
-                    // Allocate the three descriptor sets and point them at this slot's UBO
-                    // and sampled images (the layout each will be sampled in is fixed).
-                    VkDescriptorSetLayout layouts[3] = {set_layout_, set_layout_, set_layout_};
-                    VkDescriptorSetAllocateInfo set_info{};
-                    set_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                    set_info.descriptorPool = descriptor_pool_;
-                    set_info.descriptorSetCount = 3;
-                    set_info.pSetLayouts = layouts;
-                    VkDescriptorSet sets[3]{};
-                    check(vkAllocateDescriptorSets(device_.device(), &set_info, sets),
-                          "vkAllocateDescriptorSets");
-                    slot.mesh_set = sets[0];
-                    slot.sky_set = sets[1];
-                    slot.tonemap_set = sets[2];
-
-                    VkDescriptorBufferInfo ubo_desc{};
-                    ubo_desc.buffer = slot.ubo;
-                    ubo_desc.range = sizeof(SceneUbo);
-
-                    auto image_desc = [&](VkImageView view)
-                    {
-                        VkDescriptorImageInfo info{};
-                        info.sampler = sampler_;
-                        info.imageView = view;
-                        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        return info;
-                    };
-                    const VkDescriptorImageInfo depth_desc = image_desc(slot.depth_sample_view);
-                    const VkDescriptorImageInfo hdr_desc = image_desc(slot.hdr_view);
-                    const VkDescriptorImageInfo composite_desc = image_desc(slot.composite_view);
-
-                    VkWriteDescriptorSet writes[7]{};
-                    auto write_ubo = [&](VkWriteDescriptorSet& w, VkDescriptorSet set)
-                    {
-                        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                        w.dstSet = set;
-                        w.dstBinding = 0;
-                        w.descriptorCount = 1;
-                        w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                        w.pBufferInfo = &ubo_desc;
-                    };
-                    auto write_image = [&](VkWriteDescriptorSet& w, VkDescriptorSet set,
-                                           std::uint32_t binding, const VkDescriptorImageInfo& info)
-                    {
-                        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                        w.dstSet = set;
-                        w.dstBinding = binding;
-                        w.descriptorCount = 1;
-                        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                        w.pImageInfo = &info;
-                    };
-                    write_ubo(writes[0], slot.mesh_set);
-                    write_ubo(writes[1], slot.sky_set);
-                    write_image(writes[2], slot.sky_set, 1, depth_desc);
-                    write_image(writes[3], slot.sky_set, 2, hdr_desc);
-                    write_ubo(writes[4], slot.tonemap_set);
-                    write_image(writes[5], slot.tonemap_set, 1, composite_desc);
-                    // The mesh set never samples bindings 1/2, but give them a valid view so
-                    // the set is fully initialised.
-                    write_image(writes[6], slot.mesh_set, 1, depth_desc);
-                    vkUpdateDescriptorSets(device_.device(), 7, writes, 0, nullptr);
-
-                    // Host-visible readback buffer sized to the id image, filled by a
-                    // copy at the end of each render so pick() reads it without a stall.
-                    VkBufferCreateInfo readback_info{};
-                    readback_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    readback_info.size = VkDeviceSize(width_) * height_ * sizeof(std::uint32_t);
-                    readback_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-                    VmaAllocationCreateInfo readback_alloc{};
-                    readback_alloc.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-                    readback_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
-                                           VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                    VmaAllocationInfo readback_mapped{};
-                    check(vmaCreateBuffer(device_.allocator(), &readback_info, &readback_alloc,
-                                          &slot.readback, &slot.readback_allocation, &readback_mapped),
-                          "vmaCreateBuffer(readback)");
-                    slot.readback_mapped = readback_mapped.pMappedData;
+            void VulkanSceneView::create_slots()
+            {
+                for (Slot& slot : slots_)
+                {
+                    slot.textures.reset(new Resources::TexturePool(device_));
+                    slot.buffers.reset(new Resources::BufferPool(device_));
 
                     VkCommandPoolCreateInfo pool_info{};
                     pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1064,45 +174,196 @@ namespace SushiEngine
                     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
                     check(vkCreateFence(device_.device(), &fence_info, nullptr, &slot.fence),
                           "vkCreateFence");
+                }
+            }
+
+            void VulkanSceneView::create_targets()
+            {
+                for (Slot& slot : slots_)
+                {
+                    // The resolve image and the picking readback outlive the frame — the
+                    // editor samples one and pick() reads the other — so they are owned
+                    // here and imported into the graph rather than allocated by it.
+                    VkImageCreateInfo image_info{};
+                    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                    image_info.imageType = VK_IMAGE_TYPE_2D;
+                    image_info.format = Frame::RESOLVE_FORMAT;
+                    image_info.extent = {width_, height_, 1};
+                    image_info.mipLevels = 1;
+                    image_info.arrayLayers = 1;
+                    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+                    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                    image_info.usage =
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+                    VmaAllocationCreateInfo image_alloc{};
+                    image_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    check(vmaCreateImage(device_.allocator(), &image_info, &image_alloc,
+                                         &slot.resolve, &slot.resolve_allocation, nullptr),
+                          "vmaCreateImage(resolve)");
+
+                    VkImageViewCreateInfo view_info{};
+                    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                    view_info.image = slot.resolve;
+                    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                    view_info.format = Frame::RESOLVE_FORMAT;
+                    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    view_info.subresourceRange.levelCount = 1;
+                    view_info.subresourceRange.layerCount = 1;
+                    check(vkCreateImageView(device_.device(), &view_info, nullptr,
+                                            &slot.resolve_view),
+                          "vkCreateImageView(resolve)");
+                    slot.resolve_state = Graph::TextureState{};
+
+                    // Sized for the full output extent even though the id target may be
+                    // rendered smaller: the render scale moves every frame, and a buffer
+                    // that had to be reallocated with it would stall the frame it changed.
+                    VkBufferCreateInfo readback_info{};
+                    readback_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    readback_info.size =
+                        VkDeviceSize(width_) * height_ * sizeof(std::uint32_t);
+                    readback_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+                    VmaAllocationCreateInfo readback_alloc{};
+                    readback_alloc.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+                    readback_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+                                           VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    VmaAllocationInfo readback_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &readback_info, &readback_alloc,
+                                          &slot.readback, &slot.readback_allocation,
+                                          &readback_mapped),
+                          "vmaCreateBuffer(readback)");
+                    slot.readback_mapped = readback_mapped.pMappedData;
+                    slot.readback_state = Graph::BufferState{};
+                    slot.readback_width = 0;
+                    slot.readback_height = 0;
+
+                    VkBufferCreateInfo uniform_info{};
+                    uniform_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    uniform_info.size = sizeof(Scene::SceneUniforms);
+                    uniform_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+                    VmaAllocationCreateInfo uniform_alloc{};
+                    uniform_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    uniform_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    VmaAllocationInfo uniform_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &uniform_info, &uniform_alloc,
+                                          &slot.uniforms, &slot.uniforms_allocation,
+                                          &uniform_mapped),
+                          "vmaCreateBuffer(scene uniforms)");
+                    slot.uniforms_mapped = uniform_mapped.pMappedData;
+                    slot.uniforms_state = Graph::BufferState{};
+
+                    VkBufferCreateInfo temporal_info = uniform_info;
+                    temporal_info.size = sizeof(Scene::TemporalUniforms);
+                    VmaAllocationInfo temporal_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &temporal_info, &uniform_alloc,
+                                          &slot.temporal, &slot.temporal_allocation,
+                                          &temporal_mapped),
+                          "vmaCreateBuffer(temporal uniforms)");
+                    slot.temporal_mapped = temporal_mapped.pMappedData;
+                    slot.temporal_state = Graph::BufferState{};
+
+                    VkBufferCreateInfo shadow_info = uniform_info;
+                    shadow_info.size = sizeof(Scene::ShadowUniforms);
+                    VmaAllocationInfo shadow_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &shadow_info, &uniform_alloc,
+                                          &slot.shadow, &slot.shadow_allocation, &shadow_mapped),
+                          "vmaCreateBuffer(shadow uniforms)");
+                    slot.shadow_mapped = shadow_mapped.pMappedData;
+                    slot.shadow_state = Graph::BufferState{};
+
                     slot.ever_rendered = false;
                 }
+
+                // The accumulated history lives at the output extent, which is what makes
+                // rendering below it and resolving into it an upscale rather than a blur.
+                for (History& history : history_)
+                {
+                    VkImageCreateInfo image_info{};
+                    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                    image_info.imageType = VK_IMAGE_TYPE_2D;
+                    image_info.format = Frame::HDR_FORMAT;
+                    image_info.extent = {width_, height_, 1};
+                    image_info.mipLevels = 1;
+                    image_info.arrayLayers = 1;
+                    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+                    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                    image_info.usage =
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+                    VmaAllocationCreateInfo image_alloc{};
+                    image_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    check(vmaCreateImage(device_.allocator(), &image_info, &image_alloc,
+                                         &history.image, &history.allocation, nullptr),
+                          "vmaCreateImage(history)");
+
+                    VkImageViewCreateInfo view_info{};
+                    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                    view_info.image = history.image;
+                    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                    view_info.format = Frame::HDR_FORMAT;
+                    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    view_info.subresourceRange.levelCount = 1;
+                    view_info.subresourceRange.layerCount = 1;
+                    check(vkCreateImageView(device_.device(), &view_info, nullptr, &history.view),
+                          "vkCreateImageView(history)");
+                    history.state = Graph::TextureState{};
+                }
+
+                // Nothing accumulated into the new images yet.
+                history_valid_ = false;
+                render_width_ = width_;
+                render_height_ = height_;
             }
 
             void VulkanSceneView::destroy_targets()
             {
+                for (History& history : history_)
+                {
+                    if (history.view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), history.view, nullptr);
+                    if (history.image != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), history.image, history.allocation);
+                    history.view = VK_NULL_HANDLE;
+                    history.image = VK_NULL_HANDLE;
+                }
+                history_valid_ = false;
+
                 for (Slot& slot : slots_)
                 {
-                    if (slot.fence != VK_NULL_HANDLE)
-                        vkDestroyFence(device_.device(), slot.fence, nullptr);
-                    if (slot.pool != VK_NULL_HANDLE)
-                        vkDestroyCommandPool(device_.device(), slot.pool, nullptr);
-                    if (slot.ubo != VK_NULL_HANDLE)
-                        vmaDestroyBuffer(device_.allocator(), slot.ubo, slot.ubo_allocation);
+                    if (slot.shadow != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.shadow,
+                                         slot.shadow_allocation);
+                    if (slot.temporal != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.temporal,
+                                         slot.temporal_allocation);
+                    if (slot.uniforms != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.uniforms,
+                                         slot.uniforms_allocation);
                     if (slot.readback != VK_NULL_HANDLE)
-                        vmaDestroyBuffer(device_.allocator(), slot.readback, slot.readback_allocation);
-                    if (slot.id_view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device_.device(), slot.id_view, nullptr);
-                    if (slot.id != VK_NULL_HANDLE)
-                        vmaDestroyImage(device_.allocator(), slot.id, slot.id_allocation);
-                    if (slot.depth_sample_view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device_.device(), slot.depth_sample_view, nullptr);
-                    if (slot.depth_view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device_.device(), slot.depth_view, nullptr);
-                    if (slot.depth != VK_NULL_HANDLE)
-                        vmaDestroyImage(device_.allocator(), slot.depth, slot.depth_allocation);
+                        vmaDestroyBuffer(device_.allocator(), slot.readback,
+                                         slot.readback_allocation);
                     if (slot.resolve_view != VK_NULL_HANDLE)
                         vkDestroyImageView(device_.device(), slot.resolve_view, nullptr);
                     if (slot.resolve != VK_NULL_HANDLE)
-                        vmaDestroyImage(device_.allocator(), slot.resolve, slot.resolve_allocation);
-                    if (slot.composite_view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device_.device(), slot.composite_view, nullptr);
-                    if (slot.composite != VK_NULL_HANDLE)
-                        vmaDestroyImage(device_.allocator(), slot.composite, slot.composite_allocation);
-                    if (slot.hdr_view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device_.device(), slot.hdr_view, nullptr);
-                    if (slot.hdr != VK_NULL_HANDLE)
-                        vmaDestroyImage(device_.allocator(), slot.hdr, slot.hdr_allocation);
-                    slot = Slot{};
+                        vmaDestroyImage(device_.allocator(), slot.resolve,
+                                        slot.resolve_allocation);
+                    slot.shadow = VK_NULL_HANDLE;
+                    slot.shadow_mapped = nullptr;
+                    slot.temporal = VK_NULL_HANDLE;
+                    slot.temporal_mapped = nullptr;
+                    slot.uniforms = VK_NULL_HANDLE;
+                    slot.uniforms_mapped = nullptr;
+                    slot.readback = VK_NULL_HANDLE;
+                    slot.readback_mapped = nullptr;
+                    slot.resolve_view = VK_NULL_HANDLE;
+                    slot.resolve = VK_NULL_HANDLE;
+                    if (slot.textures)
+                        slot.textures->clear();
+                    if (slot.buffers)
+                        slot.buffers->clear();
                 }
             }
 
@@ -1119,575 +380,371 @@ namespace SushiEngine
                 create_targets();
             }
 
+            void VulkanSceneView::set_settings(const RenderSettings& settings)
+            {
+                // Switching the anti-aliasing mode invalidates what has been accumulated:
+                // the history was produced by a different resolve, and blending the two
+                // would show as a lingering ghost of the old mode.
+                if (settings.anti_aliasing != settings_.anti_aliasing)
+                    history_valid_ = false;
+                if (!settings.dynamic_resolution.enabled &&
+                    settings_.dynamic_resolution.enabled)
+                    resolution_.reset();
+                settings_ = settings;
+            }
+
+            void VulkanSceneView::render_resolution(std::uint32_t& width,
+                                                    std::uint32_t& height) const noexcept
+            {
+                width = render_width_;
+                height = render_height_;
+            }
+
+            float VulkanSceneView::measured_frame_milliseconds() const noexcept
+            {
+                float total = 0.0f;
+                for (const Graph::PassTiming& timing : profiler_.timings())
+                    total += timing.milliseconds;
+                return total;
+            }
+
+            void VulkanSceneView::update_render_extent()
+            {
+                const float governed =
+                    resolution_.update(settings_.dynamic_resolution,
+                                       measured_frame_milliseconds());
+                // The manual scale is the ceiling the governor works under, so a host that
+                // has already chosen to render small is never scaled back up past it.
+                const float scale = governed * (settings_.render_scale < 1.0f
+                                                    ? settings_.render_scale
+                                                    : 1.0f);
+                const std::uint32_t width = Frame::scaled_extent(width_, scale);
+                const std::uint32_t height = Frame::scaled_extent(height_, scale);
+                if (width == render_width_ && height == render_height_)
+                    return;
+                render_width_ = width;
+                render_height_ = height;
+            }
+
             SceneViewTexture VulkanSceneView::texture(std::uint32_t slot) const noexcept
             {
                 SceneViewTexture texture;
-                texture.sampler = sampler_;
+                texture.sampler = ui_sampler_;
                 texture.image_view = slots_[slot].resolve_view;
                 return texture;
             }
 
+            std::size_t VulkanSceneView::pass_timing_count() const noexcept
+            {
+                return profiler_.timings().size();
+            }
+
+            ScenePassTiming VulkanSceneView::pass_timing(std::size_t index) const noexcept
+            {
+                const std::vector<Graph::PassTiming>& timings = profiler_.timings();
+                if (index >= timings.size())
+                    return ScenePassTiming{};
+                ScenePassTiming timing;
+                timing.name = timings[index].name.c_str();
+                timing.milliseconds = timings[index].milliseconds;
+                return timing;
+            }
+
+            Frame::FrameTargets VulkanSceneView::declare_targets(Slot& slot,
+                                                                 const Frame::FrameContext& frame)
+            {
+                Frame::FrameTargets targets;
+
+                Graph::TextureDesc depth_desc =
+                    color_target(frame.width, frame.height, Frame::DEPTH_FORMAT, "depth");
+                depth_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+
+                targets.hdr = graph_.create_texture(
+                    color_target(frame.width, frame.height, Frame::HDR_FORMAT, "hdr"));
+                targets.composite = graph_.create_texture(
+                    color_target(frame.width, frame.height, Frame::HDR_FORMAT, "composite"));
+                targets.scene = graph_.create_texture(
+                    color_target(frame.width, frame.height, Frame::HDR_FORMAT, "scene"));
+                targets.id = graph_.create_texture(
+                    color_target(frame.width, frame.height, Frame::ID_FORMAT, "picking ids"));
+                targets.velocity = graph_.create_texture(color_target(
+                    frame.width, frame.height, Frame::VELOCITY_FORMAT, "velocity"));
+                targets.depth = graph_.create_texture(depth_desc);
+
+                // The cascades share one image as a two-by-two grid of tiles. It is
+                // created even when shadows are off, at one texel a tile: the shading
+                // pass reads the descriptor unconditionally, and a valid tiny image is
+                // cheaper than a shader permutation that avoids it.
+                Graph::TextureDesc shadow_desc =
+                    color_target(frame.shadow_resolution * 2, frame.shadow_resolution * 2,
+                                 Frame::SHADOW_FORMAT, "shadow atlas");
+                shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+                targets.shadow_atlas = graph_.create_texture(shadow_desc);
+                targets.contact_shadow = graph_.create_texture(color_target(
+                    frame.width, frame.height, Frame::CONTACT_SHADOW_FORMAT, "contact shadows"));
+                targets.ray_shadow = graph_.create_texture(color_target(
+                    frame.width, frame.height, Frame::CONTACT_SHADOW_FORMAT, "ray shadows"));
+                // The cloud march runs at half resolution; the graph derives the reduced
+                // viewport from this extent, so no pass carries a resolution of its own.
+                targets.cloud = graph_.create_texture(color_target(
+                    (frame.width + 1) / 2, (frame.height + 1) / 2, Frame::HDR_FORMAT, "clouds"));
+
+                if (shading_rate_pass_.enabled(frame))
+                {
+                    Graph::TextureDesc rate_desc = color_target(
+                        tile_count(frame.width, shading_rate_pass_.texel_width()),
+                        tile_count(frame.height, shading_rate_pass_.texel_height()),
+                        Frame::SHADING_RATE_FORMAT, "shading rate");
+                    targets.shading_rate = graph_.create_texture(rate_desc);
+                }
+
+                // The two accumulated frames, ping-ponged by parity: this frame resolves
+                // into one and reads the other, and they swap roles next frame.
+                const std::uint32_t parity = frame.index % 2;
+                Graph::ImportedTexture resolved;
+                resolved.image = history_[parity].image;
+                resolved.view = history_[parity].view;
+                resolved.desc = color_target(width_, height_, Frame::HDR_FORMAT, "resolved");
+                resolved.desc.usage =
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                resolved.state = &history_[parity].state;
+                targets.resolved = graph_.import_texture(resolved);
+
+                Graph::ImportedTexture history = resolved;
+                history.image = history_[1 - parity].image;
+                history.view = history_[1 - parity].view;
+                history.desc.name = "history";
+                history.state = &history_[1 - parity].state;
+                targets.history = graph_.import_texture(history);
+
+                Graph::ImportedTexture resolve;
+                resolve.image = slot.resolve;
+                resolve.view = slot.resolve_view;
+                resolve.desc = color_target(width_, height_, Frame::RESOLVE_FORMAT, "resolve");
+                resolve.desc.usage =
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                resolve.state = &slot.resolve_state;
+                targets.resolve = graph_.import_texture(resolve);
+
+                // The display transform writes straight into the image the host samples
+                // unless a spatial filter still has to run over it, in which case it needs
+                // its own intermediate to read from.
+                targets.display =
+                    frame.settings.anti_aliasing == AntiAliasingMode::Fxaa
+                        ? graph_.create_texture(
+                              color_target(width_, height_, Frame::RESOLVE_FORMAT, "tonemapped"))
+                        : targets.resolve;
+
+                Graph::ImportedBuffer readback;
+                readback.buffer = slot.readback;
+                readback.mapped = slot.readback_mapped;
+                readback.desc.size = VkDeviceSize(width_) * height_ * sizeof(std::uint32_t);
+                readback.desc.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                readback.desc.host_visible = true;
+                readback.desc.name = "picking readback";
+                readback.state = &slot.readback_state;
+                targets.readback = graph_.import_buffer(readback);
+
+                Graph::ImportedBuffer uniforms;
+                uniforms.buffer = slot.uniforms;
+                uniforms.mapped = slot.uniforms_mapped;
+                uniforms.desc.size = sizeof(Scene::SceneUniforms);
+                uniforms.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                uniforms.desc.host_visible = true;
+                uniforms.desc.name = "scene uniforms";
+                uniforms.state = &slot.uniforms_state;
+                targets.uniforms = graph_.import_buffer(uniforms);
+
+                Graph::ImportedBuffer temporal;
+                temporal.buffer = slot.temporal;
+                temporal.mapped = slot.temporal_mapped;
+                temporal.desc.size = sizeof(Scene::TemporalUniforms);
+                temporal.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                temporal.desc.host_visible = true;
+                temporal.desc.name = "temporal uniforms";
+                temporal.state = &slot.temporal_state;
+                targets.temporal = graph_.import_buffer(temporal);
+
+                Graph::ImportedBuffer shadow;
+                shadow.buffer = slot.shadow;
+                shadow.mapped = slot.shadow_mapped;
+                shadow.desc.size = sizeof(Scene::ShadowUniforms);
+                shadow.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                shadow.desc.host_visible = true;
+                shadow.desc.name = "shadow uniforms";
+                shadow.state = &slot.shadow_state;
+                targets.shadow = graph_.import_buffer(shadow);
+
+                return targets;
+            }
+
             void VulkanSceneView::render(const CameraView& camera, const Environment& environment,
-                                         const MeshInstance* instances,
-                                         std::size_t count, std::uint32_t selected_id,
+                                         const MeshInstance* instances, std::size_t count,
+                                         std::uint32_t selected_id,
                                          const ClothStrandView* strands, std::size_t strand_count)
             {
                 const std::uint32_t index = frame_counter_ % SLOTS;
-                ++frame_counter_;
                 Slot& slot = slots_[index];
 
                 if (slot.ever_rendered)
                     check(vkWaitForFences(device_.device(), 1, &slot.fence, VK_TRUE, UINT64_MAX),
                           "vkWaitForFences");
+                // The fence has been waited on, so this slot's previous submit is complete:
+                // its timestamps are readable and its transient resources are free.
+                profiler_.resolve(index);
+                // Texture streaming and shader reload are device-level, so the asset
+                // library owns them; it reports back when the pipelines this view built
+                // have been invalidated.
+                if (assets_.update())
+                    for (Passes::IRenderPass* pass : passes_)
+                        pass->rebuild_pipelines();
+
+                // The governor reads the timings that were just resolved, so the extent it
+                // picks is a response to a completed frame rather than a guess.
+                update_render_extent();
+
                 check(vkResetFences(device_.device(), 1, &slot.fence), "vkResetFences");
                 check(vkResetCommandPool(device_.device(), slot.pool, 0), "vkResetCommandPool");
+                descriptors_.begin_frame(index);
+                slot.textures->begin_frame();
+                slot.buffers->begin_frame();
 
-                // Camera world position, recovered in double from the view matrix's rotation
-                // and translation columns. Every pass renders relative to this eye: the sky
-                // places the planet at `centre - eye`, and the mesh pass subtracts it from each
-                // model's translation and uploads a translation-free view (below). Hoisted to
-                // the draw loop's scope so the mesh/cloth pushes share the exact same origin the
-                // sky pass anchors to.
-                const double eye[3] = {
-                    -(camera.view.m[0] * camera.view.m[12] + camera.view.m[1] * camera.view.m[13] +
-                      camera.view.m[2] * camera.view.m[14]),
-                    -(camera.view.m[4] * camera.view.m[12] + camera.view.m[5] * camera.view.m[13] +
-                      camera.view.m[6] * camera.view.m[14]),
-                    -(camera.view.m[8] * camera.view.m[12] + camera.view.m[9] * camera.view.m[13] +
-                      camera.view.m[10] * camera.view.m[14])};
-                const double no_eye[3] = {0.0, 0.0, 0.0};
+                Frame::FrameContext frame;
+                frame.index = frame_counter_;
+                frame.slot = index;
+                frame.width = render_width_;
+                frame.height = render_height_;
+                frame.output_width = width_;
+                frame.output_height = height_;
+                frame.settings = settings_;
+                frame.camera = &camera;
+                frame.environment = &environment;
+                Scene::camera_eye(camera.view, frame.eye);
+                frame.draws.instances = instances;
+                frame.draws.instance_count = count;
+                frame.draws.strands = strands;
+                frame.draws.strand_count = strand_count;
+                frame.draws.selected_id = selected_id;
+                frame.descriptors = &descriptors_;
+                frame.samplers = &assets_.samplers();
+                frame.layout = &assets_.layout();
+                frame.history_valid = history_valid_ && frame.temporal_enabled();
 
-                // Fill the per-frame scene uniform block from the camera and environment.
-                // The sky pass works in camera-relative space, so the planet centre and the
-                // ray basis are all expressed relative to the camera eye recovered above.
-                {
-                    const Mat4& V = camera.view;
-                    const Mat4& P = camera.projection;
-                    const double right[3] = {V.m[0], V.m[4], V.m[8]};
-                    const double up[3] = {V.m[1], V.m[5], V.m[9]};
-                    const double fwd[3] = {-V.m[2], -V.m[6], -V.m[10]};
-                    const double tan_half_x = P.m[0] != 0.0 ? 1.0 / P.m[0] : 1.0;
-                    const double tan_half_y = P.m[5] != 0.0 ? 1.0 / (-P.m[5]) : 1.0;
+                // The jitter cycle is longer when resolving into a larger grid, because
+                // more distinct sub-pixel positions are needed to fill it.
+                const bool upscaling = render_width_ < width_ || render_height_ < height_;
+                const std::uint32_t phases =
+                    Frame::JITTER_PHASE_COUNT * (upscaling ? 2u : 1u);
+                if (frame.temporal_enabled())
+                    Frame::frame_jitter(frame_counter_, render_width_, render_height_,
+                                        settings_.temporal.jitter_scale, phases, frame.jitter);
 
-                    const double a = environment.planet.semi_major;
-                    const double b = environment.planet.semi_minor();
-                    // Planet anchored so its equatorial surface passes through the local
-                    // origin (the ground grid), centre straight down by a.
-                    const double center_local[3] = {0.0, -a, 0.0};
-                    const double to_center[3] = {eye[0] - center_local[0], eye[1] - center_local[1],
-                                                 eye[2] - center_local[2]};
-                    const double altitude =
-                        std::sqrt(to_center[0] * to_center[0] + to_center[1] * to_center[1] +
-                                  to_center[2] * to_center[2]) - a;
+                Scene::SceneUniforms uniforms;
+                Scene::fill_scene_uniforms(camera, environment, frame.eye,
+                                           static_cast<float>(frame_counter_) * 0.016f, uniforms);
+                // The image-based lighting chain is this view's, so its parameters are
+                // stamped in here rather than by the environment fill, which knows
+                // nothing about the renderer's internals.
+                uniforms.ibl_params[0] = environment.ibl_intensity;
+                uniforms.ibl_params[1] = static_cast<float>(ibl_pass_.specular_mip_count());
+                uniforms.ibl_params[2] = environment.image_based_lighting ? 1.0f : 0.0f;
+                // The jitter enters the projection here and nowhere else, so every pass
+                // that transforms by it inherits the offset and no world-space value
+                // moves. It is subtracted, not added: the third column is scaled by view
+                // z and the perspective divide is by -z, so a positive entry shifts the
+                // result negative. The sign matters — it is what the sky's ray offset and
+                // the motion vector's jitter removal are both matched against.
+                uniforms.proj[8] -= frame.jitter[0];
+                uniforms.proj[9] -= frame.jitter[1];
+                std::memcpy(slot.uniforms_mapped, &uniforms, sizeof(uniforms));
 
-                    const Vector3 sun_dir = normalize(environment.sun.direction);
+                // The cascades are fitted before the targets are declared, because the
+                // atlas the graph allocates has to be sized to the fit.
+                Scene::ShadowUniforms shadow_uniforms;
+                frame.cascade_count = Scene::fit_shadow_cascades(
+                    camera, frame.eye, environment.sun.direction, settings_.shadows,
+                    shadow_uniforms);
+                frame.shadow_resolution =
+                    frame.cascade_count > 0 ? (settings_.shadows.resolution < 64u
+                                                   ? 64u
+                                                   : settings_.shadows.resolution)
+                                            : 1u;
+                // Stamped after the fit rather than inside it: whether the frame traces
+                // depends on the device and on this view's passes, which the fit knows
+                // nothing about, and the flag the material shader reads has to describe
+                // what actually ran.
+                shadow_uniforms.flags[2] = ray_shadow_pass_.enabled(frame) ? 1.0f : 0.0f;
+                std::memcpy(slot.shadow_mapped, &shadow_uniforms, sizeof(shadow_uniforms));
 
-                    SceneUbo ubo{};
-                    for (int i = 0; i < 16; ++i)
+                Scene::TemporalUniforms temporal;
+                Scene::fill_temporal_uniforms(settings_, previous_camera_.view,
+                                              previous_camera_.projection, frame.jitter,
+                                              previous_jitter_, render_width_, render_height_,
+                                              width_, height_, frame.history_valid, temporal);
+                std::memcpy(slot.temporal_mapped, &temporal, sizeof(temporal));
+
+                materials_.begin_frame(index);
+                motion_.begin_frame(index, frame.eye);
+                graph_.begin_frame(*slot.textures, *slot.buffers);
+                frame.targets = declare_targets(slot, frame);
+                for (Passes::IRenderPass* pass : passes_)
+                    pass->register_pass(graph_, frame);
+
+                // The editor samples the resolve image between frames, so the frame must
+                // end with it in a shader-readable layout. Declaring that as a read is all
+                // it takes — the graph derives the transition like any other.
+                const Graph::TextureHandle resolve = frame.targets.resolve;
+                graph_.add_pass(
+                    "present",
+                    [resolve](Graph::RenderPassBuilder& builder)
                     {
-                        ubo.view[i] = static_cast<float>(V.m[i]);
-                        ubo.proj[i] = static_cast<float>(P.m[i]);
-                    }
-                    // Drop the eye translation: the mesh pass already subtracts the eye from
-                    // each model's translation (see make_push), so the view rotates that
-                    // camera-relative geometry without re-applying the eye.
-                    ubo.view[12] = 0.0f;
-                    ubo.view[13] = 0.0f;
-                    ubo.view[14] = 0.0f;
-                    ubo.cam_forward[0] = static_cast<float>(fwd[0]);
-                    ubo.cam_forward[1] = static_cast<float>(fwd[1]);
-                    ubo.cam_forward[2] = static_cast<float>(fwd[2]);
-                    ubo.cam_forward[3] = static_cast<float>(eye[0]);
-                    ubo.cam_right[0] = static_cast<float>(right[0] * tan_half_x);
-                    ubo.cam_right[1] = static_cast<float>(right[1] * tan_half_x);
-                    ubo.cam_right[2] = static_cast<float>(right[2] * tan_half_x);
-                    ubo.cam_right[3] = static_cast<float>(eye[1]);
-                    ubo.cam_up[0] = static_cast<float>(-up[0] * tan_half_y);
-                    ubo.cam_up[1] = static_cast<float>(-up[1] * tan_half_y);
-                    ubo.cam_up[2] = static_cast<float>(-up[2] * tan_half_y);
-                    ubo.cam_up[3] = static_cast<float>(eye[2]);
-                    ubo.planet_center[0] = static_cast<float>(center_local[0] - eye[0]);
-                    ubo.planet_center[1] = static_cast<float>(center_local[1] - eye[1]);
-                    ubo.planet_center[2] = static_cast<float>(center_local[2] - eye[2]);
-                    ubo.planet_center[3] = static_cast<float>(a);
-                    ubo.planet_radii[0] = static_cast<float>(a);
-                    ubo.planet_radii[1] = static_cast<float>(a);
-                    ubo.planet_radii[2] = static_cast<float>(b);
-                    ubo.planet_radii[3] = environment.atmosphere.height;
-                    ubo.sun_dir[0] = static_cast<float>(sun_dir.x);
-                    ubo.sun_dir[1] = static_cast<float>(sun_dir.y);
-                    ubo.sun_dir[2] = static_cast<float>(sun_dir.z);
-                    ubo.sun_dir[3] = environment.sun.intensity;
-                    ubo.sun_color[0] = static_cast<float>(environment.sun.color.x);
-                    ubo.sun_color[1] = static_cast<float>(environment.sun.color.y);
-                    ubo.sun_color[2] = static_cast<float>(environment.sun.color.z);
-                    ubo.sun_color[3] = environment.exposure;
-                    ubo.ambient[0] = static_cast<float>(environment.ambient.x);
-                    ubo.ambient[1] = static_cast<float>(environment.ambient.y);
-                    ubo.ambient[2] = static_cast<float>(environment.ambient.z);
-                    ubo.rayleigh[0] = static_cast<float>(environment.atmosphere.rayleigh_coefficient.x);
-                    ubo.rayleigh[1] = static_cast<float>(environment.atmosphere.rayleigh_coefficient.y);
-                    ubo.rayleigh[2] = static_cast<float>(environment.atmosphere.rayleigh_coefficient.z);
-                    ubo.rayleigh[3] = environment.atmosphere.mie_coefficient;
-                    ubo.scatter[0] = environment.atmosphere.mie_anisotropy;
-                    ubo.scatter[1] = environment.atmosphere.rayleigh_scale_height;
-                    ubo.scatter[2] = environment.atmosphere.mie_scale_height;
-                    ubo.scatter[3] = static_cast<float>(altitude);
-                    ubo.ground_albedo[0] = static_cast<float>(environment.surface.ground_albedo.x);
-                    ubo.ground_albedo[1] = static_cast<float>(environment.surface.ground_albedo.y);
-                    ubo.ground_albedo[2] = static_cast<float>(environment.surface.ground_albedo.z);
-                    ubo.ocean_color[0] = static_cast<float>(environment.surface.ocean_color.x);
-                    ubo.ocean_color[1] = static_cast<float>(environment.surface.ocean_color.y);
-                    ubo.ocean_color[2] = static_cast<float>(environment.surface.ocean_color.z);
-                    ubo.cloud_params[0] = environment.clouds.base_altitude;
-                    ubo.cloud_params[1] = environment.clouds.top_altitude;
-                    ubo.cloud_params[2] = environment.clouds.coverage;
-                    ubo.cloud_params[3] = environment.clouds.density;
-                    ubo.star_params[0] = environment.stars.brightness;
-                    ubo.star_params[1] = environment.stars.density;
-                    ubo.star_params[2] = environment.atmosphere.enabled ? 1.0f : 0.0f;
-                    ubo.star_params[3] = environment.stars.enabled ? 1.0f : 0.0f;
-                    ubo.misc[0] = camera.near_plane;
-                    ubo.misc[1] = camera.far_plane;
-                    ubo.misc[2] = static_cast<float>(frame_counter_) * 0.016f;
-                    ubo.misc[3] = environment.clouds.enabled ? 1.0f : 0.0f;
-
-                    // Far-field solar-system bodies and fixed stars. Their directions are
-                    // already in the scene's local frame — the same frame the sky pass
-                    // builds its view rays in — so they copy straight across, no rebasing.
-                    const int body_count =
-                        environment.body_count < MAX_CELESTIAL_BODIES ? environment.body_count
-                                                                      : MAX_CELESTIAL_BODIES;
-                    const int star_count = environment.sky_star_count < MAX_SKY_STARS
-                                               ? environment.sky_star_count
-                                               : MAX_SKY_STARS;
-                    ubo.sky_counts[0] = static_cast<float>(body_count);
-                    ubo.sky_counts[1] = static_cast<float>(star_count);
-                    // z: the near-field surface planet (ground/air) is on except in the
-                    // interplanetary regime, where the far-field bodies own the whole view.
-                    ubo.sky_counts[2] = environment.observer.space_mode ? 0.0f : 1.0f;
-                    ubo.sky_counts[3] = 0.0f;
-                    for (int i = 0; i < body_count; ++i)
-                    {
-                        const CelestialBody& body = environment.bodies[i];
-                        ubo.bodies[i * 4 + 0][0] = static_cast<float>(body.direction.x);
-                        ubo.bodies[i * 4 + 0][1] = static_cast<float>(body.direction.y);
-                        ubo.bodies[i * 4 + 0][2] = static_cast<float>(body.direction.z);
-                        ubo.bodies[i * 4 + 0][3] = body.angular_radius;
-                        ubo.bodies[i * 4 + 1][0] = static_cast<float>(body.color.x);
-                        ubo.bodies[i * 4 + 1][1] = static_cast<float>(body.color.y);
-                        ubo.bodies[i * 4 + 1][2] = static_cast<float>(body.color.z);
-                        ubo.bodies[i * 4 + 1][3] = body.brightness;
-                        ubo.bodies[i * 4 + 2][0] = static_cast<float>(body.sun_direction.x);
-                        ubo.bodies[i * 4 + 2][1] = static_cast<float>(body.sun_direction.y);
-                        ubo.bodies[i * 4 + 2][2] = static_cast<float>(body.sun_direction.z);
-                        ubo.bodies[i * 4 + 2][3] = static_cast<float>(body.is_star);
-                        ubo.bodies[i * 4 + 3][0] = body.distance_metres;
-                        ubo.bodies[i * 4 + 3][1] = body.mean_radius_metres;
-                        ubo.bodies[i * 4 + 3][2] = 0.0f;
-                        ubo.bodies[i * 4 + 3][3] = 0.0f;
-                    }
-                    for (int i = 0; i < star_count; ++i)
-                    {
-                        const SkyStar& star = environment.sky_stars[i];
-                        ubo.sky_stars[i * 2 + 0][0] = static_cast<float>(star.direction.x);
-                        ubo.sky_stars[i * 2 + 0][1] = static_cast<float>(star.direction.y);
-                        ubo.sky_stars[i * 2 + 0][2] = static_cast<float>(star.direction.z);
-                        ubo.sky_stars[i * 2 + 0][3] = star.brightness;
-                        ubo.sky_stars[i * 2 + 1][0] = static_cast<float>(star.color.x);
-                        ubo.sky_stars[i * 2 + 1][1] = static_cast<float>(star.color.y);
-                        ubo.sky_stars[i * 2 + 1][2] = static_cast<float>(star.color.z);
-                        ubo.sky_stars[i * 2 + 1][3] = 0.0f;
-                    }
-                    std::memcpy(slot.ubo_mapped, &ubo, sizeof(SceneUbo));
-                }
+                        builder.read(resolve, Graph::TextureAccess::SampledFragment);
+                        builder.set_side_effect();
+                    },
+                    Graph::RenderGraph::ExecuteFunction{});
+                graph_.compile();
+                // Every pass has registered, so the frame's per-object arrays are complete
+                // and can be uploaded before any of them records a descriptor write.
+                materials_.upload();
+                motion_.upload();
 
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
                 check(vkBeginCommandBuffer(slot.cmd, &begin), "vkBeginCommandBuffer");
-
-                VkViewport viewport{};
-                viewport.width = static_cast<float>(width_);
-                viewport.height = static_cast<float>(height_);
-                viewport.maxDepth = 1.0f;
-                VkRect2D scissor{};
-                scissor.extent = {width_, height_};
-
-                const VkDeviceSize zero_offset = 0;
-                const std::uint32_t stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-
-                // ---- Opaque pass: grid + lit meshes + cloth into the HDR + id targets. ----
-                transition(slot.cmd, slot.hdr, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-                transition(slot.cmd, slot.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, 0,
-                           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
-                transition(slot.cmd, slot.id, VK_IMAGE_ASPECT_COLOR_BIT,
-                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-                VkRenderingAttachmentInfo color_attachment{};
-                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                color_attachment.imageView = slot.hdr_view;
-                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                color_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-
-                VkRenderingAttachmentInfo id_attachment{};
-                id_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                id_attachment.imageView = slot.id_view;
-                id_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                id_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                id_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                id_attachment.clearValue.color.uint32[0] = NO_PICK;
-
-                const VkRenderingAttachmentInfo color_attachments[2] = {color_attachment,
-                                                                        id_attachment};
-
-                VkRenderingAttachmentInfo depth_attachment{};
-                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depth_attachment.imageView = slot.depth_view;
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                depth_attachment.clearValue.depthStencil = {1.0f, 0};
-
-                VkRenderingInfo rendering{};
-                rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                rendering.renderArea.extent = {width_, height_};
-                rendering.layerCount = 1;
-                rendering.colorAttachmentCount = 2;
-                rendering.pColorAttachments = color_attachments;
-                rendering.pDepthAttachment = &depth_attachment;
-                rendering.pStencilAttachment = &depth_attachment;
-                vkCmdBeginRendering(slot.cmd, &rendering);
-
-                vkCmdSetViewport(slot.cmd, 0, 1, &viewport);
-                vkCmdSetScissor(slot.cmd, 0, 1, &scissor);
-                vkCmdBindDescriptorSets(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
-                                        &slot.mesh_set, 0, nullptr);
-
-                // Ground grid: a single flat-coloured line draw.
-                vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
-                vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
-                vkCmdBindVertexBuffers(slot.cmd, 0, 1, &grid_vertices_.buffer, &zero_offset);
-                const MeshPush grid_push =
-                    make_push(Mat4{}, eye, flat_material(Vector3{0.32f, 0.33f, 0.40f}), NO_PICK,
-                              NO_PICK);
-                vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &grid_push);
-                vkCmdDraw(slot.cmd, grid_vertices_.count, 1, 0, 0);
-
-                // Lit mesh instances, grouped by which unit mesh they draw with (three
-                // small passes over `instances` rather than three buckets built per
-                // frame) so each mesh's vertex/index buffers are bound once per group.
-                vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
-                const struct { MeshKind kind; const Buffer* vertices; const Buffer* indices; }
-                mesh_groups[] = {
-                    {MeshKind::Box, &cube_vertices_, &cube_indices_},
-                    {MeshKind::Sphere, &sphere_vertices_, &sphere_indices_},
-                    {MeshKind::Cylinder, &cylinder_vertices_, &cylinder_indices_},
-                };
-                for (const auto& group : mesh_groups)
-                {
-                    bool bound = false;
-                    for (std::size_t i = 0; i < count; ++i)
-                    {
-                        if (instances[i].kind != group.kind)
-                            continue;
-                        if (!bound)
-                        {
-                            vkCmdBindVertexBuffers(slot.cmd, 0, 1, &group.vertices->buffer,
-                                                   &zero_offset);
-                            vkCmdBindIndexBuffer(slot.cmd, group.indices->buffer, 0,
-                                                 VK_INDEX_TYPE_UINT16);
-                            bound = true;
-                        }
-                        const Mat4 scaled_model =
-                            mul(instances[i].model, shape_scale(instances[i].kind,
-                                                                instances[i].shape_params));
-                        const MeshPush push = make_push(scaled_model, eye, instances[i].material,
-                                                        instances[i].id, selected_id);
-                        vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
-                                                 (instances[i].id == selected_id) ? 1 : 0);
-                        vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
-                        vkCmdDrawIndexed(slot.cmd, group.indices->count, 1, 0, 0, 0);
-                    }
-                }
-
-                // Outline rendering: render solid scaled shape of the selected object, masked by stencil.
-                if (selected_id != NO_PICK)
-                {
-                    vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                      outline_pipeline_);
-                    vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
-                    for (const auto& group : mesh_groups)
-                    {
-                        bool bound = false;
-                        for (std::size_t i = 0; i < count; ++i)
-                        {
-                            if (instances[i].kind != group.kind || instances[i].id != selected_id)
-                                continue;
-                            if (!bound)
-                            {
-                                vkCmdBindVertexBuffers(slot.cmd, 0, 1, &group.vertices->buffer,
-                                                       &zero_offset);
-                                vkCmdBindIndexBuffer(slot.cmd, group.indices->buffer, 0,
-                                                     VK_INDEX_TYPE_UINT16);
-                                bound = true;
-                            }
-                            const Mat4 scaled_model =
-                                mul(instances[i].model, shape_scale(instances[i].kind,
-                                                                    instances[i].shape_params));
-                            const MeshPush push = make_push(scaled_model, eye,
-                                                            flat_material(instances[i].color),
-                                                            instances[i].id, selected_id, 0.006f);
-                            vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush), &push);
-                            vkCmdDrawIndexed(slot.cmd, group.indices->count, 1, 0, 0, 0);
-                        }
-                    }
-                }
-
-                // Soft-body meshes: every strand's grid triangulated (see
-                // triangulate_cloth_grid) and concatenated into one indexed draw per
-                // strand, uploaded to the host-visible cloth buffers just ahead of
-                // recording it. Drawn with the same lit mesh pipeline Box/Sphere/
-                // Cylinder use (already double-sided) so cloth shades and picks like
-                // any other object instead of drawing as a bare wireframe.
-                if (strand_count > 0)
-                {
-                    std::vector<ClothVertex> triangulated_vertices;
-                    std::vector<std::uint32_t> triangulated_indices;
-                    std::vector<Vertex> all_vertices;
-                    std::vector<std::uint32_t> all_indices;
-                    std::vector<std::pair<std::uint32_t, std::uint32_t>> draw_ranges;
-                    draw_ranges.reserve(strand_count);
-
-                    for (std::size_t s = 0; s < strand_count; ++s)
-                    {
-                        const ClothStrandView& strand = strands[s];
-                        triangulate_cloth_grid(strand.vertices, strand.rows, strand.cols,
-                                               triangulated_vertices, triangulated_indices);
-                        if (triangulated_indices.empty())
-                            continue;
-
-                        const std::uint32_t base_vertex =
-                            static_cast<std::uint32_t>(all_vertices.size());
-                        // Cloth points arrive as absolute world positions, so make them
-                        // camera-relative here (in double, before the float cast) exactly as
-                        // make_push does for a model translation. The cloth push then carries
-                        // no eye of its own (no_eye), since the offset is already in the buffer.
-                        for (const ClothVertex& vertex : triangulated_vertices)
-                            all_vertices.push_back(
-                                Vertex{{static_cast<float>(vertex.position.x - eye[0]),
-                                       static_cast<float>(vertex.position.y - eye[1]),
-                                       static_cast<float>(vertex.position.z - eye[2])},
-                                      {static_cast<float>(vertex.normal.x),
-                                       static_cast<float>(vertex.normal.y),
-                                       static_cast<float>(vertex.normal.z)}});
-
-                        const std::uint32_t index_offset =
-                            static_cast<std::uint32_t>(all_indices.size());
-                        for (std::uint32_t index : triangulated_indices)
-                            all_indices.push_back(base_vertex + index);
-                        draw_ranges.emplace_back(
-                            index_offset, static_cast<std::uint32_t>(triangulated_indices.size()));
-                    }
-
-                    if (!all_indices.empty())
-                    {
-                        ensure_cloth_capacity(all_vertices.size() * sizeof(Vertex),
-                                             all_indices.size() * sizeof(std::uint32_t));
-                        std::memcpy(cloth_vertices_mapped_, all_vertices.data(),
-                                   all_vertices.size() * sizeof(Vertex));
-                        std::memcpy(cloth_indices_mapped_, all_indices.data(),
-                                   all_indices.size() * sizeof(std::uint32_t));
-
-                        vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
-                        vkCmdBindVertexBuffers(slot.cmd, 0, 1, &cloth_vertices_.buffer, &zero_offset);
-                        vkCmdBindIndexBuffer(slot.cmd, cloth_indices_.buffer, 0,
-                                             VK_INDEX_TYPE_UINT32);
-                        std::size_t range = 0;
-                        for (std::size_t s = 0; s < strand_count; ++s)
-                        {
-                            const ClothStrandView& strand = strands[s];
-                            if (strand.rows < 2 || strand.cols < 2)
-                                continue;
-                            const auto [index_offset, index_count] = draw_ranges[range++];
-                            vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
-                                                     (strand.id == selected_id) ? 1 : 0);
-                            const MeshPush cloth_push = make_push(Mat4{}, no_eye,
-                                                                  flat_material(strand.color),
-                                                                  strand.id, selected_id);
-                            vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
-                                              &cloth_push);
-                            vkCmdDrawIndexed(slot.cmd, index_count, 1, index_offset, 0, 0);
-                        }
-
-                        // Outline pass for a selected cloth mesh, masked the same way as
-                        // the Box/Sphere/Cylinder outline above.
-                        if (selected_id != NO_PICK)
-                        {
-                            vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                              outline_pipeline_);
-                            vkCmdSetStencilReference(slot.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
-                            range = 0;
-                            for (std::size_t s = 0; s < strand_count; ++s)
-                            {
-                                const ClothStrandView& strand = strands[s];
-                                if (strand.rows < 2 || strand.cols < 2)
-                                    continue;
-                                const auto [index_offset, index_count] = draw_ranges[range++];
-                                if (strand.id != selected_id)
-                                    continue;
-                                const MeshPush cloth_push = make_push(Mat4{}, no_eye,
-                                                                      flat_material(strand.color),
-                                                                      strand.id, selected_id, 0.006f);
-                                vkCmdPushConstants(slot.cmd, layout_, stages, 0, sizeof(MeshPush),
-                                                  &cloth_push);
-                                vkCmdDrawIndexed(slot.cmd, index_count, 1, index_offset, 0, 0);
-                            }
-                        }
-                    }
-                }
-
-                vkCmdEndRendering(slot.cmd);
-
-                // Make the HDR scene and the depth buffer readable by the sky pass.
-                transition(slot.cmd, slot.hdr, VK_IMAGE_ASPECT_COLOR_BIT,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-                transition(slot.cmd, slot.depth, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-                           VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                           VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-
-                // ---- Sky pass: planet + atmosphere + clouds + stars into the composite. ----
-                transition(slot.cmd, slot.composite, VK_IMAGE_ASPECT_COLOR_BIT,
-                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-                VkRenderingAttachmentInfo sky_attachment{};
-                sky_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                sky_attachment.imageView = slot.composite_view;
-                sky_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                sky_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-                sky_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                VkRenderingInfo sky_rendering{};
-                sky_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                sky_rendering.renderArea.extent = {width_, height_};
-                sky_rendering.layerCount = 1;
-                sky_rendering.colorAttachmentCount = 1;
-                sky_rendering.pColorAttachments = &sky_attachment;
-                vkCmdBeginRendering(slot.cmd, &sky_rendering);
-                vkCmdSetViewport(slot.cmd, 0, 1, &viewport);
-                vkCmdSetScissor(slot.cmd, 0, 1, &scissor);
-                vkCmdBindDescriptorSets(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
-                                        &slot.sky_set, 0, nullptr);
-                vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sky_pipeline_);
-                vkCmdDraw(slot.cmd, 3, 1, 0, 0);
-                vkCmdEndRendering(slot.cmd);
-
-                transition(slot.cmd, slot.composite, VK_IMAGE_ASPECT_COLOR_BIT,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-
-                // ---- Tonemap pass: resolve the HDR composite into the LDR image ImGui reads. ----
-                const VkImageLayout resolve_from = slot.ever_rendered
-                                                       ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                                                       : VK_IMAGE_LAYOUT_UNDEFINED;
-                const VkPipelineStageFlags2 resolve_src_stage =
-                    slot.ever_rendered ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
-                                       : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-                const VkAccessFlags2 resolve_src_access =
-                    slot.ever_rendered ? VK_ACCESS_2_SHADER_SAMPLED_READ_BIT : 0;
-                transition(slot.cmd, slot.resolve, VK_IMAGE_ASPECT_COLOR_BIT, resolve_from,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, resolve_src_stage,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, resolve_src_access,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-                VkRenderingAttachmentInfo tonemap_attachment{};
-                tonemap_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                tonemap_attachment.imageView = slot.resolve_view;
-                tonemap_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                tonemap_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-                tonemap_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                VkRenderingInfo tonemap_rendering{};
-                tonemap_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                tonemap_rendering.renderArea.extent = {width_, height_};
-                tonemap_rendering.layerCount = 1;
-                tonemap_rendering.colorAttachmentCount = 1;
-                tonemap_rendering.pColorAttachments = &tonemap_attachment;
-                vkCmdBeginRendering(slot.cmd, &tonemap_rendering);
-                vkCmdSetViewport(slot.cmd, 0, 1, &viewport);
-                vkCmdSetScissor(slot.cmd, 0, 1, &scissor);
-                vkCmdBindDescriptorSets(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
-                                        &slot.tonemap_set, 0, nullptr);
-                vkCmdBindPipeline(slot.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, tonemap_pipeline_);
-                vkCmdDraw(slot.cmd, 3, 1, 0, 0);
-                vkCmdEndRendering(slot.cmd);
-
-                transition(slot.cmd, slot.resolve, VK_IMAGE_ASPECT_COLOR_BIT,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-
-                // Copy the id target into the host-visible readback buffer so pick()
-                // can resolve a click without its own submit.
-                transition(slot.cmd, slot.id, VK_IMAGE_ASPECT_COLOR_BIT,
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                           VK_PIPELINE_STAGE_2_COPY_BIT,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-
-                VkBufferImageCopy copy{};
-                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                copy.imageSubresource.layerCount = 1;
-                copy.imageExtent = {width_, height_, 1};
-                vkCmdCopyImageToBuffer(slot.cmd, slot.id,
-                                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, slot.readback, 1, &copy);
-
+                profiler_.begin_frame(index, slot.cmd);
+                graph_.execute(slot.cmd);
                 check(vkEndCommandBuffer(slot.cmd), "vkEndCommandBuffer");
 
-                VkSubmitInfo submit{};
-                submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-                submit.commandBufferCount = 1;
-                submit.pCommandBuffers = &slot.cmd;
-                check(vkQueueSubmit(device_.graphics_queue(), 1, &submit, slot.fence),
-                      "vkQueueSubmit");
+                VkCommandBufferSubmitInfo cmd_submit{};
+                cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                cmd_submit.commandBuffer = slot.cmd;
+                VkSubmitInfo2 submit{};
+                submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+                submit.commandBufferInfoCount = 1;
+                submit.pCommandBufferInfos = &cmd_submit;
+                check(vkQueueSubmit2(device_.graphics_queue(), 1, &submit, slot.fence),
+                      "vkQueueSubmit2");
 
+                motion_.end_frame();
+                previous_camera_ = camera;
+                previous_jitter_[0] = frame.jitter[0];
+                previous_jitter_[1] = frame.jitter[1];
+                // Only a temporal frame leaves something behind worth blending with; when
+                // the resolve did not run, the image at this parity is stale.
+                history_valid_ = frame.temporal_enabled();
+                slot.readback_width = render_width_;
+                slot.readback_height = render_height_;
                 slot.ever_rendered = true;
                 current_slot_ = index;
+                ++frame_counter_;
             }
 
             std::uint32_t VulkanSceneView::pick(std::uint32_t x, std::uint32_t y)
             {
                 Slot& slot = slots_[current_slot_];
-                if (!slot.ever_rendered || slot.readback_mapped == nullptr ||
-                    x >= width_ || y >= height_)
+                if (!slot.ever_rendered || slot.readback_mapped == nullptr || x >= width_ ||
+                    y >= height_ || slot.readback_width == 0 || slot.readback_height == 0)
                     return NO_PICK;
 
                 // Ensure the copy that filled the readback buffer has completed before
@@ -1695,8 +752,19 @@ namespace SushiEngine
                 check(vkWaitForFences(device_.device(), 1, &slot.fence, VK_TRUE, UINT64_MAX),
                       "vkWaitForFences(pick)");
 
-                const std::uint32_t* pixels = static_cast<const std::uint32_t*>(slot.readback_mapped);
-                return pixels[static_cast<std::size_t>(y) * width_ + x];
+                // The id target was written at the internal render extent, which the
+                // resolution governor may have put below the extent the click came in at.
+                const std::uint32_t sample_x =
+                    x * slot.readback_width / (width_ < 1 ? 1 : width_);
+                const std::uint32_t sample_y =
+                    y * slot.readback_height / (height_ < 1 ? 1 : height_);
+                if (sample_x >= slot.readback_width || sample_y >= slot.readback_height)
+                    return NO_PICK;
+
+                const std::uint32_t* pixels =
+                    static_cast<const std::uint32_t*>(slot.readback_mapped);
+                return pixels[static_cast<std::size_t>(sample_y) * slot.readback_width +
+                              sample_x];
             }
         } // namespace Vulkan
     } // namespace Render

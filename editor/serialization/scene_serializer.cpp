@@ -209,7 +209,8 @@ namespace SushiEngine
                 {
                     const auto params = world.physics_body_params(id);
                     entry["physics_body"] = json{{"inv_mass", params.inv_mass},
-                                                 {"inv_inertia", vec3_to_json(params.inv_inertia)}};
+                                                 {"inv_inertia", vec3_to_json(params.inv_inertia)},
+                                                 {"drag_coefficient", params.drag_coefficient}};
                 }
 
                 // Not mutually exclusive with any of the above, so it is its own field
@@ -243,6 +244,23 @@ namespace SushiEngine
                     const auto params = world.collider_params(id);
                     entry["collider"] = json{{"kind", static_cast<std::uint32_t>(params.kind)},
                                              {"params", vec3_to_json(params.params)}};
+                }
+
+                const bool surface_anchored = world.surface_anchored(id);
+                entry["surface_anchored"] = surface_anchored;
+                if (surface_anchored)
+                    entry["surface_local_orientation"] =
+                        quaternion_to_json(world.surface_local_orientation(id));
+
+                // The reference frame the transform is authored in (body + mode). Only the
+                // descriptor is persisted; the frame-local pose is derived from the scene
+                // Transform (already stored above) and the descriptor on load. A body of -1
+                // (the scene root, default) is omitted to keep plain scenes clean.
+                const SushiEngine::Simulation::EntityFrame frame = world.entity_frame(id);
+                if (frame.reference_body >= 0)
+                {
+                    entry["reference_body"] = frame.reference_body;
+                    entry["frame_mode"] = static_cast<int>(frame.mode);
                 }
 
                 const bool has_ui = world.has_ui(id);
@@ -322,6 +340,8 @@ namespace SushiEngine
                         params.inv_mass = p.value("inv_mass", params.inv_mass);
                         if (p.contains("inv_inertia"))
                             params.inv_inertia = vec3_from_json(p["inv_inertia"]);
+                        params.drag_coefficient =
+                            p.value("drag_coefficient", params.drag_coefficient);
                         world.set_physics_body_params(id, params);
                     }
                 }
@@ -369,6 +389,36 @@ namespace SushiEngine
                             params.params = vec3_from_json(c["params"]);
                         world.set_collider_params(id, params);
                     }
+                }
+
+                if (entry.value("surface_anchored", false))
+                {
+                    world.set_surface_anchored(id, true);
+                    if (entry.contains("surface_local_orientation"))
+                        world.set_surface_local_orientation(
+                            id, quaternion_from_json(entry["surface_local_orientation"]));
+                }
+
+                // The reference frame (body + mode). Migration: a scene from before the
+                // unified dynamic body stored a `has_astro_body` flag instead — map it to a
+                // Free reference on the scene's dominant body, the closest representation (its
+                // orbital motion returns once the body is also given a velocity; the flag
+                // alone only re-expresses the transform). The scene Transform, already loaded,
+                // is untouched either way.
+                if (entry.contains("reference_body"))
+                {
+                    SushiEngine::Simulation::EntityFrame frame;
+                    frame.reference_body = entry.value("reference_body", -1);
+                    frame.mode = static_cast<SushiEngine::Simulation::FrameMode>(
+                        entry.value("frame_mode", 0));
+                    world.set_entity_frame(id, frame);
+                }
+                else if (entry.value("has_astro_body", false))
+                {
+                    SushiEngine::Simulation::EntityFrame frame;
+                    frame.reference_body = world.environment().dominant_body_id;
+                    frame.mode = SushiEngine::Simulation::FrameMode::Free;
+                    world.set_entity_frame(id, frame);
                 }
 
                 if (entry.value("has_ui", false))

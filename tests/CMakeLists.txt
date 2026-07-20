@@ -44,6 +44,23 @@ add_executable(se_functional_tests
     functional/unit/test_ui_layout.cpp
     functional/unit/test_collision.cpp
     functional/unit/test_cloth_mesh.cpp
+    functional/unit/test_math_primitives.cpp
+    functional/unit/test_rng.cpp
+    functional/unit/test_fixed_timestep.cpp
+
+    # Astro: the solar-system model behind the WGS84/atmosphere/orbital-mechanics regime.
+    # Pure double-precision maths, verified against astronomical reference landmarks and
+    # structural invariants (round-trips, orthonormality, energy conservation).
+    functional/unit/test_julian_date.cpp
+    functional/unit/test_orbital_elements.cpp
+    functional/unit/test_celestial_bodies.cpp
+    functional/unit/test_gravity.cpp
+    functional/unit/test_topocentric.cpp
+    functional/unit/test_body_orientation.cpp
+    functional/unit/test_surface_frame.cpp
+    functional/unit/test_star_catalog.cpp
+    functional/unit/test_scene_frame.cpp
+    functional/unit/test_reference_frame.cpp
 
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp
@@ -58,6 +75,8 @@ add_executable(se_functional_tests
     functional/integration/test_app.cpp
     functional/integration/test_ui.cpp
     functional/integration/test_soft_body.cpp
+    functional/integration/test_astro_dynamics.cpp
+    functional/integration/test_ephemeris.cpp
 
     functional/regression/test_regression.cpp
 )

@@ -22,6 +22,7 @@
 /**************************************************************************/
 
 #include "editor_panels.hpp"
+#include "material_inspector.hpp"
 
 #include "../serialization/scene_serializer.hpp"
 
@@ -48,14 +49,18 @@
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
+#include <SushiEngine/astro/celestial_bodies.hpp>
+
 namespace fs = std::filesystem;
 
 namespace SushiEngine
 {
     namespace Editor
     {
+        using SushiEngine::Simulation::EntityFrame;
         using SushiEngine::Simulation::EntityId;
         using SushiEngine::Simulation::EntityTransform;
+        using SushiEngine::Simulation::FrameMode;
         using SushiEngine::Simulation::IWorldEditor;
         using SushiEngine::Simulation::NULL_ENTITY;
 
@@ -264,6 +269,29 @@ namespace SushiEngine
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 const bool changed = ImGui::DragFloat3("##v", values, speed);
+                if (ImGui::IsItemActivated())
+                    context.history.begin_change(world);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    context.history.end_change();
+                ImGui::PopID();
+                return changed;
+            }
+
+            // A single labelled scalar row, for fields that are not a homogeneous vector3
+            // (the geodetic latitude/longitude/altitude of a Surface-frame position, whose
+            // three components have different units and ranges).
+            bool scalar_field(EditorContext& context, IWorldEditor& world, const char* label,
+                              float* value, float speed, float min_value, float max_value,
+                              const char* format)
+            {
+                ImGui::PushID(label);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(label);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                const bool changed =
+                    ImGui::DragFloat("##v", value, speed, min_value, max_value, format);
                 if (ImGui::IsItemActivated())
                     context.history.begin_change(world);
                 if (ImGui::IsItemDeactivatedAfterEdit())
@@ -743,6 +771,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Hierarchy", nullptr, &context.panels.hierarchy);
                 ImGui::MenuItem("Inspector", nullptr, &context.panels.inspector);
                 ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
+                ImGui::MenuItem("Rendering", nullptr, &context.panels.rendering);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                 ImGui::MenuItem("Console", nullptr, &context.panels.console);
@@ -1394,7 +1423,77 @@ namespace SushiEngine
 
             if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                EntityTransform transform = world->transform(id);
+                // Reference row: a celestial body + interpretation mode. When a body is
+                // picked the transform below is authored *frame-local* (small metres from the
+                // body, ground-local rotation in Surface), the Unity-parent analogue with the
+                // body as the parent; "Scene" (-1) is the plain scene transform, unchanged.
+                EntityFrame frame = world->entity_frame(id);
+                if (ImGui::BeginTable("reference", 2, ImGuiTableFlags_SizingStretchProp))
+                {
+                    ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                    ImGui::TableSetupColumn("value");
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted("Reference");
+                    ImGui::TableSetColumnIndex(1);
+
+                    const char* current_body =
+                        frame.reference_body < 0
+                            ? "Scene"
+                            : SushiEngine::Astro::body_properties(
+                                  static_cast<SushiEngine::Astro::BodyId>(frame.reference_body))
+                                  .name;
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    if (ImGui::BeginCombo("##reference_body", current_body))
+                    {
+                        if (ImGui::Selectable("Scene", frame.reference_body < 0))
+                        {
+                            context.history.record(*world);
+                            frame.reference_body = -1;
+                            world->set_entity_frame(id, frame);
+                        }
+                        for (int b = 0; b < SushiEngine::Astro::BODY_COUNT; ++b)
+                        {
+                            const char* body_name =
+                                SushiEngine::Astro::body_properties(
+                                    static_cast<SushiEngine::Astro::BodyId>(b)).name;
+                            if (ImGui::Selectable(body_name, frame.reference_body == b))
+                            {
+                                context.history.record(*world);
+                                frame.reference_body = b;
+                                world->set_entity_frame(id, frame);
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    // Mode is only meaningful once a body is the reference.
+                    if (frame.reference_body >= 0)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextUnformatted("Mode");
+                        ImGui::TableSetColumnIndex(1);
+                        const char* modes[] = {"Auto", "Free", "Surface"};
+                        int mode_index = static_cast<int>(frame.mode);
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        if (ImGui::Combo("##frame_mode", &mode_index, modes, 3))
+                        {
+                            context.history.record(*world);
+                            frame.mode = static_cast<FrameMode>(mode_index);
+                            world->set_entity_frame(id, frame);
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+
+                // With a body picked, edit the frame-local transform; otherwise the plain
+                // scene transform. The widget/write path is identical either way.
+                const bool frame_local = frame.reference_body >= 0;
+                EntityTransform transform =
+                    frame_local ? world->frame_local_transform(id) : world->transform(id);
                 // ImGui edits at float precision; the components are engine Scalar (float
                 // or double per build), so narrow explicitly into the widget buffers and
                 // widen back on write.
@@ -1407,12 +1506,29 @@ namespace SushiEngine
                                   static_cast<float>(transform.scale.y),
                                   static_cast<float>(transform.scale.z)};
 
+                // In Surface mode the position is geodetic (lat°, lon°, altitude m) — the
+                // place-on-a-planet coordinate — so it is shown as three labelled fields
+                // rather than an opaque X/Y/Z. Free/Scene keep the Cartesian Position vector.
+                const bool surface = frame_local && world->is_surface_frame(id);
+
                 bool changed = false;
                 if (ImGui::BeginTable("transform", 2, ImGuiTableFlags_SizingStretchProp))
                 {
                     ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
                     ImGui::TableSetupColumn("value");
-                    changed |= vector3_field(context, *world, "Position", position, 0.05f);
+                    if (surface)
+                    {
+                        changed |= scalar_field(context, *world, "Latitude", &position[0], 0.01f,
+                                                -90.0f, 90.0f, "%.5f deg");
+                        changed |= scalar_field(context, *world, "Longitude", &position[1], 0.01f,
+                                                -180.0f, 180.0f, "%.5f deg");
+                        changed |= scalar_field(context, *world, "Altitude", &position[2], 0.1f,
+                                                -1.0e7f, 1.0e9f, "%.2f m");
+                    }
+                    else
+                    {
+                        changed |= vector3_field(context, *world, "Position", position, 0.05f);
+                    }
                     changed |= vector3_field(context, *world, "Rotation", rotation, 0.5f);
                     changed |= vector3_field(context, *world, "Scale", scale, 0.05f);
                     ImGui::EndTable();
@@ -1423,7 +1539,10 @@ namespace SushiEngine
                     transform.position = SushiEngine::Vector3{position[0], position[1], position[2]};
                     transform.rotation = euler_degrees_to_quat(rotation);
                     transform.scale = SushiEngine::Vector3{scale[0], scale[1], scale[2]};
-                    world->set_transform(id, transform);
+                    if (frame_local)
+                        world->set_frame_local_transform(id, transform);
+                    else
+                        world->set_transform(id, transform);
                 }
             }
 
@@ -1541,38 +1660,17 @@ namespace SushiEngine
                     if (ImGui::IsItemDeactivatedAfterEdit())
                         context.history.end_change();
 
-                    // PBR material: metallic / roughness / emissive. Albedo is the Color
-                    // above, so only the surface-response fields are authored here.
+                    // The full PBR surface: maps, scalars, and rendering state, laid out
+                    // like Unity's Standard shader. Albedo's tint is the Color row above,
+                    // which the material editor leaves alone.
                     SushiEngine::Render::Material material = world->material(id);
-                    bool material_changed = false;
-                    if (ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f))
-                        material_changed = true;
-                    if (ImGui::IsItemActivated())
-                        context.history.begin_change(*world);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
-                        context.history.end_change();
-                    if (ImGui::SliderFloat("Roughness", &material.roughness, 0.045f, 1.0f))
-                        material_changed = true;
-                    if (ImGui::IsItemActivated())
-                        context.history.begin_change(*world);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
-                        context.history.end_change();
-                    float emissive[3] = {static_cast<float>(material.emissive.x),
-                                         static_cast<float>(material.emissive.y),
-                                         static_cast<float>(material.emissive.z)};
-                    if (ImGui::ColorEdit3("Emissive", emissive,
-                                          ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float))
+                    if (context.assets != nullptr &&
+                        draw_material_editor(material, *context.assets))
                     {
-                        material.emissive =
-                            SushiEngine::Vector3{emissive[0], emissive[1], emissive[2]};
-                        material_changed = true;
-                    }
-                    if (ImGui::IsItemActivated())
                         context.history.begin_change(*world);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
-                        context.history.end_change();
-                    if (material_changed)
                         world->set_material(id, material);
+                        context.history.end_change();
+                    }
 
                     // The mesh is the Renderer's own property (Unity's MeshFilter folded
                     // into the MeshRenderer here): its primitive kind and per-kind
@@ -1701,6 +1799,21 @@ namespace SushiEngine
                     if (ImGui::IsItemDeactivatedAfterEdit())
                         context.history.end_change();
 
+                    float drag = static_cast<float>(params.drag_coefficient);
+                    if (ImGui::DragFloat("Drag Coefficient", &drag, 0.001f, 0.0f, 100.0f, "%.4f"))
+                    {
+                        params.drag_coefficient =
+                            static_cast<SushiEngine::Scalar>(drag < 0.0f ? 0.0f : drag);
+                        changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Quadratic drag k: acceleration -k|v|v (per metre). "
+                                          "0 disables; higher = lower terminal speed.");
+
                     if (changed)
                         world->set_physics_body_params(id, params);
                 }
@@ -1763,6 +1876,26 @@ namespace SushiEngine
 
                     if (changed)
                         world->set_collider_params(id, params);
+                }
+            }
+
+            if (world->surface_anchored(id))
+            {
+                bool keep_anchor = true;
+                const bool anchor_open = ImGui::CollapsingHeader(
+                    "Surface Anchor", &keep_anchor, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_anchor)
+                {
+                    context.history.record(*world);
+                    world->set_surface_anchored(id, false);
+                }
+                else if (anchor_open)
+                {
+                    ImGui::TextWrapped(
+                        "Orientation is ground-local: the East-North-Up frame on the "
+                        "dominant body is composed onto it each step, so the entity stays "
+                        "upright anywhere on the planet. Rotate it to face along the "
+                        "local horizon.");
                 }
             }
 
@@ -2019,6 +2152,11 @@ namespace SushiEngine
                     context.history.record(*world);
                     world->set_has_collider(id, true);
                 }
+                if (!world->surface_anchored(id) && ImGui::MenuItem("Surface Anchor"))
+                {
+                    context.history.record(*world);
+                    world->set_surface_anchored(id, true);
+                }
                 if (!world->has_ui(id) && ImGui::MenuItem("UI Element"))
                 {
                     context.history.record(*world);
@@ -2052,6 +2190,144 @@ namespace SushiEngine
                 }
                 ImGui::EndPopup();
             }
+
+            ImGui::End();
+        }
+
+        void draw_rendering_panel(EditorContext& context)
+        {
+            if (!context.panels.rendering)
+                return;
+            if (!ImGui::Begin("Rendering", &context.panels.rendering))
+            {
+                ImGui::End();
+                return;
+            }
+
+            SushiEngine::Render::RenderSettings& settings = context.render_settings;
+            using SushiEngine::Render::AntiAliasingMode;
+            using SushiEngine::Render::RenderQuality;
+            using SushiEngine::Render::UpscaleMode;
+
+            const char* const QUALITY[] = {"Low", "Medium", "High", "Ultra"};
+            int quality = static_cast<int>(settings.quality);
+            if (ImGui::Combo("Quality", &quality, QUALITY, 4))
+                settings.quality = static_cast<RenderQuality>(quality);
+
+            const char* const ANTI_ALIASING[] = {"None", "FXAA", "Temporal"};
+            int anti_aliasing = static_cast<int>(settings.anti_aliasing);
+            if (ImGui::Combo("Anti-aliasing", &anti_aliasing, ANTI_ALIASING, 3))
+                settings.anti_aliasing = static_cast<AntiAliasingMode>(anti_aliasing);
+
+            ImGui::SliderFloat("Render Scale", &settings.render_scale, 0.5f, 1.0f, "%.2f");
+
+            if (settings.anti_aliasing == AntiAliasingMode::Temporal)
+            {
+                ImGui::PushID("Temporal");
+                ImGui::SliderFloat("Still Feedback", &settings.temporal.feedback_still,
+                                   0.5f, 0.99f, "%.3f");
+                ImGui::SliderFloat("Moving Feedback", &settings.temporal.feedback_moving,
+                                   0.5f, 0.99f, "%.3f");
+                ImGui::SliderFloat("Sharpness", &settings.temporal.sharpness, 0.0f, 1.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Jitter", &settings.temporal.jitter_scale, 0.0f, 1.0f,
+                                   "%.2f");
+                ImGui::Checkbox("Clamp History", &settings.temporal.clamp_history);
+                bool upscale = settings.upscale == UpscaleMode::Temporal;
+                if (ImGui::Checkbox("Temporal Upscale", &upscale))
+                    settings.upscale = upscale ? UpscaleMode::Temporal : UpscaleMode::None;
+                ImGui::PopID();
+            }
+            else
+            {
+                ImGui::TextDisabled("Temporal options need the temporal resolve.");
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Shadows", &settings.shadows.enabled);
+            if (settings.shadows.enabled)
+            {
+                ImGui::PushID("Shadows");
+                int cascades = static_cast<int>(settings.shadows.cascade_count);
+                if (ImGui::SliderInt("Cascades", &cascades, 1, 4))
+                    settings.shadows.cascade_count = static_cast<std::uint32_t>(cascades);
+
+                const char* const RESOLUTIONS[] = {"512", "1024", "2048", "4096"};
+                const std::uint32_t VALUES[] = {512u, 1024u, 2048u, 4096u};
+                int resolution = 2;
+                for (int i = 0; i < 4; ++i)
+                    if (VALUES[i] == settings.shadows.resolution)
+                        resolution = i;
+                if (ImGui::Combo("Resolution", &resolution, RESOLUTIONS, 4))
+                    settings.shadows.resolution = VALUES[resolution];
+
+                ImGui::SliderFloat("Distance (m)", &settings.shadows.distance, 20.0f, 4000.0f,
+                                   "%.0f");
+                ImGui::SliderFloat("Split Blend", &settings.shadows.split_blend, 0.0f, 1.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Normal Bias", &settings.shadows.normal_bias, 0.0f, 6.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Depth Bias", &settings.shadows.depth_bias, 0.0f, 0.01f,
+                                   "%.4f");
+                ImGui::SliderFloat("Softness", &settings.shadows.softness, 0.0f, 10.0f, "%.2f");
+                ImGui::SliderFloat("Min Filter", &settings.shadows.filter_radius, 0.5f, 8.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Max Filter", &settings.shadows.max_filter_radius, 2.0f,
+                                   48.0f, "%.1f");
+                ImGui::SliderFloat("Cascade Blend", &settings.shadows.cascade_blend, 0.0f, 0.5f,
+                                   "%.2f");
+
+                ImGui::Checkbox("Contact Shadows", &settings.shadows.contact_shadows);
+                if (settings.shadows.contact_shadows)
+                {
+                    ImGui::SliderFloat("Contact Reach (m)", &settings.shadows.contact_distance,
+                                       0.05f, 2.0f, "%.2f");
+                    int steps = static_cast<int>(settings.shadows.contact_steps);
+                    if (ImGui::SliderInt("Contact Steps", &steps, 4, 32))
+                        settings.shadows.contact_steps = static_cast<std::uint32_t>(steps);
+                }
+                ImGui::PopID();
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Dynamic Resolution", &settings.dynamic_resolution.enabled);
+            if (settings.dynamic_resolution.enabled)
+            {
+                ImGui::PushID("DynamicResolution");
+                ImGui::SliderFloat("GPU Budget (ms)",
+                                   &settings.dynamic_resolution.target_milliseconds, 2.0f,
+                                   33.0f, "%.1f");
+                ImGui::SliderFloat("Minimum Scale",
+                                   &settings.dynamic_resolution.minimum_scale, 0.25f, 1.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Maximum Scale",
+                                   &settings.dynamic_resolution.maximum_scale, 0.25f, 1.0f,
+                                   "%.2f");
+                ImGui::PopID();
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Variable Rate Shading",
+                            &settings.variable_rate_shading.enabled);
+            if (settings.variable_rate_shading.enabled)
+            {
+                ImGui::PushID("VariableRateShading");
+                ImGui::SliderFloat("Contrast Threshold",
+                                   &settings.variable_rate_shading.luminance_threshold, 0.0f,
+                                   0.5f, "%.3f");
+                ImGui::SliderFloat("Motion Threshold",
+                                   &settings.variable_rate_shading.velocity_threshold, 0.0f,
+                                   0.2f, "%.3f");
+                ImGui::TextDisabled("Ignored on a device without shading rate images.");
+                ImGui::PopID();
+            }
+
+            // What the resolution governor actually settled on, which is the only way to
+            // see it work: the slider is a request, this is the answer.
+            ImGui::Separator();
+            if (context.scene_render_width > 0)
+                ImGui::Text("Scene view rendering at %u x %u", context.scene_render_width,
+                            context.scene_render_height);
 
             ImGui::End();
         }
@@ -2124,16 +2400,126 @@ namespace SushiEngine
                     changed = true;
                 if (ImGui::SliderFloat("Exposure", &environment.exposure, 0.02f, 1.0f))
                     changed = true;
+                float height_km = environment.atmosphere.height * 0.001f;
+                if (ImGui::SliderFloat("Height", &height_km, 10.0f, 300.0f, "%.0f km"))
+                {
+                    environment.atmosphere.height = height_km * 1000.0f;
+                    changed = true;
+                }
+                if (ImGui::SliderFloat("Mie Anisotropy", &environment.atmosphere.mie_anisotropy,
+                                       0.0f, 0.99f))
+                    changed = true;
+            }
+
+            if (ImGui::CollapsingHeader("Surface"))
+            {
+                float ground[3] = {static_cast<float>(environment.surface.ground_albedo.x),
+                                   static_cast<float>(environment.surface.ground_albedo.y),
+                                   static_cast<float>(environment.surface.ground_albedo.z)};
+                if (ImGui::ColorEdit3("Ground Albedo", ground))
+                {
+                    environment.surface.ground_albedo =
+                        SushiEngine::Vector3{ground[0], ground[1], ground[2]};
+                    changed = true;
+                }
+                float ocean[3] = {static_cast<float>(environment.surface.ocean_color.x),
+                                  static_cast<float>(environment.surface.ocean_color.y),
+                                  static_cast<float>(environment.surface.ocean_color.z)};
+                if (ImGui::ColorEdit3("Ocean Color", ocean))
+                {
+                    environment.surface.ocean_color =
+                        SushiEngine::Vector3{ocean[0], ocean[1], ocean[2]};
+                    changed = true;
+                }
             }
 
             if (ImGui::CollapsingHeader("Clouds"))
             {
                 if (ImGui::Checkbox("Clouds Enabled", &environment.clouds.enabled))
                     changed = true;
-                if (ImGui::SliderFloat("Coverage", &environment.clouds.coverage, 0.0f, 1.0f))
+                ImGui::BeginDisabled(!environment.clouds.enabled);
+
+                // Presets: one click sets the whole sky (which decks, which genera, medium
+                // tuning). Everything below is optional fine-tuning, tucked into Advanced.
+                ImGui::SeparatorText("Preset");
+                for (int p = 0; p < SushiEngine::Render::WEATHER_PRESET_COUNT; ++p)
+                {
+                    SushiEngine::Render::WeatherPreset preset =
+                        static_cast<SushiEngine::Render::WeatherPreset>(p);
+                    if (p > 0)
+                        ImGui::SameLine();
+                    if (ImGui::Button(SushiEngine::Render::weather_preset_name(preset)))
+                    {
+                        const bool was_enabled = environment.clouds.enabled;
+                        environment.clouds = SushiEngine::Render::cloud_weather_preset(preset);
+                        environment.clouds.enabled = was_enabled;
+                        changed = true;
+                    }
+                }
+
+                if (ImGui::TreeNode("Advanced"))
+                {
+
+                // Shared medium: every deck is one physical volume, so the scattering
+                // knobs, ground shadow, and weather evolution apply to the whole stack.
+                ImGui::SeparatorText("Medium (all decks)");
+                if (ImGui::SliderFloat("Light Absorption", &environment.clouds.light_absorption,
+                                       0.0f, 2.0f))
                     changed = true;
-                if (ImGui::SliderFloat("Density", &environment.clouds.density, 0.0f, 1.0f))
+                if (ImGui::SliderFloat("Forward Scatter", &environment.clouds.forward_scattering,
+                                       0.0f, 0.99f))
                     changed = true;
+                if (ImGui::SliderFloat("Powder", &environment.clouds.powder_strength, 0.0f, 1.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Ambient Fill", &environment.clouds.ambient_strength,
+                                       0.0f, 2.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Ground Shadow", &environment.clouds.ground_shadow_strength,
+                                       0.0f, 1.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Weather Scale", &environment.clouds.weather_scale,
+                                       10000.0f, 200000.0f, "%.0f m"))
+                    changed = true;
+                if (ImGui::SliderFloat("Evolution Rate", &environment.clouds.evolution_rate,
+                                       0.0f, 1.0f))
+                    changed = true;
+
+                // One deck per row: pick any of the ten WMO genera and nudge its coverage
+                // and density. Each deck inherits its genus's physical altitude band and
+                // morphology from the catalogue, so the sky is a few coexisting genera.
+                const char* genus_items[SushiEngine::Render::CLOUD_GENUS_COUNT];
+                for (int g = 0; g < SushiEngine::Render::CLOUD_GENUS_COUNT; ++g)
+                    genus_items[g] = SushiEngine::Render::cloud_genus_name(
+                        static_cast<SushiEngine::Render::CloudGenus>(g));
+
+                for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
+                {
+                    SushiEngine::Render::CloudDeck& deck = environment.clouds.decks[i];
+                    ImGui::PushID(i);
+                    char header[32];
+                    std::snprintf(header, sizeof(header), "Deck %d", i + 1);
+                    ImGui::SeparatorText(header);
+                    if (ImGui::Checkbox("Enabled", &deck.enabled))
+                        changed = true;
+                    ImGui::BeginDisabled(!deck.enabled);
+
+                    int genus = static_cast<int>(deck.genus);
+                    if (ImGui::Combo("Genus", &genus, genus_items,
+                                     SushiEngine::Render::CLOUD_GENUS_COUNT))
+                    {
+                        deck.genus = static_cast<SushiEngine::Render::CloudGenus>(genus);
+                        changed = true;
+                    }
+                    if (ImGui::SliderFloat("Coverage Bias", &deck.coverage_bias, -1.0f, 1.0f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Density Scale", &deck.density_scale, 0.0f, 2.0f))
+                        changed = true;
+                    ImGui::EndDisabled();
+                    ImGui::PopID();
+                }
+                    ImGui::TreePop();
+                }
+                ImGui::EndDisabled();
             }
 
             if (ImGui::CollapsingHeader("Stars"))
@@ -2146,6 +2532,32 @@ namespace SushiEngine
                     changed = true;
             }
 
+            if (ImGui::CollapsingHeader("Night Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (ImGui::Checkbox("Dynamic Ambient", &environment.night.enabled))
+                    changed = true;
+                ImGui::BeginDisabled(!environment.night.enabled);
+                if (ImGui::SliderFloat("Moon Intensity", &environment.night.moon_intensity,
+                                       0.0f, 1.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Star Ambient", &environment.night.star_intensity,
+                                       0.0f, 0.2f))
+                    changed = true;
+                ImGui::EndDisabled();
+                if (!environment.night.enabled || !context.sky_astronomical_sun)
+                {
+                    float ambient[3] = {static_cast<float>(environment.ambient.x),
+                                        static_cast<float>(environment.ambient.y),
+                                        static_cast<float>(environment.ambient.z)};
+                    if (ImGui::ColorEdit3("Ambient", ambient))
+                    {
+                        environment.ambient =
+                            SushiEngine::Vector3{ambient[0], ambient[1], ambient[2]};
+                        changed = true;
+                    }
+                }
+            }
+
             // The solar-system sky edits the editor context, not the world's environment:
             // the ephemeris repopulates the bodies and stars from these each frame in the
             // main loop, so scrubbing the date never re-extracts the world.
@@ -2154,13 +2566,6 @@ namespace SushiEngine
                 ImGui::Checkbox("Sky Enabled", &context.sky_enabled);
                 ImGui::SameLine();
                 ImGui::Checkbox("Astronomical Sun", &context.sky_astronomical_sun);
-
-                // Interplanetary flight: detaches from Earth's surface and flies the whole
-                // solar system in a heliocentric frame. The camera speed scales with the
-                // distance to the nearest body, so approaching a planet slows to a crawl.
-                ImGui::Checkbox("Space Mode (interplanetary)", &context.sky_space_mode);
-                if (context.sky_space_mode)
-                    ImGui::TextDisabled("Flying heliocentric. Fly toward a body to approach it.");
 
                 ImGui::InputInt("Year", &context.sky_date.year);
                 ImGui::SliderInt("Month", &context.sky_date.month, 1, 12);
@@ -2183,6 +2588,24 @@ namespace SushiEngine
                     context.sky_accumulated_days = 0.0;
                 ImGui::SameLine();
                 ImGui::Text("Offset: %.2f d", context.sky_accumulated_days);
+
+                // Quick travel: one button per body, consumed by the main loop, which
+                // teleports the camera to the body's sunlit side (Earth brings you home).
+                ImGui::Separator();
+                ImGui::TextDisabled("Travel");
+                ImGui::PushID("Travel");
+                const int per_row = 4;
+                for (int body = 0; body < SushiEngine::Astro::BODY_COUNT; ++body)
+                {
+                    if (body % per_row != 0)
+                        ImGui::SameLine();
+                    const SushiEngine::Astro::BodyProperties properties =
+                        SushiEngine::Astro::body_properties(
+                            static_cast<SushiEngine::Astro::BodyId>(body));
+                    if (ImGui::Button(properties.name, ImVec2(72.0f, 0.0f)))
+                        context.sky_travel_target = body;
+                }
+                ImGui::PopID();
             }
 
             if (changed)

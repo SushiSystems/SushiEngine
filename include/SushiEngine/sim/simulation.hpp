@@ -71,6 +71,37 @@ namespace SushiEngine
             Vector3 scale{Vector3{1, 1, 1}};   /**< Per-axis scale. */
         };
 
+        /**
+         * @brief How an entity's authored transform is interpreted relative to its frame.
+         *
+         * The mode selected in the inspector's Reference row (see @ref EntityFrame). It
+         * governs only the authoring boundary — how @ref IWorldEditor::frame_local_transform
+         * expresses the pose and how @ref IWorldEditor::set_frame_local_transform stores it —
+         * not the scene-frame `Transform` the physics and renderer work in.
+         */
+        enum class FrameMode
+        {
+            Auto,    /**< Resolve Surface vs Free from the entity's altitude over the body. */
+            Free,    /**< Inertial: position is a scene-axis offset from the body centre. */
+            Surface, /**< Ground-fixed: rotation is ground-local (upright is identity anywhere). */
+        };
+
+        /**
+         * @brief The frame an entity's transform is authored relative to.
+         *
+         * The Unity-parent analogue with a celestial body as the parent: the inspector edits
+         * a *frame-local* transform (small metres from the body, well inside double's clean
+         * range) instead of a raw heliocentric number, and rotation in @ref FrameMode::Surface
+         * is ground-local so "upright" is identity at any pole, equator, or hemisphere. A
+         * @ref reference_body of -1 means the scene root (the transform is the scene transform,
+         * unchanged) — the default, so entities that never pick a body behave exactly as before.
+         */
+        struct EntityFrame
+        {
+            int reference_body = -1;          /**< Celestial body index (as `Environment`), or -1 for the scene root. */
+            FrameMode mode = FrameMode::Auto; /**< How the frame-local transform is interpreted. */
+        };
+
         /** @brief One drawable object extracted from the world: identity, transform, colour. */
         struct RenderInstance
         {
@@ -138,6 +169,7 @@ namespace SushiEngine
         {
             Scalar inv_mass = Scalar(1);  /**< Inverse mass; 0 pins the body in place. */
             Vector3 inv_inertia{0, 0, 0};    /**< Diagonal body-local inverse inertia; 0 = no rotation response. */
+            Scalar drag_coefficient = Scalar(0); /**< Quadratic drag: acceleration -k|v|v, m⁻¹; 0 disables. */
         };
 
         /**
@@ -391,6 +423,62 @@ namespace SushiEngine
                  * @param world The new world transform.
                  */
                 virtual void set_world_transform(EntityId id, const EntityTransform& world) = 0;
+
+                /** @brief The entity's reference frame (scene root if it never picked one). */
+                virtual EntityFrame entity_frame(EntityId id) const = 0;
+
+                /**
+                 * @brief Sets the entity's reference frame (body + mode).
+                 *
+                 * Re-expresses nothing in the world by itself — the scene `Transform` is
+                 * untouched — so picking a body is a pure change of how the inspector reads and
+                 * writes the pose. @ref FrameMode::Surface additionally marks the entity
+                 * surface-anchored so its orientation is kept ground-local each step.
+                 *
+                 * @param id    The entity to update.
+                 * @param frame The reference body and interpretation mode.
+                 */
+                virtual void set_entity_frame(EntityId id, const EntityFrame& frame) = 0;
+
+                /**
+                 * @brief The entity's transform expressed in its reference frame.
+                 *
+                 * Position is the offset from the reference body's scene-frame centre (so it is
+                 * small metres, not a heliocentric number); rotation is ground-local in
+                 * @ref FrameMode::Surface, else the scene rotation; scale is unchanged. Equals
+                 * @ref transform when the reference body is -1 (the scene root).
+                 *
+                 * @param id The entity to read.
+                 * @return The frame-local transform (identity if @p id does not exist).
+                 */
+                virtual EntityTransform frame_local_transform(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes the entity's scene transform from a frame-local one.
+                 *
+                 * The inverse of @ref frame_local_transform: composes the frame-local pose back
+                 * onto the reference body's scene centre (and, in Surface mode, stores the
+                 * ground-local rotation), then writes the resulting scene `Transform`. Moves the
+                 * live physics body too, like @ref set_transform.
+                 *
+                 * @param id    The entity to update.
+                 * @param local The transform expressed in the entity's reference frame.
+                 */
+                virtual void set_frame_local_transform(EntityId id, const EntityTransform& local) = 0;
+
+                /**
+                 * @brief Whether the entity's frame resolves to Surface (ground-fixed) mode.
+                 *
+                 * True when the reference frame is Surface, or Auto resolved to Surface by
+                 * altitude. In that case @ref frame_local_transform's position is a **geodetic**
+                 * coordinate — `x` latitude degrees, `y` longitude degrees, `z` altitude metres
+                 * above the reference ellipsoid — rather than a Cartesian offset, so the
+                 * inspector can label it and the author places a spawn the way a map does.
+                 *
+                 * @param id The entity to query.
+                 * @return Whether the frame-local position is geodetic (Surface).
+                 */
+                virtual bool is_surface_frame(EntityId id) const = 0;
 
                 /** @brief Writes the entity's base colour. */
                 virtual void set_color(EntityId id, const Vector3& color) = 0;
@@ -669,6 +757,44 @@ namespace SushiEngine
                 virtual void set_has_collider(EntityId id, bool value) = 0;
 
                 /**
+                 * @brief Whether @p id's orientation is anchored to the planet surface.
+                 *
+                 * When set, the entity's authored orientation is treated as *local to the
+                 * ground* — relative to the East-North-Up tangent frame at its position on
+                 * the dominant body — rather than to the fixed scene axes. The simulation
+                 * composes the tangent frame onto it each step, so "upright" is identity
+                 * everywhere on the body: an anchored entity stands straight in the
+                 * southern hemisphere and at the poles, not tilted by its position. A
+                 * no-op in a scene with no dominant body.
+                 */
+                virtual bool surface_anchored(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief The entity's ground-local orientation (identity if not anchored).
+                 *
+                 * The orientation *relative to the local tangent frame* — what the entity
+                 * faces on the ground, independent of where on the planet it stands. The
+                 * scene-frame orientation the renderer sees is this composed with the
+                 * tangent frame; see @ref surface_anchored.
+                 */
+                virtual Quaternion surface_local_orientation(EntityId id) const = 0;
+
+                /**
+                 * @brief Sets the entity's ground-local orientation; a no-op if unanchored.
+                 * @param id       The entity to update.
+                 * @param rotation The orientation relative to the local tangent frame.
+                 */
+                virtual void set_surface_local_orientation(EntityId id,
+                                                           const Quaternion& rotation) = 0;
+
+                /**
+                 * @brief Anchors or unanchors @p id's orientation to the planet surface.
+                 * @param id    The entity to update.
+                 * @param value Whether its orientation should be ground-relative.
+                 */
+                virtual void set_surface_anchored(EntityId id, bool value) = 0;
+
+                /**
                  * @brief Creates a UI Canvas: the full-viewport root of a UI tree.
                  *
                  * A Canvas carries a UI element record with `UIElementKind::Canvas`;
@@ -820,6 +946,48 @@ namespace SushiEngine
 
                 /** @brief The editor's read/write surface onto this world. */
                 virtual IWorldEditor& world() noexcept = 0;
+
+                /**
+                 * @brief The master simulation epoch as a Julian Date.
+                 *
+                 * The single "now" the orbital dynamics and the sky are evaluated at. The
+                 * simulation owns and advances it; a host reads it back (also carried on
+                 * `render_scene().environment.observer`) to drive the sky from the same
+                 * clock rather than a separate one.
+                 */
+                virtual double julian_date() const noexcept = 0;
+
+                /**
+                 * @brief Sets the master epoch, seeking the sky and the dynamics to it.
+                 * @param julian_date The Julian Date to set as the current epoch.
+                 */
+                virtual void set_julian_date(double julian_date) = 0;
+
+                /**
+                 * @brief Updates the observer the astro placement uses, without re-extracting.
+                 *
+                 * The orbital dynamics derive a free body's scene pose through the scene
+                 * frame built from this observer (its latitude, longitude, and anchor body),
+                 * so it must match the one the host renders the sky with for a body and the
+                 * planet it orbits to line up. A host that drives the sky each frame pushes
+                 * the observer here cheaply; the epoch it carries is ignored (the sim owns
+                 * that — see @ref julian_date). Applied to the next extracted snapshot.
+                 *
+                 * @param observer The current sky observer (latitude/longitude/anchor body).
+                 */
+                virtual void set_sky_observer(const Render::SkyObserver& observer) noexcept = 0;
+
+                /**
+                 * @brief Sets how fast the epoch advances while the world plays.
+                 *
+                 * The sky-days that pass per real second of simulation time; zero freezes
+                 * the sky (planets and free bodies hold their positions). A host's
+                 * "animate sky" toggle and rate map onto this — the sim advances the clock
+                 * per fixed step, so time flow stays deterministic.
+                 *
+                 * @param days_per_second Sky-days advanced per real second (0 freezes it).
+                 */
+                virtual void set_time_scale_days_per_second(Scalar days_per_second) = 0;
         };
 
         /**

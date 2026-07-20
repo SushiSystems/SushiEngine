@@ -1,0 +1,60 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Generates one of the three tileable 3D cloud volumes into a storage image. This
+// replaces the CPU thread-pool build the renderer used to do at startup: the same
+// recipe, evaluated once on the GPU, so bring-up no longer stalls on a few hundred
+// milliseconds of Worley evaluation.
+
+#include "cloud_noise_common.glsl"
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image3D destination;
+
+layout(push_constant) uniform Params
+{
+    uint resolution;
+    uint kind; // 0 = cumuliform shape, 1 = erosion detail, 2 = anisotropic cirrus
+} params;
+
+void main()
+{
+    uvec3 texel = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(texel, uvec3(params.resolution))))
+        return;
+
+    vec3 p = vec3(texel) / float(params.resolution);
+    vec4 value = vec4(0.0, 0.0, 0.0, 1.0);
+
+    if (params.kind == 0u)
+    {
+        // Base shape: R is Perlin remapped by a low-frequency Worley, GBA are single
+        // Worley octaves the sky pass combines to round the shape's edges.
+        float perlin = noise_perlin_fbm(p, 4, 3);
+        float worley_low = noise_worley(p, 4);
+        float pw = clamp(noise_remap(perlin, worley_low - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+        value = vec4(pw, noise_worley(p, 6), noise_worley(p, 12), noise_worley(p, 22));
+    }
+    else if (params.kind == 1u)
+    {
+        // High-frequency detail: three Worley fbm octaves that erode the base shape
+        // into wisps and billows.
+        value = vec4(noise_worley_fbm(p, 4), noise_worley_fbm(p, 8), noise_worley_fbm(p, 16),
+                     1.0);
+    }
+    else
+    {
+        // Cirrus: ice clouds streak into filaments along the flow, so the lattice is
+        // stretched along X by sampling Y/Z at higher integer frequencies (integers
+        // keep it tileable) and the Perlin base is ridged into thin fibres.
+        vec3 stretched = vec3(p.x, p.y * 5.0, p.z * 5.0);
+        float perlin = noise_perlin_fbm(stretched, 2, 4);
+        float ridged = 1.0 - abs(2.0 * perlin - 1.0);
+        float filament = pow(clamp(ridged, 0.0, 1.0), 2.5);
+        value = vec4(filament, noise_worley(stretched, 8), noise_worley(stretched, 16),
+                     noise_worley(stretched, 32));
+    }
+
+    imageStore(destination, ivec3(texel), value);
+}

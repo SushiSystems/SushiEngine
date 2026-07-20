@@ -386,29 +386,38 @@ namespace SushiEngine
         }
 
         /**
-         * @brief A right-handed perspective projection for Vulkan clip space.
+         * @brief A right-handed reverse-Z perspective projection with an infinite far plane.
          *
-         * Maps depth to [0, 1] and flips Y so world up is screen up under Vulkan's
-         * inverted clip Y.
+         * Maps the near plane to clip depth 1 and infinity to 0 (reverse-Z), and flips Y
+         * so world up is screen up under Vulkan's inverted clip Y. Reverse-Z spreads a
+         * floating-point depth buffer's precision almost uniformly across the whole range,
+         * which is what lets one camera see a 5 cm prop and a planet 10^7 m away in the same
+         * frame without z-fighting; the infinite far plane means nothing is ever clipped for
+         * being too distant. The pipeline must clear depth to 0 and compare with
+         * GREATER_OR_EQUAL to match. @p far_plane is accepted for call-site compatibility but
+         * unused — there is no far clip.
          *
          * @param fovy_radians Vertical field of view in radians.
          * @param aspect       Width / height of the target.
-         * @param near_plane   Near clip distance (> 0).
-         * @param far_plane    Far clip distance (> near).
+         * @param near_plane   Near clip distance (> 0); the only precision knob.
+         * @param far_plane    Ignored (the far plane is at infinity).
          * @return The projection matrix.
          */
         inline Mat4 perspective(Float fovy_radians, Float aspect, Float near_plane,
                                 Float far_plane) noexcept
         {
+            (void)far_plane;
             const Float f = Float(1) / std::tan(fovy_radians * Float(0.5));
             Mat4 r{};
             for (Float& value : r.m)
                 value = 0;
             r.m[0] = f / aspect;
             r.m[5] = -f; // Vulkan Y flip
-            r.m[10] = far_plane / (near_plane - far_plane);
+            // Reverse-Z, infinite far: clip.z = near, clip.w = -z_view, so ndc.z =
+            // near / -z_view — 1 at the near plane, approaching 0 at infinity.
+            r.m[10] = 0;
             r.m[11] = -1;
-            r.m[14] = -(far_plane * near_plane) / (far_plane - near_plane);
+            r.m[14] = near_plane;
             return r;
         }
 

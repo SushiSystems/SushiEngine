@@ -35,6 +35,8 @@
 #include <nlohmann/json.hpp>
 
 #include <SushiEngine/astro/julian_date.hpp>
+#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "command_history.hpp"
@@ -64,6 +66,7 @@ namespace SushiEngine
             bool statistics = true;
             bool toolbar = true;
             bool environment = true;
+            bool rendering = false;
         };
 
         /**
@@ -143,6 +146,11 @@ namespace SushiEngine
             // through the IWorldEditor surface. The world is the single source of truth
             // for entities — there is no separate editor-side scene model.
             SushiEngine::Simulation::ISimulation* simulation = nullptr;
+
+            // The renderer's shared asset store, injected by main() so a panel can load
+            // a texture or a model without knowing which renderer produced it. Null in a
+            // headless editor, which is why every use is guarded.
+            SushiEngine::Render::IAssetLibrary* assets = nullptr;
 
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
@@ -259,14 +267,30 @@ namespace SushiEngine
             bool preferences_dirty = false;
             bool show_preferences = false;
 
+            // How the viewports trade fidelity against frame time: anti-aliasing mode,
+            // render scale, the dynamic-resolution governor, and variable-rate shading.
+            // Edited in the Environment panel's Rendering section and pushed to both
+            // viewports each frame, so the two always agree.
+            SushiEngine::Render::RenderSettings render_settings;
+
+            // The internal resolution the Scene view last rendered at, written back by
+            // the main loop. It is the only way to see the dynamic-resolution governor
+            // work: the scale slider is a request, this is what it settled on.
+            std::uint32_t scene_render_width = 0;
+            std::uint32_t scene_render_height = 0;
+
             bool show_imgui_demo = false;
 
             // Solar-system sky authoring, driven from the Environment panel. The civil
             // epoch and observer position feed the ephemeris every frame (in main()),
             // which repopulates the environment's bodies and stars without touching the
             // world — so scrubbing the date or animating time costs no world re-extract.
-            // `sky_accumulated_days` is the running offset the animation clock adds to the
-            // authored epoch; latitude/longitude re-point the whole celestial sphere.
+            // `sky_accumulated_days` is the running offset of the master epoch past the
+            // authored start date, shown in the panel; latitude/longitude re-point the
+            // whole celestial sphere. The simulation owns the master epoch now (see
+            // ISimulation::julian_date): the main loop drives its flow from `sky_animate`/
+            // `sky_days_per_second`, seeks it when `sky_date` changes, and reads it back for
+            // the sky, so the sky and the orbital dynamics share one clock.
             bool sky_enabled = true;
             SushiEngine::Astro::CalendarDate sky_date{2026, 7, 4, 21, 0, 0.0};
             double sky_latitude_degrees = 41.0;
@@ -275,14 +299,23 @@ namespace SushiEngine
             bool sky_animate = false;
             double sky_days_per_second = 0.02;
             double sky_accumulated_days = 0.0;
+            // The authored start epoch the sim was last seeked to, so the main loop can
+            // detect a `sky_date` edit and re-seek; negative until the first frame seeds it.
+            double sky_authored_start_cache = -1.0;
+            // A body index (Astro::BodyId) the camera should travel to this frame, set by
+            // the environment panel's quick-travel buttons; -1 when none is pending. The
+            // main loop consumes it: teleports to the body's sunlit side and resets it.
+            int sky_travel_target = -1;
 
-            // Interplanetary (space) regime. `sky_space_mode` is the requested state;
-            // `sky_space_active` tracks the applied state so main() can run the one-shot
-            // camera transition (save the surface pose on entry, restore it on exit).
-            // The space camera flies in a heliocentric ecliptic world frame in gigametres.
-            bool sky_space_mode = false;
-            bool sky_space_active = false;
-            SushiEngine::Vector3 sky_saved_surface_position{};
+            // Ride-along state so the camera stays attached to a moving planet as time
+            // animates: the dominant body index of the previous frame and its scene-frame
+            // centre. When the same non-Earth body remains the analytic ground across a
+            // frame, the camera is shifted by the body's centre delta so its altitude over
+            // the surface is preserved instead of the orbit sliding out from under it.
+            // Earth is exempt — its observer point is re-anchored to the scene origin each
+            // frame, so the camera already tracks it. -1 marks "no body tracked yet".
+            int sky_ride_body = -1;
+            SushiEngine::WorldVector3 sky_ride_center{};
 
             // The catalog of user-defined "script" component types available in the
             // Add Component menu. Each entry is a definition (a type name plus default

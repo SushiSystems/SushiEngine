@@ -47,6 +47,9 @@
 #include <vector>
 
 #include <SushiEngine/SushiEngine.hpp>
+#include <SushiEngine/astro/astro_dynamics.hpp>
+#include <SushiEngine/astro/scene_frame.hpp>
+#include <SushiEngine/astro/surface_frame.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/physics/cloth.hpp>
 #include <SushiEngine/sim/components.hpp>
@@ -138,6 +141,30 @@ namespace SushiEngine
                     }
 
                     IWorldEditor& world() noexcept override { return *this; }
+
+                    double julian_date() const noexcept override { return julian_date_; }
+
+                    void set_julian_date(double julian_date) override
+                    {
+                        julian_date_ = julian_date;
+                        scene_.environment.observer.julian_date = julian_date;
+                        extract();
+                    }
+
+                    void set_time_scale_days_per_second(Scalar days_per_second) override
+                    {
+                        time_scale_days_per_second_ = double(days_per_second);
+                    }
+
+                    void set_sky_observer(const Render::SkyObserver& observer) noexcept override
+                    {
+                        // Adopt the observer's geometry and anchor body for astro placement,
+                        // but keep the epoch — the sim owns the master clock, and extract
+                        // re-stamps observer.julian_date from it.
+                        const double epoch = scene_.environment.observer.julian_date;
+                        scene_.environment.observer = observer;
+                        scene_.environment.observer.julian_date = epoch;
+                    }
 
                     // --- IWorldEditor ------------------------------------------------
 
@@ -254,9 +281,23 @@ namespace SushiEngine
                             return;
                         Transform& t = world_.get<Transform>(record->entity);
                         Orientation& o = world_.get<Orientation>(record->entity);
+                        // Capture whether this edit moves the entity, before overwriting — a
+                        // pure rotation (no move) is the only case that may re-derive the
+                        // ground-local orientation below, so translation can never tilt it.
+                        const bool moved =
+                            length(value.position - t.position) > Scalar(1e-4);
                         t.position = value.position;
                         t.scale = value.scale;
                         o.rotation = value.rotation;
+                        // A surface-anchored entity's scene rotation is re-derived from its
+                        // ground-local orientation each step, so a gizmo *rotation* (position
+                        // unchanged) must update that stored orientation or it would be lost.
+                        // Only when unmoved: at the same position the tangent frame is
+                        // identical, so the strip round-trips exactly; a translation leaves the
+                        // ground-local pose untouched, keeping "upright" upright at any latitude.
+                        if (record->surface_anchored && !moved)
+                            record->surface_local_orientation =
+                                ground_local_orientation(value.position, value.rotation);
                         // While playing, a manual transform edit (e.g. dragging the gizmo)
                         // must move the physics body too, otherwise the next tick overwrites
                         // it with the solved pose. A no-op when the body does not exist yet
@@ -329,6 +370,110 @@ namespace SushiEngine
                         set_transform(id, new_local);
                     }
 
+                    EntityFrame entity_frame(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr)
+                            return EntityFrame{};
+                        return EntityFrame{record->reference_body, record->frame_mode};
+                    }
+
+                    void set_entity_frame(EntityId id, const EntityFrame& frame) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->reference_body = frame.reference_body;
+                        record->frame_mode = frame.mode;
+                        // Surface is the ground-anchored orientation path; keep the existing
+                        // surface-anchoring flag in step so apply_surface_constraints drives it,
+                        // seeding the ground-local orientation from the current pose on enable.
+                        const bool surface = resolved_frame_mode(*record) == FrameMode::Surface;
+                        if (record->surface_anchored != surface)
+                        {
+                            record->surface_anchored = surface;
+                            if (surface && world_.alive(record->entity))
+                                record->surface_local_orientation =
+                                    world_.get<Orientation>(record->entity).rotation;
+                        }
+                        extract();
+                    }
+
+                    EntityTransform frame_local_transform(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return EntityTransform{};
+                        const Transform& t = world_.get<Transform>(record->entity);
+                        const Orientation& o = world_.get<Orientation>(record->entity);
+                        EntityTransform out;
+                        out.scale = t.scale;
+                        if (resolved_frame_mode(*record) == FrameMode::Surface)
+                        {
+                            // Geodetic: the place-on-a-planet coordinate. x=lat°, y=lon°,
+                            // z=altitude m — how an author thinks about a spawn, not a raw
+                            // millions-of-metres Cartesian offset. Rotation is ground-local.
+                            const Astro::GeodeticCoordinate geo = Astro::body_fixed_to_geodetic(
+                                static_cast<Astro::BodyId>(record->reference_body),
+                                scene_to_body_fixed(record->reference_body, t.position));
+                            out.position =
+                                Vector3{Scalar(geo.latitude_radians * Astro::RADIANS_TO_DEGREES),
+                                        Scalar(geo.longitude_radians * Astro::RADIANS_TO_DEGREES),
+                                        Scalar(geo.altitude_metres)};
+                            out.rotation = record->surface_local_orientation;
+                        }
+                        else
+                        {
+                            out.position =
+                                t.position - reference_center_scene(record->reference_body);
+                            out.rotation = o.rotation;
+                        }
+                        return out;
+                    }
+
+                    void set_frame_local_transform(EntityId id,
+                                                   const EntityTransform& local) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !world_.alive(record->entity))
+                            return;
+                        Transform& t = world_.get<Transform>(record->entity);
+                        Orientation& o = world_.get<Orientation>(record->entity);
+                        t.scale = local.scale;
+                        if (resolved_frame_mode(*record) == FrameMode::Surface)
+                        {
+                            // Position is geodetic (lat°, lon°, altitude m); place it on the
+                            // reference ellipsoid and store the ground-local orientation, from
+                            // which apply_surface_constraints derives the scene rotation.
+                            const Astro::GeodeticCoordinate geo{
+                                double(local.position.x) * Astro::DEGREES_TO_RADIANS,
+                                double(local.position.y) * Astro::DEGREES_TO_RADIANS,
+                                double(local.position.z)};
+                            const Vector3 body_fixed = Astro::geodetic_to_body_fixed(
+                                static_cast<Astro::BodyId>(record->reference_body), geo);
+                            t.position = body_fixed_to_scene(record->reference_body, body_fixed);
+                            record->surface_anchored = true;
+                            record->surface_local_orientation = normalize(local.rotation);
+                            o.rotation = record->surface_local_orientation;
+                        }
+                        else
+                        {
+                            t.position =
+                                reference_center_scene(record->reference_body) + local.position;
+                            o.rotation = local.rotation;
+                        }
+                        if (record->has_physics_body)
+                            physics_->set_rigid_pose(id, t.position, o.rotation);
+                        extract();
+                    }
+
+                    bool is_surface_frame(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->reference_body >= 0 &&
+                               resolved_frame_mode(*record) == FrameMode::Surface;
+                    }
+
                     void set_color(EntityId id, const Vector3& value) override
                     {
                         Record* record = find(id);
@@ -351,6 +496,10 @@ namespace SushiEngine
                     void set_environment(const Render::Environment& value) override
                     {
                         scene_.environment = value;
+                        // The observer epoch the environment carries seeds the master
+                        // clock, so authoring the sky date or loading a scene sets the
+                        // simulation's "now"; thereafter the sim owns and advances it.
+                        julian_date_ = value.observer.julian_date;
                         extract();
                     }
 
@@ -395,7 +544,8 @@ namespace SushiEngine
                         // Applied live when a body already exists, so editing mass/inertia
                         // never forces a physics-world rebuild (see set_has_physics_body);
                         // a no-op inside the physics simulation when the entity has none.
-                        physics_->update_rigid_body_params(id, params.inv_mass, params.inv_inertia);
+                        physics_->update_rigid_body_params(id, params.inv_mass, params.inv_inertia,
+                                                           params.drag_coefficient);
                     }
 
                     void set_has_physics_body(EntityId id, bool value) override
@@ -565,6 +715,42 @@ namespace SushiEngine
                                                           ? ColliderParams{record->shape_params.kind,
                                                                           record->shape_params.params}
                                                           : ColliderParams{};
+                    }
+
+                    bool surface_anchored(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->surface_anchored;
+                    }
+
+                    Quaternion surface_local_orientation(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->surface_local_orientation
+                                                 : Quaternion{};
+                    }
+
+                    void set_surface_local_orientation(EntityId id,
+                                                       const Quaternion& rotation) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->surface_anchored)
+                            return;
+                        record->surface_local_orientation = normalize(rotation);
+                    }
+
+                    void set_surface_anchored(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->surface_anchored == value)
+                            return;
+                        record->surface_anchored = value;
+                        // Seed the ground-local orientation from the entity's current pose so
+                        // anchoring does not snap it: the stored scene-frame rotation becomes
+                        // the local one, and the next resolve composes the tangent frame in.
+                        if (value && world_.alive(record->entity))
+                            record->surface_local_orientation =
+                                world_.get<Orientation>(record->entity).rotation;
                     }
 
                     EntityId create_canvas(const std::string& display_name) override
@@ -881,6 +1067,21 @@ namespace SushiEngine
                         ShapeParams shape_params{};
                         bool has_collider = false;
                         ColliderParams collider_params{};
+                        // Whether the entity's orientation is planet-surface anchored (see
+                        // set_surface_anchored): its stored orientation is ground-local
+                        // (relative to the local East-North-Up frame on the dominant body),
+                        // composed onto the tangent frame each step so "upright" is identity
+                        // anywhere on the body. Plain host bookkeeping like the toggles above.
+                        bool surface_anchored = false;
+                        Quaternion surface_local_orientation{};
+                        // The reference frame the inspector authors this entity's transform in
+                        // (a celestial body + Free/Surface/Auto mode). Purely an authoring-
+                        // boundary projection: the scene-frame Transform stays the working
+                        // truth for physics and render — see frame_local_transform. -1 is the
+                        // scene root (no offset), so an entity that never picks a body is
+                        // unchanged. Surface mode drives surface_anchored above.
+                        int reference_body = -1;
+                        FrameMode frame_mode = FrameMode::Auto;
                         // A UI element (Canvas/Panel/Image/Text/Button). Like cloth,
                         // this is host bookkeeping keyed on EntityId — no ECS
                         // migration — since the UI overlay is drawn host-side, not by
@@ -1164,6 +1365,391 @@ namespace SushiEngine
                     }
 
                     /**
+                     * @brief Builds the per-body gravity field the physics predict samples.
+                     *
+                     * When the scene has a dominant celestial body, gravity is the summed
+                     * on-rails field (the injected @ref Astro::IGravityField, the one gravity
+                     * source shared with the orbital integrator) sampled at each body's *own*
+                     * heliocentric position — so it carries the real magnitude for Earth,
+                     * Mars, the Moon, or any catalogued body, falls off with altitude, and
+                     * curves toward the attractor rather than pointing at a fixed world
+                     * "down". Unlike the earlier single dominant term evaluated once at the
+                     * scene origin, this is a true field: a body high above the surface and
+                     * one at the ground feel their correct, different pulls, and third-body
+                     * tidal terms are included. The scene frame is constant across the step,
+                     * so it is built once and captured; the sampler does one position
+                     * bijection and one direction rotation per evaluation. With no dominant
+                     * body (a non-astronomical scene, or deep space) it returns the uniform
+                     * local demo gravity, keeping the plain physics sandboxes unchanged.
+                     *
+                     * @return A sampler mapping a scene-frame position to its gravity, m/s².
+                     */
+                    GravitySampler make_gravity_sampler() const
+                    {
+                        const int dominant = scene_.environment.dominant_body_id;
+                        if (dominant < 0)
+                        {
+                            // A non-astronomical scene (or deep space): the local demo
+                            // gravity, uniform everywhere, keeps the plain sandboxes unchanged.
+                            const Vector3 demo{0, PHYSICS_GRAVITY_Y, 0};
+                            return [demo](const Vector3&) noexcept { return demo; };
+                        }
+
+                        // The one gravity source: the injected summed field, sampled per body
+                        // at its true heliocentric position. The scene frame is constant across
+                        // the step (it depends only on the epoch and observer), so it is built
+                        // once here and captured — the sampler then does one bijection and one
+                        // rotation per body: scene position -> heliocentric -> field ->
+                        // acceleration rotated back into scene axes.
+                        const Render::SkyObserver& observer = scene_.environment.observer;
+                        const Astro::SceneFrame frame = Astro::scene_frame_for(
+                            julian_date_, observer.latitude_radians, observer.longitude_radians,
+                            static_cast<Astro::BodyId>(observer.observer_body));
+                        const double julian_date = julian_date_;
+                        const Astro::IGravityField* field = &gravity_field_;
+                        return [frame, julian_date, field](const Vector3& scene_position) noexcept -> Vector3
+                        {
+                            const WorldVector3 heliocentric = frame.heliocentric_from_scene(
+                                WorldVector3{scene_position.x, scene_position.y, scene_position.z});
+                            const WorldVector3 pull = field->acceleration(heliocentric, julian_date);
+                            return frame.direction_to_scene(
+                                Vector3{Scalar(pull.x), Scalar(pull.y), Scalar(pull.z)});
+                        };
+                    }
+
+                    /**
+                     * @brief The dominant celestial body this frame, if any.
+                     * @param body_out Receives the body when the scene has one.
+                     * @return True when a dominant body is set (a planet is the ground).
+                     */
+                    bool dominant_body(Astro::BodyId& body_out) const noexcept
+                    {
+                        const int dominant = scene_.environment.dominant_body_id;
+                        if (dominant < 0)
+                            return false;
+                        body_out = static_cast<Astro::BodyId>(dominant);
+                        return true;
+                    }
+
+                    /** @brief The dominant body's centre in the scene frame, metres. */
+                    Vector3 planet_center_scene() const noexcept
+                    {
+                        const WorldVector3 center = scene_.environment.planet_center;
+                        return Vector3{Scalar(center.x), Scalar(center.y), Scalar(center.z)};
+                    }
+
+                    /**
+                     * @brief A reference body's centre in the scene frame, metres.
+                     *
+                     * The origin an entity's frame-local transform is offset from. Placed
+                     * through the scene-frame bijection at the master epoch (the same map the
+                     * ephemeris uses), so it is exact for any catalogued body, not only the
+                     * dominant one. A body index of -1 is the scene root, whose centre is the
+                     * origin — so a frame-local transform then equals the scene transform.
+                     *
+                     * @param body Celestial body index, or -1 for the scene root.
+                     * @return The body centre in scene metres (origin when @p body is -1).
+                     */
+                    Vector3 reference_center_scene(int body) const
+                    {
+                        if (body < 0)
+                            return Vector3{Scalar(0), Scalar(0), Scalar(0)};
+                        const Vector3 helio_au = Astro::planet_heliocentric_au(
+                            static_cast<Astro::BodyId>(body), julian_date_);
+                        const WorldVector3 helio{
+                            double(helio_au.x) * Astro::METRES_PER_ASTRONOMICAL_UNIT,
+                            double(helio_au.y) * Astro::METRES_PER_ASTRONOMICAL_UNIT,
+                            double(helio_au.z) * Astro::METRES_PER_ASTRONOMICAL_UNIT};
+                        const WorldVector3 scene =
+                            current_scene_frame().scene_from_heliocentric(helio);
+                        return Vector3{Scalar(scene.x), Scalar(scene.y), Scalar(scene.z)};
+                    }
+
+                    /** @brief The scene-frame bijection for the current epoch and observer. */
+                    Astro::SceneFrame current_scene_frame() const
+                    {
+                        const Render::SkyObserver& observer = scene_.environment.observer;
+                        return Astro::scene_frame_for(
+                            julian_date_, observer.latitude_radians, observer.longitude_radians,
+                            static_cast<Astro::BodyId>(observer.observer_body));
+                    }
+
+                    /** @brief Rotates a vector about the +Z body pole by @p angle radians. */
+                    static Vector3 rotate_about_pole(const Vector3& v, Scalar angle) noexcept
+                    {
+                        const Scalar c = std::cos(angle);
+                        const Scalar s = std::sin(angle);
+                        return Vector3{v.x * c - v.y * s, v.x * s + v.y * c, v.z};
+                    }
+
+                    /**
+                     * @brief Body-fixed Cartesian metres of a scene position, centred on @p body.
+                     *
+                     * Scene offset → ecliptic (the scene-frame rotation) → the body's equatorial
+                     * frame → body-fixed by unwinding the prime-meridian spin W(t). The inverse
+                     * of @ref body_fixed_to_scene; together they carry a surface pose between the
+                     * scene and the geodetic coordinate the inspector authors.
+                     *
+                     * @param body           Reference body index.
+                     * @param scene_position A position in scene metres.
+                     * @return Body-fixed Cartesian metres (origin at the body centre).
+                     */
+                    Vector3 scene_to_body_fixed(int body, const Vector3& scene_position) const
+                    {
+                        const Astro::BodyId body_id = static_cast<Astro::BodyId>(body);
+                        const Astro::SceneFrame frame = current_scene_frame();
+                        const Vector3 offset = scene_position - reference_center_scene(body);
+                        const Vector3 ecliptic = frame.direction_to_heliocentric(offset);
+                        const Vector3 equatorial =
+                            Astro::ecliptic_to_body_equatorial(body_id, ecliptic);
+                        const Scalar spin =
+                            Scalar(Astro::body_rotation_angle(body_id, julian_date_));
+                        return rotate_about_pole(equatorial, -spin);
+                    }
+
+                    /** @brief The scene position of a body-fixed point; inverse of @ref scene_to_body_fixed. */
+                    Vector3 body_fixed_to_scene(int body, const Vector3& body_fixed) const
+                    {
+                        const Astro::BodyId body_id = static_cast<Astro::BodyId>(body);
+                        const Astro::SceneFrame frame = current_scene_frame();
+                        const Scalar spin =
+                            Scalar(Astro::body_rotation_angle(body_id, julian_date_));
+                        const Vector3 equatorial = rotate_about_pole(body_fixed, spin);
+                        const Vector3 ecliptic =
+                            Astro::body_equatorial_to_ecliptic(body_id, equatorial);
+                        return reference_center_scene(body) + frame.direction_to_scene(ecliptic);
+                    }
+
+                    /**
+                     * @brief Resolves a record's authoring mode, deciding Auto from altitude.
+                     *
+                     * Free and Surface pass through; Auto becomes Surface when the entity sits
+                     * within a small margin of the reference body's equatorial radius (standing
+                     * on the ground) and Free otherwise (in flight or orbit). With no reference
+                     * body Auto is Free — there is no surface to anchor to.
+                     *
+                     * @param record The entity whose mode to resolve.
+                     * @return The concrete Free or Surface mode.
+                     */
+                    FrameMode resolved_frame_mode(const Record& record) const
+                    {
+                        if (record.frame_mode != FrameMode::Auto)
+                            return record.frame_mode;
+                        if (record.reference_body < 0 || !world_.alive(record.entity))
+                            return FrameMode::Free;
+                        const Vector3 center = reference_center_scene(record.reference_body);
+                        const Vector3 position = world_.get<Transform>(record.entity).position;
+                        const Scalar distance = length(position - center);
+                        const Scalar radius = Scalar(Astro::surface_preset(
+                            static_cast<Astro::BodyId>(record.reference_body)).semi_major_metres);
+                        return distance <= radius * Scalar(1.05) ? FrameMode::Surface
+                                                                 : FrameMode::Free;
+                    }
+
+                    /**
+                     * @brief Distance from the dominant body's centre to its surface along a
+                     *        scene-frame outward direction.
+                     *
+                     * The reference ellipsoid's radius at the geocentric latitude the
+                     * direction implies (from its projection on the pole), so the surface is
+                     * the true flattened ellipsoid rather than a mean sphere — the boundary
+                     * the clamp keeps everything outside of.
+                     *
+                     * @param outward_unit Unit outward direction from the body centre, scene frame.
+                     * @return Surface radius along that direction, metres.
+                     */
+                    Scalar planet_surface_radius(const Vector3& outward_unit) const noexcept
+                    {
+                        const Scalar a = Scalar(scene_.environment.planet.semi_major);
+                        const Scalar b = Scalar(scene_.environment.planet.semi_minor());
+                        const Scalar sin_lat = dot(outward_unit, scene_.environment.planet_pole);
+                        const Scalar cos_lat =
+                            std::sqrt(std::fmax(Scalar(0), Scalar(1) - sin_lat * sin_lat));
+                        const Scalar bc = b * cos_lat;
+                        const Scalar as = a * sin_lat;
+                        const Scalar denom = std::sqrt(bc * bc + as * as);
+                        return denom > Scalar(0) ? a * b / denom : a;
+                    }
+
+                    /**
+                     * @brief The outward geodetic normal at a scene-frame offset from the body.
+                     *
+                     * The scene-frame analogue of @ref Astro::geodetic_normal: the ellipsoid
+                     * gradient, which on a flattened body departs from the geocentric radial
+                     * @c normalize(offset). The axial component (along the pole) is scaled by
+                     * @c 1/(1-e^2) before renormalising, so "up" is the true local vertical the
+                     * ground-local orientation is composed onto — identical on every body via
+                     * its own flattening, never a per-hemisphere tilt.
+                     *
+                     * @param offset Vector from the body centre to the point, scene frame, metres.
+                     * @return Unit outward geodetic normal, scene frame.
+                     */
+                    Vector3 surface_normal_scene(const Vector3& offset) const noexcept
+                    {
+                        const Scalar a = Scalar(scene_.environment.planet.semi_major);
+                        const Scalar b = Scalar(scene_.environment.planet.semi_minor());
+                        const Scalar one_minus_e2 = a > Scalar(0) ? (b * b) / (a * a) : Scalar(1);
+                        const Vector3& pole = scene_.environment.planet_pole;
+                        const Scalar axial = dot(offset, pole);
+                        const Vector3 equatorial = offset - pole * axial;
+                        const Vector3 gradient =
+                            equatorial + pole * (one_minus_e2 > Scalar(0) ? axial / one_minus_e2 : axial);
+                        const Scalar gradient_length = length(gradient);
+                        return gradient_length > Scalar(0) ? gradient * (Scalar(1) / gradient_length)
+                                                           : pole;
+                    }
+
+                    /**
+                     * @brief The ground-local orientation a world rotation maps to at a surface point.
+                     *
+                     * The inverse of the compose in @ref apply_surface_constraints: strips the
+                     * local tangent frame off a world-space orientation, leaving the
+                     * ground-relative part. Must be evaluated at the *same* position the tangent
+                     * frame was built from, or the strip does not cancel and the pose tilts — so
+                     * the one caller only uses it for a pure rotation (position unchanged). A
+                     * no-op with no dominant body.
+                     *
+                     * @param scene_position The entity's scene position (to build the tangent frame).
+                     * @param world_rotation The world-space orientation to decompose.
+                     * @return The ground-local orientation.
+                     */
+                    Quaternion ground_local_orientation(const Vector3& scene_position,
+                                                        const Quaternion& world_rotation) const
+                    {
+                        Astro::BodyId body;
+                        if (!dominant_body(body))
+                            return world_rotation;
+                        const Vector3 offset = scene_position - planet_center_scene();
+                        const Vector3 up = surface_normal_scene(offset);
+                        const Quaternion tangent =
+                            tangent_frame_quaternion(up, scene_.environment.planet_pole);
+                        return normalize(mul(conjugate(tangent), world_rotation));
+                    }
+
+                    /**
+                     * @brief The quaternion of the local East-North-Up tangent frame.
+                     *
+                     * Builds the scene-frame basis (x=east, y=up, z=south, matching the
+                     * scene's local axes) at a surface point and converts it to a rotation.
+                     * Composing an entity's ground-local orientation onto this is what makes
+                     * "upright" identity everywhere on the body.
+                     *
+                     * @param up   Unit outward normal at the point, scene frame.
+                     * @param pole Unit body north pole, scene frame.
+                     * @return The tangent frame as a unit quaternion.
+                     */
+                    Quaternion tangent_frame_quaternion(const Vector3& up,
+                                                        const Vector3& pole) const noexcept
+                    {
+                        Vector3 east = cross(pole, up);
+                        const Scalar east_length = length(east);
+                        east = east_length > Scalar(1e-6) ? east * (Scalar(1) / east_length)
+                                                          : Vector3{1, 0, 0};
+                        const Vector3 south = cross(east, up);
+
+                        // Columns of the rotation are the images of the local axes:
+                        // x -> east, y -> up, z -> south. Standard trace conversion.
+                        const Scalar trace = east.x + up.y + south.z;
+                        Quaternion q;
+                        if (trace > Scalar(0))
+                        {
+                            const Scalar s = std::sqrt(trace + Scalar(1)) * Scalar(2);
+                            q.w = Scalar(0.25) * s;
+                            q.x = (up.z - south.y) / s;
+                            q.y = (south.x - east.z) / s;
+                            q.z = (east.y - up.x) / s;
+                        }
+                        else if (east.x > up.y && east.x > south.z)
+                        {
+                            const Scalar s =
+                                std::sqrt(Scalar(1) + east.x - up.y - south.z) * Scalar(2);
+                            q.w = (up.z - south.y) / s;
+                            q.x = Scalar(0.25) * s;
+                            q.y = (up.x + east.y) / s;
+                            q.z = (south.x + east.z) / s;
+                        }
+                        else if (up.y > south.z)
+                        {
+                            const Scalar s =
+                                std::sqrt(Scalar(1) + up.y - east.x - south.z) * Scalar(2);
+                            q.w = (south.x - east.z) / s;
+                            q.x = (up.x + east.y) / s;
+                            q.y = Scalar(0.25) * s;
+                            q.z = (south.y + up.z) / s;
+                        }
+                        else
+                        {
+                            const Scalar s =
+                                std::sqrt(Scalar(1) + south.z - east.x - up.y) * Scalar(2);
+                            q.w = (east.y - up.x) / s;
+                            q.x = (south.x + east.z) / s;
+                            q.y = (south.y + up.z) / s;
+                            q.z = Scalar(0.25) * s;
+                        }
+                        return normalize(q);
+                    }
+
+                    /**
+                     * @brief Anchors orientations to the ground and keeps every entity outside
+                     *        the planet — the planet-relative pose and the planet collider.
+                     *
+                     * Runs each step and after every edit (from @ref extract), gated on there
+                     * being a dominant body so plain non-astronomical scenes are untouched.
+                     * For each entity — cameras included — it composes the local tangent frame
+                     * onto an anchored orientation, then pushes the position out to the
+                     * ellipsoid surface if it has sunk below it. A rigid body that penetrates
+                     * is re-posed through the physics seam, which zeroes its velocity, so the
+                     * surface acts as a hard floor rather than letting it tunnel through.
+                     */
+                    void apply_surface_constraints()
+                    {
+                        Astro::BodyId body;
+                        if (!dominant_body(body))
+                            return;
+
+                        const Vector3 center = planet_center_scene();
+                        const Vector3 pole = scene_.environment.planet_pole;
+                        constexpr Scalar surface_skin_metres = Scalar(0.05);
+
+                        for (const EntityId id : order_)
+                        {
+                            Record* record = find(id);
+                            if (record == nullptr || !world_.alive(record->entity))
+                                continue;
+
+                            Transform& transform = world_.get<Transform>(record->entity);
+                            Orientation& orientation = world_.get<Orientation>(record->entity);
+
+                            const Vector3 offset = transform.position - center;
+                            const Scalar distance = length(offset);
+                            const Vector3 outward =
+                                distance > Scalar(0) ? offset * (Scalar(1) / distance) : pole;
+
+                            if (record->surface_anchored)
+                            {
+                                // "Up" is the geodetic normal (the true local vertical on a
+                                // flattened body), not the geocentric radial used for the
+                                // radial push-out below — the correct ENU basis to compose the
+                                // ground-local orientation onto.
+                                const Vector3 up = surface_normal_scene(offset);
+                                const Quaternion tangent = tangent_frame_quaternion(up, pole);
+                                orientation.rotation =
+                                    normalize(mul(tangent, record->surface_local_orientation));
+                            }
+
+                            const Scalar surface =
+                                planet_surface_radius(outward) + surface_skin_metres;
+                            if (distance < surface)
+                            {
+                                transform.position = center + outward * surface;
+                                if (record->has_physics_body)
+                                    physics_->set_rigid_pose(id, transform.position,
+                                                             orientation.rotation);
+                            }
+                        }
+                    }
+
+                    /**
                      * @brief Runs exactly one fixed simulation step: physics, then the schedule, then extract.
                      *
                      * Called once per whole fixed step `tick()`'s clock reports, so a
@@ -1191,7 +1777,14 @@ namespace SushiEngine
                         // step, which resolves rigid/rigid, rigid/plane, and cloth/rigid
                         // contacts inside the solve.
                         physics_->set_static_planes(gather_static_planes());
-                        physics_->step(Vector3{0, PHYSICS_GRAVITY_Y, 0}, PHYSICS_SUBSTEPS_PER_TICK);
+                        physics_->step(make_gravity_sampler(), PHYSICS_SUBSTEPS_PER_TICK);
+
+                        // Advance the master epoch for this fixed step, so the sky and the
+                        // on-rails bodies the gravity field sums track the physics solve. The
+                        // sky is frozen when the time scale is zero.
+                        const double step_days =
+                            double(clock_.fixed_dt()) * time_scale_days_per_second_;
+                        julian_date_ += step_days;
 
                         for (const EntityId id : order_)
                         {
@@ -1289,6 +1882,7 @@ namespace SushiEngine
                             desc.orientation = world_.get<Orientation>(record->entity).rotation;
                             desc.inv_mass = record->physics_params.inv_mass;
                             desc.inv_inertia = record->physics_params.inv_inertia;
+                            desc.drag_coefficient = record->physics_params.drag_coefficient;
                             desc.radius = collision_radius(*record);
                             // A Box collider (or, absent one, a Box visual) collides as an
                             // oriented box; anything else falls back to a sphere of radius.
@@ -1485,6 +2079,15 @@ namespace SushiEngine
                      */
                     void extract()
                     {
+                        // Publish the master epoch so the snapshot (and the editor reading
+                        // it back) sees the sim's authoritative "now" for the sky.
+                        scene_.environment.observer.julian_date = julian_date_;
+
+                        // Anchor ground-relative orientations and keep everything above the
+                        // planet surface, before reading poses into the render snapshot — so
+                        // both play (post-step) and edit (post-edit) reflect them.
+                        apply_surface_constraints();
+
                         scene_.instances.clear();
                         scene_.instances.reserve(order_.size());
 
@@ -1614,6 +2217,19 @@ namespace SushiEngine
                     std::unique_ptr<IPhysicsSimulation> physics_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
+
+                    // The master simulation epoch: the single "now" that both the orbital
+                    // dynamics and the scene-frame placement of astro bodies read, so a
+                    // free body and the planet it orbits are always evaluated at the same
+                    // instant. Seeded from the authored observer epoch (set_environment /
+                    // set_julian_date) and advanced by the fixed step each tick, scaled by
+                    // time_scale_days_per_second_ (0 freezes the sky). The sim owns this
+                    // clock; the editor reads it back through render_scene()'s environment.
+                    double julian_date_ = Astro::J2000_JULIAN_DATE;
+                    double time_scale_days_per_second_ = 0.0;
+                    // The gravitational field the orbital integrator pulls from, behind the
+                    // IGravityField seam so the model (summed rails today) is swappable.
+                    Astro::SummedRailsGravityField gravity_field_;
             };
         } // namespace
 

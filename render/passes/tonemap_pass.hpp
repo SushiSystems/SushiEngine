@@ -1,0 +1,102 @@
+/**************************************************************************/
+/* tonemap_pass.hpp                                                       */
+/**************************************************************************/
+/*                          This file is part of:                         */
+/*                              SushiEngine                               */
+/*               https://github.com/SushiSystems/SushiEngine              */
+/*                        https://sushisystems.io                         */
+/**************************************************************************/
+/* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
+/*     http://www.apache.org/licenses/LICENSE-2.0                         */
+/*                                                                        */
+/* Unless required by applicable law or agreed to in writing, software    */
+/* distributed under the License is distributed on an "AS IS" BASIS,      */
+/* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
+/* implied. See the License for the specific language governing           */
+/* permissions and limitations under the License.                         */
+/**************************************************************************/
+
+#pragma once
+
+/**
+ * @file tonemap_pass.hpp
+ * @brief The display transform: exposure, the ACES filmic curve, the gamma encode.
+ *
+ * Reads whatever the frame resolved to — the temporal resolve's output, or the
+ * composited scene when there is none — and writes the LDR image, either straight into
+ * the target the host samples or into the intermediate the spatial filter then reads.
+ * It never learns which anti-aliasing mode the frame ran; the scene view points its
+ * source and destination at the right places and the pass just runs.
+ */
+
+#include "passes/render_pass.hpp"
+
+#include <vulkan/vulkan.h>
+
+namespace SushiEngine
+{
+    namespace Render
+    {
+        namespace Resources
+        {
+            class GraphicsPipelineFactory;
+            class ShaderLibrary;
+        }
+
+        namespace Scene
+        {
+            class SceneLayout;
+        }
+
+        namespace Vulkan
+        {
+            class VulkanDevice;
+        }
+
+        namespace Passes
+        {
+            /**
+             * @brief Encodes the resolved HDR scene for display.
+             *
+             * Non-copyable: it owns a Vulkan pipeline.
+             */
+            class TonemapPass final : public IRenderPass
+            {
+                public:
+                    /**
+                     * @brief Builds the tonemap pipeline.
+                     * @param device    The live Vulkan device.
+                     * @param shaders   Library the shader modules come from.
+                     * @param pipelines Factory the pipeline is built through.
+                     * @param layout    The shared scene descriptor and pipeline layout.
+                     */
+                    TonemapPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                                Resources::GraphicsPipelineFactory& pipelines,
+                                Scene::SceneLayout& layout);
+                    ~TonemapPass() override;
+
+                    TonemapPass(const TonemapPass&) = delete;
+                    TonemapPass& operator=(const TonemapPass&) = delete;
+
+                    void register_pass(Graph::RenderGraph& graph,
+                                       const Frame::FrameContext& frame) override;
+                    void rebuild_pipelines() override;
+
+                private:
+                    void create_pipeline();
+                    void destroy_pipeline();
+
+                    Vulkan::VulkanDevice& device_;
+                    Resources::ShaderLibrary& shaders_;
+                    Resources::GraphicsPipelineFactory& pipelines_;
+                    Scene::SceneLayout& layout_;
+                    VkPipeline pipeline_ = VK_NULL_HANDLE;
+            };
+        } // namespace Passes
+    } // namespace Render
+} // namespace SushiEngine

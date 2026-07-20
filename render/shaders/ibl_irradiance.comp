@@ -1,0 +1,53 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Cosine-convolves the captured environment into a small irradiance cube: each texel
+// holds the diffuse radiance arriving at a surface facing that direction. Sampling a
+// coarse mip of the source keeps the estimator quiet at a sample count that fits in
+// one dispatch.
+
+#include "ibl_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform samplerCube environment;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly imageCube destination;
+
+layout(push_constant) uniform Params
+{
+    uint resolution;
+    uint source_resolution;
+    float source_mip;
+    uint sample_count;
+} params;
+
+void main()
+{
+    uvec2 texel = gl_GlobalInvocationID.xy;
+    uint face = gl_GlobalInvocationID.z;
+    if (texel.x >= params.resolution || texel.y >= params.resolution || face >= 6u)
+        return;
+
+    vec2 uv = (vec2(texel) + 0.5) / float(params.resolution);
+    vec3 n = cube_direction(face, uv);
+    vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(up, n));
+    vec3 bitangent = cross(n, tangent);
+
+    vec3 sum = vec3(0.0);
+    for (uint i = 0u; i < params.sample_count; ++i)
+    {
+        // Cosine-weighted hemisphere sampling: the weight and the pdf cancel, so the
+        // estimator is a plain average rather than a ratio of small numbers.
+        vec2 xi = hammersley(i, params.sample_count);
+        float phi = 2.0 * IBL_PI * xi.x;
+        float cos_theta = sqrt(1.0 - xi.y);
+        float sin_theta = sqrt(xi.y);
+        vec3 local = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+        vec3 direction = tangent * local.x + bitangent * local.y + n * local.z;
+        sum += textureLod(environment, direction, params.source_mip).rgb;
+    }
+
+    imageStore(destination, ivec3(texel, face),
+               vec4(sum / float(params.sample_count), 1.0));
+}

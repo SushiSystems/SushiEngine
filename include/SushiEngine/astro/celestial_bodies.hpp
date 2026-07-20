@@ -124,6 +124,141 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The J2000 equatorial direction of a body's north rotation pole.
+         *
+         * IAU/IAG right ascension and declination of each pole (Venus and Uranus carry
+         * their retrograde/sideways spins in these values). The pole orients the body's
+         * ellipsoid flattening, its latitude bands, and its terrain frame; precession
+         * terms are dropped — constant J2000 poles are exact to well under a degree over
+         * the supported 1800-2050 span.
+         *
+         * @param body Which body's pole to fetch.
+         * @return Unit direction of the north pole in the J2000 equatorial frame.
+         */
+        inline Vector3 body_north_pole_equatorial(BodyId body) noexcept
+        {
+            double ra_degrees;
+            double dec_degrees;
+            switch (body)
+            {
+                case BodyId::Sun:     ra_degrees = 286.13;  dec_degrees = 63.87;  break;
+                case BodyId::Mercury: ra_degrees = 281.01;  dec_degrees = 61.414; break;
+                case BodyId::Venus:   ra_degrees = 272.76;  dec_degrees = 67.16;  break;
+                case BodyId::Earth:   ra_degrees = 0.0;     dec_degrees = 90.0;   break;
+                case BodyId::Moon:    ra_degrees = 266.86;  dec_degrees = 65.64;  break;
+                case BodyId::Mars:    ra_degrees = 317.681; dec_degrees = 52.887; break;
+                case BodyId::Jupiter: ra_degrees = 268.057; dec_degrees = 64.495; break;
+                case BodyId::Saturn:  ra_degrees = 40.589;  dec_degrees = 83.537; break;
+                case BodyId::Uranus:  ra_degrees = 257.311; dec_degrees = -15.175; break;
+                case BodyId::Neptune: ra_degrees = 299.36;  dec_degrees = 43.46;  break;
+                case BodyId::Pluto:   ra_degrees = 132.993; dec_degrees = -6.163; break;
+                default:              ra_degrees = 0.0;     dec_degrees = 90.0;   break;
+            }
+            const double ra = ra_degrees * DEGREES_TO_RADIANS;
+            const double dec = dec_degrees * DEGREES_TO_RADIANS;
+            const double cos_dec = std::cos(dec);
+            return Vector3{cos_dec * std::cos(ra), cos_dec * std::sin(ra), std::sin(dec)};
+        }
+
+        /**
+         * @brief Everything the near-field surface regime needs to land on a body.
+         *
+         * The per-body row behind the generalised ground pipeline: the reference
+         * ellipsoid the renderer ray-marches, the single-scattering atmosphere that
+         * shades its sky (zeroed when @c has_atmosphere is false), and the two-tone
+         * surface colours. Gas giants are "landed on" at their cloud tops — the
+         * ellipsoid is the one-bar level and the ground colours are the cloud deck.
+         * The Sun is not landable.
+         */
+        struct SurfacePreset
+        {
+            bool landable;                       /**< False only for the Sun. */
+            double semi_major_metres;            /**< Equatorial radius a, metres. */
+            double inverse_flattening;           /**< 1/f; 0 marks a sphere. */
+            bool has_atmosphere;                 /**< Whether an air shell is drawn at all. */
+            float atmosphere_height_metres;      /**< Shell thickness above the surface. */
+            Vector3 rayleigh_coefficient;        /**< Per-metre Rayleigh scattering, RGB. */
+            float mie_coefficient;               /**< Per-metre Mie scattering. */
+            float mie_anisotropy;                /**< Henyey-Greenstein g in [0, 1). */
+            float rayleigh_scale_height_metres;  /**< Rayleigh density e-folding height. */
+            float mie_scale_height_metres;       /**< Mie density e-folding height. */
+            Vector3 ground_albedo;               /**< Land (or cloud-deck) base colour. */
+            Vector3 ocean_color;                 /**< Low-terrain second tone. */
+            float ground_roughness;              /**< Surface roughness for the sun highlight. */
+            bool has_clouds;                     /**< Whether the procedural cloud layer draws. */
+        };
+
+        /**
+         * @brief The surface regime's parameters for a body.
+         *
+         * Radii and flattenings are IAU nominal values; the atmospheres are visually
+         * calibrated single-scattering stand-ins (Mars's red-dominant butterscotch sky,
+         * Venus's thick yellow haze, the ice giants' methane blue), not radiative-transfer
+         * fits — the goal is a recognisably correct sky from each surface.
+         *
+         * @param body Which body to describe.
+         * @return Its ellipsoid, atmosphere, and ground colouring.
+         */
+        inline SurfacePreset surface_preset(BodyId body) noexcept
+        {
+            switch (body)
+            {
+                case BodyId::Mercury:
+                    return {true, 2.4397e6, 0.0, false, 0.0f, Vector3{0.0, 0.0, 0.0}, 0.0f,
+                            0.0f, 0.0f, 0.0f, Vector3{0.30, 0.28, 0.26},
+                            Vector3{0.22, 0.21, 0.20}, 0.95f, false};
+                case BodyId::Venus:
+                    return {true, 6.0518e6, 0.0, true, 120000.0f,
+                            Vector3{14.0e-6, 11.0e-6, 5.0e-6}, 8.0e-5f, 0.85f, 15900.0f,
+                            3000.0f, Vector3{0.38, 0.28, 0.16}, Vector3{0.30, 0.22, 0.12},
+                            0.9f, true};
+                case BodyId::Earth:
+                    return {true, 6378137.0, 298.257223563, true, 100000.0f,
+                            Vector3{5.8e-6, 13.5e-6, 33.1e-6}, 21.0e-6f, 0.76f, 8000.0f,
+                            1200.0f, Vector3{0.16, 0.20, 0.11}, Vector3{0.02, 0.06, 0.16},
+                            0.9f, true};
+                case BodyId::Moon:
+                    return {true, 1.7374e6, 0.0, false, 0.0f, Vector3{0.0, 0.0, 0.0}, 0.0f,
+                            0.0f, 0.0f, 0.0f, Vector3{0.22, 0.21, 0.20},
+                            Vector3{0.16, 0.155, 0.15}, 0.95f, false};
+                case BodyId::Mars:
+                    return {true, 3.3962e6, 169.894, true, 80000.0f,
+                            Vector3{5.0e-6, 3.0e-6, 1.2e-6}, 4.0e-6f, 0.70f, 11100.0f,
+                            2000.0f, Vector3{0.34, 0.18, 0.09}, Vector3{0.26, 0.14, 0.08},
+                            0.95f, false};
+                case BodyId::Jupiter:
+                    return {true, 7.1492e7, 15.41, true, 200000.0f,
+                            Vector3{3.0e-6, 6.5e-6, 16.0e-6}, 10.0e-6f, 0.76f, 27000.0f,
+                            5000.0f, Vector3{0.60, 0.52, 0.40}, Vector3{0.46, 0.38, 0.30},
+                            0.85f, true};
+                case BodyId::Saturn:
+                    return {true, 6.0268e7, 10.208, true, 300000.0f,
+                            Vector3{3.0e-6, 6.0e-6, 14.0e-6}, 10.0e-6f, 0.76f, 40000.0f,
+                            8000.0f, Vector3{0.62, 0.55, 0.42}, Vector3{0.52, 0.46, 0.34},
+                            0.85f, true};
+                case BodyId::Uranus:
+                    return {true, 2.5559e7, 43.616, true, 150000.0f,
+                            Vector3{3.0e-6, 8.0e-6, 16.0e-6}, 6.0e-6f, 0.76f, 20000.0f,
+                            4000.0f, Vector3{0.55, 0.72, 0.78}, Vector3{0.48, 0.66, 0.73},
+                            0.85f, true};
+                case BodyId::Neptune:
+                    return {true, 2.4764e7, 58.5, true, 150000.0f,
+                            Vector3{3.5e-6, 9.0e-6, 18.0e-6}, 6.0e-6f, 0.76f, 19700.0f,
+                            4000.0f, Vector3{0.28, 0.42, 0.80}, Vector3{0.22, 0.35, 0.72},
+                            0.85f, true};
+                case BodyId::Pluto:
+                    return {true, 1.1883e6, 0.0, true, 50000.0f,
+                            Vector3{1.0e-7, 1.5e-7, 3.0e-7}, 2.0e-7f, 0.70f, 18000.0f,
+                            4000.0f, Vector3{0.60, 0.52, 0.44}, Vector3{0.45, 0.40, 0.35},
+                            0.95f, false};
+                default:
+                    return {false, 0.0, 0.0, false, 0.0f, Vector3{0.0, 0.0, 0.0}, 0.0f,
+                            0.0f, 0.0f, 0.0f, Vector3{1.0, 1.0, 1.0},
+                            Vector3{1.0, 1.0, 1.0}, 1.0f, false};
+            }
+        }
+
+        /**
          * @brief The J2000 Keplerian element row for a planet (Standish 1800-2050 table).
          *
          * Defined for Mercury through Pluto and for Earth (the Earth-Moon barycentre row,

@@ -49,6 +49,31 @@ namespace SushiEngine
         namespace Vulkan
         {
             /**
+             * @brief The acceleration-structure entry points, resolved once per device.
+             *
+             * VK_KHR_acceleration_structure is an extension, so none of these are loader
+             * symbols; every one of them has to come back from vkGetDeviceProcAddr. They
+             * are gathered here so no caller repeats that, and so a device without the
+             * extension simply leaves them null.
+             */
+            struct RayTracingFunctions
+            {
+                PFN_vkCreateAccelerationStructureKHR create_structure = nullptr;
+                PFN_vkDestroyAccelerationStructureKHR destroy_structure = nullptr;
+                PFN_vkGetAccelerationStructureBuildSizesKHR build_sizes = nullptr;
+                PFN_vkCmdBuildAccelerationStructuresKHR build_structures = nullptr;
+                PFN_vkGetAccelerationStructureDeviceAddressKHR structure_address = nullptr;
+
+                /** @brief Whether every entry point resolved. */
+                bool available() const noexcept
+                {
+                    return create_structure != nullptr && destroy_structure != nullptr &&
+                           build_sizes != nullptr && build_structures != nullptr &&
+                           structure_address != nullptr;
+                }
+            };
+
+            /**
              * @brief A Vulkan 1.3 device with a VMA allocator and a graphics queue.
              *
              * Selects a physical device (by interop UUID when requested, else by
@@ -100,6 +125,93 @@ namespace SushiEngine
                     /** @brief The graphics queue family index. */
                     std::uint32_t graphics_queue_family() const noexcept { return graphics_queue_family_; }
 
+                    /**
+                     * @brief Whether the bindless descriptor heap can be created.
+                     *
+                     * True when the device offered the descriptor-indexing features the
+                     * heap needs (runtime arrays, partially bound, update-after-bind).
+                     */
+                    bool supports_descriptor_indexing() const noexcept
+                    {
+                        return supports_descriptor_indexing_;
+                    }
+
+                    /**
+                     * @brief Whether pipelines may be built from linked libraries.
+                     *
+                     * True when VK_EXT_graphics_pipeline_library and its feature were both
+                     * available; the pipeline factory falls back to monolithic creation
+                     * otherwise.
+                     */
+                    bool supports_pipeline_library() const noexcept
+                    {
+                        return supports_pipeline_library_;
+                    }
+
+                    /**
+                     * @brief Whether a pass may steer its shading rate from an image.
+                     *
+                     * True when VK_KHR_fragment_shading_rate and its attachment feature
+                     * were both available; passes declare the rate image unconditionally
+                     * and the graph simply ignores it when this is false.
+                     */
+                    bool supports_shading_rate_image() const noexcept
+                    {
+                        return supports_shading_rate_image_;
+                    }
+
+                    /** @brief Pixels one texel of a shading rate image must cover, horizontally. */
+                    std::uint32_t shading_rate_texel_width() const noexcept
+                    {
+                        return shading_rate_texel_width_;
+                    }
+
+                    /** @brief Pixels one texel of a shading rate image must cover, vertically. */
+                    std::uint32_t shading_rate_texel_height() const noexcept
+                    {
+                        return shading_rate_texel_height_;
+                    }
+
+                    /** @brief Widest fragment the device will shade, in pixels. */
+                    std::uint32_t max_fragment_width() const noexcept
+                    {
+                        return max_fragment_width_;
+                    }
+
+                    /** @brief Tallest fragment the device will shade, in pixels. */
+                    std::uint32_t max_fragment_height() const noexcept
+                    {
+                        return max_fragment_height_;
+                    }
+
+                    /**
+                     * @brief Whether a shader may trace a ray against a built structure.
+                     *
+                     * True when VK_KHR_acceleration_structure and VK_KHR_ray_query were
+                     * both available with their features. Ray *query* rather than a ray
+                     * tracing pipeline: a shadow ray is a single opaque any-hit test with
+                     * no shader table behind it, and a query traces it from inside the
+                     * fragment shader that needs the answer.
+                     */
+                    bool supports_ray_query() const noexcept { return supports_ray_query_; }
+
+                    /**
+                     * @brief The acceleration-structure entry points, or null members.
+                     *
+                     * These are extension functions the loader does not expose as symbols,
+                     * so they are resolved once here rather than in every caller.
+                     */
+                    const RayTracingFunctions& ray_tracing() const noexcept
+                    {
+                        return ray_tracing_;
+                    }
+
+                    /** @brief Alignment every acceleration-structure scratch offset must meet. */
+                    std::uint32_t scratch_alignment() const noexcept
+                    {
+                        return scratch_alignment_;
+                    }
+
                 private:
                     vkb::Instance instance_{};
                     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
@@ -107,6 +219,16 @@ namespace SushiEngine
                     VmaAllocator allocator_ = VK_NULL_HANDLE;
                     VkQueue graphics_queue_ = VK_NULL_HANDLE;
                     std::uint32_t graphics_queue_family_ = 0;
+                    bool supports_descriptor_indexing_ = false;
+                    bool supports_pipeline_library_ = false;
+                    bool supports_shading_rate_image_ = false;
+                    std::uint32_t shading_rate_texel_width_ = 16;
+                    std::uint32_t shading_rate_texel_height_ = 16;
+                    std::uint32_t max_fragment_width_ = 1;
+                    std::uint32_t max_fragment_height_ = 1;
+                    bool supports_ray_query_ = false;
+                    std::uint32_t scratch_alignment_ = 256;
+                    RayTracingFunctions ray_tracing_{};
                     DeviceInfo info_{};
             };
         } // namespace Vulkan

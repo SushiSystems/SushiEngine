@@ -118,6 +118,107 @@ namespace SushiEngine
                                              physical_result.error().message());
                 vkb::PhysicalDevice physical = physical_result.value();
 
+                // Optional capabilities: enabled when the selected device offers them,
+                // never required, so a GPU without them still brings the renderer up on
+                // the fallback paths (explicit descriptor sets, monolithic pipelines).
+                VkPhysicalDeviceFeatures core_features{};
+                core_features.samplerAnisotropy = VK_TRUE;
+                core_features.fillModeNonSolid = VK_TRUE;
+                core_features.wideLines = VK_TRUE;
+                physical.enable_features_if_present(core_features);
+
+                VkPhysicalDeviceVulkan12Features features_12{};
+                features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+                features_12.descriptorIndexing = VK_TRUE;
+                features_12.runtimeDescriptorArray = VK_TRUE;
+                features_12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+                features_12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+                features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+                features_12.descriptorBindingPartiallyBound = VK_TRUE;
+                features_12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+                features_12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+                // Needed by acceleration structures, which reference vertex and index
+                // data by device address rather than by descriptor. Requested here even
+                // when ray tracing turns out to be unavailable, because it is core 1.2
+                // and costs nothing to have.
+                features_12.bufferDeviceAddress = VK_TRUE;
+                supports_descriptor_indexing_ =
+                    physical.enable_extension_features_if_present(features_12);
+
+                if (physical.enable_extension_if_present(
+                        VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME) &&
+                    physical.enable_extension_if_present(
+                        VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME))
+                {
+                    VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT library_features{};
+                    library_features.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT;
+                    library_features.graphicsPipelineLibrary = VK_TRUE;
+                    supports_pipeline_library_ =
+                        physical.enable_extension_features_if_present(library_features);
+                }
+
+                if (physical.enable_extension_if_present(
+                        VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME))
+                {
+                    VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate_features{};
+                    rate_features.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+                    rate_features.pipelineFragmentShadingRate = VK_TRUE;
+                    rate_features.attachmentFragmentShadingRate = VK_TRUE;
+                    supports_shading_rate_image_ =
+                        physical.enable_extension_features_if_present(rate_features);
+                }
+
+                if (supports_shading_rate_image_)
+                {
+                    // The device dictates the tile size and the coarsest fragment it will
+                    // shade; the mask pass sizes its image and clamps its rates to these
+                    // rather than assuming the common 16x16 / 2x2 case.
+                    VkPhysicalDeviceFragmentShadingRatePropertiesKHR rate_properties{};
+                    rate_properties.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+                    VkPhysicalDeviceProperties2 properties{};
+                    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    properties.pNext = &rate_properties;
+                    vkGetPhysicalDeviceProperties2(physical.physical_device, &properties);
+                    shading_rate_texel_width_ =
+                        rate_properties.maxFragmentShadingRateAttachmentTexelSize.width;
+                    shading_rate_texel_height_ =
+                        rate_properties.maxFragmentShadingRateAttachmentTexelSize.height;
+                    max_fragment_width_ = rate_properties.maxFragmentSize.width;
+                    max_fragment_height_ = rate_properties.maxFragmentSize.height;
+                    if (shading_rate_texel_width_ == 0 || shading_rate_texel_height_ == 0 ||
+                        max_fragment_width_ < 2 || max_fragment_height_ < 2)
+                        supports_shading_rate_image_ = false;
+                }
+
+                // Ray *query* rather than a ray tracing pipeline: a shadow ray is one
+                // opaque any-hit test with no shader table behind it, and a query traces
+                // it from inside the fragment shader that wants the answer. Every piece
+                // is optional — without them the shadow cascades are the whole story.
+                if (physical.enable_extension_if_present(
+                        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
+                    physical.enable_extension_if_present(
+                        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+                    physical.enable_extension_if_present(VK_KHR_RAY_QUERY_EXTENSION_NAME))
+                {
+                    VkPhysicalDeviceAccelerationStructureFeaturesKHR structure_features{};
+                    structure_features.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+                    structure_features.accelerationStructure = VK_TRUE;
+
+                    VkPhysicalDeviceRayQueryFeaturesKHR query_features{};
+                    query_features.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+                    query_features.rayQuery = VK_TRUE;
+
+                    supports_ray_query_ =
+                        physical.enable_extension_features_if_present(structure_features) &&
+                        physical.enable_extension_features_if_present(query_features);
+                }
+
                 vkb::DeviceBuilder device_builder(physical);
                 auto device_result = device_builder.build();
                 if (!device_result)
@@ -132,11 +233,58 @@ namespace SushiEngine
                 graphics_queue_ = queue_result.value();
                 graphics_queue_family_ = device_.get_queue_index(vkb::QueueType::graphics).value();
 
+                if (supports_ray_query_)
+                {
+                    // Extension entry points are not loader symbols, so every one of them
+                    // has to be resolved by hand; if any is missing the whole path is
+                    // switched off rather than left half-wired.
+                    VkDevice handle = device_.device;
+                    ray_tracing_.create_structure =
+                        reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(
+                            vkGetDeviceProcAddr(handle, "vkCreateAccelerationStructureKHR"));
+                    ray_tracing_.destroy_structure =
+                        reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(
+                            vkGetDeviceProcAddr(handle, "vkDestroyAccelerationStructureKHR"));
+                    ray_tracing_.build_sizes =
+                        reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(
+                            vkGetDeviceProcAddr(handle,
+                                                "vkGetAccelerationStructureBuildSizesKHR"));
+                    ray_tracing_.build_structures =
+                        reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(
+                            vkGetDeviceProcAddr(handle,
+                                                "vkCmdBuildAccelerationStructuresKHR"));
+                    ray_tracing_.structure_address =
+                        reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(
+                            vkGetDeviceProcAddr(
+                                handle, "vkGetAccelerationStructureDeviceAddressKHR"));
+                    supports_ray_query_ = ray_tracing_.available();
+                }
+
+                if (supports_ray_query_)
+                {
+                    // Several builds share one scratch buffer at different offsets, so
+                    // the device's alignment is not a detail that can be guessed.
+                    VkPhysicalDeviceAccelerationStructurePropertiesKHR structure_properties{};
+                    structure_properties.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+                    VkPhysicalDeviceProperties2 properties{};
+                    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    properties.pNext = &structure_properties;
+                    vkGetPhysicalDeviceProperties2(device_.physical_device, &properties);
+                    if (structure_properties.minAccelerationStructureScratchOffsetAlignment > 0)
+                        scratch_alignment_ =
+                            structure_properties.minAccelerationStructureScratchOffsetAlignment;
+                }
+
                 VmaAllocatorCreateInfo allocator_info{};
                 allocator_info.instance = instance_.instance;
                 allocator_info.physicalDevice = device_.physical_device;
                 allocator_info.device = device_.device;
                 allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+                // VMA has to know the flag was enabled, or a buffer it allocates cannot
+                // have its address taken — which is the only way geometry reaches an
+                // acceleration structure build.
+                allocator_info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
                 if (vmaCreateAllocator(&allocator_info, &allocator_) != VK_SUCCESS)
                     throw std::runtime_error("SushiEngine: VMA allocator creation failed");
 

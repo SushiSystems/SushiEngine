@@ -174,6 +174,7 @@ int main(int, char**)
             SushiEngine::Simulation::create_simulation();
         std::vector<SushiEngine::Render::MeshInstance> instances;
         context.simulation = simulation.get();
+        context.assets = &renderer->assets();
         context.world_entity_count = simulation->entity_count();
 
         // The Project panel's root: the last one the user browsed to, or a
@@ -387,93 +388,207 @@ int main(int, char**)
             SushiEngine::Render::Environment environment = scene.environment;
             if (context.sky_enabled)
             {
-                if (context.sky_animate)
-                    context.sky_accumulated_days +=
-                        real_delta_seconds * context.sky_days_per_second;
-                environment.observer.julian_date =
-                    SushiEngine::Astro::julian_date_from_calendar(context.sky_date) +
-                    context.sky_accumulated_days;
+                // The simulation owns the master epoch: drive its flow from the panel's
+                // animate/rate, seek it when the authored start date changes, and read it
+                // back so the sky and the orbital dynamics share one clock. The epoch
+                // advances with the world's fixed steps, so it moves under Play/Step.
+                simulation->set_time_scale_days_per_second(
+                    context.sky_animate ? context.sky_days_per_second : 0.0);
+                const double authored_start =
+                    SushiEngine::Astro::julian_date_from_calendar(context.sky_date);
+                if (authored_start != context.sky_authored_start_cache)
+                {
+                    simulation->set_julian_date(authored_start);
+                    context.sky_authored_start_cache = authored_start;
+                }
+                const double epoch = simulation->julian_date();
+                environment.observer.julian_date = epoch;
+                context.sky_accumulated_days = epoch - authored_start;
                 environment.observer.latitude_radians =
                     context.sky_latitude_degrees * SushiEngine::Astro::DEGREES_TO_RADIANS;
                 environment.observer.longitude_radians =
                     context.sky_longitude_degrees * SushiEngine::Astro::DEGREES_TO_RADIANS;
                 environment.observer.astronomical_sun = context.sky_astronomical_sun;
 
-                if (context.sky_space_mode)
-                {
-                    SushiEngine::Editor::FlyCamera& fly = scene_camera.camera();
-                    const double au_to_gm = SushiEngine::Astro::METRES_PER_ASTRONOMICAL_UNIT /
-                                            SushiEngine::Astro::METRES_PER_GIGAMETRE;
-                    if (!context.sky_space_active)
-                    {
-                        // Enter space: save the surface pose and drop the camera beside Earth.
-                        context.sky_saved_surface_position = fly.position;
-                        const SushiEngine::Vector3 earth_au =
-                            SushiEngine::Astro::planet_heliocentric_au(
-                                SushiEngine::Astro::BodyId::Earth,
-                                environment.observer.julian_date);
-                        const SushiEngine::Vector3 earth_world =
-                            SushiEngine::Astro::ecliptic_to_world(earth_au * au_to_gm);
-                        fly.position =
-                            earth_world + SushiEngine::Vector3{0.0, 0.03, 0.12};
-                        scene_camera.controller().altitude_adaptive = false;
-                        context.sky_space_active = true;
-                    }
-                    const SushiEngine::WorldVector3 camera_gm{fly.position.x, fly.position.y,
-                                                              fly.position.z};
-                    SushiEngine::Astro::fill_environment_space(environment, camera_gm);
+                // One continuous scene: every body is placed camera-relative in metres,
+                // so flying up from the ground and on toward the Moon or a planet just
+                // works — the ephemeris hands the analytic ground off to a far-field
+                // Earth past the hand-off altitude, with no mode switch.
+                SushiEngine::Editor::FlyCamera& fly = scene_camera.camera();
+                const SushiEngine::WorldVector3 camera_position{fly.position.x, fly.position.y,
+                                                                fly.position.z};
+                SushiEngine::Astro::fill_environment_sky(environment, camera_position);
 
-                    // Proximity-scaled flight speed: base speed tracks the nearest body's
-                    // surface, so approaching a planet slows the camera to a controllable
-                    // crawl while interplanetary hops stay fast. Units are gigametres.
-                    double nearest = 1e30;
-                    for (int i = 0; i < environment.body_count; ++i)
-                    {
-                        const double surface_distance =
-                            static_cast<double>(environment.bodies[i].distance_metres) -
-                            static_cast<double>(environment.bodies[i].mean_radius_metres);
-                        if (surface_distance < nearest)
-                            nearest = surface_distance;
-                    }
-                    double base_speed = nearest * 0.5;
-                    if (base_speed < 1.0e-4)
-                        base_speed = 1.0e-4;
-                    if (base_speed > 50.0)
-                        base_speed = 50.0;
-                    scene_camera.controller().move_speed =
-                        static_cast<SushiEngine::Scalar>(base_speed);
-                }
-                else
+                // Quick travel from the environment panel: jump the camera to the
+                // requested body's sunlit side (Earth means home, the scene origin),
+                // snap the local vertical instead of slewing, and refill the sky so
+                // this frame already renders from the destination.
+                double up_retarget_seconds = real_delta_seconds;
+                if (context.sky_travel_target >= 0)
                 {
-                    if (context.sky_space_active)
+                    const int target = context.sky_travel_target;
+                    context.sky_travel_target = -1;
+                    bool moved = false;
+                    // The scene origin is the *observer* body's surface point, so "go to the
+                    // body you are already anchored to" means return to that origin — for
+                    // whichever body is currently the observer, not Earth specifically.
+                    // (Selecting Earth while standing on another planet must instead travel to
+                    // Earth's real position, which the body loop below handles.)
+                    if (target == environment.observer.observer_body &&
+                        environment.planet_surface_visible)
                     {
-                        // Exit space: restore the surface pose and ground-scaled navigation.
-                        scene_camera.camera().position = context.sky_saved_surface_position;
-                        scene_camera.controller().altitude_adaptive = true;
-                        scene_camera.controller().move_speed =
-                            context.preferences.camera_move_speed;
-                        context.sky_space_active = false;
+                        fly.position = SushiEngine::Vector3{0.0, 2.0, 0.0};
+                        moved = true;
                     }
-                    SushiEngine::Astro::fill_environment_sky(environment);
+                    else
+                    {
+                        for (int i = 0; i < environment.body_count; ++i)
+                        {
+                            const SushiEngine::Render::CelestialBody& body =
+                                environment.bodies[i];
+                            if (static_cast<int>(body.body_id) != target)
+                                continue;
+                            const SushiEngine::Vector3 body_center =
+                                fly.position +
+                                body.direction *
+                                    static_cast<double>(body.distance_metres);
+                            const double stand_off =
+                                static_cast<double>(body.mean_radius_metres) * 3.0;
+                            fly.position = body_center + body.sun_direction * stand_off;
+                            moved = true;
+                            break;
+                        }
+                    }
+                    if (moved)
+                    {
+                        SushiEngine::Astro::fill_environment_sky(
+                            environment,
+                            SushiEngine::WorldVector3{fly.position.x, fly.position.y,
+                                                      fly.position.z});
+                        up_retarget_seconds = 1.0e9;
+                    }
                 }
+
+                // Anchor the scene to whichever body the camera is on: the dominant
+                // (near-field) body becomes the observer body, so its own spin and orbit
+                // drive the sky and the camera keeps full precision near it — the same on
+                // every planet, not just Earth. This replaces the old Earth-only ride-along:
+                // once a body is the observer, a camera at rest already tracks it because
+                // the scene origin is its surface point. When the dominant body changes, the
+                // camera is rebased so it stays put relative to the new ground rather than
+                // jumping as the scene re-anchors.
+                const int dominant_body = environment.dominant_body_id;
+                if (dominant_body >= 0 &&
+                    dominant_body != environment.observer.observer_body)
+                {
+                    const SushiEngine::Vector3 relative_to_body{
+                        fly.position.x - environment.dominant_center_metres.x,
+                        fly.position.y - environment.dominant_center_metres.y,
+                        fly.position.z - environment.dominant_center_metres.z};
+                    environment.observer.observer_body = dominant_body;
+                    SushiEngine::Astro::fill_environment_sky(
+                        environment,
+                        SushiEngine::WorldVector3{fly.position.x, fly.position.y,
+                                                  fly.position.z});
+                    fly.position = SushiEngine::Vector3{
+                        environment.dominant_center_metres.x + relative_to_body.x,
+                        environment.dominant_center_metres.y + relative_to_body.y,
+                        environment.dominant_center_metres.z + relative_to_body.z};
+                    SushiEngine::Astro::fill_environment_sky(
+                        environment,
+                        SushiEngine::WorldVector3{fly.position.x, fly.position.y,
+                                                  fly.position.z});
+                }
+                context.sky_ride_body = dominant_body;
+                context.sky_ride_center = environment.dominant_center_metres;
+
+                // Hand the sim the observer it must place free astro bodies against, so a
+                // body and the planet it orbits share the same scene frame. Cheap (no world
+                // re-extract); the epoch it carries is ignored, the sim owning that clock.
+                simulation->set_sky_observer(environment.observer);
+
+                // Proximity-scaled navigation and the local vertical: both come from the
+                // nearest body's surface. Motion slows to a controllable crawl on
+                // approach, and the camera's up reference is swung toward the radial
+                // vertical of that body — so the horizon stays level standing on any
+                // hemisphere of any planet, and entering from any side rolls the view
+                // smoothly upright instead of arriving "hanging off" the globe.
+                double nearest = 0.0;
+                SushiEngine::Vector3 nearest_center{0.0, 0.0, 0.0};
+                bool have_nearest = false;
+                if (environment.planet_surface_visible)
+                {
+                    nearest_center =
+                        SushiEngine::Vector3{environment.planet_center.x,
+                                             environment.planet_center.y,
+                                             environment.planet_center.z};
+                    nearest = SushiEngine::length(fly.position - nearest_center) -
+                              environment.planet.mean_radius();
+                    have_nearest = true;
+                }
+                for (int i = 0; i < environment.body_count; ++i)
+                {
+                    const double body_distance =
+                        static_cast<double>(environment.bodies[i].distance_metres);
+                    const double surface_distance =
+                        body_distance -
+                        static_cast<double>(environment.bodies[i].mean_radius_metres);
+                    if (!have_nearest || surface_distance < nearest)
+                    {
+                        nearest = surface_distance;
+                        nearest_center =
+                            fly.position + environment.bodies[i].direction * body_distance;
+                        have_nearest = true;
+                    }
+                }
+                if (nearest < 0.0)
+                    nearest = 0.0;
+                scene_camera.controller().proximity_distance =
+                    static_cast<SushiEngine::Scalar>(nearest);
+                if (have_nearest)
+                {
+                    scene_camera.controller().retarget_up(
+                        fly, fly.position - nearest_center,
+                        static_cast<SushiEngine::Scalar>(up_retarget_seconds));
+                }
+            }
+            else
+            {
+                scene_camera.controller().proximity_distance = SushiEngine::Scalar(-1);
+                scene_camera.controller().retarget_up(
+                    scene_camera.camera(),
+                    SushiEngine::Vector3{SushiEngine::Scalar(0), SushiEngine::Scalar(1),
+                                         SushiEngine::Scalar(0)},
+                    static_cast<SushiEngine::Scalar>(real_delta_seconds));
             }
 
             bool gizmo_edited = false;
             if (context.panels.scene_view)
             {
-                // In the interplanetary regime the world's metre-scale meshes are not part
-                // of the gigametre-scale solar system, so the Scene view draws none of them.
-                const std::size_t scene_instance_count =
-                    context.sky_space_mode ? 0 : instances.size();
+                // A surface-anchored entity's world axes are meaningless on a curved planet
+                // (world +Y is not "up" except at one point), so its gizmo resolves against
+                // the local East-North-Up ground frame — which is exactly the entity's own
+                // orientation, since it is stored ground-local and composed onto the tangent
+                // frame. Forcing Local there gives the author east/north/up handles; other
+                // entities keep the chosen World/Local space.
+                const SushiEngine::Editor::GizmoSpace gizmo_space =
+                    (has_selection && world.surface_anchored(context.selected_entity))
+                        ? SushiEngine::Editor::GizmoSpace::Local
+                        : context.gizmo_space;
+                // Pushed before the draw, so a change made in the Environment panel this
+                // frame is the setting the frame is actually rendered with.
+                scene_view.set_render_settings(context.render_settings);
                 gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
-                                               scene_instance_count, environment, selected, true,
-                                               gizmo_target, context.gizmo_mode, context.gizmo_space,
+                                               instances.size(), environment, selected, true,
+                                               gizmo_target, context.gizmo_mode, gizmo_space,
                                                &snap, nullptr, strands.data(), strands.size(),
                                                &scene_ui);
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
                 world.set_ui_target_size(scene_view.target_width(), scene_view.target_height());
+                scene_view.render_resolution(context.scene_render_width,
+                                             context.scene_render_height);
             }
             if (context.panels.game_view)
             {
@@ -491,6 +606,7 @@ int main(int, char**)
                 // falling back to a synthetic default camera and rendering anyway.
                 const std::size_t game_instance_count =
                     scene.has_camera ? instances.size() : 0;
+                game_view.set_render_settings(context.render_settings);
                 game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
                                environment, no_selection, false, nullptr,
                                SushiEngine::Editor::GizmoMode::Translate,
@@ -575,6 +691,7 @@ int main(int, char**)
             SushiEngine::Editor::draw_hierarchy_panel(context);
             SushiEngine::Editor::draw_inspector_panel(context);
             SushiEngine::Editor::draw_environment_panel(context);
+            SushiEngine::Editor::draw_rendering_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);

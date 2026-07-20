@@ -41,6 +41,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/render/render_settings.hpp>
 
 namespace SushiEngine
 {
@@ -88,6 +89,15 @@ namespace SushiEngine
             MeshKind kind = MeshKind::Box; /**< Which unit mesh to draw this instance with. */
             Vector3 shape_params{Vector3{0.5, 0.5, 0.5}}; /**< Box: half-extents. Sphere: radius in x. Cylinder: radius in x, half-height in y. */
             Material material{}; /**< PBR metallic-roughness surface this instance shades with. */
+            /**
+             * @brief An imported mesh to draw instead of the primitive named by @ref kind.
+             *
+             * INVALID_MESH — the default — draws the primitive, so an instance that has
+             * never seen an imported asset behaves exactly as it did before glTF import
+             * existed. When set, @ref kind and @ref shape_params are ignored: an imported
+             * mesh carries its own geometry and its own scale.
+             */
+            MeshId mesh = INVALID_MESH;
         };
 
         /**
@@ -110,6 +120,18 @@ namespace SushiEngine
 
         /** @brief The id a pick returns when no instance covers the sampled pixel. */
         constexpr std::uint32_t NO_PICK = 0;
+
+        /**
+         * @brief One render pass's measured GPU time from the last completed frame.
+         *
+         * @c name points at storage the scene view owns and is valid until the next
+         * render(); the host copies it if it needs to keep it.
+         */
+        struct ScenePassTiming
+        {
+            const char* name = "";     /**< The pass name as registered in the render graph. */
+            float milliseconds = 0.0f; /**< GPU time between the pass's two timestamps. */
+        };
 
         /** @brief Native handles a UI backend needs to sample one target slot. */
         struct SceneViewTexture
@@ -146,6 +168,35 @@ namespace SushiEngine
 
                 /** @brief Current target height in pixels. */
                 virtual std::uint32_t height() const noexcept = 0;
+
+                /**
+                 * @brief Sets how the view trades fidelity against frame time.
+                 *
+                 * Takes effect from the next render(); the view keeps its own copy, so
+                 * the host may pass a temporary. Changing the anti-aliasing mode or the
+                 * render scale never reallocates the targets the host samples, so no
+                 * texture the host registered is invalidated.
+                 *
+                 * @param settings The requested quality, anti-aliasing, and scaling.
+                 */
+                virtual void set_settings(const RenderSettings& settings) = 0;
+
+                /** @brief The settings the next frame will be drawn with. */
+                virtual const RenderSettings& settings() const noexcept = 0;
+
+                /**
+                 * @brief The internal resolution the last frame was actually rendered at.
+                 *
+                 * Equal to width()/height() unless the render scale or the dynamic
+                 * resolution controller reduced it; the temporal resolve upscales from
+                 * here to the output size. Reported so a host can surface what the
+                 * governor decided.
+                 *
+                 * @param width  Receives the internal render width in pixels.
+                 * @param height Receives the internal render height in pixels.
+                 */
+                virtual void render_resolution(std::uint32_t& width,
+                                               std::uint32_t& height) const noexcept = 0;
 
                 /**
                  * @brief Draws one frame: the ground grid plus every instance.
@@ -195,6 +246,21 @@ namespace SushiEngine
 
                 /** @brief The slot produced by the most recent render(). */
                 virtual std::uint32_t current_slot() const noexcept = 0;
+
+                /**
+                 * @brief Number of per-pass GPU timings available.
+                 *
+                 * Zero until enough frames have completed for a timed submit to be read
+                 * back, and zero for the whole run on a device without timestamp queries.
+                 */
+                virtual std::size_t pass_timing_count() const noexcept = 0;
+
+                /**
+                 * @brief One pass's GPU time from the most recently resolved frame.
+                 * @param index Timing index in [0, pass_timing_count()).
+                 * @return The pass's name and measured milliseconds.
+                 */
+                virtual ScenePassTiming pass_timing(std::size_t index) const noexcept = 0;
         };
     } // namespace Render
 } // namespace SushiEngine

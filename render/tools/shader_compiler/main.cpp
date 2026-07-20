@@ -27,7 +27,7 @@
 // carries no runtime shader-compiler dependency. This tool is never installed and
 // never linked into the renderer — it only runs during the build.
 //
-// usage: shader_compiler <vert|frag> <input.glsl> <output.h> <symbol_name>
+// usage: shader_compiler <vert|frag|comp> <input.glsl> <output.h> <symbol_name>
 
 #include <cstdint>
 #include <cstdio>
@@ -39,6 +39,8 @@
 #include <glslang/Public/ResourceLimits.h>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
+
+#include "resources/glsl_includer.hpp"
 
 namespace
 {
@@ -97,7 +99,7 @@ int main(int argc, char** argv)
     if (argc != 5)
     {
         std::fprintf(stderr,
-                     "usage: %s <vert|frag> <input.glsl> <output.h> <symbol_name>\n",
+                     "usage: %s <vert|frag|comp> <input.glsl> <output.h> <symbol_name>\n",
                      argv[0]);
         return 2;
     }
@@ -112,6 +114,8 @@ int main(int argc, char** argv)
         stage = EShLangVertex;
     else if (stage_name == "frag")
         stage = EShLangFragment;
+    else if (stage_name == "comp")
+        stage = EShLangCompute;
     else
     {
         std::fprintf(stderr, "shader_compiler: unknown stage '%s'\n", stage_name.c_str());
@@ -138,7 +142,14 @@ int main(int argc, char** argv)
     const EShMessages messages =
         static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
 
-    if (!shader.parse(GetDefaultResources(), default_version, false, messages))
+    // Headers resolve against the input's own directory, so a shader includes a
+    // sibling .glsl by bare name whether it is built here or hot-reloaded at runtime.
+    std::string directory = input_path;
+    const std::size_t separator = directory.find_last_of("/\\");
+    directory = separator == std::string::npos ? std::string(".") : directory.substr(0, separator);
+    SushiEngine::Render::GlslIncluder includer(directory);
+
+    if (!shader.parse(GetDefaultResources(), default_version, false, messages, includer))
     {
         std::fprintf(stderr, "shader_compiler: parse failed for '%s':\n%s\n%s\n",
                      input_path, shader.getInfoLog(), shader.getInfoDebugLog());

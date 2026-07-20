@@ -43,10 +43,12 @@
 
 #include <cmath>
 
+#include <SushiEngine/astro/body_orientation.hpp>
 #include <SushiEngine/astro/celestial_bodies.hpp>
 #include <SushiEngine/astro/julian_date.hpp>
 #include <SushiEngine/astro/orbital_elements.hpp>
 #include <SushiEngine/astro/star_catalog.hpp>
+#include <SushiEngine/astro/topocentric.hpp>
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/environment.hpp>
 
@@ -54,55 +56,6 @@ namespace SushiEngine
 {
     namespace Astro
     {
-        /**
-         * @brief The observer's local East-Up-South basis, expressed in the equatorial frame.
-         *
-         * Right-handed with @c up along the geodetic vertical and @c east along the
-         * horizon; @c south completes it (X=east, Y=up, Z=south) to match the scene's
-         * local axes. Any equatorial direction dotted against these three lands in the
-         * scene's local ENU frame.
-         */
-        struct LocalSkyBasis
-        {
-            Vector3 east;  /**< Unit east, equatorial coordinates. */
-            Vector3 up;    /**< Unit geodetic up, equatorial coordinates. */
-            Vector3 south; /**< Unit south, equatorial coordinates. */
-        };
-
-        /**
-         * @brief Builds the topocentric basis from sidereal time and latitude.
-         * @param local_sidereal_time_radians Local mean sidereal time, radians.
-         * @param latitude_radians Observer geodetic latitude, radians.
-         * @return The East-Up-South basis in equatorial coordinates.
-         */
-        inline LocalSkyBasis local_sky_basis(double local_sidereal_time_radians,
-                                             double latitude_radians) noexcept
-        {
-            const double sin_lst = std::sin(local_sidereal_time_radians);
-            const double cos_lst = std::cos(local_sidereal_time_radians);
-            const double sin_lat = std::sin(latitude_radians);
-            const double cos_lat = std::cos(latitude_radians);
-
-            LocalSkyBasis basis;
-            basis.up = Vector3{cos_lat * cos_lst, cos_lat * sin_lst, sin_lat};
-            basis.east = Vector3{-sin_lst, cos_lst, 0.0};
-            const Vector3 north{-sin_lat * cos_lst, -sin_lat * sin_lst, cos_lat};
-            basis.south = north * -1.0;
-            return basis;
-        }
-
-        /**
-         * @brief Projects an equatorial direction into the scene's local ENU frame.
-         * @param basis The observer's topocentric basis.
-         * @param equatorial A direction in the equatorial frame (need not be unit).
-         * @return The same direction in local coordinates (x=east, y=up, z=south).
-         */
-        inline Vector3 to_local(const LocalSkyBasis& basis, const Vector3& equatorial) noexcept
-        {
-            return Vector3{dot(equatorial, basis.east), dot(equatorial, basis.up),
-                           dot(equatorial, basis.south)};
-        }
-
         /**
          * @brief Assigns a body's LOD regime from how large it appears.
          *
@@ -127,80 +80,222 @@ namespace SushiEngine
         }
 
         /**
-         * @brief Fills an environment's far-field sky from its observer settings.
-         *
-         * Reads @c environment.observer (epoch, latitude, longitude) and writes the
-         * @c bodies / @c body_count and @c sky_stars / @c sky_star_count arrays, and —
-         * when @c observer.astronomical_sun is set — the directional-light direction. The
-         * near-field planet, atmosphere, cloud, and material fields are left untouched.
-         *
-         * @param environment The environment to populate; its observer is the input.
+         * @brief The procedural surface pattern the shader paints a body with.
+         * @param body Which body to classify.
+         * @return Star for the Sun, Banded for the four giants, EarthLike for Earth,
+         *         Rocky for everything else.
          */
-        inline void fill_environment_sky(Render::Environment& environment) noexcept
+        inline Render::SurfaceStyle surface_style_for(BodyId body) noexcept
+        {
+            switch (body)
+            {
+                case BodyId::Sun:
+                    return Render::SurfaceStyle::Star;
+                case BodyId::Earth:
+                    return Render::SurfaceStyle::EarthLike;
+                case BodyId::Jupiter:
+                case BodyId::Saturn:
+                case BodyId::Uranus:
+                case BodyId::Neptune:
+                    return Render::SurfaceStyle::Banded;
+                default:
+                    return Render::SurfaceStyle::Rocky;
+            }
+        }
+
+        /**
+         * @brief Camera altitude (in the body's own radii) past which a body's analytic
+         *        ground and atmosphere hand off to drawing it as a sky body.
+         *
+         * Below it the nearest landable body is the near-field regime — its ellipsoid,
+         * atmosphere shell, and clouds — and it is deliberately absent from the body list
+         * (the observer is at it). Above it those layers switch off and the body joins
+         * the list as a phase-lit sphere — one continuous scene, no mode.
+         */
+        constexpr double SURFACE_HANDOFF_ALTITUDE_RADII = 10.0;
+
+        /**
+         * @brief Fills an environment's sky from its observer settings and the camera.
+         *
+         * One continuous regime from the ground to the edge of the solar system. Every
+         * body is placed at its true position in the scene's local ENU frame (origin at
+         * the observer's surface point, metres, Earth's centre straight down), then made
+         * camera-relative in double precision — so flying toward the Moon or Mars grows
+         * it on screen naturally, with no mode switch. The landable body whose surface
+         * the camera is nearest (within @ref SURFACE_HANDOFF_ALTITUDE_RADII of its own
+         * radii) becomes the analytic ground/atmosphere, configured from its
+         * @ref SurfacePreset; every other body is a phase-lit sky body. When
+         * @c observer.astronomical_sun is set the directional light tracks the
+         * camera-relative Sun.
+         *
+         * @param environment            The environment to populate; its observer is the input.
+         * @param camera_position_metres Camera position in the scene's local frame, metres.
+         */
+        inline void fill_environment_sky(Render::Environment& environment,
+                                         const WorldVector3& camera_position_metres =
+                                             WorldVector3{}) noexcept
         {
             const Render::SkyObserver& observer = environment.observer;
             const double julian_date = observer.julian_date;
-            const double lst =
-                local_mean_sidereal_time(julian_date, observer.longitude_radians);
-            const LocalSkyBasis basis = local_sky_basis(lst, observer.latitude_radians);
+            const BodyId observer_body = static_cast<BodyId>(observer.observer_body);
 
-            const Vector3 earth_helio = planet_heliocentric_au(BodyId::Earth, julian_date);
+            // The observer's meridian angle, in its own body's equatorial frame. Earth
+            // keeps sidereal time exactly (the home sky is unchanged); every other body
+            // uses its own spin (@ref body_rotation_angle), so its day turns its own sky.
+            const double meridian =
+                observer_body == BodyId::Earth
+                    ? local_mean_sidereal_time(julian_date, observer.longitude_radians)
+                    : body_rotation_angle(observer_body, julian_date) +
+                          observer.longitude_radians;
+            const LocalSkyBasis basis = local_sky_basis(meridian, observer.latitude_radians);
+
+            const Vector3 observer_helio =
+                planet_heliocentric_au(observer_body, julian_date);
+
+            const Vector3 camera{camera_position_metres.x, camera_position_metres.y,
+                                 camera_position_metres.z};
+
+            // The scene is anchored so the observer's geodetic surface point on its own
+            // body is the origin, with +Y along the geodetic normal: the centre sits at
+            // minus the observer's position on that body's ellipsoid (prime-vertical
+            // radius N), so the true, pole-oriented ellipsoid passes through the ground
+            // grid. Fully body-parametric — the same construction on Earth, Mars, or the
+            // Moon, driven by @c observer_body rather than a hard-coded Earth.
+            const SurfacePreset observer_surface = surface_preset(observer_body);
+            const double body_a = observer_surface.semi_major_metres;
+            const double body_f = observer_surface.inverse_flattening > 0.0
+                                      ? 1.0 / observer_surface.inverse_flattening
+                                      : 0.0;
+            const double body_e2 = body_f * (2.0 - body_f);
+            const double sin_lat = std::sin(observer.latitude_radians);
+            const double cos_lat = std::cos(observer.latitude_radians);
+            const double prime_vertical =
+                body_a / std::sqrt(1.0 - body_e2 * sin_lat * sin_lat);
+            const Vector3 observer_equatorial{prime_vertical * cos_lat * std::cos(meridian),
+                                              prime_vertical * cos_lat * std::sin(meridian),
+                                              prime_vertical * (1.0 - body_e2) * sin_lat};
+            const Vector3 observer_center = to_local(basis, observer_equatorial) * -1.0;
+
+            // First pass: every body's absolute position in the scene frame — the
+            // geocentric direction rotated into the local basis, scaled by the true
+            // distance, anchored at Earth's centre.
+            Vector3 world_position[BODY_COUNT];
+            Vector3 helio_ecliptic[BODY_COUNT];
+            bool valid[BODY_COUNT];
+            for (int index = 0; index < BODY_COUNT; ++index)
+            {
+                const BodyId body = static_cast<BodyId>(index);
+                if (body == BodyId::Sun)
+                    helio_ecliptic[index] = Vector3{0.0, 0.0, 0.0};
+                else if (body == BodyId::Moon)
+                    helio_ecliptic[index] =
+                        planet_heliocentric_au(BodyId::Earth, julian_date) +
+                        moon_geocentric_ecliptic_au(julian_date);
+                else
+                    helio_ecliptic[index] = planet_heliocentric_au(body, julian_date);
+
+                // The body the observer stands on is the ground at the scene origin;
+                // every other body is placed by its position relative to the observer's
+                // body, rotated into the observer body's own equatorial frame — the same
+                // maths whichever body that is.
+                if (body == observer_body)
+                {
+                    world_position[index] = observer_center;
+                    valid[index] = true;
+                    continue;
+                }
+                const Vector3 observer_centric = helio_ecliptic[index] - observer_helio;
+                const double observer_centric_au = length(observer_centric);
+                valid[index] = observer_centric_au > 0.0;
+                if (!valid[index])
+                    continue;
+                const Vector3 direction = normalize(to_local(
+                    basis, ecliptic_to_body_equatorial(observer_body, observer_centric)));
+                world_position[index] =
+                    observer_center +
+                    direction * (observer_centric_au * METRES_PER_ASTRONOMICAL_UNIT);
+            }
+
+            // Dominant body: the landable body whose surface the camera is closest to,
+            // if within the hand-off range. It becomes the analytic ground; everything
+            // else stays a sky body.
+            int dominant = -1;
+            double dominant_altitude = 0.0;
+            for (int index = 0; index < BODY_COUNT; ++index)
+            {
+                const BodyId body = static_cast<BodyId>(index);
+                if (!valid[index] || !surface_preset(body).landable)
+                    continue;
+                const double body_altitude = length(world_position[index] - camera) -
+                                             body_properties(body).mean_radius_metres;
+                if (dominant < 0 || body_altitude < dominant_altitude)
+                {
+                    dominant = index;
+                    dominant_altitude = body_altitude;
+                }
+            }
+            if (dominant >= 0 &&
+                dominant_altitude >=
+                    SURFACE_HANDOFF_ALTITUDE_RADII *
+                        body_properties(static_cast<BodyId>(dominant)).mean_radius_metres)
+                dominant = -1;
+
+            environment.dominant_body_id = dominant;
+            if (dominant >= 0)
+                environment.dominant_center_metres =
+                    WorldVector3{world_position[dominant].x, world_position[dominant].y,
+                                 world_position[dominant].z};
+
+            // Captured while walking the bodies below, so the dynamic night ambient can be
+            // derived afterward from the Moon's true elevation and illuminated fraction.
+            Vector3 moon_direction{0.0, -1.0, 0.0};
+            Vector3 moon_sun_direction{0.0, 1.0, 0.0};
+            bool moon_seen = false;
 
             int count = 0;
             for (int index = 0; index < BODY_COUNT && count < Render::MAX_CELESTIAL_BODIES; ++index)
             {
                 const BodyId body = static_cast<BodyId>(index);
-                if (body == BodyId::Earth)
-                    continue; // the observer stands on it; it is the ground, not a sky body
-
-                // Heliocentric ecliptic position (Sun at origin, Moon geocentric special case).
-                Vector3 helio_ecliptic;
-                Vector3 geocentric_ecliptic;
-                if (body == BodyId::Sun)
-                {
-                    helio_ecliptic = Vector3{0.0, 0.0, 0.0};
-                    geocentric_ecliptic = earth_helio * -1.0;
-                }
-                else if (body == BodyId::Moon)
-                {
-                    geocentric_ecliptic = moon_geocentric_ecliptic_au(julian_date);
-                    helio_ecliptic = earth_helio + geocentric_ecliptic;
-                }
-                else
-                {
-                    helio_ecliptic = planet_heliocentric_au(body, julian_date);
-                    geocentric_ecliptic = helio_ecliptic - earth_helio;
-                }
-
-                const double distance_au = length(geocentric_ecliptic);
-                if (distance_au <= 0.0)
+                if (!valid[index])
                     continue;
-                const double distance_metres = distance_au * METRES_PER_ASTRONOMICAL_UNIT;
+                if (index == dominant)
+                    continue; // the observer is at it; it is the ground, not a sky body
 
-                const Vector3 geocentric_equatorial = ecliptic_to_equatorial(geocentric_ecliptic);
-                const Vector3 local_direction = normalize(to_local(basis, geocentric_equatorial));
+                const Vector3 relative = world_position[index] - camera;
+                const double camera_distance = length(relative);
+                if (camera_distance <= 0.0)
+                    continue;
+                const Vector3 local_direction = relative * (1.0 / camera_distance);
 
-                // Direction the body's lit hemisphere faces: from the body toward the Sun.
-                const Vector3 to_sun_ecliptic =
-                    body == BodyId::Sun ? geocentric_ecliptic : (helio_ecliptic * -1.0);
+                // Direction the body's lit hemisphere faces: from the body toward the Sun
+                // (for the Sun itself it is unused — the disk is emissive).
+                const Vector3 to_sun_ecliptic = helio_ecliptic[index] * -1.0;
                 const Vector3 sun_local =
-                    normalize(to_local(basis, ecliptic_to_equatorial(to_sun_ecliptic)));
+                    body == BodyId::Sun
+                        ? local_direction
+                        : normalize(to_local(
+                              basis, ecliptic_to_body_equatorial(observer_body, to_sun_ecliptic)));
 
                 const BodyProperties properties = body_properties(body);
                 const double angular_radius =
-                    std::asin(std::fmin(1.0, properties.mean_radius_metres / distance_metres));
+                    std::asin(std::fmin(1.0, properties.mean_radius_metres / camera_distance));
 
                 Render::CelestialBody& out = environment.bodies[count];
                 out.direction = local_direction;
                 out.sun_direction = sun_local;
+                out.pole = normalize(to_local(
+                    basis, equatorial_to_body_equatorial(observer_body,
+                                                         body_north_pole_equatorial(body))));
+                out.surface_style = surface_style_for(body);
                 out.color = properties.color;
                 out.heliocentric_position =
-                    WorldVector3{helio_ecliptic.x * METRES_PER_ASTRONOMICAL_UNIT,
-                                 helio_ecliptic.y * METRES_PER_ASTRONOMICAL_UNIT,
-                                 helio_ecliptic.z * METRES_PER_ASTRONOMICAL_UNIT};
+                    WorldVector3{helio_ecliptic[index].x * METRES_PER_ASTRONOMICAL_UNIT,
+                                 helio_ecliptic[index].y * METRES_PER_ASTRONOMICAL_UNIT,
+                                 helio_ecliptic[index].z * METRES_PER_ASTRONOMICAL_UNIT};
                 out.angular_radius = static_cast<float>(angular_radius);
-                out.distance_metres = static_cast<float>(distance_metres);
+                out.distance_metres = static_cast<float>(camera_distance);
                 out.mean_radius_metres = static_cast<float>(properties.mean_radius_metres);
+                out.body_id = static_cast<std::uint32_t>(index);
                 out.is_star = properties.is_star ? 1u : 0u;
                 out.lod = lod_for_angular_radius(angular_radius);
                 // Reflected bodies scale with albedo; the Sun emits, so it keeps unit scale.
@@ -209,10 +304,104 @@ namespace SushiEngine
 
                 if (body == BodyId::Sun && observer.astronomical_sun)
                     environment.sun.direction = local_direction;
+                if (body == BodyId::Moon)
+                {
+                    moon_direction = local_direction;
+                    moon_sun_direction = sun_local;
+                    moon_seen = true;
+                }
 
                 ++count;
             }
             environment.body_count = count;
+
+            // Dynamic night ambient: the Sun dominates by day; as it sets, the Moon takes
+            // over scaled by its illuminated fraction (full moon bright, new moon dark) and
+            // its own elevation, and the star field supplies a small moonless-night floor.
+            // Only touches `ambient` when astronomical_sun drives the sky, matching how the
+            // Sun's direction itself is only astronomically driven under that same flag —
+            // otherwise the environment panel's authored ambient is left alone.
+            if (observer.astronomical_sun && environment.night.enabled)
+            {
+                const double sun_elevation = environment.sun.direction.y;
+                const double day_factor =
+                    std::fmin(1.0, std::fmax(0.0, sun_elevation / 0.15 + 0.5));
+
+                double moon_light = 0.0;
+                if (moon_seen)
+                {
+                    const double illuminated_fraction =
+                        0.5 * (1.0 - dot(moon_sun_direction, moon_direction));
+                    const double moon_visibility =
+                        std::fmin(1.0, std::fmax(0.0, moon_direction.y / 0.10 + 0.2));
+                    moon_light = illuminated_fraction * moon_visibility *
+                                 environment.night.moon_intensity;
+                }
+                const double star_light =
+                    (1.0 - day_factor) * environment.night.star_intensity;
+
+                const Vector3 day_ambient{0.03, 0.04, 0.06};
+                const Vector3 moonlit_tint{0.55, 0.62, 0.85}; // cool moonlight
+                const Vector3 night_floor{0.10, 0.11, 0.14};  // starlight tint
+
+                Vector3 night_ambient = moonlit_tint * moon_light + night_floor * star_light;
+                environment.ambient =
+                    day_ambient * day_factor + night_ambient * (1.0 - day_factor);
+            }
+
+            // Apply the near-field regime. The dominant body's ellipsoid, atmosphere,
+            // and ground colours drive the analytic surface pass; with no dominant body
+            // (deep space) the ground and air are off and every body is a sky body.
+            // Earth keeps the authored environment values so the panel stays in charge
+            // of the home planet's look.
+            if (dominant >= 0)
+            {
+                const BodyId dominant_body = static_cast<BodyId>(dominant);
+                environment.planet_surface_visible = true;
+                environment.planet_center =
+                    WorldVector3{world_position[dominant].x, world_position[dominant].y,
+                                 world_position[dominant].z};
+                environment.planet_pole = normalize(to_local(
+                    basis, equatorial_to_body_equatorial(
+                               observer_body, body_north_pole_equatorial(dominant_body))));
+                environment.planet_surface_style = surface_style_for(dominant_body);
+                // The spherical atmosphere/cloud shells reference this radius, so pick it
+                // to put altitude zero at the local ground: at home that is the geodetic
+                // distance from Earth's centre to the scene origin (which sits on the
+                // ellipsoid), not the equatorial radius — the difference is kilometres of
+                // air density at mid latitudes.
+                environment.planet_surface_reference_metres =
+                    dominant_body == observer_body
+                        ? length(observer_center)
+                        : surface_preset(dominant_body).semi_major_metres;
+                if (dominant_body != BodyId::Earth)
+                {
+                    const SurfacePreset preset =
+                        surface_preset(static_cast<BodyId>(dominant));
+                    environment.planet.semi_major = preset.semi_major_metres;
+                    environment.planet.inverse_flattening = preset.inverse_flattening;
+                    environment.atmosphere.enabled =
+                        environment.atmosphere.enabled && preset.has_atmosphere;
+                    environment.atmosphere.height = preset.atmosphere_height_metres;
+                    environment.atmosphere.rayleigh_coefficient = preset.rayleigh_coefficient;
+                    environment.atmosphere.mie_coefficient = preset.mie_coefficient;
+                    environment.atmosphere.mie_anisotropy = preset.mie_anisotropy;
+                    environment.atmosphere.rayleigh_scale_height =
+                        preset.rayleigh_scale_height_metres;
+                    environment.atmosphere.mie_scale_height = preset.mie_scale_height_metres;
+                    environment.surface.ground_albedo = preset.ground_albedo;
+                    environment.surface.ocean_color = preset.ocean_color;
+                    environment.surface.roughness = preset.ground_roughness;
+                    environment.clouds.enabled =
+                        environment.clouds.enabled && preset.has_clouds;
+                }
+            }
+            else
+            {
+                environment.planet_surface_visible = false;
+                environment.atmosphere.enabled = false;
+                environment.clouds.enabled = false;
+            }
 
             // The fixed stars: rotate each catalogue direction into the local frame.
             int star_count = 0;
@@ -221,7 +410,9 @@ namespace SushiEngine
             {
                 const BrightStar& star = BRIGHT_STARS[i];
                 Render::SkyStar& out = environment.sky_stars[star_count];
-                out.direction = normalize(to_local(basis, star_equatorial_direction(star)));
+                out.direction = normalize(to_local(
+                    basis, equatorial_to_body_equatorial(observer_body,
+                                                         star_equatorial_direction(star))));
                 out.color = bv_to_rgb(star.color_index);
                 out.brightness = magnitude_to_brightness(star.magnitude);
                 ++star_count;
@@ -229,130 +420,5 @@ namespace SushiEngine
             environment.sky_star_count = star_count;
         }
 
-        /** @brief Metres in one gigametre, the unit length of the interplanetary world frame. */
-        constexpr double METRES_PER_GIGAMETRE = 1.0e9;
-
-        /**
-         * @brief Remaps a J2000 ecliptic vector into the space regime's world frame.
-         *
-         * The space regime works in an ecliptic frame rotated so world up (+Y) is the
-         * ecliptic north pole and the ecliptic plane is the world XZ plane — the natural
-         * orientation for free-look flight through a solar system that lies roughly in one
-         * plane. A single fixed rotation: (x, y, z) -> (x, z, -y).
-         *
-         * @param ecliptic A vector in the J2000 ecliptic frame (any units).
-         * @return The vector in the world frame, Y up.
-         */
-        inline Vector3 ecliptic_to_world(const Vector3& ecliptic) noexcept
-        {
-            return Vector3{ecliptic.x, ecliptic.z, -ecliptic.y};
-        }
-
-        /**
-         * @brief Fills an environment's bodies for the interplanetary (space) regime.
-         *
-         * Places every body — the Sun at the origin, the planets, and the Moon — plus the
-         * fixed stars relative to a free-flying camera, all in a single heliocentric
-         * ecliptic world frame measured in gigametres. Working camera-relative in double on
-         * the CPU and in gigametres on the GPU keeps a body a kilometre away and one five
-         * billion kilometres away both representable in single precision: the near body
-         * becomes a real lit sphere (the shader's near regime), the far ones stay
-         * direction-space disks. The directional light points at the Sun (the origin), and
-         * the atmosphere/ground of the near-field surface regime is switched off — that
-         * hand-off is a separate stage.
-         *
-         * @param environment      The environment to populate; its observer supplies the epoch.
-         * @param camera_world_gigametres The camera position in the world frame, gigametres.
-         */
-        inline void fill_environment_space(Render::Environment& environment,
-                                           const WorldVector3& camera_world_gigametres) noexcept
-        {
-            const double julian_date = environment.observer.julian_date;
-            const Vector3 camera{camera_world_gigametres.x, camera_world_gigametres.y,
-                                 camera_world_gigametres.z};
-            const double au_to_gigametre =
-                METRES_PER_ASTRONOMICAL_UNIT / METRES_PER_GIGAMETRE;
-
-            const Vector3 earth_helio_au = planet_heliocentric_au(BodyId::Earth, julian_date);
-
-            int count = 0;
-            for (int index = 0; index < BODY_COUNT && count < Render::MAX_CELESTIAL_BODIES; ++index)
-            {
-                const BodyId body = static_cast<BodyId>(index);
-
-                Vector3 helio_au;
-                if (body == BodyId::Sun)
-                    helio_au = Vector3{0.0, 0.0, 0.0};
-                else if (body == BodyId::Moon)
-                    helio_au = earth_helio_au + moon_geocentric_ecliptic_au(julian_date);
-                else if (body == BodyId::Earth)
-                    helio_au = earth_helio_au;
-                else
-                    helio_au = planet_heliocentric_au(body, julian_date);
-
-                const Vector3 helio_world = ecliptic_to_world(helio_au * au_to_gigametre);
-                const Vector3 relative = helio_world - camera;
-                const double distance = length(relative);
-                if (distance <= 0.0)
-                    continue;
-                const Vector3 direction = relative * (1.0 / distance);
-
-                const BodyProperties properties = body_properties(body);
-                const double radius_gigametres =
-                    properties.mean_radius_metres / METRES_PER_GIGAMETRE;
-                const double angular_radius =
-                    std::asin(std::fmin(1.0, radius_gigametres / distance));
-
-                // The body's lit hemisphere faces the Sun at the world origin.
-                const Vector3 sun_direction =
-                    body == BodyId::Sun ? direction : normalize(helio_world * -1.0);
-
-                Render::CelestialBody& out = environment.bodies[count];
-                out.direction = direction;
-                out.sun_direction = sun_direction;
-                out.color = properties.color;
-                out.heliocentric_position =
-                    WorldVector3{helio_au.x * METRES_PER_ASTRONOMICAL_UNIT,
-                                 helio_au.y * METRES_PER_ASTRONOMICAL_UNIT,
-                                 helio_au.z * METRES_PER_ASTRONOMICAL_UNIT};
-                out.angular_radius = static_cast<float>(angular_radius);
-                // In this regime distance and radius are the world frame's gigametres, not
-                // metres — the shader only needs them self-consistent for depth and sizing.
-                out.distance_metres = static_cast<float>(distance);
-                out.mean_radius_metres = static_cast<float>(radius_gigametres);
-                out.is_star = properties.is_star ? 1u : 0u;
-                out.lod = lod_for_angular_radius(angular_radius);
-                out.brightness =
-                    properties.is_star ? 1.0f : static_cast<float>(properties.geometric_albedo);
-                ++count;
-            }
-            environment.body_count = count;
-
-            int star_count = 0;
-            for (std::size_t i = 0;
-                 i < BRIGHT_STAR_COUNT && star_count < Render::MAX_SKY_STARS; ++i)
-            {
-                const BrightStar& star = BRIGHT_STARS[i];
-                Render::SkyStar& out = environment.sky_stars[star_count];
-                out.direction =
-                    ecliptic_to_world(equatorial_to_ecliptic(star_equatorial_direction(star)));
-                out.color = bv_to_rgb(star.color_index);
-                out.brightness = magnitude_to_brightness(star.magnitude);
-                ++star_count;
-            }
-            environment.sky_star_count = star_count;
-
-            // Sunlight comes from the world origin; the near-field ground/air is off here.
-            if (environment.observer.astronomical_sun)
-            {
-                const double camera_distance = length(camera);
-                environment.sun.direction =
-                    camera_distance > 0.0 ? camera * (-1.0 / camera_distance)
-                                          : Vector3{0.0, 1.0, 0.0};
-            }
-            environment.observer.space_mode = true;
-            environment.atmosphere.enabled = false;
-            environment.clouds.enabled = false;
-        }
     } // namespace Astro
 } // namespace SushiEngine

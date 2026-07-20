@@ -1,0 +1,74 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Prefilters the captured environment into the specular cube's mip chain: mip 0 is a
+// mirror reflection, and each coarser mip integrates the GGX lobe for a higher
+// roughness. Sampling the source at a mip chosen from the sample's solid angle is
+// what keeps a bright sun from turning into a field of fireflies.
+
+#include "ibl_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform samplerCube environment;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly imageCube destination;
+
+layout(push_constant) uniform Params
+{
+    uint resolution;       // this mip's face size
+    uint source_resolution; // the environment cube's face size
+    float roughness;
+    uint sample_count;
+} params;
+
+void main()
+{
+    uvec2 texel = gl_GlobalInvocationID.xy;
+    uint face = gl_GlobalInvocationID.z;
+    if (texel.x >= params.resolution || texel.y >= params.resolution || face >= 6u)
+        return;
+
+    vec2 uv = (vec2(texel) + 0.5) / float(params.resolution);
+    vec3 n = cube_direction(face, uv);
+    // The split-sum approximation assumes the view direction equals the normal, which
+    // is what lets the environment term be precomputed independently of the view.
+    vec3 v = n;
+
+    if (params.roughness <= 0.0)
+    {
+        imageStore(destination, ivec3(texel, face), textureLod(environment, n, 0.0));
+        return;
+    }
+
+    vec3 sum = vec3(0.0);
+    float weight = 0.0;
+    float texel_solid_angle = 4.0 * IBL_PI /
+                              (6.0 * float(params.source_resolution) *
+                               float(params.source_resolution));
+
+    for (uint i = 0u; i < params.sample_count; ++i)
+    {
+        vec3 h = importance_sample_ggx(hammersley(i, params.sample_count), n,
+                                       params.roughness);
+        vec3 l = normalize(2.0 * dot(v, h) * h - v);
+        float n_dot_l = dot(n, l);
+        if (n_dot_l <= 0.0)
+            continue;
+
+        float n_dot_h = max(dot(n, h), 0.0);
+        float v_dot_h = max(dot(v, h), 0.0);
+        float a = params.roughness * params.roughness;
+        float a2 = a * a;
+        float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+        float distribution = a2 / max(IBL_PI * d * d, 1e-7);
+        float pdf = distribution * n_dot_h / max(4.0 * v_dot_h, 1e-7);
+        float sample_solid_angle = 1.0 / max(float(params.sample_count) * pdf, 1e-7);
+        float mip = 0.5 * log2(sample_solid_angle / texel_solid_angle);
+
+        sum += textureLod(environment, l, max(mip, 0.0)).rgb * n_dot_l;
+        weight += n_dot_l;
+    }
+
+    vec3 color = weight > 0.0 ? sum / weight : textureLod(environment, n, 0.0).rgb;
+    imageStore(destination, ivec3(texel, face), vec4(color, 1.0));
+}

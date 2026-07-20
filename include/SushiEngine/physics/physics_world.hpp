@@ -203,6 +203,30 @@ namespace SushiEngine
                         predict((*bodies_)[i], linear_acceleration, h_);
                 }
 
+                /**
+                 * @brief The predict phase with a per-body acceleration field.
+                 *
+                 * The non-uniform-gravity counterpart of @ref predict_substep: each body's
+                 * external acceleration is sampled at its own current position, so a body
+                 * feels the true local field — 1/r² falling off with altitude and curving
+                 * toward the attractor — rather than one scene-wide vector. Sampling at the
+                 * current position each sub-step keeps the semi-implicit integrator
+                 * symplectic, which is what preserves a long orbit's energy.
+                 *
+                 * @tparam AccelerationField A callable `Vector3T<Real>(const Vector3T<Real>&)`
+                 *                           mapping a body position to its acceleration.
+                 * @param acceleration_at The field sampler, evaluated once per body.
+                 */
+                template <typename AccelerationField>
+                void predict_substep_field(const AccelerationField& acceleration_at)
+                {
+                    for (std::size_t i = 0; i < body_count(); ++i)
+                    {
+                        RigidBodyT<Real>& body = (*bodies_)[i];
+                        predict(body, acceleration_at(body.position), h_);
+                    }
+                }
+
                 /** @brief The constraint-solve phase of one sub-step (the compiled sweep). */
                 void solve_constraints() { solver_->solve(); }
 
