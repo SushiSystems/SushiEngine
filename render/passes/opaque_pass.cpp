@@ -217,12 +217,11 @@ namespace SushiEngine
 
             void OpaquePass::destroy_pipelines()
             {
-                for (VkPipeline* pipeline : {&outline_pipeline_, &line_pipeline_, &mesh_pipeline_})
-                {
-                    if (*pipeline != VK_NULL_HANDLE)
-                        vkDestroyPipeline(device_.device(), *pipeline, nullptr);
-                    *pipeline = VK_NULL_HANDLE;
-                }
+                // The factory owns these pipelines and swaps in their optimized rebuilds;
+                // the pass only drops its handles. clear_libraries() frees the pipelines.
+                mesh_pipeline_ = Resources::PipelineHandle{};
+                line_pipeline_ = Resources::PipelineHandle{};
+                outline_pipeline_ = Resources::PipelineHandle{};
             }
 
             void OpaquePass::rebuild_pipelines()
@@ -383,9 +382,7 @@ namespace SushiEngine
                      grid_motion, instance_motions,
                      strand_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkDescriptorSet set =
-                            frame.descriptors->allocate(frame.layout->set_layout());
-                        Scene::SceneSetWriter writer(set);
+                        Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
@@ -415,15 +412,15 @@ namespace SushiEngine
                                        sizeof(Scene::ShadowUniforms));
                         writer.storage(Scene::SceneLayout::IBL_SH_BINDING, ibl_.sh_buffer(),
                                        IblPass::sh_buffer_bytes());
-                        writer.commit(device_.device());
-                        frame.layout->bind(cmd, set);
+                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(cmd);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
 
                         // Ground grid: a single flat-coloured line draw.
                         const Geometry::Mesh& grid = meshes_.grid();
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_.get());
                         vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                         vkCmdBindVertexBuffers(cmd, 0, 1, &grid.vertices, &zero);
                         const MeshPushConstants grid_push =
@@ -492,9 +489,9 @@ namespace SushiEngine
                             }
                         };
 
-                        draw_instances(mesh_pipeline_, false);
+                        draw_instances(mesh_pipeline_.get(), false);
                         if (frame.draws.selected_id != NO_PICK)
-                            draw_instances(outline_pipeline_, true);
+                            draw_instances(outline_pipeline_.get(), true);
 
                         if (cloth == nullptr || cloth->index_count == 0)
                             return;
@@ -537,9 +534,9 @@ namespace SushiEngine
                             }
                         };
 
-                        draw_cloth(mesh_pipeline_, false);
+                        draw_cloth(mesh_pipeline_.get(), false);
                         if (frame.draws.selected_id != NO_PICK)
-                            draw_cloth(outline_pipeline_, true);
+                            draw_cloth(outline_pipeline_.get(), true);
                     });
             }
         } // namespace Passes

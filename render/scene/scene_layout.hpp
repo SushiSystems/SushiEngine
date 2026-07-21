@@ -31,16 +31,19 @@
  * whatever sampled images the pass needs (depth, the previous target, the cloud
  * noise volumes, the image-based lighting chain), binding 7 is the frame's packed
  * material array, binding 8 is the frame's packed previous-frame transforms, and
- * binding 9 is the temporal block relating this frame to the last one. Set 1 is the
- * global bindless heap, which every material map is sampled out of. Sharing one
- * layout across passes keeps a pipeline bind from invalidating the sets a neighbouring
- * pass just wrote, and it is what lets the existing shaders port onto the graph
- * unchanged.
+ * binding 9 is the temporal block relating this frame to the last one. It is a
+ * push-descriptor set: each pass pushes the handful of bindings it uses inline in the
+ * command buffer instead of allocating and writing a throw-away set every frame. Set 1
+ * is the global bindless heap, which every material map is sampled out of, and is bound
+ * the ordinary way. Sharing one layout across passes is what lets the existing shaders
+ * port onto the graph unchanged.
  */
 
 #include <cstdint>
 
 #include <vulkan/vulkan.h>
+
+#include "resources/descriptor_writer.hpp"
 
 namespace SushiEngine
 {
@@ -171,11 +174,15 @@ namespace SushiEngine
                     VkPipelineLayout pipeline_layout() const noexcept { return pipeline_layout_; }
 
                     /**
-                     * @brief Binds the per-frame set, and the bindless heap when present.
-                     * @param cmd       The recording command buffer.
-                     * @param frame_set The set written for this pass this frame.
+                     * @brief Binds the bindless heap at set 1, when present.
+                     *
+                     * The per-frame set 0 is a push-descriptor set, so it is pushed by
+                     * SceneSetWriter::commit() rather than bound here; this call only
+                     * plants the heap that set 0's push cannot supply.
+                     *
+                     * @param cmd The recording command buffer.
                      */
-                    void bind(VkCommandBuffer cmd, VkDescriptorSet frame_set) const;
+                    void bind_heap(VkCommandBuffer cmd) const;
 
                 private:
                     Vulkan::VulkanDevice& device_;
@@ -185,20 +192,18 @@ namespace SushiEngine
             };
 
             /**
-             * @brief Accumulates descriptor writes for one set, then commits them at once.
+             * @brief The scene set's writer: the shared DescriptorWriter, in scene terms.
              *
-             * Holds the VkDescriptorBufferInfo/VkDescriptorImageInfo structs the writes
-             * point at, which is the part callers most often get wrong when they build
-             * the arrays on the stack and let them die before vkUpdateDescriptorSets.
+             * A thin adapter over Resources::DescriptorWriter so the scene passes name the
+             * bindings they know (uniform, image, storage) while every write still runs
+             * through the one seam VK_EXT_descriptor_heap would swap. commit() pushes set 0
+             * straight into the command buffer, so no set is allocated or written up front.
              */
             class SceneSetWriter
             {
                 public:
-                    /**
-                     * @brief Starts a write batch against one set.
-                     * @param set The destination descriptor set.
-                     */
-                    explicit SceneSetWriter(VkDescriptorSet set) noexcept : set_(set) {}
+                    /** @brief Starts an empty write batch for the per-frame set. */
+                    SceneSetWriter() noexcept = default;
 
                     /**
                      * @brief Queues a uniform buffer write.
@@ -206,7 +211,10 @@ namespace SushiEngine
                      * @param buffer  The buffer to bind.
                      * @param range   Bytes visible from offset zero.
                      */
-                    void uniform(std::uint32_t binding, VkBuffer buffer, VkDeviceSize range);
+                    void uniform(std::uint32_t binding, VkBuffer buffer, VkDeviceSize range)
+                    {
+                        writer_.uniform_buffer(binding, buffer, range);
+                    }
 
                     /**
                      * @brief Queues a combined image sampler write.
@@ -214,7 +222,10 @@ namespace SushiEngine
                      * @param view    The image view to sample.
                      * @param sampler The sampler to pair with it.
                      */
-                    void image(std::uint32_t binding, VkImageView view, VkSampler sampler);
+                    void image(std::uint32_t binding, VkImageView view, VkSampler sampler)
+                    {
+                        writer_.sampled_image(binding, view, sampler);
+                    }
 
                     /**
                      * @brief Queues a storage buffer write.
@@ -222,22 +233,23 @@ namespace SushiEngine
                      * @param buffer  The buffer to bind.
                      * @param range   Bytes visible from offset zero.
                      */
-                    void storage(std::uint32_t binding, VkBuffer buffer, VkDeviceSize range);
+                    void storage(std::uint32_t binding, VkBuffer buffer, VkDeviceSize range)
+                    {
+                        writer_.storage_buffer(binding, buffer, range);
+                    }
 
                     /**
-                     * @brief Applies every queued write.
-                     * @param device The device owning the set.
+                     * @brief Pushes every queued write into the command buffer as set 0.
+                     * @param cmd    The recording command buffer.
+                     * @param layout The pipeline layout whose set 0 is being pushed.
                      */
-                    void commit(VkDevice device);
+                    void commit(VkCommandBuffer cmd, VkPipelineLayout layout)
+                    {
+                        writer_.push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0);
+                    }
 
                 private:
-                    static constexpr std::uint32_t CAPACITY = 16;
-
-                    VkDescriptorSet set_ = VK_NULL_HANDLE;
-                    VkWriteDescriptorSet writes_[CAPACITY]{};
-                    VkDescriptorBufferInfo buffers_[CAPACITY]{};
-                    VkDescriptorImageInfo images_[CAPACITY]{};
-                    std::uint32_t count_ = 0;
+                    Resources::DescriptorWriter writer_;
             };
         } // namespace Scene
     } // namespace Render

@@ -28,6 +28,7 @@
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
 #include "resources/descriptor_allocator.hpp"
+#include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
@@ -194,33 +195,16 @@ namespace SushiEngine
                         const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
                         const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
 
-                        VkDescriptorImageInfo images[3]{};
-                        images[0].imageView = context.view(frame.targets.shading_rate);
-                        images[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                        images[1].sampler = sampler;
-                        images[1].imageView = context.sampled_view(luminance);
-                        images[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        images[2].sampler = sampler;
-                        images[2].imageView = context.sampled_view(frame.targets.velocity);
-                        images[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                        VkWriteDescriptorSet writes[3]{};
-                        for (std::uint32_t i = 0; i < 3; ++i)
-                        {
-                            writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                            writes[i].dstSet = set;
-                            writes[i].dstBinding = i;
-                            writes[i].descriptorCount = 1;
-                            writes[i].descriptorType =
-                                i == 0 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
-                                       : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                            writes[i].pImageInfo = &images[i];
-                        }
-                        vkUpdateDescriptorSets(device_.device(), 3, writes, 0, nullptr);
+                        Resources::DescriptorWriter writer;
+                        writer.storage_image(0, context.view(frame.targets.shading_rate));
+                        writer.sampled_image(1, context.sampled_view(luminance), sampler);
+                        writer.sampled_image(2, context.sampled_view(frame.targets.velocity),
+                                             sampler);
+                        writer.update(device_.device(), set);
 
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                                pipeline_layout_, 0, 1, &set, 0, nullptr);
+                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                                       pipeline_layout_, 0, set);
                         vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                            sizeof(Push), &push);
                         vkCmdDispatch(cmd, group_count(push.extents[0], GROUP_SIZE),

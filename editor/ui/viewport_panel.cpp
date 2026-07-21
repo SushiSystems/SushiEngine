@@ -277,41 +277,6 @@ namespace SushiEngine
             view_->render_resolution(width, height);
         }
 
-        void ViewportPanel::draw_gpu_profiler(const ImVec2& origin) const
-        {
-            // Per-pass GPU times come from the render graph's timestamp queries and lag
-            // the displayed frame by one slot — they are the times of the last submit
-            // that completed, which is the most recent measurement that exists.
-            const std::size_t count = view_->pass_timing_count();
-            if (count == 0)
-                return;
-
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            const float line_height = ImGui::GetTextLineHeightWithSpacing();
-            const ImVec2 padding(8.0f, 6.0f);
-            const ImVec2 position(origin.x + 8.0f, origin.y + 8.0f);
-            const float box_height = line_height * static_cast<float>(count + 1) + padding.y * 2.0f;
-            draw_list->AddRectFilled(position,
-                                     ImVec2(position.x + 230.0f, position.y + box_height),
-                                     IM_COL32(12, 14, 18, 190), 4.0f);
-
-            float total = 0.0f;
-            for (std::size_t i = 0; i < count; ++i)
-                total += view_->pass_timing(i).milliseconds;
-
-            char text[96];
-            std::snprintf(text, sizeof(text), "GPU  %.3f ms", total);
-            ImVec2 cursor(position.x + padding.x, position.y + padding.y);
-            draw_list->AddText(cursor, IM_COL32(235, 235, 240, 255), text);
-            for (std::size_t i = 0; i < count; ++i)
-            {
-                cursor.y += line_height;
-                const SushiEngine::Render::ScenePassTiming timing = view_->pass_timing(i);
-                std::snprintf(text, sizeof(text), "%-18s %6.3f", timing.name, timing.milliseconds);
-                draw_list->AddText(cursor, IM_COL32(180, 186, 200, 255), text);
-            }
-        }
-
         void ViewportPanel::resize_to(std::uint32_t width, std::uint32_t height)
         {
             if (width == view_->width() && height == view_->height())
@@ -430,7 +395,6 @@ namespace SushiEngine
             ImGui::Image(slot_textures_[view_->current_slot()],
                          ImVec2(static_cast<float>(width), static_cast<float>(height)));
             const bool image_hovered = ImGui::IsItemHovered();
-            draw_gpu_profiler(image_origin);
 
             // UI overlay: canvases, panels, images, text, and buttons painted on top of
             // the rendered image with ImGui's draw list — a 2D layer over the 3D view,

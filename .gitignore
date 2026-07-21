@@ -4,6 +4,9 @@ build/
 # Editor runtime layout, written next to the working dir on exit.
 imgui.ini
 
+# Disk-backed pipeline cache blob, written next to the working dir at runtime.
+sushi_pipeline_cache.bin
+
 # Generated Doxygen output.
 docs/api-site/
 

@@ -28,14 +28,21 @@
  * @brief Texture decode, upload, mip generation, bindless registration, streaming.
  *
  * Owns every sampled texture on the device. A texture is decoded once, uploaded
- * with a GPU-generated mip chain, and registered into the bindless heap, so a
- * material refers to it by a plain index. Loads are deduplicated by path.
+ * with its mip chain, and registered into the bindless heap, so a material refers
+ * to it by a plain index. Loads are deduplicated by path.
+ *
+ * The upload takes one of two paths, chosen once at bring-up. When the device offers
+ * Vulkan 1.4 host image copy, pixels go straight from host memory into the
+ * optimal-tiled image with a CPU-built mip chain — no staging buffer, command buffer,
+ * queue submit, or fence. Otherwise the fallback stages the base level through a
+ * transfer buffer and blits the mip chain on the graphics queue. Both land the image
+ * in SHADER_READ_ONLY so the bindless registration is identical.
  *
  * Residency is mip-based: a texture that would not fit the budget is uploaded from
  * a lower mip — a smaller image holding the tail of its chain — and upgraded later,
- * at most one per frame, when the budget allows. No upload ever blocks the frame:
- * the work is submitted with its own fence and the staging memory and superseded
- * images are reclaimed once that fence signals.
+ * at most one per frame, when the budget allows. No upload ever blocks the frame: the
+ * staging path submits with its own fence, and either way the superseded image is
+ * reclaimed only once the frames that could still sample it have retired.
  *
  * Four immutable defaults (white, flat normal, black, and a neutral
  * metallic-roughness) are registered first, so a material with an unset map still
@@ -185,7 +192,7 @@ namespace SushiEngine
                         bool live = false;
                     };
 
-                    /** @brief An in-flight upload and the objects it frees when it completes. */
+                    /** @brief An in-flight staging upload and the objects it frees when done. */
                     struct Pending
                     {
                         VkCommandBuffer cmd = VK_NULL_HANDLE;
@@ -201,11 +208,34 @@ namespace SushiEngine
                         std::uint32_t retired_heap_index = 0xFFFFFFFFu;
                     };
 
+                    /**
+                     * @brief A superseded image awaiting a frames-in-flight delay.
+                     *
+                     * The host-copy path completes synchronously, so a replaced image has
+                     * no upload fence to hang its retirement on. It is held here until the
+                     * frame counter has advanced past every frame that could still be
+                     * sampling it, then destroyed and its heap slot freed.
+                     */
+                    struct Retired
+                    {
+                        VkImage image = VK_NULL_HANDLE;
+                        VmaAllocation allocation = VK_NULL_HANDLE;
+                        VkImageView view = VK_NULL_HANDLE;
+                        std::uint32_t heap_index = 0xFFFFFFFFu;
+                        std::uint64_t retire_frame = 0;
+                    };
+
                     TextureId create_default(const char* name, std::uint8_t r, std::uint8_t g,
                                              std::uint8_t b, std::uint8_t a);
                     TextureId find(const std::string& key) const;
                     bool upload(Entry& entry, const std::uint8_t* pixels, std::uint32_t width,
                                 std::uint32_t height);
+                    void record_host_upload(VkImage image, const std::uint8_t* pixels,
+                                            std::uint32_t width, std::uint32_t height,
+                                            std::uint32_t levels);
+                    bool record_staging_upload(VkImage image, const std::uint8_t* pixels,
+                                               std::uint32_t width, std::uint32_t height,
+                                               std::uint32_t levels, Pending& pending);
                     void destroy(Entry& entry);
                     void collect_finished();
                     std::uint32_t budget_scale(std::uint32_t width, std::uint32_t height) const;
@@ -216,6 +246,9 @@ namespace SushiEngine
                     VkCommandPool pool_ = VK_NULL_HANDLE;
                     std::vector<Entry> entries_;
                     std::vector<Pending> pending_;
+                    std::vector<Retired> retired_;
+                    bool host_upload_ok_ = false;
+                    std::uint64_t frame_counter_ = 0;
                     std::size_t budget_bytes_ = 0;
                     std::size_t resident_bytes_ = 0;
                     TextureId defaults_[4]{};

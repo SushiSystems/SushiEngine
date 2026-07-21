@@ -37,11 +37,19 @@
  * caller ever branches on support.
  */
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <vulkan/vulkan.h>
+
+#include "resources/pipeline_handle.hpp"
 
 namespace SushiEngine
 {
@@ -156,7 +164,11 @@ namespace SushiEngine
              * @brief Builds graphics and compute pipelines, reusing everything it can.
              *
              * Owns the pipeline libraries it creates, so its lifetime must cover every
-             * pipeline built through it. Non-copyable.
+             * pipeline built through it. A graphics pipeline is first made available as a
+             * GPL fast link — instant, but not cross-stage optimized — and a background
+             * thread then rebuilds it fully optimized and atomically swaps it into the
+             * PipelineHandle, so the first frames never stall and the steady state runs the
+             * optimized form. Non-copyable.
              */
             class GraphicsPipelineFactory
             {
@@ -176,13 +188,25 @@ namespace SushiEngine
                      * @brief Creates a graphics pipeline from its description.
                      *
                      * Uses pipeline libraries when the device supports them, monolithic
-                     * creation otherwise; the returned pipeline is identical either way and
-                     * is owned by the caller.
+                     * creation otherwise. A fast-linked pipeline is also queued for a
+                     * background optimized rebuild; a monolithic one is already optimal and
+                     * is not. The returned handle stays valid for the factory's lifetime and
+                     * always resolves to the best pipeline built so far. The factory owns the
+                     * underlying pipelines.
                      *
                      * @param desc What the pipeline must be.
-                     * @return The created pipeline.
+                     * @return A handle that resolves to the pipeline at bind time.
                      */
-                    VkPipeline create(const GraphicsPipelineDesc& desc);
+                    PipelineHandle create(const GraphicsPipelineDesc& desc);
+
+                    /**
+                     * @brief Advances the optimizer's retirement clock by one frame.
+                     *
+                     * Called once per frame. Superseded fast-linked pipelines are destroyed
+                     * here, a fixed number of frames after they were swapped out, so no
+                     * in-flight command buffer is ever left binding a freed pipeline.
+                     */
+                    void tick();
 
                     /**
                      * @brief Creates a compute pipeline.
@@ -192,7 +216,15 @@ namespace SushiEngine
                      */
                     VkPipeline create_compute(VkPipelineLayout layout, VkShaderModule shader);
 
-                    /** @brief Destroys every cached library; the caller must have idled the device. */
+                    /**
+                     * @brief Tears down every pipeline and cached library.
+                     *
+                     * The caller must have idled the device. The background optimizer is
+                     * quiesced first, so no half-built pipeline is left dangling, then every
+                     * created pipeline, its optimized rebuild, and the four library caches
+                     * are destroyed. Handed-out PipelineHandles are invalid afterward until
+                     * their passes rebuild.
+                     */
                     void clear_libraries();
 
                 private:
@@ -203,6 +235,30 @@ namespace SushiEngine
                         VkPipeline pipeline = VK_NULL_HANDLE;
                     };
 
+                    /**
+                     * @brief One created pipeline and its optional optimized replacement.
+                     *
+                     * @c active is what a PipelineHandle resolves to; it starts as @c initial
+                     * (the fast link, or a monolithic build when libraries are unavailable)
+                     * and the background thread flips it to @c optimized once that is built.
+                     * @c initial is nulled the moment it is handed to the retirement list, so
+                     * teardown never double-frees it.
+                     */
+                    struct Slot
+                    {
+                        GraphicsPipelineDesc desc{};
+                        std::atomic<VkPipeline> active{VK_NULL_HANDLE};
+                        VkPipeline initial = VK_NULL_HANDLE;
+                        VkPipeline optimized = VK_NULL_HANDLE;
+                    };
+
+                    /** @brief A swapped-out pipeline awaiting a frames-in-flight delay. */
+                    struct RetiredPipeline
+                    {
+                        VkPipeline pipeline = VK_NULL_HANDLE;
+                        std::uint64_t retire_frame = 0;
+                    };
+
                     VkPipeline create_monolithic(const GraphicsPipelineDesc& desc);
                     VkPipeline create_linked(const GraphicsPipelineDesc& desc);
                     VkPipeline vertex_input_library(const GraphicsPipelineDesc& desc);
@@ -210,12 +266,38 @@ namespace SushiEngine
                     VkPipeline fragment_shader_library(const GraphicsPipelineDesc& desc);
                     VkPipeline fragment_output_library(const GraphicsPipelineDesc& desc);
 
+                    void worker_main();
+                    void enqueue_optimize(Slot* slot);
+                    void quiesce();
+                    void shutdown_worker();
+                    void destroy_all();
+
                     Vulkan::VulkanDevice& device_;
                     PipelineCache& cache_;
                     std::vector<Library> vertex_input_;
                     std::vector<Library> pre_rasterization_;
                     std::vector<Library> fragment_shader_;
                     std::vector<Library> fragment_output_;
+
+                    // Every VkPipeline this factory owns lives in a stable slot, so the
+                    // atomic a PipelineHandle points at never moves as more are created.
+                    std::vector<std::unique_ptr<Slot>> slots_;
+
+                    // The background optimizer: worker_ drains jobs_ (fast-linked slots to
+                    // rebuild optimized) under jobs_mutex_; cache_mutex_ serialises the
+                    // pipeline cache across it and the main thread; retired_ holds the
+                    // swapped-out pipelines the per-frame tick() destroys once safe.
+                    std::thread worker_;
+                    std::mutex jobs_mutex_;
+                    std::condition_variable jobs_cv_;
+                    std::condition_variable idle_cv_;
+                    std::queue<Slot*> jobs_;
+                    bool busy_ = false;
+                    bool stop_ = false;
+                    std::mutex cache_mutex_;
+                    std::mutex retire_mutex_;
+                    std::vector<RetiredPipeline> retired_;
+                    std::atomic<std::uint64_t> frame_counter_{0};
             };
         } // namespace Resources
     } // namespace Render

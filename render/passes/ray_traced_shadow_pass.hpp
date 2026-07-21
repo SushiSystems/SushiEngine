@@ -41,6 +41,7 @@
 #include "passes/render_pass.hpp"
 
 #include <vulkan/vulkan.h>
+#include "resources/pipeline_handle.hpp"
 
 namespace SushiEngine
 {
@@ -123,7 +124,7 @@ namespace SushiEngine
                     RayTracing::SceneAccelerator& accelerator_;
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
-                    VkPipeline pipeline_ = VK_NULL_HANDLE;
+                    Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes
     } // namespace Render

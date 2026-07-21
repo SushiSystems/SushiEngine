@@ -93,6 +93,7 @@ namespace SushiEngine
             bool AssetLibrary::update()
             {
                 textures_.update();
+                pipelines_.tick();
                 if (!shaders_.watching() || !shaders_.poll())
                     return false;
                 // Every pipeline was built from the modules that just changed, so the

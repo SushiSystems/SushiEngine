@@ -90,8 +90,15 @@ namespace SushiEngine
                 bindings[IBL_SH_BINDING].descriptorCount = 1;
                 bindings[IBL_SH_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+                // A push-descriptor set: passes push their bindings inline rather than
+                // allocate and write a throw-away set every frame. The whole set is well
+                // under the 32-descriptor floor every 1.4 device guarantees for a push
+                // set, so no runtime capacity check is needed.
+                static_assert(BINDING_COUNT <= 32,
+                              "scene set exceeds the guaranteed push-descriptor floor");
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
                 layout_info.bindingCount = BINDING_COUNT;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
@@ -126,75 +133,15 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
             }
 
-            void SceneLayout::bind(VkCommandBuffer cmd, VkDescriptorSet frame_set) const
+            void SceneLayout::bind_heap(VkCommandBuffer cmd) const
             {
-                VkDescriptorSet sets[2] = {frame_set, heap_.set()};
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0,
-                                        heap_.available() ? 2u : 1u, sets, 0, nullptr);
-            }
-
-            void SceneSetWriter::uniform(std::uint32_t binding, VkBuffer buffer, VkDeviceSize range)
-            {
-                if (count_ >= CAPACITY || buffer == VK_NULL_HANDLE)
+                if (!heap_.available())
                     return;
-                buffers_[count_].buffer = buffer;
-                buffers_[count_].offset = 0;
-                buffers_[count_].range = range;
-
-                VkWriteDescriptorSet& write = writes_[count_];
-                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet = set_;
-                write.dstBinding = binding;
-                write.descriptorCount = 1;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                write.pBufferInfo = &buffers_[count_];
-                ++count_;
+                const VkDescriptorSet set = heap_.set();
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 1,
+                                        1, &set, 0, nullptr);
             }
 
-            void SceneSetWriter::image(std::uint32_t binding, VkImageView view, VkSampler sampler)
-            {
-                if (count_ >= CAPACITY || view == VK_NULL_HANDLE)
-                    return;
-                images_[count_].sampler = sampler;
-                images_[count_].imageView = view;
-                images_[count_].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                VkWriteDescriptorSet& write = writes_[count_];
-                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet = set_;
-                write.dstBinding = binding;
-                write.descriptorCount = 1;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write.pImageInfo = &images_[count_];
-                ++count_;
-            }
-
-            void SceneSetWriter::storage(std::uint32_t binding, VkBuffer buffer,
-                                         VkDeviceSize range)
-            {
-                if (count_ >= CAPACITY || buffer == VK_NULL_HANDLE)
-                    return;
-                buffers_[count_].buffer = buffer;
-                buffers_[count_].offset = 0;
-                buffers_[count_].range = range;
-
-                VkWriteDescriptorSet& write = writes_[count_];
-                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet = set_;
-                write.dstBinding = binding;
-                write.descriptorCount = 1;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                write.pBufferInfo = &buffers_[count_];
-                ++count_;
-            }
-
-            void SceneSetWriter::commit(VkDevice device)
-            {
-                if (count_ == 0)
-                    return;
-                vkUpdateDescriptorSets(device, count_, writes_, 0, nullptr);
-                count_ = 0;
-            }
         } // namespace Scene
     } // namespace Render
 } // namespace SushiEngine

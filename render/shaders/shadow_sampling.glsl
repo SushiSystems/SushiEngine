@@ -9,6 +9,8 @@
 //
 // Fragment stages only: it samples, and it reads the fragment position to decorrelate the
 // filter. The block itself is in shadow_common.glsl, which every stage can include.
+// Requires temporal_common.glsl to have been included first: the filter's per-pixel
+// rotation advances with the frame jitter so the temporal resolve can average it.
 
 #include "shadow_common.glsl"
 
@@ -161,9 +163,10 @@ float sample_sun_shadow(sampler2DShadow atlas, sampler2D depth_atlas, vec3 posit
 
     // Rotating the disc per pixel turns what would be a repeated sixteen-tap pattern into
     // noise, which the temporal resolve then averages into a smooth penumbra. That is far
-    // cheaper than the tap count it would take to be smooth on its own.
-    float angle = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) *
-                  6.28318530718;
+    // cheaper than the tap count it would take to be smooth on its own — but only if the
+    // rotation actually changes each frame: a rotation hashed from the pixel alone is the
+    // same every frame, and the resolve converges onto the speckle instead of through it.
+    float angle = temporal_dither(gl_FragCoord.xy) * 6.28318530718;
     vec2 rotation = vec2(cos(angle), sin(angle));
 
     int cascade = select_shadow_cascade(view_depth);

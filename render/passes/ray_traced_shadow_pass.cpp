@@ -30,6 +30,7 @@
 #include "passes/fullscreen.hpp"
 #include "raytracing/scene_accelerator.hpp"
 #include "resources/descriptor_allocator.hpp"
+#include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
@@ -119,9 +120,9 @@ namespace SushiEngine
 
             void RayTracedShadowPass::destroy_pipeline()
             {
-                if (pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), pipeline_, nullptr);
-                pipeline_ = VK_NULL_HANDLE;
+                // The factory owns the pipeline and swaps in its optimized rebuild, so
+                // the pass drops only its handle; clear_libraries() frees the pipeline.
+                pipeline_ = Resources::PipelineHandle{};
             }
 
             void RayTracedShadowPass::rebuild_pipelines()
@@ -132,7 +133,7 @@ namespace SushiEngine
 
             bool RayTracedShadowPass::enabled(const Frame::FrameContext& frame) const noexcept
             {
-                return pipeline_ != VK_NULL_HANDLE && frame.settings.shadows.enabled &&
+                return pipeline_.valid() && frame.settings.shadows.enabled &&
                        frame.settings.shadows.ray_traced &&
                        frame.settings.quality == RenderQuality::Ultra;
             }
@@ -202,36 +203,15 @@ namespace SushiEngine
 
                         const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
 
-                        VkWriteDescriptorSetAccelerationStructureKHR structure_write{};
-                        structure_write.sType =
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-                        structure_write.accelerationStructureCount = 1;
-                        structure_write.pAccelerationStructures = &structure;
+                        Resources::DescriptorWriter writer;
+                        writer.acceleration_structure(0, structure);
+                        writer.sampled_image(1, context.sampled_view(frame.targets.depth),
+                                             frame.samplers->get(Resources::SamplerDesc{}));
+                        writer.update(device_.device(), set);
 
-                        VkDescriptorImageInfo depth{};
-                        depth.sampler = frame.samplers->get(Resources::SamplerDesc{});
-                        depth.imageView = context.sampled_view(frame.targets.depth);
-                        depth.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                        VkWriteDescriptorSet writes[2]{};
-                        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                        writes[0].pNext = &structure_write;
-                        writes[0].dstSet = set;
-                        writes[0].dstBinding = 0;
-                        writes[0].descriptorCount = 1;
-                        writes[0].descriptorType =
-                            VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-                        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                        writes[1].dstSet = set;
-                        writes[1].dstBinding = 1;
-                        writes[1].descriptorCount = 1;
-                        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                        writes[1].pImageInfo = &depth;
-                        vkUpdateDescriptorSets(device_.device(), 2, writes, 0, nullptr);
-
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                pipeline_layout_, 0, 1, &set, 0, nullptr);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                       pipeline_layout_, 0, set);
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
                         vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                                            0, sizeof(Push), &push);
                         vkCmdDraw(cmd, 3, 1, 0, 0);

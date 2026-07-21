@@ -3087,6 +3087,25 @@ namespace SushiEngine
             ImGui::Text("World entities: %zu", context.world_entity_count);
             ImGui::Text("Open files:     %zu", context.documents.size());
 
+            // Per-pass GPU times from the render graph's timestamp queries. They lag
+            // the displayed frame by one submit slot — the most recent measurement that
+            // has actually been read back.
+            ImGui::Separator();
+            if (context.gpu_statistics.empty())
+            {
+                ImGui::TextDisabled("GPU timings unavailable");
+            }
+            for (const ViewportGpuStatistics& statistics : context.gpu_statistics)
+            {
+                float total = 0.0f;
+                for (const GpuPassStatistic& pass : statistics.passes)
+                    total += pass.milliseconds;
+                ImGui::Text("%s GPU: %.3f ms", statistics.viewport.c_str(), total);
+                for (const GpuPassStatistic& pass : statistics.passes)
+                    ImGui::TextDisabled("  %-18s %6.3f", pass.pass.c_str(),
+                                        pass.milliseconds);
+            }
+
             ImGui::End();
         }
 

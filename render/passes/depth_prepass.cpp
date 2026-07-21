@@ -73,12 +73,10 @@ namespace SushiEngine
 
             void DepthPrepass::destroy_pipelines()
             {
-                for (VkPipeline* pipeline : {&line_pipeline_, &mesh_pipeline_})
-                {
-                    if (*pipeline != VK_NULL_HANDLE)
-                        vkDestroyPipeline(device_.device(), *pipeline, nullptr);
-                    *pipeline = VK_NULL_HANDLE;
-                }
+                // The factory owns these pipelines and swaps in their optimized rebuilds;
+                // the pass only drops its handles. clear_libraries() frees the pipelines.
+                mesh_pipeline_ = Resources::PipelineHandle{};
+                line_pipeline_ = Resources::PipelineHandle{};
             }
 
             void DepthPrepass::rebuild_pipelines()
@@ -110,9 +108,7 @@ namespace SushiEngine
                     },
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkDescriptorSet set =
-                            frame.descriptors->allocate(frame.layout->set_layout());
-                        Scene::SceneSetWriter writer(set);
+                        Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
@@ -124,14 +120,14 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),
                                        sizeof(Scene::TemporalUniforms));
-                        writer.commit(device_.device());
-                        frame.layout->bind(cmd, set);
+                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(cmd);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
 
                         const Geometry::Mesh& grid = meshes_.grid();
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_);
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_.get());
                         vkCmdBindVertexBuffers(cmd, 0, 1, &grid.vertices, &zero);
                         const Scene::MeshPushConstants grid_push =
                             depth_only_push(Mat4{}, frame.eye);
@@ -139,7 +135,7 @@ namespace SushiEngine
                                            sizeof(Scene::MeshPushConstants), &grid_push);
                         vkCmdDraw(cmd, grid.vertex_count, 1, 0, 0);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_.get());
                         VkBuffer bound_vertices = VK_NULL_HANDLE;
                         for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
                         {

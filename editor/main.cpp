@@ -614,6 +614,36 @@ int main(int, char**)
                                strands.data(), strands.size(), &game_ui);
             }
 
+            // Copy each visible viewport's per-pass GPU times out for the Statistics
+            // panel. Copied because the scene view owns the timing storage only until
+            // its next render; gated on visibility so a closed viewport's stale times
+            // are not presented as live.
+            context.gpu_statistics.clear();
+            const struct
+            {
+                SushiEngine::Editor::ViewportPanel* panel;
+                bool visible;
+            } profiled_viewports[] = {{&scene_view, context.panels.scene_view},
+                                      {&game_view, context.panels.game_view}};
+            for (const auto& entry : profiled_viewports)
+            {
+                if (!entry.visible)
+                    continue;
+                const std::size_t timing_count = entry.panel->pass_timing_count();
+                if (timing_count == 0)
+                    continue;
+                SushiEngine::Editor::ViewportGpuStatistics statistics;
+                statistics.viewport = entry.panel->title();
+                statistics.passes.reserve(timing_count);
+                for (std::size_t i = 0; i < timing_count; ++i)
+                {
+                    const SushiEngine::Render::ScenePassTiming timing =
+                        entry.panel->pass_timing(i);
+                    statistics.passes.push_back({timing.name, timing.milliseconds});
+                }
+                context.gpu_statistics.push_back(std::move(statistics));
+            }
+
             // Fold the UI overlay's interaction into the shared selection/edit flow: a UI
             // pick in the Scene view replaces the 3D pick this frame, and a UI drag writes
             // the element's new rect back to the world.

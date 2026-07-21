@@ -29,9 +29,10 @@
  *
  * Internal to the render library — consumers use the abstract device.hpp. This
  * header pulls in the Vulkan, VMA, and vk-bootstrap types, so only backend
- * translation units include it. It brings up a Vulkan 1.3 instance and device
- * (dynamic rendering + synchronization2) and a VMA allocator, and exposes the raw
- * handles later render stages (swapchain, command lists) are built from.
+ * translation units include it. It brings up a Vulkan 1.4 instance and device
+ * (dynamic rendering + synchronization2 from 1.3; maintenance5/6 + push descriptors
+ * from 1.4) and a VMA allocator, and exposes the raw handles later render stages
+ * (swapchain, command lists) are built from.
  */
 
 #include <cstdint>
@@ -74,11 +75,12 @@ namespace SushiEngine
             };
 
             /**
-             * @brief A Vulkan 1.3 device with a VMA allocator and a graphics queue.
+             * @brief A Vulkan 1.4 device with a VMA allocator and a graphics queue.
              *
              * Selects a physical device (by interop UUID when requested, else by
              * preference), creates the logical device with dynamic-rendering and
-             * synchronization2 enabled, and stands up a VMA allocator. Destruction
+             * synchronization2 (1.3) plus maintenance5/6 and push descriptors (1.4)
+             * enabled, and stands up a VMA allocator. Destruction
              * releases the allocator, device, and instance in order. Non-copyable:
              * it owns Vulkan handles.
              */
@@ -134,6 +136,19 @@ namespace SushiEngine
                     bool supports_descriptor_indexing() const noexcept
                     {
                         return supports_descriptor_indexing_;
+                    }
+
+                    /**
+                     * @brief Whether textures may be uploaded straight from host memory.
+                     *
+                     * True when the 1.4 hostImageCopy feature was offered (the one 1.4
+                     * feature that stays optional). When true the texture streamer copies
+                     * host pixels into an optimal-tiled image with no staging buffer or
+                     * queue submit; when false it keeps the staging + blit upload path.
+                     */
+                    bool supports_host_image_copy() const noexcept
+                    {
+                        return supports_host_image_copy_;
                     }
 
                     /**
@@ -220,6 +235,7 @@ namespace SushiEngine
                     VkQueue graphics_queue_ = VK_NULL_HANDLE;
                     std::uint32_t graphics_queue_family_ = 0;
                     bool supports_descriptor_indexing_ = false;
+                    bool supports_host_image_copy_ = false;
                     bool supports_pipeline_library_ = false;
                     bool supports_shading_rate_image_ = false;
                     std::uint32_t shading_rate_texel_width_ = 16;

@@ -22,6 +22,9 @@ find_package(VulkanLoader CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 find_package(glslang CONFIG REQUIRED)
+# The pipeline factory runs a background optimizer thread; Threads links the
+# platform's threading primitives (a no-op link on Windows, pthread on Linux).
+find_package(Threads REQUIRED)
 # stb and cgltf are header-only. stb ships a find module (reached through vcpkg's
 # wrapper); cgltf ships nothing but the header, so it is located by the header itself
 # — the documented vcpkg approach for a port with no CMake export.
@@ -211,7 +214,8 @@ target_link_libraries(sushi_render PUBLIC
 target_link_libraries(sushi_render PRIVATE
     glslang::glslang
     glslang::glslang-default-resource-limits
-    glslang::SPIRV)
+    glslang::SPIRV
+    Threads::Threads)
 # Both header-only libraries need exactly one translation unit to carry their
 # implementation; material/stb_impl.cpp is that unit for both.
 target_include_directories(sushi_render PRIVATE

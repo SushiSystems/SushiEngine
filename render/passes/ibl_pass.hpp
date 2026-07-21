@@ -45,6 +45,8 @@
 #include <cstdint>
 
 #include <vulkan/vulkan.h>
+
+#include "resources/pipeline_handle.hpp"
 #include <vk_mem_alloc.h>
 
 namespace SushiEngine
@@ -174,7 +176,7 @@ namespace SushiEngine
                     VkPipelineLayout compute_pipeline_layout_ = VK_NULL_HANDLE;
                     VkDescriptorSetLayout lut_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout lut_pipeline_layout_ = VK_NULL_HANDLE;
-                    VkPipeline sky_pipeline_ = VK_NULL_HANDLE;
+                    Resources::PipelineHandle sky_pipeline_;
                     VkPipeline prefilter_pipeline_ = VK_NULL_HANDLE;
                     VkPipeline irradiance_pipeline_ = VK_NULL_HANDLE;
 

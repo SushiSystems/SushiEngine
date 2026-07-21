@@ -35,8 +35,16 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 ocean_color;
     vec4 cloud_params;
     vec4 star_params;
-    vec4 misc;           // x = near plane
+    vec4 misc;           // x = near plane, z = time seconds
 } scene;
+
+// Interleaved gradient noise (Jimenez, Siggraph 2014); a local copy because this pass
+// binds the scene and shadow blocks only, not the temporal block the shared helper in
+// temporal_common.glsl reads its frame phase from.
+float interleaved_gradient_noise(vec2 pixel)
+{
+    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
 
@@ -86,8 +94,11 @@ void main()
 
     // A per-pixel start offset breaks the march's regular stride into noise the temporal
     // resolve averages away, which is far cheaper than the extra steps that would be
-    // needed to hide the banding otherwise.
-    float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    // needed to hide the banding otherwise. The offset must change each frame for that
+    // averaging to work — a static hash converges to speckle — so the gradient noise is
+    // advanced along the golden ratio by a frame counter derived from the scene clock.
+    float phase = float(int(scene.misc.z * 60.0) & 63) * 0.61803398875;
+    float dither = fract(interleaved_gradient_noise(gl_FragCoord.xy) + phase);
     vec3 position = origin + step_vector * (0.5 + dither * 0.5);
 
     // Tolerance for "the sampled surface is the same one we started from": a thickness,

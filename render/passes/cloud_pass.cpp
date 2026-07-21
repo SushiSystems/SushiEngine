@@ -62,9 +62,9 @@ namespace SushiEngine
 
             void CloudPass::destroy_pipeline()
             {
-                if (pipeline_ != VK_NULL_HANDLE)
-                    vkDestroyPipeline(device_.device(), pipeline_, nullptr);
-                pipeline_ = VK_NULL_HANDLE;
+                // The factory owns the pipeline and swaps in its optimized rebuild, so
+                // the pass drops only its handle; clear_libraries() frees the pipeline.
+                pipeline_ = Resources::PipelineHandle{};
             }
 
             void CloudPass::rebuild_pipelines()
@@ -89,9 +89,7 @@ namespace SushiEngine
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
-                        const VkDescriptorSet set =
-                            frame.descriptors->allocate(frame.layout->set_layout());
-                        Scene::SceneSetWriter writer(set);
+                        Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
@@ -103,10 +101,10 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),
                                        sizeof(Scene::TemporalUniforms));
-                        writer.commit(device_.device());
+                        writer.commit(cmd, frame.layout->pipeline_layout());
 
-                        frame.layout->bind(cmd, set);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+                        frame.layout->bind_heap(cmd);
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
                         // The tier's march budget rides the shared push range's fragment
                         // bytes, which this fullscreen pass otherwise leaves unused.
                         const std::uint32_t budget[3] = {

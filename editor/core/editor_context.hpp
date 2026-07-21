@@ -131,6 +131,26 @@ namespace SushiEngine
             std::vector<SushiEngine::Simulation::ScriptComponent> scripts;
         };
 
+        /** @brief One render pass's GPU time, copied out of a scene view for display. */
+        struct GpuPassStatistic
+        {
+            std::string pass;          /**< The pass name as registered in the render graph. */
+            float milliseconds = 0.0f; /**< Measured GPU time of the pass. */
+        };
+
+        /**
+         * @brief One viewport's per-pass GPU times for the Statistics panel.
+         *
+         * Copied, not referenced: the scene view owns the timing storage only until its
+         * next render, while the Statistics panel reads this after both viewports have
+         * already rendered the frame.
+         */
+        struct ViewportGpuStatistics
+        {
+            std::string viewport;                 /**< The viewport title ("Scene", "Game"). */
+            std::vector<GpuPassStatistic> passes; /**< Per-pass times, in graph order. */
+        };
+
         /**
          * @brief Shared, mutable editor state passed to every panel each frame.
          *
@@ -278,6 +298,10 @@ namespace SushiEngine
             // work: the scale slider is a request, this is what it settled on.
             std::uint32_t scene_render_width = 0;
             std::uint32_t scene_render_height = 0;
+
+            // Each visible viewport's per-pass GPU times, refilled by the main loop
+            // after the viewports render and shown in the Statistics panel.
+            std::vector<ViewportGpuStatistics> gpu_statistics;
 
             bool show_imgui_demo = false;
 

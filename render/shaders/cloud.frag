@@ -101,13 +101,6 @@ float ray_ellipsoid(vec3 ro, vec3 rd, vec3 c, float a, float b, vec3 pole)
     return t;
 }
 
-float hash13(vec3 p)
-{
-    p = fract(p * 0.1031);
-    p += dot(p, p.zyx + 31.32);
-    return fract((p.x + p.y) * p.z);
-}
-
 float phase_mie(float mu, float g)
 {
     float g2 = g * g;
@@ -342,7 +335,10 @@ void main()
     float seg = march_len / float(STEPS);
     float big_seg = seg * 3.0;
 
-    float dither = hash13(vec3(gl_FragCoord.xy, scene.misc.z * 60.0));
+    // Gradient noise, not a white-noise hash: the march offset's error spreads evenly
+    // across neighbouring pixels instead of clumping into speckle, and the jitter-driven
+    // phase decorrelates it frame to frame so the temporal resolve integrates it away.
+    float dither = temporal_dither(gl_FragCoord.xy);
     float t = t0 + seg * dither;
     float t_end = t0 + march_len;
 

@@ -166,8 +166,10 @@ namespace SushiEngine
         void draw_console_panel(EditorContext& context);
 
         /**
-         * @brief Draw the Statistics panel (frame time, FPS, entity and document counts).
-         * @param context Shared editor state, read for scene and document counts.
+         * @brief Draw the Statistics panel: frame time, FPS, entity and document counts,
+         * and each visible viewport's per-pass GPU times.
+         * @param context Shared editor state, read for the counts and the GPU statistics
+         *                the main loop copied out of the viewports this frame.
          */
         void draw_statistics_panel(EditorContext& context);
 

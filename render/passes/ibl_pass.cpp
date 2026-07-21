@@ -31,6 +31,7 @@
 #include "graph/render_graph.hpp"
 #include "passes/fullscreen.hpp"
 #include "resources/descriptor_allocator.hpp"
+#include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
@@ -508,13 +509,17 @@ namespace SushiEngine
 
             void IblPass::destroy_pipelines()
             {
+                // The compute pipelines are pass-owned and destroyed here; the sky pipeline
+                // is a graphics handle the factory owns (it swaps in the optimized rebuild),
+                // so the pass only drops that handle.
                 for (VkPipeline* pipeline :
-                     {&sh_pipeline_, &irradiance_pipeline_, &prefilter_pipeline_, &sky_pipeline_})
+                     {&sh_pipeline_, &irradiance_pipeline_, &prefilter_pipeline_})
                 {
                     if (*pipeline != VK_NULL_HANDLE)
                         vkDestroyPipeline(device_.device(), *pipeline, nullptr);
                     *pipeline = VK_NULL_HANDLE;
                 }
+                sky_pipeline_ = Resources::PipelineHandle{};
             }
 
             void IblPass::rebuild_pipelines()
@@ -552,17 +557,9 @@ namespace SushiEngine
                 Vulkan::check(vkAllocateDescriptorSets(device_.device(), &set_info, &set),
                               "vkAllocateDescriptorSets(brdf)");
 
-                VkDescriptorImageInfo image{};
-                image.imageView = brdf_view_;
-                image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                VkWriteDescriptorSet write{};
-                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet = set;
-                write.dstBinding = 0;
-                write.descriptorCount = 1;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write.pImageInfo = &image;
-                vkUpdateDescriptorSets(device_.device(), 1, &write, 0, nullptr);
+                Resources::DescriptorWriter writer;
+                writer.storage_image(0, brdf_view_);
+                writer.update(device_.device(), set);
 
                 VkCommandPoolCreateInfo command_pool_info{};
                 command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -593,8 +590,8 @@ namespace SushiEngine
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, lut_pipeline_layout_,
-                                        0, 1, &set, 0, nullptr);
+                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                               lut_pipeline_layout_, 0, set);
                 LutParams params{BRDF_RESOLUTION, BRDF_SAMPLES};
                 vkCmdPushConstants(cmd, lut_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                    sizeof(params), &params);
@@ -751,9 +748,7 @@ namespace SushiEngine
                     rendering.colorAttachmentCount = 1;
                     rendering.pColorAttachments = &attachment;
 
-                    const VkDescriptorSet set =
-                        frame.descriptors->allocate(frame.layout->set_layout());
-                    Scene::SceneSetWriter writer(set);
+                    Scene::SceneSetWriter writer;
                     writer.uniform(Scene::SceneLayout::SCENE_BINDING, face_uniforms_[face],
                                    sizeof(Scene::SceneUniforms));
                     writer.image(1, dummy_depth_view_, sampler_);
@@ -762,13 +757,13 @@ namespace SushiEngine
                     writer.image(4, noise_.detail(), noise_.sampler());
                     writer.image(5, noise_.weather(), noise_.sampler());
                     writer.image(6, noise_.cirrus(), noise_.sampler());
-                    writer.commit(device_.device());
 
                     vkCmdBeginRendering(cmd, &rendering);
                     vkCmdSetViewport(cmd, 0, 1, &viewport);
                     vkCmdSetScissor(cmd, 0, 1, &scissor);
-                    layout_.bind(cmd, set);
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sky_pipeline_);
+                    layout_.bind_heap(cmd);
+                    writer.commit(cmd, layout_.pipeline_layout());
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sky_pipeline_.get());
                     vkCmdDraw(cmd, 3, 1, 0, 0);
                     vkCmdEndRendering(cmd);
                 }
@@ -833,32 +828,14 @@ namespace SushiEngine
                                           const ConvolveParams& params, std::uint32_t resolution)
                 {
                     const VkDescriptorSet set = frame.descriptors->allocate(compute_layout_);
-                    VkDescriptorImageInfo source_info{};
-                    source_info.sampler = sampler_;
-                    source_info.imageView = environment_.cube_view;
-                    source_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    VkDescriptorImageInfo destination_info{};
-                    destination_info.imageView = destination;
-                    destination_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                    VkWriteDescriptorSet writes[2]{};
-                    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    writes[0].dstSet = set;
-                    writes[0].dstBinding = 0;
-                    writes[0].descriptorCount = 1;
-                    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    writes[0].pImageInfo = &source_info;
-                    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    writes[1].dstSet = set;
-                    writes[1].dstBinding = 1;
-                    writes[1].descriptorCount = 1;
-                    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                    writes[1].pImageInfo = &destination_info;
-                    vkUpdateDescriptorSets(device_.device(), 2, writes, 0, nullptr);
+                    Resources::DescriptorWriter writer;
+                    writer.sampled_image(0, environment_.cube_view, sampler_);
+                    writer.storage_image(1, destination);
+                    writer.update(device_.device(), set);
 
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                            compute_pipeline_layout_, 0, 1, &set, 0, nullptr);
+                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                                   compute_pipeline_layout_, 0, set);
                     vkCmdPushConstants(cmd, compute_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                                        0, sizeof(ConvolveParams), &params);
                     vkCmdDispatch(cmd, groups(resolution, 8), groups(resolution, 8), 6);
@@ -889,33 +866,15 @@ namespace SushiEngine
                 // above, and reduces it in a single workgroup.
                 {
                     const VkDescriptorSet sh_set = frame.descriptors->allocate(sh_layout_);
-                    VkDescriptorImageInfo sh_source{};
-                    sh_source.sampler = sampler_;
-                    sh_source.imageView = environment_.cube_view;
-                    sh_source.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    VkDescriptorBufferInfo sh_dest{};
-                    sh_dest.buffer = sh_buffer_;
-                    sh_dest.offset = 0;
-                    sh_dest.range = sh_buffer_bytes();
-                    VkWriteDescriptorSet sh_writes[2]{};
-                    sh_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    sh_writes[0].dstSet = sh_set;
-                    sh_writes[0].dstBinding = 0;
-                    sh_writes[0].descriptorCount = 1;
-                    sh_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    sh_writes[0].pImageInfo = &sh_source;
-                    sh_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    sh_writes[1].dstSet = sh_set;
-                    sh_writes[1].dstBinding = 1;
-                    sh_writes[1].descriptorCount = 1;
-                    sh_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                    sh_writes[1].pBufferInfo = &sh_dest;
-                    vkUpdateDescriptorSets(device_.device(), 2, sh_writes, 0, nullptr);
+                    Resources::DescriptorWriter writer;
+                    writer.sampled_image(0, environment_.cube_view, sampler_);
+                    writer.storage_buffer(1, sh_buffer_, sh_buffer_bytes());
+                    writer.update(device_.device(), sh_set);
 
                     const ShParams sh_params{SH_SAMPLE_RESOLUTION, 2.0f};
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sh_pipeline_);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                            sh_pipeline_layout_, 0, 1, &sh_set, 0, nullptr);
+                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                                   sh_pipeline_layout_, 0, sh_set);
                     vkCmdPushConstants(cmd, sh_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                        sizeof(ShParams), &sh_params);
                     vkCmdDispatch(cmd, 1, 1, 1);

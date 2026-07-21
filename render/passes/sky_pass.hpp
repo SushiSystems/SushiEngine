@@ -36,6 +36,7 @@
 #include "passes/render_pass.hpp"
 
 #include <vulkan/vulkan.h>
+#include "resources/pipeline_handle.hpp"
 
 namespace SushiEngine
 {
@@ -101,7 +102,7 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
                     Textures::CloudNoise& noise_;
-                    VkPipeline pipeline_ = VK_NULL_HANDLE;
+                    Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes
     } // namespace Render

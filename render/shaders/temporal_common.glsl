@@ -35,3 +35,30 @@ vec2 motion_vector(vec4 current_clip, vec4 previous_clip)
     vec2 previous_uv = clip_to_uv(previous_clip);
     return current_uv - previous_uv;
 }
+
+// Interleaved gradient noise (Jimenez, Siggraph 2014). A white-noise hash clumps: runs
+// of neighbouring pixels land on similar values and the eye reads the clumps as dirty
+// speckle. This spreads the values so every 3x3 neighbourhood spans the whole range,
+// which is both smoother to look at raw and exactly what the temporal resolve's 3x3
+// neighbourhood statistics expect.
+float interleaved_gradient_noise(vec2 pixel)
+{
+    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
+
+// A per-frame scramble in [0,1), derived from the sub-pixel jitter. Each phase of the
+// jitter sequence lands on a distinct value, so stochastic samplers advance exactly
+// when the temporal resolve exists to average them — and hold still when anti-aliasing
+// is off and the jitter is zero, where animated noise would only shimmer, unresolved.
+float temporal_noise_phase()
+{
+    vec2 jitter_pixels = temporal.jitter.xy * temporal.resolution.xy;
+    return fract(dot(jitter_pixels, vec2(5.588238, 7.213456)));
+}
+
+// The gradient noise advanced by this frame's phase: a stochastic sampler's per-pixel
+// offset that is spatially even within a frame and decorrelated across frames.
+float temporal_dither(vec2 pixel)
+{
+    return fract(interleaved_gradient_noise(pixel) + temporal_noise_phase());
+}

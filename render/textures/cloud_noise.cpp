@@ -24,6 +24,7 @@
 #include "textures/cloud_noise.hpp"
 
 #include "resources/descriptor_heap.hpp"
+#include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
@@ -209,18 +210,9 @@ namespace SushiEngine
 
                 for (std::uint32_t slot = 0; slot < SLOT_COUNT; ++slot)
                 {
-                    VkDescriptorImageInfo image{};
-                    image.imageView = volumes_[slot].view;
-                    image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                    VkWriteDescriptorSet write{};
-                    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    write.dstSet = sets[slot];
-                    write.dstBinding = 0;
-                    write.descriptorCount = 1;
-                    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                    write.pImageInfo = &image;
-                    vkUpdateDescriptorSets(device_.device(), 1, &write, 0, nullptr);
+                    Resources::DescriptorWriter writer;
+                    writer.storage_image(0, volumes_[slot].view);
+                    writer.update(device_.device(), sets[slot]);
                 }
 
                 VkCommandPoolCreateInfo pool_info{};
@@ -285,8 +277,8 @@ namespace SushiEngine
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                       volume.three_dimensional ? volume_pipeline
                                                                : weather_pipeline);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_,
-                                            0, 1, &sets[slot], 0, nullptr);
+                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                                   pipeline_layout_, 0, sets[slot]);
 
                     NoiseParams params{volume.resolution, slot};
                     vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,

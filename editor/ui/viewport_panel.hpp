@@ -193,11 +193,37 @@ namespace SushiEngine
                 /** @brief The panel's current pixel height, as last sized by `draw`. */
                 std::uint32_t target_height() const noexcept { return view_->height(); }
 
+                /** @brief The panel window title this panel was created with. */
+                const char* title() const noexcept { return title_; }
+
+                /**
+                 * @brief Number of per-pass GPU timings from the last resolved frame.
+                 *
+                 * Zero until a timed submit has completed, and zero for the whole run on
+                 * a device without timestamp queries.
+                 *
+                 * @return The number of timings `pass_timing` can be asked for.
+                 */
+                std::size_t pass_timing_count() const noexcept
+                {
+                    return view_->pass_timing_count();
+                }
+
+                /**
+                 * @brief One pass's GPU time from the most recently resolved frame.
+                 * @param index Timing index in [0, pass_timing_count()).
+                 * @return The pass's name and measured milliseconds; the name points at
+                 *         storage the scene view owns and is valid until its next render.
+                 */
+                SushiEngine::Render::ScenePassTiming pass_timing(std::size_t index) const noexcept
+                {
+                    return view_->pass_timing(index);
+                }
+
             private:
                 void resize_to(std::uint32_t width, std::uint32_t height);
                 void register_textures();
                 void unregister_textures();
-                void draw_gpu_profiler(const ImVec2& origin) const;
 
                 ImGuiBackend& imgui_;
                 const char* title_;

@@ -8,6 +8,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Fixed
+- **Stochastic sampling no longer prints static speckle over shadows and clouds.**
+  Every pass that trades filter taps for noise — the soft-shadow disc rotation, the
+  cloud march's start offset, the contact-shadow march — hashed its per-pixel noise
+  from the pixel position alone, so the pattern never changed between frames and the
+  temporal resolve converged *onto* the speckle instead of averaging through it:
+  penumbrae and cloud edges came out permanently dotted. The hashes were also white
+  noise, which clumps neighbouring pixels into visible grain. Both are replaced with
+  interleaved gradient noise advanced per frame (`temporal_dither` in
+  `temporal_common.glsl`) — driven by the sub-pixel jitter where the temporal block is
+  bound, and by the scene clock in the contact pass, which binds only the scene and
+  shadow blocks. With anti-aliasing off the jitter is zero and the noise holds still
+  instead of shimmering unresolved.
+- **The sun no longer lights meshes after it has set.** Direct light in `pbr.frag`
+  asked only whether the surface faced the sun, so a favourably tilted mesh stayed
+  fully lit with the sun below the horizon. The direct term is now occluded by the
+  planet itself: the sun fades out as it crosses the geometric horizon of the shaded
+  point — a horizon that dips with altitude, so a mountaintop keeps the sun slightly
+  longer than the valley below it — over a small band standing in for the solar disc
+  and refraction.
+
+### Changed
+- **The GPU profiler moved into the Statistics panel.** The per-pass timing breakdown
+  was an overlay drawn over each viewport's image; the main loop now copies both
+  visible viewports' timings into the editor context each frame and the Statistics
+  window lists them alongside frame time and FPS.
+
 ### Added
 - **Diffuse image-based lighting is now spherical harmonics, not a cubemap.** The
   captured environment is projected into 9 second-order SH coefficients by a single
@@ -193,7 +220,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - **Per-pass GPU timings in the editor.** The graph brackets each pass with timestamp
   queries and resolves them at the point the frame's fence has already been waited on,
   so the measurement costs no stall. `ISceneView` gains `pass_timing_count()` /
-  `pass_timing()`, and the viewport panel draws the breakdown as an overlay — every
+  `pass_timing()`, and the Statistics panel lists the breakdown per viewport — every
   later pass can now be landed against a measured budget instead of a guess.
 - **Shader hot-reload.** Shaders still ship as build-time SPIR-V, but when the source
   tree is present the renderer watches `render/shaders/` and recompiles changed files

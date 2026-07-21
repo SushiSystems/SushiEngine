@@ -45,6 +45,15 @@ namespace SushiEngine
                 constexpr std::size_t TEXEL_BYTES = 4;
 
                 /**
+                 * @brief Frames a host-copy-replaced image is held before release.
+                 *
+                 * The synchronous host path has no upload fence, so a superseded image is
+                 * kept this many frames — comfortably past the double-buffered frames in
+                 * flight — before it and its heap slot are reclaimed.
+                 */
+                constexpr std::uint64_t RETIRE_FRAME_DELAY = 3;
+
+                /**
                  * @brief Bytes a full RGBA8 mip chain of the given size occupies.
                  * @param width  Mip 0 width.
                  * @param height Mip 0 height.
@@ -140,6 +149,26 @@ namespace SushiEngine
                 Vulkan::check(vkCreateCommandPool(device_.device(), &pool_info, nullptr, &pool_),
                               "vkCreateCommandPool(textures)");
 
+                // The host-copy path is taken only when the device offers host image copy
+                // and lists SHADER_READ_ONLY among the layouts a host copy may target — so
+                // the upload can land in its final sampling layout with no intermediate.
+                if (device_.supports_host_image_copy())
+                {
+                    VkPhysicalDeviceHostImageCopyProperties host_copy{};
+                    host_copy.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES;
+                    VkPhysicalDeviceProperties2 properties{};
+                    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    properties.pNext = &host_copy;
+                    vkGetPhysicalDeviceProperties2(device_.physical_device(), &properties);
+
+                    std::vector<VkImageLayout> destination_layouts(host_copy.copyDstLayoutCount);
+                    host_copy.pCopyDstLayouts = destination_layouts.data();
+                    vkGetPhysicalDeviceProperties2(device_.physical_device(), &properties);
+                    for (VkImageLayout layout : destination_layouts)
+                        if (layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                            host_upload_ok_ = true;
+                }
+
                 defaults_[static_cast<std::uint32_t>(DefaultTexture::White)] =
                     create_default("sushi:white", 255, 255, 255, 255);
                 defaults_[static_cast<std::uint32_t>(DefaultTexture::FlatNormal)] =
@@ -168,6 +197,14 @@ namespace SushiEngine
                                         pending.retired_allocation);
                 }
                 pending_.clear();
+                for (Retired& retired : retired_)
+                {
+                    if (retired.view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), retired.view, nullptr);
+                    if (retired.image != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), retired.image, retired.allocation);
+                }
+                retired_.clear();
                 for (Entry& entry : entries_)
                     destroy(entry);
                 entries_.clear();
@@ -312,8 +349,14 @@ namespace SushiEngine
                 image_info.arrayLayers = 1;
                 image_info.samples = VK_SAMPLE_COUNT_1_BIT;
                 image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-                image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                // Host copy needs only the host-transfer + sampled usage; the staging
+                // fallback needs the queue transfer bits for the buffer copy and the mip
+                // blit that reads and writes the image.
+                image_info.usage =
+                    host_upload_ok_
+                        ? (VK_IMAGE_USAGE_HOST_TRANSFER_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                        : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                           VK_IMAGE_USAGE_SAMPLED_BIT);
 
                 VmaAllocationCreateInfo alloc{};
                 alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -333,6 +376,114 @@ namespace SushiEngine
                 Vulkan::check(vkCreateImageView(device_.device(), &view_info, nullptr, &view),
                               "vkCreateImageView(texture)");
 
+                Pending pending;
+                if (host_upload_ok_)
+                    record_host_upload(image, pixels, width, height, levels);
+                else if (!record_staging_upload(image, pixels, width, height, levels, pending))
+                {
+                    vkDestroyImageView(device_.device(), view, nullptr);
+                    vmaDestroyImage(device_.allocator(), image, allocation);
+                    return false;
+                }
+
+                // Snapshot the superseded resources before the entry adopts the new image.
+                const VkImage retired_image = entry.image;
+                const VmaAllocation retired_allocation = entry.allocation;
+                const VkImageView retired_view = entry.view;
+                const std::uint32_t retired_heap_index = entry.heap_index;
+                const bool had_previous = retired_view != VK_NULL_HANDLE;
+                if (entry.bytes > 0)
+                    resident_bytes_ -= entry.bytes;
+
+                entry.image = image;
+                entry.allocation = allocation;
+                entry.view = view;
+                entry.resident_width = width;
+                entry.resident_height = height;
+                entry.mip_levels = levels;
+                entry.bytes = chain_bytes(width, height);
+                resident_bytes_ += entry.bytes;
+
+                // A fresh heap slot rather than an in-place rewrite: the slot an in-flight
+                // frame's material buffer points at must stay valid until that frame ends.
+                entry.heap_index = heap_.allocate_texture(
+                    view, sampler_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+                if (host_upload_ok_)
+                {
+                    // Synchronous upload: the replaced image may still be sampled by frames
+                    // already in flight, so its release waits out a frames-in-flight delay.
+                    if (had_previous)
+                        retired_.push_back({retired_image, retired_allocation, retired_view,
+                                            retired_heap_index,
+                                            frame_counter_ + RETIRE_FRAME_DELAY});
+                }
+                else
+                {
+                    // The staging upload's own fence guards the superseded image: it stays
+                    // alive until the replacing upload completes, so a frame still sampling
+                    // it is never left with a dangling view.
+                    pending.retired_image = retired_image;
+                    pending.retired_allocation = retired_allocation;
+                    pending.retired_view = retired_view;
+                    if (had_previous)
+                        pending.retired_heap_index = retired_heap_index;
+                    pending_.push_back(pending);
+                }
+                return true;
+            }
+
+            void TextureLibrary::record_host_upload(VkImage image, const std::uint8_t* pixels,
+                                                    std::uint32_t width, std::uint32_t height,
+                                                    std::uint32_t levels)
+            {
+                // One host-side transition to the final sampling layout, then a direct copy
+                // of each mip from host memory — the chain is box-filtered on the CPU, so no
+                // command buffer, queue submit, or fence is ever touched.
+                VkHostImageLayoutTransitionInfo transition{};
+                transition.sType = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
+                transition.image = image;
+                transition.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                transition.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                transition.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                transition.subresourceRange.levelCount = levels;
+                transition.subresourceRange.layerCount = 1;
+                Vulkan::check(vkTransitionImageLayout(device_.device(), 1, &transition),
+                              "vkTransitionImageLayout(texture)");
+
+                std::vector<std::uint8_t> level_pixels(
+                    pixels, pixels + std::size_t(width) * height * TEXEL_BYTES);
+                std::uint32_t level_width = width;
+                std::uint32_t level_height = height;
+                for (std::uint32_t level = 0; level < levels; ++level)
+                {
+                    VkMemoryToImageCopy region{};
+                    region.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY;
+                    region.pHostPointer = level_pixels.data();
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.mipLevel = level;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {level_width, level_height, 1};
+
+                    VkCopyMemoryToImageInfo copy{};
+                    copy.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO;
+                    copy.dstImage = image;
+                    copy.dstImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    copy.regionCount = 1;
+                    copy.pRegions = &region;
+                    Vulkan::check(vkCopyMemoryToImage(device_.device(), &copy),
+                                  "vkCopyMemoryToImage(texture)");
+
+                    if (level + 1 < levels)
+                        level_pixels = halve(level_pixels.data(), level_width, level_height,
+                                             level_width, level_height);
+                }
+            }
+
+            bool TextureLibrary::record_staging_upload(VkImage image, const std::uint8_t* pixels,
+                                                       std::uint32_t width, std::uint32_t height,
+                                                       std::uint32_t levels, Pending& pending)
+            {
                 const VkDeviceSize staging_bytes = VkDeviceSize(width) * height * TEXEL_BYTES;
                 VkBufferCreateInfo staging_info{};
                 staging_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -342,7 +493,6 @@ namespace SushiEngine
                 staging_alloc.usage = VMA_MEMORY_USAGE_AUTO;
                 staging_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                                       VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                Pending pending;
                 VmaAllocationInfo staging_mapped{};
                 Vulkan::check(vmaCreateBuffer(device_.allocator(), &staging_info, &staging_alloc,
                                               &pending.staging, &pending.staging_allocation,
@@ -463,33 +613,6 @@ namespace SushiEngine
                 Vulkan::check(
                     vkQueueSubmit2(device_.graphics_queue(), 1, &submit, pending.fence),
                     "vkQueueSubmit2(texture)");
-
-                // The superseded image is handed to the same fence: it stays alive until
-                // the upload that replaces it has completed, so a frame still sampling it
-                // is never left with a dangling view.
-                pending.retired_image = entry.image;
-                pending.retired_allocation = entry.allocation;
-                pending.retired_view = entry.view;
-                if (entry.bytes > 0)
-                    resident_bytes_ -= entry.bytes;
-
-                entry.image = image;
-                entry.allocation = allocation;
-                entry.view = view;
-                entry.resident_width = width;
-                entry.resident_height = height;
-                entry.mip_levels = levels;
-                entry.bytes = chain_bytes(width, height);
-                resident_bytes_ += entry.bytes;
-
-                // A fresh heap slot rather than an in-place rewrite: the slot an in-flight
-                // frame's material buffer points at must stay valid until that frame ends.
-                if (pending.retired_view != VK_NULL_HANDLE)
-                    pending.retired_heap_index = entry.heap_index;
-                entry.heap_index = heap_.allocate_texture(
-                    view, sampler_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-                pending_.push_back(pending);
                 return true;
             }
 
@@ -516,10 +639,30 @@ namespace SushiEngine
                                         pending.retired_allocation);
                     pending_.erase(pending_.begin() + static_cast<std::ptrdiff_t>(i));
                 }
+
+                // Host-copy retirements have no fence: release each once the frame counter
+                // has passed the frames that could still have been sampling the old image.
+                for (std::size_t i = 0; i < retired_.size();)
+                {
+                    Retired& retired = retired_[i];
+                    if (frame_counter_ < retired.retire_frame)
+                    {
+                        ++i;
+                        continue;
+                    }
+                    if (retired.heap_index != 0xFFFFFFFFu)
+                        heap_.free_texture(retired.heap_index);
+                    if (retired.view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device_.device(), retired.view, nullptr);
+                    if (retired.image != VK_NULL_HANDLE)
+                        vmaDestroyImage(device_.allocator(), retired.image, retired.allocation);
+                    retired_.erase(retired_.begin() + static_cast<std::ptrdiff_t>(i));
+                }
             }
 
             void TextureLibrary::update()
             {
+                ++frame_counter_;
                 collect_finished();
                 if (!pending_.empty())
                     return;

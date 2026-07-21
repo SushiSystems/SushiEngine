@@ -416,6 +416,26 @@ void main()
     }
 
     vec3 radiance = scene.sun_color.xyz * scene.sun_dir.w;
+
+    // The planet itself occludes the sun. n_dot_l only asks whether the surface faces
+    // the sun's direction, so a wall tilted the right way stays fully lit long after
+    // sunset; what actually ends direct light is the ground swallowing the sun. The
+    // horizon a point sees dips below its local horizontal as it climbs, so the same
+    // test lights a mountaintop a little longer than the valley beneath it. The band
+    // softens the cut across the sun's disc and the light refraction drags past the
+    // limb, fading through sunset instead of switching off.
+    if (scene.sky_counts.z > 0.5 && scene.planet_center.w > 0.0)
+    {
+        vec3 to_centre = v_world_position - scene.planet_center.xyz;
+        float radius = max(length(to_centre), 1.0);
+        float surface = scene.planet_center.w;
+        float sin_horizon =
+            radius > surface ? -sqrt(max(radius * radius - surface * surface, 0.0)) / radius
+                             : 0.0;
+        float sun_elevation = dot(to_centre / radius, light_dir);
+        radiance *= smoothstep(sin_horizon - 0.03, sin_horizon + 0.01, sun_elevation);
+    }
+
     vec3 direct = ((diffuse + specular) * clearcoat_attenuation + clearcoat_specular) *
                   radiance * n_dot_l * visibility;
 

@@ -38,6 +38,19 @@ namespace SushiEngine
         {
             namespace
             {
+                /**
+                 * @brief tick() calls a swapped-out pipeline is held before it is destroyed.
+                 *
+                 * A fast-linked pipeline replaced by its optimized rebuild may still be
+                 * bound by command buffers already recorded, so it is kept until enough
+                 * frames have retired. The clock advances once per tick(), and tick() runs
+                 * once per view per frame — so several views sharing the factory advance it
+                 * faster than real frames. The margin is set well past (max plausible views ×
+                 * frames in flight); it costs nothing, since the swap is a one-time burst
+                 * shortly after start-up and never recurs during steady-state rendering.
+                 */
+                constexpr std::uint64_t RETIRE_DELAY = 16;
+
                 /** @brief The vertex-input state structs, kept alive across a create call. */
                 struct VertexInputState
                 {
@@ -303,12 +316,36 @@ namespace SushiEngine
                                                              PipelineCache& cache)
                 : device_(device), cache_(cache)
             {
+                worker_ = std::thread(&GraphicsPipelineFactory::worker_main, this);
             }
 
-            GraphicsPipelineFactory::~GraphicsPipelineFactory() { clear_libraries(); }
+            GraphicsPipelineFactory::~GraphicsPipelineFactory()
+            {
+                shutdown_worker();
+                destroy_all();
+            }
 
             void GraphicsPipelineFactory::clear_libraries()
             {
+                quiesce();
+                destroy_all();
+            }
+
+            void GraphicsPipelineFactory::destroy_all()
+            {
+                for (std::unique_ptr<Slot>& slot : slots_)
+                {
+                    if (slot->initial != VK_NULL_HANDLE)
+                        vkDestroyPipeline(device_.device(), slot->initial, nullptr);
+                    if (slot->optimized != VK_NULL_HANDLE)
+                        vkDestroyPipeline(device_.device(), slot->optimized, nullptr);
+                }
+                slots_.clear();
+
+                for (const RetiredPipeline& retired : retired_)
+                    vkDestroyPipeline(device_.device(), retired.pipeline, nullptr);
+                retired_.clear();
+
                 std::vector<Library>* groups[] = {&vertex_input_, &pre_rasterization_,
                                                   &fragment_shader_, &fragment_output_};
                 for (std::vector<Library>* group : groups)
@@ -320,19 +357,130 @@ namespace SushiEngine
                 }
             }
 
-            VkPipeline GraphicsPipelineFactory::create(const GraphicsPipelineDesc& desc)
+            PipelineHandle GraphicsPipelineFactory::create(const GraphicsPipelineDesc& desc)
             {
                 // A depth-only pipeline has no fragment stage, so three of the four
                 // libraries would be empty or absent; building it whole is both simpler
                 // and, for the one or two such pipelines a frame has, no slower.
+                VkPipeline initial = VK_NULL_HANDLE;
+                bool fast_linked = false;
                 if (device_.supports_pipeline_library() && !desc.shading_rate_attachment &&
                     desc.fragment_shader != VK_NULL_HANDLE)
                 {
-                    const VkPipeline linked = create_linked(desc);
-                    if (linked != VK_NULL_HANDLE)
-                        return linked;
+                    initial = create_linked(desc);
+                    fast_linked = initial != VK_NULL_HANDLE;
                 }
-                return create_monolithic(desc);
+                if (initial == VK_NULL_HANDLE)
+                    initial = create_monolithic(desc);
+
+                std::unique_ptr<Slot> slot = std::make_unique<Slot>();
+                slot->desc = desc;
+                slot->initial = initial;
+                slot->active.store(initial, std::memory_order_release);
+                Slot* raw = slot.get();
+                slots_.push_back(std::move(slot));
+
+                // A fast link stitches precompiled libraries without cross-stage
+                // optimization; queue the fully optimized monolithic rebuild. A pipeline
+                // that fell back to monolithic creation is already optimal and needs none.
+                if (fast_linked)
+                    enqueue_optimize(raw);
+                return PipelineHandle(&raw->active);
+            }
+
+            void GraphicsPipelineFactory::enqueue_optimize(Slot* slot)
+            {
+                {
+                    std::lock_guard<std::mutex> lock(jobs_mutex_);
+                    jobs_.push(slot);
+                }
+                jobs_cv_.notify_one();
+            }
+
+            void GraphicsPipelineFactory::worker_main()
+            {
+                for (;;)
+                {
+                    Slot* slot = nullptr;
+                    {
+                        std::unique_lock<std::mutex> lock(jobs_mutex_);
+                        jobs_cv_.wait(lock, [this] { return stop_ || !jobs_.empty(); });
+                        if (stop_)
+                            return;
+                        slot = jobs_.front();
+                        jobs_.pop();
+                        busy_ = true;
+                    }
+
+                    // A fully optimized monolithic build of the same description: identical
+                    // in result to the fast link, faster at draw time. Swap it in and hand
+                    // the superseded fast pipeline to the frames-in-flight retirement list.
+                    // Best-effort: a failed optimize keeps the fast link rather than tearing
+                    // down the worker, so the build is guarded against a throwing check.
+                    VkPipeline optimized = VK_NULL_HANDLE;
+                    try
+                    {
+                        optimized = create_monolithic(slot->desc);
+                    }
+                    catch (...)
+                    {
+                        optimized = VK_NULL_HANDLE;
+                    }
+                    if (optimized != VK_NULL_HANDLE)
+                    {
+                        slot->optimized = optimized;
+                        slot->active.store(optimized, std::memory_order_release);
+                        {
+                            std::lock_guard<std::mutex> lock(retire_mutex_);
+                            retired_.push_back(
+                                {slot->initial,
+                                 frame_counter_.load(std::memory_order_relaxed) + RETIRE_DELAY});
+                        }
+                        slot->initial = VK_NULL_HANDLE;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(jobs_mutex_);
+                        busy_ = false;
+                    }
+                    idle_cv_.notify_all();
+                }
+            }
+
+            void GraphicsPipelineFactory::quiesce()
+            {
+                std::unique_lock<std::mutex> lock(jobs_mutex_);
+                std::queue<Slot*> empty;
+                jobs_.swap(empty);
+                idle_cv_.wait(lock, [this] { return !busy_; });
+            }
+
+            void GraphicsPipelineFactory::shutdown_worker()
+            {
+                {
+                    std::lock_guard<std::mutex> lock(jobs_mutex_);
+                    stop_ = true;
+                }
+                jobs_cv_.notify_all();
+                if (worker_.joinable())
+                    worker_.join();
+            }
+
+            void GraphicsPipelineFactory::tick()
+            {
+                const std::uint64_t now =
+                    frame_counter_.fetch_add(1, std::memory_order_relaxed) + 1;
+                std::lock_guard<std::mutex> lock(retire_mutex_);
+                for (std::size_t i = 0; i < retired_.size();)
+                {
+                    if (now >= retired_[i].retire_frame)
+                    {
+                        vkDestroyPipeline(device_.device(), retired_[i].pipeline, nullptr);
+                        retired_.erase(retired_.begin() + static_cast<std::ptrdiff_t>(i));
+                    }
+                    else
+                        ++i;
+                }
             }
 
             VkPipeline GraphicsPipelineFactory::create_compute(VkPipelineLayout layout,
@@ -344,9 +492,12 @@ namespace SushiEngine
                 info.layout = layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                Vulkan::check(vkCreateComputePipelines(device_.device(), cache_.handle(), 1, &info,
-                                                       nullptr, &pipeline),
-                              "vkCreateComputePipelines");
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    Vulkan::check(vkCreateComputePipelines(device_.device(), cache_.handle(), 1,
+                                                           &info, nullptr, &pipeline),
+                                  "vkCreateComputePipelines");
+                }
                 return pipeline;
             }
 
@@ -400,9 +551,12 @@ namespace SushiEngine
                 info.layout = desc.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                Vulkan::check(vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info,
-                                                        nullptr, &pipeline),
-                              "vkCreateGraphicsPipelines");
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    Vulkan::check(vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1,
+                                                            &info, nullptr, &pipeline),
+                                  "vkCreateGraphicsPipelines");
+                }
                 return pipeline;
             }
 
@@ -430,9 +584,12 @@ namespace SushiEngine
                 info.pInputAssemblyState = &vertex_input.assembly;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info, nullptr,
-                                              &pipeline) != VK_SUCCESS)
-                    return VK_NULL_HANDLE;
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info,
+                                                  nullptr, &pipeline) != VK_SUCCESS)
+                        return VK_NULL_HANDLE;
+                }
                 vertex_input_.push_back(Library{key, pipeline});
                 return pipeline;
             }
@@ -478,9 +635,12 @@ namespace SushiEngine
                 info.layout = desc.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info, nullptr,
-                                              &pipeline) != VK_SUCCESS)
-                    return VK_NULL_HANDLE;
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info,
+                                                  nullptr, &pipeline) != VK_SUCCESS)
+                        return VK_NULL_HANDLE;
+                }
                 pre_rasterization_.push_back(Library{key, pipeline});
                 return pipeline;
             }
@@ -525,9 +685,12 @@ namespace SushiEngine
                 info.layout = desc.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info, nullptr,
-                                              &pipeline) != VK_SUCCESS)
-                    return VK_NULL_HANDLE;
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info,
+                                                  nullptr, &pipeline) != VK_SUCCESS)
+                        return VK_NULL_HANDLE;
+                }
                 fragment_shader_.push_back(Library{key, pipeline});
                 return pipeline;
             }
@@ -561,9 +724,12 @@ namespace SushiEngine
                 info.pColorBlendState = &blend.info;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info, nullptr,
-                                              &pipeline) != VK_SUCCESS)
-                    return VK_NULL_HANDLE;
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info,
+                                                  nullptr, &pipeline) != VK_SUCCESS)
+                        return VK_NULL_HANDLE;
+                }
                 fragment_output_.push_back(Library{key, pipeline});
                 return pipeline;
             }
@@ -591,9 +757,12 @@ namespace SushiEngine
                 info.layout = desc.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
-                if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info, nullptr,
-                                              &pipeline) != VK_SUCCESS)
-                    return VK_NULL_HANDLE;
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    if (vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1, &info,
+                                                  nullptr, &pipeline) != VK_SUCCESS)
+                        return VK_NULL_HANDLE;
+                }
                 return pipeline;
             }
         } // namespace Resources

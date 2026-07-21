@@ -69,7 +69,7 @@ namespace SushiEngine
                 vkb::InstanceBuilder instance_builder;
                 instance_builder.set_app_name("SushiEngine")
                     .set_engine_name("SushiEngine")
-                    .require_api_version(1, 3, 0);
+                    .require_api_version(1, 4, 0);
                 if (desc.enable_validation)
                     instance_builder.request_validation_layers().use_default_debug_messenger();
                 for (const std::string& extension : desc.required_instance_extensions)
@@ -102,9 +102,21 @@ namespace SushiEngine
                 features_13.dynamicRendering = VK_TRUE;
                 features_13.synchronization2 = VK_TRUE;
 
+                // Vulkan 1.4 features the renderer relies on unconditionally: all three
+                // are mandatory in a conformant 1.4 implementation, so requiring them
+                // never narrows the device set at the 1.4 floor. maintenance5/6 fold a
+                // pile of small ergonomics into core; pushDescriptor lets the per-frame
+                // scene set be pushed inline instead of allocated and written.
+                VkPhysicalDeviceVulkan14Features features_14{};
+                features_14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+                features_14.maintenance5 = VK_TRUE;
+                features_14.maintenance6 = VK_TRUE;
+                features_14.pushDescriptor = VK_TRUE;
+
                 vkb::PhysicalDeviceSelector selector(instance_);
-                selector.set_minimum_version(1, 3)
-                    .set_required_features_13(features_13);
+                selector.set_minimum_version(1, 4)
+                    .set_required_features_13(features_13)
+                    .set_required_features_14(features_14);
                 if (surface_ != VK_NULL_HANDLE)
                     selector.set_surface(surface_); // require a present-capable device
                 else
@@ -145,6 +157,17 @@ namespace SushiEngine
                 features_12.bufferDeviceAddress = VK_TRUE;
                 supports_descriptor_indexing_ =
                     physical.enable_extension_features_if_present(features_12);
+
+                // Host image copy is the one 1.4 feature that stays optional: a
+                // graphics device must offer either it or a dedicated transfer queue.
+                // When present the texture streamer copies straight from host memory
+                // into an optimal-tiled image with no staging buffer or queue submit;
+                // when absent it keeps the staging + blit path.
+                VkPhysicalDeviceVulkan14Features host_copy_feature{};
+                host_copy_feature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+                host_copy_feature.hostImageCopy = VK_TRUE;
+                supports_host_image_copy_ =
+                    physical.enable_extension_features_if_present(host_copy_feature);
 
                 if (physical.enable_extension_if_present(
                         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME) &&
@@ -280,7 +303,7 @@ namespace SushiEngine
                 allocator_info.instance = instance_.instance;
                 allocator_info.physicalDevice = device_.physical_device;
                 allocator_info.device = device_.device;
-                allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+                allocator_info.vulkanApiVersion = VK_API_VERSION_1_4;
                 // VMA has to know the flag was enabled, or a buffer it allocates cannot
                 // have its address taken — which is the only way geometry reaches an
                 // acceleration structure build.

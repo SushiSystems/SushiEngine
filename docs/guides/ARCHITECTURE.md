@@ -702,9 +702,9 @@ a lower tier scales the expensive half down from it.
 Two supporting mechanisms make the graph usable day to day. `GpuProfiler` brackets
 every executed pass with timestamp queries and resolves a slot's results at the
 point its fence has already been waited on, so per-pass GPU times cost no stall;
-`ISceneView::pass_timing_count()` / `pass_timing()` surface them and the viewport
-panel draws them as an overlay, which is what lets every later pass be landed against
-a measured budget. `ShaderLibrary` ships build-time SPIR-V but also watches
+`ISceneView::pass_timing_count()` / `pass_timing()` surface them, the main loop copies
+each visible viewport's breakdown into the editor context, and the Statistics panel
+lists them, which is what lets every later pass be landed against a measured budget. `ShaderLibrary` ships build-time SPIR-V but also watches
 `render/shaders/` when it exists: an edited shader is recompiled in process with
 glslang, the device is idled, and every pipeline is rebuilt — a compile error leaves
 the previous module in place and reports on stderr.
