@@ -1,96 +1,109 @@
-# Render Pipeline Refactor — Toward an HDRP-Class, Performance-First Renderer
+# Render Pipeline Refactor — Toward an AAA, Performance-First Renderer
 
-Status: **Proposal / design**. This document is the engineering plan for evolving
-`render/` from its current offscreen forward pass into a modular, HDRP-class
-pipeline. The guiding constraint is the *red line between maximum realism and
-performance*; where the two conflict, **performance wins**. Every technique below
-carries a quality tier so the expensive half is opt-in per platform.
+Status: **Living design document.** Phases 0, 1, 2 and 5 are **shipped and verified
+against source** (see §3 — Completed). This revision re-audits the codebase, folds in
+a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
+GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
+AAA-complete phases. The guiding constraint is unchanged: the *red line between
+maximum realism and performance* — where the two conflict, **performance wins**.
+Every technique carries a quality tier so the expensive half is opt-in per platform.
+
+Companion document: **[weather_and_clouds.md](weather_and_clouds.md)** — the
+volumetric cloud + planetary weather simulation plan (Phase 8 here defers to it).
 
 ---
 
 ## 0. North star
 
 - **Physically-based, temporally-stable, HDR end to end.** No banding, no shimmer,
-  no LDR intermediate until the final display encode.
+  no LDR intermediate until the final display encode — and the display encode itself
+  is HDR-capable (scRGB / HDR10), not hard-wired to sRGB.
 - **Data-oriented and GPU-driven.** The CPU describes *what* to draw; the GPU decides
   *which* to draw and submits its own work. Draw count must not scale the CPU cost.
 - **A render graph, not a call sequence.** Passes declare reads/writes; barriers,
-  aliasing, and scheduling are derived, never hand-written. This is the SOLID spine.
-- **Planet-scale correct.** Camera-relative rendering + reverse-Z are already in
-  place and are kept as invariants — every new pass inherits them.
-- **Runtime-interop first.** Heavy precompute (noise, LUTs, culling, particle sim)
+  aliasing, and scheduling are derived, never hand-written. This is the SOLID spine —
+  shipped in Phase 0 and now the law for every new pass.
+- **Planet-scale correct.** Camera-relative rendering + reverse-Z are invariants —
+  every new pass inherits them. Anything that caches world-space data (GI probes,
+  reflection probes, cloud history) must be camera-relative or rebase-aware.
+- **Runtime-interop first.** Heavy precompute (noise, LUTs, culling, simulation)
   runs on the GPU / SushiRuntime SYCL graph, not `std::thread` on the CPU.
+- **The tier contract is real.** `RenderQuality` (Low / Medium / High / Ultra) gates
+  the expensive half of *every* pass. Today it gates exactly one thing (ray-traced
+  shadows); Phase 3 makes the contract enforceable and every later phase lands
+  tier-wired on day one.
+- **Upscaler-ready temporal core.** Every temporal pass consumes the same
+  color/depth/motion/exposure/jitter contract a vendor upscaler needs, so FSR/DLSS/
+  XeSS slot in behind one interface instead of forking the pipeline.
 
 ---
 
-## 1. Current state — honest audit
+## 1. Where we are — verified audit (2026-07)
 
-The current renderer (`render/rhi/vulkan/vulkan_scene_view.cpp`, ~2300 lines) is a
-single class that owns device resources, generates noise on the CPU, records four
-passes by hand, and resolves picking. It is competent and already does several things
-right, but it is a monolith and is missing most of the modern lighting/AA/post stack.
+The claims below were verified against source, not the previous revision of this
+document.
 
-### 1.1 What is already good (keep and build on)
+### 1.1 Shipped and working
 
-| Area | Current state |
+| Area | State |
 |---|---|
-| Precision | Camera-relative rendering; eye subtracted in double before the float cast (`make_push`, UBO fill). **Correct at planet scale.** |
-| Depth | Reverse-Z, `D32_SFLOAT_S8_UINT`, `GREATER_OR_EQUAL`. **Correct.** |
-| HDR intermediates | Scene + composite are `R16G16B16A16_SFLOAT`. |
-| Sky/atmosphere | Ray-marched single-scattering Rayleigh+Mie, quadratic step distribution, analytic ellipsoid ground, eclipse/phase geometry, star field. Physically motivated. |
-| Clouds | Nubis-style Perlin–Worley volumes, WMO genus taxonomy, single-medium multi-deck march. Genuinely advanced. |
-| API level | Vulkan 1.3 dynamic rendering + synchronization2 + VMA + timeline-ready. Modern baseline. |
-| Tonemap | ACES filmic + gamma encode in a dedicated pass. |
+| Render graph | `render/graph/` — declared access → derived `VkImageMemoryBarrier2`, dynamic-rendering scopes, dead-pass culling, transient lifetime reuse. No pass writes a barrier (one audited exception: acceleration-structure builds, which have no graph vocabulary). |
+| Pass split | `render/passes/` — one file per pass, 15 passes, all behind `register_pass(graph, frame)`. |
+| Resources | Disk-backed `VkPipelineCache` + `VK_EXT_graphics_pipeline_library` 4-library fast link, bindless update-after-bind heap, per-slot descriptor pools, sampler/shader caches, shader hot-reload (glslang in-process). |
+| Profiling | Per-pass timestamp queries surfaced in the editor viewport HUD — every phase lands against a measured budget. |
+| Materials | Full Unity-Standard-parity model: albedo/MR-ORM/normal/height(POM)/occlusion/emission/detail set, per-set tiling-offset, GPU material SoA + per-draw index, glTF 2.0 + `KHR_materials_*`, mip-streamed texture library against a byte budget. |
+| BRDF | Height-correlated Smith, Kulla-Conty multi-scatter, roughness-aware Fresnel, specular occlusion (Lagarde), IOR-derived F0 — plus anisotropy, clearcoat, sheen, transmission behind per-material flags (landed early; re-gate under tiers in Phase 3). |
+| IBL | Sky-captured cubemap → GGX-prefiltered specular chain + irradiance cube + split-sum BRDF LUT; recapture rate-limited and change-gated. |
+| Shadows | 4-cascade CSM in one 2×2 atlas (sphere-bounded, world-anchored texel snap, camera-relative fit), PCSS (blocker search + sun angular radius), screen-space contact shadows, cloud transmittance on the sun term, and tier-gated ray-query sun shadows over a real BLAS/TLAS. |
+| Temporal | Motion vectors (camera-relative-safe), Halton jitter, TAA (velocity dilation, YCoCg clip, Catmull-Rom, Karis weighting, sharpen), temporal upscaling to the output grid, GPU-time-driven dynamic resolution, VRS mask on the sky pass, FXAA fallback. |
+| Depth | Depth prepass sharing `mesh.vert` bit-exactly; reverse-Z, infinite far, `D32_SFLOAT_S8_UINT`. |
 
-### 1.2 What is missing or weak (the refactor targets)
+### 1.2 Debt carried out of the completed phases (owned by Phase 3)
 
-**Lighting & shading**
-- Single directional light only. **No shadows of any kind** (no CSM, no contact,
-  no ray-traced). This is the largest single realism gap.
-- **No punctual/area lights**, no clustered/tiled light culling — the scene cannot
-  scale past one light.
-- **No IBL.** Ambient is a flat constant `vec3` (`scene.ambient.xyz * albedo`); there
-  is no prefiltered environment, no irradiance, no BRDF LUT, no reflection probes.
-- **No SSAO/GTAO, no SSR.** Contact darkening and glossy reflections are absent.
-- BRDF is single-scatter Cook-Torrance GGX; **no multi-scatter energy compensation**
-  (rough metals lose energy), no anisotropy/clearcoat/sheen/subsurface.
+1. **The tier contract is unenforced.** `RenderQuality` exists and the editor edits
+   it, but only `RayTracedShadowPass` reads it. Nothing else scales with tier.
+2. **`VulkanSceneView` is 771 lines**, not the promised <300 — ~350 lines are
+   target/readback lifecycle that belongs in a view-resource module.
+3. **Transient "aliasing" is whole-resource reuse**, not memory aliasing on shared
+   allocations. Fine at today's target count; revisit when froxel volumes, GI
+   probes, and history buffers multiply the transient set.
+4. **The upscaling hook is homegrown-temporal only.** No vendor upscaler behind it,
+   and no abstraction a vendor upscaler could implement yet.
+5. **IBL diffuse is a convolved 32³ cubemap, not SH** — costs a sample per pixel
+   where a 9-coefficient SH would be uniform reads, and blocks cheap probe blending
+   (Phase 6 needs SH anyway).
+6. **Cloth is still CPU-triangulated and re-uploaded per frame** (buffers are
+   per-slot and grow-only now, but the geometry work is host-side).
+7. **No per-instance GPU path**: one `vkCmdDrawIndexed` + push constants per object.
+   The material/motion SoA indices are already the right shape; the draw loop is not.
 
-**Geometry & materials**
-- Vertex format is position+normal only (24 B). **No UVs, no tangents, no vertex
-  color** → normal maps, detail maps, and albedo textures are impossible today.
-- **No textures at all**, no material asset, no texture streaming.
-- **No mesh loading** (glTF); only three procedural primitives.
-- **No instancing / indirect draw / GPU culling.** One `vkCmdDrawIndexed` per object,
-  push-constant per draw → CPU-bound above a few thousand objects.
-- Cloth is CPU-triangulated and re-uploaded **every frame**.
+### 1.3 The AAA gap (what the new phases exist to close)
 
-**Anti-aliasing & temporal**
-- **No anti-aliasing whatsoever** (`rasterizationSamples = 1`, no TAA/FXAA/SMAA).
-  Edges and the volumetric clouds shimmer. **No motion vectors** exist, which blocks
-  TAA, motion blur, and temporal cloud reprojection.
+**Lighting** — one directional light, period. No punctual/spot/area lights, no
+clustered culling, no per-light shadows, no GI beyond the sky IBL, no AO beyond the
+material map, no SSR, no volumetric fog. This is the largest remaining realism gap
+and it is *structural* (the light list, cluster grid, and shadow atlas are missing,
+not just passes).
 
-**Post-processing**
-- Only ACES + gamma. **No bloom, no auto-exposure** (exposure is a fixed `0.18`),
-  no DoF, no motion blur, no color grading/LUT, no vignette/CA/grain, no lens flare.
-- **No dithering before the 8-bit quantize** → visible banding on the sky gradient.
+**Atmosphere** — still a full-res per-pixel single-scatter march with a hand-tuned
+multi-scatter constant. The Hillaire LUT stack (transmittance / multi-scatter /
+sky-view / aerial-perspective froxels) is absent — quality *and* performance on the
+table simultaneously.
 
-**Atmosphere & clouds (quality/perf)**
-- Atmosphere is marched **per pixel, full-res, every frame** with no precomputed LUTs
-  → expensive and single-scatter only (no multiple scattering, sky is too dark).
-- Clouds are half-res but the tonemap upsample is a **naive bilinear** `texture()`
-  fetch — not depth-aware/bilateral → halos at silhouettes. No temporal reprojection
-  or blue-noise jitter accumulation → the 32–96-step march is noisy under motion.
+**Clouds** — half-res march exists but repeats visibly, degrades with altitude, and
+has no temporal accumulation and no weather dynamics. Full plan in the companion
+document.
 
-**Architecture**
-- One ~2300-line class = SRP violation. Barriers are hand-wired and conservative
-  (full `FRAGMENT_SHADER` stage everywhere).
-- **No render graph, no frame graph, no pass abstraction.** Adding a pass means
-  editing the god-class and threading new descriptor bindings through
-  `create_targets`.
-- **No pipeline cache**, no descriptor indexing/bindless, no shader hot-reload,
-  single graphics queue, no async compute, no GPU timing/instrumentation.
-- One giant `SceneUbo` re-uploaded in full each frame; descriptor sets rebuilt on
-  every resize.
+**Post** — fixed exposure × ACES × gamma. No auto-exposure, bloom, grading, DoF,
+motion blur, dither, or HDR output.
+
+**Geometry** — no instancing, no indirect draws, no GPU culling, no meshlets.
+
+**Delivery** — single graphics queue, binary fences, double buffering, no async
+compute, no vendor upscalers, no frame pacing.
+
+**Editor** — no Lighting window, no Post-Process Volume stack (the Rendering panel
+and material inspector exist).
 
 ---
 
@@ -98,333 +111,487 @@ right, but it is a monolith and is missing most of the modern lighting/AA/post s
 
 ```
                     ┌─────────────────────────────────────────────┐
-                    │              RenderGraph                     │
-                    │  (declares passes, derives barriers/aliasing,│
-                    │   schedules graphics + async-compute queues) │
+                    │              RenderGraph  (shipped)          │
+                    │  declares passes, derives barriers/aliasing, │
+                    │  schedules graphics + async-compute queues   │
                     └─────────────────────────────────────────────┘
    FrameContext ──▶  passes register into the graph each frame:
 
-   [GPU 2-phase cull/HZB] → [Depth prepass] → [Clustered light+decal cull]
-        → [GBuffer OR Forward+] → [Shadows: CSM/contact/RT] → [SSAO/GTAO]
-        → [Sky-view+aerial LUTs] → [Lighting + IBL + decals] → [SSR]
-        → [Volumetric fog/lighting] → [Volumetric clouds (½-res, temporal)]
-        → [Transparents (Forward)] → [TAA resolve] → [Auto-exposure] → [Bloom]
-        → [DoF/MotionBlur] → [Tonemap + grade + dither] → [FXAA/output]
-        → [ImGui / present]
+   [GPU 2-phase cull/HZB] → [Depth prepass ✓] → [Clustered light+decal cull]
+        → [Forward+ opaque (thin GBuffer optional)] → [Shadows: CSM ✓ /atlas/RT ✓]
+        → [GTAO] → [Sky-view+aerial LUTs] → [Lighting + IBL ✓ + decals] → [SSR]
+        → [GI probe gather] → [Froxel fog] → [Clouds (companion doc)]
+        → [Transparents/OIT] → [TAA ✓ / vendor upscaler] → [Auto-exposure] → [Bloom]
+        → [DoF/MotionBlur] → [Tonemap (AgX/ACES/Neutral) + grade + dither]
+        → [HDR/SDR encode] → [FXAA ✓] → [ImGui / present]
 
-   (VRS mask + dynamic-resolution scale wrap the shading-heavy passes; every pass is
-    scheduled across graphics + async-compute queues by the graph.)
+   (VRS ✓ + dynamic resolution ✓ wrap the shading-heavy passes; the graph places
+    compute passes on the async queue once Phase 11 opens it.)
 ```
 
-The pipeline splits into **library modules** behind narrow interfaces, so a pass is a
-unit that can be added, reordered, or A/B-tested without touching its neighbours:
+Module layout is unchanged and shipped: `render/graph/`, `render/frame/`,
+`render/passes/`, `render/resources/`, `render/material/`, plus `render/scene/`,
+`render/geometry/`, `render/textures/`, `render/raytracing/`. New systems land as
+new modules behind the same seams (`render/lighting/`, `render/gi/`,
+`render/weather/`, `render/post/`).
 
-- `render/graph/` — `RenderGraph`, `RenderPassNode`, `ResourceHandle`,
-  transient-resource allocator with memory aliasing, automatic barrier insertion from
-  declared access, queue scheduling. **This lands first; everything else is a client.**
-- `render/frame/` — `FrameContext` (per-frame camera, jittered matrices, prev-frame
-  matrices for motion vectors, exposure state, quality tier).
-- `render/passes/` — one file per pass (`depth_prepass`, `gbuffer`, `shadow_csm`,
-  `gtao`, `lighting`, `ssr`, `atmosphere_lut`, `clouds`, `taa`, `bloom`, `tonemap`, …).
-- `render/resources/` — `TexturePool`, `BufferPool`, `PipelineCache`, `SamplerCache`,
-  bindless descriptor heap.
-- `render/material/` — `Material`, `TextureAsset`, `MeshAsset`, glTF import.
+### 2.1 Lighting architecture decision (validated 2025)
 
-`VulkanSceneView` becomes a thin orchestrator: build `FrameContext`, let each pass
-register into the graph, compile, submit. Target: **< 300 lines.**
+**Clustered Forward+ stays the default** — the 2024–2026 survey confirms it: froxel
+clustering is the settled norm (Doom, Detroit, Unity Forward+), robust to depth
+discontinuities, MSAA/TAA-friendly, and the low-bandwidth choice for a flight sim's
+mostly-opaque, planet-resolution scenes. The froxel grid is shared infrastructure:
+light culling, decals, and volumetric fog all consume it (built once in Phase 4,
+reused by Phases 7/8/13). A thin optional GBuffer stays on the table for deferred
+decals/SSR fidelity, tier-gated. Visibility-buffer rendering is explicitly **not**
+adopted — it pays off when triangle density collapses below pixel size (Nanite,
+Northlight), which the planet LOD ladder already prevents.
 
-### 2.1 Lighting architecture decision
+For *many shadowed lights*, the 2025 pattern to adopt later is **stochastic light
+visibility** (UE5 MegaLights-shaped: importance-sample a few lights per pixel with
+temporal feedback, visibility by ray query or SDF trace) rather than ReSTIR DI,
+which shipped only on HW-RT flagships and scales poorly on consoles. That is
+Phase 12, and it drops into the clustered grid rather than replacing it.
 
-Adopt a **hybrid**: a **depth prepass + clustered Forward+** as the default (MSAA/TAA
-friendly, cheap for a flight-sim's mostly-opaque scenes, no fat GBuffer bandwidth at
-planet-scale resolutions), with an **optional thin GBuffer** path enabled by the
-quality tier for scenes that want deferred decals/SSR fidelity. Clustered light
-culling (froxel grid, compute) is shared by both. This keeps the performance-first
-promise: Forward+ has the lower memory/bandwidth floor, which is where we lean.
+### 2.2 Material model — **shipped**, see §3 Phase 1
 
-### 2.2 Material model (Unity-Standard parity, extended)
-
-The material is a **GPU struct** (SoA in a storage buffer, indexed per instance so it
-is GPU-driven friendly) plus a set of **bindless texture indices**. All maps are
-optional — a null index means "use the scalar/constant". Every map samples through a
-**per-material main `tiling (xy)` + `offset (xy)`** (the Unity ST vector), with the
-detail set carrying its own tiling/offset. This is the headline authoring surface and
-must be first-class.
-
-**Core PBR inputs (metallic-roughness, glTF-native; spec-gloss import-converted):**
-
-| Slot | Map | Scalars / tint | Notes |
-|---|---|---|---|
-| **Albedo** | base-color (sRGB) + alpha | `base_color` tint (RGBA) | alpha drives cutout/transparent |
-| **Metallic-Roughness** | packed MR (or ORM) | `metallic`, `roughness` (or `smoothness`) | glTF packs R=occl?, G=rough, B=metal; support ORM single-map |
-| **Normal** | tangent-space normal | `normal_scale` (bump strength) | needs tangents (Phase 1.1); reconstruct Z |
-| **Height** | height/displacement | `height_scale`, POM step count | **Parallax Occlusion Mapping** (self-occlusion + optional contact shadow), silhouette-clip toggle |
-| **Occlusion** | AO | `occlusion_strength` | multiplies indirect diffuse; feeds specular occlusion |
-| **Emission** | emissive (sRGB) | `emissive_color` (HDR), `emissive_intensity`, `emissive` toggle | unlit radiance, tonemapped; drives bloom |
-
-**Detail (secondary) set — Unity-style:** `detail_albedo`, `detail_normal`,
-`detail_mask`, with an independent `detail_tiling/offset`, blended over the base for
-close-up micro-detail without huge base textures.
-
-**Advanced lobes (quality-tier gated, off by default for perf):** anisotropy
-(+ direction), clearcoat (+ roughness + normal), sheen (cloth), subsurface /
-transmission (thin/skin/foliage). Each is a separate `#define` shader permutation so
-the default opaque material stays cheap.
-
-**Rendering state (per material, Unity-parity):** `surface_type`
-(Opaque / Cutout / Transparent / Fade), `alpha_cutoff`, `cull_mode`
-(Off / Front / Back — i.e. double-sided), `blend_mode`, `render_queue`, receive/cast
-shadow flags, GPU-instancing flag. Sampler carries anisotropic filtering level and
-wrap mode.
-
-Import path: **glTF 2.0** maps 1:1 onto the core set (metallic-roughness, normal,
-occlusion, emissive) including `KHR_materials_*` extensions (clearcoat, sheen,
-transmission, ior, emissive_strength) → the advanced lobes. A material inspector in
-the editor exposes every field above, laid out like Unity's Standard shader: base map
-+ tint, MR + sliders, normal + strength, height + amount, occlusion + strength,
-emission + HDR color + intensity, detail fold-out, tiling/offset at the top.
+The §2.2 model of the previous revision shipped essentially verbatim (verified:
+maps, detail set, tiling/offset, rendering state, glTF import incl. extensions,
+inspector). Two follow-ups live in the roadmap: tier-gating the advanced lobes
+(Phase 3) and sparse virtual texturing for terrain-scale sets (Phase 10).
 
 ### 2.3 Per-camera view & culling system
 
-Each camera / `ISceneView` owns an independent **view context**: its frustum, its
-**culling result**, its **post-process volume stack**, and its **quality tier**. This
-lets the editor's viewport, a game camera, and reflection/shadow views each cull and
-grade independently. Culling is layered, cheapest first:
-
-1. **CPU frustum + distance/small-object cull** — coarse reject on a BVH of instance
-   bounds; produces the candidate set.
-2. **GPU two-phase occlusion culling (Hi-Z)** — build a depth pyramid (Hi-Z) from the
-   depth prepass; **phase 1** draws last-frame-visible objects and tests the rest
-   against the *previous* frame's Hi-Z; **phase 2** re-tests the false-negatives
-   against the *current* Hi-Z and draws the newly-revealed ones. This is the UE5/
-   "GPU-driven" pattern — no CPU readback, no popping, one indirect draw. Compute
-   writes `VkDrawIndexedIndirectCommand` args directly.
-3. **Per-light shadow culling** — each cascade / spot / point face culls its own set,
-   reusing the same BVH.
-
-The result feeds indirect draws (Phase 7). Because culling is GPU-side and per-view,
-draw-call count stops being a CPU cost — the core performance-first promise.
+Unchanged as a target; realized in Phase 10 (GPU two-phase Hi-Z per view) and
+Phase 4 (per-light culling against the shadow atlas). Each `ISceneView` owns its
+frustum, culling result, post-volume stack, and tier.
 
 ### 2.4 Editor integration — Lighting & Post-Processing windows
 
-Two dedicated editor panels back the whole feature set with data structs that map
-directly onto pass parameters (added to `editor/ui/editor_panels.*`).
-
-**Lighting window**
-- **Sun/directional**: direction (or a sun-position/time-of-day driver tied to the
-  existing ephemeris), color, intensity (lux/EV), angular size (soft shadows).
-- **Environment / IBL**: source (procedural sky capture / HDRI / solid), intensity,
-  rotation; ambient mode (flat / SH / IBL).
-- **Shadows**: cascade count, max distance, per-cascade resolution, split lambda,
-  depth bias/normal bias, softness (PCF/PCSS), contact-shadow toggle, RT-shadow tier.
-- **Atmosphere & fog**: existing atmosphere params + volumetric fog density, height
-  falloff, scattering albedo, sun/god-ray strength.
-- **Punctual/area lights list**: add/remove point/spot/area/tube lights; per-light
-  color, intensity, range, spot cone, shadows on/off, **cookie/IES profile**.
-
-**Post-Processing window** (a stackable **Post-Process Volume**, Unity-post-stack /
-HDRP-Volume style — settings can be global or blended by camera/trigger):
-- **Auto-Exposure**: min/max EV, exposure compensation, adaptation speed, metering.
-- **Tonemapping**: mode (ACES / AgX / Neutral), manual EV override.
-- **White Balance / Color Grading**: temperature, tint, contrast, saturation,
-  lift-gamma-gain, and a **3D LUT** slot.
-- **Bloom**: threshold, intensity, scatter, lens-dirt.
-- **Depth of Field**: focus distance, aperture (f-stop), focal length, bokeh quality.
-- **Motion Blur**: intensity, sample count.
-- **Ambient Occlusion (GTAO)**: intensity, radius, thickness.
-- **Screen-Space Reflections**: quality, max distance, thickness.
-- **Vignette, Chromatic Aberration, Film Grain, Lens Flare**: standard knobs.
-- **Dithering**: toggle (on by default; blue-noise, pre-quantize).
-
-Each override is toggleable; unset overrides inherit the volume below. The stack
-resolves to the per-camera params the RenderGraph passes read.
+Unchanged as a target (the previous revision's full control list stands). The
+Lighting window lands with Phase 4 (it edits the light list the phase creates); the
+Post-Process Volume stack lands with Phase 9. Both back onto plain data structs that
+map 1:1 onto pass parameters — the editor writes data, passes read data, neither
+names the other (DIP).
 
 ---
 
-## 3. Phased roadmap
+## 3. Completed phases — archive
 
-Each phase is independently shippable and leaves the editor working. Ordering favors
-(a) unblocking everything else, then (b) the biggest realism-per-cost wins.
+Kept for the record; each item is verified in source. Residual debt is listed in
+§1.2 and owned by Phase 3.
 
-### Phase 0 — Foundation (no visible change; enables all of the above) — **COMPLETED**
-1. **RenderGraph** with automatic barriers + transient aliasing. Port the existing
-   four passes onto it unchanged as the migration proof.
-2. **PipelineCache** (`VkPipelineCache` on disk) + `VK_EXT_graphics_pipeline_library`
-   for fast startup.
-3. **Bindless** (`VK_EXT_descriptor_indexing`): one global texture/buffer heap;
-   materials index into it. Kills per-slot descriptor rebuilds.
-4. **GPU timing** (timestamp queries) + a per-pass profiler HUD in the editor.
-5. **Shader hot-reload** (watch `render/shaders/`, recompile to SPIR-V, rebuild
-   pipelines) — force-multiplier for all subsequent visual work.
-6. Move cloud-noise generation off `std::thread` onto a **compute shader / SushiRuntime
-   SYCL** job.
+### Phase 0 — Foundation ✓ (shipped)
 
-### Phase 1 — Shading core — **COMPLETED**
-1. **Vertex format upgrade**: position, normal, tangent, UV0 (+ optional UV1/color).
-   Regenerate primitive meshes with tangents; add a proper mesh vertex struct.
-2. **Material system + textures** — the full §2.2 model: albedo, MR/ORM, normal,
-   height (**parallax occlusion mapping**), occlusion, emission, detail set, all with
-   per-map **tiling/offset**; sRGB vs linear handling; anisotropic sampling; mip
-   generation; bindless texture indices; a GPU material buffer indexed per instance.
-3. **glTF 2.0 mesh + material import** (`render/material/gltf.*`, incl. `KHR_materials_*`)
-   so real assets and their PBR materials replace primitives.
-3a. **Texture streaming / virtual texturing** hook so 4K+ material sets do not blow the
-   VRAM budget (mip-based residency; upgrade to sparse/VT under the Ultra tier).
-4. **BRDF upgrade**: multi-scatter energy compensation (Kulla-Conty), Fresnel with
-   roughness, specular occlusion; optional clearcoat/sheen behind the tier.
-5. **IBL**: capture/prefilter an environment (from the analytic sky!) into a
-   prefiltered specular cube + irradiance SH + a shared **split-sum BRDF LUT**. Replace
-   the flat ambient constant. This alone transforms material readability.
+1. ✓ RenderGraph with automatic barriers, dead-pass culling, transient reuse
+   (`render/graph/render_graph.*`, `resource_state.*`).
+2. ✓ Disk-backed `VkPipelineCache` + `VK_EXT_graphics_pipeline_library` fast link
+   with monolithic fallback (`render/resources/pipeline_cache.*`).
+3. ✓ Bindless update-after-bind heap, set 1, textures + storage buffers
+   (`render/resources/descriptor_heap.*`).
+4. ✓ Per-pass GPU timestamps + editor HUD (`render/graph/gpu_profiler.*`).
+5. ✓ Shader hot-reload with in-process glslang and `#include`
+   (`render/resources/shader_library.*`).
+6. ✓ Cloud noise on compute dispatches (`render/textures/cloud_noise.*`) — Vulkan
+   compute rather than SYCL; the SYCL interop seam remains Phase 11.
 
-### Phase 2 — Shadows — **COMPLETED**
-1. **Cascaded Shadow Maps** for the sun (3–4 cascades, stabilized, PCF/PCSS), tuned
-   for planet-scale far planes (log/practical split + reverse-Z depth).
-2. **Screen-space contact shadows** to recover small-scale contact the CSM resolution
-   misses.
-3. **Cloud → ground shadowing** already exists analytically; feed the cloud
-   transmittance into the sun term properly here.
-4. *(Tier: Ultra)* **Ray-traced sun shadows** via the `blas_placeholder`/TLAS path
-   when `VK_KHR_ray_tracing_pipeline` is present.
+### Phase 1 — Shading core ✓ (shipped)
 
-### Phase 3 — Ambient occlusion, reflections, GI
-1. **GTAO** (ground-truth AO) with a bent-normal output feeding both diffuse and
-   specular occlusion.
-2. **SSR** (hi-Z traced) for glossy screen-space reflections; fall back to IBL probes
-   off-screen.
-3. **Reflection probes** (box/sphere-projected) placed in the scene; blended with SSR.
-4. **Specular occlusion** from GTAO bent normals + horizon-based AO on the IBL specular.
-5. **Clustered decals** (projected onto the depth/GBuffer, sharing the froxel grid) for
-   surface detail without extra geometry.
-6. *(Tier: Ultra)* **RTGI / DDGI** or ray-traced reflections on the RT path.
+1. ✓ Vertex format: position, normal, tangent (w = handedness, zero = derive from
+   derivatives), UV0/UV1, color; primitives regenerated with analytic tangents.
+2. ✓ Material system + textures: the full §2.2 surface incl. POM with
+   self-shadowing, detail set, per-set ST, neutral-default fallbacks so unset maps
+   cost nothing semantically (`render/material/`, `pbr.frag`).
+3. ✓ glTF 2.0 import (cgltf): MR + spec-gloss conversion, `KHR_texture_transform`,
+   clearcoat/sheen/transmission/emissive_strength, tangent generation.
+4. ✓ Mip-based texture streaming against a byte budget, non-blocking uploads,
+   fence-guarded reclamation (`render/material/texture_library.*`).
+5. ✓ BRDF upgrade: Kulla-Conty energy compensation, height-correlated Smith,
+   roughness-aware Fresnel, specular occlusion, IOR-derived F0; advanced lobes
+   present behind material flags.
+6. ✓ IBL from the engine's own sky: prefiltered specular chain + irradiance cube +
+   split-sum LUT, change-gated recapture (`render/passes/ibl_pass.*`).
 
-### Phase 4 — Atmosphere & clouds (perf + fidelity)
-1. **Precomputed atmosphere LUTs (Bruneton / Hillaire)**: transmittance LUT,
-   multi-scatter LUT, per-frame **sky-view LUT** (low-res, marched once) and **aerial-
-   perspective froxel volume**. The full-res per-pixel march is replaced by cheap LUT
-   lookups → *multiple scattering for free and a large speedup*. Directly serves the
-   performance-first mandate.
-2. **Temporal volumetric clouds**: reproject the half-res march with per-frame
-   blue-noise ray-offset + a history buffer (needs motion vectors from Phase 5, so
-   land the reprojection scaffold here and enable when TAA arrives).
-3. **Bilateral (depth-aware) upsample** for the cloud composite to kill silhouette
-   halos, replacing the naive bilinear fetch in `tonemap.frag`.
-4. **Volumetric fog / lighting (froxel)** — a view-frustum-aligned 3D volume that
-   accumulates in-scattered light from the sun and every clustered light, integrated to
-   a scattering/transmittance texture. Gives god rays, light shafts, height fog, and
-   fog that punctual lights actually illuminate — one of the biggest atmosphere wins,
-   and it reuses the aerial-perspective froxel infrastructure.
+### Phase 2 — Shadows ✓ (shipped)
 
-### Phase 5 — Anti-aliasing & temporal core — **COMPLETED**
-1. **Motion vectors**: a velocity target written from current vs previous clip
-   position (add prev-frame matrices to `FrameContext`; jittered projection).
-2. **TAA** with neighborhood clamping, YCoCg history, and a sharpening pass. This is
-   the single biggest perceived-quality jump and is *cheaper than MSAA* at these
-   resolutions — the performance-first AA choice.
-3. **Upscaling hook** (FSR2/XeSS-style or vendor DLSS/FSR) sharing the TAA motion
-   vectors, so the internal render resolution can drop while output stays sharp — the
-   ultimate performance lever.
-4. Keep a cheap **FXAA** fallback for the low tier / no-history first frame.
-5. **Dynamic resolution scaling** — drive the internal render scale from the measured
-   GPU frame time (Phase 0 timers) so the frame budget holds under load; the TAA
-   upscaler hides the resolution change. The primary automatic performance governor.
-6. **Variable Rate Shading (VRS)** — shade at reduced rate where it is invisible
-   (post-DoF/motion-blur regions, low-contrast interiors, far froxel fog), driven by a
-   VRS mask from luminance/edge/velocity. Big fill-rate saving at planet-scale
-   resolutions where `sky.frag`/`cloud.frag`/lighting are the cost.
+1. ✓ CSM: up to 4 cascades in one 2×2 atlas — one image/pass/barrier/profiler
+   entry; practical splits, sphere-bounded cascades, world-anchored texel snap,
+   camera-relative fit, PCSS with 16 rotated Poisson taps averaged by the temporal
+   resolve (`render/passes/shadow_pass.*`, `scene/shadow_uniforms.*`).
+2. ✓ Screen-space contact shadows, metre-bounded march on the prepass depth
+   (`render/passes/contact_shadow_pass.*`).
+3. ✓ Cloud transmittance on the sun term for meshes and the analytic ground
+   (`cloud_shadow_common.glsl`).
+4. ✓ *(Ultra)* Ray-traced sun shadows: BLAS-per-mesh + per-frame TLAS, ray-query
+   fullscreen visibility mask so the material shader never forks
+   (`render/raytracing/`, `render/passes/ray_traced_shadow_pass.*`).
 
-### Phase 6 — Post-processing stack
-1. **Auto-exposure** (compute histogram → adapted luminance) replacing the fixed
-   `exposure = 0.18`; physical camera (EV100, aperture/shutter/ISO) optional.
-2. **Physically-based bloom** (progressive down/upsample, energy-conserving).
-3. **Depth of field** (bokeh) and **motion blur** (per-object + camera, from velocity).
-4. **Tonemap upgrade**: AgX or Tony-McMapface alongside ACES (better hue handling),
-   selectable; **display transform** aware (sRGB / Rec.2020 HDR output path).
-5. **Color grading** (3D LUT), vignette, chromatic aberration, film grain, lens flare.
-6. **Dithering** (blue-noise) before the 8-bit encode → removes sky banding.
+### Phase 5 — Anti-aliasing & temporal core ✓ (shipped)
 
-### Phase 7 — GPU-driven geometry
-1. **Instancing + indirect draw**: one draw per mesh type, per-instance data in a
-   storage buffer. Removes the per-object CPU cost in `render()`.
-2. **GPU two-phase occlusion culling** via a **Hi-Z pyramid** (the §2.3 system), fully
-   per-camera and per-shadow-view; compute writes the indirect draw args — no CPU
-   readback, no popping.
-3. **Mesh LOD** + **HLOD/impostor** selection on the GPU; hooks into the existing
-   body-LOD ladder so the planet-to-space transition reuses one LOD system.
-4. *(Tier: Ultra)* **Mesh shaders / meshlets** with per-meshlet cone + Hi-Z culling.
-5. Persistent cloth buffers (double-buffered, no per-frame realloc) + GPU
-   triangulation.
-
-### Phase 8 — Async & interop
-1. **Async compute queue** for GTAO, clouds, bloom, culling, LUTs — overlapped with
-   graphics. The RenderGraph scheduler places them.
-2. **SushiRuntime SYCL interop** for particle/GPU-sim data feeding the renderer
-   without a round-trip to host memory (the "interop-first" mandate).
-3. **Frame pacing & low latency** — timeline-semaphore frame graph, triple buffering,
-   and a Reflex-style latency-reduction (submit-as-late-as-possible) so the measured
-   budget translates into steady, low-input-lag frames.
+1. ✓ Motion vectors: R16G16 target, per-frame previous-transform array, both sides
+   camera-relative against their own frame's eye; sky reprojected from the view ray.
+2. ✓ TAA: velocity dilation, YCoCg neighborhood clip, Catmull-Rom history,
+   Karis-weighted blend, sharpen (`render/passes/taa_pass.*`, `taa.frag`).
+3. ◐ Upscaling: homegrown temporal upscale (history at output extent) shipped; the
+   vendor-upscaler abstraction is Phase 11.
+4. ✓ FXAA fallback, fully history-free (`render/passes/fxaa_pass.*`).
+5. ✓ Dynamic resolution driven by measured GPU time, quantized steps
+   (`render/frame/resolution_controller.*`).
+6. ✓ VRS: compute-derived per-tile rate image from luminance contrast + motion,
+   bound by the sky pass; silently absent without the extension
+   (`render/passes/shading_rate_pass.*`).
 
 ---
 
-### Phase 9 — Additional tier-gated techniques (completeness)
+## 4. Roadmap — the remaining phases, AAA-complete
 
-Professional-pipeline features that are not on the critical path but round out parity;
-each is Ultra-tier and slots into the graph without disturbing the default path:
-- **Order-Independent Transparency** (weighted-blended or per-pixel linked-list) for
-  correct layered glass/foliage/particles.
-- **Screen-space subsurface scattering** (separable Burley) for skin/wax/foliage,
-  feeding the material subsurface lobe.
-- **Hardware tessellation / displacement** for true silhouette displacement where POM
-  is not enough (terrain patches, close-up hero assets).
-- **CAS / contrast-adaptive sharpening** after upscaling.
-- **Water rendering** (screen-space + planar reflection, foam, refraction) for the
-  planet ocean beyond the current analytic tint.
-- **Debug/validation views** (overdraw, mip level, light complexity, VRS rate, cull
-  heatmap) surfaced in the editor alongside the GPU profiler.
+Ordering favors (a) structural unblockers, then (b) realism-per-cost. Every phase:
+ships with its editor surface, its tier wiring, its GPU-profiler budget, and its
+CHANGELOG/ARCHITECTURE entry in the same PR; lands as new files behind the
+`register_pass(graph, frame)` contract (OCP); and must not regress the
+camera-relative / reverse-Z invariants.
 
-## 4. Cross-cutting concerns
+### Phase 3 — Foundation hardening & platform floor
 
-- **Quality tiers.** A `RenderQuality` enum (Low / Medium / High / Ultra) gates the
-  expensive half of every pass (RT, DDGI, mesh shaders, DoF, higher LUT/shadow res,
-  internal resolution scale). The default target is **High at a locked frame budget**;
-  the red line moves toward performance by dropping a tier, never by disabling a
-  feature ad hoc.
-- **Color management.** One documented convention: textures tagged sRGB/linear at
-  import; all lighting in linear; a single display-transform at the end. Fixes the
-  ad-hoc `pow(1/2.2)`.
-- **Performance budget.** Per-pass GPU timings surfaced in the editor from Phase 0, so
-  every subsequent pass is landed against a measured budget, not a guess.
-- **Precision invariants.** Camera-relative + reverse-Z are non-negotiable; the graph
-  validates that no pass reintroduces absolute world positions at float precision.
+Pays §1.2's debt before new systems multiply it, and locks the platform baseline.
 
-## 5. How this satisfies SOLID
+1. **Enforce the tier contract.** A per-pass `QualityParams` resolved from
+   `RenderQuality` in one place (`render/frame/quality.{hpp,cpp}`) — march budgets,
+   resolution fractions, tap counts, feature toggles — so a pass reads *resolved
+   parameters*, never the raw enum (SRP: tier policy lives in one file). Wire the
+   existing passes (PCSS taps, contact-march length, cloud budget, VRS
+   aggressiveness, advanced material lobes) through it. Acceptance: switching
+   Low↔Ultra visibly rescales every major pass in the profiler HUD.
+2. **Slim `VulkanSceneView` below 300 lines**: extract target/readback lifecycle
+   into a `ViewResources` module (`render/rhi/vulkan/view_resources.*`). Pure
+   refactor, no behavior change.
+3. **PSO hitch elimination**: background link-time-optimized pipeline recompile +
+   swap on top of the existing GPL fast link; pipeline usage harvesting to a
+   precache list warmed at startup (the Khronos/Epic-documented recipe). Target:
+   zero first-use hitches in a captured flight.
+4. **Vulkan 1.4 floor** (drivers are conformant industry-wide since 2025): promote
+   maintenance5/6, `host_image_copy` for texture streaming, push descriptors;
+   delete the fallbacks they obsolete.
+5. **Binding-layer future-proofing**: isolate every descriptor-set touch behind the
+   existing heap/allocator seams so the announced `VK_EXT_descriptor_heap`
+   (Roadmap 2026) is a backend swap, not a refactor. Do **not** adopt
+   `VK_EXT_descriptor_buffer` (dead end).
+6. **Shading-language decision**: evaluate migrating `render/shaders/` to **Slang**
+   (Khronos-hosted, Valve-shipped, generics/modules, SPIR-V-first) while the shader
+   count is still ~30. If adopted, the hot-reload path and build tool compile Slang;
+   GLSL includes are ported module-by-module. If deferred, record why — the cost
+   only grows.
+7. **IBL diffuse → SH-9** (from the audit): project the irradiance capture onto
+   9 SH coefficients; uniform-buffer reads replace a cubemap sample, and Phase 6's
+   probe blending becomes trivial.
 
-- **SRP** — the god-class splits into graph, passes, resource pools, material, frame
-  context; each has one reason to change.
-- **OCP** — a new effect is a new `RenderPassNode` registered into the graph; existing
-  passes are untouched (mirrors the existing `cloud_genus_profile` extension pattern).
-- **LSP** — every pass honors the same `register(graph, frame)` contract; the RHI
-  stays behind `IRenderDevice` / `ISceneView`.
-- **ISP** — passes depend on narrow handles (`ResourceHandle`, `FrameContext`), not on
-  the whole renderer.
-- **DIP** — passes depend on graph/resource abstractions; Vulkan specifics stay in the
-  `render/rhi/vulkan` implementation layer.
+*Performance note:* this phase is net-negative GPU cost (SH, precache) and
+removes the worst CPU spikes (PSO links).
 
-## 6. Suggested sequencing
+### Phase 4 — The light engine: clustered Forward+ (the structural gap)
 
-Phase 0 → 1 → 5 (TAA/motion vectors, since Phase 4.2 and Phase 6 depend on them) →
-2 → 3 → 4 → 6 → 7 → 8 → 9.
+The scene cannot exceed one light today; this phase makes light count a content
+decision. New module `render/lighting/`.
 
-> **Status.** Phases 0, 1, 5 and 2 are complete and verified in the editor. Phase 3
-> (ambient occlusion, reflections, GI) is next in the sequence, and inherits the
-> acceleration structure Phase 2 built. Each completed phase shipped its
-> CHANGELOG/ARCHITECTURE entry with it. Phases 2/3/6 can interleave once the temporal core exists;
-Phase 9 items land opportunistically per demand.
-Each phase ships its CHANGELOG/ARCHITECTURE entry in the same PR, per repo policy.
+1. **Light list**: point / spot / directional-secondary / area (rect, tube) lights
+   as engine objects — color, intensity in physical units (lumen/candela; the sun
+   stays lux), range by inverse-square with a windowed falloff, spot cones, IES
+   profiles and cookies (bindless textures). CPU side is a plain SoA; GPU side one
+   storage buffer.
+2. **Froxel cluster grid** (compute): view-frustum-aligned, ~16×9×24 base with
+   logarithmic Z slicing (matches the aerial-perspective froxels of Phase 7 so the
+   two share addressing), per-cluster light index list built each frame. Budget:
+   ≤0.3 ms at 1080p internal for 1k lights.
+3. **Forward+ shading path**: `pbr.frag` gains a cluster fetch + light loop with
+   the existing BRDF; specular occlusion and contact shadows apply per light where
+   meaningful. Sun path unchanged.
+4. **Per-light shadows**: one shared shadow **atlas** (like the CSM atlas —
+   one image, one pass, one profiler entry), quadtree-allocated tiles sized by
+   screen coverage, dormant-light caching (a static light's tile persists until it
+   or its casters move), spot = 1 tile, point = 6 or DPCF-paraboloid under tier.
+   PCF now; PCSS on High+.
+5. **Clustered decals**: project into the same froxel grid; sample in the opaque
+   pass before shading (albedo/normal/roughness overrides).
+6. **Editor Lighting window** (§2.4): sun/ephemeris driver, environment/IBL
+   source, shadow settings, and the punctual-light list with per-light everything.
+7. **Emissive → bloom seam**: emissive intensity already exists; verify HDR range
+   survives to Phase 9's bloom threshold.
 
-## 7. Biggest realism-per-cost wins (if you only do five things)
+*Performance notes:* clustered culling is the flat-cost foundation everything
+reuses; the atlas + caching keeps worst-case shadow cost bounded by tile budget,
+not light count. Tier: light count ceiling, atlas size, PCSS on/off.
+*SOLID:* lights are data; culling, atlas, and shading depend on the grid and the
+list, never on each other (ISP). `ILightSource` never appears — lights are not
+polymorphic objects, they are records (data-oriented mandate).
 
-1. **IBL** (Phase 1.5) — replaces flat ambient; single largest material-fidelity jump.
-2. **CSM sun shadows** (Phase 2.1) — grounds every object in the scene.
-3. **TAA + motion vectors** (Phase 5) — kills all shimmer; unlocks upscaling for perf.
-4. **Atmosphere LUTs** (Phase 4.1) — multiple scattering *and* a big speedup at once.
-5. **GTAO + dithering** (Phase 3.1 / 6.6) — contact darkening + removes sky banding.
+### Phase 5 — Screen-space lighting quality: GTAO + SSR
+
+The two biggest per-pixel realism wins after shadows, both bounded-cost.
+
+1. **Blue-noise infrastructure first**: a shared spatiotemporal blue-noise
+   texture/sequence (per-frame offset, TAA-aware) as a `render/resources/` asset —
+   GTAO, SSR, contact shadows, dither, DoF, and the cloud march all consume the
+   same source (SRP; kills the per-pass ad-hoc hashes).
+2. **GTAO** (half-res, compute, async-ready): horizon-based with a **bent normal +
+   visibility cone** output; spatial denoise + the TAA accumulates the rest.
+   Feeds: diffuse AO (multiplies IBL/GI diffuse), **specular occlusion upgraded**
+   from the material-AO approximation to bent-normal cone vs reflection cone.
+   Budget: ≤0.5 ms at 1080p internal on the mid tier.
+3. **Stochastic SSR**: hi-Z traced (needs the depth pyramid — build it here, it is
+   also Phase 10's culling input; shared infrastructure, built once), GGX-jittered
+   ray from the blue-noise sequence, half-res trace + neighborhood reuse +
+   temporal accumulation (the FFX-SSSR shape), roughness-cutoff fade to IBL.
+   Fallback chain: SSR hit → nearest reflection probe → sky IBL.
+   Budget: ≤1.2 ms at 1080p internal, High tier.
+4. **Reflection probes**: box/sphere-projected local captures through the existing
+   IBL capture path (it already renders the sky; point it at the scene), authored
+   in the editor, blended by proximity, camera-relative anchored.
+5. **Specular-occlusion chain audit**: one documented path — GTAO cone → bent
+   normal → probe/SSR/IBL — replacing today's scalar approximation everywhere.
+
+*Tier:* GTAO res + tap count; SSR res, max steps, roughness cutoff; probes
+static-only on Low. *SOLID:* both passes read the graph's depth/normal/velocity
+handles; neither knows the other exists; the fallback chain is data (a priority
+list), not branching code.
+
+### Phase 6 — Global illumination (the 2025 baseline, no RT required)
+
+Flat sky ambient + AO is not AAA. The industry-settled mid-size pattern (Lumen-SW /
+Brixelizer / AC-Shadows-shaped): **probe volumes fed by a pluggable tracer, cached
+aggressively, refined per-pixel by Phase 5's screen-space terms.** New module
+`render/gi/`.
+
+1. **Irradiance probe clipmaps**: 3–4 cascaded volumes around the camera
+   (camera-relative by construction — the planet-scale answer), SH-9 or
+   octahedral-visibility probes (DDGI-style with depth for leak rejection),
+   ~(32³–48³) probes per cascade, sparse relight (N probes per frame, dirty-first).
+2. **Pluggable tracer behind `render/gi/tracer.hpp`** (DIP — the strategy seam):
+   - **Tier A (all hardware)**: SDF scene tracing — per-mesh signed distance
+     fields baked at import into a brick atlas + a coarse global clipmap SDF;
+     cone/sphere tracing against it. (The same SDF assets later accelerate the
+     cloud march and Phase 12's stochastic visibility — shared, not bespoke.)
+   - **Tier B (Ultra)**: ray-query against the Phase 2 BLAS/TLAS, same probe
+     consumers, zero shading-path fork — exactly the RT-shadow pattern.
+3. **Sky/ground handoff**: probes integrate the Hillaire sky (Phase 7 LUTs) and
+   the analytic planet ground as their environment miss — GI, sky, and IBL agree
+   by construction; the IBL specular cube remains the distant-specular source.
+4. **Radiance-cache reuse for reflections**: SSR/probe misses fall back to probe
+   radiance (the "one world cache serves GI and reflections" pattern) before sky.
+5. **Emissive injection**: emissive surfaces contribute via the tracer (SDF albedo
+   atlas / ray-query hit shading) — lights-from-materials for free at probe rate.
+
+*Performance:* probe relight is compute, async-queue-ready, amortized (nothing
+per-pixel except the final trilinear+SH gather ≈0.3 ms); cost is flat in scene
+complexity. This is deliberately **not** per-pixel ReSTIR GI — probe caches need
+no denoiser (the survey's consistent conclusion for mid-size engines).
+*Tier:* cascade count/extent, probes-per-frame, tracer tier, bounce count (1 now,
+multibounce via cache feedback on High+).
+
+### Phase 7 — Atmosphere: the LUT stack + froxel fog
+
+Replaces the full-res per-pixel march — a large speedup *and* multiple scattering
+at once. The performance-first mandate's flagship.
+
+1. **Hillaire 2020 LUT stack** (the unchallenged production SOTA): transmittance
+   LUT (256×64), multi-scatter LUT (32×32), per-frame **sky-view LUT** (192×108
+   lat-long, marched once at low res), **aerial-perspective froxel volume**
+   (32×32×32, camera-relative, same Z slicing as the light grid). `sky.frag`
+   becomes LUT lookups + the sun disk/eclipse/star work; meshes read aerial
+   perspective from the froxel volume. WGS84 ellipsoid handling and the eclipse/
+   phase geometry carry over unchanged. Budget: the whole stack ≤0.4 ms/frame vs
+   multiple ms today; sky-view LUT amortizable over 2 frames under tier.
+2. **Froxel volumetric fog**: reuses the aerial froxel addressing and the Phase 4
+   cluster grid — sun (CSM-shadowed, cloud-shadowed) + punctual lights in-scatter
+   into a 3D scattering/transmittance volume, temporally jittered and accumulated,
+   height-fog term analytic. God rays, lit fog, aerosol haze — one pass, one
+   volume. Budget: ≤0.6 ms at 1080p, High tier.
+3. **Local fog volumes**: authored density primitives (box/ellipsoid, blend into
+   the froxel grid) for valley fog / airfield ground fog — data, not new passes.
+4. **Cloud coupling seam**: the LUT stack exposes sun transmittance and sky
+   radiance at arbitrary height — the exact inputs the companion cloud plan's
+   lighting model consumes (§weather doc). Land the seam here so clouds plug in
+   without touching the atmosphere again.
+
+*Tier:* LUT resolutions, froxel depth resolution, fog on/off at Low.
+*SOLID:* LUT generation, sky composite, and fog are three passes sharing two
+resource handles; the ephemeris keeps driving inputs through `Environment`
+unchanged (OCP over the existing seam).
+
+### Phase 8 — Volumetric clouds & planetary weather → companion document
+
+The full engineering plan — Nubis³-class voxel/SDF-accelerated clouds,
+anti-repetition modeling, altitude-stable quality, temporal accumulation, and the
+dynamic meteorology simulation (wind fields, fronts, humidity/precipitation cycle,
+diurnal heating) that drives coverage instead of static authored maps — lives in
+**[weather_and_clouds.md](weather_and_clouds.md)**. It consumes: Phase 7's
+transmittance/sky-radiance seam, Phase 5's blue-noise, the temporal core, and the
+SDF assets of Phase 6. Its acceptance criteria (flight-sim-grade: no visible
+repetition, crisp from ground to 20 km, flyable-through) are contractual there.
+
+### Phase 9 — Post-processing stack & display-out
+
+1. **Auto-exposure**: compute luminance histogram → EV with min/max clamps,
+   metering mask, adaptation rates, EV compensation; physical-camera units
+   (EV100) so sun/sky/emissive intensities finally mean something. Replaces the
+   fixed `0.18`.
+2. **Physically-based bloom**: 6–7 mip progressive down/upsample, energy-
+   conserving, threshold-free (scatter parameter), optional lens-dirt. ≤0.4 ms.
+3. **Tonemap upgrade**: **AgX default** (industry consensus for hue preservation),
+   ACES and **Khronos PBR Neutral** selectable; the tonemapper parameterized on
+   display transform, not hard-coded to gamma-sRGB.
+4. **HDR output**: scRGB (FP16) and HDR10 (PQ/Rec.2020) swapchain paths via
+   `VK_EXT_swapchain_colorspace` + `VK_EXT_hdr_metadata`; UI composited in linear
+   before the single encode; peak-nits / paper-white exposed. Cheap, high
+   perceived value.
+5. **Color grading**: white balance, lift-gamma-gain, saturation/contrast, 3D LUT
+   slot — applied inside the tonemap pass (one fullscreen pass for the whole
+   grade+map+encode chain).
+6. **Blue-noise dither** before every 8-bit quantize (kills the sky banding) —
+   consumes Phase 5's shared blue-noise.
+7. **DoF** (gather-based bokeh, physical aperture) and **motion blur**
+   (per-object + camera from the shipped velocity target), both tier-gated, both
+   after TAA in the post chain.
+8. **Vignette / chromatic aberration / film grain / lens flare**: standard knobs,
+   grain applied pre-dither in linear.
+9. **Post-Process Volume stack + editor window** (§2.4): global + blendable
+   volumes resolving to the per-camera parameter block the passes read.
+
+*SOLID:* every effect is a pass or a parameter of the display-transform pass;
+the volume stack is pure data resolution (no pass reads the editor).
+
+### Phase 10 — GPU-driven geometry
+
+Removes the per-object CPU wall before scene density grows into it.
+
+1. **Instancing + multi-draw-indirect**: per-instance records in one storage
+   buffer (transform/material/motion indices — the SoA shapes already exist),
+   one `vkCmdDrawIndexedIndirectCount` per pass bucket. CPU cost flat in
+   instance count.
+2. **GPU two-phase occlusion culling**: depth pyramid (**the Phase 5 hi-Z,
+   reused**) — phase 1 draws last-frame-visible + tests the rest against
+   prev-frame HZB; phase 2 retests false negatives against current HZB. No
+   readback, no popping. Per-view (§2.3): scene, shadow cascades, atlas tiles,
+   probes.
+3. **GPU LOD selection** folded into culling (screen-coverage select, hooks into
+   the existing body-LOD ladder so planet-to-space reuses one system);
+   HLOD/impostors for far clusters.
+4. **Meshlets** *(tier)*: `VK_EXT_mesh_shader` path with per-meshlet cone +
+   HZB culling (the Northlight/id pattern — meshlets without software raster);
+   classic path remains the fallback. Adopt `VK_EXT_device_generated_commands`
+   only if pass-bucket switching shows up in profiles.
+5. **Sparse virtual texturing** for terrain/large sets: software SVT with a
+   shader-written feedback buffer (Vulkan has no sampler feedback), page cache +
+   async transfer-queue uploads (Vulkan 1.4 guarantees the queue).
+6. **Cloth on GPU**: triangulation + normals in compute from the persistent
+   per-slot buffers; upload only particle positions.
+
+*Tier:* meshlets, SVT residency budget, HLOD distance. *SOLID:* culling writes
+draw args; passes consume them — the draw loop stops being renderer code and
+becomes GPU data (the GPU-driven mandate realized).
+
+### Phase 11 — Upscaling, async compute & frame delivery
+
+1. **Upscaler abstraction**: one interface (`render/frame/upscaler.hpp`) taking
+   color/depth/motion/exposure/jitter + camera deltas — implemented by the
+   shipped temporal upscale, **FSR 3.1** (vendor-agnostic floor; its API carries
+   forward to FSR4-class ML upgrades), **DLSS via Streamline**, **XeSS** (DP4a
+   fallback covers non-Intel). Camera-relative motion vectors are already the
+   correct input contract. Frame generation: interface-reserved, not integrated
+   until latency plumbing exists.
+2. **Async compute queue**: the graph scheduler places flagged passes (GTAO, GI
+   relight, cluster build, LUTs, histogram, SVT transcode) on the compute queue
+   with cross-queue sync derived like everything else. Target: 10–20% frame-time
+   recovery from overlap.
+3. **Timeline semaphores + frame pacing**: replace binary fences, 3 frames in
+   flight optional, submit-as-late-as-possible latency mode, per-queue
+   present timing.
+4. **SushiRuntime SYCL interop**: device-UUID-matched zero-copy of simulation
+   output (weather grid, particles, soft bodies) into renderer-visible buffers —
+   the "interop-first" mandate's landing.
+
+### Phase 12 — The ray-tracing tier & many-light scaling *(Ultra)*
+
+Everything here drops into seams earlier phases built; nothing forks the pipeline.
+
+1. **RT probe feeding**: Phase 6 Tier B matured — ray-query probe relight with
+   SHaRC-style world-space radiance cache; multibounce via cache feedback.
+2. **RT reflections**: replace SSR *misses* only (the hybrid pattern), NRD-class
+   denoiser (ReBLUR) — adopt the library, do not write SVGF from scratch.
+3. **Stochastic direct lighting** (MegaLights-shaped): reservoir-lite importance
+   sampling over the clustered light list, visibility by ray query (Tier B) or
+   SDF trace (Tier A "high"), temporal feedback through the existing TAA chain —
+   removes the per-light shadow-map ceiling; hundreds of shadowed lights.
+4. **RT sun shadows**: already shipped (Phase 2); fold its denoise into the NRD
+   integration.
+
+### Phase 13 — Completeness (opportunistic, tier-gated)
+
+- **OIT** for layered glass/canopy/particles: MBOIT default, adaptive-voxel OIT
+  where cockpit-through-cloud layering demands it.
+- **Screen-space subsurface scattering** (separable Burley) feeding the existing
+  transmission lobe.
+- **Hardware tessellation / displacement** where POM's silhouette limit shows
+  (terrain patches, hero close-ups).
+- **CAS** after upscaling.
+- **Water**: screen-space + planar reflections, foam, refraction for the planet
+  ocean (couples to the weather doc's wind field for sea state).
+- **Debug views**: overdraw, mip level, light complexity, cluster occupancy, VRS
+  rate, cull heatmap, probe visualization — surfaced beside the profiler HUD.
+
+---
+
+## 5. Cross-cutting concerns
+
+- **Quality tiers.** Phase 3 makes the tier contract enforceable; from then on a
+  phase that lands without tier wiring is incomplete by definition. The default
+  target is **High at a locked frame budget**; the red line moves by dropping a
+  tier, never by ad-hoc feature disabling.
+- **Performance budgets.** Every phase item above carries a budget; the Phase 0
+  profiler HUD is the referee. A pass that blows its budget ships tier-reduced,
+  not deferred.
+- **Color management.** One convention: sRGB/linear tagged at import (shipped),
+  all lighting linear, one display transform (Phase 9 makes it HDR-aware).
+- **Precision invariants.** Camera-relative + reverse-Z non-negotiable. New
+  world-anchored caches (GI probes, reflection probes, SDF clipmaps, weather
+  grids) must define their rebase story in their design review — the CSM
+  world-anchored texel snap is the precedent.
+- **Determinism.** The weather simulation (companion doc) is part of the SushiLoop
+  determinism domain; rendering may consume it but never feed back into it.
+
+## 6. How this satisfies SOLID
+
+- **SRP** — graph / passes / pools / material / frame context shipped as separate
+  modules; new systems (lighting, GI, post, weather) follow the same split; tier
+  policy centralizes in one resolver instead of scattering per pass.
+- **OCP** — every roadmap item is a new `register_pass` client or new data
+  consumed by an existing pass; the shipped passes are not edited to add effects
+  (the cloud-genus catalogue remains the extension pattern).
+- **LSP** — all passes honor `register_pass(graph, frame)`; both GI tracer tiers
+  honor one tracer interface; every upscaler honors one upscaler interface —
+  swapping implementations never changes callers.
+- **ISP** — passes see handles and parameter blocks, not the renderer; the editor
+  sees data structs, not passes; lights/volumes/probes are records, not objects.
+- **DIP** — passes depend on graph/resource abstractions; Vulkan stays in
+  `render/rhi/vulkan`; the GI tracer, upscaler backend, and weather provider are
+  strategy seams chosen at runtime.
+
+## 7. Suggested sequencing
+
+**3 → 4 → 5 → 7 → 6 → 8(companion) → 9 → 10 → 11 → 12 → 13**, with 5/7
+interleavable after 4, and 9.1–9.6 (exposure/bloom/tonemap/dither) landable any
+time after 5 (they only need the blue-noise asset). Rationale: 3 unblocks honest
+tiering everywhere; 4 is the structural lighting gap; 5+6+7 are the realism
+core; 8 rides on 5/6/7's seams; 10/11 are the scale/perf multipliers; 12 is the
+Ultra crown.
+
+## 8. Biggest realism-per-cost wins (if you only do five things)
+
+1. **Clustered light engine** (Phase 4) — the scene stops being a one-light demo.
+2. **Atmosphere LUTs + froxel fog** (Phase 7) — multiple scattering, god rays,
+   *and* a large speedup at once.
+3. **GTAO + stochastic SSR** (Phase 5) — contact darkening and glossy response;
+   the two cheapest per-pixel realism multipliers left.
+4. **Probe-volume GI** (Phase 6) — ambient stops being flat; time-of-day indirect
+   for free; no denoiser needed.
+5. **Clouds & weather** (Phase 8 / companion doc) — the flight-sim identity
+   feature: War-Thunder-class skies that evolve.
