@@ -33,6 +33,7 @@
 #include "fxaa.frag.h"
 #include "ibl_irradiance.comp.h"
 #include "ibl_prefilter.comp.h"
+#include "sh_project.comp.h"
 #include "line.frag.h"
 #include "mesh.vert.h"
 #include "outline.frag.h"
@@ -101,6 +102,8 @@ namespace SushiEngine
                  Shaders::ibl_irradiance_comp_spv_word_count, "ibl_irradiance.comp"},
                 {"brdf_lut.comp", ShaderStage::Compute, Shaders::brdf_lut_comp_spv,
                  Shaders::brdf_lut_comp_spv_word_count, "brdf_lut.comp"},
+                {"sh_project.comp", ShaderStage::Compute, Shaders::sh_project_comp_spv,
+                 Shaders::sh_project_comp_spv_word_count, "sh_project.comp"},
             };
         } // namespace
 

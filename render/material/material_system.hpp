@@ -133,6 +133,21 @@ namespace SushiEngine
                     void begin_frame(std::uint32_t slot);
 
                     /**
+                     * @brief Restricts which advanced BRDF lobes packed materials may carry.
+                     *
+                     * The quality tier decides whether the expensive lobes — anisotropy,
+                     * clearcoat, sheen, transmission — are evaluated at all. This is where
+                     * that decision lands: a cleared bit here strips the corresponding flag
+                     * from every material packed afterwards, so the shader's lobe branch is
+                     * never taken and the packed scalars simply go unread. The base PBR
+                     * flags are never touched. Set once per frame before the first push();
+                     * defaults to permitting every lobe.
+                     *
+                     * @param lobes A mask of MaterialFlags advanced-lobe bits to permit.
+                     */
+                    void set_allowed_lobes(std::uint32_t lobes) noexcept;
+
+                    /**
                      * @brief Packs a material and returns the index a draw refers to it by.
                      * @param material The authored surface.
                      * @return The index into this frame's material array.
@@ -170,6 +185,10 @@ namespace SushiEngine
                     std::vector<Slot> slots_;
                     std::vector<GpuMaterial> packed_;
                     std::uint32_t current_slot_ = 0;
+
+                    /** @brief Advanced lobe bits the tier permits; all set means no gating. */
+                    std::uint32_t allowed_lobes_ = MATERIAL_ANISOTROPY | MATERIAL_CLEARCOAT |
+                                                   MATERIAL_SHEEN | MATERIAL_TRANSMISSION;
             };
         } // namespace Assets
     } // namespace Render

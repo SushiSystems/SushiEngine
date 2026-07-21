@@ -168,8 +168,14 @@ namespace SushiEngine
                 push.extents[3] = texel_height();
                 push.thresholds[0] = frame.settings.variable_rate_shading.luminance_threshold;
                 push.thresholds[1] = frame.settings.variable_rate_shading.velocity_threshold;
-                push.thresholds[2] = static_cast<float>(std::min(device_.max_fragment_width(),
-                                                                 device_.max_fragment_height()));
+                // The coarsest rate the mask may emit is the smaller of what the device
+                // supports and what the quality tier permits: a higher tier caps this at a
+                // finer rate (Ultra at one axis is no coarsening at all), so raising the
+                // tier visibly buys shading resolution here.
+                const float device_coarse = static_cast<float>(
+                    std::min(device_.max_fragment_width(), device_.max_fragment_height()));
+                const float tier_coarse = static_cast<float>(frame.quality.vrs_max_coarse_axis);
+                push.thresholds[2] = std::min(device_coarse, tier_coarse);
                 push.thresholds[3] = frame.history_valid ? 1.0f : 0.0f;
 
                 graph.add_pass(

@@ -54,6 +54,17 @@ layout(location = 0) in vec2 v_ndc;
 
 layout(location = 0) out vec4 out_color;
 
+// The quality tier's march budget, resolved on the CPU and pushed per frame. Rides the
+// shared mesh push range (fragment bytes), which this fullscreen pass otherwise leaves
+// unused. Every consumer clamps its value, so a low tier cheapens the march and a stale
+// or absent push can never spin the loop out of bounds.
+layout(push_constant) uniform CloudBudget
+{
+    uint steps_near;   // primary march steps near the ground
+    uint steps_far;    // primary march steps from space
+    uint light_steps;  // self-shadow steps toward the sun
+} budget;
+
 const float PI = 3.14159265359;
 
 vec2 ray_sphere(vec3 ro, vec3 rd, vec3 c, float r)
@@ -226,7 +237,7 @@ float cloud_density(vec3 p, bool cheap, out float ambient_h)
 
 float cloud_light_march(vec3 p, vec3 sun)
 {
-    const int LIGHT_STEPS = 5;
+    int LIGHT_STEPS = clamp(int(budget.light_steps), 1, 12);
     vec3 b1 = normalize(cross(sun, vec3(0.31, 0.86, 0.41)));
     vec3 b2 = cross(sun, b1);
     float shell = max(scene.cloud_global.z - scene.cloud_global.y, 1.0);
@@ -324,7 +335,10 @@ void main()
 
     float shell_thick = max(top_r - base_r, 1.0);
     float space_factor = clamp(scene.scatter.w / (shell_thick * 6.0), 0.0, 1.0);
-    int STEPS = int(mix(96.0, 32.0, space_factor));
+    // The tier sets the near/far step envelope; altitude interpolates within it. Clamped
+    // so the loop bound is always sane whatever the push carries.
+    int STEPS = clamp(int(mix(float(budget.steps_near), float(budget.steps_far),
+                              space_factor)), 8, 160);
     float seg = march_len / float(STEPS);
     float big_seg = seg * 3.0;
 

@@ -657,6 +657,16 @@ extent, quality tier, draw list, and the handles of this frame's targets — and
 each pass to register itself; the graph then derives everything that used to be
 written by hand.
 
+The quality tier does not reach the passes raw. Once per frame the scene view runs
+`resolve_quality` (`render/frame/quality.cpp`, public type `QualityParams`), which
+turns `RenderQuality` into the concrete parameters passes actually read — soft-shadow
+tap counts, contact-march length, cloud budget, the coarsest variable-rate tile, the
+shadow atlas size and cascade count, and which advanced BRDF lobes are evaluated. The
+policy lives in that one file so the tier cannot mean one thing in the shadow pass and
+another in the cloud pass; a pass reads resolved parameters, never the enum. The
+authored settings are the High baseline, so High resolves to the request verbatim and
+a lower tier scales the expensive half down from it.
+
 - **`render/graph/`** — `RenderGraph`, `RenderPassBuilder`, `PassContext`,
   `TextureHandle` / `BufferHandle`, and the access vocabulary. A pass declares *what*
   it touches (`read`/`write`/`color_attachment`/`depth_stencil_attachment`) and the

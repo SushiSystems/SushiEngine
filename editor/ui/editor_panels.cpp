@@ -50,6 +50,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <SushiEngine/astro/celestial_bodies.hpp>
+#include <SushiEngine/render/quality_params.hpp>
 
 namespace fs = std::filesystem;
 
@@ -2328,6 +2329,50 @@ namespace SushiEngine
             if (context.scene_render_width > 0)
                 ImGui::Text("Scene view rendering at %u x %u", context.scene_render_width,
                             context.scene_render_height);
+
+            // What the tier resolves to. The Quality combo above is a request; this is what
+            // each pass is actually handed once the resolver has run — the same values the
+            // renderer uses, so switching tiers shows the expensive half rescale here and,
+            // in milliseconds, in the profiler HUD over the viewport.
+            if (ImGui::TreeNode("Tier resolves to"))
+            {
+                const SushiEngine::Render::ResolvedQuality resolved =
+                    SushiEngine::Render::resolve_quality(settings);
+                const SushiEngine::Render::RenderSettings& effective = resolved.settings;
+                const SushiEngine::Render::QualityParams& knobs = resolved.params;
+
+                if (effective.shadows.enabled)
+                {
+                    ImGui::Text("Shadow atlas   %u px, %u cascade(s)", effective.shadows.resolution,
+                                effective.shadows.cascade_count);
+                    ImGui::Text("PCSS taps      %u filter / %u blocker", knobs.shadow_filter_taps,
+                                knobs.shadow_blocker_taps);
+                    if (effective.shadows.contact_shadows)
+                        ImGui::Text("Contact march  %u steps @ %.2f m",
+                                    effective.shadows.contact_steps,
+                                    effective.shadows.contact_distance);
+                }
+                else
+                {
+                    ImGui::TextDisabled("Shadows off");
+                }
+                ImGui::Text("Cloud march    %u near / %u far / %u light",
+                            knobs.cloud_primary_steps_near, knobs.cloud_primary_steps_far,
+                            knobs.cloud_light_steps);
+                ImGui::Text("VRS coarse cap %ux (1 = full rate)", knobs.vrs_max_coarse_axis);
+                ImGui::Text("Lobes          %s%s%s%s",
+                            knobs.lobe_anisotropy ? "aniso " : "",
+                            knobs.lobe_clearcoat ? "clearcoat " : "",
+                            knobs.lobe_sheen ? "sheen " : "",
+                            knobs.lobe_transmission ? "transmission" : "");
+                if (!knobs.lobe_anisotropy && !knobs.lobe_clearcoat && !knobs.lobe_sheen &&
+                    !knobs.lobe_transmission)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("base PBR only");
+                }
+                ImGui::TreePop();
+            }
 
             ImGui::End();
         }

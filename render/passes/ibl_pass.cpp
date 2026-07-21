@@ -75,6 +75,16 @@ namespace SushiEngine
                     std::uint32_t sample_count;
                 };
 
+                /** @brief Per-face sample grid the SH projection integrates over. */
+                constexpr std::uint32_t SH_SAMPLE_RESOLUTION = 32;
+
+                /** @brief The push block the SH projection shader reads. */
+                struct ShParams
+                {
+                    std::uint32_t resolution; /**< Per-face sample grid side. */
+                    float source_mip;         /**< Environment mip the radiance is read from. */
+                };
+
                 /**
                  * @brief The camera basis that renders one cubemap face.
                  *
@@ -175,6 +185,22 @@ namespace SushiEngine
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false);
                 create_brdf_lut();
 
+                // The diffuse SH coefficients: a tiny device-local storage buffer the
+                // projection compute writes and the shading pass reads. One buffer, not one
+                // per slot, exactly like the cubes — the capture is rate-limited and change
+                // gated, so it is not rewritten while a previous frame still reads it.
+                {
+                    VkBufferCreateInfo sh_info{};
+                    sh_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    sh_info.size = sh_buffer_bytes();
+                    sh_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    VmaAllocationCreateInfo sh_alloc{};
+                    sh_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    Vulkan::check(vmaCreateBuffer(device_.allocator(), &sh_info, &sh_alloc,
+                                                  &sh_buffer_, &sh_allocation_, nullptr),
+                                  "vmaCreateBuffer(ibl sh)");
+                }
+
                 // One uniform block per face: the frame's scene block with the camera
                 // basis swapped for that face's 90-degree view.
                 for (std::uint32_t face = 0; face < 6; ++face)
@@ -253,6 +279,39 @@ namespace SushiEngine
                                                      &lut_pipeline_layout_),
                               "vkCreatePipelineLayout(brdf)");
 
+                // SH projection layout: sample the source cube (binding 0), reduce into the
+                // coefficient storage buffer (binding 1). A separate layout from the cube
+                // convolutions because the destination is a buffer, not a storage image.
+                VkDescriptorSetLayoutBinding sh_bindings[2]{};
+                sh_bindings[0].binding = 0;
+                sh_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                sh_bindings[0].descriptorCount = 1;
+                sh_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                sh_bindings[1].binding = 1;
+                sh_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                sh_bindings[1].descriptorCount = 1;
+                sh_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                VkDescriptorSetLayoutCreateInfo sh_layout_info{};
+                sh_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                sh_layout_info.bindingCount = 2;
+                sh_layout_info.pBindings = sh_bindings;
+                Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &sh_layout_info, nullptr,
+                                                          &sh_layout_),
+                              "vkCreateDescriptorSetLayout(ibl sh)");
+
+                VkPushConstantRange sh_range{};
+                sh_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                sh_range.size = sizeof(ShParams);
+                VkPipelineLayoutCreateInfo sh_pipeline_info{};
+                sh_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+                sh_pipeline_info.setLayoutCount = 1;
+                sh_pipeline_info.pSetLayouts = &sh_layout_;
+                sh_pipeline_info.pushConstantRangeCount = 1;
+                sh_pipeline_info.pPushConstantRanges = &sh_range;
+                Vulkan::check(vkCreatePipelineLayout(device_.device(), &sh_pipeline_info, nullptr,
+                                                     &sh_pipeline_layout_),
+                              "vkCreatePipelineLayout(ibl sh)");
+
                 create_pipelines();
                 generate_brdf_lut();
             }
@@ -272,6 +331,12 @@ namespace SushiEngine
                     vkDestroyPipelineLayout(device_.device(), compute_pipeline_layout_, nullptr);
                 if (compute_layout_ != VK_NULL_HANDLE)
                     vkDestroyDescriptorSetLayout(device_.device(), compute_layout_, nullptr);
+                if (sh_buffer_ != VK_NULL_HANDLE)
+                    vmaDestroyBuffer(device_.allocator(), sh_buffer_, sh_allocation_);
+                if (sh_pipeline_layout_ != VK_NULL_HANDLE)
+                    vkDestroyPipelineLayout(device_.device(), sh_pipeline_layout_, nullptr);
+                if (sh_layout_ != VK_NULL_HANDLE)
+                    vkDestroyDescriptorSetLayout(device_.device(), sh_layout_, nullptr);
                 if (dummy_depth_view_ != VK_NULL_HANDLE)
                     vkDestroyImageView(device_.device(), dummy_depth_view_, nullptr);
                 if (dummy_depth_ != VK_NULL_HANDLE)
@@ -437,12 +502,14 @@ namespace SushiEngine
                     compute_pipeline_layout_, shaders_.module("ibl_prefilter.comp"));
                 irradiance_pipeline_ = pipelines_.create_compute(
                     compute_pipeline_layout_, shaders_.module("ibl_irradiance.comp"));
+                sh_pipeline_ = pipelines_.create_compute(
+                    sh_pipeline_layout_, shaders_.module("sh_project.comp"));
             }
 
             void IblPass::destroy_pipelines()
             {
                 for (VkPipeline* pipeline :
-                     {&irradiance_pipeline_, &prefilter_pipeline_, &sky_pipeline_})
+                     {&sh_pipeline_, &irradiance_pipeline_, &prefilter_pipeline_, &sky_pipeline_})
                 {
                     if (*pipeline != VK_NULL_HANDLE)
                         vkDestroyPipeline(device_.device(), *pipeline, nullptr);
@@ -816,6 +883,44 @@ namespace SushiEngine
                 convolve(irradiance_pipeline_, irradiance_.mip_views[0], irradiance_params,
                          irradiance_.resolution);
 
+                // Project the environment radiance into 9 diffuse SH coefficients — the
+                // ambient the shading pass reads instead of sampling the irradiance cube.
+                // Reuses the environment cube, already shader-readable for the convolutions
+                // above, and reduces it in a single workgroup.
+                {
+                    const VkDescriptorSet sh_set = frame.descriptors->allocate(sh_layout_);
+                    VkDescriptorImageInfo sh_source{};
+                    sh_source.sampler = sampler_;
+                    sh_source.imageView = environment_.cube_view;
+                    sh_source.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    VkDescriptorBufferInfo sh_dest{};
+                    sh_dest.buffer = sh_buffer_;
+                    sh_dest.offset = 0;
+                    sh_dest.range = sh_buffer_bytes();
+                    VkWriteDescriptorSet sh_writes[2]{};
+                    sh_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    sh_writes[0].dstSet = sh_set;
+                    sh_writes[0].dstBinding = 0;
+                    sh_writes[0].descriptorCount = 1;
+                    sh_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    sh_writes[0].pImageInfo = &sh_source;
+                    sh_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    sh_writes[1].dstSet = sh_set;
+                    sh_writes[1].dstBinding = 1;
+                    sh_writes[1].descriptorCount = 1;
+                    sh_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    sh_writes[1].pBufferInfo = &sh_dest;
+                    vkUpdateDescriptorSets(device_.device(), 2, sh_writes, 0, nullptr);
+
+                    const ShParams sh_params{SH_SAMPLE_RESOLUTION, 2.0f};
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sh_pipeline_);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                            sh_pipeline_layout_, 0, 1, &sh_set, 0, nullptr);
+                    vkCmdPushConstants(cmd, sh_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                       sizeof(ShParams), &sh_params);
+                    vkCmdDispatch(cmd, 1, 1, 1);
+                }
+
                 transition(cmd, specular_.image, 0, specular_.mips, 6, VK_IMAGE_LAYOUT_GENERAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -828,6 +933,26 @@ namespace SushiEngine
                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                // Make the SH coefficients visible to the shading pass's fragment reads. The
+                // buffer is a private resource — not graph-tracked, like the cubes — so this
+                // barrier is recorded here rather than derived by the render graph.
+                VkBufferMemoryBarrier2 sh_barrier{};
+                sh_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+                sh_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                sh_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+                sh_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                sh_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+                sh_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                sh_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                sh_barrier.buffer = sh_buffer_;
+                sh_barrier.offset = 0;
+                sh_barrier.size = VK_WHOLE_SIZE;
+                VkDependencyInfo sh_dependency{};
+                sh_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                sh_dependency.bufferMemoryBarrierCount = 1;
+                sh_dependency.pBufferMemoryBarriers = &sh_barrier;
+                vkCmdPipelineBarrier2(cmd, &sh_dependency);
             }
         } // namespace Passes
     } // namespace Render

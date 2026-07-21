@@ -140,8 +140,18 @@ namespace SushiEngine
                      */
                     static constexpr std::uint32_t SHADOW_DEPTH_BINDING = 12;
 
+                    /**
+                     * @brief Binding of the environment's 9 diffuse SH coefficients.
+                     *
+                     * A frame-global storage buffer written by the IBL build and read by the
+                     * shading pass in place of a diffuse irradiance cubemap sample: nine
+                     * uniform reads and a polynomial evaluate replace a filtered cube fetch,
+                     * and probe blending later becomes a blend of coefficients.
+                     */
+                    static constexpr std::uint32_t IBL_SH_BINDING = 13;
+
                     /** @brief Number of bindings in the per-frame set. */
-                    static constexpr std::uint32_t BINDING_COUNT = SHADOW_DEPTH_BINDING + 1;
+                    static constexpr std::uint32_t BINDING_COUNT = IBL_SH_BINDING + 1;
 
                     /**
                      * @brief Creates the set and pipeline layouts.

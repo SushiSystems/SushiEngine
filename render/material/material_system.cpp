@@ -90,6 +90,16 @@ namespace SushiEngine
                 packed_.clear();
             }
 
+            void MaterialSystem::set_allowed_lobes(std::uint32_t lobes) noexcept
+            {
+                // Only the advanced-lobe bits are the tier's to withhold; forcing every
+                // other bit on keeps a stray mask from ever stripping a base PBR flag.
+                constexpr std::uint32_t ADVANCED_LOBES = MATERIAL_ANISOTROPY |
+                                                         MATERIAL_CLEARCOAT | MATERIAL_SHEEN |
+                                                         MATERIAL_TRANSMISSION;
+                allowed_lobes_ = (lobes & ADVANCED_LOBES) | ~ADVANCED_LOBES;
+            }
+
             std::uint32_t MaterialSystem::push(const Render::Material& material)
             {
                 GpuMaterial gpu{};
@@ -188,6 +198,9 @@ namespace SushiEngine
                     flags |= MATERIAL_SHEEN;
                 if (material.transmission > 0.0f)
                     flags |= MATERIAL_TRANSMISSION;
+                // Strip whichever advanced lobes the current tier withholds; the base PBR
+                // flags pass through untouched because set_allowed_lobes forces their bits on.
+                flags &= allowed_lobes_;
                 gpu.maps_c[1] = flags;
 
                 packed_.push_back(gpu);

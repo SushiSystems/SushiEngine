@@ -9,6 +9,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Diffuse image-based lighting is now spherical harmonics, not a cubemap.** The
+  captured environment is projected into 9 second-order SH coefficients by a single
+  compute dispatch folded into the (change-gated) IBL build, and the shading pass
+  evaluates a degree-two polynomial in the surface normal instead of sampling a filtered
+  irradiance cube — nine storage reads in place of a cube fetch. The cosine-lobe
+  convolution and the 1/π are baked into the coefficients, so the result matches the old
+  cube exactly for a uniform environment; the small negative lobe SH can ring into is
+  clamped. The coefficients ride a frame-global storage buffer the IBL pass owns and
+  keeps fragment-readable, which is also what makes the coming irradiance-probe blending
+  a blend of coefficients rather than of cubemaps.
+- **The quality tier now drives every major pass.** `RenderQuality` (Low / Medium / High /
+  Ultra) was a near-inert enum read in exactly one place; a single resolver
+  (`render/frame/quality.cpp`, behind the public `QualityParams`) now turns it into the
+  concrete parameters each pass reads — soft-shadow tap counts, contact-march length,
+  cloud march budget, the coarsest variable-rate-shading tile, the shadow atlas size and
+  cascade count, and which advanced BRDF lobes (anisotropy, clearcoat, sheen,
+  transmission) are evaluated at all. A pass consumes *resolved parameters*, never the raw
+  tier. The contract is deliberate: the authored settings **are** the High baseline, so
+  High renders exactly what the host asked for, a lower tier scales the expensive half
+  down, and Ultra pushes it up — dropping a tier moves the whole red line at once instead
+  of switching features off one at a time. The Rendering panel gains a "Tier resolves to"
+  readout showing what each pass is actually handed, so switching Low↔Ultra visibly
+  rescales the passes there and, in milliseconds, in the profiler HUD.
 - **Cascaded shadow maps for the sun.** Up to four cascades in one two-by-two atlas —
   one image, one pass, one barrier, one profiler entry. Splits follow the practical
   scheme (a blend of logarithmic and uniform); each cascade is bounded by a *sphere* and

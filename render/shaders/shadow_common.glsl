@@ -20,8 +20,8 @@ layout(set = 0, binding = 10) uniform ShadowBlock
     vec4 splits;       // view distance each cascade reaches, metres
     vec4 texel_size;   // world metres one shadow texel covers, per cascade
     vec4 depth_range;  // world metres the [0,1] stored depth spans, per cascade
-    vec4 params;       // x = cascade count, y = atlas tile uv scale, w = cascade blend
-    vec4 filter_size;  // x = min radius, y = max radius, z = penumbra per metre
+    vec4 params;       // x = cascade count, y = atlas tile uv scale, z = PCSS filter taps, w = cascade blend
+    vec4 filter_size;  // x = min radius, y = max radius, z = penumbra per metre, w = blocker-search taps
     vec4 bias;         // x = depth bias, y = normal bias, z = contact metres, w = contact steps
     vec4 flags;        // x = shadows on, y = contact on, z = ray traced, w = cascade resolution
 } shadows;

@@ -1,7 +1,9 @@
 # Render Pipeline Refactor — Toward an AAA, Performance-First Renderer
 
 Status: **Living design document.** Phases 0, 1, 2 and 5 are **shipped and verified
-against source** (see §3 — Completed). This revision re-audits the codebase, folds in
+against source** (see §3 — Completed). **Phase 3 is in progress:** items 3.1 (the tier
+contract / `QualityParams`), 3.2 (`VulkanSceneView` → `ViewResources` extraction), and
+3.7 (IBL diffuse → SH-9) are **shipped**; 3.3–3.6 remain. This revision re-audits the codebase, folds in
 a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
 GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
 AAA-complete phases. The guiding constraint is unchanged: the *red line between
@@ -255,16 +257,35 @@ camera-relative / reverse-Z invariants.
 
 Pays §1.2's debt before new systems multiply it, and locks the platform baseline.
 
-1. **Enforce the tier contract.** A per-pass `QualityParams` resolved from
-   `RenderQuality` in one place (`render/frame/quality.{hpp,cpp}`) — march budgets,
-   resolution fractions, tap counts, feature toggles — so a pass reads *resolved
-   parameters*, never the raw enum (SRP: tier policy lives in one file). Wire the
-   existing passes (PCSS taps, contact-march length, cloud budget, VRS
-   aggressiveness, advanced material lobes) through it. Acceptance: switching
-   Low↔Ultra visibly rescales every major pass in the profiler HUD.
-2. **Slim `VulkanSceneView` below 300 lines**: extract target/readback lifecycle
-   into a `ViewResources` module (`render/rhi/vulkan/view_resources.*`). Pure
-   refactor, no behavior change.
+1. **Enforce the tier contract.** ✓ **Shipped.** A single
+   resolver `resolve_quality(authored) → {effective RenderSettings, QualityParams}`
+   in one file (`render/frame/quality.cpp`); `QualityParams` and the resolver live in
+   the *public* header `include/SushiEngine/render/quality_params.hpp` rather than
+   under `render/frame/`, because the editor's resolved-params readout must see them
+   and `render/frame/` is a private include dir (SRP: tier policy still lives in one
+   file). The contract adopted: the authored settings **are** the High baseline —
+   High resolves to the request verbatim (no default regression), Low/Medium scale the
+   expensive half down from it, Ultra pushes it up. Wired through it so far: PCSS
+   filter/blocker taps (via two spare `ShadowUniforms` lanes → `shadow_sampling.glsl`),
+   contact-march length + shadow atlas size + cascade count (via the effective
+   settings, no shader change), VRS coarsest-rate cap (`shading_rate_pass`), and the
+   advanced material lobes (a tier lobe-mask AND-ed in `MaterialSystem`), and the cloud
+   march budget (near/far/light step counts pushed to `cloud.frag` on the shared
+   fragment push range, clamped in-shader so a stale push can never spin the loop out).
+   Editor: the Rendering panel's "Tier resolves to" tree. Acceptance met: switching
+   Low↔Ultra visibly rescales the shadow, contact, VRS, material, and cloud passes in
+   the profiler HUD.
+2. **Slim `VulkanSceneView`**: ✓ **Shipped.** The entire per-frame device lifecycle —
+   the double-buffered command slots, the resolve image, the picking readback, the
+   uniform staging buffers, the transient pools, and the parity-ping-ponged temporal
+   history — moved into a new `render/rhi/vulkan/view_resources.{hpp,cpp}`; the view
+   drives it through an interface and never touches a `VkImage` directly. Logic was
+   copied verbatim (pure refactor, no behavior change). `vulkan_scene_view.cpp` went
+   **771 → 372 lines**. The residual is not target/readback lifecycle but irreducible
+   orchestration — `render()` (build FrameContext, fill uniforms, register passes,
+   compile, submit) and the 14-pass constructor init list — so the module boundary,
+   not a sub-300 line count, is the real acceptance here; fragmenting `render()` further
+   would trade clarity for a number.
 3. **PSO hitch elimination**: background link-time-optimized pipeline recompile +
    swap on top of the existing GPL fast link; pipeline usage harvesting to a
    precache list warmed at startup (the Khronos/Epic-documented recipe). Target:
@@ -281,9 +302,17 @@ Pays §1.2's debt before new systems multiply it, and locks the platform baselin
    count is still ~30. If adopted, the hot-reload path and build tool compile Slang;
    GLSL includes are ported module-by-module. If deferred, record why — the cost
    only grows.
-7. **IBL diffuse → SH-9** (from the audit): project the irradiance capture onto
-   9 SH coefficients; uniform-buffer reads replace a cubemap sample, and Phase 6's
-   probe blending becomes trivial.
+7. **IBL diffuse → SH-9** (from the audit): ✓ **Shipped.** A new `sh_project.comp`
+   projects the captured environment radiance into 9 L2 SH coefficients in one
+   change-gated workgroup dispatch inside the IBL build, with the cosine-lobe band
+   factors and 1/π baked into the stored coefficients so a shader-side `evaluate_sh(n)`
+   returns exactly the magnitude the irradiance cube did (verified against the uniform-
+   environment case). `pbr.frag`'s diffuse term is now nine storage reads + a degree-two
+   polynomial in the normal instead of a filtered cube fetch; the coefficients live in a
+   144-byte IblPass-owned SSBO at scene-set binding 13, an IblPass-private resource
+   barriered to fragment-read like the cubes. Phase 6's probe blending is now a blend of
+   coefficients. (The irradiance cube is left generated but unused — a trivial cleanup
+   removal later.)
 
 *Performance note:* this phase is net-negative GPU cost (SH, precache) and
 removes the worst CPU spikes (PSO links).

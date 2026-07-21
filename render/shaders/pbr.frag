@@ -82,6 +82,34 @@ layout(set = 0, binding = 4) uniform sampler2D ray_shadow_texture;
 layout(set = 0, binding = 5) uniform sampler2D contact_shadow_texture;
 layout(set = 0, binding = 6) uniform sampler2D cloud_weather_texture;
 
+// The environment's diffuse ambient as 9 spherical-harmonic coefficients, projected from
+// the same captured cube the specular chain comes from: nine storage reads and a degree-two
+// polynomial in the normal replace a filtered cubemap fetch, and probe blending later
+// becomes a blend of coefficients. The band factors and 1/pi were baked in at projection,
+// so this returns the same magnitude the irradiance cube used to.
+layout(std430, set = 0, binding = 13) readonly buffer IrradianceSh
+{
+    vec4 coeff[9];
+} irradiance_sh;
+
+vec3 evaluate_sh(vec3 n)
+{
+    float y[9];
+    y[0] = 0.282095;
+    y[1] = 0.488603 * n.y;
+    y[2] = 0.488603 * n.z;
+    y[3] = 0.488603 * n.x;
+    y[4] = 1.092548 * n.x * n.y;
+    y[5] = 1.092548 * n.y * n.z;
+    y[6] = 0.315392 * (3.0 * n.z * n.z - 1.0);
+    y[7] = 1.092548 * n.x * n.z;
+    y[8] = 0.546274 * (n.x * n.x - n.y * n.y);
+    vec3 result = vec3(0.0);
+    for (int i = 0; i < 9; ++i)
+        result += irradiance_sh.coeff[i].rgb * y[i];
+    return max(result, vec3(0.0)); // clamp the small negative lobe SH can ring into
+}
+
 layout(set = 1, binding = 0) uniform sampler2D bindless_textures[];
 
 layout(push_constant) uniform Push
@@ -399,7 +427,7 @@ void main()
         vec3 reflection = reflect(-view_dir, n);
         float mip = roughness * max(scene.ibl_params.y - 1.0, 0.0);
         vec3 prefiltered = textureLod(specular_cube, reflection, mip).rgb;
-        vec3 irradiance = texture(irradiance_cube, n).rgb;
+        vec3 irradiance = evaluate_sh(n);
         vec3 fresnel_ibl = f_schlick_roughness(n_dot_v, f0, roughness);
         float specular_ao = specular_occlusion(n_dot_v, occlusion, roughness);
 

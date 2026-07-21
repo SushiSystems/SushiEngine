@@ -107,6 +107,15 @@ namespace SushiEngine
 
                         frame.layout->bind(cmd, set);
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+                        // The tier's march budget rides the shared push range's fragment
+                        // bytes, which this fullscreen pass otherwise leaves unused.
+                        const std::uint32_t budget[3] = {
+                            frame.quality.cloud_primary_steps_near,
+                            frame.quality.cloud_primary_steps_far,
+                            frame.quality.cloud_light_steps};
+                        vkCmdPushConstants(cmd, layout_.pipeline_layout(),
+                                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(budget),
+                                           budget);
                         vkCmdDraw(cmd, 3, 1, 0, 0);
                     });
             }

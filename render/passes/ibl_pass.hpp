@@ -120,6 +120,15 @@ namespace SushiEngine
                     /** @brief Mip levels in the specular cube, the roughness axis's length. */
                     std::uint32_t specular_mip_count() const noexcept { return specular_.mips; }
 
+                    /** @brief The 9 diffuse SH coefficients projected from the environment. */
+                    VkBuffer sh_buffer() const noexcept { return sh_buffer_; }
+
+                    /** @brief Bytes of the SH coefficient buffer, for the descriptor range. */
+                    static constexpr VkDeviceSize sh_buffer_bytes() noexcept
+                    {
+                        return 9 * 4 * sizeof(float);
+                    }
+
                 private:
                     /** @brief One cubemap: its image, whole-cube view, and per-mip storage views. */
                     struct Cube
@@ -168,6 +177,15 @@ namespace SushiEngine
                     VkPipeline sky_pipeline_ = VK_NULL_HANDLE;
                     VkPipeline prefilter_pipeline_ = VK_NULL_HANDLE;
                     VkPipeline irradiance_pipeline_ = VK_NULL_HANDLE;
+
+                    // Diffuse SH projection: its own layout (the destination is a storage
+                    // buffer, not the storage image the cube convolutions write), pipeline,
+                    // and the tiny 9-coefficient buffer the shading pass reads.
+                    VkDescriptorSetLayout sh_layout_ = VK_NULL_HANDLE;
+                    VkPipelineLayout sh_pipeline_layout_ = VK_NULL_HANDLE;
+                    VkPipeline sh_pipeline_ = VK_NULL_HANDLE;
+                    VkBuffer sh_buffer_ = VK_NULL_HANDLE;
+                    VmaAllocation sh_allocation_ = VK_NULL_HANDLE;
 
                     VkBuffer face_uniforms_[6]{};
                     VmaAllocation face_uniform_allocations_[6]{};

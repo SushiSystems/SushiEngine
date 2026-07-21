@@ -39,6 +39,7 @@
 #include <vulkan/vulkan.h>
 
 #include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/render/quality_params.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
@@ -171,7 +172,19 @@ namespace SushiEngine
                 std::uint32_t height = 1;
                 std::uint32_t output_width = 1;  /**< Extent the resolved image is presented at. */
                 std::uint32_t output_height = 1;
+
+                /**
+                 * @brief The tier-resolved effective settings this frame renders with.
+                 *
+                 * Not the host's authored request but the result of running that request
+                 * through the quality resolver: at High it is the request verbatim, at a
+                 * lower tier the expensive fields are scaled down. Every pass reads this.
+                 */
                 RenderSettings settings;
+
+                /** @brief The tier-resolved per-pass knobs with no home in @c settings. */
+                QualityParams quality;
+
                 const CameraView* camera = nullptr;
                 const Environment* environment = nullptr;
                 double eye[3] = {0.0, 0.0, 0.0}; /**< Camera world position, metres. */

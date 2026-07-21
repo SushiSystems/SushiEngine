@@ -85,6 +85,11 @@ namespace SushiEngine
                 bindings[SHADOW_DEPTH_BINDING].descriptorCount = 1;
                 bindings[SHADOW_DEPTH_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+                bindings[IBL_SH_BINDING].binding = IBL_SH_BINDING;
+                bindings[IBL_SH_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[IBL_SH_BINDING].descriptorCount = 1;
+                bindings[IBL_SH_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
                 layout_info.bindingCount = BINDING_COUNT;

@@ -66,7 +66,11 @@ float shadow_blocker_depth(sampler2D depth_atlas, int cascade, vec2 uv, float re
     vec2 tile = shadow_tile_origin(cascade);
     float total = 0.0;
     float count = 0.0;
-    for (int i = 0; i < 8; ++i)
+    // The tap count is the tier's, read from the block rather than baked in, so a low
+    // tier searches with fewer samples; clamped to the disc so a stray value can never
+    // index past the table.
+    int taps = clamp(int(shadows.filter_size.w), 1, 16);
+    for (int i = 0; i < taps; ++i)
     {
         vec2 offset = vec2(SHADOW_DISC[i].x * rotation.x - SHADOW_DISC[i].y * rotation.y,
                            SHADOW_DISC[i].x * rotation.y + SHADOW_DISC[i].y * rotation.x);
@@ -90,14 +94,17 @@ float shadow_filter(sampler2DShadow atlas, int cascade, vec2 uv, float reference
 {
     vec2 tile = shadow_tile_origin(cascade);
     float total = 0.0;
-    for (int i = 0; i < 16; ++i)
+    // Tier-driven tap count, same as the blocker search: fewer taps is a cheaper, grainier
+    // penumbra the temporal resolve then smooths. Clamped to the disc's sixteen entries.
+    int taps = clamp(int(shadows.params.z), 1, 16);
+    for (int i = 0; i < taps; ++i)
     {
         vec2 offset = vec2(SHADOW_DISC[i].x * rotation.x - SHADOW_DISC[i].y * rotation.y,
                            SHADOW_DISC[i].x * rotation.y + SHADOW_DISC[i].y * rotation.x);
         vec2 tap = shadow_tile_clamp(uv * shadows.params.y + offset * radius * texel, texel);
         total += texture(atlas, vec3(tile + tap, reference));
     }
-    return total / 16.0;
+    return total / float(taps);
 }
 
 // One cascade's soft visibility: measure the penumbra, then filter over it.

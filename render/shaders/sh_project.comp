@@ -1,0 +1,109 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Projects the captured environment radiance into 9 second-order spherical-harmonic
+// coefficients — the diffuse ambient the shading reads instead of sampling an irradiance
+// cubemap. The cosine-lobe convolution (Ramamoorthi A0=pi, A1=2pi/3, A2=pi/4) and the 1/pi
+// that turns irradiance into the pre-albedo diffuse term are baked into the stored
+// coefficients, so evaluate_sh(n) in the shading pass returns exactly what the irradiance
+// cube used to: for a uniform environment of radiance L it returns L. One workgroup reduces
+// the whole coarse cube, so this is a single tiny dispatch appended to the IBL build.
+
+#include "ibl_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform samplerCube environment;
+layout(std430, set = 0, binding = 1) buffer ShOut
+{
+    vec4 coeff[9]; // xyz = coefficient, w unused (std430 pads vec3 to vec4 anyway)
+} sh;
+
+layout(push_constant) uniform Params
+{
+    uint resolution;   // per-face sample grid side
+    float source_mip;  // environment mip to sample the radiance from
+} params;
+
+shared vec3 partial[64][9];
+shared float partial_weight[64];
+
+// The real orthonormal spherical-harmonic basis through l = 2, along a unit direction.
+void sh_basis(vec3 d, out float y[9])
+{
+    y[0] = 0.282095;
+    y[1] = 0.488603 * d.y;
+    y[2] = 0.488603 * d.z;
+    y[3] = 0.488603 * d.x;
+    y[4] = 1.092548 * d.x * d.y;
+    y[5] = 1.092548 * d.y * d.z;
+    y[6] = 0.315392 * (3.0 * d.z * d.z - 1.0);
+    y[7] = 1.092548 * d.x * d.z;
+    y[8] = 0.546274 * (d.x * d.x - d.y * d.y);
+}
+
+// Solid angle of a cube texel whose centre projects to c in the [-1,1] face plane. Texels
+// near a face edge subtend less of the sphere, so weighting by this is what keeps the
+// projection unbiased across the six faces.
+float texel_solid_angle(vec2 c, float res)
+{
+    float d = 1.0 + c.x * c.x + c.y * c.y;
+    return (4.0 / (res * res)) / (d * sqrt(d));
+}
+
+void main()
+{
+    uint tid = gl_LocalInvocationID.x;
+    uint res = params.resolution;
+    uint total = res * res * 6u;
+
+    vec3 acc[9];
+    for (int i = 0; i < 9; ++i)
+        acc[i] = vec3(0.0);
+    float weight = 0.0;
+
+    // Each thread integrates a strided slice of the cube's texels.
+    for (uint idx = tid; idx < total; idx += 64u)
+    {
+        uint face = idx / (res * res);
+        uint texel = idx % (res * res);
+        vec2 uv = (vec2(float(texel % res), float(texel / res)) + 0.5) / float(res);
+        vec2 c = uv * 2.0 - 1.0;
+        vec3 dir = cube_direction(face, uv);
+        float w = texel_solid_angle(c, float(res));
+        vec3 radiance = textureLod(environment, dir, params.source_mip).rgb;
+        float y[9];
+        sh_basis(dir, y);
+        for (int i = 0; i < 9; ++i)
+            acc[i] += radiance * y[i] * w;
+        weight += w;
+    }
+
+    for (int i = 0; i < 9; ++i)
+        partial[tid][i] = acc[i];
+    partial_weight[tid] = weight;
+    barrier();
+
+    if (tid != 0u)
+        return;
+
+    vec3 total_c[9];
+    for (int i = 0; i < 9; ++i)
+        total_c[i] = vec3(0.0);
+    float total_w = 0.0;
+    for (uint t = 0u; t < 64u; ++t)
+    {
+        for (int i = 0; i < 9; ++i)
+            total_c[i] += partial[t][i];
+        total_w += partial_weight[t];
+    }
+
+    // Normalise the estimate back to the full sphere (the texel weights approximate 4*pi),
+    // then fold in the cosine-lobe band factors divided by pi so the reconstruction yields
+    // irradiance/pi — exactly the magnitude the irradiance cube stored.
+    float norm = total_w > 0.0 ? (4.0 * IBL_PI) / total_w : 0.0;
+    float band[9] = float[9](1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0,
+                             0.25, 0.25, 0.25, 0.25, 0.25);
+    for (int i = 0; i < 9; ++i)
+        sh.coeff[i] = vec4(total_c[i] * (norm * band[i]), 0.0);
+}

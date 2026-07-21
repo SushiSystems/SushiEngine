@@ -28,23 +28,23 @@
  * @brief Vulkan implementation of ISceneView: a render-graph frame orchestrator.
  *
  * Internal to the render library. The view holds only what genuinely varies per
- * view — its targets, its per-frame allocators, its soft-body buffers, its temporal
- * history, and its passes — and reaches everything shared through the device's
- * AssetLibrary. Its job each frame is one thing: build a FrameContext, let each pass
- * register into the graph, compile, submit. It records no barrier and opens no render
- * pass of its own.
+ * view — its passes, its per-frame allocators, its soft-body buffers, its temporal
+ * relationship to the previous frame, and the resolution the governor chose — and
+ * reaches everything shared through the device's AssetLibrary. Its job each frame is
+ * one thing: build a FrameContext, let each pass register into the graph, compile,
+ * submit. It records no barrier and opens no render pass of its own.
  *
- * It also owns the frame's relationship to the frame before it: the jitter sequence,
- * the previous camera, the accumulated history, and the resolution the governor chose.
- * Those are per view because two viewports converge independently.
+ * The GPU resources that make a frame possible — the double-buffered command slots, the
+ * resolve image the editor samples, the picking readback, the uniform staging buffers,
+ * the transient pools, and the temporal history — are target/readback lifecycle rather
+ * than orchestration, and live in `ViewResources`. The view drives them through that
+ * interface and never touches a `VkImage` directly.
  */
 
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 #include <vulkan/vulkan.h>
-#include <vk_mem_alloc.h>
 
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -70,11 +70,10 @@
 #include "passes/taa_pass.hpp"
 #include "passes/tonemap_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
-#include "resources/transient_pool.hpp"
 #include "raytracing/scene_accelerator.hpp"
 #include "scene/motion_system.hpp"
-#include "scene/shadow_uniforms.hpp"
 
+#include "view_resources.hpp"
 #include "vulkan_device.hpp"
 
 namespace SushiEngine
@@ -129,68 +128,8 @@ namespace SushiEngine
 
                 private:
                     /** @brief How many frames may be in flight at once. */
-                    static constexpr std::uint32_t SLOTS = 2;
+                    static constexpr std::uint32_t SLOTS = ViewResources::SLOTS;
 
-                    /**
-                     * @brief One frame slot: its persistent targets and recording state.
-                     *
-                     * The transient pools are per slot rather than shared, because a pool
-                     * hands a resource back out as soon as its frame ends — sharing one
-                     * between slots would let this frame overwrite resources the previous
-                     * frame's submit is still reading.
-                     */
-                    struct Slot
-                    {
-                        VkImage resolve = VK_NULL_HANDLE;
-                        VmaAllocation resolve_allocation = VK_NULL_HANDLE;
-                        VkImageView resolve_view = VK_NULL_HANDLE;
-                        Graph::TextureState resolve_state{};
-                        VkBuffer readback = VK_NULL_HANDLE;
-                        VmaAllocation readback_allocation = VK_NULL_HANDLE;
-                        void* readback_mapped = nullptr;
-                        Graph::BufferState readback_state{};
-                        VkBuffer uniforms = VK_NULL_HANDLE;
-                        VmaAllocation uniforms_allocation = VK_NULL_HANDLE;
-                        void* uniforms_mapped = nullptr;
-                        Graph::BufferState uniforms_state{};
-                        VkBuffer temporal = VK_NULL_HANDLE;
-                        VmaAllocation temporal_allocation = VK_NULL_HANDLE;
-                        void* temporal_mapped = nullptr;
-                        Graph::BufferState temporal_state{};
-                        VkBuffer shadow = VK_NULL_HANDLE;
-                        VmaAllocation shadow_allocation = VK_NULL_HANDLE;
-                        void* shadow_mapped = nullptr;
-                        Graph::BufferState shadow_state{};
-                        VkCommandPool pool = VK_NULL_HANDLE;
-                        VkCommandBuffer cmd = VK_NULL_HANDLE;
-                        VkFence fence = VK_NULL_HANDLE;
-                        bool ever_rendered = false;
-                        /** @brief Render extent the id target in this slot was written at. */
-                        std::uint32_t readback_width = 0;
-                        std::uint32_t readback_height = 0;
-                        std::unique_ptr<Resources::TexturePool> textures;
-                        std::unique_ptr<Resources::BufferPool> buffers;
-                    };
-
-                    /**
-                     * @brief One accumulated frame the temporal resolve reads and writes.
-                     *
-                     * Two of them, ping-ponged by frame parity rather than by frame slot:
-                     * the resolve needs the frame immediately before this one, and with
-                     * two slots in flight the other slot's image is two frames old.
-                     */
-                    struct History
-                    {
-                        VkImage image = VK_NULL_HANDLE;
-                        VmaAllocation allocation = VK_NULL_HANDLE;
-                        VkImageView view = VK_NULL_HANDLE;
-                        Graph::TextureState state{};
-                    };
-
-                    void create_slots();
-                    void create_targets();
-                    void destroy_targets();
-                    Frame::FrameTargets declare_targets(Slot& slot, const Frame::FrameContext& frame);
                     void update_render_extent();
                     float measured_frame_milliseconds() const noexcept;
 
@@ -218,14 +157,11 @@ namespace SushiEngine
                     Passes::FxaaPass fxaa_pass_;
                     Passes::PickingPass picking_pass_;
                     std::vector<Passes::IRenderPass*> passes_;
-                    VkSampler ui_sampler_ = VK_NULL_HANDLE;
-                    Slot slots_[SLOTS];
-                    History history_[2];
+                    ViewResources resources_;
                     RenderSettings settings_;
                     Frame::ResolutionController resolution_;
                     CameraView previous_camera_{};
                     float previous_jitter_[2] = {0.0f, 0.0f};
-                    bool history_valid_ = false;
                     std::uint32_t width_ = 16;
                     std::uint32_t height_ = 16;
                     std::uint32_t render_width_ = 16;

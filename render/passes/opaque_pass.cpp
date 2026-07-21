@@ -289,6 +289,21 @@ namespace SushiEngine
                                                indices.data(), indices.size());
                 }
 
+                // The quality tier decides which advanced BRDF lobes are evaluated at all;
+                // apply that once here, before any material is packed, so a lower tier
+                // strips clearcoat/sheen/anisotropy/transmission across the whole frame and
+                // the shader's lobe branches are simply never taken.
+                std::uint32_t allowed_lobes = 0;
+                if (frame.quality.lobe_anisotropy)
+                    allowed_lobes |= Assets::MATERIAL_ANISOTROPY;
+                if (frame.quality.lobe_clearcoat)
+                    allowed_lobes |= Assets::MATERIAL_CLEARCOAT;
+                if (frame.quality.lobe_sheen)
+                    allowed_lobes |= Assets::MATERIAL_SHEEN;
+                if (frame.quality.lobe_transmission)
+                    allowed_lobes |= Assets::MATERIAL_TRANSMISSION;
+                materials_.set_allowed_lobes(allowed_lobes);
+
                 // Pack every material this frame draws with before the graph runs, so the
                 // execute function records draws only and the array is already complete
                 // when the descriptor set is written. A draw carries this array's index.
@@ -398,6 +413,8 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::SHADOW_BINDING,
                                        context.buffer(frame.targets.shadow),
                                        sizeof(Scene::ShadowUniforms));
+                        writer.storage(Scene::SceneLayout::IBL_SH_BINDING, ibl_.sh_buffer(),
+                                       IblPass::sh_buffer_bytes());
                         writer.commit(device_.device());
                         frame.layout->bind(cmd, set);
 

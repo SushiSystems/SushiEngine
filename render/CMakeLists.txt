@@ -118,6 +118,8 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl_irradiance.co
     ibl_irradiance_comp_spv IBL_IRRADIANCE_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/brdf_lut.comp"
     brdf_lut_comp_spv BRDF_LUT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sh_project.comp"
+    sh_project_comp_spv SH_PROJECT_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
@@ -139,6 +141,7 @@ add_library(sushi_render STATIC
     raytracing/scene_accelerator.cpp
     frame/temporal_jitter.cpp
     frame/resolution_controller.cpp
+    frame/quality.cpp
     geometry/mesh_registry.cpp
     geometry/cloth_buffers.cpp
     material/asset_library.cpp
@@ -166,6 +169,7 @@ add_library(sushi_render STATIC
     rhi/vulkan/vulkan_offscreen.cpp
     rhi/vulkan/vulkan_window_renderer.cpp
     rhi/vulkan/vulkan_scene_view.cpp
+    rhi/vulkan/view_resources.cpp
     rhi/vulkan/vma_impl.cpp
     material/stb_impl.cpp
     "${TRIANGLE_VERT_HEADER}"
@@ -190,7 +194,8 @@ add_library(sushi_render STATIC
     "${CLOUD_NOISE_WEATHER_HEADER}"
     "${IBL_PREFILTER_HEADER}"
     "${IBL_IRRADIANCE_HEADER}"
-    "${BRDF_LUT_HEADER}")
+    "${BRDF_LUT_HEADER}"
+    "${SH_PROJECT_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")
