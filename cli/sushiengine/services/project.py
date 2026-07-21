@@ -164,6 +164,8 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
             args.append(f"-DCMAKE_MAKE_PROGRAM={cfg.expand(cfg.ninja_exe)}")
         if cfg.pkgconf_exe:
             args.append(f"-DPKG_CONFIG_EXECUTABLE={cfg.expand(cfg.pkgconf_exe)}")
+        if cfg.rc_exe:
+            args.append(f"-DCMAKE_RC_COMPILER={cfg.expand(cfg.rc_exe)}")
     if vcpkg:
         args += [
             f"-DCMAKE_TOOLCHAIN_FILE={vcpkg}/scripts/buildsystems/vcpkg.cmake",

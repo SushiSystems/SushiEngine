@@ -61,6 +61,7 @@ _ENV_OVERRIDES = {
     "ninja_exe": "SE_NINJA",
     "cmake_exe": "SE_CMAKE",
     "ctest_exe": "SE_CTEST",
+    "rc_exe": "SE_RC",
     "pkgconf_exe": "SE_PKGCONF",
     "doxygen_exe": "SE_DOXYGEN",
     "vcpkg_triplet": "SE_VCPKG_TRIPLET",
