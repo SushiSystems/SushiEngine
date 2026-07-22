@@ -104,11 +104,18 @@ def doxygen():
 # --------------------------------------------------------------------------- #
 @app.command("editor")
 def editor(
+    type: BuildType = typer.Option(
+        BuildType.release, "--type", "-t", case_sensitive=False,
+        help="Build type: release | debug | relwithdebinfo."),
     no_run: bool = typer.Option(
         False, "--no-run", help="Build the editor but do not launch it."),
 ):
-    """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON)."""
-    raise typer.Exit(editor_svc.build_and_run(run=not no_run))
+    """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON).
+
+    Uses its own build-editor/ tree, separate from `se build`'s build/, so the
+    two never clobber each other's CMAKE_BUILD_TYPE.
+    """
+    raise typer.Exit(editor_svc.build_and_run(run=not no_run, build_type=type))
 
 
 # --------------------------------------------------------------------------- #

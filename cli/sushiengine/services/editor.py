@@ -13,13 +13,21 @@ from ..config import find_project_root, load_config
 from ..env import load_build_env
 from . import discovery
 from . import project
+from .project import BuildType, _CMAKE_BUILD_TYPE
 
 
-def build_and_run(run: bool = True) -> int:
+def _editor_build_dir(root):
+    """Editor gets its own build tree so its always-Release-by-default configure
+    never clobbers a debug `build/` tree produced by `se build --type debug`."""
+    return root / "build-editor"
+
+
+def build_and_run(run: bool = True, build_type: BuildType = BuildType.release) -> int:
     console.header("Editor")
     root = find_project_root()
     cfg = load_config()
-    build_dir = project._build_dir(root)
+    build_dir = _editor_build_dir(root)
+    cmake_build_type = _CMAKE_BUILD_TYPE[build_type]
 
     imgui = root / "third_party" / "imgui" / "imgui.cpp"
     if not imgui.is_file():
@@ -35,9 +43,9 @@ def build_and_run(run: bool = True) -> int:
 
     # In-place configure with the editor flag on. Re-running configure is cheap;
     # CMake picks up the changed -D without a clean rebuild of the runtime.
-    args = project._configure_args(cfg, root, build_dir, "Release", tests=False)
+    args = project._configure_args(cfg, root, build_dir, cmake_build_type, tests=False)
     args.append("-DSE_BUILD_EDITOR=ON")
-    console.info("Configuring (editor ON)...")
+    console.info(f"Configuring (editor ON, type={build_type.value})...")
     if (rc := project._run(args, env, cwd=root)) != 0:
         console.error("CMake configure failed.")
         return rc
@@ -45,7 +53,7 @@ def build_and_run(run: bool = True) -> int:
     console.info("Building se_editor...")
     rc = project._run(
         [project._cmake(cfg), "--build", str(build_dir),
-         "--config", "Release", "--target", "se_editor"],
+         "--config", cmake_build_type, "--target", "se_editor"],
         env, cwd=root)
     if rc != 0:
         console.error("Editor build failed.")

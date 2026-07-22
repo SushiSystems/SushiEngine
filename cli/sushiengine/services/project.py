@@ -12,6 +12,7 @@ import enum
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 from .. import console
 from ..config import Config, find_project_root, load_config
@@ -121,11 +122,30 @@ def _run_drained(cmd: list[str], env: dict[str, str], cwd: Path) -> int:
     return proc.wait()
 
 
-def _needs_configure(build_dir: Path, generator: str) -> bool:
+def _configured_build_type(build_dir: Path) -> Optional[str]:
+    """The CMAKE_BUILD_TYPE baked into build_dir's cache, or None if unconfigured."""
+    cache = build_dir / "CMakeCache.txt"
+    if not cache.is_file():
+        return None
+    prefix = "CMAKE_BUILD_TYPE:"
+    for line in cache.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line.startswith(prefix):
+            return line.split("=", 1)[1].strip()
+    return None
+
+
+def _needs_configure(build_dir: Path, generator: str, build_type: str = None) -> bool:
     if not build_dir.is_dir():
         return True
     sentinel = "build.ninja" if generator == "Ninja" else "Makefile"
-    return not (build_dir / sentinel).is_file()
+    if not (build_dir / sentinel).is_file():
+        return True
+    # Single-config generators (Ninja, Make) bake CMAKE_BUILD_TYPE into the
+    # existing cache; `cmake --build --config X` is silently ignored for them,
+    # so a stale tree must be reconfigured rather than reused as-is.
+    if build_type is not None and _configured_build_type(build_dir) != build_type:
+        return True
+    return False
 
 
 def _check_runtime(cfg: Config, root: Path) -> int:
@@ -197,7 +217,7 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int
 
     env = load_build_env(cfg, build_dir)
 
-    if _needs_configure(build_dir, cfg.generator):
+    if _needs_configure(build_dir, cfg.generator, cmake_build_type):
         console.info(f"Configuring CMake... (type={build_type.value}, tests={'ON' if tests else 'OFF'})")
         if build_dir.is_dir():
             shutil.rmtree(build_dir, ignore_errors=True)
