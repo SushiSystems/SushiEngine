@@ -58,6 +58,11 @@ namespace SushiEngine
             class ShaderLibrary;
         }
 
+        namespace Geometry
+        {
+            class MeshRegistry;
+        }
+
         namespace Vulkan
         {
             class VulkanDevice;
@@ -87,11 +92,12 @@ namespace SushiEngine
                      * @param shaders   Library the tracer's compute module comes from.
                      * @param pipelines Factory the tracer's pipeline is built through.
                      * @param ibl       The IBL build whose environment SH seeds the probes.
+                     * @param meshes    The mesh store the SDF tracer bakes occluder bricks from.
                      */
                     IrradianceVolumePass(Vulkan::VulkanDevice& device,
                                          Resources::ShaderLibrary& shaders,
                                          Resources::GraphicsPipelineFactory& pipelines,
-                                         IblPass& ibl);
+                                         IblPass& ibl, Geometry::MeshRegistry& meshes);
                     ~IrradianceVolumePass() override;
 
                     IrradianceVolumePass(const IrradianceVolumePass&) = delete;

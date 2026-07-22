@@ -14,6 +14,15 @@ struct SdfClipmapConfig
 {
     vec4 origin_voxel;  // xyz camera-relative min corner, w = voxel size in metres
     ivec4 resolution;   // xyz voxel counts, w = live primitive count
+    ivec4 extra;        // x = mesh-instance count, yzw spare
+};
+
+struct SdfMeshInstance
+{
+    mat4 inv_model;  // camera-relative world -> mesh local
+    vec4 aabb_min;   // xyz local AABB min, w = brick slot
+    vec4 aabb_max;   // xyz local AABB max, w = local-to-world distance scale
+    vec4 albedo;     // rgb bounce albedo
 };
 
 // Axis-aligned analytic primitive distances (Inigo Quilez forms).
@@ -44,6 +53,17 @@ float sdf_primitive(SdfPrimitive prim, vec3 world)
     if (kind == 2)
         return sdf_cylinder(local, prim.extent.x, prim.extent.y);
     return sdf_box(local, prim.extent.xyz);
+}
+
+// Transforms a camera-relative world point into a mesh instance's brick and returns its
+// [0,1] texcoord, or false when the point is outside the mesh's local AABB. Pure math: the
+// brick fetch that follows references the atlas buffer the caller declares.
+bool sdf_mesh_texcoord(SdfMeshInstance instance, vec3 world, out vec3 texcoord)
+{
+    vec3 local = (instance.inv_model * vec4(world, 1.0)).xyz;
+    vec3 span = instance.aabb_max.xyz - instance.aabb_min.xyz;
+    texcoord = (local - instance.aabb_min.xyz) / max(span, vec3(1e-6));
+    return all(greaterThanEqual(texcoord, vec3(0.0))) && all(lessThanEqual(texcoord, vec3(1.0)));
 }
 
 // The camera-relative world centre of a voxel.

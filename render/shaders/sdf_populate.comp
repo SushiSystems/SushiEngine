@@ -22,6 +22,48 @@ layout(set = 0, binding = 2) uniform ClipmapBlock
     SdfClipmapConfig cfg;
 } clip;
 
+layout(std430, set = 0, binding = 3) readonly buffer MeshInstances
+{
+    SdfMeshInstance instances[];
+} meshes;
+
+layout(std430, set = 0, binding = 4) readonly buffer BrickAtlas
+{
+    float distances[];
+} bricks;
+
+const int BRICK_RESOLUTION = 32;
+const int BRICK_VOXELS = BRICK_RESOLUTION * BRICK_RESOLUTION * BRICK_RESOLUTION;
+
+// One brick voxel, clamped to the brick bounds.
+float brick_fetch(int slot, ivec3 c)
+{
+    c = clamp(c, ivec3(0), ivec3(BRICK_RESOLUTION - 1));
+    int index = slot * BRICK_VOXELS + c.x + BRICK_RESOLUTION * (c.y + BRICK_RESOLUTION * c.z);
+    return bricks.distances[index];
+}
+
+// Trilinear signed distance from a brick at a [0,1] texcoord (voxel centres at (i+0.5)/N).
+float brick_sample(int slot, vec3 texcoord)
+{
+    vec3 grid = texcoord * float(BRICK_RESOLUTION) - 0.5;
+    ivec3 base = ivec3(floor(grid));
+    vec3 f = grid - vec3(base);
+    float c000 = brick_fetch(slot, base + ivec3(0, 0, 0));
+    float c100 = brick_fetch(slot, base + ivec3(1, 0, 0));
+    float c010 = brick_fetch(slot, base + ivec3(0, 1, 0));
+    float c110 = brick_fetch(slot, base + ivec3(1, 1, 0));
+    float c001 = brick_fetch(slot, base + ivec3(0, 0, 1));
+    float c101 = brick_fetch(slot, base + ivec3(1, 0, 1));
+    float c011 = brick_fetch(slot, base + ivec3(0, 1, 1));
+    float c111 = brick_fetch(slot, base + ivec3(1, 1, 1));
+    float x00 = mix(c000, c100, f.x);
+    float x10 = mix(c010, c110, f.x);
+    float x01 = mix(c001, c101, f.x);
+    float x11 = mix(c011, c111, f.x);
+    return mix(mix(x00, x10, f.y), mix(x01, x11, f.y), f.z);
+}
+
 void main()
 {
     ivec3 voxel = ivec3(gl_GlobalInvocationID);
@@ -39,6 +81,22 @@ void main()
         {
             nearest = d;
             albedo = scene.primitives[i].albedo.rgb;
+        }
+    }
+
+    // Imported meshes: sample each instance's baked brick where the voxel falls inside it.
+    int mesh_count = clip.cfg.extra.x;
+    for (int i = 0; i < mesh_count; ++i)
+    {
+        vec3 texcoord;
+        if (!sdf_mesh_texcoord(meshes.instances[i], world, texcoord))
+            continue;
+        int slot = int(meshes.instances[i].aabb_min.w + 0.5);
+        float d = brick_sample(slot, texcoord) * meshes.instances[i].aabb_max.w;
+        if (d < nearest)
+        {
+            nearest = d;
+            albedo = meshes.instances[i].albedo.rgb;
         }
     }
 

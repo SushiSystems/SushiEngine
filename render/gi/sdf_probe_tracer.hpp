@@ -38,6 +38,7 @@
 #include "gi/tracer.hpp"
 
 #include <cstdint>
+#include <vector>
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
@@ -46,6 +47,11 @@ namespace SushiEngine
 {
     namespace Render
     {
+        namespace Geometry
+        {
+            class MeshRegistry;
+        }
+
         namespace Resources
         {
             class GraphicsPipelineFactory;
@@ -74,7 +80,8 @@ namespace SushiEngine
                      * @param pipelines Factory the compute pipelines are built through.
                      */
                     SdfProbeTracer(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
-                                   Resources::GraphicsPipelineFactory& pipelines);
+                                   Resources::GraphicsPipelineFactory& pipelines,
+                                   Geometry::MeshRegistry& meshes);
                     ~SdfProbeTracer() override;
 
                     SdfProbeTracer(const SdfProbeTracer&) = delete;
@@ -102,13 +109,34 @@ namespace SushiEngine
                     void create_pipelines();
                     void destroy_pipelines();
 
+                    /**
+                     * @brief Uploads any not-yet-resident mesh bricks and builds the instances.
+                     * @param inputs This frame's relight inputs (the draw list and eye).
+                     * @param ring   The ring slot to write the instance buffer into.
+                     * @return The number of mesh instances written this frame.
+                     */
+                    std::int32_t build_mesh_instances(const ProbeRelightInputs& inputs,
+                                                      std::uint32_t ring);
+
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
+                    Geometry::MeshRegistry& meshes_;
 
                     VkImage clipmap_ = VK_NULL_HANDLE;
                     VmaAllocation clipmap_allocation_ = VK_NULL_HANDLE;
                     VkImageView clipmap_view_ = VK_NULL_HANDLE;
+
+                    // The shared brick atlas: MAX_SDF_BRICKS slots, host-written once per mesh.
+                    VkBuffer brick_atlas_ = VK_NULL_HANDLE;
+                    VmaAllocation brick_atlas_allocation_ = VK_NULL_HANDLE;
+                    void* brick_atlas_mapped_ = nullptr;
+                    std::vector<bool> brick_uploaded_;
+
+                    VkBuffer mesh_buffers_[RING] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
+                    VmaAllocation mesh_allocations_[RING] = {VK_NULL_HANDLE, VK_NULL_HANDLE,
+                                                             VK_NULL_HANDLE};
+                    void* mesh_mapped_[RING] = {nullptr, nullptr, nullptr};
 
                     VkBuffer primitive_buffers_[RING] = {VK_NULL_HANDLE, VK_NULL_HANDLE,
                                                          VK_NULL_HANDLE};

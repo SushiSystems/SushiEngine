@@ -23,7 +23,10 @@
 
 #include <cstring>
 
+#include <SushiEngine/render/scene_view.hpp>
+
 #include "frame/frame_context.hpp"
+#include "geometry/mesh_registry.hpp"
 #include "gi/probe_volume.hpp"
 #include "gi/sdf_clipmap.hpp"
 #include "resources/descriptor_allocator.hpp"
@@ -83,27 +86,29 @@ namespace SushiEngine
 
             SdfProbeTracer::SdfProbeTracer(Vulkan::VulkanDevice& device,
                                            Resources::ShaderLibrary& shaders,
-                                           Resources::GraphicsPipelineFactory& pipelines)
-                : device_(device), shaders_(shaders), pipelines_(pipelines)
+                                           Resources::GraphicsPipelineFactory& pipelines,
+                                           Geometry::MeshRegistry& meshes)
+                : device_(device), shaders_(shaders), pipelines_(pipelines), meshes_(meshes),
+                  brick_uploaded_(static_cast<std::size_t>(MAX_SDF_BRICKS), false)
             {
-                // Populate: the clipmap storage image, the primitive array, the clipmap config.
-                VkDescriptorSetLayoutBinding populate_bindings[3]{};
-                populate_bindings[0].binding = 0;
+                // Populate: the clipmap storage image, the primitive array, the clipmap config,
+                // the imported-mesh instances, and the shared brick atlas.
+                VkDescriptorSetLayoutBinding populate_bindings[5]{};
                 populate_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                populate_bindings[0].descriptorCount = 1;
-                populate_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                populate_bindings[1].binding = 1;
                 populate_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                populate_bindings[1].descriptorCount = 1;
-                populate_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                populate_bindings[2].binding = 2;
                 populate_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                populate_bindings[2].descriptorCount = 1;
-                populate_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                populate_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                populate_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                for (std::uint32_t i = 0; i < 5; ++i)
+                {
+                    populate_bindings[i].binding = i;
+                    populate_bindings[i].descriptorCount = 1;
+                    populate_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                }
 
                 VkDescriptorSetLayoutCreateInfo populate_info{};
                 populate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                populate_info.bindingCount = 3;
+                populate_info.bindingCount = 5;
                 populate_info.pBindings = populate_bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &populate_info, nullptr,
                                                           &populate_layout_),
@@ -256,7 +261,17 @@ namespace SushiEngine
                     make_mapped(sizeof(ProbeVolumeConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                 probe_config_buffers_[i], probe_config_allocations_[i],
                                 probe_config_mapped_[i]);
+                    make_mapped(sizeof(SdfMeshInstance) * MAX_SDF_MESH_INSTANCES,
+                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, mesh_buffers_[i],
+                                mesh_allocations_[i], mesh_mapped_[i]);
                 }
+
+                // The brick atlas is written from the host once per mesh and read every frame,
+                // so it is a single persistent slot store rather than a per-frame ring.
+                make_mapped(sizeof(float) * static_cast<VkDeviceSize>(SDF_BRICK_VOXELS) *
+                                MAX_SDF_BRICKS,
+                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, brick_atlas_,
+                            brick_atlas_allocation_, brick_atlas_mapped_);
             }
 
             void SdfProbeTracer::destroy_buffers()
@@ -272,7 +287,13 @@ namespace SushiEngine
                     if (probe_config_buffers_[i] != VK_NULL_HANDLE)
                         vmaDestroyBuffer(device_.allocator(), probe_config_buffers_[i],
                                          probe_config_allocations_[i]);
+                    if (mesh_buffers_[i] != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), mesh_buffers_[i],
+                                         mesh_allocations_[i]);
                 }
+                if (brick_atlas_ != VK_NULL_HANDLE)
+                    vmaDestroyBuffer(device_.allocator(), brick_atlas_, brick_atlas_allocation_);
+                brick_atlas_ = VK_NULL_HANDLE;
             }
 
             void SdfProbeTracer::create_pipelines()
@@ -299,6 +320,53 @@ namespace SushiEngine
                 create_pipelines();
             }
 
+            std::int32_t SdfProbeTracer::build_mesh_instances(const ProbeRelightInputs& inputs,
+                                                              std::uint32_t ring)
+            {
+                const Frame::SceneDrawList& draws = inputs.frame->draws;
+                SdfMeshInstance* out = static_cast<SdfMeshInstance*>(mesh_mapped_[ring]);
+                std::int32_t count = 0;
+                for (std::size_t i = 0;
+                     i < draws.instance_count && count < MAX_SDF_MESH_INSTANCES; ++i)
+                {
+                    const MeshInstance& instance = draws.instances[i];
+                    if (instance.mesh == INVALID_MESH)
+                        continue;
+                    const std::int32_t slot = static_cast<std::int32_t>(instance.mesh);
+                    if (slot < 0 || slot >= MAX_SDF_BRICKS)
+                        continue;
+                    const MeshSdfBrick* brick = meshes_.mesh_brick(instance.mesh);
+                    if (brick == nullptr ||
+                        brick->distances.size() < static_cast<std::size_t>(SDF_BRICK_VOXELS))
+                        continue;
+
+                    // Upload the brick to its atlas slot the first frame it is needed. A
+                    // brand-new mesh cannot be referenced by an in-flight frame, so writing a
+                    // fresh slot never races a submit already reading a different one.
+                    if (!brick_uploaded_[static_cast<std::size_t>(slot)])
+                    {
+                        const VkDeviceSize offset =
+                            static_cast<VkDeviceSize>(slot) * SDF_BRICK_VOXELS * sizeof(float);
+                        float* destination =
+                            static_cast<float*>(brick_atlas_mapped_) +
+                            static_cast<std::size_t>(slot) * SDF_BRICK_VOXELS;
+                        std::memcpy(destination, brick->distances.data(),
+                                    sizeof(float) * SDF_BRICK_VOXELS);
+                        vmaFlushAllocation(device_.allocator(), brick_atlas_allocation_, offset,
+                                           sizeof(float) * SDF_BRICK_VOXELS);
+                        brick_uploaded_[static_cast<std::size_t>(slot)] = true;
+                    }
+
+                    const float albedo[3] = {static_cast<float>(instance.color.x),
+                                             static_cast<float>(instance.color.y),
+                                             static_cast<float>(instance.color.z)};
+                    fill_sdf_mesh_instance(instance.model, inputs.frame->eye, brick->aabb_min,
+                                           brick->aabb_max, slot, albedo, out[count]);
+                    ++count;
+                }
+                return count;
+            }
+
             void SdfProbeTracer::relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs)
             {
                 if (inputs.frame == nullptr || inputs.config == nullptr || inputs.probe_count == 0)
@@ -306,13 +374,16 @@ namespace SushiEngine
 
                 const std::uint32_t ring = inputs.frame->index % RING;
 
-                // Extract the frame's analytic primitives and size the clipmap around them.
+                // Extract the frame's analytic primitives and imported-mesh instances, and size
+                // the clipmap around them.
                 SdfPrimitive* primitives = static_cast<SdfPrimitive*>(primitive_mapped_[ring]);
                 const std::int32_t primitive_count = build_sdf_primitives(
                     inputs.frame->draws, inputs.frame->eye, primitives, MAX_SDF_PRIMITIVES);
+                const std::int32_t mesh_count = build_mesh_instances(inputs, ring);
 
                 SdfClipmapConfig clip_config{};
                 configure_sdf_clipmap(inputs.frame->eye, primitive_count, clip_config);
+                clip_config.extra[0] = mesh_count;
                 std::memcpy(clip_config_mapped_[ring], &clip_config, sizeof(clip_config));
                 std::memcpy(probe_config_mapped_[ring], inputs.config, sizeof(ProbeVolumeConfig));
 
@@ -331,6 +402,12 @@ namespace SushiEngine
                     writer.storage_buffer(1, primitive_buffers_[ring],
                                           sizeof(SdfPrimitive) * MAX_SDF_PRIMITIVES);
                     writer.uniform_buffer(2, clip_config_buffers_[ring], sizeof(SdfClipmapConfig));
+                    writer.storage_buffer(3, mesh_buffers_[ring],
+                                          sizeof(SdfMeshInstance) * MAX_SDF_MESH_INSTANCES);
+                    writer.storage_buffer(4, brick_atlas_,
+                                          sizeof(float) *
+                                              static_cast<VkDeviceSize>(SDF_BRICK_VOXELS) *
+                                              MAX_SDF_BRICKS);
                     writer.update(device_.device(), set);
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, populate_pipeline_);
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,

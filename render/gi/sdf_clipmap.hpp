@@ -60,6 +60,19 @@ namespace SushiEngine
             /** @brief Maximum analytic primitives folded into the clipmap per frame. */
             constexpr std::int32_t MAX_SDF_PRIMITIVES = 256;
 
+            /** @brief Per-axis voxel resolution of an imported mesh's baked SDF brick. */
+            constexpr std::int32_t SDF_BRICK_RESOLUTION = 32;
+
+            /** @brief Voxels in one brick. */
+            constexpr std::int32_t SDF_BRICK_VOXELS =
+                SDF_BRICK_RESOLUTION * SDF_BRICK_RESOLUTION * SDF_BRICK_RESOLUTION;
+
+            /** @brief Maximum mesh bricks the shared atlas holds. */
+            constexpr std::int32_t MAX_SDF_BRICKS = 64;
+
+            /** @brief Maximum imported-mesh instances folded into the clipmap per frame. */
+            constexpr std::int32_t MAX_SDF_MESH_INSTANCES = 128;
+
             /** @brief The primitive a @ref SdfPrimitive evaluates, matching MeshKind. */
             enum class SdfPrimitiveKind : std::int32_t
             {
@@ -85,15 +98,36 @@ namespace SushiEngine
                           "SdfPrimitive must match its std140 GLSL mirror");
 
             /**
+             * @brief One imported-mesh instance's placement into the clipmap, camera-relative.
+             *
+             * The populate pass transforms a voxel's camera-relative world point into the
+             * mesh's local frame with @c inv_model, tests it against the local AABB, samples
+             * the mesh's baked brick in the shared atlas at @c slot, and scales the local
+             * distance back to world by @c world_scale. Rotation is honoured here (unlike the
+             * analytic primitives) because the brick lives in the mesh's own frame.
+             */
+            struct SdfMeshInstance
+            {
+                float inv_model[16];  /**< Camera-relative world -> mesh local. */
+                float aabb_min[4];    /**< xyz local AABB min; w = brick slot. */
+                float aabb_max[4];    /**< xyz local AABB max; w = local-to-world distance scale. */
+                float albedo[4];      /**< rgb bounce albedo; w spare. */
+            };
+
+            static_assert(sizeof(SdfMeshInstance) == 112,
+                          "SdfMeshInstance must match its std140 GLSL mirror");
+
+            /**
              * @brief The block locating the clipmap in space, mirroring @c SdfClipmapConfig.
              */
             struct SdfClipmapConfig
             {
-                float origin_voxel[4];    /**< xyz camera-relative min corner; w = voxel size, metres. */
+                float origin_voxel[4];      /**< xyz camera-relative min corner; w = voxel size, metres. */
                 std::int32_t resolution[4]; /**< xyz voxel counts; w = live primitive count. */
+                std::int32_t extra[4];      /**< x = mesh-instance count; yzw spare. */
             };
 
-            static_assert(sizeof(SdfClipmapConfig) == 32,
+            static_assert(sizeof(SdfClipmapConfig) == 48,
                           "SdfClipmapConfig must match its std140 GLSL mirror");
 
             /**
@@ -125,6 +159,26 @@ namespace SushiEngine
              */
             std::int32_t build_sdf_primitives(const Frame::SceneDrawList& draws, const double eye[3],
                                               SdfPrimitive* out, std::int32_t max) noexcept;
+
+            /**
+             * @brief Fills one mesh instance from its transform and its cached brick placement.
+             *
+             * Builds the camera-relative world-to-local matrix (the inverse of the model with
+             * its translation rebased against the eye) and records the atlas slot, the local
+             * AABB the brick spans, the albedo, and the local-to-world distance scale.
+             *
+             * @param model    The instance's object-to-world transform.
+             * @param eye       The camera world position.
+             * @param aabb_min  The brick's local AABB minimum (three floats).
+             * @param aabb_max  The brick's local AABB maximum (three floats).
+             * @param slot      The instance's brick slot in the shared atlas.
+             * @param albedo    The bounce albedo (three floats).
+             * @param out       Receives the filled instance.
+             */
+            void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
+                                        const float aabb_min[3], const float aabb_max[3],
+                                        std::int32_t slot, const float albedo[3],
+                                        SdfMeshInstance& out) noexcept;
         } // namespace Gi
     } // namespace Render
 } // namespace SushiEngine

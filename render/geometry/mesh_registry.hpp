@@ -46,6 +46,8 @@
 #include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
+#include "gi/mesh_sdf_baker.hpp"
+
 namespace SushiEngine
 {
     namespace Render
@@ -157,6 +159,13 @@ namespace SushiEngine
                      */
                     const Mesh& mesh(MeshId mesh) const noexcept;
 
+                    /**
+                     * @brief An imported mesh's baked signed-distance brick, for probe GI.
+                     * @param mesh The id returned by add_mesh().
+                     * @return Its brick, or nullptr if the id is unknown or the mesh degenerate.
+                     */
+                    const Gi::MeshSdfBrick* mesh_brick(MeshId mesh) const noexcept;
+
                 private:
                     /** @brief A VMA-backed buffer and the capacity it was allocated at. */
                     struct Allocation
@@ -173,6 +182,7 @@ namespace SushiEngine
                         Allocation vertices;
                         Allocation indices;
                         Mesh mesh;
+                        Gi::MeshSdfBrick brick; /**< Signed-distance brick baked at import for GI. */
                     };
 
                     Allocation upload(const void* data, VkDeviceSize bytes,

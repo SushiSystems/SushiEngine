@@ -67,9 +67,10 @@ namespace SushiEngine
 
             IrradianceVolumePass::IrradianceVolumePass(
                 Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
-                Resources::GraphicsPipelineFactory& pipelines, IblPass& ibl)
+                Resources::GraphicsPipelineFactory& pipelines, IblPass& ibl,
+                Geometry::MeshRegistry& meshes)
                 : device_(device), ibl_(ibl),
-                  tracer_(std::make_unique<Gi::SdfProbeTracer>(device, shaders, pipelines))
+                  tracer_(std::make_unique<Gi::SdfProbeTracer>(device, shaders, pipelines, meshes))
             {
                 create_buffers();
             }

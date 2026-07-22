@@ -197,6 +197,7 @@ add_library(sushi_render STATIC
     gi/environment_probe_tracer.cpp
     gi/sdf_clipmap.cpp
     gi/sdf_probe_tracer.cpp
+    gi/mesh_sdf_baker.cpp
     passes/opaque_pass.cpp
     passes/gtao_pass.cpp
     passes/hiz_pass.cpp
