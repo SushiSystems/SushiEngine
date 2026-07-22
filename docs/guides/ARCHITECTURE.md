@@ -992,6 +992,17 @@ Keplerian rows; `celestial_bodies.hpp` catalogues each body's radius, colour, po
 sky each frame and selects the **dominant body** (the one whose surface is the analytic
 ground) by the surface hand-off altitude.
 
+Because every body is placed with its true direction, distance, and angular radius in one
+frame, **eclipses fall out of the geometry** rather than being scripted. `fill_environment_sky`
+computes the solar-eclipse coverage once — the circle-circle overlap (`disk_overlap_fraction`)
+of the Sun's disk by any nearer body — and hands it to the renderer as a single scalar
+(`Environment::solar_eclipse`, packed into `sky_counts.w`); the sky, PBR, and cloud passes
+all dim the direct sun by it, so the whole scene dusks toward totality together. The
+lunar eclipse is the mirror case: the Moon's disk against Earth's umbra at the anti-solar
+point, folded into the Moon body's colour and brightness on the CPU (a coppery, dimmed
+disk) with no shader involved. Both are Earth-consistent and ephemeris-driven, so they
+occur only at the real alignments.
+
 The pipeline is organised around **three coordinate spaces**: *solar* (heliocentric
 ecliptic J2000, double metres — where every body lives), *planet* (body-fixed per body,
 origin at its centre, turning with its pole and spin — where surface entities live), and

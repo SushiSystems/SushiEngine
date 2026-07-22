@@ -289,7 +289,9 @@ void main()
     float semi_minor = scene.planet_radii.z;
     vec3 planet_pole = scene.planet_frame.xyz;
     vec3 sun = normalize(scene.sun_dir.xyz);
-    vec3 sun_radiance = scene.sun_color.xyz * scene.sun_dir.w;
+    // Dim toward twilight during a solar eclipse (sky_counts.w = covered fraction), so the
+    // cloud deck dusks with the sky and ground instead of staying lit through totality.
+    vec3 sun_radiance = scene.sun_color.xyz * scene.sun_dir.w * (1.0 - 0.92 * scene.sky_counts.w);
 
     // Bound the march by the opaque depth and, if the surface planet is active, the ground.
     vec2 uv = v_ndc * 0.5 + 0.5;

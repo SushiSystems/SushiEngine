@@ -218,7 +218,9 @@ namespace SushiEngine
                 // z: the near-field surface planet (ground/air); the ephemeris clears it
                 // past the hand-off altitude, where Earth is a far-field body.
                 uniforms.sky_counts[2] = environment.planet_surface_visible ? 1.0f : 0.0f;
-                uniforms.sky_counts[3] = 0.0f;
+                // w: solar-eclipse coverage, computed once by the ephemeris; the sky pass
+                // and pbr.frag both dim the sun by it so ground and sky dusk together.
+                uniforms.sky_counts[3] = environment.solar_eclipse;
                 uniforms.planet_frame[0] = static_cast<float>(environment.planet_pole.x);
                 uniforms.planet_frame[1] = static_cast<float>(environment.planet_pole.y);
                 uniforms.planet_frame[2] = static_cast<float>(environment.planet_pole.z);

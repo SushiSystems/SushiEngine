@@ -643,6 +643,7 @@ namespace SushiEngine
             WorldVector3 dominant_center_metres{};       /**< The dominant body's centre in the scene frame this frame, metres; the camera tracks its delta so it stays attached to a non-Earth planet as its orbit carries it. */
             CelestialBody bodies[MAX_CELESTIAL_BODIES]{}; /**< Far-field solar-system bodies this frame. */
             int body_count = 0;                          /**< Number of populated @ref bodies entries. */
+            float solar_eclipse = 0.0f;                  /**< Fraction of the Sun's disk hidden by a nearer body this frame, [0,1]; dims the directional sun so the sky, the ground, and shaded meshes all dusk toward totality together. Computed once by @ref fill_environment_sky and read by both the sky and PBR passes. */
             SkyStar sky_stars[MAX_SKY_STARS]{};          /**< Far-field catalogued stars this frame. */
             int sky_star_count = 0;                      /**< Number of populated @ref sky_stars entries. */
         };

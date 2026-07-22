@@ -485,6 +485,12 @@ void main()
 
     vec3 radiance = scene.sun_color.xyz * scene.sun_dir.w;
 
+    // Solar eclipse: the ephemeris packs the covered fraction of the Sun's disk into
+    // sky_counts.w, so a nearer body (the Moon) sliding across the Sun dims lit geometry
+    // toward totality by the same factor the sky pass dusks the sky with — held just short
+    // of black so the scene never becomes pure void.
+    radiance *= (1.0 - 0.92 * scene.sky_counts.w);
+
     // The planet itself occludes the sun. n_dot_l only asks whether the surface faces
     // the sun's direction, so a wall tilted the right way stays fully lit long after
     // sunset; what actually ends direct light is the ground swallowing the sun. The

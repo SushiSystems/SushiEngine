@@ -41,8 +41,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   was an overlay drawn over each viewport's image; the main loop now copies both
   visible viewports' timings into the editor context each frame and the Statistics
   window lists them alongside frame time and FPS.
+- **A solar eclipse now dusks the whole scene, not just the sky.** The eclipse dimming
+  previously lived entirely in `sky.frag`, so at totality the sky and Sun disk darkened
+  while the shaded meshes and clouds stayed in full daylight. `fill_environment_sky` now
+  computes the covered fraction of the Sun's disk **once on the CPU** — the same
+  circle-circle disk test (`disk_overlap_fraction`), over any body nearer than the Sun,
+  so it also catches a Mercury/Venus transit or a moon crossing the Sun off Earth — and
+  packs it into `sky_counts.w`. The sky pass, `pbr.frag`, and `cloud.frag` all read that
+  one scalar and dim the direct sun by it, so ground, meshes, and cloud deck fall toward
+  twilight together. `sky.frag` no longer recomputes the overlap per pixel (it keeps only
+  a one-line fetch of the Sun's angular radius for the corona).
 
 ### Added
+- **Lunar eclipses turn the Moon a coppery red.** From Earth, when the Moon slides into
+  Earth's umbra — a shadow disk of angular radius (Moon parallax + Sun parallax − Sun
+  angular radius) centred on the anti-solar point — `fill_environment_sky` measures how
+  much of the Moon's disk the umbra covers and shades the Moon body toward a deep copper
+  (the sunlight refracted red through Earth's atmosphere), darkening its lit brightness
+  as it goes. The whole effect is folded into the Moon body's colour and brightness on
+  the CPU, so no shader changed; it is Earth-specific (it is Earth's shadow) and driven
+  by the real ephemeris, so it only happens at the full moons that actually align.
 - **Probe-volume global illumination (Phase 6).** Flat sky ambient is replaced by a
   camera-relative cascade of diffuse irradiance probes, so indirect light varies in
   space — surfaces darken under occluders and pick up bounced colour from nearby

@@ -107,31 +107,6 @@ layout(location = 1) out vec4 out_ground_shadow;
 
 const float PI = 3.14159265359;
 
-// Fraction of disk A (radius ra) covered by disk B (radius rb) whose centres are an
-// angular distance d apart — the circle-circle lens area over A's area. Used to measure
-// how much of the Sun's disk the Moon occludes during an eclipse (small angles, so the
-// disks are treated as flat). 0 = clear, 1 = A fully hidden.
-float disk_overlap_fraction(float ra, float rb, float d)
-{
-    if (ra <= 0.0)
-        return 0.0;
-    if (d >= ra + rb)
-        return 0.0;
-    if (d <= abs(ra - rb))
-    {
-        float rmin = min(ra, rb);
-        return clamp((rmin * rmin) / (ra * ra), 0.0, 1.0);
-    }
-    float ra2 = ra * ra;
-    float rb2 = rb * rb;
-    float d2 = d * d;
-    float alpha = acos(clamp((d2 + ra2 - rb2) / (2.0 * d * ra), -1.0, 1.0));
-    float beta = acos(clamp((d2 + rb2 - ra2) / (2.0 * d * rb), -1.0, 1.0));
-    float area = ra2 * (alpha - 0.5 * sin(2.0 * alpha)) +
-                 rb2 * (beta - 0.5 * sin(2.0 * beta));
-    return clamp(area / (PI * ra2), 0.0, 1.0);
-}
-
 // Ray vs sphere centred at c with radius r. Returns (t_near, t_far); t_far < 0 means miss.
 vec2 ray_sphere(vec3 ro, vec3 rd, vec3 c, float r)
 {
@@ -545,46 +520,22 @@ void main()
     vec3 sun_radiance = scene.sun_color.xyz * scene.sun_dir.w;
 
     // Solar eclipse: how much of the Sun's disk a nearer body (the Moon) covers. The
-    // catalogue radii and true ephemeris distances already make the Moon and Sun subtend
-    // nearly equal angles from Earth, so the geometry is right — but the Sun's disk and its
-    // aureole are so bright they blaze through the dark occluding disk. This one scalar
-    // dims the daylight, the disk, and the aureole toward totality so the eclipse reads,
-    // and a thin corona is revealed at the limb. Computed once per pixel from the packed
-    // body directions/radii (a global sky event; screen parallax across the far Sun is
-    // negligible), independent of the view ray.
-    float sun_eclipse = 0.0;
+    // ephemeris computes this once on the CPU (a global sky event, negligible parallax
+    // across the far Sun) and packs it into sky_counts.w, so the sky, the analytic ground,
+    // and the shaded meshes all dim by the same scalar rather than the sky dimming alone.
+    // The Sun's own angular radius is still fetched here — the corona hugs its limb below.
+    float sun_eclipse = scene.sky_counts.w;
     float sun_angular_radius = 0.0;
     {
         int all_bodies = int(scene.sky_counts.x);
-        vec3 sun_body_dir = sun;
-        float sun_dist = 1e30;
         for (int i = 0; i < MAX_BODIES; ++i)
         {
             if (i >= all_bodies)
                 break;
             if (scene.bodies[i * 5 + 2].w > 0.5) // is_star: the Sun
             {
-                sun_body_dir = scene.bodies[i * 5 + 0].xyz;
                 sun_angular_radius = scene.bodies[i * 5 + 0].w;
-                sun_dist = scene.bodies[i * 5 + 3].x;
                 break;
-            }
-        }
-        if (sun_angular_radius > 0.0)
-        {
-            for (int i = 0; i < MAX_BODIES; ++i)
-            {
-                if (i >= all_bodies)
-                    break;
-                if (scene.bodies[i * 5 + 2].w > 0.5)
-                    continue; // the Sun cannot occlude itself
-                if (scene.bodies[i * 5 + 3].x >= sun_dist)
-                    continue; // only a body in front of the Sun occludes it
-                vec3 occ_dir = scene.bodies[i * 5 + 0].xyz;
-                float occ_ang = scene.bodies[i * 5 + 0].w;
-                float sep = acos(clamp(dot(occ_dir, sun_body_dir), -1.0, 1.0));
-                sun_eclipse =
-                    max(sun_eclipse, disk_overlap_fraction(sun_angular_radius, occ_ang, sep));
             }
         }
     }

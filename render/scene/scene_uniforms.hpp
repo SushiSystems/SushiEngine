@@ -70,7 +70,7 @@ namespace SushiEngine
                 float cloud_global[4];  /**< ground_shadow_strength, base_min, top_max, deck_count. */
                 float star_params[4];   /**< brightness, density, atmosphere on, stars on. */
                 float misc[4];          /**< near, far, time, clouds on. */
-                float sky_counts[4];    /**< body count, star count, surface visible. */
+                float sky_counts[4];    /**< body count, star count, surface visible, solar-eclipse coverage. */
                 float planet_frame[4];  /**< xyz = dominant body's north pole, w = surface style. */
                 float cloud_light[4];   /**< absorption, forward scattering, powder, ambient. */
                 float ibl_params[4];    /**< intensity, specular mip count, ambient mode, spare. */

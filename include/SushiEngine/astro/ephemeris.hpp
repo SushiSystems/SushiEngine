@@ -104,6 +104,43 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Fraction of one disk hidden behind an overlapping second disk.
+         *
+         * The circle-circle lens area over the first disk's area, treating both bodies as
+         * flat circles on the sky (exact for the small angles solar-system disks subtend).
+         * The host mirror of `disk_overlap_fraction` in `sky.frag`, so the CPU-side eclipse
+         * scalar and the shader's disk drawing agree by construction.
+         *
+         * @param covered_radius  Angular radius of the disk being hidden, radians.
+         * @param occluder_radius Angular radius of the disk in front, radians.
+         * @param separation      Angle between the two disk centres, radians.
+         * @return Hidden fraction of the covered disk, [0, 1].
+         */
+        inline double disk_overlap_fraction(double covered_radius, double occluder_radius,
+                                            double separation) noexcept
+        {
+            if (covered_radius <= 0.0)
+                return 0.0;
+            if (separation >= covered_radius + occluder_radius)
+                return 0.0;
+            if (separation <= std::fabs(covered_radius - occluder_radius))
+            {
+                const double smaller = std::fmin(covered_radius, occluder_radius);
+                return std::fmin(1.0, (smaller * smaller) / (covered_radius * covered_radius));
+            }
+            const double a2 = covered_radius * covered_radius;
+            const double b2 = occluder_radius * occluder_radius;
+            const double d2 = separation * separation;
+            const double alpha = std::acos(std::fmin(
+                1.0, std::fmax(-1.0, (d2 + a2 - b2) / (2.0 * separation * covered_radius))));
+            const double beta = std::acos(std::fmin(
+                1.0, std::fmax(-1.0, (d2 + b2 - a2) / (2.0 * separation * occluder_radius))));
+            const double lens = a2 * (alpha - 0.5 * std::sin(2.0 * alpha)) +
+                                b2 * (beta - 0.5 * std::sin(2.0 * beta));
+            return std::fmin(1.0, lens / (3.14159265358979323846 * a2));
+        }
+
+        /**
          * @brief Camera altitude (in the body's own radii) past which a body's analytic
          *        ground and atmosphere hand off to drawing it as a sky body.
          *
@@ -314,6 +351,84 @@ namespace SushiEngine
                 ++count;
             }
             environment.body_count = count;
+
+            // Solar eclipse: the fraction of the Sun's disk hidden by any nearer body this
+            // frame (the Moon from Earth, but the same test catches a Mercury/Venus transit
+            // or a moon crossing the Sun elsewhere). Computed once here — a global sky event
+            // with negligible parallax across the far Sun — so the sky pass, the analytic
+            // ground, and the shaded meshes all dim by one scalar instead of the sky pass
+            // dimming alone while lit geometry blazes on. Mirrors sky.frag's disk test.
+            environment.solar_eclipse = 0.0f;
+            int sun_body = -1;
+            for (int i = 0; i < count; ++i)
+            {
+                if (environment.bodies[i].is_star)
+                {
+                    sun_body = i;
+                    break;
+                }
+            }
+            if (sun_body >= 0)
+            {
+                const Render::CelestialBody& sun = environment.bodies[sun_body];
+                double coverage = 0.0;
+                for (int i = 0; i < count; ++i)
+                {
+                    if (i == sun_body)
+                        continue;
+                    const Render::CelestialBody& occluder = environment.bodies[i];
+                    if (occluder.distance_metres >= sun.distance_metres)
+                        continue; // only a body in front of the Sun occludes it
+                    const double separation = std::acos(std::fmin(
+                        1.0, std::fmax(-1.0, dot(sun.direction, occluder.direction))));
+                    coverage = std::fmax(coverage,
+                                         disk_overlap_fraction(sun.angular_radius,
+                                                               occluder.angular_radius,
+                                                               separation));
+                }
+                environment.solar_eclipse = static_cast<float>(coverage);
+            }
+
+            // Lunar eclipse: from Earth, the Moon slides into Earth's own shadow. Its umbra
+            // is a disk of angular radius (Moon parallax + Sun parallax - Sun angular radius)
+            // centred on the anti-solar point; how much of it covers the Moon's disk is the
+            // umbral fraction. Deep in the umbra the Moon is lit only by sunlight refracted
+            // red through Earth's atmosphere, so it darkens to a coppery disk — folded here
+            // into the Moon body's colour and brightness, no shader change. Earth-specific:
+            // it is Earth's shadow, so it applies only to an Earth-based observer.
+            if (sun_body >= 0 && observer_body == BodyId::Earth)
+            {
+                int moon_body = -1;
+                for (int i = 0; i < count; ++i)
+                {
+                    if (environment.bodies[i].body_id ==
+                        static_cast<std::uint32_t>(BodyId::Moon))
+                    {
+                        moon_body = i;
+                        break;
+                    }
+                }
+                if (moon_body >= 0)
+                {
+                    const Render::CelestialBody& sun = environment.bodies[sun_body];
+                    Render::CelestialBody& moon = environment.bodies[moon_body];
+                    const double earth_radius_metres = body_properties(BodyId::Earth).mean_radius_metres;
+                    const double moon_parallax = earth_radius_metres / moon.distance_metres;
+                    const double sun_parallax = earth_radius_metres / sun.distance_metres;
+                    const double umbra_radius = moon_parallax + sun_parallax - sun.angular_radius;
+                    const Vector3 anti_solar = sun.direction * -1.0;
+                    const double separation = std::acos(std::fmin(
+                        1.0, std::fmax(-1.0, dot(moon.direction, anti_solar))));
+                    const double umbral = disk_overlap_fraction(moon.angular_radius,
+                                                                umbra_radius, separation);
+                    if (umbral > 0.0)
+                    {
+                        const Vector3 copper{0.42, 0.12, 0.05}; // totally-eclipsed blood moon
+                        moon.color = moon.color * (1.0 - umbral) + copper * umbral;
+                        moon.brightness *= static_cast<float>(1.0 - 0.85 * umbral);
+                    }
+                }
+            }
 
             // Dynamic night ambient: the Sun dominates by day; as it sets, the Moon takes
             // over scaled by its illuminated fraction (full moon bright, new moon dark) and
