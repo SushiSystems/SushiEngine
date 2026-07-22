@@ -115,6 +115,15 @@ namespace SushiEngine
              * author's @c FogParams::enabled decision.
              */
             bool volumetric_fog = true;
+
+            /**
+             * @brief Whether probe-volume GI is relit at this tier.
+             *
+             * Global illumination is a High/Ultra feature: the lower tiers keep the flat
+             * environment ambient. Gated with the author's @c GiParams::enabled, so this
+             * only permits GI — it never forces it on.
+             */
+            bool probe_gi = false;
         };
 
         /**

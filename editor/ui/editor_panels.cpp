@@ -2990,6 +2990,18 @@ namespace SushiEngine
                 }
             }
 
+            if (ImGui::CollapsingHeader("Global Illumination"))
+            {
+                if (ImGui::Checkbox("Probe GI Enabled", &environment.gi.enabled))
+                    changed = true;
+                ImGui::TextDisabled("Requires High or Ultra tier.");
+                if (ImGui::SliderFloat("GI Intensity", &environment.gi.intensity, 0.0f, 4.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Normal Bias", &environment.gi.normal_bias, 0.0f, 2.0f,
+                                       "%.2f m"))
+                    changed = true;
+            }
+
             if (ImGui::CollapsingHeader("Surface"))
             {
                 float ground[3] = {static_cast<float>(environment.surface.ground_albedo.x),

@@ -67,6 +67,7 @@
 #include "passes/gtao_pass.hpp"
 #include "passes/hiz_pass.hpp"
 #include "passes/ibl_pass.hpp"
+#include "passes/irradiance_volume_pass.hpp"
 #include "passes/ssr_pass.hpp"
 #include "passes/light_cull_pass.hpp"
 #include "passes/light_shadow_pass.hpp"
@@ -159,6 +160,7 @@ namespace SushiEngine
                     Passes::AtmosphereLutPass atmosphere_lut_pass_;
                     Passes::VolumetricFogPass volumetric_fog_pass_;
                     Passes::IblPass ibl_pass_;
+                    Passes::IrradianceVolumePass irradiance_volume_pass_;
                     Passes::DepthPrepass depth_prepass_;
                     Passes::ShadowPass shadow_pass_;
                     Passes::ContactShadowPass contact_shadow_pass_;

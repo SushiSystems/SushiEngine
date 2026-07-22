@@ -37,6 +37,7 @@
 #include "material/material_system.hpp"
 #include "scene/motion_system.hpp"
 #include "passes/ibl_pass.hpp"
+#include "passes/irradiance_volume_pass.hpp"
 #include "graph/render_graph.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/pipeline_cache.hpp"
@@ -177,10 +178,10 @@ namespace SushiEngine
                                    Geometry::ClothBuffers& cloth,
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                Textures::CloudNoise& noise, IblPass& ibl,
-                               Lighting::LightSystem& lights)
+                               IrradianceVolumePass& gi, Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   meshes_(meshes), cloth_(cloth), materials_(materials), motion_(motion),
-                  noise_(noise), ibl_(ibl), lights_(lights)
+                  noise_(noise), ibl_(ibl), gi_(gi), lights_(lights)
             {
                 create_pipelines();
             }
@@ -471,6 +472,14 @@ namespace SushiEngine
                         writer.image(Scene::SceneLayout::AO_BINDING,
                                      context.sampled_view(frame.targets.ao),
                                      frame.samplers->get(Resources::SamplerDesc{}));
+                        // Probe-volume GI: the SH grid the shading pass gathers and the config
+                        // block that locates a surface in it. Both are pass-owned resources
+                        // the irradiance-volume pass barriered before this pass runs.
+                        writer.storage(Scene::SceneLayout::GI_PROBE_SH_BINDING, gi_.probe_sh_buffer(),
+                                       IrradianceVolumePass::probe_sh_bytes());
+                        writer.uniform(Scene::SceneLayout::GI_PROBE_CONFIG_BINDING,
+                                       gi_.config_buffer(frame.index),
+                                       IrradianceVolumePass::config_bytes());
                         writer.commit(cmd, frame.layout->pipeline_layout());
                         frame.layout->bind_heap(cmd);
 

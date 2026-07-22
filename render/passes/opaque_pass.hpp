@@ -84,6 +84,7 @@ namespace SushiEngine
         namespace Passes
         {
             class IblPass;
+            class IrradianceVolumePass;
 
             /**
              * @brief Draws the scene's opaque geometry into the HDR, id, and depth targets.
@@ -109,6 +110,7 @@ namespace SushiEngine
                      * @param noise     The cloud volumes; only the weather map is read here,
                      *                  to shadow a surface with the deck standing over it.
                      * @param ibl       The image-based lighting chain surfaces sample.
+                     * @param gi        The probe-volume GI the shading pass gathers ambient from.
                      * @param lights    The clustered light engine's per-frame buffers.
                      */
                     OpaquePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
@@ -117,7 +119,7 @@ namespace SushiEngine
                                Geometry::ClothBuffers& cloth,
                                Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                Textures::CloudNoise& noise, IblPass& ibl,
-                               Lighting::LightSystem& lights);
+                               IrradianceVolumePass& gi, Lighting::LightSystem& lights);
                     ~OpaquePass() override;
 
                     OpaquePass(const OpaquePass&) = delete;
@@ -141,6 +143,7 @@ namespace SushiEngine
                     Scene::MotionSystem& motion_;
                     Textures::CloudNoise& noise_;
                     IblPass& ibl_;
+                    IrradianceVolumePass& gi_;
                     Lighting::LightSystem& lights_;
                     Resources::PipelineHandle mesh_pipeline_;
                     Resources::PipelineHandle line_pipeline_;

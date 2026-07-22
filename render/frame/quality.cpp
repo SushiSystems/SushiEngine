@@ -131,6 +131,7 @@ namespace SushiEngine
                     q.lobe_clearcoat = true;
                     q.lobe_sheen = true;
                     q.lobe_transmission = true;
+                    q.probe_gi = true;
                     break;
 
                 case RenderQuality::Ultra:
@@ -160,6 +161,7 @@ namespace SushiEngine
                     q.lobe_clearcoat = true;
                     q.lobe_sheen = true;
                     q.lobe_transmission = true;
+                    q.probe_gi = true;
                     break;
             }
 

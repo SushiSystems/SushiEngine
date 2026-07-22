@@ -1,0 +1,99 @@
+/**************************************************************************/
+/* tracer.hpp                                                             */
+/**************************************************************************/
+/*                          This file is part of:                         */
+/*                              SushiEngine                               */
+/*               https://github.com/SushiSystems/SushiEngine              */
+/*                        https://sushisystems.io                         */
+/**************************************************************************/
+/* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
+/*     http://www.apache.org/licenses/LICENSE-2.0                         */
+/*                                                                        */
+/* Unless required by applicable law or agreed to in writing, software    */
+/* distributed under the License is distributed on an "AS IS" BASIS,      */
+/* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
+/* implied. See the License for the specific language governing           */
+/* permissions and limitations under the License.                         */
+/**************************************************************************/
+
+#pragma once
+
+/**
+ * @file tracer.hpp
+ * @brief The strategy seam every probe relight is written behind (DIP).
+ *
+ * A probe volume is refilled each frame it is dirty by *some* tracer: the degenerate
+ * one broadcasts the distant environment SH into every probe, a mid tier cone-traces a
+ * signed-distance field for local occlusion, an Ultra tier ray-queries the acceleration
+ * structure. They differ only in how a probe's incident radiance is gathered, never in
+ * what a probe is or how the shading pass consumes it, so the volume pass owns a tracer
+ * through this interface and knows nothing of which one it holds. Adding a tier is a new
+ * implementation of @ref IProbeTracer, not a change to the pass.
+ */
+
+#include <cstdint>
+
+#include <vulkan/vulkan.h>
+
+namespace SushiEngine
+{
+    namespace Render
+    {
+        namespace Frame
+        {
+            struct FrameContext;
+        }
+
+        namespace Gi
+        {
+            /**
+             * @brief Everything a tracer needs to relight the probe volume this frame.
+             *
+             * The output probe buffer and its size, the probe count to dispatch over, and
+             * the distant-environment SH the tracer falls back to where its own trace finds
+             * no local geometry (the sky/ground miss). All buffers are caller-owned.
+             */
+            struct ProbeRelightInputs
+            {
+                VkBuffer probe_sh = VK_NULL_HANDLE;      /**< Output: nine SH vec4 per probe. */
+                VkDeviceSize probe_sh_bytes = 0;         /**< Size of the output buffer. */
+                std::uint32_t probe_count = 0;           /**< Probes to relight. */
+                VkBuffer environment_sh = VK_NULL_HANDLE; /**< Distant environment SH (144 B). */
+                VkDeviceSize environment_sh_bytes = 0;   /**< Size of the environment SH buffer. */
+                const Frame::FrameContext* frame = nullptr; /**< This frame's allocators. */
+            };
+
+            /**
+             * @brief A pluggable probe relight strategy.
+             *
+             * Implementations own their own compute pipeline and descriptor layout; the
+             * probe volume pass calls @ref relight inside its graph pass and hand-barriers
+             * the result to the shading pass's fragment reads.
+             */
+            class IProbeTracer
+            {
+                public:
+                    virtual ~IProbeTracer() = default;
+
+                    /**
+                     * @brief Records the probe relight into the command buffer.
+                     * @param cmd    The recording command buffer, inside the volume pass.
+                     * @param inputs The buffers and counts for this frame.
+                     */
+                    virtual void relight(VkCommandBuffer cmd,
+                                         const ProbeRelightInputs& inputs) = 0;
+
+                    /** @brief A short name for the profiler and the editor tier readout. */
+                    virtual const char* name() const noexcept = 0;
+
+                    /** @brief Rebuilds the compute pipeline after a shader hot-reload. */
+                    virtual void rebuild_pipelines() = 0;
+            };
+        } // namespace Gi
+    } // namespace Render
+} // namespace SushiEngine

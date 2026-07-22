@@ -157,6 +157,19 @@ namespace SushiEngine
                     bindings[binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
                 }
 
+                // Probe-volume GI: the SH grid (a storage buffer) and its config block, both
+                // read by the shading fragment stage where the trilinear gather happens.
+                bindings[GI_PROBE_SH_BINDING].binding = GI_PROBE_SH_BINDING;
+                bindings[GI_PROBE_SH_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[GI_PROBE_SH_BINDING].descriptorCount = 1;
+                bindings[GI_PROBE_SH_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                bindings[GI_PROBE_CONFIG_BINDING].binding = GI_PROBE_CONFIG_BINDING;
+                bindings[GI_PROBE_CONFIG_BINDING].descriptorType =
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                bindings[GI_PROBE_CONFIG_BINDING].descriptorCount = 1;
+                bindings[GI_PROBE_CONFIG_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
                 // A push-descriptor set: passes push their bindings inline rather than
                 // allocate and write a throw-away set every frame. The whole set is well
                 // under the 32-descriptor floor every 1.4 device guarantees for a push

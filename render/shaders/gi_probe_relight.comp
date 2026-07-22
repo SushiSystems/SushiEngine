@@ -1,0 +1,34 @@
+#version 450
+
+// The degenerate probe relight: broadcast the distant environment's nine SH coefficients
+// into every probe. No local trace — this is the identity the probe pipeline is validated
+// against and the floor tier where occlusion tracing is unaffordable. One thread per
+// probe; an occluding tracer replaces this dispatch, not the buffers or the consumer.
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) writeonly buffer ProbeSh
+{
+    vec4 coeff[];
+} probes;
+
+layout(std430, set = 0, binding = 1) readonly buffer EnvironmentSh
+{
+    vec4 coeff[9];
+} environment;
+
+layout(push_constant) uniform Push
+{
+    int probe_count;
+} pc;
+
+void main()
+{
+    uint probe = gl_GlobalInvocationID.x;
+    if (probe >= uint(pc.probe_count))
+        return;
+
+    uint base = probe * 9u;
+    for (uint i = 0u; i < 9u; ++i)
+        probes.coeff[base + i] = environment.coeff[i];
+}

@@ -132,6 +132,22 @@ namespace SushiEngine
         constexpr int MAX_FOG_VOLUMES = 8;
 
         /**
+         * @brief Probe-volume global illumination controls.
+         *
+         * A camera-relative cascade of diffuse irradiance probes replaces the flat sky
+         * ambient with a spatially varying indirect term. @c enabled is the author's
+         * switch (the tier also has to allow it); @c intensity scales the gathered
+         * indirect diffuse, and @c normal_bias pushes the sample point along the surface
+         * normal to keep a probe behind the surface from leaking through it.
+         */
+        struct GiParams
+        {
+            bool enabled = false;    /**< Draw probe-volume GI at all. */
+            float intensity = 1.0f;  /**< Multiplier on the gathered indirect diffuse. */
+            float normal_bias = 0.4f; /**< Metres the sample point is pushed along the normal. */
+        };
+
+        /**
          * @brief The planet surface's albedo, shaded analytically where the ray hits it.
          *
          * A deliberately simple two-tone surface (ocean vs land) plus a roughness so the
@@ -600,6 +616,7 @@ namespace SushiEngine
             FogParams fog;               /**< Ground-hugging volumetric fog. */
             FogVolume fog_volumes[MAX_FOG_VOLUMES]{}; /**< Authored local fog primitives. */
             int fog_volume_count = 0;    /**< Number of populated @ref fog_volumes entries. */
+            GiParams gi;                 /**< Probe-volume global illumination. */
             PlanetParams surface;        /**< How the planet's ground shades. */
             Cloudscape clouds;           /**< The ray-marched, layered cloudscape. */
             StarParams stars;            /**< The space-background star field. */

@@ -254,8 +254,27 @@ namespace SushiEngine
                      */
                     static constexpr std::uint32_t FOG_LUT_BINDING = 28;
 
+                    /**
+                     * @brief Binding of the probe-volume GI SH grid.
+                     *
+                     * A frame-global storage buffer of nine SH coefficients per probe,
+                     * refilled by the irradiance-volume pass. The shading pass trilinearly
+                     * blends the eight probes around a surface in place of the single global
+                     * environment SH, so ambient varies spatially instead of reading flat.
+                     */
+                    static constexpr std::uint32_t GI_PROBE_SH_BINDING = 29;
+
+                    /**
+                     * @brief Binding of the probe-volume config block.
+                     *
+                     * The lattice origin (camera-relative), spacing, counts, enable flag, and
+                     * intensity the shading pass needs to locate a surface in the probe grid;
+                     * its enable flag is what gates the gather against the flat-ambient path.
+                     */
+                    static constexpr std::uint32_t GI_PROBE_CONFIG_BINDING = 30;
+
                     /** @brief Number of bindings in the per-frame set. */
-                    static constexpr std::uint32_t BINDING_COUNT = FOG_LUT_BINDING + 1;
+                    static constexpr std::uint32_t BINDING_COUNT = GI_PROBE_CONFIG_BINDING + 1;
 
                     /**
                      * @brief Creates the set and pipeline layouts.

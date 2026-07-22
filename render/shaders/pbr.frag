@@ -53,6 +53,7 @@ layout(set = 1, binding = 0) uniform sampler2D bindless_textures[];
 
 #include "cloud_shadow_common.glsl"
 #include "clustered_lighting.glsl"
+#include "gi_common.glsl"
 
 struct GpuMaterial
 {
@@ -99,22 +100,61 @@ layout(std430, set = 0, binding = 13) readonly buffer IrradianceSh
     vec4 coeff[9];
 } irradiance_sh;
 
+// The probe-volume GI grid and the block locating the lattice. When the volume is
+// enabled the shading pass gathers the eight probes around a surface instead of the
+// single global set; when it is off, or the surface falls outside the cascade, the
+// global environment SH is the fallback — so nine coefficients still shade every pixel.
+layout(std430, set = 0, binding = 29) readonly buffer GiProbeSh
+{
+    vec4 coeff[];
+} gi_probe_sh;
+
+layout(set = 0, binding = 30) uniform GiProbeBlock
+{
+    GiProbeVolume volume;
+} gi_probe;
+
 vec3 evaluate_sh(vec3 n)
 {
-    float y[9];
-    y[0] = 0.282095;
-    y[1] = 0.488603 * n.y;
-    y[2] = 0.488603 * n.z;
-    y[3] = 0.488603 * n.x;
-    y[4] = 1.092548 * n.x * n.y;
-    y[5] = 1.092548 * n.y * n.z;
-    y[6] = 0.315392 * (3.0 * n.z * n.z - 1.0);
-    y[7] = 1.092548 * n.x * n.z;
-    y[8] = 0.546274 * (n.x * n.x - n.y * n.y);
-    vec3 result = vec3(0.0);
+    return gi_sh_irradiance(irradiance_sh.coeff, n);
+}
+
+// Trilinearly blends the SH of the eight probes surrounding a camera-relative surface
+// point, then evaluates the blend in the surface normal. Falls back to the global
+// environment SH when GI is off or the point is outside the probe cascade.
+vec3 sample_probe_irradiance(vec3 camera_relative_pos, vec3 n)
+{
+    if (gi_probe.volume.origin_enabled.w < 0.5)
+        return evaluate_sh(n);
+
+    vec3 biased = camera_relative_pos + n * gi_probe.volume.spacing_bias.w;
+    ivec3 base;
+    vec3 frac;
+    if (!gi_locate(gi_probe.volume, biased, base, frac))
+        return evaluate_sh(n);
+
+    vec4 blended[9];
     for (int i = 0; i < 9; ++i)
-        result += irradiance_sh.coeff[i].rgb * y[i];
-    return max(result, vec3(0.0)); // clamp the small negative lobe SH can ring into
+        blended[i] = vec4(0.0);
+    float weight_sum = 0.0;
+    for (int corner = 0; corner < 8; ++corner)
+    {
+        ivec3 offset = ivec3(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
+        vec3 trilinear = mix(1.0 - frac, frac, vec3(offset));
+        float weight = trilinear.x * trilinear.y * trilinear.z;
+        if (weight <= 0.0)
+            continue;
+        int index = gi_probe_index(gi_probe.volume, base + offset) * 9;
+        for (int i = 0; i < 9; ++i)
+            blended[i] += gi_probe_sh.coeff[index + i] * weight;
+        weight_sum += weight;
+    }
+    if (weight_sum <= 0.0)
+        return evaluate_sh(n);
+
+    for (int i = 0; i < 9; ++i)
+        blended[i] /= weight_sum;
+    return gi_sh_irradiance(blended, n) * gi_probe.volume.intensity.x;
 }
 
 // Reflection visibility against the GTAO bent-normal cone. The bent normal is the average
@@ -493,7 +533,7 @@ void main()
         vec3 reflection = reflect(-view_dir, n);
         float mip = roughness * max(scene.ibl_params.y - 1.0, 0.0);
         vec3 prefiltered = textureLod(specular_cube, reflection, mip).rgb;
-        vec3 irradiance = evaluate_sh(n);
+        vec3 irradiance = sample_probe_irradiance(v_world_position, n);
         vec3 fresnel_ibl = f_schlick_roughness(n_dot_v, f0, roughness);
         // Specular occlusion from the combined AO, refined by the bent-normal cone so a
         // reflection pointing into the occluded hemisphere loses its indirect highlight.
