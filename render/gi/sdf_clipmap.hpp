@@ -92,9 +92,10 @@ namespace SushiEngine
                 float center_kind[4]; /**< xyz camera-relative centre; w = SdfPrimitiveKind. */
                 float extent[4];      /**< xyz half-extents (box) or radius (x) + half-height (y). */
                 float albedo[4];      /**< rgb surface albedo for the bounce; w spare. */
+                float emissive[4];    /**< rgb emitted radiance (HDR) injected into probes; w spare. */
             };
 
-            static_assert(sizeof(SdfPrimitive) == 48,
+            static_assert(sizeof(SdfPrimitive) == 64,
                           "SdfPrimitive must match its std140 GLSL mirror");
 
             /**
@@ -112,9 +113,10 @@ namespace SushiEngine
                 float aabb_min[4];    /**< xyz local AABB min; w = brick slot. */
                 float aabb_max[4];    /**< xyz local AABB max; w = local-to-world distance scale. */
                 float albedo[4];      /**< rgb bounce albedo; w spare. */
+                float emissive[4];    /**< rgb emitted radiance (HDR) injected into probes; w spare. */
             };
 
-            static_assert(sizeof(SdfMeshInstance) == 112,
+            static_assert(sizeof(SdfMeshInstance) == 128,
                           "SdfMeshInstance must match its std140 GLSL mirror");
 
             /**
@@ -173,12 +175,13 @@ namespace SushiEngine
              * @param aabb_max  The brick's local AABB maximum (three floats).
              * @param slot      The instance's brick slot in the shared atlas.
              * @param albedo    The bounce albedo (three floats).
+             * @param emissive  The emitted radiance injected into the probes (three floats).
              * @param out       Receives the filled instance.
              */
             void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
                                         const float aabb_min[3], const float aabb_max[3],
                                         std::int32_t slot, const float albedo[3],
-                                        SdfMeshInstance& out) noexcept;
+                                        const float emissive[3], SdfMeshInstance& out) noexcept;
         } // namespace Gi
     } // namespace Render
 } // namespace SushiEngine

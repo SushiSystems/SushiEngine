@@ -36,6 +36,8 @@ layout(set = 0, binding = 4) uniform ClipmapBlock
     SdfClipmapConfig cfg;
 } clip;
 
+layout(set = 0, binding = 5) uniform sampler3D emissive_clipmap;
+
 layout(push_constant) uniform Push
 {
     int first_probe;         // index of the first probe this dispatch relights
@@ -102,10 +104,11 @@ void main()
         vec3 dir = fibonacci_direction(s, pc.ray_count);
         vec3 radiance;
         vec3 hit_albedo;
+        vec3 hit_emissive;
         vec3 hit_normal;
-        if (sdf_trace(clipmap, clip.cfg, position, dir, pc.max_trace_distance, hit_albedo,
-                      hit_normal))
-            radiance = hit_albedo * gi_sh_irradiance(environment.coeff, hit_normal);
+        if (sdf_trace(clipmap, emissive_clipmap, clip.cfg, position, dir, pc.max_trace_distance,
+                      hit_albedo, hit_emissive, hit_normal))
+            radiance = hit_emissive + hit_albedo * gi_sh_irradiance(environment.coeff, hit_normal);
         else
             radiance = gi_sh_irradiance(environment.coeff, dir);
 

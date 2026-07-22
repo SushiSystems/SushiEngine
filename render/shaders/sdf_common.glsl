@@ -8,6 +8,7 @@ struct SdfPrimitive
     vec4 center_kind; // xyz camera-relative centre, w = kind (0 box, 1 sphere, 2 cylinder)
     vec4 extent;      // xyz half-extents (box) or radius.x + half-height.y
     vec4 albedo;      // rgb surface albedo, w spare
+    vec4 emissive;    // rgb emitted radiance (HDR), w spare
 };
 
 struct SdfClipmapConfig
@@ -23,6 +24,7 @@ struct SdfMeshInstance
     vec4 aabb_min;   // xyz local AABB min, w = brick slot
     vec4 aabb_max;   // xyz local AABB max, w = local-to-world distance scale
     vec4 albedo;     // rgb bounce albedo
+    vec4 emissive;   // rgb emitted radiance (HDR)
 };
 
 // Axis-aligned analytic primitive distances (Inigo Quilez forms).
@@ -100,10 +102,12 @@ vec3 sdf_gradient(sampler3D clipmap, SdfClipmapConfig cfg, vec3 world)
 }
 
 // Sphere-traces the clipmap from a camera-relative origin along a unit direction. Returns
-// true on a surface hit within max_distance, with the hit's albedo and gradient normal.
-// Steps that leave the clipmap cube miss (the sky/ground fallback handles them).
-bool sdf_trace(sampler3D clipmap, SdfClipmapConfig cfg, vec3 origin, vec3 dir,
-               float max_distance, out vec3 hit_albedo, out vec3 hit_normal)
+// true on a surface hit within max_distance, with the hit's albedo, emitted radiance
+// (sampled from the emissive clipmap), and gradient normal. Steps that leave the clipmap
+// cube miss (the sky/ground fallback handles them).
+bool sdf_trace(sampler3D clipmap, sampler3D emissive_map, SdfClipmapConfig cfg, vec3 origin,
+               vec3 dir, float max_distance, out vec3 hit_albedo, out vec3 hit_emissive,
+               out vec3 hit_normal)
 {
     float voxel = cfg.origin_voxel.w;
     float t = voxel; // start a voxel out so a probe on a surface does not self-hit
@@ -118,6 +122,7 @@ bool sdf_trace(sampler3D clipmap, SdfClipmapConfig cfg, vec3 origin, vec3 dir,
         if (d < voxel * 0.75)
         {
             hit_albedo = sampled.rgb;
+            hit_emissive = texture(emissive_map, tc).rgb;
             hit_normal = sdf_gradient(clipmap, cfg, p);
             return true;
         }

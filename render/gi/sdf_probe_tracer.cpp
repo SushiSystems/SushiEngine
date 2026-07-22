@@ -99,15 +99,17 @@ namespace SushiEngine
                 : device_(device), shaders_(shaders), pipelines_(pipelines), meshes_(meshes),
                   brick_uploaded_(static_cast<std::size_t>(MAX_SDF_BRICKS), false)
             {
-                // Populate: the clipmap storage image, the primitive array, the clipmap config,
-                // the imported-mesh instances, and the shared brick atlas.
-                VkDescriptorSetLayoutBinding populate_bindings[5]{};
+                // Populate: the distance clipmap storage image, the primitive array, the
+                // clipmap config, the imported-mesh instances, the shared brick atlas, and the
+                // emissive clipmap storage image.
+                VkDescriptorSetLayoutBinding populate_bindings[6]{};
                 populate_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 populate_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 populate_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 populate_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 populate_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                for (std::uint32_t i = 0; i < 5; ++i)
+                populate_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                for (std::uint32_t i = 0; i < 6; ++i)
                 {
                     populate_bindings[i].binding = i;
                     populate_bindings[i].descriptorCount = 1;
@@ -116,7 +118,7 @@ namespace SushiEngine
 
                 VkDescriptorSetLayoutCreateInfo populate_info{};
                 populate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                populate_info.bindingCount = 5;
+                populate_info.bindingCount = 6;
                 populate_info.pBindings = populate_bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &populate_info, nullptr,
                                                           &populate_layout_),
@@ -130,9 +132,9 @@ namespace SushiEngine
                                                      nullptr, &populate_pipeline_layout_),
                               "vkCreatePipelineLayout(sdf populate)");
 
-                // Relight: probe SH out, environment SH in, the clipmap, the probe and clipmap
-                // config blocks.
-                VkDescriptorSetLayoutBinding relight_bindings[5]{};
+                // Relight: probe SH out, environment SH in, the distance clipmap, the probe and
+                // clipmap config blocks, and the emissive clipmap.
+                VkDescriptorSetLayoutBinding relight_bindings[6]{};
                 relight_bindings[0].binding = 0;
                 relight_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 relight_bindings[1].binding = 1;
@@ -143,6 +145,8 @@ namespace SushiEngine
                 relight_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 relight_bindings[4].binding = 4;
                 relight_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                relight_bindings[5].binding = 5;
+                relight_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 for (VkDescriptorSetLayoutBinding& binding : relight_bindings)
                 {
                     binding.descriptorCount = 1;
@@ -151,7 +155,7 @@ namespace SushiEngine
 
                 VkDescriptorSetLayoutCreateInfo relight_info{};
                 relight_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                relight_info.bindingCount = 5;
+                relight_info.bindingCount = 6;
                 relight_info.pBindings = relight_bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &relight_info, nullptr,
                                                           &relight_layout_),
@@ -196,34 +200,40 @@ namespace SushiEngine
                 const std::uint32_t resolution =
                     static_cast<std::uint32_t>(SDF_CLIPMAP_RESOLUTION);
 
-                VkImageCreateInfo image_info{};
-                image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-                image_info.imageType = VK_IMAGE_TYPE_3D;
-                image_info.format = CLIPMAP_FORMAT;
-                image_info.extent = {resolution, resolution, resolution};
-                image_info.mipLevels = 1;
-                image_info.arrayLayers = 1;
-                image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-                image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-                image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                const auto make_volume = [&](VkImage& image, VmaAllocation& allocation,
+                                             VkImageView& view, const char* label)
+                {
+                    VkImageCreateInfo image_info{};
+                    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                    image_info.imageType = VK_IMAGE_TYPE_3D;
+                    image_info.format = CLIPMAP_FORMAT;
+                    image_info.extent = {resolution, resolution, resolution};
+                    image_info.mipLevels = 1;
+                    image_info.arrayLayers = 1;
+                    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+                    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                    image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-                VmaAllocationCreateInfo alloc{};
-                alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                Vulkan::check(vmaCreateImage(device_.allocator(), &image_info, &alloc, &clipmap_,
-                                             &clipmap_allocation_, nullptr),
-                              "vmaCreateImage(sdf clipmap)");
+                    VmaAllocationCreateInfo alloc{};
+                    alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    Vulkan::check(vmaCreateImage(device_.allocator(), &image_info, &alloc, &image,
+                                                 &allocation, nullptr),
+                                  label);
 
-                VkImageViewCreateInfo view_info{};
-                view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-                view_info.image = clipmap_;
-                view_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
-                view_info.format = CLIPMAP_FORMAT;
-                view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                view_info.subresourceRange.levelCount = 1;
-                view_info.subresourceRange.layerCount = 1;
-                Vulkan::check(vkCreateImageView(device_.device(), &view_info, nullptr,
-                                                &clipmap_view_),
-                              "vkCreateImageView(sdf clipmap)");
+                    VkImageViewCreateInfo view_info{};
+                    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                    view_info.image = image;
+                    view_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
+                    view_info.format = CLIPMAP_FORMAT;
+                    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    view_info.subresourceRange.levelCount = 1;
+                    view_info.subresourceRange.layerCount = 1;
+                    Vulkan::check(vkCreateImageView(device_.device(), &view_info, nullptr, &view),
+                                  label);
+                };
+
+                make_volume(clipmap_, clipmap_allocation_, clipmap_view_, "sdf clipmap");
+                make_volume(emissive_, emissive_allocation_, emissive_view_, "sdf emissive clipmap");
             }
 
             void SdfProbeTracer::destroy_clipmap()
@@ -232,8 +242,14 @@ namespace SushiEngine
                     vkDestroyImageView(device_.device(), clipmap_view_, nullptr);
                 if (clipmap_ != VK_NULL_HANDLE)
                     vmaDestroyImage(device_.allocator(), clipmap_, clipmap_allocation_);
+                if (emissive_view_ != VK_NULL_HANDLE)
+                    vkDestroyImageView(device_.device(), emissive_view_, nullptr);
+                if (emissive_ != VK_NULL_HANDLE)
+                    vmaDestroyImage(device_.allocator(), emissive_, emissive_allocation_);
                 clipmap_view_ = VK_NULL_HANDLE;
                 clipmap_ = VK_NULL_HANDLE;
+                emissive_view_ = VK_NULL_HANDLE;
+                emissive_ = VK_NULL_HANDLE;
             }
 
             void SdfProbeTracer::create_buffers()
@@ -368,8 +384,15 @@ namespace SushiEngine
                     const float albedo[3] = {static_cast<float>(instance.color.x),
                                              static_cast<float>(instance.color.y),
                                              static_cast<float>(instance.color.z)};
+                    const Material& material = instance.material;
+                    const float emissive_scale =
+                        material.emissive_enabled ? material.emissive_intensity : 0.0f;
+                    const float emissive[3] = {
+                        static_cast<float>(material.emissive.x) * emissive_scale,
+                        static_cast<float>(material.emissive.y) * emissive_scale,
+                        static_cast<float>(material.emissive.z) * emissive_scale};
                     fill_sdf_mesh_instance(instance.model, inputs.frame->eye, brick->aabb_min,
-                                           brick->aabb_max, slot, albedo, out[count]);
+                                           brick->aabb_max, slot, albedo, emissive, out[count]);
                     ++count;
                 }
                 return count;
@@ -459,9 +482,13 @@ namespace SushiEngine
 
                 const VkSampler sampler = inputs.frame->samplers->get(Resources::SamplerDesc{});
 
-                // Populate the clipmap. Every voxel is rewritten, so the old contents are
+                // Populate both clipmaps. Every voxel is rewritten, so the old contents are
                 // discarded (UNDEFINED old layout).
                 image_barrier(cmd, clipmap_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                              VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
+                              VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+                image_barrier(cmd, emissive_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                               VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -478,6 +505,7 @@ namespace SushiEngine
                                           sizeof(float) *
                                               static_cast<VkDeviceSize>(SDF_BRICK_VOXELS) *
                                               MAX_SDF_BRICKS);
+                    writer.storage_image(5, emissive_view_);
                     writer.update(device_.device(), set);
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, populate_pipeline_);
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -486,8 +514,13 @@ namespace SushiEngine
                         groups(static_cast<std::uint32_t>(SDF_CLIPMAP_RESOLUTION), POPULATE_GROUP);
                     vkCmdDispatch(cmd, dispatch, dispatch, dispatch);
                 }
-                // The clipmap stays in GENERAL and becomes sampled-readable for the trace.
+                // Both clipmaps stay in GENERAL and become sampled-readable for the trace.
                 image_barrier(cmd, clipmap_, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                              VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                image_barrier(cmd, emissive_, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
@@ -502,6 +535,7 @@ namespace SushiEngine
                     writer.sampled_image(2, clipmap_view_, sampler);
                     writer.uniform_buffer(3, probe_config_buffers_[ring], sizeof(ProbeVolumeConfig));
                     writer.uniform_buffer(4, clip_config_buffers_[ring], sizeof(SdfClipmapConfig));
+                    writer.sampled_image(5, emissive_view_, sampler);
                     writer.update(device_.device(), set);
 
                     RelightPush push{first_probe, relight_count, RAY_COUNT, MAX_TRACE_DISTANCE};

@@ -129,6 +129,13 @@ namespace SushiEngine
                     VmaAllocation clipmap_allocation_ = VK_NULL_HANDLE;
                     VkImageView clipmap_view_ = VK_NULL_HANDLE;
 
+                    // A second clipmap holding each voxel's emitted radiance (emissive
+                    // materials), sampled at a trace hit so light-emitting surfaces inject
+                    // into the probes. Same lattice as the distance clipmap.
+                    VkImage emissive_ = VK_NULL_HANDLE;
+                    VmaAllocation emissive_allocation_ = VK_NULL_HANDLE;
+                    VkImageView emissive_view_ = VK_NULL_HANDLE;
+
                     // The shared brick atlas: MAX_SDF_BRICKS slots, host-written once per mesh.
                     VkBuffer brick_atlas_ = VK_NULL_HANDLE;
                     VmaAllocation brick_atlas_allocation_ = VK_NULL_HANDLE;

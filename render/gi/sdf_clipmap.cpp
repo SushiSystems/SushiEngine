@@ -155,6 +155,16 @@ namespace SushiEngine
                     p.albedo[1] = static_cast<float>(instance.color.y);
                     p.albedo[2] = static_cast<float>(instance.color.z);
                     p.albedo[3] = 0.0f;
+
+                    // Emissive surfaces inject their emitted radiance into the probes — lights
+                    // from materials, for free at probe rate. Zero unless the material emits.
+                    const Material& material = instance.material;
+                    const float emissive_scale =
+                        material.emissive_enabled ? material.emissive_intensity : 0.0f;
+                    p.emissive[0] = static_cast<float>(material.emissive.x) * emissive_scale;
+                    p.emissive[1] = static_cast<float>(material.emissive.y) * emissive_scale;
+                    p.emissive[2] = static_cast<float>(material.emissive.z) * emissive_scale;
+                    p.emissive[3] = 0.0f;
                     ++count;
                 }
                 return count;
@@ -163,7 +173,7 @@ namespace SushiEngine
             void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
                                         const float aabb_min[3], const float aabb_max[3],
                                         std::int32_t slot, const float albedo[3],
-                                        SdfMeshInstance& out) noexcept
+                                        const float emissive[3], SdfMeshInstance& out) noexcept
             {
                 float r[3][3];
                 invert_upper3x3(model, r);
@@ -205,6 +215,10 @@ namespace SushiEngine
                 out.albedo[1] = albedo[1];
                 out.albedo[2] = albedo[2];
                 out.albedo[3] = 0.0f;
+                out.emissive[0] = emissive[0];
+                out.emissive[1] = emissive[1];
+                out.emissive[2] = emissive[2];
+                out.emissive[3] = 0.0f;
             }
         } // namespace Gi
     } // namespace Render
