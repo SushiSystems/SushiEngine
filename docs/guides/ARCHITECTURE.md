@@ -786,6 +786,26 @@ their energy), roughness-aware Fresnel, specular occlusion from AO, and a dielec
 F0 derived from the material's index of refraction instead of the 0.04 every plastic
 uses.
 
+Indirect diffuse is no longer a single global value. **Probe-volume global illumination**
+(`render/gi/`, Phase 6) places a camera-relative cascade of irradiance probes on a
+lattice snapped to a world grid (so probes hold fixed world positions and do not swim as
+the camera moves). Each probe stores the same nine SH coefficients the IBL build
+produces, and `pbr.frag` blends the eight probes around a surface trilinearly in place of
+the single global set — falling back to the global environment SH outside the cascade or
+when GI is off, so nine coefficients always shade a pixel. `IrradianceVolumePass` owns the
+probe SH grid (scene set-0 bindings 29–30, pass-owned and hand-barriered like the IBL SH
+buffer) and relights it each frame through a pluggable `IProbeTracer` — the strategy seam
+(DIP) that decides how a probe gathers incident radiance. The default `SdfProbeTracer`
+(Tier A, all hardware) rebuilds a coarse scene distance clipmap (64³) each frame from the
+frame's analytic primitives and the per-mesh signed-distance bricks `MeshRegistry` bakes
+at import (`mesh_sdf_baker`), then sphere-traces it per probe: a hit contributes one
+coloured bounce, a miss the distant environment, projected back to SH. The trace is
+amortized — a round-robin quarter of the grid per frame, forced full when the lattice
+shifts a cell or the sun moves — and rough reflections fall back to the same probe cache
+before the sky. `EnvironmentProbeTracer` (broadcast the environment SH, no trace) is the
+cheaper floor-tier strategy behind the same seam. Tier-gated (High/Ultra) and author-gated
+(`Environment::gi`).
+
 ### 5.0.2. The temporal core
 
 Everything that relates one frame to the next lives behind one small block,

@@ -30,8 +30,14 @@ volume), **volumetric fog** with authored local box/ellipsoid volumes, and the c
 coupling seam — the atmosphere is LUT-driven end to end, retiring the full-resolution
 per-pixel single-scatter march for the common cases (background sky and near meshes) and
 LUT-accelerating the rest. Only opt-in refinements remain (CSM god-ray shafts and
-punctual-light fog, per-tier LUT resolutions, temporal amortization). This revision
-re-audits the codebase, folds in
+punctual-light fog, per-tier LUT resolutions, temporal amortization). **Phase 6 GI is
+shipped (core):** a probe-volume cascade of SH-9 irradiance probes fed by a pluggable
+tracer — the default SDF cone tracer (all hardware) rebuilds a scene distance clipmap
+from the analytic primitives and per-mesh bricks baked at import and sphere-traces it per
+probe for occlusion and one coloured bounce, amortized by sparse round-robin relight, with
+rough reflections falling back to the same probe cache. Multiple cascades, emissive
+injection, toroidal amortization, and the Tier B ray-query tracer remain as tier-scalable
+refinements. This revision re-audits the codebase, folds in
 a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
 GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
 AAA-complete phases. The guiding constraint is unchanged: the *red line between
@@ -566,31 +572,55 @@ static-only on Low. *SOLID:* both passes read the graph's depth/normal/velocity
 handles; neither knows the other exists; the fallback chain is data (a priority
 list), not branching code.
 
-### Phase 6 — Global illumination (the 2025 baseline, no RT required)
+### Phase 6 — Global illumination (the 2025 baseline, no RT required) — **shipped (core)**
 
 Flat sky ambient + AO is not AAA. The industry-settled mid-size pattern (Lumen-SW /
 Brixelizer / AC-Shadows-shaped): **probe volumes fed by a pluggable tracer, cached
 aggressively, refined per-pixel by Phase 5's screen-space terms.** New module
 `render/gi/`.
 
+**Shipped:** the probe-volume foundation (6.1), the SDF cone tracer with imported-mesh
+bricks (6.2a/6.2b), sparse relight amortization (6.2c), and the reflection radiance-cache
+fallback (part of item 4). Per-item status is marked below. **Deferred as tier-scalable
+refinements** (each its own verified slice): multiple cascades (item 1 ships one cascade),
+emissive injection (item 5), toroidal probe addressing (to amortize the trace during
+continuous camera movement, not only when stationary), and Tier B ray-query tracing
+(item 2's Ultra tier — the BLAS/TLAS seam exists; the consumer is future work).
+
 1. **Irradiance probe clipmaps**: 3–4 cascaded volumes around the camera
    (camera-relative by construction — the planet-scale answer), SH-9 or
    octahedral-visibility probes (DDGI-style with depth for leak rejection),
    ~(32³–48³) probes per cascade, sparse relight (N probes per frame, dirty-first).
+   ✓ **Shipped (one cascade).** A single 32×8×32 SH-9 cascade snapped to a world
+   lattice, `IrradianceVolumePass` at scene set-0 bindings 29–30, sparse round-robin
+   relight forced full on a lattice-cell shift or a sun move. Multiple cascades for
+   distant coverage are the tier-scalable refinement.
 2. **Pluggable tracer behind `render/gi/tracer.hpp`** (DIP — the strategy seam):
+   ✓ **Shipped (Tier A).** `IProbeTracer` seam with `SdfProbeTracer` (default) and
+   `EnvironmentProbeTracer` (floor tier).
    - **Tier A (all hardware)**: SDF scene tracing — per-mesh signed distance
      fields baked at import into a brick atlas + a coarse global clipmap SDF;
-     cone/sphere tracing against it. (The same SDF assets later accelerate the
-     cloud march and Phase 12's stochastic visibility — shared, not bespoke.)
+     cone/sphere tracing against it. ✓ **Shipped.** `mesh_sdf_baker` bakes a brick
+     per imported mesh at import; `SdfProbeTracer` rebuilds a 64³ clipmap each frame
+     from the analytic primitives + the mesh bricks and sphere-traces it per probe.
+     (The same SDF assets later accelerate the cloud march and Phase 12's stochastic
+     visibility — shared, not bespoke.)
    - **Tier B (Ultra)**: ray-query against the Phase 2 BLAS/TLAS, same probe
-     consumers, zero shading-path fork — exactly the RT-shadow pattern.
+     consumers, zero shading-path fork — exactly the RT-shadow pattern. *Deferred*
+     (the BLAS/TLAS seam exists; the probe consumer is future work).
 3. **Sky/ground handoff**: probes integrate the Hillaire sky (Phase 7 LUTs) and
    the analytic planet ground as their environment miss — GI, sky, and IBL agree
    by construction; the IBL specular cube remains the distant-specular source.
+   ✓ **Shipped (via the environment SH).** The trace miss reads the IBL environment
+   SH the atmosphere already fed, so GI and IBL agree; a direct sky-view LUT read at
+   the miss is a later refinement.
 4. **Radiance-cache reuse for reflections**: SSR/probe misses fall back to probe
    radiance (the "one world cache serves GI and reflections" pattern) before sky.
+   ✓ **Shipped.** Rough reflections in `pbr.frag` blend the probe radiance in the
+   reflection direction, weighted by roughness, gated on GI being on.
 5. **Emissive injection**: emissive surfaces contribute via the tracer (SDF albedo
    atlas / ray-query hit shading) — lights-from-materials for free at probe rate.
+   *Deferred* — needs an emissive channel in the clipmap alongside the albedo.
 
 *Performance:* probe relight is compute, async-queue-ready, amortized (nothing
 per-pixel except the final trilinear+SH gather ≈0.3 ms); cost is flat in scene

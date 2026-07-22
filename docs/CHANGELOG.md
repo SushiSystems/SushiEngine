@@ -43,6 +43,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   window lists them alongside frame time and FPS.
 
 ### Added
+- **Probe-volume global illumination (Phase 6).** Flat sky ambient is replaced by a
+  camera-relative cascade of diffuse irradiance probes, so indirect light varies in
+  space — surfaces darken under occluders and pick up bounced colour from nearby
+  geometry. Each probe stores the same nine SH coefficients the IBL build already
+  produces, so the shading pass blends the eight probes around a surface (trilinear, in
+  `pbr.frag`) exactly the way it evaluated the single global set, falling back to the
+  global environment SH outside the cascade or when GI is off. A new `render/gi/` module
+  owns it: a pluggable `IProbeTracer` (DIP strategy seam) decides how a probe's incident
+  radiance is gathered, an `IrradianceVolumePass` owns the probe SH grid (32×8×32, scene
+  set-0 bindings 29–30) and relights it each frame. The default **SDF cone tracer**
+  (Tier A, all hardware) rebuilds a coarse scene distance clipmap (64³) each frame from
+  the frame's analytic primitives and per-mesh signed-distance bricks baked at import,
+  then sphere-traces it per probe: a hit contributes one coloured bounce (hit albedo lit
+  by the environment), a miss the distant sky, projected to SH. Relight is amortized —
+  a round-robin quarter of the grid per frame, forced full when the lattice shifts a
+  cell or the sun moves. Rough reflections near geometry fall back to the probe radiance
+  cache rather than the flat sky. Tier-gated (High/Ultra) and author-gated
+  (`Environment::gi`, default off); the editor's Environment panel gains a Global
+  Illumination section. *Deferred as tier-scalable refinements:* multiple cascades for
+  distant coverage, emissive-surface injection, and toroidal addressing (to amortize the
+  trace during continuous camera movement, not only when stationary).
 - **Atmosphere is a Hillaire 2020 LUT stack, not a per-pixel march (Phase 7).** The
   sky's Rayleigh/Mie scattering now precomputes into a shared set of lookups a new
   `AtmosphereLutPass` owns, replacing the full-resolution single-scatter integral the
