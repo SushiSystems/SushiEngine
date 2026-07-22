@@ -332,6 +332,9 @@ namespace SushiEngine
                 out.angular_radius = static_cast<float>(angular_radius);
                 out.distance_metres = static_cast<float>(camera_distance);
                 out.mean_radius_metres = static_cast<float>(properties.mean_radius_metres);
+                const RingExtent ring = ring_extent(body);
+                out.ring_inner_metres = static_cast<float>(ring.inner_metres);
+                out.ring_outer_metres = static_cast<float>(ring.outer_metres);
                 out.body_id = static_cast<std::uint32_t>(index);
                 out.is_star = properties.is_star ? 1u : 0u;
                 out.lod = lod_for_angular_radius(angular_radius);
@@ -480,6 +483,11 @@ namespace SushiEngine
                     basis, equatorial_to_body_equatorial(
                                observer_body, body_north_pole_equatorial(dominant_body))));
                 environment.planet_surface_style = surface_style_for(dominant_body);
+                const RingExtent dominant_ring = ring_extent(dominant_body);
+                environment.planet_ring_inner_metres =
+                    static_cast<float>(dominant_ring.inner_metres);
+                environment.planet_ring_outer_metres =
+                    static_cast<float>(dominant_ring.outer_metres);
                 // The spherical atmosphere/cloud shells reference this radius, so pick it
                 // to put altitude zero at the local ground: at home that is the geodetic
                 // distance from Earth's centre to the scene origin (which sits on the
@@ -514,6 +522,8 @@ namespace SushiEngine
             else
             {
                 environment.planet_surface_visible = false;
+                environment.planet_ring_inner_metres = 0.0f;
+                environment.planet_ring_outer_metres = 0.0f;
                 environment.atmosphere.enabled = false;
                 environment.clouds.enabled = false;
             }

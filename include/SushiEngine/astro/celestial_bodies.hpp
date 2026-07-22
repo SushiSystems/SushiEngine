@@ -88,6 +88,35 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The equatorial ring system of a body: its inner and outer edge radii.
+         *
+         * Metres from the body centre, in the body's equatorial plane (normal = its north
+         * pole). Only Saturn carries a visible ring today; every other body returns a zero
+         * extent, which the renderer reads as "no ring". Saturn's span is the C-ring inner
+         * edge to the A-ring outer edge (the bright main rings); the fainter D, F, and E
+         * rings are omitted as they are effectively invisible in reflected light.
+         */
+        struct RingExtent
+        {
+            double inner_metres; /**< Inner edge radius, metres; 0 marks no ring. */
+            double outer_metres; /**< Outer edge radius, metres. */
+        };
+
+        /**
+         * @brief The ring extent of a body.
+         * @param body Which body to describe.
+         * @return Its ring's inner and outer radii, or a zero extent if it has no ring.
+         */
+        inline RingExtent ring_extent(BodyId body) noexcept
+        {
+            switch (body)
+            {
+                case BodyId::Saturn: return {7.4658e7, 1.36775e8};
+                default:             return {0.0, 0.0};
+            }
+        }
+
+        /**
          * @brief The physical properties of a body.
          * @param body Which body to describe.
          * @return Its radius, albedo, colour, and star flag.

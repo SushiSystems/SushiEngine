@@ -80,6 +80,7 @@ namespace SushiEngine
                 float cloud_deck_d[CLOUD_MAX_DECKS][4]; /**< anvil, weather scale, evolution, spare. */
                 float bodies[MAX_CELESTIAL_BODIES * 5][4];
                 float sky_stars[MAX_SKY_STARS * 2][4];
+                float planet_ring[4];   /**< x = near-field ring inner radius (m), y = outer radius (m); 0 = none. Appended so shaders reading only earlier fields keep their offsets. */
             };
 
             /**

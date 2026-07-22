@@ -555,6 +555,8 @@ namespace SushiEngine
             float brightness = 1.0f;                         /**< Relative reflected/emitted radiance scale. */
             float distance_metres = 0.0f;                    /**< Geocentric distance to the body, metres (LOD metric). */
             float mean_radius_metres = 0.0f;                 /**< Physical mean radius, metres. */
+            float ring_inner_metres = 0.0f;                  /**< Inner edge of the equatorial ring, metres; 0 = no ring. Plane normal is @ref pole. */
+            float ring_outer_metres = 0.0f;                  /**< Outer edge of the equatorial ring, metres. */
             BodyLod lod = BodyLod::Disk;                     /**< Representation regime this frame. */
             std::uint32_t body_id = 0;                       /**< The ephemeris body index this entry was filled from. */
             std::uint32_t is_star = 0;                       /**< 1 if the body emits (the Sun), else 0. */
@@ -610,8 +612,10 @@ namespace SushiEngine
             ReferenceEllipsoid planet;   /**< The dominant body's ellipsoid (WGS84 by default). */
             WorldVector3 planet_center{0.0, -6378137.0, 0.0}; /**< The dominant body's centre in the scene frame, metres. */
             double planet_surface_reference_metres = 6378137.0; /**< Radius of the sphere the atmosphere/cloud altitudes reference — chosen so altitude is exactly zero at the local ground, not the equatorial radius. */
-            Vector3 planet_pole{Vector3{0.0, 1.0, 0.0}};      /**< The dominant body's north pole, scene frame (orients the ellipsoid). */
+            Vector3 planet_pole{Vector3{0.0, 1.0, 0.0}};      /**< The dominant body's north pole, scene frame (orients the ellipsoid and its ring). */
             SurfaceStyle planet_surface_style = SurfaceStyle::EarthLike; /**< Procedural pattern of the dominant body's ground. */
+            float planet_ring_inner_metres = 0.0f;            /**< Inner edge of the dominant body's ring, metres; 0 = no ring. */
+            float planet_ring_outer_metres = 0.0f;            /**< Outer edge of the dominant body's ring, metres. */
             AtmosphereParams atmosphere; /**< The air shell around the planet. */
             FogParams fog;               /**< Ground-hugging volumetric fog. */
             FogVolume fog_volumes[MAX_FOG_VOLUMES]{}; /**< Authored local fog primitives. */

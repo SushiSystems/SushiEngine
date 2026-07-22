@@ -991,10 +991,25 @@ independent of the depth convention; its "geometry is here" tests key on `depth 
 The `include/SushiEngine/astro/` headers place and move bodies. They are pure
 double-precision host code that fills the neutral `Environment` — the engine ships no
 device code here. `julian_date.hpp` and `orbital_elements.hpp` propagate the Standish
-Keplerian rows; `celestial_bodies.hpp` catalogues each body's radius, colour, pole, and
-`SurfacePreset`; `ephemeris.hpp`'s `fill_environment_sky` assembles them into the local
+Keplerian rows; `celestial_bodies.hpp` catalogues each body's radius, colour, pole,
+`SurfacePreset`, and `ring_extent` (Saturn's ring span, zero for every other body);
+`ephemeris.hpp`'s `fill_environment_sky` assembles them into the local
 sky each frame and selects the **dominant body** (the one whose surface is the analytic
 ground) by the surface hand-off altitude.
+
+**Saturn's rings** are drawn the same analytic, mesh-free way as the bodies themselves.
+`fill_environment_sky` threads `ring_extent(BodyId::Saturn)` onto the body's
+`CelestialBody::ring_inner_metres`/`ring_outer_metres` (oriented by the body's real
+`pole`, i.e. its J2000 equatorial plane) and, once Saturn is the dominant near-field
+planet, onto `Environment::planet_ring_*`. `scene_uniforms.cpp` packs the far-field radii
+into the body record's previously-unused lanes and appends one `planet_ring` vec4 for the
+near-field case (after the block's arrays, so the shaders that share the scene block and
+read only its earlier fields keep their offsets). `sky.frag` then ray-tests the equatorial
+annulus in both regimes — the far-field body loop (the ring resolves as the camera nears
+Saturn past the far-disk LOD) and the near-field planet — shading it with banded opacity
+(C/B rings, the empty Cassini division, the A ring with its Encke gap), fine ringlets and
+self-gravity-wake clumping, a back-scatter opposition surge, translucency over the disk,
+and the planet's shadow cast across the ring.
 
 Because every body is placed with its true direction, distance, and angular radius in one
 frame, **eclipses fall out of the geometry** rather than being scripted. `fill_environment_sky`

@@ -55,11 +55,15 @@ layout(set = 0, binding = 0) uniform SceneBlock
     // Solar-system bodies, 5 vec4 each:
     //   [5i+0] = direction.xyz, angular radius; [5i+1] = colour.rgb, brightness;
     //   [5i+2] = sun-facing direction.xyz, is-star flag;
-    //   [5i+3] = distance (m), mean radius (m);
+    //   [5i+3] = distance (m), mean radius (m), ring inner radius (m), ring outer radius (m);
     //   [5i+4] = north pole.xyz, surface style.
     vec4 bodies[80];
     // Fixed stars, 2 vec4 each: [2i+0] = direction.xyz, brightness; [2i+1] = colour.rgb.
     vec4 sky_stars[128];
+    // Near-field ring of the dominant analytic planet: x = inner radius (m), y = outer (m),
+    // 0 = no ring. Appended after the arrays so the shaders sharing this block that read
+    // only its earlier fields keep their offsets. Plane normal is planet_frame.xyz.
+    vec4 planet_ring;
 } scene;
 
 #define MAX_BODIES 16
@@ -234,6 +238,107 @@ vec3 relief_normal(vec3 normal, vec3 sphere_dir, float style, float strength)
     float hx = fbm((sphere_dir + t1 * eps) * 180.0);
     float hy = fbm((sphere_dir + t2 * eps) * 180.0);
     return normalize(normal - (t1 * (hx - h0) + t2 * (hy - h0)) * strength);
+}
+
+// Ray from ro along rd vs a body's equatorial ring plane: the annulus centred at
+// `center` (camera-relative), normal `pole`, spanning radii [inner, outer] metres.
+// Returns the hit distance (> 0) or -1 on a miss; on a hit `radial01` is the fraction
+// across the ring (0 at the inner edge, 1 at the outer).
+float ray_ring(vec3 ro, vec3 rd, vec3 center, vec3 pole, float inner, float outer,
+               out float radial01)
+{
+    radial01 = 0.0;
+    float denom = dot(rd, pole);
+    if (abs(denom) < 1e-6)
+        return -1.0;
+    float t = dot(center - ro, pole) / denom;
+    if (t <= 0.0)
+        return -1.0;
+    vec3 offset = (ro + rd * t) - center;
+    float radius = length(offset - pole * dot(offset, pole));
+    if (radius < inner || radius > outer)
+        return -1.0;
+    radial01 = (radius - inner) / max(outer - inner, 1.0);
+    return t;
+}
+
+// Saturn's ring cross-section: tan albedo and opacity as a function of the fraction
+// across the ring. The named divisions — a faint C ring, the bright dense B ring, the
+// near-empty Cassini division, then the A ring with its thin Encke gap — plus fine
+// ringlet noise, so the ring reads as structured bands rather than a flat disk.
+void ring_cross_section(float u, out vec3 albedo, out float density)
+{
+    if (u < 0.24)
+    {
+        density = 0.30;
+        albedo = vec3(0.50, 0.47, 0.42); // C ring — dark, greyish
+    }
+    else if (u < 0.55)
+    {
+        density = 0.95;
+        albedo = vec3(0.84, 0.78, 0.62); // B ring — bright, dense
+    }
+    else if (u < 0.63)
+    {
+        density = 0.05;
+        albedo = vec3(0.46, 0.43, 0.39); // Cassini division — near empty
+    }
+    else
+    {
+        density = 0.68;
+        albedo = vec3(0.80, 0.74, 0.60); // A ring
+    }
+    // Encke gap: a narrow near-empty band in the outer A ring.
+    density *= 1.0 - 0.9 * exp(-pow((u - 0.93) / 0.010, 2.0));
+    // Hundreds of fine concentric ringlets — the sharp radial density waves that make the
+    // rings read as thousands of discrete strands rather than one smooth sheet.
+    float fine = 0.5 + 0.5 * sin(u * 620.0 + fbm(vec3(u * 40.0, 1.7, 3.1)) * 6.0);
+    density *= mix(0.5, 1.05, fine);
+}
+
+// The lit colour of a ring sample. The ring is a slab of countless icy particles, so it
+// is textured with fine ringlets and azimuthal self-gravity-wake clumping (not a flat
+// disk), lit on the face turned to the sun, brightened by the back-scatter opposition
+// surge when the sun is behind the viewer, and darkened where the planet's own shadow
+// falls across it. `hit` is camera-relative (the camera sits at the origin).
+vec3 ring_shade(float u, vec3 hit, vec3 pole, vec3 to_sun, vec3 center,
+                float body_radius, vec3 sun_radiance, out float opacity)
+{
+    vec3 albedo;
+    float density;
+    ring_cross_section(u, albedo, density);
+
+    // In-plane polar coordinates about the ring centre: radius and azimuth, so the texture
+    // varies around the ring as well as across it.
+    vec3 rel = hit - center;
+    vec3 planar = rel - pole * dot(rel, pole);
+    float radius = length(planar);
+    vec3 t1 = normalize(cross(pole, abs(pole.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 t2 = cross(pole, t1);
+    float azimuth = atan(dot(planar, t2), dot(planar, t1));
+
+    // Self-gravity wakes: fine clumps sheared around the azimuth, so the ring granulates
+    // into brighter and thinner patches the way the real particulate ring does.
+    float wake = fbm(vec3(azimuth * 36.0, radius * 5.0e-6, 2.3));
+    float clump = mix(0.65, 1.2, wake);
+    opacity = clamp(density * clump, 0.0, 1.0);
+
+    // Lit on the sunward face; multiple scattering keeps it from going black edge-on.
+    float illum = clamp(abs(dot(pole, to_sun)), 0.0, 1.0) * 0.7 + 0.3;
+
+    // Opposition surge: back-scattering particles flare when the sun sits directly behind
+    // the viewer — the ring's signature brightening.
+    vec3 to_view = normalize(-hit);
+    float surge = 1.0 + 0.7 * pow(max(dot(to_view, to_sun), 0.0), 6.0);
+    illum *= surge;
+
+    // The planet's shadow cast across the ring: the dark arc on the far ansa.
+    vec2 shadow = ray_sphere(hit, to_sun, center, body_radius);
+    if (shadow.y > 0.0 && shadow.x > 0.0)
+        illum *= 0.10;
+
+    // Denser clumps carry more particles and catch more light.
+    return albedo * mix(0.85, 1.2, clump) * sun_radiance * illum;
 }
 
 // Rayleigh phase.
@@ -808,17 +913,19 @@ void main()
             float coverage = 0.0;
             float limb_f = 0.0; // 0 centre .. 1 limb, for the Sun's limb darkening below
             vec3 normal = body_dir; // surface normal at the covered point (toward observer)
-            if (angular_radius > 0.02)
+            bool near_regime = angular_radius > 0.02;
+            vec3 near_center = body_dir * body_distance; // camera-relative sphere centre
+            float sphere_t = -1.0;
+            if (near_regime)
             {
                 // Near regime: intersect the real sphere at its camera-relative centre.
-                vec3 center = body_dir * body_distance;
-                vec2 hit = ray_sphere(vec3(0.0), rd, center, body_radius);
+                vec2 hit = ray_sphere(vec3(0.0), rd, near_center, body_radius);
                 float t = hit.x > 0.0 ? hit.x : hit.y;
                 if (hit.y > 0.0 && t > 0.0)
                 {
                     coverage = 1.0;
-                    normal = normalize(rd * t - center);
-                    body_distance = t; // order by the actual hit depth up close
+                    normal = normalize(rd * t - near_center);
+                    sphere_t = t; // order by the actual hit depth up close
                     limb_f = clamp(1.0 - dot(normal, -rd), 0.0, 1.0);
                 }
             }
@@ -841,11 +948,28 @@ void main()
                 }
             }
 
-            if (coverage > 0.0 && body_distance < nearest_distance)
+            // The equatorial ring, a real annulus in the body's own equatorial plane
+            // (oriented by its pole), drawn only for a ringed body and only in the near
+            // regime where the sphere is a true 3D intersection — so flying in toward
+            // Saturn, its rings resolve the moment its disk grows past the far-disk LOD.
+            float ring_inner = b3.z;
+            float ring_outer = b3.w;
+            float ring_u = 0.0;
+            float ring_t = (near_regime && ring_inner > 0.0)
+                               ? ray_ring(vec3(0.0), rd, near_center, body_pole, ring_inner,
+                                          ring_outer, ring_u)
+                               : -1.0;
+
+            float sphere_depth = coverage > 0.0 ? (near_regime ? sphere_t : body_distance) : 1e30;
+            float body_depth = sphere_depth;
+            if (ring_t > 0.0)
+                body_depth = min(body_depth, ring_t);
+
+            if ((coverage > 0.0 || ring_t > 0.0) && body_depth < nearest_distance)
             {
-                nearest_distance = body_distance;
-                vec3 color;
-                if (is_star)
+                nearest_distance = body_depth;
+                vec3 sphere_color = vec3(0.0);
+                if (coverage > 0.0 && is_star)
                 {
                     // Real limb darkening: the disk centre looks straight into the hot,
                     // dense photosphere; the limb grazes cooler, more tenuous outer layers,
@@ -857,9 +981,9 @@ void main()
                     float darkening = 1.0 - 0.75 * (1.0 - mu_disk);
                     vec3 limb_tint = mix(vec3(1.0, 0.95, 0.88), vec3(1.0, 0.7, 0.42),
                                          pow(limb_f, 1.5));
-                    color = body_color * sun_radiance * darkening * limb_tint;
+                    sphere_color = body_color * sun_radiance * darkening * limb_tint;
                 }
-                else
+                else if (coverage > 0.0)
                 {
                     // The body's style patterns its disk: bands about its own pole for
                     // the giants, crater noise for rocky worlds, ocean/land for Earth —
@@ -867,11 +991,37 @@ void main()
                     vec3 pattern = surface_albedo(body_style, normal, body_pole,
                                                   vec3(1.0), vec3(0.55));
                     float lambert = max(dot(normal, body_sun), 0.0);
-                    color = body_color * pattern * sun_radiance *
-                            (lambert * body_brightness + 0.015);
+                    sphere_color = body_color * pattern * sun_radiance *
+                                   (lambert * body_brightness + 0.015);
                 }
-                body_result = color;
-                body_coverage = coverage;
+
+                vec3 ring_color = vec3(0.0);
+                float ring_opacity = 0.0;
+                if (ring_t > 0.0)
+                    ring_color = ring_shade(ring_u, rd * ring_t, body_pole, body_sun,
+                                            near_center, body_radius, sun_radiance,
+                                            ring_opacity);
+
+                // Front-to-back over a black background (stars are added separately): the
+                // ring is translucent, so a near arc veils the disk and a far arc is
+                // veiled by it, decided by which crossing is closer to the camera.
+                bool ring_front = ring_t > 0.0 && (coverage <= 0.0 || ring_t < sphere_t);
+                vec3 premultiplied;
+                float alpha;
+                if (ring_front)
+                {
+                    premultiplied =
+                        ring_color * ring_opacity + (1.0 - ring_opacity) * sphere_color * coverage;
+                    alpha = ring_opacity + (1.0 - ring_opacity) * coverage;
+                }
+                else
+                {
+                    premultiplied =
+                        sphere_color * coverage + (1.0 - coverage) * ring_color * ring_opacity;
+                    alpha = coverage + (1.0 - coverage) * ring_opacity;
+                }
+                body_result = alpha > 1e-4 ? premultiplied / alpha : vec3(0.0);
+                body_coverage = alpha;
             }
         }
         if (body_coverage > 0.0)
@@ -902,6 +1052,28 @@ void main()
             float totality = smoothstep(0.2, 0.95, sun_eclipse);
             sky_color += vec3(1.0, 0.98, 0.95) * ring * totality * 0.6 *
                          scene.sun_color.xyz * total_transmittance;
+        }
+    }
+
+    // The near-field ring: once the camera is close enough that a ringed body has become
+    // the dominant analytic planet, its ring is drawn here as a real annulus around the
+    // planet centre, composited over whatever this pixel already holds (the planet ground,
+    // a mesh, or open sky) whenever it is the nearest surface along the ray.
+    if (scene.planet_ring.x > 0.0)
+    {
+        float ring_u;
+        float ring_t = ray_ring(ro, rd, center, planet_pole, scene.planet_ring.x,
+                                scene.planet_ring.y, ring_u);
+        bool occluded_by_ground = ground_hit && ground_t < ring_t;
+        if (ring_t > 0.0 && ring_t < geometry_t && !occluded_by_ground)
+        {
+            float ring_opacity;
+            vec3 ring_color = ring_shade(ring_u, ro + rd * ring_t, planet_pole, sun, center,
+                                         surface_radius, sun_radiance, ring_opacity);
+            sky_color = mix(sky_color, ring_color * total_transmittance, ring_opacity);
+            // The ground's deferred direct term must not shine through a ring drawn in
+            // front of it, so fade it by what the ring covers.
+            ground_shadow_out *= (1.0 - ring_opacity);
         }
     }
 

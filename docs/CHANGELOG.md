@@ -8,6 +8,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- **Saturn's rings.** Saturn now renders with its ring system, drawn the same analytic
+  way every other body is — no mesh, no particles, entirely in `sky.frag`. A new
+  `Astro::ring_extent(BodyId)` gives Saturn's C-to-A ring span (zero for every other
+  body); the ephemeris threads it onto the body through two new `CelestialBody` fields
+  (`ring_inner_metres`/`ring_outer_metres`, oriented by the body's existing `pole`) and,
+  once Saturn is the dominant near-field planet, onto the `Environment` (`planet_ring_*`).
+  The shader adds a ray-vs-equatorial-annulus test in both regimes — the far-field body
+  loop (so the ring resolves as you approach) and the near-field planet — with banded
+  opacity (faint C ring, bright B ring, the empty Cassini division, the A ring with its
+  Encke gap), translucency over the disk, and the planet's shadow cast across the ring.
+  Fly to Saturn from the editor's Environment panel to see it. The GPU packing reuses
+  the previously-unused body record lanes and appends one `planet_ring` vec4, so no other
+  shader sharing the scene block is disturbed.
+
 ### Fixed
 - **`World::get<T>()` no longer silently dereferences a null column.** Creating a
   primitive (e.g. sphere/box) in the editor could crash with an access violation

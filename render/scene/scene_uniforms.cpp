@@ -225,6 +225,10 @@ namespace SushiEngine
                 uniforms.planet_frame[1] = static_cast<float>(environment.planet_pole.y);
                 uniforms.planet_frame[2] = static_cast<float>(environment.planet_pole.z);
                 uniforms.planet_frame[3] = static_cast<float>(environment.planet_surface_style);
+                uniforms.planet_ring[0] = environment.planet_ring_inner_metres;
+                uniforms.planet_ring[1] = environment.planet_ring_outer_metres;
+                uniforms.planet_ring[2] = 0.0f;
+                uniforms.planet_ring[3] = 0.0f;
 
                 for (int i = 0; i < body_count; ++i)
                 {
@@ -243,8 +247,8 @@ namespace SushiEngine
                     uniforms.bodies[i * 5 + 2][3] = static_cast<float>(body.is_star);
                     uniforms.bodies[i * 5 + 3][0] = body.distance_metres;
                     uniforms.bodies[i * 5 + 3][1] = body.mean_radius_metres;
-                    uniforms.bodies[i * 5 + 3][2] = 0.0f;
-                    uniforms.bodies[i * 5 + 3][3] = 0.0f;
+                    uniforms.bodies[i * 5 + 3][2] = body.ring_inner_metres;
+                    uniforms.bodies[i * 5 + 3][3] = body.ring_outer_metres;
                     uniforms.bodies[i * 5 + 4][0] = static_cast<float>(body.pole.x);
                     uniforms.bodies[i * 5 + 4][1] = static_cast<float>(body.pole.y);
                     uniforms.bodies[i * 5 + 4][2] = static_cast<float>(body.pole.z);
