@@ -572,7 +572,7 @@ static-only on Low. *SOLID:* both passes read the graph's depth/normal/velocity
 handles; neither knows the other exists; the fallback chain is data (a priority
 list), not branching code.
 
-### Phase 6 — Global illumination (the 2025 baseline, no RT required) — **shipped (core)**
+### Phase 6 — Global illumination (the 2025 baseline, no RT required) — **shipped**
 
 Flat sky ambient + AO is not AAA. The industry-settled mid-size pattern (Lumen-SW /
 Brixelizer / AC-Shadows-shaped): **probe volumes fed by a pluggable tracer, cached
@@ -580,21 +580,25 @@ aggressively, refined per-pixel by Phase 5's screen-space terms.** New module
 `render/gi/`.
 
 **Shipped:** the probe-volume foundation (6.1), the SDF cone tracer with imported-mesh
-bricks (6.2a/6.2b), sparse relight amortization (6.2c), and the reflection radiance-cache
-fallback (part of item 4). Per-item status is marked below. **Deferred as tier-scalable
-refinements** (each its own verified slice): multiple cascades (item 1 ships one cascade),
-emissive injection (item 5), toroidal probe addressing (to amortize the trace during
-continuous camera movement, not only when stationary), and Tier B ray-query tracing
-(item 2's Ultra tier — the BLAS/TLAS seam exists; the consumer is future work).
+bricks (6.2a/6.2b), sparse relight amortization (6.2c), the reflection radiance-cache
+fallback (part of item 4), the three-cascade clipmap (item 1), and emissive injection
+(item 5). Per-item status is marked below. **Deferred as tier-scalable refinements** (each
+its own verified slice): toroidal probe addressing (to amortize the trace during continuous
+camera movement, not only when stationary — a cascade cell crossing still forces a full
+relight), and Tier B ray-query tracing (item 2's Ultra tier — the BLAS/TLAS seam exists;
+the consumer is future work).
 
 1. **Irradiance probe clipmaps**: 3–4 cascaded volumes around the camera
    (camera-relative by construction — the planet-scale answer), SH-9 or
    octahedral-visibility probes (DDGI-style with depth for leak rejection),
    ~(32³–48³) probes per cascade, sparse relight (N probes per frame, dirty-first).
-   ✓ **Shipped (one cascade).** A single 32×8×32 SH-9 cascade snapped to a world
-   lattice, `IrradianceVolumePass` at scene set-0 bindings 29–30, sparse round-robin
-   relight forced full on a lattice-cell shift or a sun move. Multiple cascades for
-   distant coverage are the tier-scalable refinement.
+   ✓ **Shipped (three cascades).** Three nested 32×8×32 SH-9 cascades at 4/8/16 m
+   spacing (~124/248/496 m reach), each snapped to its own world lattice;
+   `IrradianceVolumePass` at scene set-0 bindings 29–30; the shading pass reads the
+   finest cascade containing the point and falls back outward. Sparse round-robin
+   relight spans all cascades and is forced full only for a cascade that shifts a cell
+   (the coarse grids shift far less often) or on a sun move. Toroidal addressing to
+   amortize the shift itself during continuous movement is the tier-scalable refinement.
 2. **Pluggable tracer behind `render/gi/tracer.hpp`** (DIP — the strategy seam):
    ✓ **Shipped (Tier A).** `IProbeTracer` seam with `SdfProbeTracer` (default) and
    `EnvironmentProbeTracer` (floor tier).
@@ -620,7 +624,10 @@ continuous camera movement, not only when stationary), and Tier B ray-query trac
    reflection direction, weighted by roughness, gated on GI being on.
 5. **Emissive injection**: emissive surfaces contribute via the tracer (SDF albedo
    atlas / ray-query hit shading) — lights-from-materials for free at probe rate.
-   *Deferred* — needs an emissive channel in the clipmap alongside the albedo.
+   ✓ **Shipped.** A second emissive clipmap parallels the distance/albedo one; the
+   populate pass writes each surface's `material.emissive * intensity` (primitives and
+   imported meshes), and the probe relight adds it at each trace hit — a glowing surface
+   warms and tints nearby geometry through the same one-bounce trace, no separate light.
 
 *Performance:* probe relight is compute, async-queue-ready, amortized (nothing
 per-pixel except the final trilinear+SH gather ≈0.3 ms); cost is flat in scene

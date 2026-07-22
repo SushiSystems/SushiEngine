@@ -53,6 +53,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   a one-line fetch of the Sun's angular radius for the corona).
 
 ### Added
+- **Probe GI reaches far with three cascades (Phase 6 finished, item 1).** The single 4 m
+  irradiance-probe cascade became three nested ones at 4/8/16 m spacing (~124/248/496 m
+  reach), each a 32×8×32 grid snapped to its own world lattice. `pbr.frag` walks them
+  finest-to-coarsest and gathers from the first that contains the shading point, so near
+  surfaces keep the dense grid and distant ones pick up the wide cascades before falling
+  back to the environment SH. `ProbeVolumeConfig` now carries per-cascade origin+spacing;
+  the relight spans all cascades cascade-major and forces a full relight only for a cascade
+  that actually shifts a cell (the coarse grids shift far less often than the finest), with
+  the round-robin budget a fraction of the total so the four-frame refresh period holds.
+  Toroidal addressing (to amortize the shift itself during continuous movement) stays the
+  deferred refinement.
+- **Emissive materials light the scene through GI (Phase 6 finished, item 5).** The SDF
+  tracer gained a second clipmap holding each voxel's emitted radiance beside the
+  distance/albedo one; the populate pass writes the nearest surface's `material.emissive ×
+  intensity` (analytic primitives and imported meshes alike), and the probe relight samples
+  it at every trace hit and adds it to the one-bounce radiance. A glowing surface now warms
+  and tints the geometry around it with no separate light path — lights from materials, for
+  free at probe rate.
 - **Lunar eclipses turn the Moon a coppery red.** From Earth, when the Moon slides into
   Earth's umbra — a shadow disk of angular radius (Moon parallax + Sun parallax − Sun
   angular radius) centred on the anti-solar point — `fill_environment_sky` measures how
