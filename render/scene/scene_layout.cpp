@@ -90,6 +90,58 @@ namespace SushiEngine
                 bindings[IBL_SH_BINDING].descriptorCount = 1;
                 bindings[IBL_SH_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+                // The clustered light engine: three storage buffers (the light array, the
+                // per-cluster count grid, the index list) and one config uniform, all read
+                // by the fragment stage where shading happens.
+                const std::uint32_t light_storage[3] = {LIGHT_BINDING, CLUSTER_GRID_BINDING,
+                                                        LIGHT_INDEX_BINDING};
+                for (std::uint32_t binding : light_storage)
+                {
+                    bindings[binding].binding = binding;
+                    bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    bindings[binding].descriptorCount = 1;
+                    bindings[binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                }
+
+                bindings[CLUSTER_CONFIG_BINDING].binding = CLUSTER_CONFIG_BINDING;
+                bindings[CLUSTER_CONFIG_BINDING].descriptorType =
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                bindings[CLUSTER_CONFIG_BINDING].descriptorCount = 1;
+                bindings[CLUSTER_CONFIG_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                bindings[LIGHT_SHADOW_ATLAS_BINDING].binding = LIGHT_SHADOW_ATLAS_BINDING;
+                bindings[LIGHT_SHADOW_ATLAS_BINDING].descriptorType =
+                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[LIGHT_SHADOW_ATLAS_BINDING].descriptorCount = 1;
+                bindings[LIGHT_SHADOW_ATLAS_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                // The shadow matrices are read by the shadow pass's vertex shader (to
+                // project geometry into a tile) and the shading pass's fragment shader (to
+                // sample it), so both stages.
+                bindings[LIGHT_SHADOW_DATA_BINDING].binding = LIGHT_SHADOW_DATA_BINDING;
+                bindings[LIGHT_SHADOW_DATA_BINDING].descriptorType =
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[LIGHT_SHADOW_DATA_BINDING].descriptorCount = 1;
+                bindings[LIGHT_SHADOW_DATA_BINDING].stageFlags = BOTH_STAGES;
+
+                // Clustered decals: the decal array, its per-cluster count grid, and the
+                // index list, all read by the fragment stage before shading.
+                const std::uint32_t decal_storage[3] = {DECAL_BINDING, DECAL_GRID_BINDING,
+                                                        DECAL_INDEX_BINDING};
+                for (std::uint32_t binding : decal_storage)
+                {
+                    bindings[binding].binding = binding;
+                    bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    bindings[binding].descriptorCount = 1;
+                    bindings[binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                }
+
+                // The resolved ambient-occlusion target, sampled by the shading fragment stage.
+                bindings[AO_BINDING].binding = AO_BINDING;
+                bindings[AO_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[AO_BINDING].descriptorCount = 1;
+                bindings[AO_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
                 // A push-descriptor set: passes push their bindings inline rather than
                 // allocate and write a throw-away set every frame. The whole set is well
                 // under the 32-descriptor floor every 1.4 device guarantees for a push
@@ -137,9 +189,8 @@ namespace SushiEngine
             {
                 if (!heap_.available())
                     return;
-                const VkDescriptorSet set = heap_.set();
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 1,
-                                        1, &set, 0, nullptr);
+                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                               pipeline_layout_, 1, heap_.set());
             }
 
         } // namespace Scene

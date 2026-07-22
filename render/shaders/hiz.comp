@@ -1,0 +1,55 @@
+#version 450
+
+// The hierarchical-Z pyramid: a mip chain of the *nearest* linear view depth in each
+// footprint, the acceleration structure a screen-space reflection ray traverses to skip
+// empty space in a few steps instead of marching pixel by pixel (and the same pyramid
+// Phase 10's GPU occlusion culling tests against). One dispatch per mip: level 0
+// linearises the depth prepass, and each finer level is the 2x2 minimum of the one above.
+//
+// Nearest (minimum) rather than farthest: a reflection ray wants the closest surface that
+// could occlude it, so a conservative min lets it advance past a whole tile whenever the
+// tile's closest point is still beyond the ray. Sky (depth 0) maps to a large distance so
+// it never wins the minimum over real geometry.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform Push
+{
+    uvec4 a; // x = level, y = dst width, z = dst height, w = src width
+    uvec4 b; // x = src height
+    vec4 c;  // x = near plane
+} pc;
+
+layout(set = 0, binding = 0) uniform sampler2D depth_texture;          // full-res depth prepass
+layout(set = 0, binding = 1, r32f) uniform readonly image2D src_mip;   // previous (coarser input) level
+layout(set = 0, binding = 2, r32f) uniform writeonly image2D dst_mip;  // level being written
+
+void main()
+{
+    uint level = pc.a.x;
+    uint dw = pc.a.y;
+    uint dh = pc.a.z;
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (uint(p.x) >= dw || uint(p.y) >= dh)
+        return;
+
+    float v;
+    if (level == 0u)
+    {
+        // Reverse-Z, infinite far: linear distance is near / depth, and the sky reads far.
+        vec2 uv = (vec2(p) + 0.5) / vec2(float(dw), float(dh));
+        float d = texture(depth_texture, uv).r;
+        v = d > 0.0 ? pc.c.x / d : 1e30;
+    }
+    else
+    {
+        ivec2 s = p * 2;
+        ivec2 m = ivec2(int(pc.a.w) - 1, int(pc.b.x) - 1); // clamp odd-sized parents
+        float a0 = imageLoad(src_mip, min(s, m)).r;
+        float a1 = imageLoad(src_mip, min(s + ivec2(1, 0), m)).r;
+        float a2 = imageLoad(src_mip, min(s + ivec2(0, 1), m)).r;
+        float a3 = imageLoad(src_mip, min(s + ivec2(1, 1), m)).r;
+        v = min(min(a0, a1), min(a2, a3));
+    }
+    imageStore(dst_mip, p, vec4(v, 0.0, 0.0, 0.0));
+}

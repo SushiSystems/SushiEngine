@@ -25,6 +25,7 @@
 
 #include <cstring>
 
+#include "lighting/cluster_config.hpp"
 #include "vulkan_check.hpp"
 
 namespace SushiEngine
@@ -398,8 +399,34 @@ namespace SushiEngine
                     color_target(frame.width, frame.height, Frame::HDR_FORMAT, "hdr"));
                 targets.composite = graph.create_texture(
                     color_target(frame.width, frame.height, Frame::HDR_FORMAT, "composite"));
+                // The analytic ground's direct-sun term (rgb) plus its raw, noisy sun
+                // visibility (a) — held back from `composite` so the visibility can be
+                // bilateral-blurred before the direct term is added into the scene, the
+                // same split GTAO uses between its raw and resolved images.
+                targets.ground_shadow = graph.create_texture(color_target(
+                    frame.width, frame.height, Frame::HDR_FORMAT, "ground shadow"));
+                targets.ground_shadow_resolved = graph.create_texture(color_target(
+                    frame.width, frame.height, Frame::HDR_FORMAT, "ground shadow resolved"));
                 targets.scene = graph.create_texture(
                     color_target(frame.width, frame.height, Frame::HDR_FORMAT, "scene"));
+                // The thin reflection G-buffer (roughness, F0) the opaque pass writes beside
+                // its colour, read by the SSR trace.
+                targets.gbuffer = graph.create_texture(
+                    color_target(frame.width, frame.height, Frame::GBUFFER_FORMAT, "gbuffer"));
+
+                // Screen-space reflections write the composited scene back with reflections
+                // folded in; whoever resolves the scene reads that instead of the raw scene.
+                // With SSR off the resolve reads the scene directly and no extra image exists.
+                if (frame.settings.ssr.enabled)
+                {
+                    targets.scene_reflected = graph.create_texture(color_target(
+                        frame.width, frame.height, Frame::HDR_FORMAT, "scene reflected"));
+                    targets.scene_final = targets.scene_reflected;
+                }
+                else
+                {
+                    targets.scene_final = targets.scene;
+                }
                 targets.id = graph.create_texture(
                     color_target(frame.width, frame.height, Frame::ID_FORMAT, "picking ids"));
                 targets.velocity = graph.create_texture(color_target(
@@ -415,10 +442,30 @@ namespace SushiEngine
                                  Frame::SHADOW_FORMAT, "shadow atlas");
                 shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
                 targets.shadow_atlas = graph.create_texture(shadow_desc);
+
+                // The punctual spot-shadow atlas: one depth image, a 4×4 tile grid, created
+                // unconditionally (the shading pass reads it every frame) at a floor of a
+                // few texels so a disabled or caster-free frame still has a valid image.
+                const std::uint32_t light_atlas_size =
+                    frame.settings.lights.shadow_atlas_size < 4u
+                        ? 4u
+                        : frame.settings.lights.shadow_atlas_size;
+                Graph::TextureDesc light_shadow_desc = color_target(
+                    light_atlas_size, light_atlas_size, Frame::SHADOW_FORMAT, "light shadow atlas");
+                light_shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+                targets.light_shadow_atlas = graph.create_texture(light_shadow_desc);
+
                 targets.contact_shadow = graph.create_texture(color_target(
                     frame.width, frame.height, Frame::CONTACT_SHADOW_FORMAT, "contact shadows"));
                 targets.ray_shadow = graph.create_texture(color_target(
                     frame.width, frame.height, Frame::CONTACT_SHADOW_FORMAT, "ray shadows"));
+                // Ambient occlusion: the horizon compute runs at half resolution, the resolve
+                // upsamples it to full. Both hold a bent normal (rgb) beside the visibility
+                // (a), so both are the HDR (16-bit float) format rather than a single channel.
+                targets.gtao = graph.create_texture(color_target(
+                    (frame.width + 1) / 2, (frame.height + 1) / 2, Frame::HDR_FORMAT, "gtao"));
+                targets.ao = graph.create_texture(
+                    color_target(frame.width, frame.height, Frame::HDR_FORMAT, "ao"));
                 // The cloud march runs at half resolution; the graph derives the reduced
                 // viewport from this extent, so no pass carries a resolution of its own.
                 targets.cloud = graph.create_texture(color_target(
@@ -509,6 +556,34 @@ namespace SushiEngine
                 shadow.desc.name = "shadow uniforms";
                 shadow.state = &slots_[frame.slot].shadow_state;
                 targets.shadow = graph.import_buffer(shadow);
+
+                // The froxel cluster grid, transient device buffers: the cull pass writes
+                // them and the opaque pass reads them within the same frame, so they are
+                // graph-owned and the compute→fragment barrier is derived, not imported
+                // per-slot state like the uniform blocks above.
+                Graph::BufferDesc grid_desc;
+                grid_desc.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
+                grid_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                grid_desc.name = "cluster grid";
+                targets.cluster_grid = graph.create_buffer(grid_desc);
+
+                Graph::BufferDesc index_desc;
+                index_desc.size = Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t);
+                index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                index_desc.name = "light index list";
+                targets.light_index = graph.create_buffer(index_desc);
+
+                Graph::BufferDesc decal_grid_desc;
+                decal_grid_desc.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
+                decal_grid_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                decal_grid_desc.name = "decal grid";
+                targets.decal_grid = graph.create_buffer(decal_grid_desc);
+
+                Graph::BufferDesc decal_index_desc;
+                decal_index_desc.size = Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t);
+                decal_index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                decal_index_desc.name = "decal index list";
+                targets.decal_index = graph.create_buffer(decal_index_desc);
 
                 return targets;
             }

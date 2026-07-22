@@ -16,6 +16,7 @@
 // give it.
 
 #include "shadow_common.glsl"
+#include "blue_noise.glsl"
 
 layout(set = 0, binding = 0) uniform SceneBlock
 {
@@ -37,14 +38,6 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 star_params;
     vec4 misc;           // x = near plane, z = time seconds
 } scene;
-
-// Interleaved gradient noise (Jimenez, Siggraph 2014); a local copy because this pass
-// binds the scene and shadow blocks only, not the temporal block the shared helper in
-// temporal_common.glsl reads its frame phase from.
-float interleaved_gradient_noise(vec2 pixel)
-{
-    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-}
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
 

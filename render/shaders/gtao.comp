@@ -1,0 +1,174 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Ground-Truth Ambient Occlusion (Jimenez et al., Siggraph 2016): the horizon-based
+// visibility integral that darkens creases and contacts the flat ambient/IBL term cannot
+// see. Runs at half resolution over the completed depth prepass, reconstructing view-space
+// position and normal from depth alone — there is no normal G-buffer — and marching a few
+// rotated slices for the horizon angles that bound the unoccluded arc above each pixel.
+//
+// The slice rotation is frame-stable (a pure function of pixel position, no temporal
+// phase): a joint-bilateral resolve denoises the result and the whole engine is being held
+// to a smooth, shimmer-free bar, so an animated rotation that only the temporal resolve
+// could clean up would trade exactly the artefact we are removing. Output is the view-space
+// bent normal (the average unoccluded direction) in rgb and the visibility in a.
+
+#include "blue_noise.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform Push
+{
+    vec4 p0;   // x = near, y = tan_x (1/proj00), z = tan_y (1/proj11), w = radius (world m)
+    vec4 p1;   // x = intensity [0,1], y = power, z = focal (proj00 * 0.5 * full_w), w = spare
+    uvec4 p2;  // x = half width, y = half height, z = slice count, w = steps per side
+    vec4 p3;   // x = 1/full_w, y = 1/full_h, z = full_w, w = full_h
+} pc;
+
+layout(set = 0, binding = 0) uniform sampler2D depth_texture;             // full resolution
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_ao;   // half resolution
+
+const float PI = 3.14159265359;
+const float HALF_PI = 1.57079632679;
+
+// Reverse-Z with an infinite far plane: the stored depth is near / -view.z, so the linear
+// view distance is its exact inverse. Depth zero is the sky / far field.
+float linear_depth(float d) { return d > 0.0 ? pc.p0.x / d : 0.0; }
+
+// View-space position from a UV and its depth, the same reconstruction the contact-shadow
+// pass uses: the projection's two focal terms turn NDC into view-space slope.
+vec3 view_pos(vec2 uv, float d)
+{
+    float dist = linear_depth(d);
+    vec2 ndc = uv * 2.0 - 1.0;
+    return vec3(ndc.x * pc.p0.y * dist, ndc.y * pc.p0.z * dist, -dist);
+}
+
+void main()
+{
+    uvec2 half_dim = pc.p2.xy;
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    if (uint(pix.x) >= half_dim.x || uint(pix.y) >= half_dim.y)
+        return;
+
+    vec2 uv = (vec2(pix) + 0.5) / vec2(half_dim);
+    float d = texture(depth_texture, uv).r;
+    if (d <= 0.0)
+    {
+        // Sky: nothing to occlude, and a zero bent normal tells the resolve to leave the
+        // specular term to its scalar fallback rather than trust a normal that has no surface.
+        imageStore(out_ao, pix, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    vec3 P = view_pos(uv, d);
+    vec3 V = normalize(-P);
+
+    // Reconstruct the view normal from the four screen neighbours, taking the smaller depth
+    // delta on each axis so a silhouette does not smear the plane across a discontinuity.
+    vec2 texel = pc.p3.xy;
+    vec3 Pl = view_pos(uv - vec2(texel.x, 0.0), texture(depth_texture, uv - vec2(texel.x, 0.0)).r);
+    vec3 Pr = view_pos(uv + vec2(texel.x, 0.0), texture(depth_texture, uv + vec2(texel.x, 0.0)).r);
+    vec3 Pd = view_pos(uv - vec2(0.0, texel.y), texture(depth_texture, uv - vec2(0.0, texel.y)).r);
+    vec3 Pu = view_pos(uv + vec2(0.0, texel.y), texture(depth_texture, uv + vec2(0.0, texel.y)).r);
+    vec3 ddx = (abs(Pr.z - P.z) < abs(P.z - Pl.z)) ? (Pr - P) : (P - Pl);
+    vec3 ddy = (abs(Pu.z - P.z) < abs(P.z - Pd.z)) ? (Pu - P) : (P - Pd);
+    vec3 N = cross(ddx, ddy);
+    float nlen = length(N);
+    N = nlen > 1e-8 ? N / nlen : V;
+    if (dot(N, V) < 0.0)
+        N = -N;
+
+    float radius = pc.p0.w;
+    float dist = -P.z;
+    // The AO march radius in fractional pixels of the full-res image: a world radius
+    // subtends fewer pixels the further the surface is, clamped so it never collapses to a
+    // point up close nor sweeps a quarter of the screen at grazing distance.
+    float pixel_radius = clamp(radius * pc.p1.z / max(dist, 1e-3), 2.0, 0.25 * pc.p3.z);
+
+    uint slices = max(pc.p2.z, 1u);
+    uint steps = max(pc.p2.w, 1u);
+    float rot = interleaved_gradient_noise(vec2(pix)); // frame-stable, spatially even
+
+    float visibility = 0.0;
+    float weight_sum = 0.0;
+    vec3 bent = vec3(0.0);
+
+    for (uint s = 0u; s < slices; ++s)
+    {
+        float phi = (float(s) + rot) * PI / float(slices);
+        vec2 dir = vec2(cos(phi), sin(phi)); // screen-space (pixel) direction
+
+        // The slice's in-plane view direction: a probe step along dir, projected onto the
+        // plane perpendicular to the view vector.
+        vec2 probe_uv = uv + dir * texel * 2.0;
+        vec3 slice_dir = view_pos(probe_uv, texture(depth_texture, probe_uv).r) - P;
+        slice_dir = slice_dir - V * dot(slice_dir, V);
+        float slice_len = length(slice_dir);
+        if (slice_len < 1e-5)
+            continue;
+        slice_dir /= slice_len;
+        vec3 slice_normal = normalize(cross(slice_dir, V));
+
+        // Project the surface normal into the slice plane and measure its signed angle from
+        // the view vector; the arc integral is taken relative to this.
+        vec3 proj_n = N - slice_normal * dot(N, slice_normal);
+        float proj_len = length(proj_n);
+        if (proj_len < 1e-4)
+            continue;
+        proj_n /= proj_len;
+        float n = sign(dot(proj_n, slice_dir)) * acos(clamp(dot(proj_n, V), -1.0, 1.0));
+
+        // Horizon search on both sides of the slice; the falloff fades a distant occluder
+        // toward "no horizon" so the AO is local, not a global darkening.
+        float cos_h1 = -1.0; // -dir side
+        float cos_h2 = -1.0; // +dir side
+        for (uint t = 1u; t <= steps; ++t)
+        {
+            vec2 off = dir * (pixel_radius * float(t) / float(steps)) * texel;
+
+            vec2 suvp = uv + off;
+            float sdp = texture(depth_texture, suvp).r;
+            if (sdp > 0.0)
+            {
+                vec3 dv = view_pos(suvp, sdp) - P;
+                float len = length(dv);
+                float fall = clamp(1.0 - len / radius, 0.0, 1.0);
+                cos_h2 = max(cos_h2, mix(-1.0, dot(dv / max(len, 1e-5), V), fall));
+            }
+
+            vec2 suvm = uv - off;
+            float sdm = texture(depth_texture, suvm).r;
+            if (sdm > 0.0)
+            {
+                vec3 dv = view_pos(suvm, sdm) - P;
+                float len = length(dv);
+                float fall = clamp(1.0 - len / radius, 0.0, 1.0);
+                cos_h1 = max(cos_h1, mix(-1.0, dot(dv / max(len, 1e-5), V), fall));
+            }
+        }
+
+        float h2 = acos(clamp(cos_h2, -1.0, 1.0));  // +dir horizon, 0..PI
+        float h1 = -acos(clamp(cos_h1, -1.0, 1.0)); // -dir horizon, -PI..0
+        // Clamp both horizons into the surface normal's hemisphere.
+        h1 = n + max(h1 - n, -HALF_PI);
+        h2 = n + min(h2 - n, HALF_PI);
+
+        float sin_n = sin(n);
+        float arc = 0.25 * (-cos(2.0 * h1 - n) + cos(n) + 2.0 * h1 * sin_n) +
+                    0.25 * (-cos(2.0 * h2 - n) + cos(n) + 2.0 * h2 * sin_n);
+        visibility += proj_len * arc;
+        weight_sum += proj_len;
+
+        float bent_angle = (h1 + h2) * 0.5;
+        bent += (V * cos(bent_angle) + slice_dir * sin(bent_angle)) * proj_len;
+    }
+
+    float ao = weight_sum > 0.0 ? visibility / weight_sum : 1.0;
+    ao = clamp(ao, 0.0, 1.0);
+    ao = pow(ao, pc.p1.y);      // contrast
+    ao = mix(1.0, ao, pc.p1.x); // intensity blend (0 = off, 1 = full)
+
+    vec3 bent_n = length(bent) > 1e-4 ? normalize(bent) : N;
+    imageStore(out_ao, pix, vec4(bent_n, ao));
+}

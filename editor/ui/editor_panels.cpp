@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <system_error>
@@ -402,6 +403,18 @@ namespace SushiEngine
                         select_only(context, world->create_cloth("Cloth"));
                         editor_log(context, "Created object 'Cloth'.");
                     }
+                    if (ImGui::MenuItem("Light"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_light("Light"));
+                        editor_log(context, "Created object 'Light'.");
+                    }
+                    if (ImGui::MenuItem("Decal"))
+                    {
+                        context.history.record(*world);
+                        select_only(context, world->create_decal("Decal"));
+                        editor_log(context, "Created object 'Decal'.");
+                    }
                     ImGui::EndMenu();
                 }
                 if (ImGui::BeginMenu("UI", world != nullptr))
@@ -495,6 +508,10 @@ namespace SushiEngine
                 entry.physics_body_params = world->physics_body_params(id);
                 entry.has_cloth = world->has_cloth(id);
                 entry.cloth_params = world->cloth_params(id);
+                entry.has_light = world->has_light(id);
+                entry.light_params = world->light_params(id);
+                entry.has_decal = world->has_decal(id);
+                entry.decal_params = world->decal_params(id);
                 entry.has_shape = world->has_shape(id);
                 entry.shape_params = world->shape_params(id);
                 entry.has_collider = world->has_collider(id);
@@ -552,6 +569,12 @@ namespace SushiEngine
                 world->set_has_cloth(id, entry.has_cloth);
                 if (entry.has_cloth)
                     world->set_cloth_params(id, entry.cloth_params);
+                world->set_has_light(id, entry.has_light);
+                if (entry.has_light)
+                    world->set_light_params(id, entry.light_params);
+                world->set_has_decal(id, entry.has_decal);
+                if (entry.has_decal)
+                    world->set_decal_params(id, entry.decal_params);
                 world->set_has_shape(id, entry.has_shape);
                 if (entry.has_shape)
                     world->set_shape_params(id, entry.shape_params);
@@ -589,6 +612,40 @@ namespace SushiEngine
                                      (pasted.size() == 1 ? "y" : "ies") + ".");
         }
 
+        namespace
+        {
+            // Mirrors the Environment panel's Solar System fields into the persisted shape,
+            // so a scene save/load round-trips the date/time/location it was authored with.
+            SceneSkyState capture_sky_state(const EditorContext& context)
+            {
+                SceneSkyState sky;
+                sky.enabled = context.sky_enabled;
+                sky.date = context.sky_date;
+                sky.latitude_degrees = context.sky_latitude_degrees;
+                sky.longitude_degrees = context.sky_longitude_degrees;
+                sky.astronomical_sun = context.sky_astronomical_sun;
+                sky.animate = context.sky_animate;
+                sky.days_per_second = context.sky_days_per_second;
+                sky.accumulated_days = context.sky_accumulated_days;
+                return sky;
+            }
+
+            void apply_sky_state(EditorContext& context, const SceneSkyState& sky)
+            {
+                context.sky_enabled = sky.enabled;
+                context.sky_date = sky.date;
+                context.sky_latitude_degrees = sky.latitude_degrees;
+                context.sky_longitude_degrees = sky.longitude_degrees;
+                context.sky_astronomical_sun = sky.astronomical_sun;
+                context.sky_animate = sky.animate;
+                context.sky_days_per_second = sky.days_per_second;
+                context.sky_accumulated_days = sky.accumulated_days;
+                // Forces the main loop's date-change detection to re-seek the epoch from
+                // the freshly-loaded date rather than keeping whatever scene came before.
+                context.sky_authored_start_cache = -1.0;
+            }
+        } // namespace
+
         bool save_current_scene(EditorContext& context)
         {
             IWorldEditor* world = world_of(context);
@@ -600,7 +657,8 @@ namespace SushiEngine
                 context.show_save_scene_as = true;
                 return false;
             }
-            if (save_scene(*world, context.scene_path))
+            const SceneSkyState sky = capture_sky_state(context);
+            if (save_scene(*world, context.scene_path, &sky))
             {
                 context.saved_scene_revision = context.history.revision();
                 editor_log(context, "Saved scene '" + context.scene_path + "'.");
@@ -636,8 +694,10 @@ namespace SushiEngine
                 IWorldEditor* world = world_of(context);
                 if (world == nullptr)
                     return;
-                if (load_scene(*world, path))
+                SceneSkyState sky = capture_sky_state(context);
+                if (load_scene(*world, path, &sky))
                 {
+                    apply_sky_state(context, sky);
                     context.scene_path = path;
                     context.saved_scene_revision = context.history.revision();
                     select_only(context, NULL_ENTITY);
@@ -773,6 +833,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Inspector", nullptr, &context.panels.inspector);
                 ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
                 ImGui::MenuItem("Rendering", nullptr, &context.panels.rendering);
+                ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                 ImGui::MenuItem("Console", nullptr, &context.panels.console);
@@ -1964,6 +2025,199 @@ namespace SushiEngine
                 }
             }
 
+            if (world->has_light(id))
+            {
+                bool keep_light = true;
+                const bool light_open = ImGui::CollapsingHeader(
+                    "Light", &keep_light, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_light)
+                {
+                    context.history.record(*world);
+                    world->set_has_light(id, false);
+                }
+                else if (light_open)
+                {
+                    SushiEngine::Simulation::LightParams params = world->light_params(id);
+                    bool changed = false;
+
+                    bool is_spot = params.is_spot;
+                    if (ImGui::Checkbox("Spot", &is_spot))
+                    {
+                        context.history.record(*world);
+                        params.is_spot = is_spot;
+                        changed = true;
+                    }
+
+                    float color[3] = {static_cast<float>(params.color.x),
+                                      static_cast<float>(params.color.y),
+                                      static_cast<float>(params.color.z)};
+                    if (ImGui::ColorEdit3("Color", color))
+                    {
+                        params.color = SushiEngine::Vector3{color[0], color[1], color[2]};
+                        changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (ImGui::DragFloat("Intensity", &params.intensity, 0.1f, 0.0f, 1000.0f,
+                                         "%.1f"))
+                        changed = true;
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (ImGui::DragFloat("Range", &params.range, 0.1f, 0.1f, 10000.0f, "%.2f"))
+                        changed = true;
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (is_spot)
+                    {
+                        if (ImGui::DragFloat("Inner Angle", &params.inner_degrees, 0.2f, 0.0f,
+                                             89.0f, "%.1f deg"))
+                            changed = true;
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+
+                        if (ImGui::DragFloat("Outer Angle", &params.outer_degrees, 0.2f, 0.0f,
+                                             89.0f, "%.1f deg"))
+                            changed = true;
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+
+                        bool casts = params.casts_shadows;
+                        if (ImGui::Checkbox("Casts Shadows", &casts))
+                        {
+                            context.history.record(*world);
+                            params.casts_shadows = casts;
+                            changed = true;
+                        }
+                    }
+
+                    if (changed)
+                        world->set_light_params(id, params);
+                }
+            }
+
+            if (world->has_decal(id))
+            {
+                bool keep_decal = true;
+                const bool decal_open = ImGui::CollapsingHeader(
+                    "Decal", &keep_decal, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_decal)
+                {
+                    context.history.record(*world);
+                    world->set_has_decal(id, false);
+                }
+                else if (decal_open)
+                {
+                    SushiEngine::Simulation::DecalParams params = world->decal_params(id);
+                    bool changed = false;
+
+                    float color[3] = {static_cast<float>(params.color.x),
+                                      static_cast<float>(params.color.y),
+                                      static_cast<float>(params.color.z)};
+                    if (ImGui::ColorEdit3("Tint", color))
+                    {
+                        params.color = SushiEngine::Vector3{color[0], color[1], color[2]};
+                        changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    float size[3] = {static_cast<float>(params.half_extents.x),
+                                     static_cast<float>(params.half_extents.y),
+                                     static_cast<float>(params.half_extents.z)};
+                    if (ImGui::DragFloat3("Half Extents", size, 0.05f, 0.05f, 100.0f, "%.2f"))
+                    {
+                        params.half_extents = SushiEngine::Vector3{size[0], size[1], size[2]};
+                        changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (ImGui::SliderFloat("Opacity", &params.opacity, 0.0f, 1.0f))
+                        changed = true;
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    // Optional projected maps, loaded through the asset library exactly as a
+                    // material's are (path field + Load/Clear). The record stores only the
+                    // opaque texture id, so the typed path lives in a UI-side map keyed by
+                    // the widget id.
+                    if (context.assets != nullptr)
+                    {
+                        static std::unordered_map<ImGuiID, std::string> decal_paths;
+                        const auto map_field =
+                            [&](const char* label, SushiEngine::Render::TextureId& tex,
+                                SushiEngine::Render::TextureColorSpace cs)
+                        {
+                            ImGui::PushID(label);
+                            const ImGuiID wid = ImGui::GetID(label);
+                            std::string& stored = decal_paths[wid];
+                            char buffer[512] = {};
+                            stored.copy(buffer, sizeof(buffer) - 1);
+                            ImGui::SetNextItemWidth(-140.0f);
+                            const bool enter =
+                                ImGui::InputText(label, buffer, sizeof(buffer),
+                                                 ImGuiInputTextFlags_EnterReturnsTrue);
+                            stored = buffer;
+                            ImGui::SameLine();
+                            const bool load = ImGui::SmallButton("Load");
+                            if (enter || load)
+                            {
+                                context.history.record(*world);
+                                const SushiEngine::Render::TextureId loaded =
+                                    stored.empty()
+                                        ? SushiEngine::Render::INVALID_TEXTURE
+                                        : context.assets->load_texture(stored.c_str(), cs);
+                                if (tex != SushiEngine::Render::INVALID_TEXTURE)
+                                    context.assets->release_texture(tex);
+                                tex = loaded;
+                                changed = true;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Clear") &&
+                                tex != SushiEngine::Render::INVALID_TEXTURE)
+                            {
+                                context.history.record(*world);
+                                context.assets->release_texture(tex);
+                                tex = SushiEngine::Render::INVALID_TEXTURE;
+                                stored.clear();
+                                changed = true;
+                            }
+                            ImGui::SameLine();
+                            ImGui::TextDisabled(
+                                "%s",
+                                tex != SushiEngine::Render::INVALID_TEXTURE ? "set" : "none");
+                            ImGui::PopID();
+                        };
+                        map_field("Albedo Map", params.albedo_map,
+                                  SushiEngine::Render::TextureColorSpace::Srgb);
+                        map_field("ORM Map", params.orm_map,
+                                  SushiEngine::Render::TextureColorSpace::Linear);
+                    }
+
+                    if (changed)
+                        world->set_decal_params(id, params);
+                }
+            }
+
             if (world->has_ui(id))
             {
                 bool keep_ui = true;
@@ -2148,6 +2402,16 @@ namespace SushiEngine
                     context.history.record(*world);
                     world->set_has_cloth(id, true);
                 }
+                if (!world->has_light(id) && ImGui::MenuItem("Light"))
+                {
+                    context.history.record(*world);
+                    world->set_has_light(id, true);
+                }
+                if (!world->has_decal(id) && ImGui::MenuItem("Decal"))
+                {
+                    context.history.record(*world);
+                    world->set_has_decal(id, true);
+                }
                 if (!world->has_collider(id) && ImGui::MenuItem("Collider"))
                 {
                     context.history.record(*world);
@@ -2209,6 +2473,12 @@ namespace SushiEngine
             using SushiEngine::Render::AntiAliasingMode;
             using SushiEngine::Render::RenderQuality;
             using SushiEngine::Render::UpscaleMode;
+
+            // RenderSettings is plain trivially-copyable data (render_settings.hpp), so a
+            // memcmp against a snapshot taken before the widgets run is a cheap, exhaustive
+            // way to detect any edit below and persist it via Preferences — without hooking
+            // a dirty flag into every slider individually.
+            const SushiEngine::Render::RenderSettings settings_before = settings;
 
             const char* const QUALITY[] = {"Low", "Medium", "High", "Ultra"};
             int quality = static_cast<int>(settings.quality);
@@ -2360,6 +2630,11 @@ namespace SushiEngine
                             knobs.cloud_primary_steps_near, knobs.cloud_primary_steps_far,
                             knobs.cloud_light_steps);
                 ImGui::Text("VRS coarse cap %ux (1 = full rate)", knobs.vrs_max_coarse_axis);
+                ImGui::Text("Punctual lights %u max, %.0f m cluster reach",
+                            effective.lights.max_lights, effective.lights.cluster_far_distance);
+                ImGui::Text("Decals         %u max; shadow atlas %u px / %u caster(s)",
+                            effective.lights.max_decals, effective.lights.shadow_atlas_size,
+                            effective.lights.max_shadow_casters);
                 ImGui::Text("Lobes          %s%s%s%s",
                             knobs.lobe_anisotropy ? "aniso " : "",
                             knobs.lobe_clearcoat ? "clearcoat " : "",
@@ -2372,6 +2647,169 @@ namespace SushiEngine
                     ImGui::TextDisabled("base PBR only");
                 }
                 ImGui::TreePop();
+            }
+
+            if (std::memcmp(&settings_before, &settings, sizeof(settings)) != 0)
+                context.preferences_dirty = true;
+
+            ImGui::End();
+        }
+
+        void draw_lighting_panel(EditorContext& context)
+        {
+            if (!context.panels.lighting)
+                return;
+            if (!ImGui::Begin("Lighting", &context.panels.lighting))
+            {
+                ImGui::End();
+                return;
+            }
+
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr)
+            {
+                ImGui::TextUnformatted("No scene open.");
+                ImGui::End();
+                return;
+            }
+
+            // The sun and the image-based-lighting source live on the Environment; the
+            // Lighting window edits the same object the Environment panel does, so a change
+            // in either lands in the world through set_environment.
+            SushiEngine::Render::Environment environment = world->environment();
+            bool env_changed = false;
+            if (ImGui::CollapsingHeader("Sun", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                const SushiEngine::Vector3 dir =
+                    SushiEngine::normalize(environment.sun.direction);
+                float elevation = std::asin(static_cast<float>(
+                    dir.y < -1.0 ? -1.0 : (dir.y > 1.0 ? 1.0 : dir.y))) * 57.29578f;
+                float azimuth = std::atan2(static_cast<float>(dir.z),
+                                           static_cast<float>(dir.x)) * 57.29578f;
+                bool sun_moved = false;
+                ImGui::BeginDisabled(context.sky_astronomical_sun);
+                if (ImGui::SliderFloat("Elevation", &elevation, -10.0f, 90.0f, "%.1f deg"))
+                    sun_moved = true;
+                if (ImGui::SliderFloat("Azimuth", &azimuth, -180.0f, 180.0f, "%.1f deg"))
+                    sun_moved = true;
+                ImGui::EndDisabled();
+                if (sun_moved)
+                {
+                    const float e = elevation / 57.29578f;
+                    const float a = azimuth / 57.29578f;
+                    environment.sun.direction = SushiEngine::Vector3{
+                        std::cos(e) * std::cos(a), std::sin(e), std::cos(e) * std::sin(a)};
+                    env_changed = true;
+                }
+                float sun_color[3] = {static_cast<float>(environment.sun.color.x),
+                                      static_cast<float>(environment.sun.color.y),
+                                      static_cast<float>(environment.sun.color.z)};
+                if (ImGui::ColorEdit3("Color", sun_color))
+                {
+                    environment.sun.color =
+                        SushiEngine::Vector3{sun_color[0], sun_color[1], sun_color[2]};
+                    env_changed = true;
+                }
+                if (ImGui::SliderFloat("Intensity", &environment.sun.intensity, 0.0f, 40.0f))
+                    env_changed = true;
+            }
+
+            if (ImGui::CollapsingHeader("Image-Based Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (ImGui::Checkbox("Enabled", &environment.image_based_lighting))
+                    env_changed = true;
+                if (ImGui::SliderFloat("IBL Intensity", &environment.ibl_intensity, 0.0f, 4.0f))
+                    env_changed = true;
+            }
+            if (env_changed)
+                world->set_environment(environment);
+
+            // The sun's cascade shadows are a render-machinery setting, so they live on the
+            // render settings the Rendering panel also edits.
+            if (ImGui::CollapsingHeader("Sun Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                SushiEngine::Render::ShadowSettings& shadows = context.render_settings.shadows;
+                const SushiEngine::Render::ShadowSettings shadows_before = shadows;
+                ImGui::Checkbox("Cast Sun Shadows", &shadows.enabled);
+                int cascades = static_cast<int>(shadows.cascade_count);
+                if (ImGui::SliderInt("Cascades", &cascades, 1, 4))
+                    shadows.cascade_count = static_cast<std::uint32_t>(cascades);
+                ImGui::SliderFloat("Distance", &shadows.distance, 50.0f, 2000.0f, "%.0f m");
+                ImGui::Checkbox("Contact Shadows", &shadows.contact_shadows);
+                if (std::memcmp(&shadows_before, &shadows, sizeof(shadows)) != 0)
+                    context.preferences_dirty = true;
+            }
+
+            // The punctual-light budget the tier resolves this frame, so an author sees how
+            // many of the lights below actually shade and cast.
+            if (ImGui::CollapsingHeader("Punctual Budget"))
+            {
+                const SushiEngine::Render::ResolvedQuality resolved =
+                    SushiEngine::Render::resolve_quality(context.render_settings);
+                ImGui::Text("Max lights   %u", resolved.settings.lights.max_lights);
+                ImGui::Text("Shadow atlas %u px, %u caster(s)",
+                            resolved.settings.lights.shadow_atlas_size,
+                            resolved.settings.lights.max_shadow_casters);
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Add Light"))
+            {
+                context.history.record(*world);
+                select_only(context, world->create_light("Light"));
+            }
+
+            // The punctual-light list: every light-bearing entity, edited in place. This is
+            // the same data the Inspector's Light component edits, gathered in one place.
+            for (const EntityId id : world->entities())
+            {
+                if (!world->has_light(id))
+                    continue;
+                ImGui::PushID(static_cast<int>(id));
+                const std::string label = world->name(id);
+                const bool selected = !context.selected_entities.empty() &&
+                                      context.selected_entities.front() == id;
+                if (ImGui::CollapsingHeader(label.c_str(),
+                                            selected ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+                {
+                    if (ImGui::SmallButton("Select"))
+                        select_only(context, id);
+
+                    SushiEngine::Simulation::LightParams params = world->light_params(id);
+                    bool changed = false;
+                    if (ImGui::Checkbox("Spot", &params.is_spot))
+                        changed = true;
+                    float color[3] = {static_cast<float>(params.color.x),
+                                      static_cast<float>(params.color.y),
+                                      static_cast<float>(params.color.z)};
+                    if (ImGui::ColorEdit3("Color", color))
+                    {
+                        params.color = SushiEngine::Vector3{color[0], color[1], color[2]};
+                        changed = true;
+                    }
+                    if (ImGui::DragFloat("Intensity", &params.intensity, 0.1f, 0.0f, 1000.0f,
+                                         "%.1f"))
+                        changed = true;
+                    if (ImGui::DragFloat("Range", &params.range, 0.1f, 0.1f, 10000.0f, "%.2f"))
+                        changed = true;
+                    if (params.is_spot)
+                    {
+                        if (ImGui::DragFloat("Inner Angle", &params.inner_degrees, 0.2f, 0.0f,
+                                             89.0f, "%.1f deg"))
+                            changed = true;
+                        if (ImGui::DragFloat("Outer Angle", &params.outer_degrees, 0.2f, 0.0f,
+                                             89.0f, "%.1f deg"))
+                            changed = true;
+                        if (ImGui::Checkbox("Casts Shadows", &params.casts_shadows))
+                            changed = true;
+                    }
+                    if (changed)
+                    {
+                        context.history.record(*world);
+                        world->set_light_params(id, params);
+                    }
+                }
+                ImGui::PopID();
             }
 
             ImGui::End();
@@ -3181,7 +3619,8 @@ namespace SushiEngine
                     if (path.extension() != ".sushiscene")
                         path += ".sushiscene";
                     IWorldEditor* world = world_of(context);
-                    if (world != nullptr && save_scene(*world, path.string()))
+                    const SceneSkyState sky = capture_sky_state(context);
+                    if (world != nullptr && save_scene(*world, path.string(), &sky))
                     {
                         context.scene_path = path.string();
                         context.saved_scene_revision = context.history.revision();

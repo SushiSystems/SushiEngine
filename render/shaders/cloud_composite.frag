@@ -11,6 +11,12 @@
 layout(set = 0, binding = 1) uniform sampler2D sky_texture;
 // rgb = premultiplied in-scattered cloud light, a = transmittance along the view ray.
 layout(set = 0, binding = 2) uniform sampler2D cloud_texture;
+// The analytic ground's direct-sun term, held out of sky_texture by sky.frag and
+// blurred by ground_shadow_resolve.frag: rgb = unshadowed direct contribution, a = the
+// blurred cascade visibility. Folded in here, before the cloud transmittance multiply,
+// so it is attenuated by aerial cloud cover exactly as it would have been had it stayed
+// inline in sky_texture.
+layout(set = 0, binding = 3) uniform sampler2D ground_shadow_texture;
 
 layout(location = 0) in vec2 v_ndc;
 
@@ -22,5 +28,7 @@ void main()
     vec3 sky = texture(sky_texture, uv).rgb;
     // The cloud target is half-resolution; the linear sampler is the upsample.
     vec4 cloud = texture(cloud_texture, uv);
-    out_color = vec4(sky * cloud.a + cloud.rgb, 1.0);
+    vec4 ground_shadow = texture(ground_shadow_texture, uv);
+    vec3 ground_direct = ground_shadow.rgb * ground_shadow.a;
+    out_color = vec4((sky + ground_direct) * cloud.a + cloud.rgb, 1.0);
 }

@@ -73,6 +73,13 @@ namespace SushiEngine
                     s.shadows.cascade_count = std::min(authored.shadows.cascade_count, 2u);
                     s.shadows.resolution = scale_shadow_resolution(authored.shadows.resolution, 0.5f);
                     s.shadows.contact_steps = std::max(authored.shadows.contact_steps / 3u, 4u);
+                    s.lights.max_lights = std::min(authored.lights.max_lights, 64u);
+                    s.lights.shadow_atlas_size =
+                        std::min(authored.lights.shadow_atlas_size, 1024u);
+                    s.lights.max_shadow_casters = std::min(authored.lights.max_shadow_casters, 4u);
+                    s.lights.max_decals = std::min(authored.lights.max_decals, 16u);
+                    s.gtao.slices = std::min(authored.gtao.slices, 2u);
+                    s.gtao.steps = std::min(authored.gtao.steps, 4u);
                     q.shadow_filter_taps = 6;
                     q.shadow_blocker_taps = 3;
                     q.cloud_primary_steps_near = 48;
@@ -90,6 +97,13 @@ namespace SushiEngine
                     s.shadows.resolution =
                         scale_shadow_resolution(authored.shadows.resolution, 0.75f);
                     s.shadows.contact_steps = std::max(authored.shadows.contact_steps * 2u / 3u, 6u);
+                    s.lights.max_lights = std::min(authored.lights.max_lights, 128u);
+                    s.lights.shadow_atlas_size =
+                        std::min(authored.lights.shadow_atlas_size, 2048u);
+                    s.lights.max_shadow_casters = std::min(authored.lights.max_shadow_casters, 8u);
+                    s.lights.max_decals = std::min(authored.lights.max_decals, 32u);
+                    s.gtao.slices = std::min(authored.gtao.slices, 3u);
+                    s.gtao.steps = std::min(authored.gtao.steps, 5u);
                     q.shadow_filter_taps = 10;
                     q.shadow_blocker_taps = 5;
                     q.cloud_primary_steps_near = 72;
@@ -123,8 +137,18 @@ namespace SushiEngine
                     // 2k), a long contact march, no VRS coarsening, every lobe. The
                     // traced-shadow branch keys off Ultra separately in the shadow pass.
                     s.shadows.resolution = std::max(authored.shadows.resolution, 2048u);
-                    s.shadows.contact_steps =
-                        std::min(std::max(authored.shadows.contact_steps, 24u), 32u);
+                    // A floor, not a ceiling: Ultra must never resolve a shorter march than
+                    // whatever the authored (High-baseline) value already asks for.
+                    s.shadows.contact_steps = std::max(authored.shadows.contact_steps, 24u);
+                    // A floor, like the shadow fields: Ultra never resolves fewer lights
+                    // than the authored baseline already asks for.
+                    s.lights.max_lights = std::max(authored.lights.max_lights, 1024u);
+                    s.lights.shadow_atlas_size =
+                        std::max(authored.lights.shadow_atlas_size, 4096u);
+                    s.lights.max_shadow_casters = std::max(authored.lights.max_shadow_casters, 16u);
+                    s.lights.max_decals = std::max(authored.lights.max_decals, 128u);
+                    s.gtao.slices = std::max(authored.gtao.slices, 4u);
+                    s.gtao.steps = std::max(authored.gtao.steps, 8u);
                     q.shadow_filter_taps = 16;
                     q.shadow_blocker_taps = 8;
                     q.cloud_primary_steps_near = 128;

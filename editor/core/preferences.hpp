@@ -28,6 +28,8 @@
 #include <string>
 #include <vector>
 
+#include <SushiEngine/render/render_settings.hpp>
+
 namespace SushiEngine
 {
     namespace Editor
@@ -64,6 +66,14 @@ namespace SushiEngine
 
             std::vector<std::string> recent_scenes;
             std::string last_project_root;
+
+            /**
+             * @brief The renderer performance/fidelity trade, persisted across sessions.
+             *
+             * A host setting (not scene data — see @ref SushiEngine::Render::RenderSettings),
+             * so it lives here alongside theme and camera speed rather than in the scene file.
+             */
+            SushiEngine::Render::RenderSettings render_settings;
         };
 
         /**

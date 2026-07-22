@@ -67,6 +67,7 @@ namespace SushiEngine
             bool toolbar = true;
             bool environment = true;
             bool rendering = false;
+            bool lighting = false;
         };
 
         /**
@@ -122,6 +123,10 @@ namespace SushiEngine
             SushiEngine::Simulation::PhysicsBodyParams physics_body_params;
             bool has_cloth = false;
             SushiEngine::Simulation::ClothParams cloth_params;
+            bool has_light = false;
+            SushiEngine::Simulation::LightParams light_params;
+            bool has_decal = false;
+            SushiEngine::Simulation::DecalParams decal_params;
             bool has_shape = false;
             SushiEngine::Simulation::ShapeParams shape_params;
             bool has_collider = false;

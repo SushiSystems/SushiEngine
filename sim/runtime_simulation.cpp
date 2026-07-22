@@ -599,6 +599,93 @@ namespace SushiEngine
                         return physics_->cloth_positions(id);
                     }
 
+                    bool has_light(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_light;
+                    }
+
+                    LightParams light_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->light_params : LightParams{};
+                    }
+
+                    void set_light_params(EntityId id, const LightParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_light)
+                            return;
+                        record->light_params = params;
+                        extract();
+                    }
+
+                    void set_has_light(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_light == value)
+                            return;
+                        record->has_light = value;
+                        extract();
+                    }
+
+                    EntityId create_light(const std::string& display_name) override
+                    {
+                        // A bare entity carrying a light record: no Renderer/Shape, since a
+                        // light is not drawn. Its Transform places and (for a spot) aims it,
+                        // so moving the entity moves the light — the mesh-instance pattern.
+                        const Entity entity = world_.spawn(Transform{}, Orientation{});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        record.has_light = true;
+                        records_.emplace(id, record);
+                        extract();
+                        return id;
+                    }
+
+                    bool has_decal(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_decal;
+                    }
+
+                    DecalParams decal_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->decal_params : DecalParams{};
+                    }
+
+                    void set_decal_params(EntityId id, const DecalParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_decal)
+                            return;
+                        record->decal_params = params;
+                        extract();
+                    }
+
+                    void set_has_decal(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_decal == value)
+                            return;
+                        record->has_decal = value;
+                        extract();
+                    }
+
+                    EntityId create_decal(const std::string& display_name) override
+                    {
+                        const Entity entity = world_.spawn(Transform{}, Orientation{});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        record.has_decal = true;
+                        records_.emplace(id, record);
+                        extract();
+                        return id;
+                    }
+
                     EntityId create_box(const std::string& display_name) override
                     {
                         return create_primitive(display_name, PrimitiveKind::Box,
@@ -1060,6 +1147,15 @@ namespace SushiEngine
                         // has_physics_body: cloth needs no ECS component migration.
                         bool has_cloth = false;
                         ClothParams cloth_params{};
+                        // A punctual light on this entity: same plain host bookkeeping as
+                        // cloth/shape, extracted into RenderScene::lights each frame with
+                        // the entity's transform supplying the light's position and aim.
+                        bool has_light = false;
+                        LightParams light_params{};
+                        // A projected decal on this entity, same host bookkeeping as the
+                        // light, extracted into RenderScene::decals each frame.
+                        bool has_decal = false;
+                        DecalParams decal_params{};
                         // Neither read nor written by any Schedule system, so — like
                         // has_physics_body/has_cloth — these are plain host bookkeeping
                         // rather than ECS components; no archetype migration needed.
@@ -2178,6 +2274,63 @@ namespace SushiEngine
                             scene_.cloth_vertices.insert(scene_.cloth_vertices.end(),
                                                          positions.begin(), positions.end());
                             scene_.cloth_instances.push_back(cloth_instance);
+                        }
+
+                        // Punctual lights: a light is a record on the entity, so its world
+                        // position and (spot) aim come straight from the entity's transform,
+                        // exactly as a mesh instance's model does. The renderer culls the
+                        // list into the froxel grid; nothing here knows about clusters.
+                        scene_.lights.clear();
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_light || !record->visible)
+                                continue;
+                            const Mat4 model = world_matrix(id);
+                            constexpr float degrees_to_radians = 0.017453292519943295f;
+                            Render::PunctualLight light;
+                            light.position = WorldVector3{model.m[12], model.m[13], model.m[14]};
+                            // The spot aims down the entity's local -Z, like a camera's gaze;
+                            // scale is divided out by normalising.
+                            light.direction =
+                                normalize(Vector3{-model.m[8], -model.m[9], -model.m[10]});
+                            light.color = record->light_params.color;
+                            light.intensity = record->light_params.intensity;
+                            light.range = record->light_params.range;
+                            light.type = record->light_params.is_spot ? Render::LightType::Spot
+                                                                      : Render::LightType::Point;
+                            light.casts_shadows = record->light_params.casts_shadows;
+                            light.inner_cone =
+                                record->light_params.inner_degrees * degrees_to_radians;
+                            light.outer_cone =
+                                record->light_params.outer_degrees * degrees_to_radians;
+                            light.id = static_cast<std::uint32_t>(id);
+                            scene_.lights.push_back(light);
+                        }
+
+                        // Projected decals: box centre, orientation, and size from the
+                        // entity's world matrix (unit axes are its rotation columns), tint
+                        // and opacity from the record. The renderer culls them into the
+                        // froxel grid alongside the lights.
+                        scene_.decals.clear();
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_decal || !record->visible)
+                                continue;
+                            const Mat4 model = world_matrix(id);
+                            Render::Decal decal;
+                            decal.position = WorldVector3{model.m[12], model.m[13], model.m[14]};
+                            decal.right = normalize(Vector3{model.m[0], model.m[1], model.m[2]});
+                            decal.up = normalize(Vector3{model.m[4], model.m[5], model.m[6]});
+                            decal.forward = normalize(Vector3{model.m[8], model.m[9], model.m[10]});
+                            decal.half_extents = record->decal_params.half_extents;
+                            decal.color = record->decal_params.color;
+                            decal.opacity = record->decal_params.opacity;
+                            decal.albedo_map = record->decal_params.albedo_map;
+                            decal.orm_map = record->decal_params.orm_map;
+                            decal.id = static_cast<std::uint32_t>(id);
+                            scene_.decals.push_back(decal);
                         }
 
                         // Publish the resolved cameras sorted by display, and pick the

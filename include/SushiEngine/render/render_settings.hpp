@@ -238,6 +238,74 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The clustered Forward+ punctual-light engine's budget.
+         *
+         * The froxel grid's dimensions are fixed in the renderer (@c cluster_config.hpp);
+         * what the host authors — and the tier scales — is how many lights the scene may
+         * carry and how far the grid reaches. @c max_lights is the ceiling the light
+         * buffer is packed to (a scene with more drops its surplus), and
+         * @c cluster_far_distance is the view distance the depth slices span: lights and
+         * fragments beyond it fold into the last slice, so it trades cull precision at
+         * distance for a shorter, denser near field where lights actually cluster.
+         */
+        struct LightEngineSettings
+        {
+            std::uint32_t max_lights = 256;         /**< Punctual lights packed per frame (High baseline). */
+            float cluster_far_distance = 2000.0f;   /**< View metres the froxel grid's depth spans. */
+
+            /**
+             * @brief Side of the shared punctual shadow atlas, in texels (High baseline).
+             *
+             * The atlas is a 4×4 grid of equal tiles, so a shadow-casting spot light gets
+             * a tile of @c shadow_atlas_size / 4 texels. Zero disables punctual shadows.
+             */
+            std::uint32_t shadow_atlas_size = 2048;
+
+            /** @brief Shadow-casting spot lights that may claim an atlas tile per frame. */
+            std::uint32_t max_shadow_casters = 16;
+
+            /** @brief Projected decals culled into the froxel grid per frame (High baseline). */
+            std::uint32_t max_decals = 64;
+        };
+
+        /**
+         * @brief Ground-truth ambient occlusion's budget.
+         *
+         * GTAO darkens the creases and contacts the flat ambient/IBL term cannot see. It is
+         * a per-pixel screen-space cost, so the tier scales how many horizon slices and steps
+         * it marches; @c radius is the world reach of the occlusion and @c intensity /
+         * @c power shape how strongly it darkens. Zero @c enabled drops the pass to a cleared
+         * unoccluded target that costs nothing to sample.
+         */
+        struct GtaoSettings
+        {
+            bool enabled = true;         /**< Whether the horizon march runs at all. */
+            float radius = 1.0f;         /**< World metres the occlusion reaches. */
+            float intensity = 1.0f;      /**< Blend of the AO into full effect, [0,1]. */
+            float power = 1.5f;          /**< Contrast applied to the visibility. */
+            std::uint32_t slices = 3;    /**< Rotated horizon slices (High baseline). */
+            std::uint32_t steps = 6;     /**< Horizon steps per slice side (High baseline). */
+        };
+
+        /**
+         * @brief Screen-space reflections' budget.
+         *
+         * SSR traces the scene's own colour into glossy surfaces through the hierarchical-Z
+         * pyramid, falling back to the IBL/probe environment where a ray leaves the screen.
+         * @c enabled also gates the hi-Z pyramid build the trace depends on — the same
+         * pyramid Phase 10's occlusion culling will reuse. The reflection trace itself lands
+         * in a later increment; the pyramid is the shared foundation.
+         */
+        struct SsrSettings
+        {
+            bool enabled = true;           /**< Build the hi-Z pyramid (and, later, trace SSR). */
+            std::uint32_t max_steps = 64;  /**< Ray-march steps before giving up (High baseline). */
+            float thickness = 0.5f;        /**< View-space depth a hit is accepted within, metres. */
+            float roughness_cutoff = 0.6f; /**< Above this roughness the surface uses IBL only. */
+            float intensity = 1.0f;        /**< Blend of the traced reflection into the surface. */
+        };
+
+        /**
          * @brief Everything the host asks of the renderer's performance/fidelity trade.
          *
          * Defaults describe the project's target: High tier, temporal anti-aliasing at
@@ -261,6 +329,9 @@ namespace SushiEngine
             TemporalSettings temporal;
             DynamicResolutionSettings dynamic_resolution;
             VariableRateShadingSettings variable_rate_shading;
+            LightEngineSettings lights;
+            GtaoSettings gtao;
+            SsrSettings ssr;
         };
     } // namespace Render
 } // namespace SushiEngine

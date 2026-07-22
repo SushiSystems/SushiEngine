@@ -153,8 +153,65 @@ namespace SushiEngine
                      */
                     static constexpr std::uint32_t IBL_SH_BINDING = 13;
 
+                    /**
+                     * @brief Binding of the frame's packed punctual-light array.
+                     *
+                     * The clustered light engine's three storage buffers and one config
+                     * block ride the shared scene set so the shading pass reads them the
+                     * same way it reads the material array — the froxel grid the light
+                     * count and index list address is built by the cull pass each frame.
+                     */
+                    static constexpr std::uint32_t LIGHT_BINDING = 14;
+
+                    /** @brief Binding of the per-cluster punctual-light count grid. */
+                    static constexpr std::uint32_t CLUSTER_GRID_BINDING = 15;
+
+                    /** @brief Binding of the per-cluster punctual-light index list. */
+                    static constexpr std::uint32_t LIGHT_INDEX_BINDING = 16;
+
+                    /** @brief Binding of the cluster-grid config block (dims, depth, tiles). */
+                    static constexpr std::uint32_t CLUSTER_CONFIG_BINDING = 17;
+
+                    /**
+                     * @brief Binding of the shared punctual-light shadow atlas.
+                     *
+                     * One depth image, a 4×4 grid of tiles, read through a comparison
+                     * sampler like the sun's cascade atlas; a shadow-casting spot renders
+                     * into its claimed tile and the shading pass compares against it.
+                     */
+                    static constexpr std::uint32_t LIGHT_SHADOW_ATLAS_BINDING = 18;
+
+                    /**
+                     * @brief Binding of the per-caster shadow matrices + tile rects.
+                     *
+                     * Visible to the vertex stage too: the punctual shadow pass's vertex
+                     * shader reads a caster's light matrix here to project geometry into its
+                     * tile, and the fragment stage reads the same record to sample it back.
+                     */
+                    static constexpr std::uint32_t LIGHT_SHADOW_DATA_BINDING = 19;
+
+                    /** @brief Binding of the frame's packed projected-decal array. */
+                    static constexpr std::uint32_t DECAL_BINDING = 20;
+
+                    /** @brief Binding of the per-cluster decal count grid. */
+                    static constexpr std::uint32_t DECAL_GRID_BINDING = 21;
+
+                    /** @brief Binding of the per-cluster decal index list. */
+                    static constexpr std::uint32_t DECAL_INDEX_BINDING = 22;
+
+                    /**
+                     * @brief Binding of the frame's resolved ambient-occlusion target.
+                     *
+                     * Full-resolution GTAO: rgb is the world-space bent normal, a the
+                     * visibility. The shading pass multiplies its ambient/IBL diffuse by the
+                     * visibility and occludes indirect specular against the bent-normal cone;
+                     * when AO is off the target is a cleared unoccluded image, so the binding
+                     * is read unconditionally like the shadow atlases.
+                     */
+                    static constexpr std::uint32_t AO_BINDING = 23;
+
                     /** @brief Number of bindings in the per-frame set. */
-                    static constexpr std::uint32_t BINDING_COUNT = IBL_SH_BINDING + 1;
+                    static constexpr std::uint32_t BINDING_COUNT = AO_BINDING + 1;
 
                     /**
                      * @brief Creates the set and pipeline layouts.

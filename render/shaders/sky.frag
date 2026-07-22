@@ -81,6 +81,13 @@ layout(set = 0, binding = 12) uniform sampler2D shadow_atlas_depth;
 layout(location = 0) in vec2 v_ndc;
 
 layout(location = 0) out vec4 out_color;
+// The analytic ground's direct-sun term, held back from out_color so it can be
+// bilateral-blurred before it lands in the scene: rgb = the unshadowed direct
+// contribution (already scaled by total_transmittance), a = the raw, noisy cascade
+// visibility. Neither carries the ambient/skylight terms, which are stable per-pixel
+// (no PCF noise) and go straight into out_color as before. Ground-shadow-resolve.frag
+// blurs the alpha and cloud_composite.frag folds rgb * blurred-a back into the scene.
+layout(location = 1) out vec4 out_ground_shadow;
 
 const float PI = 3.14159265359;
 
@@ -614,6 +621,10 @@ void main()
     vec2 atmo = ray_sphere(ro, rd, center, atmosphere_radius);
 
     vec3 sky_color = vec3(0.0);
+    // No ground this pixel: nothing pending for the resolve/composite passes to add,
+    // and a=1 keeps a stray sample at a boundary reading as "unshadowed" rather than
+    // pulling in a false dark edge.
+    vec4 ground_shadow_out = vec4(0.0, 0.0, 0.0, 1.0);
     float march_end = ground_hit ? ground_t : min(atmo.y, geometry_t);
     float march_start = max(atmo.x, 0.0);
 
@@ -736,10 +747,15 @@ void main()
         // so the hit point goes straight in.
         float cascade_shadow = sample_sun_shadow(shadow_atlas, shadow_atlas_depth, hit,
                                                  normal, sun,
-                                                 dot(scene.cam_forward.xyz, hit));
-        vec3 ground = albedo * (sun_radiance * n_dot_l / PI * cloud_shadow * cascade_shadow +
-                                scene.ambient.xyz + skylight_ambient);
-        sky_color += ground * total_transmittance;
+                                                 dot(scene.cam_forward.xyz, hit), true);
+        // The direct sun term is held out of sky_color and handed to the resolve/composite
+        // passes instead — see the out_ground_shadow declaration above. Everything that
+        // does not carry the PCF's per-pixel noise (ambient, skylight) is unaffected and
+        // goes straight into sky_color as before.
+        vec3 ground_ambient = albedo * (scene.ambient.xyz + skylight_ambient);
+        vec3 ground_direct = albedo * sun_radiance * n_dot_l / PI * cloud_shadow;
+        sky_color += ground_ambient * total_transmittance;
+        ground_shadow_out = vec4(ground_direct * total_transmittance, cascade_shadow);
     }
 
     bool escapes_to_space = !ground_hit && geometry_t > 1e29;
@@ -920,4 +936,5 @@ void main()
         out_color = vec4(scene_color * total_transmittance + sky_color, 1.0);
     else
         out_color = vec4(sky_color, 1.0);
+    out_ground_shadow = ground_shadow_out;
 }

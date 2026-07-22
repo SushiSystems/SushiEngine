@@ -48,10 +48,16 @@ namespace SushiEngine
                  * @brief Frames a host-copy-replaced image is held before release.
                  *
                  * The synchronous host path has no upload fence, so a superseded image is
-                 * kept this many frames — comfortably past the double-buffered frames in
-                 * flight — before it and its heap slot are reclaimed.
+                 * kept until enough frames have retired. `frame_counter_` advances once per
+                 * `update()`, and `update()` runs once per view per frame (the editor drives
+                 * both the Scene and Game viewports off one shared `AssetLibrary`) — so
+                 * several views sharing this counter advance it faster than real frames. The
+                 * margin is set well past (max plausible views × frames in flight), matching
+                 * the identical hazard `GraphicsPipelineFactory` retires against
+                 * (`resources/pipeline_cache.cpp`); it costs nothing; a streamed mip upgrade
+                 * is not latency-sensitive by even one frame, let alone sixteen.
                  */
-                constexpr std::uint64_t RETIRE_FRAME_DELAY = 3;
+                constexpr std::uint64_t RETIRE_FRAME_DELAY = 16;
 
                 /**
                  * @brief Bytes a full RGBA8 mip chain of the given size occupies.

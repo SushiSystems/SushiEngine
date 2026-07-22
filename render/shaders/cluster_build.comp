@@ -1,0 +1,169 @@
+#version 450
+
+// Froxel light culling. One invocation per cluster: reconstruct the cluster's view-
+// space bounds from its screen tile and its logarithmic depth slice, test every light's
+// bounding sphere against that box, and write the survivors' indices into the cluster's
+// fixed slot of the index list. No global atomic and no clear — each cluster owns
+// [index*CAP, index*CAP+count) and writes an authoritative count — so the pass is
+// race-free and the opaque pass reads the result behind a graph-derived barrier.
+//
+// Grid dimensions and per-cluster capacity are compile-time and MUST match
+// cluster_config.hpp; the per-frame camera basis, depth range, and light count arrive
+// in the push constant. The view frame is the one the shading pass shares: unit right/
+// up/forward with view_z = dot(forward, position), positive in front of the eye.
+
+#define CLUSTER_X 16u
+#define CLUSTER_Y 9u
+#define CLUSTER_Z 24u
+#define CLUSTER_COUNT (CLUSTER_X * CLUSTER_Y * CLUSTER_Z)
+#define MAX_LIGHTS_PER_CLUSTER 64u
+#define MAX_DECALS_PER_CLUSTER 16u
+
+layout(local_size_x = 64) in;
+
+struct PunctualLight
+{
+    vec4 position_range;  // xyz = camera-relative position, w = range
+    vec4 color_intensity;
+    vec4 direction_type;
+    vec4 cone;
+};
+
+// Only the first lane (centre + bounding radius) matters to the cull; the rest is the
+// oriented box the shading pass projects with.
+struct Decal
+{
+    vec4 center_radius; // xyz = camera-relative centre, w = bounding-sphere radius
+    vec4 right_hx;
+    vec4 up_hy;
+    vec4 forward_hz;
+    vec4 color_opacity;
+    vec4 maps;          // x = albedo, y = normal, z = orm bindless indices; w = flags
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer LightBuffer
+{
+    PunctualLight lights[];
+} light_buffer;
+
+layout(std430, set = 0, binding = 1) writeonly buffer ClusterGrid
+{
+    uint cluster_light_count[];
+} cluster_grid;
+
+layout(std430, set = 0, binding = 2) writeonly buffer LightIndexList
+{
+    uint light_indices[];
+} light_index_list;
+
+layout(std430, set = 0, binding = 3) readonly buffer DecalBuffer
+{
+    Decal decals[];
+} decal_buffer;
+
+layout(std430, set = 0, binding = 4) writeonly buffer DecalGrid
+{
+    uint cluster_decal_count[];
+} decal_grid;
+
+layout(std430, set = 0, binding = 5) writeonly buffer DecalIndexList
+{
+    uint decal_indices[];
+} decal_index_list;
+
+layout(push_constant) uniform Push
+{
+    vec4 right;   // xyz = unit right, w = tan(fovx/2)
+    vec4 up;      // xyz = unit up, w = tan(fovy/2)
+    vec4 forward; // xyz = unit forward, w = active light count
+    vec4 params;  // x = near, y = far, z = active decal count, w spare
+} pc;
+
+// Squared distance from a point to an axis-aligned box (zero when inside).
+float distance2_point_aabb(vec3 p, vec3 box_min, vec3 box_max)
+{
+    vec3 q = clamp(p, box_min, box_max);
+    vec3 d = p - q;
+    return dot(d, d);
+}
+
+void main()
+{
+    uint cluster = gl_GlobalInvocationID.x;
+    if (cluster >= CLUSTER_COUNT)
+        return;
+
+    uint cx = cluster % CLUSTER_X;
+    uint cy = (cluster / CLUSTER_X) % CLUSTER_Y;
+    uint cz = cluster / (CLUSTER_X * CLUSTER_Y);
+
+    float near_z = pc.params.x;
+    float far_z = pc.params.y;
+    float log_ratio = log(far_z / near_z);
+
+    // The slice's near/far view depth: logarithmic, matching the shading pass's slice.
+    float z0 = near_z * exp(log_ratio * (float(cz) / float(CLUSTER_Z)));
+    float z1 = near_z * exp(log_ratio * (float(cz + 1u) / float(CLUSTER_Z)));
+
+    // Screen tile in NDC. x follows screen-right (no flip); y is negated because the
+    // stored up basis points opposite clip-space y (top of screen is ndc_y = -1).
+    float ndc_x0 = 2.0 * float(cx) / float(CLUSTER_X) - 1.0;
+    float ndc_x1 = 2.0 * float(cx + 1u) / float(CLUSTER_X) - 1.0;
+    float ndc_y0 = 2.0 * float(cy) / float(CLUSTER_Y) - 1.0;
+    float ndc_y1 = 2.0 * float(cy + 1u) / float(CLUSTER_Y) - 1.0;
+
+    float tan_x = pc.right.w;
+    float tan_y = pc.up.w;
+
+    // View-space extent of the froxel: view_x = ndc_x * tan_x * z, view_y = -ndc_y *
+    // tan_y * z, over both depth planes. The min/max across the corners is a loose but
+    // conservative AABB (the froxel is a frustum), which only over-includes lights.
+    float xs[4] = float[4](ndc_x0 * tan_x * z0, ndc_x1 * tan_x * z0,
+                           ndc_x0 * tan_x * z1, ndc_x1 * tan_x * z1);
+    float ys[4] = float[4](-ndc_y0 * tan_y * z0, -ndc_y1 * tan_y * z0,
+                           -ndc_y0 * tan_y * z1, -ndc_y1 * tan_y * z1);
+
+    vec3 box_min = vec3(min(min(xs[0], xs[1]), min(xs[2], xs[3])),
+                        min(min(ys[0], ys[1]), min(ys[2], ys[3])), z0);
+    vec3 box_max = vec3(max(max(xs[0], xs[1]), max(xs[2], xs[3])),
+                        max(max(ys[0], ys[1]), max(ys[2], ys[3])), z1);
+
+    uint light_count = uint(pc.forward.w + 0.5);
+    uint base = cluster * MAX_LIGHTS_PER_CLUSTER;
+    uint stored = 0u;
+
+    for (uint i = 0u; i < light_count && stored < MAX_LIGHTS_PER_CLUSTER; ++i)
+    {
+        vec3 p = light_buffer.lights[i].position_range.xyz;
+        // Project the camera-relative light position into the shared view frame.
+        vec3 view_p = vec3(dot(pc.right.xyz, p), dot(pc.up.xyz, p), dot(pc.forward.xyz, p));
+        float radius = light_buffer.lights[i].position_range.w;
+
+        if (distance2_point_aabb(view_p, box_min, box_max) <= radius * radius)
+        {
+            light_index_list.light_indices[base + stored] = i;
+            ++stored;
+        }
+    }
+
+    cluster_grid.cluster_light_count[cluster] = stored;
+
+    // Decals share the froxel bounds: same view-space AABB test on each decal's bounding
+    // sphere, into a parallel per-cluster list.
+    uint decal_count = uint(pc.params.z + 0.5);
+    uint decal_base = cluster * MAX_DECALS_PER_CLUSTER;
+    uint decal_stored = 0u;
+    for (uint i = 0u; i < decal_count && decal_stored < MAX_DECALS_PER_CLUSTER; ++i)
+    {
+        vec3 p = decal_buffer.decals[i].center_radius.xyz;
+        vec3 view_p = vec3(dot(pc.right.xyz, p), dot(pc.up.xyz, p), dot(pc.forward.xyz, p));
+        float radius = decal_buffer.decals[i].center_radius.w;
+        if (distance2_point_aabb(view_p, box_min, box_max) <= radius * radius)
+        {
+            decal_index_list.decal_indices[decal_base + decal_stored] = i;
+            ++decal_stored;
+        }
+    }
+
+    decal_grid.cluster_decal_count[cluster] = decal_stored;
+}

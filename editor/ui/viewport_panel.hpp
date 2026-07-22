@@ -149,6 +149,8 @@ namespace SushiEngine
                  *                    display's camera it shows). Null draws no combo.
                  * @param strands       Soft-body wireframes to draw this frame, or nullptr.
                  * @param strand_count  Number of entries in @p strands.
+                 * @param lights        Punctual lights to shade with this frame, or nullptr.
+                 * @param light_count   Number of entries in @p lights.
                  * @return Whether the gizmo edited @p gizmo_target this frame.
                  */
                 bool draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
@@ -160,7 +162,11 @@ namespace SushiEngine
                           const GizmoSnap* gizmo_snap = nullptr,
                           const DisplaySelector* display = nullptr,
                           const SushiEngine::Render::ClothStrandView* strands = nullptr,
-                          std::size_t strand_count = 0, UIOverlay* ui = nullptr);
+                          std::size_t strand_count = 0,
+                          const SushiEngine::Render::PunctualLight* lights = nullptr,
+                          std::size_t light_count = 0,
+                          const SushiEngine::Render::Decal* decals = nullptr,
+                          std::size_t decal_count = 0, UIOverlay* ui = nullptr);
 
                 /**
                  * @brief Applies the host's fidelity/performance settings to this view.

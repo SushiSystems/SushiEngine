@@ -71,6 +71,11 @@ namespace SushiEngine
             class SceneLayout;
         }
 
+        namespace Lighting
+        {
+            class LightSystem;
+        }
+
         namespace Vulkan
         {
             class VulkanDevice;
@@ -104,13 +109,15 @@ namespace SushiEngine
                      * @param noise     The cloud volumes; only the weather map is read here,
                      *                  to shadow a surface with the deck standing over it.
                      * @param ibl       The image-based lighting chain surfaces sample.
+                     * @param lights    The clustered light engine's per-frame buffers.
                      */
                     OpaquePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                Resources::GraphicsPipelineFactory& pipelines,
                                Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
                                Geometry::ClothBuffers& cloth,
                                Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
-                               Textures::CloudNoise& noise, IblPass& ibl);
+                               Textures::CloudNoise& noise, IblPass& ibl,
+                               Lighting::LightSystem& lights);
                     ~OpaquePass() override;
 
                     OpaquePass(const OpaquePass&) = delete;
@@ -134,6 +141,7 @@ namespace SushiEngine
                     Scene::MotionSystem& motion_;
                     Textures::CloudNoise& noise_;
                     IblPass& ibl_;
+                    Lighting::LightSystem& lights_;
                     Resources::PipelineHandle mesh_pipeline_;
                     Resources::PipelineHandle line_pipeline_;
                     Resources::PipelineHandle outline_pipeline_;

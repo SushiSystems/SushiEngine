@@ -81,8 +81,8 @@ TEST(Unit_Gravity, PointGravityObeysInverseSquareAndPointsInward)
                 standard_gravitational_parameter(BodyId::Earth) / (r * r), 1e-6);
 
     // Doubling the distance quarters the acceleration.
-    const WorldVector3 far = body_point_gravity(BodyId::Earth, WorldVector3{2.0 * r, 0.0, 0.0});
-    EXPECT_NEAR(magnitude(far), 0.25 * magnitude(accel), 1e-9);
+    const WorldVector3 far_accel = body_point_gravity(BodyId::Earth, WorldVector3{2.0 * r, 0.0, 0.0});
+    EXPECT_NEAR(magnitude(far_accel), 0.25 * magnitude(accel), 1e-9);
 }
 
 TEST(Unit_Gravity, PointGravityIsGuardedAtTheCentreAndForMasslessBodies)

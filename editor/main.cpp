@@ -166,6 +166,7 @@ int main(int, char**)
         context.preferences_store = preferences_store.get();
         context.preferences = preferences_store->load();
         SushiEngine::Editor::apply_theme(context.preferences.theme);
+        context.render_settings = context.preferences.render_settings;
 
         // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
         // seam. The editor sees only the abstraction and the extracted RenderScene;
@@ -582,6 +583,8 @@ int main(int, char**)
                                                instances.size(), environment, selected, true,
                                                gizmo_target, context.gizmo_mode, gizmo_space,
                                                &snap, nullptr, strands.data(), strands.size(),
+                                               scene.lights.data(), scene.lights.size(),
+                                               scene.decals.data(), scene.decals.size(),
                                                &scene_ui);
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
@@ -611,7 +614,9 @@ int main(int, char**)
                                environment, no_selection, false, nullptr,
                                SushiEngine::Editor::GizmoMode::Translate,
                                SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
-                               strands.data(), strands.size(), &game_ui);
+                               strands.data(), strands.size(), scene.lights.data(),
+                               scene.lights.size(), scene.decals.data(), scene.decals.size(),
+                               &game_ui);
             }
 
             // Copy each visible viewport's per-pass GPU times out for the Statistics
@@ -722,6 +727,7 @@ int main(int, char**)
             SushiEngine::Editor::draw_inspector_panel(context);
             SushiEngine::Editor::draw_environment_panel(context);
             SushiEngine::Editor::draw_rendering_panel(context);
+            SushiEngine::Editor::draw_lighting_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);
@@ -736,6 +742,7 @@ int main(int, char**)
             if (context.preferences_dirty)
             {
                 scene_camera.set_move_speed(context.preferences.camera_move_speed);
+                context.preferences.render_settings = context.render_settings;
                 preferences_store->save(context.preferences);
                 context.preferences_dirty = false;
             }
@@ -754,6 +761,7 @@ int main(int, char**)
             }
         }
 
+        context.preferences.render_settings = context.render_settings;
         preferences_store->save(context.preferences);
         renderer->wait_idle();
         return 0;

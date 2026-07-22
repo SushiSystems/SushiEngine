@@ -27,10 +27,12 @@ layout(location = 7) in vec4 v_previous_clip;
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out uint out_id;
 layout(location = 2) out vec2 out_velocity;
+layout(location = 3) out vec2 out_gbuffer;
 
 void main()
 {
     out_color = vec4(1.0, 0.65, 0.2, 1.0);
     out_id = pc.entity_id;
     out_velocity = motion_vector(v_current_clip, v_previous_clip);
+    out_gbuffer = vec2(1.0, 0.04); // the selection outline is not a reflective surface
 }

@@ -83,6 +83,8 @@ namespace SushiEngine
                         builder.read(frame.targets.composite,
                                      Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.cloud, Graph::TextureAccess::SampledFragment);
+                        builder.read(frame.targets.ground_shadow_resolved,
+                                     Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                     },
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
@@ -94,6 +96,8 @@ namespace SushiEngine
                                        sizeof(Scene::SceneUniforms));
                         writer.image(1, context.sampled_view(frame.targets.composite), sampler);
                         writer.image(2, context.sampled_view(frame.targets.cloud), sampler);
+                        writer.image(3, context.sampled_view(frame.targets.ground_shadow_resolved),
+                                    sampler);
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
                         frame.layout->bind_heap(cmd);

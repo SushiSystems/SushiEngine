@@ -35,7 +35,7 @@
 #include <SushiEngine/SushiEngine.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::Loop::net;
+using namespace SushiEngine::Loop::Net;
 
 TEST(Unit_NetworkId, SameInputsProduceTheSameId)
 {

@@ -134,6 +134,19 @@ namespace SushiEngine
         void draw_rendering_panel(EditorContext& context);
 
         /**
+         * @brief Draw the Lighting panel: the scene's lights, in one place.
+         *
+         * The home for everything that lights the scene rather than surrounds it: the sun
+         * (direction, colour, intensity) and image-based-lighting source out of the
+         * Environment, the sun's cascade-shadow settings out of the render settings, and
+         * the full punctual-light list — every light-bearing entity, editable in place,
+         * with a button to add one. Selecting a light here selects its entity.
+         *
+         * @param context Shared editor state; reads/writes the world's lights and the sun.
+         */
+        void draw_lighting_panel(EditorContext& context);
+
+        /**
          * @brief Draw the Project panel: a filesystem browser rooted at the project.
          *
          * Double-clicking a directory descends into it; double-clicking a file opens it

@@ -36,15 +36,11 @@ vec2 motion_vector(vec4 current_clip, vec4 previous_clip)
     return current_uv - previous_uv;
 }
 
-// Interleaved gradient noise (Jimenez, Siggraph 2014). A white-noise hash clumps: runs
-// of neighbouring pixels land on similar values and the eye reads the clumps as dirty
-// speckle. This spreads the values so every 3x3 neighbourhood spans the whole range,
-// which is both smoother to look at raw and exactly what the temporal resolve's 3x3
-// neighbourhood statistics expect.
-float interleaved_gradient_noise(vec2 pixel)
-{
-    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-}
+// The interleaved-gradient hash every stochastic pass shares lives here now; the
+// frame-independent form and the TPDF dither come with it. This block keeps only the
+// temporal-block-dependent helpers below, which the shared file deliberately does not
+// reach for (it binds no UBO).
+#include "blue_noise.glsl"
 
 // A per-frame scramble in [0,1), derived from the sub-pixel jitter. Each phase of the
 // jitter sequence lands on a distinct value, so stochastic samplers advance exactly

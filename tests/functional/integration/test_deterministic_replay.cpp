@@ -85,7 +85,14 @@ namespace
             while (clock.consume_step())
             {
                 const Scalar* command = input.find(tick);
-                ASSERT_NE(command, nullptr);
+                if (command == nullptr)
+                {
+                    // ASSERT_NE's implicit `return;` only compiles in a void-returning
+                    // function; `run()` returns a result, so fail non-fatally and bail
+                    // out ourselves.
+                    ADD_FAILURE() << "no recorded input for tick " << tick;
+                    return {};
+                }
                 step(world, entities, *command);
                 ++tick;
             }

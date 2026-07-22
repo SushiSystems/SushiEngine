@@ -420,7 +420,7 @@ travel through the copy/paste clipboard alongside the other optional components.
 
 Rendering does not belong inside the runtime — the runtime knows no graphics, just
 as it knows no math. The renderer is a separate compiled library (`render/`,
-`include/SushiEngine/render/`), a **greenfield Vulkan 1.3** backend behind a
+`include/SushiEngine/render/`), a **greenfield Vulkan 1.4** backend behind a
 dependency-inversion boundary so a D3D12/Metal backend can follow without touching a
 consumer. The layering, from abstract to concrete:
 
@@ -684,7 +684,17 @@ a lower tier scales the expensive half down from it.
   update-after-bind array bound as set 1), `PipelineCache` (a `VkPipelineCache`
   persisted to disk) and `GraphicsPipelineFactory` (four independently cached
   `VK_EXT_graphics_pipeline_library` halves, with monolithic creation as the fallback
-  when the extension is absent), `SamplerCache`, and `ShaderLibrary`.
+  when the extension is absent), `SamplerCache`, and `ShaderLibrary`. A pipeline never
+  makes a pass wait on its own best version: `GraphicsPipelineFactory` hands out a
+  `PipelineHandle` pointing at the fast-linked (GPL) pipeline the instant it exists,
+  while a background thread rebuilds the same pipeline monolithically and swaps the
+  handle's atomic pointer (release/acquire) once it is ready; the superseded pipeline
+  retires after a delay sized past every view sharing the factory's clock, the same
+  reasoning `TextureLibrary`'s streaming retirement below uses. `DescriptorWriter` and
+  `bind_descriptor_set()` are the matching write/bind seam every pass, the compute/RT
+  passes, and the scene layout route through, so the announced
+  `VK_EXT_descriptor_heap` lands as a swap behind these two functions rather than a
+  sweep of every pass.
 - **`render/passes/`** — one file per pass, each honouring the same
   `register_pass(graph, frame)` contract and owning only its own pipelines: the
   environment capture, the opaque geometry pass, the shading-rate mask, the sky pass,
@@ -743,9 +753,14 @@ textures existed.
 - `TextureLibrary` — decode (stb), upload with a GPU-generated mip chain, bindless
   registration, path deduplication. Residency is mip-based against a budget: a texture
   that will not fit is uploaded from a lower mip and upgraded later, at most one per
-  frame. Uploads never block the frame — each carries its own fence, and the staging
-  memory, the superseded image, *and* the superseded heap slot are reclaimed only once
-  that fence signals, because a frame in flight may still be reading any of them.
+  frame. Uploads never block the frame. Where `host_image_copy` is available (the
+  Vulkan 1.4 floor makes it common, though it stays an optional feature), a mip chain
+  is box-filtered on the CPU and copied straight into the optimal-tiled image with no
+  staging buffer, no submit, and no fence — the superseded image and heap slot are
+  instead reclaimed once a shared frame counter has advanced past every view that
+  could still be sampling them. The staging-plus-blit path remains the fallback: each
+  of its uploads carries its own fence, and its superseded image, staging memory, and
+  heap slot are reclaimed only once that fence signals.
 - `MaterialSystem` — packs authored materials into a per-frame storage-buffer array of
   fixed-layout records holding heap indices. A draw then carries one material index in
   its push constant rather than a payload of parameters, which is the shape the
@@ -1315,7 +1330,7 @@ differently between runs.
   constraint type. `examples/cloth_demo.cpp` and `Integration_Cloth` validate it
   the same way `xpbd_demo.cpp`/`Integration_PhysicsWorld` validate the hanging
   chain. Volumetric (tetrahedral) soft bodies are out of scope.
-- **Rendering (in progress).** A greenfield Vulkan 1.3 renderer behind an RHI
+- **Rendering (in progress).** A greenfield Vulkan 1.4 renderer behind an RHI
   abstraction (§5), reaching first pixels headlessly (`render_probe`) and now driving
   the editor window; live simulation state enters as the opaque sink node of §5.
 - **Editor host shell.** The editor as a host application that runs the game as a

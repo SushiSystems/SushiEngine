@@ -41,6 +41,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 
 namespace SushiEngine
@@ -214,12 +215,22 @@ namespace SushiEngine
                  * @param strands       Pointer to the soft-body wireframes to draw, or
                  *                      nullptr for none.
                  * @param strand_count  Number of entries in @p strands.
+                 * @param lights        Pointer to the punctual lights to shade with, or
+                 *                      nullptr for none; culled into the froxel grid.
+                 * @param light_count   Number of entries in @p lights.
+                 * @param decals        Pointer to the projected decals, or nullptr for none;
+                 *                      culled into the same froxel grid.
+                 * @param decal_count   Number of entries in @p decals.
                  */
                 virtual void render(const CameraView& camera, const Environment& environment,
                                     const MeshInstance* instances,
                                     std::size_t count, std::uint32_t selected_id,
                                     const ClothStrandView* strands = nullptr,
-                                    std::size_t strand_count = 0) = 0;
+                                    std::size_t strand_count = 0,
+                                    const PunctualLight* lights = nullptr,
+                                    std::size_t light_count = 0,
+                                    const Decal* decals = nullptr,
+                                    std::size_t decal_count = 0) = 0;
 
                 /**
                  * @brief The instance id drawn at a pixel of the last rendered frame.

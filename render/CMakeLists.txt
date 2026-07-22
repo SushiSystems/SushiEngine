@@ -58,7 +58,9 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/temporal_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_sampling.glsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl")
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl")
 
 # sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
@@ -123,6 +125,20 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/brdf_lut.comp"
     brdf_lut_comp_spv BRDF_LUT_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sh_project.comp"
     sh_project_comp_spv SH_PROJECT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster_build.comp"
+    cluster_build_comp_spv CLUSTER_BUILD_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/light_shadow.vert"
+    light_shadow_vert_spv LIGHT_SHADOW_VERT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gtao.comp"
+    gtao_comp_spv GTAO_COMP_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gtao_resolve.frag"
+    gtao_resolve_frag_spv GTAO_RESOLVE_FRAG_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/hiz.comp"
+    hiz_comp_spv HIZ_COMP_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ssr.frag"
+    ssr_frag_spv SSR_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ground_shadow_resolve.frag"
+    ground_shadow_resolve_frag_spv GROUND_SHADOW_RESOLVE_FRAG_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
@@ -141,6 +157,7 @@ add_library(sushi_render STATIC
     scene/temporal_uniforms.cpp
     scene/motion_system.cpp
     scene/shadow_uniforms.cpp
+    lighting/light_system.cpp
     raytracing/scene_accelerator.cpp
     frame/temporal_jitter.cpp
     frame/resolution_controller.cpp
@@ -155,7 +172,13 @@ add_library(sushi_render STATIC
     passes/fullscreen.cpp
     passes/ibl_pass.cpp
     passes/opaque_pass.cpp
+    passes/gtao_pass.cpp
+    passes/hiz_pass.cpp
+    passes/ssr_pass.cpp
+    passes/light_cull_pass.cpp
+    passes/light_shadow_pass.cpp
     passes/sky_pass.cpp
+    passes/ground_shadow_resolve_pass.cpp
     passes/cloud_pass.cpp
     passes/depth_only.cpp
     passes/depth_prepass.cpp
@@ -198,7 +221,14 @@ add_library(sushi_render STATIC
     "${IBL_PREFILTER_HEADER}"
     "${IBL_IRRADIANCE_HEADER}"
     "${BRDF_LUT_HEADER}"
-    "${SH_PROJECT_HEADER}")
+    "${SH_PROJECT_HEADER}"
+    "${CLUSTER_BUILD_HEADER}"
+    "${LIGHT_SHADOW_VERT_HEADER}"
+    "${GTAO_COMP_HEADER}"
+    "${GTAO_RESOLVE_FRAG_HEADER}"
+    "${HIZ_COMP_HEADER}"
+    "${SSR_FRAG_HEADER}"
+    "${GROUND_SHADOW_RESOLVE_FRAG_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")

@@ -296,7 +296,11 @@ namespace SushiEngine
                                  GizmoMode gizmo_mode, GizmoSpace gizmo_space,
                                  const GizmoSnap* gizmo_snap, const DisplaySelector* display,
                                  const SushiEngine::Render::ClothStrandView* strands,
-                                 std::size_t strand_count, UIOverlay* ui)
+                                 std::size_t strand_count,
+                                 const SushiEngine::Render::PunctualLight* lights,
+                                 std::size_t light_count,
+                                 const SushiEngine::Render::Decal* decals,
+                                 std::size_t decal_count, UIOverlay* ui)
         {
             if (!ImGui::Begin(title_, &open))
             {
@@ -389,7 +393,7 @@ namespace SushiEngine
             const SushiEngine::Render::CameraView camera_view =
                 camera_.view(static_cast<float>(width) / static_cast<float>(height));
             view_->render(camera_view, environment, instances, count, selected_id, strands,
-                          strand_count);
+                          strand_count, lights, light_count, decals, decal_count);
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
             ImGui::Image(slot_textures_[view_->current_slot()],

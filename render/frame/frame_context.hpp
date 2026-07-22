@@ -39,6 +39,7 @@
 #include <vulkan/vulkan.h>
 
 #include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -114,6 +115,16 @@ namespace SushiEngine
             /** @brief Single-channel visibility written by the screen-space shadow march. */
             constexpr VkFormat CONTACT_SHADOW_FORMAT = VK_FORMAT_R8_UNORM;
 
+            /**
+             * @brief The thin reflection G-buffer's format: roughness and reflectance.
+             *
+             * Two half floats — r = perceptual roughness, g = scalar F0 — the opaque pass
+             * writes beside its colour so screen-space reflections know which surfaces are
+             * smooth enough to reflect and how bright the reflection is. The surface normal is
+             * reconstructed from depth rather than stored, so this stays two channels.
+             */
+            constexpr VkFormat GBUFFER_FORMAT = VK_FORMAT_R16G16_SFLOAT;
+
             /** @brief The tier gating the expensive half of every pass. */
             using RenderQuality = Render::RenderQuality;
 
@@ -124,6 +135,12 @@ namespace SushiEngine
                 std::size_t instance_count = 0;
                 const ClothStrandView* strands = nullptr;
                 std::size_t strand_count = 0;
+                /** @brief The frame's punctual lights, culled into the cluster grid. */
+                const PunctualLight* lights = nullptr;
+                std::size_t light_count = 0;
+                /** @brief The frame's projected decals, culled into the same grid. */
+                const Decal* decals = nullptr;
+                std::size_t decal_count = 0;
                 std::uint32_t selected_id = NO_PICK;
             };
 
@@ -140,11 +157,19 @@ namespace SushiEngine
                 Graph::TextureHandle id;        /**< R32_UINT picking ids. */
                 Graph::TextureHandle velocity;  /**< Per-pixel UV motion since last frame. */
                 Graph::TextureHandle shadow_atlas;   /**< The sun's cascades, a 2x2 tile grid. */
+                Graph::TextureHandle light_shadow_atlas; /**< Punctual spot shadows, a 4x4 tile grid. */
                 Graph::TextureHandle contact_shadow; /**< Screen-space contact visibility. */
                 Graph::TextureHandle ray_shadow;     /**< Traced sun visibility, Ultra tier. */
+                Graph::TextureHandle gtao;      /**< Half-res GTAO: view-space bent normal + visibility. */
+                Graph::TextureHandle ao;        /**< Full-res resolved AO: world bent normal + visibility. */
+                Graph::TextureHandle gbuffer;   /**< Thin reflection G-buffer: roughness, F0. */
                 Graph::TextureHandle composite; /**< HDR sky over the shaded scene. */
+                Graph::TextureHandle ground_shadow; /**< Raw analytic-ground direct term + noisy sun visibility. */
+                Graph::TextureHandle ground_shadow_resolved; /**< Bilateral-blurred ground_shadow. */
                 Graph::TextureHandle cloud;     /**< Half-resolution volumetric clouds. */
                 Graph::TextureHandle scene;     /**< HDR scene with the clouds composited in. */
+                Graph::TextureHandle scene_reflected; /**< Scene with SSR folded in, or invalid. */
+                Graph::TextureHandle scene_final; /**< The scene the resolve reads: reflected if SSR ran, else scene. */
                 Graph::TextureHandle history;   /**< Previous frame's resolved HDR, output size. */
                 Graph::TextureHandle resolved;  /**< This frame's resolved HDR, output size. */
                 Graph::TextureHandle shading_rate; /**< Per-tile shading rate, or invalid. */
@@ -153,6 +178,10 @@ namespace SushiEngine
                 Graph::BufferHandle uniforms;   /**< The per-frame scene block. */
                 Graph::BufferHandle temporal;   /**< The per-frame temporal block. */
                 Graph::BufferHandle shadow;     /**< The per-frame shadow cascade block. */
+                Graph::BufferHandle cluster_grid; /**< Per-cluster punctual-light counts. */
+                Graph::BufferHandle light_index;  /**< Per-cluster punctual-light index list. */
+                Graph::BufferHandle decal_grid;   /**< Per-cluster decal counts. */
+                Graph::BufferHandle decal_index;  /**< Per-cluster decal index list. */
                 Graph::BufferHandle readback;   /**< Host-visible copy of the id target. */
             };
 

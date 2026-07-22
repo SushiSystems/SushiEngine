@@ -51,8 +51,8 @@ TEST(Unit_FloatingOrigin, LocalOffsetStaysWithinOneSector)
 {
     // A position far from the world origin: the local offset must still be small,
     // which is the property that keeps it representable in single precision.
-    const WorldVector3 far{6'378'137.0, -1'234'567.5, 42.0};
-    const FloatingOriginVector3 decomposed = to_floating_origin(far, SECTOR_SIZE);
+    const WorldVector3 far_point{6'378'137.0, -1'234'567.5, 42.0};
+    const FloatingOriginVector3 decomposed = to_floating_origin(far_point, SECTOR_SIZE);
 
     EXPECT_GE(decomposed.local.x, Scalar(0));
     EXPECT_LT(decomposed.local.x, Scalar(SECTOR_SIZE));

@@ -36,6 +36,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   window lists them alongside frame time and FPS.
 
 ### Added
+- **The renderer's floor is Vulkan 1.4.** Drivers have been conformant industry-wide
+  since 2025, so `maintenance5`, `maintenance6`, and push descriptors are now required
+  rather than probed, and the fallbacks they obsoleted are gone. Texture streaming
+  gains a `host_image_copy` path (probed, stays optional): a CPU-built mip chain is
+  copied straight into the optimal-tiled image with no staging buffer, queue submit,
+  or fence, gated on `SHADER_READ_ONLY` actually appearing in the device's
+  `pCopyDstLayouts`; the staging-plus-blit path is the fallback where it doesn't.
+  Scene set 0 is now bound with push descriptors instead of an allocated set, so the
+  per-frame allocate/update/bind that used to run ahead of every graphics pass is
+  gone across all eleven of them.
+- **A swapped-in pipeline no longer costs a hitch.** `GraphicsPipelineFactory` used to
+  hand back whatever `VK_EXT_graphics_pipeline_library` fast-linked, which is quick to
+  build but not the fastest pipeline the driver can produce. It now hands out a
+  `PipelineHandle` pointing at that fast-linked pipeline immediately, while a
+  background thread rebuilds the same pipeline monolithically and atomically swaps
+  the handle over once it's ready; the superseded pipeline retires once every view
+  sharing the factory's clock has had time to stop referencing it.
+- **Every descriptor write and set bind now goes through one seam.** New
+  `DescriptorWriter` and `bind_descriptor_set()` centralise what used to be a direct
+  `vkUpdateDescriptorSets`/`vkCmdBindDescriptorSets` call in each pass, so the
+  announced `VK_EXT_descriptor_heap` (Roadmap 2026) will be a swap behind these two
+  functions rather than a sweep of every call site. `VK_EXT_descriptor_buffer` is
+  deliberately not adopted — a dead end the seam doesn't need.
 - **Diffuse image-based lighting is now spherical harmonics, not a cubemap.** The
   captured environment is projected into 9 second-order SH coefficients by a single
   compute dispatch folded into the (change-gated) IBL build, and the shading pass

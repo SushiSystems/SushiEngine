@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // The display transform, and nothing else: exposure, the ACES filmic tone curve, and
 // the gamma encode onto the plain UNORM target the editor samples with ImGui.
@@ -30,6 +31,9 @@ layout(set = 0, binding = 0) uniform SceneBlock
 
 layout(set = 0, binding = 1) uniform sampler2D hdr_texture;
 
+// The output dither draws from the one shared noise source, like every other pass.
+#include "blue_noise.glsl"
+
 layout(location = 0) in vec2 v_ndc;
 
 layout(location = 0) out vec4 out_color;
@@ -51,5 +55,14 @@ void main()
     vec3 hdr = texture(hdr_texture, uv).rgb;
     vec3 mapped = aces(hdr * scene.sun_color.w);
     mapped = pow(mapped, vec3(1.0 / 2.2));
-    out_color = vec4(mapped, 1.0);
+
+    // Dither before the 8-bit UNORM quantize. A smooth HDR gradient — the sky at the
+    // horizon, a soft penumbra — otherwise snaps onto the 256 output levels and prints the
+    // steps between them as visible bands. A triangular-PDF dither of one LSB (two
+    // decorrelated noise draws) spreads each step's rounding across its boundary so the
+    // band dissolves into grain below the eye's threshold. The value is static in screen
+    // space: the temporal resolve has already run, so an animated dither here would only
+    // add a shimmer it can no longer average out.
+    vec3 dither = vec3(tpdf_dither(gl_FragCoord.xy, 1.0 / 255.0)); // TPDF, ~±1 LSB
+    out_color = vec4(mapped + dither, 1.0);
 }

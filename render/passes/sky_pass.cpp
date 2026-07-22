@@ -60,6 +60,11 @@ namespace SushiEngine
                 Resources::GraphicsPipelineDesc desc = fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("sky.frag"), Frame::HDR_FORMAT);
+                // Second MRT slot: the analytic ground's raw, unresolved direct-sun term,
+                // held back so the ground-shadow resolve pass can blur its noisy PCF alpha
+                // before cloud_composite_pass folds it into the scene.
+                desc.color_formats[1] = Frame::HDR_FORMAT;
+                desc.color_count = 2;
                 // Whether a rate image is actually bound is decided per frame, but the
                 // pipeline has to be created knowing one may be, so on a device that
                 // supports it the sky pipeline always opts in.
@@ -89,6 +94,8 @@ namespace SushiEngine
                     [&](Graph::RenderPassBuilder& builder)
                     {
                         builder.color_attachment(0, frame.targets.composite,
+                                                 Graph::AttachmentLoad::Discard);
+                        builder.color_attachment(1, frame.targets.ground_shadow,
                                                  Graph::AttachmentLoad::Discard);
                         builder.read(frame.targets.hdr, Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);

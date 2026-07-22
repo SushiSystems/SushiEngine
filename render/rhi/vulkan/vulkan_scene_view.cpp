@@ -47,7 +47,8 @@ namespace SushiEngine
                                              Assets::AssetLibrary& assets)
                 : device_(device), assets_(assets), descriptors_(device, SLOTS),
                   cloth_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
-                  motion_(device, SLOTS), accelerator_(device, assets.meshes(), SLOTS),
+                  motion_(device, SLOTS), lights_(device, SLOTS),
+                  accelerator_(device, assets.meshes(), SLOTS),
                   profiler_(device, SLOTS, MAX_TIMED_PASSES),
                   graph_(device, &profiler_),
                   ibl_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
@@ -59,16 +60,25 @@ namespace SushiEngine
                   contact_shadow_pass_(device, assets.shaders(), assets.pipelines(),
                                        assets.layout()),
                   ray_shadow_pass_(device, assets.shaders(), assets.pipelines(), accelerator_),
+                  gtao_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  hiz_pass_(device, assets.shaders(), assets.pipelines()),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes(), cloth_, materials_, motion_,
-                               assets.cloud_noise(), ibl_pass_),
+                               assets.cloud_noise(), ibl_pass_, lights_),
+                  light_cull_pass_(device, assets.shaders(), assets.pipelines(), lights_),
+                  light_shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                                     assets.meshes(), lights_),
                   shading_rate_pass_(device, assets.shaders(), assets.pipelines()),
                   sky_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                             assets.cloud_noise()),
+                  ground_shadow_resolve_pass_(device, assets.shaders(), assets.pipelines(),
+                                              assets.layout()),
                   cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                               assets.cloud_noise()),
                   cloud_composite_pass_(device, assets.shaders(), assets.pipelines(),
                                         assets.layout()),
+                  ssr_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                            hiz_pass_),
                   taa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   tonemap_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   fxaa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
@@ -88,11 +98,17 @@ namespace SushiEngine
                            &shadow_pass_,
                            &contact_shadow_pass_,
                            &ray_shadow_pass_,
+                           &light_cull_pass_,
+                           &light_shadow_pass_,
+                           &gtao_pass_,
+                           &hiz_pass_,
                            &opaque_pass_,
                            &shading_rate_pass_,
                            &sky_pass_,
+                           &ground_shadow_resolve_pass_,
                            &cloud_pass_,
                            &cloud_composite_pass_,
+                           &ssr_pass_,
                            &taa_pass_,
                            &tonemap_pass_,
                            &fxaa_pass_,
@@ -115,6 +131,11 @@ namespace SushiEngine
                 width_ = new_width;
                 height_ = new_height;
                 resources_.resize(new_width, new_height);
+                // Nothing accumulated into the new images yet, and the dynamic-resolution
+                // governor hasn't rescaled for the new extent — report the full output size
+                // until update_render_extent() runs at the top of the next render().
+                render_width_ = width_;
+                render_height_ = height_;
             }
 
             void VulkanSceneView::set_settings(const RenderSettings& settings)
@@ -187,7 +208,9 @@ namespace SushiEngine
             void VulkanSceneView::render(const CameraView& camera, const Environment& environment,
                                          const MeshInstance* instances, std::size_t count,
                                          std::uint32_t selected_id,
-                                         const ClothStrandView* strands, std::size_t strand_count)
+                                         const ClothStrandView* strands, std::size_t strand_count,
+                                         const PunctualLight* lights, std::size_t light_count,
+                                         const Decal* decals, std::size_t decal_count)
             {
                 const std::uint32_t index = frame_counter_ % SLOTS;
                 const VkFence fence = resources_.fence(index);
@@ -238,6 +261,10 @@ namespace SushiEngine
                 frame.draws.instance_count = count;
                 frame.draws.strands = strands;
                 frame.draws.strand_count = strand_count;
+                frame.draws.lights = lights;
+                frame.draws.light_count = light_count;
+                frame.draws.decals = decals;
+                frame.draws.decal_count = decal_count;
                 frame.draws.selected_id = selected_id;
                 frame.descriptors = &descriptors_;
                 frame.samplers = &assets_.samplers();
@@ -307,6 +334,20 @@ namespace SushiEngine
 
                 materials_.begin_frame(index);
                 motion_.begin_frame(index, frame.eye);
+                // Pack and configure the light engine before the passes register: the cull
+                // pass reads the packed count and the grid's near/far when it builds its
+                // push constant, and the far distance is the tier-scaled cluster reach.
+                lights_.begin_frame(index);
+                lights_.pack(lights, light_count, frame.eye, effective.lights.max_lights);
+                lights_.pack_decals(decals, decal_count, frame.eye, effective.lights.max_decals,
+                                    assets_.textures());
+                lights_.set_config(render_width_, render_height_, camera.near_plane,
+                                   effective.lights.cluster_far_distance);
+                // Assign spot casters their atlas tiles and build their maps; this patches
+                // the packed lights' shadow index, so it must run before the upload below.
+                lights_.assign_shadows(lights, light_count, frame.eye,
+                                       effective.lights.shadow_atlas_size,
+                                       effective.lights.max_shadow_casters, camera.near_plane);
                 graph_.begin_frame(resources_.textures(index), resources_.buffers(index));
                 frame.targets = resources_.declare_targets(
                     graph_, frame, shading_rate_pass_.enabled(frame),
@@ -331,6 +372,7 @@ namespace SushiEngine
                 // and can be uploaded before any of them records a descriptor write.
                 materials_.upload();
                 motion_.upload();
+                lights_.upload();
 
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

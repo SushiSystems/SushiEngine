@@ -54,13 +54,20 @@
 #include "geometry/cloth_buffers.hpp"
 #include "graph/gpu_profiler.hpp"
 #include "graph/render_graph.hpp"
+#include "lighting/light_system.hpp"
 #include "material/material_system.hpp"
 #include "passes/cloud_composite_pass.hpp"
 #include "passes/cloud_pass.hpp"
 #include "passes/contact_shadow_pass.hpp"
 #include "passes/depth_prepass.hpp"
 #include "passes/fxaa_pass.hpp"
+#include "passes/ground_shadow_resolve_pass.hpp"
+#include "passes/gtao_pass.hpp"
+#include "passes/hiz_pass.hpp"
 #include "passes/ibl_pass.hpp"
+#include "passes/ssr_pass.hpp"
+#include "passes/light_cull_pass.hpp"
+#include "passes/light_shadow_pass.hpp"
 #include "passes/opaque_pass.hpp"
 #include "passes/picking_pass.hpp"
 #include "passes/ray_traced_shadow_pass.hpp"
@@ -118,7 +125,11 @@ namespace SushiEngine
                                 const MeshInstance* instances, std::size_t count,
                                 std::uint32_t selected_id,
                                 const ClothStrandView* strands = nullptr,
-                                std::size_t strand_count = 0) override;
+                                std::size_t strand_count = 0,
+                                const PunctualLight* lights = nullptr,
+                                std::size_t light_count = 0,
+                                const Decal* decals = nullptr,
+                                std::size_t decal_count = 0) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
@@ -139,6 +150,7 @@ namespace SushiEngine
                     Geometry::ClothBuffers cloth_;
                     Assets::MaterialSystem materials_;
                     Scene::MotionSystem motion_;
+                    Lighting::LightSystem lights_;
                     RayTracing::SceneAccelerator accelerator_;
                     Graph::GpuProfiler profiler_;
                     Graph::RenderGraph graph_;
@@ -147,11 +159,17 @@ namespace SushiEngine
                     Passes::ShadowPass shadow_pass_;
                     Passes::ContactShadowPass contact_shadow_pass_;
                     Passes::RayTracedShadowPass ray_shadow_pass_;
+                    Passes::GtaoPass gtao_pass_;
+                    Passes::HizPass hiz_pass_;
                     Passes::OpaquePass opaque_pass_;
+                    Passes::LightCullPass light_cull_pass_;
+                    Passes::LightShadowPass light_shadow_pass_;
                     Passes::ShadingRatePass shading_rate_pass_;
                     Passes::SkyPass sky_pass_;
+                    Passes::GroundShadowResolvePass ground_shadow_resolve_pass_;
                     Passes::CloudPass cloud_pass_;
                     Passes::CloudCompositePass cloud_composite_pass_;
+                    Passes::SsrPass ssr_pass_;
                     Passes::TaaPass taa_pass_;
                     Passes::TonemapPass tonemap_pass_;
                     Passes::FxaaPass fxaa_pass_;

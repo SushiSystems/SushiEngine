@@ -14,15 +14,19 @@
 
 #include "shadow_common.glsl"
 
-// A Poisson disc. Sixteen taps placed with no two close together, which is what lets one
-// filter cover twenty texels without the grid pattern a square kernel would print across
-// every penumbra. The first eight double as the blocker search, so that step costs no
-// extra table.
-const vec2 SHADOW_DISC[16] = vec2[16](
-    vec2(-0.6136, 0.3155), vec2( 0.5309,-0.4499), vec2(-0.1595,-0.7398), vec2( 0.3479, 0.6816),
-    vec2(-0.8938,-0.1834), vec2( 0.8657, 0.1421), vec2(-0.2029, 0.9520), vec2( 0.1198,-0.9524),
-    vec2(-0.4374,-0.3417), vec2( 0.4210, 0.1783), vec2(-0.0703, 0.4342), vec2( 0.1856,-0.3407),
-    vec2(-0.7186, 0.6577), vec2( 0.7501,-0.6122), vec2(-0.6396,-0.6867), vec2( 0.6743, 0.6939));
+// A Vogel disc: tap i of count, spread by the golden angle so every prefix of the
+// sequence already tiles the disc evenly. That even coverage is what makes a low tap
+// count read smooth instead of grainy — the fixed Poisson set it replaces printed a
+// visible speckle whenever a tier dropped the tap count, and it needs no lookup table.
+// `rotation` (radians) turns the whole disc per pixel: on meshes it advances each frame
+// so the temporal resolve averages the residual, and on the analytic ground it is a
+// stable screen-space value so the pattern holds still instead of shimmering unresolved.
+vec2 vogel_disc(int i, int count, float rotation)
+{
+    float radius = sqrt((float(i) + 0.5) / float(count));
+    float theta = float(i) * 2.399963229728653 + rotation; // golden angle
+    return vec2(radius * cos(theta), radius * sin(theta));
+}
 
 // Which cascade covers a point this far down the view axis. Linear search over at most
 // four entries, which is cheaper than any cleverness at this length and, unlike a
@@ -63,19 +67,21 @@ vec2 shadow_tile_clamp(vec2 tile_uv, vec2 texel)
 // recovering a depth from a sweep of comparisons costs an order of magnitude more taps
 // than binding the same image a second time.
 float shadow_blocker_depth(sampler2D depth_atlas, int cascade, vec2 uv, float receiver,
-                           vec2 texel, float search_radius, vec2 rotation)
+                           vec2 texel, float search_radius, float angle, bool stable)
 {
     vec2 tile = shadow_tile_origin(cascade);
     float total = 0.0;
     float count = 0.0;
     // The tap count is the tier's, read from the block rather than baked in, so a low
-    // tier searches with fewer samples; clamped to the disc so a stray value can never
-    // index past the table.
+    // tier searches with fewer samples. The analytic ground (stable) cannot lean on the
+    // temporal resolve, so it holds a smoothness floor of its own — it is a single cheap
+    // fullscreen march, so the extra taps are affordable there.
     int taps = clamp(int(shadows.filter_size.w), 1, 16);
+    if (stable)
+        taps = max(taps, 12);
     for (int i = 0; i < taps; ++i)
     {
-        vec2 offset = vec2(SHADOW_DISC[i].x * rotation.x - SHADOW_DISC[i].y * rotation.y,
-                           SHADOW_DISC[i].x * rotation.y + SHADOW_DISC[i].y * rotation.x);
+        vec2 offset = vogel_disc(i, taps, angle);
         vec2 tap = shadow_tile_clamp(uv * shadows.params.y + offset * search_radius * texel,
                                      texel);
         float depth = texture(depth_atlas, tile + tap).r;
@@ -92,17 +98,19 @@ float shadow_blocker_depth(sampler2D depth_atlas, int cascade, vec2 uv, float re
 // hardware, so every tap is already a bilinear two-by-two average and sixteen of them
 // spread over a disc give a penumbra with no visible structure.
 float shadow_filter(sampler2DShadow atlas, int cascade, vec2 uv, float reference,
-                    vec2 texel, float radius, vec2 rotation)
+                    vec2 texel, float radius, float angle, bool stable)
 {
     vec2 tile = shadow_tile_origin(cascade);
     float total = 0.0;
-    // Tier-driven tap count, same as the blocker search: fewer taps is a cheaper, grainier
-    // penumbra the temporal resolve then smooths. Clamped to the disc's sixteen entries.
+    // Tier-driven tap count, same as the blocker search: fewer taps is a cheaper penumbra
+    // the temporal resolve smooths. The Vogel spread keeps even the low counts free of
+    // grain; the stable (analytic-ground) path holds a floor since it has no resolve.
     int taps = clamp(int(shadows.params.z), 1, 16);
+    if (stable)
+        taps = max(taps, 12);
     for (int i = 0; i < taps; ++i)
     {
-        vec2 offset = vec2(SHADOW_DISC[i].x * rotation.x - SHADOW_DISC[i].y * rotation.y,
-                           SHADOW_DISC[i].x * rotation.y + SHADOW_DISC[i].y * rotation.x);
+        vec2 offset = vogel_disc(i, taps, angle);
         vec2 tap = shadow_tile_clamp(uv * shadows.params.y + offset * radius * texel, texel);
         total += texture(atlas, vec3(tile + tap, reference));
     }
@@ -111,7 +119,7 @@ float shadow_filter(sampler2DShadow atlas, int cascade, vec2 uv, float reference
 
 // One cascade's soft visibility: measure the penumbra, then filter over it.
 float sample_shadow_cascade(sampler2DShadow atlas, sampler2D depth_atlas, int cascade,
-                            vec3 position, float slope, vec2 rotation)
+                            vec3 position, float slope, float angle, bool stable)
 {
     vec4 light_clip = shadows.cascade_view_projection[cascade] * vec4(position, 1.0);
     vec3 light = light_clip.xyz / light_clip.w;
@@ -132,7 +140,7 @@ float sample_shadow_cascade(sampler2DShadow atlas, sampler2D depth_atlas, int ca
     // Search over the widest penumbra this cascade could produce, so a high blocker is
     // still found; anything narrower would clip the search before the filter.
     float blocker = shadow_blocker_depth(depth_atlas, cascade, uv, reference, texel,
-                                         max_radius, rotation);
+                                         max_radius, angle, stable);
     if (blocker < 0.0)
         return 1.0; // nothing above this point at all
 
@@ -142,7 +150,7 @@ float sample_shadow_cascade(sampler2DShadow atlas, sampler2D depth_atlas, int ca
     float gap = max(reference - blocker, 0.0) * shadows.depth_range[cascade];
     float penumbra = gap * shadows.filter_size.z / max(shadows.texel_size[cascade], 1e-5);
     float radius = clamp(penumbra, min_radius, max_radius);
-    return shadow_filter(atlas, cascade, uv, reference, texel, radius, rotation);
+    return shadow_filter(atlas, cascade, uv, reference, texel, radius, angle, stable);
 }
 
 // The sun's visibility at a shaded point, across the whole cascade set.
@@ -155,25 +163,31 @@ float sample_shadow_cascade(sampler2DShadow atlas, sampler2D depth_atlas, int ca
 //
 // The last cascade fades out rather than ending, and neighbouring cascades cross-fade
 // over a band, so neither boundary reads as a line drawn across the ground.
+// @p stable selects how the per-pixel filter rotation advances. Meshes pass false: the
+// rotation changes each frame so the temporal resolve averages the residual grain into a
+// smooth penumbra. The analytic ground passes true: it is a no-geometry surface the
+// resolve reprojects as if at infinity, so under camera translation its history is
+// rejected and a frame-varying rotation would read as raw, unresolved speckle — a
+// stable screen-space rotation (paired with the Vogel smoothness floor above) gives it a
+// steady soft penumbra instead.
 float sample_sun_shadow(sampler2DShadow atlas, sampler2D depth_atlas, vec3 position,
-                        vec3 normal, vec3 light_dir, float view_depth)
+                        vec3 normal, vec3 light_dir, float view_depth, bool stable)
 {
     if (shadows.flags.x < 0.5)
         return 1.0;
 
-    // Rotating the disc per pixel turns what would be a repeated sixteen-tap pattern into
-    // noise, which the temporal resolve then averages into a smooth penumbra. That is far
-    // cheaper than the tap count it would take to be smooth on its own — but only if the
-    // rotation actually changes each frame: a rotation hashed from the pixel alone is the
-    // same every frame, and the resolve converges onto the speckle instead of through it.
-    float angle = temporal_dither(gl_FragCoord.xy) * 6.28318530718;
-    vec2 rotation = vec2(cos(angle), sin(angle));
+    // The Vogel disc turns the tap set into an even, low-discrepancy spread; the rotation
+    // decorrelates it per pixel. Frame-varying for the temporal resolve to average, or a
+    // frame-static hash where there is no resolve to average it (the ground).
+    float angle = (stable ? interleaved_gradient_noise(gl_FragCoord.xy)
+                          : temporal_dither(gl_FragCoord.xy)) *
+                  6.28318530718;
 
     int cascade = select_shadow_cascade(view_depth);
     float slope = clamp(1.0 - abs(dot(normal, light_dir)), 0.0, 1.0);
     vec3 offset_position = position + normal * shadows.texel_size[cascade] * shadows.bias.y;
     float visibility =
-        sample_shadow_cascade(atlas, depth_atlas, cascade, offset_position, slope, rotation);
+        sample_shadow_cascade(atlas, depth_atlas, cascade, offset_position, slope, angle, stable);
 
     int count = int(shadows.params.x);
     float far = shadows.splits[cascade];
@@ -183,7 +197,7 @@ float sample_sun_shadow(sampler2DShadow atlas, sampler2D depth_atlas, vec3 posit
         vec3 next_position =
             position + normal * shadows.texel_size[cascade + 1] * shadows.bias.y;
         float next = sample_shadow_cascade(atlas, depth_atlas, cascade + 1, next_position,
-                                           slope, rotation);
+                                           slope, angle, stable);
         visibility = mix(visibility, next, clamp((view_depth - (far - band)) / band, 0.0, 1.0));
     }
     else if (cascade + 1 == count)

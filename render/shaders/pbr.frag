@@ -47,7 +47,12 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 cloud_deck_d[6];
 } scene;
 
+// The bindless texture heap (set 1). Declared before the clustered-lighting include
+// because that file's decal projection samples decal albedo/ORM maps straight from it.
+layout(set = 1, binding = 0) uniform sampler2D bindless_textures[];
+
 #include "cloud_shadow_common.glsl"
+#include "clustered_lighting.glsl"
 
 struct GpuMaterial
 {
@@ -81,6 +86,8 @@ layout(set = 0, binding = 12) uniform sampler2D shadow_atlas_depth;
 layout(set = 0, binding = 4) uniform sampler2D ray_shadow_texture;
 layout(set = 0, binding = 5) uniform sampler2D contact_shadow_texture;
 layout(set = 0, binding = 6) uniform sampler2D cloud_weather_texture;
+// The frame's resolved ambient occlusion: world-space bent normal (rgb), visibility (a).
+layout(set = 0, binding = 23) uniform sampler2D ao_texture;
 
 // The environment's diffuse ambient as 9 spherical-harmonic coefficients, projected from
 // the same captured cube the specular chain comes from: nine storage reads and a degree-two
@@ -110,7 +117,19 @@ vec3 evaluate_sh(vec3 n)
     return max(result, vec3(0.0)); // clamp the small negative lobe SH can ring into
 }
 
-layout(set = 1, binding = 0) uniform sampler2D bindless_textures[];
+// Reflection visibility against the GTAO bent-normal cone. The bent normal is the average
+// unoccluded direction and the visibility sets the open cone's aperture; the reflection
+// lobe's roughness widens it, and a reflection ray leaving that cone is attenuated. A
+// bounded approximation of the cone-cone intersection: a mirror reflection pointing into
+// the occluded hemisphere is dimmed, a rough lobe that mostly overlaps the opening is not.
+float bent_reflection_visibility(vec3 R, vec3 bent_n, float visibility, float roughness)
+{
+    const float HALF_PI = 1.57079632679;
+    float aperture = HALF_PI * clamp(visibility, 0.0, 1.0);
+    float lobe = roughness * HALF_PI + 0.08;
+    float between = acos(clamp(dot(bent_n, R), -1.0, 1.0));
+    return clamp((aperture + lobe - between) / (2.0 * lobe), 0.0, 1.0);
+}
 
 layout(push_constant) uniform Push
 {
@@ -136,6 +155,7 @@ layout(location = 7) in vec4 v_previous_clip;
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out uint out_id;
 layout(location = 2) out vec2 out_velocity;
+layout(location = 3) out vec2 out_gbuffer; // r = roughness, g = F0, for screen-space reflections
 
 #define MATERIAL_HAS_PARALLAX      (1u << 0)
 #define MATERIAL_PACKED_OCCLUSION  (1u << 1)
@@ -320,6 +340,14 @@ void main()
     if (dot(n, view_dir) < 0.0)
         n = normalize(mix(n, geometric_normal, 0.5));
 
+    // Clustered decals project onto the surface before shading, so their tint is lit like
+    // the material it overrides rather than pasted on after.
+    {
+        float decal_view_z = dot(scene.cam_forward.xyz, v_world_position);
+        apply_clustered_decals(gl_FragCoord.xy, decal_view_z, v_world_position, albedo,
+                               roughness, metallic, occlusion);
+    }
+
     vec3 light_dir = normalize(scene.sun_dir.xyz);
     vec3 half_vec = normalize(view_dir + light_dir);
     float n_dot_v = max(dot(n, view_dir), 1e-4);
@@ -361,7 +389,7 @@ void main()
             float view_depth = dot(scene.cam_forward.xyz, v_world_position);
             visibility *= sample_sun_shadow(shadow_atlas, shadow_atlas_depth,
                                             v_world_position, normalize(v_world_normal),
-                                            light_dir, view_depth);
+                                            light_dir, view_depth, false);
             if (shadows.flags.y > 0.5)
                 visibility *= texture(contact_shadow_texture, screen_uv).r;
         }
@@ -439,6 +467,24 @@ void main()
     vec3 direct = ((diffuse + specular) * clearcoat_attenuation + clearcoat_specular) *
                   radiance * n_dot_l * visibility;
 
+    // Clustered Forward+: add every punctual light whose froxel this pixel falls in.
+    // They shade with the base BRDF and their own windowed inverse-square (and spot
+    // cone) falloff; the froxel z-slice is keyed on the camera-relative view depth, the
+    // same quantity the cascade lookup above uses.
+    float cluster_view_z = dot(scene.cam_forward.xyz, v_world_position);
+    direct += accumulate_clustered_lighting(gl_FragCoord.xy, cluster_view_z, n, view_dir,
+                                            v_world_position, albedo, f0, roughness, metallic,
+                                            compensation);
+
+    // Screen-space ambient occlusion darkens only the indirect term — direct sunlight and
+    // punctual lights carry their own shadows — and folds in with the material's own
+    // occlusion map. The bent normal it also carries steers the specular occlusion below.
+    vec4 gtao_sample =
+        texture(ao_texture, gl_FragCoord.xy / max(temporal.resolution.xy, vec2(1.0)));
+    float ambient_visibility = gtao_sample.a;
+    vec3 bent_normal = gtao_sample.rgb;
+    float ao_combined = occlusion * ambient_visibility;
+
     // Image-based lighting: the prefiltered environment replaces the flat ambient
     // constant, which is what makes a metal read as metal at all.
     vec3 indirect;
@@ -449,17 +495,22 @@ void main()
         vec3 prefiltered = textureLod(specular_cube, reflection, mip).rgb;
         vec3 irradiance = evaluate_sh(n);
         vec3 fresnel_ibl = f_schlick_roughness(n_dot_v, f0, roughness);
-        float specular_ao = specular_occlusion(n_dot_v, occlusion, roughness);
+        // Specular occlusion from the combined AO, refined by the bent-normal cone so a
+        // reflection pointing into the occluded hemisphere loses its indirect highlight.
+        float specular_ao = specular_occlusion(n_dot_v, ao_combined, roughness);
+        if (dot(bent_normal, bent_normal) > 0.01)
+            specular_ao *= bent_reflection_visibility(reflection, normalize(bent_normal),
+                                                      ambient_visibility, roughness);
 
         vec3 indirect_diffuse = irradiance * albedo * (1.0 - metallic) *
-                                (vec3(1.0) - fresnel_ibl) * occlusion;
+                                (vec3(1.0) - fresnel_ibl) * ao_combined;
         vec3 indirect_specular = prefiltered * (fresnel_ibl * dfg.x + dfg.y) * compensation *
                                  specular_ao;
         indirect = (indirect_diffuse + indirect_specular) * scene.ibl_params.x;
     }
     else
     {
-        indirect = scene.ambient.xyz * albedo * occlusion;
+        indirect = scene.ambient.xyz * albedo * ao_combined;
     }
 
     vec3 emissive = vec3(0.0);
@@ -478,6 +529,10 @@ void main()
 
     out_color = vec4(direct + indirect + emissive, base.a);
     out_id = pc.entity_id;
+    // The reflection G-buffer: the SSR trace reads roughness to decide whether this surface
+    // reflects and F0 to weight it. F0 is scalar here (its luminance) — a metal's tinted
+    // reflection is a later refinement — and metals reflect regardless of the low base roughness.
+    out_gbuffer = vec2(roughness, max(max(f0.r, f0.g), f0.b));
     // Measured from the geometric position, not the parallax-displaced one: the
     // displacement is a shading trick with no surface behind it to reproject.
     out_velocity = motion_vector(v_current_clip, v_previous_clip);

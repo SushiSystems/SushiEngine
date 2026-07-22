@@ -45,6 +45,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/render/light.hpp>
 #include <SushiEngine/sim/components.hpp>
 
 namespace SushiEngine
@@ -207,6 +208,45 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The authorable parameters of a punctual light on an entity.
+         *
+         * The light's *placement* is the entity's Transform — position for a point
+         * light, position plus the local -Z aim for a spot — so only its radiometric and
+         * cone properties live here. @c intensity is a raw radiance scale on the same
+         * footing as the sun's, not a photometric unit (physical camera units arrive with
+         * auto-exposure). Cone angles are authored in degrees; the renderer converts.
+         */
+        struct LightParams
+        {
+            Vector3 color{Vector3{1.0, 1.0, 1.0}}; /**< Linear light colour. */
+            float intensity = 20.0f;               /**< Radiance scale (HDR; tonemapped later). */
+            float range = 10.0f;                   /**< Metres the windowed falloff reaches zero at. */
+            bool is_spot = false;                  /**< Spot cone (true) or omnidirectional point (false). */
+            float inner_degrees = 20.0f;           /**< Spot inner half-angle, degrees (full brightness). */
+            float outer_degrees = 35.0f;           /**< Spot outer half-angle, degrees (dark beyond). */
+            bool casts_shadows = false;            /**< Write a shadow map (spot lights only for now). */
+        };
+
+        /**
+         * @brief The authorable parameters of a projected box decal on an entity.
+         *
+         * The decal's placement and orientation are the entity's Transform (position and
+         * rotation), the same way a light's are; only its box size, tint, opacity, and
+         * optional maps live here. The box projects along the entity's local forward axis.
+         * With no maps set it is a flat tint; an albedo/ORM map projects real imagery and
+         * surface response along the same box (loaded through the asset library like a
+         * material's maps).
+         */
+        struct DecalParams
+        {
+            Vector3 color{Vector3{0.5, 0.1, 0.1}};        /**< Linear tint blended onto the surface. */
+            Vector3 half_extents{Vector3{1.0, 1.0, 0.5}}; /**< Box half-size along right/up/forward, metres. */
+            float opacity = 1.0f;                         /**< Blend weight of the tint, [0, 1]. */
+            Render::TextureId albedo_map = Render::INVALID_TEXTURE; /**< Projected albedo imagery (optional). */
+            Render::TextureId orm_map = Render::INVALID_TEXTURE;    /**< Projected occlusion-roughness-metallic (optional). */
+        };
+
+        /**
          * @brief The authorable parameters of a "Collider" entity: its collision volume.
          *
          * Pure authoring data today: no narrowphase or contact solver reads it yet,
@@ -344,6 +384,8 @@ namespace SushiEngine
             bool has_camera = false;                     /**< Whether any active camera resolved this frame; false means nothing should be drawn as "the game". */
             std::vector<ClothInstance> cloth_instances;  /**< Every simulated cloth grid this frame, as a wireframe topology. */
             std::vector<Vector3> cloth_vertices;         /**< World-space points for every @ref cloth_instances entry, concatenated. */
+            std::vector<Render::PunctualLight> lights;   /**< Every punctual light this frame, placed by its entity's transform. */
+            std::vector<Render::Decal> decals;           /**< Every projected decal this frame, placed by its entity's transform. */
             Render::Environment environment;             /**< The sun, WGS84 planet, atmosphere, clouds, and stars lighting this frame. */
         };
 
@@ -663,6 +705,72 @@ namespace SushiEngine
                  * ARCHITECTURE.md §4.2).
                  */
                 virtual std::vector<Vector3> cloth_particle_positions(EntityId id) const = 0;
+
+                /** @brief Whether @p id carries a punctual light. */
+                virtual bool has_light(EntityId id) const noexcept = 0;
+
+                /** @brief The light parameters of @p id, or defaults if it carries none. */
+                virtual LightParams light_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Updates the light parameters of a light-bearing entity.
+                 * @param id     The entity to update; a no-op if it carries no light.
+                 * @param params The new radiometric and cone parameters.
+                 */
+                virtual void set_light_params(EntityId id, const LightParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a punctual light on an existing entity.
+                 *
+                 * Applied immediately (a light is host bookkeeping, not a physics-world
+                 * rebuild): the next extract carries it into @ref RenderScene::lights.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should carry a light after this call.
+                 */
+                virtual void set_has_light(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Creates a bare entity carrying a punctual light.
+                 *
+                 * No Shape or Renderer — a light is not drawn — just a Transform that
+                 * places and (for a spot) aims it, the same way a mesh instance is placed.
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create_light(const std::string& name) = 0;
+
+                /** @brief Whether @p id carries a projected decal. */
+                virtual bool has_decal(EntityId id) const noexcept = 0;
+
+                /** @brief The decal parameters of @p id, or defaults if it carries none. */
+                virtual DecalParams decal_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Updates the decal parameters of a decal-bearing entity.
+                 * @param id     The entity to update; a no-op if it carries no decal.
+                 * @param params The new tint, box size, and opacity.
+                 */
+                virtual void set_decal_params(EntityId id, const DecalParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a projected decal on an existing entity.
+                 * @param id    The entity to update.
+                 * @param value Whether it should carry a decal after this call.
+                 */
+                virtual void set_has_decal(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Creates a bare entity carrying a projected decal.
+                 *
+                 * No Shape or Renderer — a decal is not drawn as geometry — just a Transform
+                 * that places and aims the projection box.
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create_decal(const std::string& name) = 0;
 
                 /**
                  * @brief Creates a Box entity: a Shape plus a matching Collider.

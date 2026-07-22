@@ -32,6 +32,8 @@
 #include "frame/frame_context.hpp"
 #include "geometry/cloth_buffers.hpp"
 #include "geometry/mesh_registry.hpp"
+#include "lighting/cluster_config.hpp"
+#include "lighting/light_system.hpp"
 #include "material/material_system.hpp"
 #include "scene/motion_system.hpp"
 #include "passes/ibl_pass.hpp"
@@ -158,10 +160,11 @@ namespace SushiEngine
                     desc.stencil.compareMask = 0xFF;
                     desc.stencil.writeMask = 0xFF;
                     desc.dynamic_stencil_reference = VK_TRUE;
-                    desc.color_count = 3;
+                    desc.color_count = 4;
                     desc.color_formats[0] = Frame::HDR_FORMAT;
                     desc.color_formats[1] = Frame::ID_FORMAT;
                     desc.color_formats[2] = Frame::VELOCITY_FORMAT;
+                    desc.color_formats[3] = Frame::GBUFFER_FORMAT;
                     desc.depth_format = Frame::DEPTH_FORMAT;
                     desc.stencil_format = Frame::DEPTH_FORMAT;
                     return desc;
@@ -173,10 +176,11 @@ namespace SushiEngine
                                    Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
                                    Geometry::ClothBuffers& cloth,
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
-                               Textures::CloudNoise& noise, IblPass& ibl)
+                               Textures::CloudNoise& noise, IblPass& ibl,
+                               Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   meshes_(meshes), cloth_(cloth), materials_(materials), motion_(motion),
-                  noise_(noise), ibl_(ibl)
+                  noise_(noise), ibl_(ibl), lights_(lights)
             {
                 create_pipelines();
             }
@@ -350,6 +354,11 @@ namespace SushiEngine
                 // it with a view-ray reprojection wherever the depth says nothing is
                 // there, so this value is only ever read as "no geometry moved here".
                 Graph::ClearColor velocity_clear;
+                // Where no surface draws, the reflection G-buffer reads fully rough so the
+                // SSR trace never reflects off the cleared background.
+                Graph::ClearColor gbuffer_clear;
+                gbuffer_clear.float32[0] = 1.0f;  // roughness
+                gbuffer_clear.float32[1] = 0.04f; // dielectric F0
 
                 graph.add_pass(
                     "opaque",
@@ -361,6 +370,8 @@ namespace SushiEngine
                                                  id_clear);
                         builder.color_attachment(2, frame.targets.velocity,
                                                  Graph::AttachmentLoad::Clear, velocity_clear);
+                        builder.color_attachment(3, frame.targets.gbuffer,
+                                                 Graph::AttachmentLoad::Clear, gbuffer_clear);
                         // The prepass already filled this, so it is loaded rather than
                         // cleared; the depths written here are recomputed by the same
                         // vertex shader and therefore identical, and what the test buys
@@ -377,6 +388,18 @@ namespace SushiEngine
                                      Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.ray_shadow,
                                      Graph::TextureAccess::SampledFragment);
+                        // The froxel grid the cull pass built: read here so the graph
+                        // derives the compute→fragment barrier that makes the light lists
+                        // visible before shading loops them.
+                        builder.read(frame.targets.cluster_grid,
+                                     Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.light_index,
+                                     Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.light_shadow_atlas,
+                                     Graph::TextureAccess::SampledFragment);
+                        builder.read(frame.targets.decal_grid, Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.decal_index, Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.ao, Graph::TextureAccess::SampledFragment);
                     },
                     [this, &frame, cloth, cloth_ranges, instance_materials, strand_materials,
                      grid_motion, instance_motions,
@@ -412,6 +435,42 @@ namespace SushiEngine
                                        sizeof(Scene::ShadowUniforms));
                         writer.storage(Scene::SceneLayout::IBL_SH_BINDING, ibl_.sh_buffer(),
                                        IblPass::sh_buffer_bytes());
+                        // The clustered light engine's four bindings: the light array and
+                        // config block are host-written and bound directly (like the
+                        // material array); the count grid and index list are the graph
+                        // transients the cull pass wrote this frame.
+                        writer.storage(Scene::SceneLayout::LIGHT_BINDING, lights_.light_buffer(),
+                                       lights_.light_buffer_range());
+                        writer.storage(Scene::SceneLayout::CLUSTER_GRID_BINDING,
+                                       context.buffer(frame.targets.cluster_grid),
+                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
+                        writer.storage(Scene::SceneLayout::LIGHT_INDEX_BINDING,
+                                       context.buffer(frame.targets.light_index),
+                                       Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
+                        writer.uniform(Scene::SceneLayout::CLUSTER_CONFIG_BINDING,
+                                       lights_.config_buffer(), lights_.config_buffer_range());
+                        // Punctual spot shadows: the atlas through the same comparison
+                        // sampler the sun cascades use, and the per-caster matrix buffer.
+                        writer.image(Scene::SceneLayout::LIGHT_SHADOW_ATLAS_BINDING,
+                                     context.sampled_view(frame.targets.light_shadow_atlas),
+                                     ShadowPass::atlas_sampler(*frame.samplers));
+                        writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
+                                       lights_.shadow_buffer(), lights_.shadow_buffer_range());
+                        // Clustered decals: the decal array (host-written, bound directly)
+                        // and the count grid + index list the cull pass wrote this frame.
+                        writer.storage(Scene::SceneLayout::DECAL_BINDING, lights_.decal_buffer(),
+                                       lights_.decal_buffer_range());
+                        writer.storage(Scene::SceneLayout::DECAL_GRID_BINDING,
+                                       context.buffer(frame.targets.decal_grid),
+                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
+                        writer.storage(Scene::SceneLayout::DECAL_INDEX_BINDING,
+                                       context.buffer(frame.targets.decal_index),
+                                       Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t));
+                        // The resolved ambient occlusion the shading pass multiplies its
+                        // indirect diffuse and specular by.
+                        writer.image(Scene::SceneLayout::AO_BINDING,
+                                     context.sampled_view(frame.targets.ao),
+                                     frame.samplers->get(Resources::SamplerDesc{}));
                         writer.commit(cmd, frame.layout->pipeline_layout());
                         frame.layout->bind_heap(cmd);
 

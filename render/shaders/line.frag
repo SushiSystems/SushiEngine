@@ -27,11 +27,13 @@ layout(location = 7) in vec4 v_previous_clip;
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out uint out_id;
 layout(location = 2) out vec2 out_velocity;
+layout(location = 3) out vec2 out_gbuffer;
 
 void main()
 {
     out_color = vec4(pc.albedo_metallic.xyz, 1.0);
     out_id = 0u;
+    out_gbuffer = vec2(1.0, 0.04); // fully rough: the grid never reflects
     // The grid is static, so this is the camera's own motion — which is exactly what
     // the temporal resolve needs to keep the lines from smearing as the camera turns.
     out_velocity = motion_vector(v_current_clip, v_previous_clip);

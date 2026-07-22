@@ -24,6 +24,8 @@
 #include "shader_catalogue.hpp"
 
 #include "brdf_lut.comp.h"
+#include "cluster_build.comp.h"
+#include "light_shadow.vert.h"
 #include "cloud.frag.h"
 #include "cloud_composite.frag.h"
 #include "contact_shadow.frag.h"
@@ -31,6 +33,11 @@
 #include "cloud_noise_weather.comp.h"
 #include "fullscreen.vert.h"
 #include "fxaa.frag.h"
+#include "gtao.comp.h"
+#include "gtao_resolve.frag.h"
+#include "ground_shadow_resolve.frag.h"
+#include "hiz.comp.h"
+#include "ssr.frag.h"
 #include "ibl_irradiance.comp.h"
 #include "ibl_prefilter.comp.h"
 #include "sh_project.comp.h"
@@ -104,6 +111,22 @@ namespace SushiEngine
                  Shaders::brdf_lut_comp_spv_word_count, "brdf_lut.comp"},
                 {"sh_project.comp", ShaderStage::Compute, Shaders::sh_project_comp_spv,
                  Shaders::sh_project_comp_spv_word_count, "sh_project.comp"},
+                {"cluster_build.comp", ShaderStage::Compute, Shaders::cluster_build_comp_spv,
+                 Shaders::cluster_build_comp_spv_word_count, "cluster_build.comp"},
+                {"light_shadow.vert", ShaderStage::Vertex, Shaders::light_shadow_vert_spv,
+                 Shaders::light_shadow_vert_spv_word_count, "light_shadow.vert"},
+                {"gtao.comp", ShaderStage::Compute, Shaders::gtao_comp_spv,
+                 Shaders::gtao_comp_spv_word_count, "gtao.comp"},
+                {"gtao_resolve.frag", ShaderStage::Fragment, Shaders::gtao_resolve_frag_spv,
+                 Shaders::gtao_resolve_frag_spv_word_count, "gtao_resolve.frag"},
+                {"hiz.comp", ShaderStage::Compute, Shaders::hiz_comp_spv,
+                 Shaders::hiz_comp_spv_word_count, "hiz.comp"},
+                {"ssr.frag", ShaderStage::Fragment, Shaders::ssr_frag_spv,
+                 Shaders::ssr_frag_spv_word_count, "ssr.frag"},
+                {"ground_shadow_resolve.frag", ShaderStage::Fragment,
+                 Shaders::ground_shadow_resolve_frag_spv,
+                 Shaders::ground_shadow_resolve_frag_spv_word_count,
+                 "ground_shadow_resolve.frag"},
             };
         } // namespace
 

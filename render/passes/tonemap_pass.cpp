@@ -77,7 +77,7 @@ namespace SushiEngine
                 // Whatever the frame resolved to: the temporal resolve's output when it
                 // ran, the composited scene straight through when it did not.
                 const Graph::TextureHandle source =
-                    frame.temporal_enabled() ? frame.targets.resolved : frame.targets.scene;
+                    frame.temporal_enabled() ? frame.targets.resolved : frame.targets.scene_final;
 
                 graph.add_pass(
                     "tonemap",

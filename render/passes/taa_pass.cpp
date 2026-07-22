@@ -83,7 +83,8 @@ namespace SushiEngine
                     {
                         builder.color_attachment(0, frame.targets.resolved,
                                                  Graph::AttachmentLoad::Discard);
-                        builder.read(frame.targets.scene, Graph::TextureAccess::SampledFragment);
+                        builder.read(frame.targets.scene_final,
+                                     Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.velocity,
                                      Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);
@@ -106,11 +107,11 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
-                        writer.image(1, context.sampled_view(frame.targets.scene), sampler);
+                        writer.image(1, context.sampled_view(frame.targets.scene_final), sampler);
                         writer.image(2,
                                      context.sampled_view(frame.history_valid
                                                               ? frame.targets.history
-                                                              : frame.targets.scene),
+                                                              : frame.targets.scene_final),
                                      sampler);
                         writer.image(3, context.sampled_view(frame.targets.velocity), sampler);
                         writer.image(4, context.sampled_view(frame.targets.depth), sampler);

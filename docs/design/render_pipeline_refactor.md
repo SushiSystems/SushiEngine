@@ -1,9 +1,30 @@
 # Render Pipeline Refactor — Toward an AAA, Performance-First Renderer
 
 Status: **Living design document.** Phases 0, 1, 2 and 5 are **shipped and verified
-against source** (see §3 — Completed). **Phase 3 is in progress:** items 3.1 (the tier
-contract / `QualityParams`), 3.2 (`VulkanSceneView` → `ViewResources` extraction), and
-3.7 (IBL diffuse → SH-9) are **shipped**; 3.3–3.6 remain. This revision re-audits the codebase, folds in
+against source** (see §3 — Completed). **Phase 3 is shipped:** items 3.1 (the tier
+contract / `QualityParams`), 3.2 (`VulkanSceneView` → `ViewResources` extraction), 3.3
+(background PSO optimizer), 3.4 (Vulkan 1.4 floor), 3.5 (descriptor-writer seam), and
+3.7 (IBL diffuse → SH-9) are **shipped**; 3.6 (the Slang decision) is now **decided —
+deferred with recorded rationale** (GLSL stays; revisit at Phase 6). **Phase 4 is
+essentially complete:** the clustered Forward+ core (4.1–4.3), **per-light shadows**
+(4.4 — spot *and* point-light cube maps, soft Vogel PCF), **clustered decals** (4.5 —
+tint *and* bindless albedo/ORM textures), the **Lighting window** (4.6), and the
+**emissive→bloom seam** (4.7, verified HDR) are all **shipped**, each tier-wired and
+authored as a per-entity component. Remaining in Phase 4 are opt-in refinements, not
+gaps: area/IES lights (deferred by design to a later increment), projected normal-map
+decals, and shadow caching / screen-coverage quadtree tiles / adaptive per-light PCSS.
+Alongside, a **rendering-quality pass** landed: Vogel-disc shadow PCF, a temporally
+stable analytic-ground shadow, softened punctual shadows, and a TPDF output dither —
+replacing the visible dithering/banding with smooth, temporally-stable results (an early
+down-payment on §5.1 blue-noise and §9.6 dither). **Phase 5 is complete for its shippable
+scope:** the shared noise source is consolidated into one `blue_noise.glsl` (§5.1), **GTAO**
+(§5.2) ships — half-resolution horizon occlusion with a bent normal, joint-bilateral-upsampled
+and frame-stable so it reads smooth, feeding the indirect diffuse and a bent-normal specular
+occlusion (§5.5) — and **hi-Z + screen-space reflections** (§5.3) ship: a pass-owned
+nearest-depth pyramid, a thin roughness/F0 G-buffer, and a smooth mirror trace folded into
+the scene. Local reflection probes (§5.4) are deferred with recorded rationale (they need the
+editor's visual loop to land a scene-capture path safely); the reflection chain functions
+without them via SSR plus the IBL fallback. This revision re-audits the codebase, folds in
 a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
 GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
 AAA-complete phases. The guiding constraint is unchanged: the *red line between
@@ -286,22 +307,50 @@ Pays §1.2's debt before new systems multiply it, and locks the platform baselin
    compile, submit) and the 14-pass constructor init list — so the module boundary,
    not a sub-300 line count, is the real acceptance here; fragmenting `render()` further
    would trade clarity for a number.
-3. **PSO hitch elimination**: background link-time-optimized pipeline recompile +
-   swap on top of the existing GPL fast link; pipeline usage harvesting to a
-   precache list warmed at startup (the Khronos/Epic-documented recipe). Target:
-   zero first-use hitches in a captured flight.
-4. **Vulkan 1.4 floor** (drivers are conformant industry-wide since 2025): promote
-   maintenance5/6, `host_image_copy` for texture streaming, push descriptors;
-   delete the fallbacks they obsolete.
-5. **Binding-layer future-proofing**: isolate every descriptor-set touch behind the
-   existing heap/allocator seams so the announced `VK_EXT_descriptor_heap`
-   (Roadmap 2026) is a backend swap, not a refactor. Do **not** adopt
-   `VK_EXT_descriptor_buffer` (dead end).
-6. **Shading-language decision**: evaluate migrating `render/shaders/` to **Slang**
-   (Khronos-hosted, Valve-shipped, generics/modules, SPIR-V-first) while the shader
-   count is still ~30. If adopted, the hot-reload path and build tool compile Slang;
-   GLSL includes are ported module-by-module. If deferred, record why — the cost
-   only grows.
+3. **PSO hitch elimination — background half ✓ shipped, precache list open.**
+   `GraphicsPipelineFactory` hands out a swappable `PipelineHandle`: a graphics
+   pipeline is fast-linked (GPL) for instant availability, then a background thread
+   rebuilds it fully optimized (monolithic) and atomically swaps it into the handle
+   (release/acquire on the handle's pointer); the superseded pipeline retires after a
+   frames-in-flight delay sized past every view sharing the factory's clock. Passes
+   resolve the handle at bind time and the factory owns every graphics pipeline. Not
+   routed through SushiRuntime: PSO compile is a driver call, not GPU-computable work.
+   Still open: pipeline usage harvesting to a precache list warmed at startup — a
+   never-before-seen permutation still creates its GPL pipeline synchronously on
+   first use today, so "zero first-use hitches in a captured flight" is not yet fully
+   met.
+4. **Vulkan 1.4 floor**: ✓ **Shipped.** Instance and device now require 1.4;
+   `maintenance5`/`maintenance6`/push descriptors are required features (mandatory in
+   1.4, no longer probed), `host_image_copy` is probed and stays optional. Texture
+   streaming gained a host-image-copy path: a CPU-built mip chain is copied straight
+   into the optimal-tiled image with no staging buffer, queue submit, or fence,
+   gated on `SHADER_READ_ONLY` actually appearing in the device's `pCopyDstLayouts`;
+   staging-plus-blit remains the fallback where it doesn't, and a superseded
+   host-copied image retires on the same shared-clock frames-in-flight delay as the
+   PSO swap above (sized past every view, not just one). Scene set 0 converted to
+   push descriptors (`SceneLayout` + `SceneSetWriter`); the per-frame allocate/
+   update/bind is gone across all eleven graphics passes. The fallbacks these
+   obsoleted are deleted.
+5. **Binding-layer future-proofing**: ✓ **Shipped.** New `DescriptorWriter` +
+   `bind_descriptor_set()` centralise every descriptor write and set bind — the
+   compute/RT/noise passes, `SceneSetWriter`, and `SceneLayout`'s bindless-heap bind
+   all route through it, so the announced `VK_EXT_descriptor_heap` (Roadmap 2026)
+   becomes a swap behind these two functions rather than a sweep of every call site.
+   `VK_EXT_descriptor_buffer` is deliberately **not** adopted (dead end).
+6. **Shading-language decision**: ✓ **Decided — deferred, rationale recorded.** GLSL
+   stays. The reasoning: the shader set (~35 files) already has a working module system —
+   `#include` composition (`shadow_common`, `temporal_common`, `clustered_lighting`,
+   `pbr_common`, `shadow_sampling`), offline SPIR-V-header compilation via
+   `render/tools/shader_compiler`, and in-process glslang hot-reload — so the structural
+   wins Slang offers (modules, includes) are largely already in hand. Slang's *distinctive*
+   wins (generics, interfaces, multi-backend codegen) pay off when a real permutation
+   explosion or a second target (HLSL/WGSL) appears; this engine is SPIR-V/Vulkan-only and
+   has neither yet. Against that, the migration is horizontal and unbudgeted: rewrite the
+   compile tool around `slangc`, re-plumb the hot-reload path off glslang, and port every
+   shader while preserving the bit-exact `mesh.vert`↔depth-prepass parity invariant — all
+   with no user-visible feature. **Revisit trigger:** adopt Slang when generics would
+   remove real duplication (the Phase 6 GI-tracer strategy tiers, or a material-permutation
+   blowup) or when a non-SPIR-V backend is required — evaluated again at Phase 6, not before.
 7. **IBL diffuse → SH-9** (from the audit): ✓ **Shipped.** A new `sh_project.comp`
    projects the captured environment radiance into 9 L2 SH coefficients in one
    change-gated workgroup dispatch inside the IBL build, with the cosine-lobe band
@@ -320,31 +369,87 @@ removes the worst CPU spikes (PSO links).
 ### Phase 4 — The light engine: clustered Forward+ (the structural gap)
 
 The scene cannot exceed one light today; this phase makes light count a content
-decision. New module `render/lighting/`.
+decision. New module `render/lighting/`. **Shipped:** 4.1–4.7 (the clustered core,
+spot + point-light shadows, tint + textured decals, the Lighting window, and the
+verified emissive→bloom seam). Only opt-in refinements remain (area/IES lights,
+normal-map decals, shadow caching / quadtree / adaptive PCSS).
 
-1. **Light list**: point / spot / directional-secondary / area (rect, tube) lights
-   as engine objects — color, intensity in physical units (lumen/candela; the sun
-   stays lux), range by inverse-square with a windowed falloff, spot cones, IES
-   profiles and cookies (bindless textures). CPU side is a plain SoA; GPU side one
-   storage buffer.
-2. **Froxel cluster grid** (compute): view-frustum-aligned, ~16×9×24 base with
-   logarithmic Z slicing (matches the aerial-perspective froxels of Phase 7 so the
-   two share addressing), per-cluster light index list built each frame. Budget:
-   ≤0.3 ms at 1080p internal for 1k lights.
-3. **Forward+ shading path**: `pbr.frag` gains a cluster fetch + light loop with
-   the existing BRDF; specular occlusion and contact shadows apply per light where
-   meaningful. Sun path unchanged.
-4. **Per-light shadows**: one shared shadow **atlas** (like the CSM atlas —
-   one image, one pass, one profiler entry), quadtree-allocated tiles sized by
-   screen coverage, dormant-light caching (a static light's tile persists until it
-   or its casters move), spot = 1 tile, point = 6 or DPCF-paraboloid under tier.
-   PCF now; PCSS on High+.
-5. **Clustered decals**: project into the same froxel grid; sample in the opaque
-   pass before shading (albedo/normal/roughness overrides).
-6. **Editor Lighting window** (§2.4): sun/ephemeris driver, environment/IBL
-   source, shadow settings, and the punctual-light list with per-light everything.
-7. **Emissive → bloom seam**: emissive intensity already exists; verify HDR range
-   survives to Phase 9's bloom threshold.
+1. **Light list**: ✓ **Shipped (4A).** `PunctualLight` is a *record* in the public
+   `include/SushiEngine/render/light.hpp` — point / spot, color, a raw-radiance
+   `intensity` on the sun's footing (candela/lumen arrive with Phase 9 auto-exposure),
+   `range` with a windowed inverse-square falloff, and spot inner/outer cones. It
+   crosses the `render()` seam as a `const PunctualLight*` + count beside
+   `MeshInstance`/`ClothStrandView`, is authored as a **per-entity light component**
+   (`IWorldEditor::has_light`/`light_params`/`set_*`/`create_light`, Inspector + Create
+   menu, the cloth-component precedent), and packs into one grow-only per-slot storage
+   buffer (`LightSystem`, mirroring `MotionSystem` — positions made camera-relative in
+   double). Area (rect/tube), IES profiles, and cookies are deferred. *SOLID:* no
+   `ILightSource` — lights are data; the sun stays in `Environment`.
+2. **Froxel cluster grid** (compute): ✓ **Shipped (4A).** A fixed 16×9×24 grid with
+   logarithmic Z slicing (the Olsson mapping; same addressing the Phase 7 aerial
+   froxels will share). `cluster_build.comp` runs one invocation per cluster,
+   reconstructs the cluster's view-space AABB from its screen tile + depth slice, and
+   tests each light's bounding sphere against it. Each cluster owns a fixed slot of the
+   index list (`MAX_LIGHTS_PER_CLUSTER`), so the build needs **no global atomic and no
+   clear** — it writes an authoritative count, race-free. Grid + index list are graph
+   transients (`LightCullPass` writes, opaque reads, compute→fragment barrier derived);
+   the compacted-atomic build is a later refinement when froxel occupancy demands it.
+3. **Forward+ shading path**: ✓ **Shipped (4A).** `pbr.frag` includes
+   `clustered_lighting.glsl`, maps the pixel to its cluster from screen position + the
+   camera-relative view depth, and loops that cluster's lights with the existing base
+   BRDF (windowed inverse-square + spot cone), adding to the direct term. Four new
+   scene-set bindings (14–17: light buffer, count grid, index list, config UBO) carry
+   it; the sun path is unchanged. Per-light specular occlusion / contact shadows and the
+   advanced lobes stay a sun-path feature for now. Tier wiring: `LightEngineSettings`
+   (`max_lights`, `cluster_far_distance`) in `RenderSettings`, scaled per tier in
+   `resolve_quality` and surfaced in the Rendering panel's "Tier resolves to" tree.
+4. **Per-light shadows**: ✓ **Shipped — spot + point.** One shared depth **atlas**
+   (a 4×4 tile grid — one image, one `LightShadowPass`, one barrier), tiles claimed by
+   the first N shadow-casting lights up to a tier-scaled budget. A **spot** claims one
+   tile; a **point light** claims six — one 90° perspective face per cube direction,
+   rendered into six atlas tiles (the pass already loops tiles, so six faces cost no new
+   code) and selected in-shader by the fragment's dominant axis off the light
+   (`cube_shadow_face` + a base record in `cone.z`). Each caster's camera-relative
+   perspective light matrix (built in `LightSystem::assign_shadows`, a conventional depth
+   projection unlike the reverse-Z camera) lands in a per-frame shadow buffer at scene-set
+   binding 19; `light_shadow.vert` renders depth into the tile. `pbr.frag` filters it with
+   an **8-tap rotated Vogel PCF** (soft penumbra, not a single hard 2×2 tap) through the
+   comparison sampler (binding 18), the rotation frame-advanced so the temporal resolve
+   averages the residual. A caster whose tiles do not fit the budget is shaded unshadowed.
+   **Remaining:** quadtree tiles sized by screen coverage, dormant-light caching, and
+   adaptive PCSS (blocker search) on High+ — the atlas exposes only the comparison
+   sampler today, so a variable-penumbra search would need the raw-depth atlas bound too.
+5. **Clustered decals**: ✓ **Shipped — tint + textured.** Projected box decals culled
+   into the *same* froxel grid — `cluster_build.comp` gained a second sphere-vs-AABB pass
+   writing a parallel decal grid + index list (bindings 20–22), and `pbr.frag` projects
+   the fragment into each cluster decal's oriented box before shading, so the decal is
+   lit, not pasted. A decal carries optional **bindless albedo and ORM maps** (`Decal::
+   albedo_map`/`orm_map`, resolved to heap indices in `LightSystem::pack_decals` exactly
+   as a material's maps are, packed into a sixth GPU lane): the decal's local right/up
+   coordinates are the projection uv, the albedo texture's rgb replaces the tint and its
+   alpha cuts the silhouette, and the ORM map overrides occlusion/roughness/metallic where
+   it lands — so a decal reads as wet, rusted, or polished, not merely recoloured. With no
+   map set it is the flat tint. Authored as a per-entity Decal component (create menu,
+   Inspector with a path+Load texture field mirroring the material slots, copy/paste).
+   **Remaining:** projected **normal**-map decals (lane 21 is reserved for it) — they need
+   an orientation-signed tangent blend into the surface normal, a small follow-up.
+6. **Editor Lighting window** (§2.4): ✓ **Shipped.** A dedicated `draw_lighting_panel`
+   gathering the sun (elevation/azimuth/colour/intensity), the IBL source toggle +
+   intensity, the sun's cascade-shadow settings, the tier-resolved punctual/decal/atlas
+   budget, and the full punctual-light list — every light-bearing entity editable in
+   place with an Add Light button and select-to-entity. **Remaining:** a full ephemeris
+   driver surface and an authored decal list (decals live in the Inspector for now).
+7. **Emissive → bloom seam**: ✓ **Verified.** The emissive term is HDR end to end with
+   no clamp before where Phase 9's bloom will read it. Audited path: the editor authors an
+   HDR emissive colour + an intensity up to ×100; `MaterialSystem` packs `emissive =
+   colour × intensity` unclamped into the material SoA; `pbr.frag` adds `emissive` (map ×
+   packed colour) straight into `out_color` on the `R16G16B16A16_SFLOAT` HDR target; and
+   that float value flows unclamped through the sky/cloud composites and the TAA resolve
+   (all `HDR_FORMAT`) into `resolved` — the buffer bloom will threshold. The only clamp in
+   the chain is the ACES tonemap, which sits *after* the bloom seam. One noted Phase 9
+   decision (not a Phase 4 gap): TAA's firefly clip can dim an isolated bright emissive
+   texel; if that proves too aggressive for bloom, Phase 9 reads the pre-resolve HDR — a
+   bloom-input choice, made when bloom lands.
 
 *Performance notes:* clustered culling is the flat-cost foundation everything
 reuses; the atlas + caching keeps worst-case shadow cost bounded by tile budget,
@@ -355,28 +460,99 @@ polymorphic objects, they are records (data-oriented mandate).
 
 ### Phase 5 — Screen-space lighting quality: GTAO + SSR
 
-The two biggest per-pixel realism wins after shadows, both bounded-cost.
+The two biggest per-pixel realism wins after shadows, both bounded-cost. **Phase 5 is
+complete for its shippable scope:** the shared-noise consolidation (5.1), **GTAO** (5.2),
+**hi-Z + screen-space reflections** (5.3), and the **bent-normal specular occlusion** the
+audit calls for (5.5) are shipped and building; local **reflection probes** (5.4) are
+deferred with recorded rationale (below) — the reflection chain functions without them.
 
 1. **Blue-noise infrastructure first**: a shared spatiotemporal blue-noise
    texture/sequence (per-frame offset, TAA-aware) as a `render/resources/` asset —
    GTAO, SSR, contact shadows, dither, DoF, and the cloud march all consume the
-   same source (SRP; kills the per-pass ad-hoc hashes).
+   same source (SRP; kills the per-pass ad-hoc hashes). ◐ **The SRP consolidation
+   shipped:** a single `blue_noise.glsl` is now the one home for the interleaved-gradient
+   hash, its frame-advanced form, and the TPDF dither — `temporal_common.glsl` includes it
+   (keeping only the temporal-block-dependent phase/dither), and the two duplicate local
+   copies in `contact_shadow.frag` and `tonemap.frag` were deleted and routed through it;
+   the new GTAO pass draws its slice rotation from the same file. **Remaining:** swap the
+   hash for a *baked* spatiotemporal blue-noise texture asset (the source upgrade, not the
+   seam). *Earlier down-payment (2026-07):* the sun-shadow filter moved to a **Vogel disc**
+   (even coverage at any tap count, so low tiers stop speckling), the analytic ground took a
+   **frame-stable screen-space rotation** (it cannot be TAA-reprojected under translation,
+   so a frame-varying dither read as raw noise), and punctual shadows gained a soft rotated
+   Vogel PCF.
 2. **GTAO** (half-res, compute, async-ready): horizon-based with a **bent normal +
    visibility cone** output; spatial denoise + the TAA accumulates the rest.
    Feeds: diffuse AO (multiplies IBL/GI diffuse), **specular occlusion upgraded**
    from the material-AO approximation to bent-normal cone vs reflection cone.
    Budget: ≤0.5 ms at 1080p internal on the mid tier.
+   ✓ **Shipped.** New module-shaped pass `GtaoPass` (`render/passes/gtao_pass.*`) registers
+   two graph sub-passes: `gtao.comp` marches the depth prepass at half resolution — view
+   position and normal reconstructed from depth alone (no normal G-buffer exists), a few
+   **frame-stable** rotated horizon slices integrating the GTAO arc into a visibility and a
+   view-space **bent normal** (Jimenez 2016) — and `gtao_resolve.frag` **joint-bilateral
+   upsamples** that to full resolution (depth-weighted, so the AO does not halo across the
+   object boundaries the engine is being cleaned of) and rotates the bent normal into world
+   space. The rotation is frame-stable and the resolve denoises, so the result is smooth
+   without leaning on a temporal history to hide slice noise. The opaque pass samples it at
+   a new scene-set binding (**23**, `AO_BINDING`): `pbr.frag` multiplies its ambient/IBL
+   diffuse (and the flat-ambient fallback) by `occlusion × visibility` and occludes indirect
+   specular. Tier: `GtaoSettings` (`enabled/radius/intensity/power/slices/steps`) in
+   `RenderSettings`, slices+steps scaled per tier in `resolve_quality`. Direct light is
+   untouched — AO darkens only the indirect term. **Remaining refinement:** a dedicated
+   temporal accumulation (reproject via velocity) for even lower variance, and moving the
+   slice rotation onto the baked blue-noise once 5.1's asset lands.
 3. **Stochastic SSR**: hi-Z traced (needs the depth pyramid — build it here, it is
    also Phase 10's culling input; shared infrastructure, built once), GGX-jittered
    ray from the blue-noise sequence, half-res trace + neighborhood reuse +
    temporal accumulation (the FFX-SSSR shape), roughness-cutoff fade to IBL.
    Fallback chain: SSR hit → nearest reflection probe → sky IBL.
-   Budget: ≤1.2 ms at 1080p internal, High tier.
+   Budget: ≤1.2 ms at 1080p internal, High tier. ✓ **Shipped.** Three pieces:
+   (a) the **hi-Z pyramid** (`render/passes/hiz_pass.*` + `hiz.comp`) — a pass-owned
+   nearest-depth mip chain (the graph exposes no per-mip storage view, so it owns the image
+   and drives its own per-level barriers on the IblPass model), level 0 linearising the depth
+   prepass and each finer level the 2×2 minimum above it, sampled with `textureLod`, rebuilt
+   on resize, and reused by Phase 10 culling later; (b) a **thin reflection G-buffer**
+   (`GBUFFER_FORMAT` RG16F = roughness, scalar F0) the opaque pass writes as a fourth
+   attachment — `pbr.frag` fills it, the flat grid/outline shaders write fully-rough so they
+   never reflect — since there is no normal buffer and the trace reconstructs the geometric
+   normal from depth like GTAO; (c) the **trace + composite** (`ssr_pass.*` + `ssr.frag`),
+   a fullscreen pass after the cloud composite that mirror-traces each smooth surface's
+   reflection ray through the pyramid (linear march + binary refine), samples the lit scene
+   at the hit, and folds it back Fresnel-weighted into a `scene_reflected` target the resolve
+   reads via the `scene_final` indirection. **Deliberately a sharp mirror trace, no stochastic
+   jitter** — gated to smooth surfaces (rough keep IBL), so it stays at the engine's
+   shimmer-free bar rather than needing a temporal denoiser. Tier: `SsrSettings`
+   (`enabled/max_steps/thickness/roughness_cutoff/intensity`). **Remaining refinements:**
+   glossy reflections (roughness-mip prefilter of the scene colour), a proper hi-Z cell
+   traversal for the march (it samples level 0 today), metal reflection tint (F0 is scalar),
+   and the SSR→probe→sky fallback once probes (5.4) land — SSR currently just keeps the IBL
+   term where a ray misses.
 4. **Reflection probes**: box/sphere-projected local captures through the existing
    IBL capture path (it already renders the sky; point it at the scene), authored
-   in the editor, blended by proximity, camera-relative anchored.
+   in the editor, blended by proximity, camera-relative anchored. ○ **Deferred —
+   rationale recorded.** The reflection *chain* already functions without them: SSR
+   resolves on-screen reflections and the surface's own IBL specular is the off-screen
+   fallback, so probes are a fidelity increment (local geometry in reflections where a
+   ray leaves the screen), not a gap. Against that, they are the one item in this phase
+   that cannot be landed responsibly without the editor's visual loop: a local probe
+   must render the *scene* (not just the sky the IBL pass renders today) from an
+   arbitrary position into six cube faces, GGX-prefilter each, and blend by proximity —
+   a secondary geometry render path driven from a non-camera viewpoint, with six
+   face-orientation conventions and a prefilter/blend whose correctness is only
+   confirmable on screen. **Plan when picked up:** a `ReflectionProbe` record (position,
+   box/sphere extent, captured cube handle) authored as a per-entity component (the decal
+   component is the precedent); a capture pass that reuses `IblPass`'s cube + GGX-prefilter
+   machinery but renders the opaque + sky passes into each face from the probe eye
+   (camera-relative, so the probe rebases like every other cache); SSR's miss path and
+   `pbr.frag`'s specular IBL selecting the nearest probe's prefiltered cube before the sky
+   cube; a Lighting-window/inspector authoring surface. **Revisit trigger:** land with the
+   next block of visually-verified renderer work, when the editor loop is in use — not blind.
 5. **Specular-occlusion chain audit**: one documented path — GTAO cone → bent
    normal → probe/SSR/IBL — replacing today's scalar approximation everywhere.
+   ◐ **The GTAO→bent-normal half shipped** with 5.2 (`bent_reflection_visibility` in
+   `pbr.frag` occludes indirect specular against the bent-normal cone, above the scalar
+   Lagarde term); the probe/SSR ends of the chain arrive with 5.3/5.4.
 
 *Tier:* GTAO res + tap count; SSR res, max steps, roughness cutoff; probes
 static-only on Low. *SOLID:* both passes read the graph's depth/normal/velocity
@@ -476,7 +652,11 @@ repetition, crisp from ground to 20 km, flyable-through) are contractual there.
    slot — applied inside the tonemap pass (one fullscreen pass for the whole
    grade+map+encode chain).
 6. **Blue-noise dither** before every 8-bit quantize (kills the sky banding) —
-   consumes Phase 5's shared blue-noise.
+   consumes Phase 5's shared blue-noise. *Landed early (2026-07):* `tonemap.frag` now
+   applies a **triangular-PDF dither of one LSB** (two decorrelated interleaved-gradient
+   draws) before the UNORM write, static in screen space since the temporal resolve has
+   already run — the horizon/sky gradient no longer bands. Upgrading the source to the
+   shared blue-noise texture is the residual, in step with §5.1.
 7. **DoF** (gather-based bokeh, physical aperture) and **motion blur**
    (per-object + camera from the shipped velocity target), both tier-gated, both
    after TAA in the post chain.

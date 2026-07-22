@@ -62,6 +62,207 @@ namespace SushiEngine
                 return json{{"x", q.x}, {"y", q.y}, {"z", q.z}, {"w", q.w}};
             }
 
+            // The Environment fields an author edits in the Lighting/Environment panels
+            // (sun, atmosphere, ground, clouds, stars, night lighting, ambient, exposure,
+            // IBL). `bodies`/`sky_stars`/`dominant_*` are excluded: the ephemeris repopulates
+            // those every frame from SceneSkyState and are not author state.
+            json environment_to_json(const SushiEngine::Render::Environment& e)
+            {
+                json decks = json::array();
+                for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
+                {
+                    const SushiEngine::Render::CloudDeck& d = e.clouds.decks[i];
+                    decks.push_back(json{{"enabled", d.enabled},
+                                          {"genus", static_cast<std::uint32_t>(d.genus)},
+                                          {"coverage_bias", d.coverage_bias},
+                                          {"density_scale", d.density_scale}});
+                }
+
+                return json{
+                    {"sun",
+                     json{{"direction", vec3_to_json(e.sun.direction)},
+                          {"color", vec3_to_json(e.sun.color)},
+                          {"intensity", e.sun.intensity}}},
+                    {"planet_surface_style", static_cast<std::uint32_t>(e.planet_surface_style)},
+                    {"atmosphere",
+                     json{{"enabled", e.atmosphere.enabled},
+                          {"height", e.atmosphere.height},
+                          {"rayleigh_coefficient", vec3_to_json(e.atmosphere.rayleigh_coefficient)},
+                          {"mie_coefficient", e.atmosphere.mie_coefficient},
+                          {"mie_anisotropy", e.atmosphere.mie_anisotropy},
+                          {"rayleigh_scale_height", e.atmosphere.rayleigh_scale_height},
+                          {"mie_scale_height", e.atmosphere.mie_scale_height}}},
+                    {"surface",
+                     json{{"ground_albedo", vec3_to_json(e.surface.ground_albedo)},
+                          {"ocean_color", vec3_to_json(e.surface.ocean_color)},
+                          {"roughness", e.surface.roughness}}},
+                    {"clouds",
+                     json{{"enabled", e.clouds.enabled},
+                          {"light_absorption", e.clouds.light_absorption},
+                          {"forward_scattering", e.clouds.forward_scattering},
+                          {"powder_strength", e.clouds.powder_strength},
+                          {"ambient_strength", e.clouds.ambient_strength},
+                          {"ground_shadow_strength", e.clouds.ground_shadow_strength},
+                          {"weather_scale", e.clouds.weather_scale},
+                          {"evolution_rate", e.clouds.evolution_rate},
+                          {"decks", decks}}},
+                    {"stars",
+                     json{{"enabled", e.stars.enabled},
+                          {"brightness", e.stars.brightness},
+                          {"density", e.stars.density}}},
+                    {"night",
+                     json{{"enabled", e.night.enabled},
+                          {"moon_intensity", e.night.moon_intensity},
+                          {"star_intensity", e.night.star_intensity}}},
+                    {"ambient", vec3_to_json(e.ambient)},
+                    {"exposure", e.exposure},
+                    {"image_based_lighting", e.image_based_lighting},
+                    {"ibl_intensity", e.ibl_intensity}};
+            }
+
+            // Applies the persisted fields onto `environment`, leaving every field the JSON
+            // omits (including the ephemeris-owned fields never written above) at whatever
+            // value the caller passed in.
+            SushiEngine::Render::Environment environment_from_json(
+                const json& j, SushiEngine::Render::Environment environment)
+            {
+                if (!j.is_object())
+                    return environment;
+
+                if (j.contains("sun") && j["sun"].is_object())
+                {
+                    const json& s = j["sun"];
+                    if (s.contains("direction"))
+                        environment.sun.direction = vec3_from_json(s["direction"]);
+                    if (s.contains("color"))
+                        environment.sun.color = vec3_from_json(s["color"]);
+                    environment.sun.intensity = s.value("intensity", environment.sun.intensity);
+                }
+                environment.planet_surface_style = static_cast<SushiEngine::Render::SurfaceStyle>(
+                    j.value("planet_surface_style",
+                            static_cast<std::uint32_t>(environment.planet_surface_style)));
+                if (j.contains("atmosphere") && j["atmosphere"].is_object())
+                {
+                    const json& a = j["atmosphere"];
+                    environment.atmosphere.enabled = a.value("enabled", environment.atmosphere.enabled);
+                    environment.atmosphere.height = a.value("height", environment.atmosphere.height);
+                    if (a.contains("rayleigh_coefficient"))
+                        environment.atmosphere.rayleigh_coefficient =
+                            vec3_from_json(a["rayleigh_coefficient"]);
+                    environment.atmosphere.mie_coefficient =
+                        a.value("mie_coefficient", environment.atmosphere.mie_coefficient);
+                    environment.atmosphere.mie_anisotropy =
+                        a.value("mie_anisotropy", environment.atmosphere.mie_anisotropy);
+                    environment.atmosphere.rayleigh_scale_height =
+                        a.value("rayleigh_scale_height", environment.atmosphere.rayleigh_scale_height);
+                    environment.atmosphere.mie_scale_height =
+                        a.value("mie_scale_height", environment.atmosphere.mie_scale_height);
+                }
+                if (j.contains("surface") && j["surface"].is_object())
+                {
+                    const json& s = j["surface"];
+                    if (s.contains("ground_albedo"))
+                        environment.surface.ground_albedo = vec3_from_json(s["ground_albedo"]);
+                    if (s.contains("ocean_color"))
+                        environment.surface.ocean_color = vec3_from_json(s["ocean_color"]);
+                    environment.surface.roughness = s.value("roughness", environment.surface.roughness);
+                }
+                if (j.contains("clouds") && j["clouds"].is_object())
+                {
+                    const json& c = j["clouds"];
+                    environment.clouds.enabled = c.value("enabled", environment.clouds.enabled);
+                    environment.clouds.light_absorption =
+                        c.value("light_absorption", environment.clouds.light_absorption);
+                    environment.clouds.forward_scattering =
+                        c.value("forward_scattering", environment.clouds.forward_scattering);
+                    environment.clouds.powder_strength =
+                        c.value("powder_strength", environment.clouds.powder_strength);
+                    environment.clouds.ambient_strength =
+                        c.value("ambient_strength", environment.clouds.ambient_strength);
+                    environment.clouds.ground_shadow_strength =
+                        c.value("ground_shadow_strength", environment.clouds.ground_shadow_strength);
+                    environment.clouds.weather_scale =
+                        c.value("weather_scale", environment.clouds.weather_scale);
+                    environment.clouds.evolution_rate =
+                        c.value("evolution_rate", environment.clouds.evolution_rate);
+                    if (c.contains("decks") && c["decks"].is_array())
+                    {
+                        const json& decks = c["decks"];
+                        for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS &&
+                                        static_cast<std::size_t>(i) < decks.size(); ++i)
+                        {
+                            const json& d = decks[static_cast<std::size_t>(i)];
+                            SushiEngine::Render::CloudDeck& deck = environment.clouds.decks[i];
+                            deck.enabled = d.value("enabled", deck.enabled);
+                            deck.genus = static_cast<SushiEngine::Render::CloudGenus>(
+                                d.value("genus", static_cast<std::uint32_t>(deck.genus)));
+                            deck.coverage_bias = d.value("coverage_bias", deck.coverage_bias);
+                            deck.density_scale = d.value("density_scale", deck.density_scale);
+                        }
+                    }
+                }
+                if (j.contains("stars") && j["stars"].is_object())
+                {
+                    const json& s = j["stars"];
+                    environment.stars.enabled = s.value("enabled", environment.stars.enabled);
+                    environment.stars.brightness = s.value("brightness", environment.stars.brightness);
+                    environment.stars.density = s.value("density", environment.stars.density);
+                }
+                if (j.contains("night") && j["night"].is_object())
+                {
+                    const json& n = j["night"];
+                    environment.night.enabled = n.value("enabled", environment.night.enabled);
+                    environment.night.moon_intensity =
+                        n.value("moon_intensity", environment.night.moon_intensity);
+                    environment.night.star_intensity =
+                        n.value("star_intensity", environment.night.star_intensity);
+                }
+                if (j.contains("ambient"))
+                    environment.ambient = vec3_from_json(j["ambient"]);
+                environment.exposure = j.value("exposure", environment.exposure);
+                environment.image_based_lighting =
+                    j.value("image_based_lighting", environment.image_based_lighting);
+                environment.ibl_intensity = j.value("ibl_intensity", environment.ibl_intensity);
+                return environment;
+            }
+
+            json sky_to_json(const SceneSkyState& sky)
+            {
+                return json{{"enabled", sky.enabled},
+                            {"year", sky.date.year},
+                            {"month", sky.date.month},
+                            {"day", sky.date.day},
+                            {"hour", sky.date.hour},
+                            {"minute", sky.date.minute},
+                            {"second", sky.date.second},
+                            {"latitude_degrees", sky.latitude_degrees},
+                            {"longitude_degrees", sky.longitude_degrees},
+                            {"astronomical_sun", sky.astronomical_sun},
+                            {"animate", sky.animate},
+                            {"days_per_second", sky.days_per_second},
+                            {"accumulated_days", sky.accumulated_days}};
+            }
+
+            SceneSkyState sky_from_json(const json& j, SceneSkyState sky)
+            {
+                if (!j.is_object())
+                    return sky;
+                sky.enabled = j.value("enabled", sky.enabled);
+                sky.date.year = j.value("year", sky.date.year);
+                sky.date.month = j.value("month", sky.date.month);
+                sky.date.day = j.value("day", sky.date.day);
+                sky.date.hour = j.value("hour", sky.date.hour);
+                sky.date.minute = j.value("minute", sky.date.minute);
+                sky.date.second = j.value("second", sky.date.second);
+                sky.latitude_degrees = j.value("latitude_degrees", sky.latitude_degrees);
+                sky.longitude_degrees = j.value("longitude_degrees", sky.longitude_degrees);
+                sky.astronomical_sun = j.value("astronomical_sun", sky.astronomical_sun);
+                sky.animate = j.value("animate", sky.animate);
+                sky.days_per_second = j.value("days_per_second", sky.days_per_second);
+                sky.accumulated_days = j.value("accumulated_days", sky.accumulated_days);
+                return sky;
+            }
+
             SushiEngine::Quaternion quaternion_from_json(const json& j)
             {
                 SushiEngine::Quaternion q;
@@ -443,16 +644,23 @@ namespace SushiEngine
             }
         }
 
-        bool save_scene(IWorldEditor& world, const std::string& path)
+        bool save_scene(IWorldEditor& world, const std::string& path, const SceneSkyState* sky)
         {
             std::ofstream file(path);
             if (!file)
                 return false;
-            file << capture_scene(world).dump(2);
+
+            json root;
+            root["entities"] = capture_scene(world);
+            root["environment"] = environment_to_json(world.environment());
+            if (sky != nullptr)
+                root["sky"] = sky_to_json(*sky);
+
+            file << root.dump(2);
             return static_cast<bool>(file);
         }
 
-        bool load_scene(IWorldEditor& world, const std::string& path)
+        bool load_scene(IWorldEditor& world, const std::string& path, SceneSkyState* sky)
         {
             std::ifstream file(path);
             if (!file)
@@ -467,10 +675,23 @@ namespace SushiEngine
             {
                 return false;
             }
-            if (!root.is_array())
+
+            // Pre-environment-persistence scenes are a bare entity array; the environment
+            // and sky simply keep whatever the caller already had (their existing defaults).
+            if (root.is_array())
+            {
+                apply_scene(world, root);
+                return true;
+            }
+
+            if (!root.is_object() || !root.contains("entities") || !root["entities"].is_array())
                 return false;
 
-            apply_scene(world, root);
+            apply_scene(world, root["entities"]);
+            if (root.contains("environment"))
+                world.set_environment(environment_from_json(root["environment"], world.environment()));
+            if (sky != nullptr && root.contains("sky"))
+                *sky = sky_from_json(root["sky"], *sky);
             return true;
         }
     } // namespace Editor
