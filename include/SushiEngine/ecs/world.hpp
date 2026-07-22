@@ -168,6 +168,7 @@ namespace SushiEngine
                 assert(alive(e) && "get() on a dead or stale entity");
                 const EntityRecord& rec = entities_[e.index];
                 std::byte* base = rec.chunk->column(component_id<T>());
+                assert(base != nullptr && "get<T>() on an entity whose archetype has no column for T");
                 return *reinterpret_cast<T*>(base + rec.row * sizeof(T));
             }
 
@@ -183,6 +184,7 @@ namespace SushiEngine
                 assert(alive(e) && "get() on a dead or stale entity");
                 const EntityRecord& rec = entities_[e.index];
                 const std::byte* base = rec.chunk->column(component_id<T>());
+                assert(base != nullptr && "get<T>() on an entity whose archetype has no column for T");
                 return *reinterpret_cast<const T*>(base + rec.row * sizeof(T));
             }
 

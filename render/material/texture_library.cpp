@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <stdexcept>
 
 #include <stb_image.h>
 
@@ -155,25 +156,15 @@ namespace SushiEngine
                 Vulkan::check(vkCreateCommandPool(device_.device(), &pool_info, nullptr, &pool_),
                               "vkCreateCommandPool(textures)");
 
-                // The host-copy path is taken only when the device offers host image copy
-                // and lists SHADER_READ_ONLY among the layouts a host copy may target — so
-                // the upload can land in its final sampling layout with no intermediate.
-                if (device_.supports_host_image_copy())
-                {
-                    VkPhysicalDeviceHostImageCopyProperties host_copy{};
-                    host_copy.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES;
-                    VkPhysicalDeviceProperties2 properties{};
-                    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-                    properties.pNext = &host_copy;
-                    vkGetPhysicalDeviceProperties2(device_.physical_device(), &properties);
-
-                    std::vector<VkImageLayout> destination_layouts(host_copy.copyDstLayoutCount);
-                    host_copy.pCopyDstLayouts = destination_layouts.data();
-                    vkGetPhysicalDeviceProperties2(device_.physical_device(), &properties);
-                    for (VkImageLayout layout : destination_layouts)
-                        if (layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                            host_upload_ok_ = true;
-                }
+                // The host-copy path (host_upload_ok_, default false) stays disabled: on at
+                // least one driver observed in the field, vkCreateImage with
+                // VK_IMAGE_USAGE_HOST_TRANSFER_BIT fails with VK_ERROR_FEATURE_NOT_PRESENT
+                // even though the device advertises host image copy support
+                // (VkPhysicalDeviceHostImageCopyProperties' copy-destination layouts) and a
+                // per-format VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT check for
+                // VK_IMAGE_TILING_OPTIMAL also reports support. Root cause unresolved — looks
+                // like a driver bug rather than a spec-conformance gap here. The staging+blit
+                // path below is unconditional until a driver repro narrows it down further.
 
                 defaults_[static_cast<std::uint32_t>(DefaultTexture::White)] =
                     create_default("sushi:white", 255, 255, 255, 255);
@@ -183,6 +174,16 @@ namespace SushiEngine
                     create_default("sushi:black", 0, 0, 0, 0);
                 defaults_[static_cast<std::uint32_t>(DefaultTexture::NeutralMaterial)] =
                     create_default("sushi:neutral-material", 255, 255, 255, 255);
+
+                // heap_index() indexes entries_ by defaults_[fallback] with no bounds
+                // check (hot path, called per material map). A failed default upload
+                // would otherwise leave defaults_[x] == INVALID_TEXTURE and turn every
+                // unset material slot into an out-of-bounds read the first time it's
+                // resolved, far from this constructor.
+                for (TextureId id : defaults_)
+                    if (id == INVALID_TEXTURE)
+                        throw std::runtime_error(
+                            "SushiEngine: failed to upload a default texture");
             }
 
             TextureLibrary::~TextureLibrary()
@@ -366,9 +367,10 @@ namespace SushiEngine
 
                 VmaAllocationCreateInfo alloc{};
                 alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                if (vmaCreateImage(device_.allocator(), &image_info, &alloc, &image, &allocation,
-                                   nullptr) != VK_SUCCESS)
-                    return false;
+                Vulkan::check(
+                    vmaCreateImage(device_.allocator(), &image_info, &alloc, &image, &allocation,
+                                   nullptr),
+                    "vmaCreateImage(texture)");
 
                 VkImageView view = VK_NULL_HANDLE;
                 VkImageViewCreateInfo view_info{};
