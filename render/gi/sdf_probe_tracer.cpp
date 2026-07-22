@@ -53,9 +53,11 @@ namespace SushiEngine
                 constexpr std::uint32_t RELIGHT_GROUP = 64;
                 constexpr std::int32_t RAY_COUNT = 32;
                 constexpr float MAX_TRACE_DISTANCE = 64.0f;
-                // Probes relit per frame when the lattice is stable: a quarter of the grid, so
-                // it fully refreshes every four frames for dynamic lighting and moving objects.
-                constexpr std::int32_t RELIGHT_BUDGET = 2048;
+                // When the lattice is stable, a quarter of all probes are relit per frame, so
+                // the whole grid refreshes every four frames for dynamic lighting and moving
+                // objects. A fraction (not a fixed count) keeps that period as the cascade
+                // count scales the probe total.
+                constexpr std::int32_t RELIGHT_REFRESH_FRAMES = 4;
 
                 std::uint32_t groups(std::uint32_t extent, std::uint32_t size) noexcept
                 {
@@ -394,17 +396,25 @@ namespace SushiEngine
                 std::memcpy(probe_config_mapped_[ring], inputs.config, sizeof(ProbeVolumeConfig));
 
                 // Choose the relight window. A full relight is forced when nothing has been
-                // relit yet, when the lattice shifts a cell (every probe index then maps to a
-                // new world point), or when the sun moves; otherwise a round-robin slice keeps
-                // the cost down while still refreshing dynamic lighting across a few frames.
-                const double spacing = static_cast<double>(PROBE_SPACING_METRES);
-                std::int32_t center[3];
-                for (int axis = 0; axis < 3; ++axis)
-                    center[axis] = static_cast<std::int32_t>(
-                        std::floor(inputs.frame->eye[axis] / spacing + 0.5));
-                bool force_full = !has_relit_ || center[0] != last_center_cell_[0] ||
-                                  center[1] != last_center_cell_[1] ||
-                                  center[2] != last_center_cell_[2];
+                // relit yet, when any cascade's lattice shifts a cell (every probe index in it
+                // then maps to a new world point), or when the sun moves; otherwise a
+                // round-robin slice across all cascades keeps the cost down while still
+                // refreshing dynamic lighting across a few frames. Each cascade snaps to its
+                // own spacing, so the coarse ones cross a cell far less often than the finest.
+                std::int32_t center[GI_NUM_CASCADES][3];
+                bool force_full = !has_relit_;
+                for (std::int32_t cascade = 0; cascade < GI_NUM_CASCADES; ++cascade)
+                {
+                    const double spacing =
+                        static_cast<double>(probe_cascade_spacing(cascade));
+                    for (int axis = 0; axis < 3; ++axis)
+                    {
+                        center[cascade][axis] = static_cast<std::int32_t>(
+                            std::floor(inputs.frame->eye[axis] / spacing + 0.5));
+                        if (center[cascade][axis] != last_center_cell_[cascade][axis])
+                            force_full = true;
+                    }
+                }
 
                 float sun[3] = {last_sun_[0], last_sun_[1], last_sun_[2]};
                 float sun_intensity = last_sun_intensity_;
@@ -428,7 +438,8 @@ namespace SushiEngine
                 if (!force_full)
                 {
                     first_probe = static_cast<std::int32_t>(relight_offset_) % total;
-                    relight_count = std::min(RELIGHT_BUDGET, total);
+                    relight_count = std::min(total / RELIGHT_REFRESH_FRAMES, total);
+                    relight_count = std::max(relight_count, 1);
                     relight_offset_ =
                         (relight_offset_ + static_cast<std::uint32_t>(relight_count)) %
                         static_cast<std::uint32_t>(total);
@@ -438,9 +449,9 @@ namespace SushiEngine
                     relight_offset_ = 0;
                 }
                 has_relit_ = true;
-                last_center_cell_[0] = center[0];
-                last_center_cell_[1] = center[1];
-                last_center_cell_[2] = center[2];
+                for (std::int32_t cascade = 0; cascade < GI_NUM_CASCADES; ++cascade)
+                    for (int axis = 0; axis < 3; ++axis)
+                        last_center_cell_[cascade][axis] = center[cascade][axis];
                 last_sun_[0] = sun[0];
                 last_sun_[1] = sun[1];
                 last_sun_[2] = sun[2];

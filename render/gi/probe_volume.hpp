@@ -27,15 +27,18 @@
  * @file probe_volume.hpp
  * @brief The camera-relative irradiance probe clipmap: its dimensions and GPU config.
  *
- * A single cascade of diffuse irradiance probes on a regular lattice around the camera.
- * Each probe stores the same nine second-order SH coefficients the IBL build already
- * produces for the whole environment, so the shading pass blends probes exactly the way
- * it evaluates the global set — one polynomial in the surface normal — and the only new
- * work per pixel is a trilinear gather of eight neighbours. The grid snaps to a world
- * lattice so the probes sit at fixed world points and never swim as the camera moves;
+ * A nested cascade of diffuse irradiance probe grids around the camera. Each cascade is a
+ * regular lattice of the same probe count but twice the spacing of the one inside it, so
+ * the finest gives dense near-field GI and the coarser ones reach far out — a shading point
+ * reads the finest cascade that contains it and falls back outward. Each probe stores the
+ * same nine second-order SH coefficients the IBL build already produces for the whole
+ * environment, so the shading pass blends probes exactly the way it evaluates the global
+ * set — one polynomial in the surface normal — and the only new work per pixel is a
+ * trilinear gather of eight neighbours in the chosen cascade. Every grid snaps to its own
+ * world lattice so the probes sit at fixed world points and never swim as the camera moves;
  * only their camera-relative origin shifts, which is what @ref configure_probe_volume
  * computes. @ref ProbeVolumeConfig is the std140 block the shader reads to locate the
- * lattice, kept as flat arrays so the C++ and GLSL packings can never disagree.
+ * cascades, kept as flat arrays so the C++ and GLSL packings can never disagree.
  */
 
 #include <cstdint>
@@ -46,51 +49,63 @@ namespace SushiEngine
     {
         namespace Gi
         {
-            /** @brief Probe count along the horizontal axes of the single cascade. */
+            /** @brief Probe count along the horizontal axes of each cascade. */
             constexpr std::int32_t PROBE_COUNT_HORIZONTAL = 32;
 
             /** @brief Probe count along the vertical axis (thin: outdoor GI is mostly lateral). */
             constexpr std::int32_t PROBE_COUNT_VERTICAL = 8;
 
-            /** @brief Total probes in the cascade. */
+            /** @brief Probes in one cascade. */
             constexpr std::int32_t PROBE_COUNT_TOTAL =
                 PROBE_COUNT_HORIZONTAL * PROBE_COUNT_VERTICAL * PROBE_COUNT_HORIZONTAL;
 
-            /** @brief Metres between adjacent probes on every axis. */
+            /** @brief Number of nested cascades: finest, and coarser ones for distant coverage. */
+            constexpr std::int32_t GI_NUM_CASCADES = 3;
+
+            /** @brief Probes across every cascade — the size the SH grid and relight span. */
+            constexpr std::int32_t PROBE_COUNT_ALL_CASCADES = PROBE_COUNT_TOTAL * GI_NUM_CASCADES;
+
+            /** @brief Metres between adjacent probes in the finest cascade; each coarser doubles it. */
             constexpr float PROBE_SPACING_METRES = 4.0f;
 
             /** @brief Second-order SH coefficients stored per probe (RGB in @c vec4.rgb). */
             constexpr std::int32_t PROBE_SH_COEFFICIENTS = 9;
 
             /**
-             * @brief The std140 block locating the probe lattice, mirroring @c GiProbeVolume.
+             * @brief The std140 block locating the probe cascades, mirroring @c GiProbeVolume.
              *
              * Flat 16-byte-aligned arrays so the GLSL side reads the identical layout. All
              * positions are camera-relative, like every other scene quantity, so the block
-             * rebases with the camera at planetary distances.
+             * rebases with the camera at planetary distances. The per-cascade origin and
+             * spacing are packed one @c vec4 each: xyz origin, w spacing.
              */
             struct ProbeVolumeConfig
             {
-                float origin_enabled[4];  /**< xyz camera-relative origin of probe (0,0,0); w = enabled. */
-                float spacing_bias[4];    /**< xyz spacing in metres; w = normal bias in metres. */
-                float intensity[4];       /**< x = indirect intensity; yzw spare. */
-                std::int32_t counts[4];   /**< xyz probe counts per axis; w = total probe count. */
+                float params[4];          /**< x enabled; y indirect intensity; z normal bias metres; w cascade count. */
+                std::int32_t counts[4];   /**< xyz probe counts per axis; w probes per cascade. */
+                float cascade_origin[GI_NUM_CASCADES][4]; /**< Per cascade: xyz camera-relative origin, w spacing metres. */
             };
 
-            static_assert(sizeof(ProbeVolumeConfig) == 64,
+            static_assert(sizeof(ProbeVolumeConfig) == 32 + GI_NUM_CASCADES * 16,
                           "ProbeVolumeConfig must match its std140 GLSL mirror");
 
-            /** @brief Bytes the probe SH storage buffer occupies (nine vec4 per probe). */
+            /** @brief Spacing of cascade @p cascade, doubling outward from the finest. */
+            constexpr float probe_cascade_spacing(std::int32_t cascade) noexcept
+            {
+                return PROBE_SPACING_METRES * static_cast<float>(1 << cascade);
+            }
+
+            /** @brief Bytes the probe SH storage buffer occupies (nine vec4 per probe, all cascades). */
             constexpr std::uint32_t probe_sh_buffer_bytes() noexcept
             {
-                return static_cast<std::uint32_t>(PROBE_COUNT_TOTAL) * PROBE_SH_COEFFICIENTS *
+                return static_cast<std::uint32_t>(PROBE_COUNT_ALL_CASCADES) * PROBE_SH_COEFFICIENTS *
                        4u * sizeof(float);
             }
 
             /**
-             * @brief Fills a probe config for this frame, snapping the lattice to the world.
+             * @brief Fills a probe config for this frame, snapping each cascade to the world.
              *
-             * The lattice is anchored to the nearest spacing-multiple world point to the
+             * Every cascade is anchored to the nearest multiple of its own spacing to the
              * camera, so probes occupy fixed world positions frame to frame; only their
              * camera-relative origin moves. When disabled the block is still filled (enable
              * flag cleared) so the shading pass has a valid binding to read and fall back on.

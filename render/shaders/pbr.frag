@@ -120,41 +120,48 @@ vec3 evaluate_sh(vec3 n)
 }
 
 // Trilinearly blends the SH of the eight probes surrounding a camera-relative surface
-// point, then evaluates the blend in the surface normal. Falls back to the global
-// environment SH when GI is off or the point is outside the probe cascade.
+// point, then evaluates the blend in the surface normal. Walks the cascades from finest to
+// coarsest and uses the first that contains the point, so near geometry gets the dense grid
+// and distant geometry the wide one. Falls back to the global environment SH when GI is off
+// or the point lies beyond even the coarsest cascade.
 vec3 sample_probe_irradiance(vec3 camera_relative_pos, vec3 n)
 {
-    if (gi_probe.volume.origin_enabled.w < 0.5)
+    if (gi_probe.volume.params.x < 0.5)
         return evaluate_sh(n);
 
-    vec3 biased = camera_relative_pos + n * gi_probe.volume.spacing_bias.w;
-    ivec3 base;
-    vec3 frac;
-    if (!gi_locate(gi_probe.volume, biased, base, frac))
-        return evaluate_sh(n);
-
-    vec4 blended[9];
-    for (int i = 0; i < 9; ++i)
-        blended[i] = vec4(0.0);
-    float weight_sum = 0.0;
-    for (int corner = 0; corner < 8; ++corner)
+    vec3 biased = camera_relative_pos + n * gi_probe.volume.params.z;
+    int cascades = int(gi_probe.volume.params.w);
+    for (int cascade = 0; cascade < cascades; ++cascade)
     {
-        ivec3 offset = ivec3(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
-        vec3 trilinear = mix(1.0 - frac, frac, vec3(offset));
-        float weight = trilinear.x * trilinear.y * trilinear.z;
-        if (weight <= 0.0)
+        ivec3 base;
+        vec3 frac;
+        if (!gi_locate_cascade(gi_probe.volume, cascade, biased, base, frac))
             continue;
-        int index = gi_probe_index(gi_probe.volume, base + offset) * 9;
-        for (int i = 0; i < 9; ++i)
-            blended[i] += gi_probe_sh.coeff[index + i] * weight;
-        weight_sum += weight;
-    }
-    if (weight_sum <= 0.0)
-        return evaluate_sh(n);
 
-    for (int i = 0; i < 9; ++i)
-        blended[i] /= weight_sum;
-    return gi_sh_irradiance(blended, n) * gi_probe.volume.intensity.x;
+        vec4 blended[9];
+        for (int i = 0; i < 9; ++i)
+            blended[i] = vec4(0.0);
+        float weight_sum = 0.0;
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            ivec3 offset = ivec3(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
+            vec3 trilinear = mix(1.0 - frac, frac, vec3(offset));
+            float weight = trilinear.x * trilinear.y * trilinear.z;
+            if (weight <= 0.0)
+                continue;
+            int index = gi_probe_index(gi_probe.volume, cascade, base + offset) * 9;
+            for (int i = 0; i < 9; ++i)
+                blended[i] += gi_probe_sh.coeff[index + i] * weight;
+            weight_sum += weight;
+        }
+        if (weight_sum <= 0.0)
+            continue;
+
+        for (int i = 0; i < 9; ++i)
+            blended[i] /= weight_sum;
+        return gi_sh_irradiance(blended, n) * gi_probe.volume.params.y;
+    }
+    return evaluate_sh(n);
 }
 
 // Reflection visibility against the GTAO bent-normal cone. The bent normal is the average
@@ -543,7 +550,7 @@ void main()
         // probe radiance in the reflection direction rather than the distant sky, so one
         // world cache serves both GI and glossy reflections. Only when probe GI is on, and
         // weighted by roughness so mirror-smooth surfaces keep the prefiltered environment.
-        if (gi_probe.volume.origin_enabled.w > 0.5)
+        if (gi_probe.volume.params.x > 0.5)
         {
             vec3 probe_reflection = sample_probe_irradiance(v_world_position, reflection);
             prefiltered = mix(prefiltered, probe_reflection, roughness);

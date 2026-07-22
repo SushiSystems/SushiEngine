@@ -177,7 +177,8 @@ namespace SushiEngine
                         Gi::ProbeRelightInputs inputs{};
                         inputs.probe_sh = probe_sh_;
                         inputs.probe_sh_bytes = probe_sh_bytes();
-                        inputs.probe_count = static_cast<std::uint32_t>(Gi::PROBE_COUNT_TOTAL);
+                        inputs.probe_count =
+                            static_cast<std::uint32_t>(Gi::PROBE_COUNT_ALL_CASCADES);
                         inputs.environment_sh = ibl_.sh_buffer();
                         inputs.environment_sh_bytes = IblPass::sh_buffer_bytes();
                         inputs.config = &config;

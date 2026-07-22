@@ -35,6 +35,7 @@
  * clipmap as baked bricks in a later slice, so the tracer never grows a second code path.
  */
 
+#include "gi/probe_volume.hpp"
 #include "gi/tracer.hpp"
 
 #include <cstdint>
@@ -164,12 +165,14 @@ namespace SushiEngine
                     VkPipelineLayout relight_pipeline_layout_ = VK_NULL_HANDLE;
                     VkPipeline relight_pipeline_ = VK_NULL_HANDLE;
 
-                    // Sparse-relight state: a round-robin window each frame, forced to a full
-                    // relight when the lattice shifts a cell or the sun moves, so no probe is
-                    // ever read holding a value baked for a different world position.
+                    // Sparse-relight state: a round-robin window each frame across all
+                    // cascades, forced to a full relight when any cascade's lattice shifts a
+                    // cell or the sun moves, so no probe is ever read holding a value baked for
+                    // a different world position. One centre cell per cascade, since each snaps
+                    // to its own spacing and the coarse ones shift far less often.
                     std::uint32_t relight_offset_ = 0;
                     bool has_relit_ = false;
-                    std::int32_t last_center_cell_[3] = {0, 0, 0};
+                    std::int32_t last_center_cell_[GI_NUM_CASCADES][3] = {};
                     float last_sun_[3] = {0.0f, 0.0f, 0.0f};
                     float last_sun_intensity_ = -1.0f;
             };

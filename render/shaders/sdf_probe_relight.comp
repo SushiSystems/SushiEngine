@@ -75,15 +75,23 @@ void main()
         return;
 
     // Round-robin window: this dispatch relights [first_probe, first_probe + relight_count),
-    // wrapping over the probe count, so the cost amortizes across frames.
-    int total = probe.volume.counts.w;
+    // wrapping over every probe of every cascade, so the cost amortizes across frames. The
+    // SH buffer is cascade-major (cascade 0's probes, then 1's...), so the global index p
+    // splits into a cascade and a within-cascade cell.
+    int per_cascade = probe.volume.counts.w;
+    int total = per_cascade * int(probe.volume.params.w);
     uint p = uint((pc.first_probe + int(local)) % total);
 
-    // Unflatten the probe index into its lattice cell, then its camera-relative position.
+    int cascade = int(p) / per_cascade;
+    int local_p = int(p) % per_cascade;
+
+    // Unflatten the within-cascade index into its lattice cell, then its camera-relative
+    // position using that cascade's own origin and spacing.
     int nx = probe.volume.counts.x;
     int ny = probe.volume.counts.y;
-    ivec3 cell = ivec3(int(p) % nx, (int(p) / nx) % ny, int(p) / (nx * ny));
-    vec3 position = probe.volume.origin_enabled.xyz + vec3(cell) * probe.volume.spacing_bias.xyz;
+    ivec3 cell = ivec3(local_p % nx, (local_p / nx) % ny, local_p / (nx * ny));
+    vec3 position =
+        probe.volume.cascade[cascade].xyz + vec3(cell) * probe.volume.cascade[cascade].w;
 
     vec3 accum[9];
     for (int i = 0; i < 9; ++i)

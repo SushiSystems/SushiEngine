@@ -3,13 +3,14 @@
 // once. No bindings and no version here: this is included into shaders that declare
 // their own probe buffers, exactly as atmosphere_common.glsl is included into the sky.
 
+#define GI_NUM_CASCADES 3
+
 // The std140 mirror of Render::Gi::ProbeVolumeConfig. Field-for-field identical packing.
 struct GiProbeVolume
 {
-    vec4 origin_enabled; // xyz camera-relative origin of probe (0,0,0), w = enabled
-    vec4 spacing_bias;   // xyz spacing in metres, w = normal bias in metres
-    vec4 intensity;      // x = indirect intensity, yzw spare
-    ivec4 counts;        // xyz probe counts per axis, w = total probe count
+    vec4 params;   // x = enabled, y = indirect intensity, z = normal bias metres, w = cascade count
+    ivec4 counts;  // xyz probe counts per axis, w = probes per cascade
+    vec4 cascade[GI_NUM_CASCADES]; // per cascade: xyz camera-relative origin, w = spacing metres
 };
 
 // Second-order SH irradiance from nine coefficients and a normal. The cosine-lobe band
@@ -33,19 +34,21 @@ vec3 gi_sh_irradiance(vec4 coeff[9], vec3 n)
     return max(result, vec3(0.0)); // clamp the small negative lobe SH can ring into
 }
 
-// Linear index of a probe cell, in the (z, y, x) row-major order the relight writes.
-int gi_probe_index(GiProbeVolume vol, ivec3 cell)
+// Linear index of a probe cell in cascade `cascade`, in the (z, y, x) row-major order the
+// relight writes, offset by the cascade's block in the shared SH buffer (cascade-major).
+int gi_probe_index(GiProbeVolume vol, int cascade, ivec3 cell)
 {
     ivec3 c = clamp(cell, ivec3(0), vol.counts.xyz - 1);
-    return (c.z * vol.counts.y + c.y) * vol.counts.x + c.x;
+    return cascade * vol.counts.w + (c.z * vol.counts.y + c.y) * vol.counts.x + c.x;
 }
 
-// Locates the lower corner of the lattice cell a camera-relative point falls in and the
-// fractional position inside it. Returns false when the point is outside the cascade, so
-// the caller can fall back to the distant environment rather than extrapolate.
-bool gi_locate(GiProbeVolume vol, vec3 camera_relative_pos, out ivec3 base, out vec3 frac)
+// Locates the lower corner of the lattice cell a camera-relative point falls in within
+// cascade `cascade`, and the fractional position inside it. Returns false when the point is
+// outside that cascade, so the caller can try the next coarser cascade or the environment.
+bool gi_locate_cascade(GiProbeVolume vol, int cascade, vec3 camera_relative_pos,
+                       out ivec3 base, out vec3 frac)
 {
-    vec3 grid = (camera_relative_pos - vol.origin_enabled.xyz) / vol.spacing_bias.xyz;
+    vec3 grid = (camera_relative_pos - vol.cascade[cascade].xyz) / vol.cascade[cascade].w;
     base = ivec3(floor(grid));
     frac = grid - vec3(base);
     if (any(lessThan(base, ivec3(0))) || any(greaterThanEqual(base, vol.counts.xyz - 1)))
