@@ -26,7 +26,7 @@
 #include <SushiEngine/render/environment.hpp>
 
 #include "frame/frame_context.hpp"
-#include "gi/environment_probe_tracer.hpp"
+#include "gi/sdf_probe_tracer.hpp"
 #include "graph/render_graph.hpp"
 #include "passes/ibl_pass.hpp"
 #include "rhi/vulkan/vulkan_check.hpp"
@@ -69,7 +69,7 @@ namespace SushiEngine
                 Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                 Resources::GraphicsPipelineFactory& pipelines, IblPass& ibl)
                 : device_(device), ibl_(ibl),
-                  tracer_(std::make_unique<Gi::EnvironmentProbeTracer>(device, shaders, pipelines))
+                  tracer_(std::make_unique<Gi::SdfProbeTracer>(device, shaders, pipelines))
             {
                 create_buffers();
             }
@@ -161,7 +161,7 @@ namespace SushiEngine
                         // barriered by hand below; a side effect keeps the pass alive.
                         builder.set_side_effect();
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext&)
+                    [this, &frame, config](VkCommandBuffer cmd, const Graph::PassContext&)
                     {
                         // Order the relight's compute read after the IBL build's SH write.
                         // The graph runs passes in registration order, so the IBL pass has
@@ -179,6 +179,7 @@ namespace SushiEngine
                         inputs.probe_count = static_cast<std::uint32_t>(Gi::PROBE_COUNT_TOTAL);
                         inputs.environment_sh = ibl_.sh_buffer();
                         inputs.environment_sh_bytes = IblPass::sh_buffer_bytes();
+                        inputs.config = &config;
                         inputs.frame = &frame;
                         tracer_->relight(cmd, inputs);
 

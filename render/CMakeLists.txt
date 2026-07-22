@@ -62,7 +62,8 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_common.glsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi_common.glsl")
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_common.glsl")
 
 # sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
@@ -153,6 +154,10 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fog_scatter.comp"
     fog_scatter_comp_spv FOG_SCATTER_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi_probe_relight.comp"
     gi_probe_relight_comp_spv GI_PROBE_RELIGHT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_populate.comp"
+    sdf_populate_comp_spv SDF_POPULATE_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_probe_relight.comp"
+    sdf_probe_relight_comp_spv SDF_PROBE_RELIGHT_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
@@ -190,6 +195,8 @@ add_library(sushi_render STATIC
     passes/irradiance_volume_pass.cpp
     gi/probe_volume.cpp
     gi/environment_probe_tracer.cpp
+    gi/sdf_clipmap.cpp
+    gi/sdf_probe_tracer.cpp
     passes/opaque_pass.cpp
     passes/gtao_pass.cpp
     passes/hiz_pass.cpp
@@ -253,7 +260,9 @@ add_library(sushi_render STATIC
     "${SKY_VIEW_LUT_HEADER}"
     "${AERIAL_PERSPECTIVE_HEADER}"
     "${FOG_SCATTER_HEADER}"
-    "${GI_PROBE_RELIGHT_HEADER}")
+    "${GI_PROBE_RELIGHT_HEADER}"
+    "${SDF_POPULATE_HEADER}"
+    "${SDF_PROBE_RELIGHT_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")

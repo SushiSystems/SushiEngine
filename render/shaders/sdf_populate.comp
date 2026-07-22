@@ -1,0 +1,50 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Fills the scene distance clipmap: for each voxel, the signed distance to the nearest
+// analytic primitive and that primitive's albedo. A brute-force min over the frame's
+// primitives — small counts, run once per frame at High/Ultra — into an RGBA16F volume the
+// probe tracer sphere-marches. Distance in .a, albedo in .rgb.
+
+#include "sdf_common.glsl"
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(rgba16f, set = 0, binding = 0) uniform writeonly image3D clipmap;
+
+layout(std430, set = 0, binding = 1) readonly buffer Primitives
+{
+    SdfPrimitive primitives[];
+} scene;
+
+layout(set = 0, binding = 2) uniform ClipmapBlock
+{
+    SdfClipmapConfig cfg;
+} clip;
+
+void main()
+{
+    ivec3 voxel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(voxel, clip.cfg.resolution.xyz)))
+        return;
+
+    vec3 world = sdf_voxel_center(clip.cfg, voxel);
+    float nearest = 1e9;
+    vec3 albedo = vec3(0.0);
+    int count = clip.cfg.resolution.w;
+    for (int i = 0; i < count; ++i)
+    {
+        float d = sdf_primitive(scene.primitives[i], world);
+        if (d < nearest)
+        {
+            nearest = d;
+            albedo = scene.primitives[i].albedo.rgb;
+        }
+    }
+
+    // Clamp so empty voxels carry a large positive distance (long trace steps) and interiors
+    // a small negative one (a hit for rays entering from outside).
+    float voxel_size = clip.cfg.origin_voxel.w;
+    nearest = clamp(nearest, -voxel_size, float(clip.cfg.resolution.x) * voxel_size);
+    imageStore(clipmap, voxel, vec4(albedo, nearest));
+}

@@ -51,12 +51,15 @@ namespace SushiEngine
 
         namespace Gi
         {
+            struct ProbeVolumeConfig;
+
             /**
              * @brief Everything a tracer needs to relight the probe volume this frame.
              *
-             * The output probe buffer and its size, the probe count to dispatch over, and
-             * the distant-environment SH the tracer falls back to where its own trace finds
-             * no local geometry (the sky/ground miss). All buffers are caller-owned.
+             * The output probe buffer and its size, the probe count to dispatch over, the
+             * distant-environment SH the tracer falls back to where its own trace finds no
+             * local geometry (the sky/ground miss), and the probe lattice config a tracer
+             * needs to place probes in the world. All buffers are caller-owned.
              */
             struct ProbeRelightInputs
             {
@@ -65,7 +68,8 @@ namespace SushiEngine
                 std::uint32_t probe_count = 0;           /**< Probes to relight. */
                 VkBuffer environment_sh = VK_NULL_HANDLE; /**< Distant environment SH (144 B). */
                 VkDeviceSize environment_sh_bytes = 0;   /**< Size of the environment SH buffer. */
-                const Frame::FrameContext* frame = nullptr; /**< This frame's allocators. */
+                const ProbeVolumeConfig* config = nullptr; /**< The probe lattice this frame. */
+                const Frame::FrameContext* frame = nullptr; /**< This frame's inputs and allocators. */
             };
 
             /**

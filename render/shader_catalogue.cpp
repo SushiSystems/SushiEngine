@@ -29,6 +29,8 @@
 #include "fog_scatter.comp.h"
 #include "gi_probe_relight.comp.h"
 #include "multiscatter_lut.comp.h"
+#include "sdf_populate.comp.h"
+#include "sdf_probe_relight.comp.h"
 #include "sky_view_lut.comp.h"
 #include "transmittance_lut.comp.h"
 #include "light_shadow.vert.h"
@@ -133,6 +135,10 @@ namespace SushiEngine
                  Shaders::fog_scatter_comp_spv_word_count, "fog_scatter.comp"},
                 {"gi_probe_relight.comp", ShaderStage::Compute, Shaders::gi_probe_relight_comp_spv,
                  Shaders::gi_probe_relight_comp_spv_word_count, "gi_probe_relight.comp"},
+                {"sdf_populate.comp", ShaderStage::Compute, Shaders::sdf_populate_comp_spv,
+                 Shaders::sdf_populate_comp_spv_word_count, "sdf_populate.comp"},
+                {"sdf_probe_relight.comp", ShaderStage::Compute, Shaders::sdf_probe_relight_comp_spv,
+                 Shaders::sdf_probe_relight_comp_spv_word_count, "sdf_probe_relight.comp"},
                 {"light_shadow.vert", ShaderStage::Vertex, Shaders::light_shadow_vert_spv,
                  Shaders::light_shadow_vert_spv_word_count, "light_shadow.vert"},
                 {"gtao.comp", ShaderStage::Compute, Shaders::gtao_comp_spv,

@@ -1,0 +1,115 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// The SDF probe relight (Tier A): for each probe, cast a Fibonacci sphere of rays and
+// sphere-trace the scene distance clipmap. A ray that hits a surface contributes one
+// coloured bounce (the hit albedo lit by the environment irradiance at the hit normal); a
+// ray that misses contributes the distant environment in that direction. The samples are
+// projected to nine cosine-convolved SH coefficients, so an open probe reduces to the
+// environment while an occluded one darkens and picks up nearby albedo — occlusion and a
+// single colour bounce, on all hardware, no ray tracing required.
+
+#include "gi_common.glsl"
+#include "sdf_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) writeonly buffer ProbeSh
+{
+    vec4 coeff[];
+} probes;
+
+layout(std430, set = 0, binding = 1) readonly buffer EnvironmentSh
+{
+    vec4 coeff[9];
+} environment;
+
+layout(set = 0, binding = 2) uniform sampler3D clipmap;
+
+layout(set = 0, binding = 3) uniform ProbeBlock
+{
+    GiProbeVolume volume;
+} probe;
+
+layout(set = 0, binding = 4) uniform ClipmapBlock
+{
+    SdfClipmapConfig cfg;
+} clip;
+
+layout(push_constant) uniform Push
+{
+    int probe_count;
+    int ray_count;
+    float max_trace_distance;
+} pc;
+
+// The nine real SH basis values in a direction — the same basis gi_sh_irradiance evaluates.
+void sh_basis(vec3 d, out float y[9])
+{
+    y[0] = 0.282095;
+    y[1] = 0.488603 * d.y;
+    y[2] = 0.488603 * d.z;
+    y[3] = 0.488603 * d.x;
+    y[4] = 1.092548 * d.x * d.y;
+    y[5] = 1.092548 * d.y * d.z;
+    y[6] = 0.315392 * (3.0 * d.z * d.z - 1.0);
+    y[7] = 1.092548 * d.x * d.z;
+    y[8] = 0.546274 * (d.x * d.x - d.y * d.y);
+}
+
+// A point on the Fibonacci sphere: near-uniform directions with no precomputed table.
+vec3 fibonacci_direction(int i, int n)
+{
+    float k = float(i) + 0.5;
+    float cos_phi = 1.0 - 2.0 * k / float(n);
+    float sin_phi = sqrt(max(1.0 - cos_phi * cos_phi, 0.0));
+    float theta = 3.14159265358979 * (1.0 + sqrt(5.0)) * k;
+    return vec3(sin_phi * cos(theta), cos_phi, sin_phi * sin(theta));
+}
+
+void main()
+{
+    uint p = gl_GlobalInvocationID.x;
+    if (p >= uint(pc.probe_count))
+        return;
+
+    // Unflatten the probe index into its lattice cell, then its camera-relative position.
+    int nx = probe.volume.counts.x;
+    int ny = probe.volume.counts.y;
+    ivec3 cell = ivec3(int(p) % nx, (int(p) / nx) % ny, int(p) / (nx * ny));
+    vec3 position = probe.volume.origin_enabled.xyz + vec3(cell) * probe.volume.spacing_bias.xyz;
+
+    vec3 accum[9];
+    for (int i = 0; i < 9; ++i)
+        accum[i] = vec3(0.0);
+
+    for (int s = 0; s < pc.ray_count; ++s)
+    {
+        vec3 dir = fibonacci_direction(s, pc.ray_count);
+        vec3 radiance;
+        vec3 hit_albedo;
+        vec3 hit_normal;
+        if (sdf_trace(clipmap, clip.cfg, position, dir, pc.max_trace_distance, hit_albedo,
+                      hit_normal))
+            radiance = hit_albedo * gi_sh_irradiance(environment.coeff, hit_normal);
+        else
+            radiance = gi_sh_irradiance(environment.coeff, dir);
+
+        float y[9];
+        sh_basis(dir, y);
+        for (int i = 0; i < 9; ++i)
+            accum[i] += radiance * y[i];
+    }
+
+    // Cosine-lobe convolution band factors and the Monte-Carlo normalization, so the stored
+    // coefficients are in the same convention gi_sh_irradiance evaluates (A_l/pi baked in).
+    const float band[9] =
+        float[9](1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25);
+    // Monte-Carlo estimator over the sphere (pdf = 1/4pi) folded with the cosine-lobe
+    // convolution: coeff = (4pi/N) * sum(L * Y) * (A_l / pi), the A_l/pi being `band`.
+    float norm = 4.0 * 3.14159265358979 / float(pc.ray_count);
+
+    uint base = p * 9u;
+    for (int i = 0; i < 9; ++i)
+        probes.coeff[base + uint(i)] = vec4(accum[i] * norm * band[i], 0.0);
+}
