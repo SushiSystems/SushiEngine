@@ -533,6 +533,15 @@ void main()
         vec3 reflection = reflect(-view_dir, n);
         float mip = roughness * max(scene.ibl_params.y - 1.0, 0.0);
         vec3 prefiltered = textureLod(specular_cube, reflection, mip).rgb;
+        // Reflection radiance cache: a rough reflection near geometry falls back to the
+        // probe radiance in the reflection direction rather than the distant sky, so one
+        // world cache serves both GI and glossy reflections. Only when probe GI is on, and
+        // weighted by roughness so mirror-smooth surfaces keep the prefiltered environment.
+        if (gi_probe.volume.origin_enabled.w > 0.5)
+        {
+            vec3 probe_reflection = sample_probe_irradiance(v_world_position, reflection);
+            prefiltered = mix(prefiltered, probe_reflection, roughness);
+        }
         vec3 irradiance = sample_probe_irradiance(v_world_position, n);
         vec3 fresnel_ibl = f_schlick_roughness(n_dot_v, f0, roughness);
         // Specular occlusion from the combined AO, refined by the bent-normal cone so a

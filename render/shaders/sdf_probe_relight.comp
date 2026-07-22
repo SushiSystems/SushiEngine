@@ -38,7 +38,8 @@ layout(set = 0, binding = 4) uniform ClipmapBlock
 
 layout(push_constant) uniform Push
 {
-    int probe_count;
+    int first_probe;         // index of the first probe this dispatch relights
+    int relight_count;       // probes relit this dispatch (round-robin window)
     int ray_count;
     float max_trace_distance;
 } pc;
@@ -69,9 +70,14 @@ vec3 fibonacci_direction(int i, int n)
 
 void main()
 {
-    uint p = gl_GlobalInvocationID.x;
-    if (p >= uint(pc.probe_count))
+    uint local = gl_GlobalInvocationID.x;
+    if (local >= uint(pc.relight_count))
         return;
+
+    // Round-robin window: this dispatch relights [first_probe, first_probe + relight_count),
+    // wrapping over the probe count, so the cost amortizes across frames.
+    int total = probe.volume.counts.w;
+    uint p = uint((pc.first_probe + int(local)) % total);
 
     // Unflatten the probe index into its lattice cell, then its camera-relative position.
     int nx = probe.volume.counts.x;

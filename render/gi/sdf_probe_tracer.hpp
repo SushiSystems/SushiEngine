@@ -97,7 +97,8 @@ namespace SushiEngine
                     /** @brief Push block mirroring sdf_probe_relight.comp's Push. */
                     struct RelightPush
                     {
-                        std::int32_t probe_count;
+                        std::int32_t first_probe;
+                        std::int32_t relight_count;
                         std::int32_t ray_count;
                         float max_trace_distance;
                     };
@@ -162,6 +163,15 @@ namespace SushiEngine
                     VkDescriptorSetLayout relight_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout relight_pipeline_layout_ = VK_NULL_HANDLE;
                     VkPipeline relight_pipeline_ = VK_NULL_HANDLE;
+
+                    // Sparse-relight state: a round-robin window each frame, forced to a full
+                    // relight when the lattice shifts a cell or the sun moves, so no probe is
+                    // ever read holding a value baked for a different world position.
+                    std::uint32_t relight_offset_ = 0;
+                    bool has_relit_ = false;
+                    std::int32_t last_center_cell_[3] = {0, 0, 0};
+                    float last_sun_[3] = {0.0f, 0.0f, 0.0f};
+                    float last_sun_intensity_ = -1.0f;
             };
         } // namespace Gi
     } // namespace Render

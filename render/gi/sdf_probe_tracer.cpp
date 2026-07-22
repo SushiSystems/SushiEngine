@@ -21,8 +21,11 @@
 
 #include "gi/sdf_probe_tracer.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
+#include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
 #include "frame/frame_context.hpp"
@@ -50,6 +53,9 @@ namespace SushiEngine
                 constexpr std::uint32_t RELIGHT_GROUP = 64;
                 constexpr std::int32_t RAY_COUNT = 32;
                 constexpr float MAX_TRACE_DISTANCE = 64.0f;
+                // Probes relit per frame when the lattice is stable: a quarter of the grid, so
+                // it fully refreshes every four frames for dynamic lighting and moving objects.
+                constexpr std::int32_t RELIGHT_BUDGET = 2048;
 
                 std::uint32_t groups(std::uint32_t extent, std::uint32_t size) noexcept
                 {
@@ -387,6 +393,59 @@ namespace SushiEngine
                 std::memcpy(clip_config_mapped_[ring], &clip_config, sizeof(clip_config));
                 std::memcpy(probe_config_mapped_[ring], inputs.config, sizeof(ProbeVolumeConfig));
 
+                // Choose the relight window. A full relight is forced when nothing has been
+                // relit yet, when the lattice shifts a cell (every probe index then maps to a
+                // new world point), or when the sun moves; otherwise a round-robin slice keeps
+                // the cost down while still refreshing dynamic lighting across a few frames.
+                const double spacing = static_cast<double>(PROBE_SPACING_METRES);
+                std::int32_t center[3];
+                for (int axis = 0; axis < 3; ++axis)
+                    center[axis] = static_cast<std::int32_t>(
+                        std::floor(inputs.frame->eye[axis] / spacing + 0.5));
+                bool force_full = !has_relit_ || center[0] != last_center_cell_[0] ||
+                                  center[1] != last_center_cell_[1] ||
+                                  center[2] != last_center_cell_[2];
+
+                float sun[3] = {last_sun_[0], last_sun_[1], last_sun_[2]};
+                float sun_intensity = last_sun_intensity_;
+                if (inputs.frame->environment != nullptr)
+                {
+                    const Environment& environment = *inputs.frame->environment;
+                    sun[0] = static_cast<float>(environment.sun.direction.x);
+                    sun[1] = static_cast<float>(environment.sun.direction.y);
+                    sun[2] = static_cast<float>(environment.sun.direction.z);
+                    sun_intensity = environment.sun.intensity;
+                    if (std::fabs(sun[0] - last_sun_[0]) > 1e-4f ||
+                        std::fabs(sun[1] - last_sun_[1]) > 1e-4f ||
+                        std::fabs(sun[2] - last_sun_[2]) > 1e-4f ||
+                        std::fabs(sun_intensity - last_sun_intensity_) > 1e-3f)
+                        force_full = true;
+                }
+
+                const std::int32_t total = static_cast<std::int32_t>(inputs.probe_count);
+                std::int32_t first_probe = 0;
+                std::int32_t relight_count = total;
+                if (!force_full)
+                {
+                    first_probe = static_cast<std::int32_t>(relight_offset_) % total;
+                    relight_count = std::min(RELIGHT_BUDGET, total);
+                    relight_offset_ =
+                        (relight_offset_ + static_cast<std::uint32_t>(relight_count)) %
+                        static_cast<std::uint32_t>(total);
+                }
+                else
+                {
+                    relight_offset_ = 0;
+                }
+                has_relit_ = true;
+                last_center_cell_[0] = center[0];
+                last_center_cell_[1] = center[1];
+                last_center_cell_[2] = center[2];
+                last_sun_[0] = sun[0];
+                last_sun_[1] = sun[1];
+                last_sun_[2] = sun[2];
+                last_sun_intensity_ = sun_intensity;
+
                 const VkSampler sampler = inputs.frame->samplers->get(Resources::SamplerDesc{});
 
                 // Populate the clipmap. Every voxel is rewritten, so the old contents are
@@ -434,14 +493,15 @@ namespace SushiEngine
                     writer.uniform_buffer(4, clip_config_buffers_[ring], sizeof(SdfClipmapConfig));
                     writer.update(device_.device(), set);
 
-                    RelightPush push{static_cast<std::int32_t>(inputs.probe_count), RAY_COUNT,
-                                     MAX_TRACE_DISTANCE};
+                    RelightPush push{first_probe, relight_count, RAY_COUNT, MAX_TRACE_DISTANCE};
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, relight_pipeline_);
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    relight_pipeline_layout_, 0, set);
                     vkCmdPushConstants(cmd, relight_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                        sizeof(RelightPush), &push);
-                    vkCmdDispatch(cmd, groups(inputs.probe_count, RELIGHT_GROUP), 1, 1);
+                    vkCmdDispatch(cmd, groups(static_cast<std::uint32_t>(relight_count),
+                                              RELIGHT_GROUP),
+                                  1, 1);
                 }
             }
         } // namespace Gi
