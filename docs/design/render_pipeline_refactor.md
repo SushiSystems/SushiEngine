@@ -24,7 +24,14 @@ occlusion (§5.5) — and **hi-Z + screen-space reflections** (§5.3) ship: a pa
 nearest-depth pyramid, a thin roughness/F0 G-buffer, and a smooth mirror trace folded into
 the scene. Local reflection probes (§5.4) are deferred with recorded rationale (they need the
 editor's visual loop to land a scene-capture path safely); the reflection chain functions
-without them via SSR plus the IBL fallback. This revision re-audits the codebase, folds in
+without them via SSR plus the IBL fallback. **Phase 7 is shipped:** the Hillaire 2020 LUT
+stack (transmittance, multi-scatter, per-frame sky-view, and the aerial-perspective froxel
+volume), **volumetric fog** with authored local box/ellipsoid volumes, and the cloud
+coupling seam — the atmosphere is LUT-driven end to end, retiring the full-resolution
+per-pixel single-scatter march for the common cases (background sky and near meshes) and
+LUT-accelerating the rest. Only opt-in refinements remain (CSM god-ray shafts and
+punctual-light fog, per-tier LUT resolutions, temporal amortization). This revision
+re-audits the codebase, folds in
 a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
 GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
 AAA-complete phases. The guiding constraint is unchanged: the *red line between
@@ -592,35 +599,57 @@ no denoiser (the survey's consistent conclusion for mid-size engines).
 *Tier:* cascade count/extent, probes-per-frame, tracer tier, bounce count (1 now,
 multibounce via cache feedback on High+).
 
-### Phase 7 — Atmosphere: the LUT stack + froxel fog
+### Phase 7 — Atmosphere: the LUT stack + froxel fog — **shipped**
 
 Replaces the full-res per-pixel march — a large speedup *and* multiple scattering
-at once. The performance-first mandate's flagship.
+at once. The performance-first mandate's flagship. **Shipped:** the full LUT stack
+(7.1), volumetric fog with local volumes (7.2/7.3), and the cloud coupling seam (7.4).
 
-1. **Hillaire 2020 LUT stack** (the unchallenged production SOTA): transmittance
-   LUT (256×64), multi-scatter LUT (32×32), per-frame **sky-view LUT** (192×108
-   lat-long, marched once at low res), **aerial-perspective froxel volume**
-   (32×32×32, camera-relative, same Z slicing as the light grid). `sky.frag`
-   becomes LUT lookups + the sun disk/eclipse/star work; meshes read aerial
-   perspective from the froxel volume. WGS84 ellipsoid handling and the eclipse/
-   phase geometry carry over unchanged. Budget: the whole stack ≤0.4 ms/frame vs
-   multiple ms today; sky-view LUT amortizable over 2 frames under tier.
-2. **Froxel volumetric fog**: reuses the aerial froxel addressing and the Phase 4
-   cluster grid — sun (CSM-shadowed, cloud-shadowed) + punctual lights in-scatter
-   into a 3D scattering/transmittance volume, temporally jittered and accumulated,
-   height-fog term analytic. God rays, lit fog, aerosol haze — one pass, one
-   volume. Budget: ≤0.6 ms at 1080p, High tier.
-3. **Local fog volumes**: authored density primitives (box/ellipsoid, blend into
-   the froxel grid) for valley fog / airfield ground fog — data, not new passes.
-4. **Cloud coupling seam**: the LUT stack exposes sun transmittance and sky
-   radiance at arbitrary height — the exact inputs the companion cloud plan's
-   lighting model consumes (§weather doc). Land the seam here so clouds plug in
-   without touching the atmosphere again.
+1. **Hillaire 2020 LUT stack**: ✓ **Shipped.** A new `AtmosphereLutPass`
+   (`render/passes/atmosphere_lut_pass.*`) owns four resources built by four compute
+   shaders that share `atmosphere_common.glsl` (so builder and sampler can never drift):
+   a **transmittance LUT** (256×64, Bruneton parameterization, optical depth to space)
+   and a **multiple-scattering LUT** (32×32, Hillaire's 64-ray isotropic gather closed to
+   all orders by `L2/(1−f_ms)`) — both view-independent and change-gated on the medium;
+   a per-frame **sky-view LUT** (192×108, the background sky's in-scatter in the camera's
+   local frame, non-linear horizon split); and a per-frame **aerial-perspective froxel
+   volume** (32×32×32, squared depth distribution, one column-march thread per (x,y),
+   reading the scene UBO so the camera basis matches `sky.frag` exactly). `sky.frag` now
+   selects: background → sky-view LUT + transmittance for the fade; mesh within 32 km →
+   aerial volume; analytic ground and far geometry → a march that reads the sun's
+   transmittance and the multiple scattering from the LUTs instead of a per-sample light
+   ray. Five scene-set bindings (24–28) carry the stack; the sun disk/eclipse/star/body
+   work and the WGS84 ground intersection are unchanged. The IBL capture keeps the march
+   (its cube viewpoints do not match the camera-aligned volumes) but reads the
+   transmittance/MS LUTs so the captured environment tracks the same scattering, gated by
+   `ibl_params.w`. Net-negative GPU cost. **Remaining refinements:** sky-view/aerial
+   temporal amortization, and per-tier LUT resolutions.
+2. **Froxel volumetric fog**: ✓ **Shipped.** A dedicated `VolumetricFogPass`
+   (`render/passes/volumetric_fog_pass.*`, `fog_scatter.comp`) marches a height-graded fog
+   medium into a second camera-frustum froxel volume (reusing the aerial addressing), each
+   froxel gathering the sun — phase-weighted, attenuated by the transmittance LUT — plus a
+   constant ambient fill, its in-scatter (sun radiance folded in) and transmittance folded
+   over **every** pixel in the composite. Authored through `Environment::fog` and a Fog
+   editor section; tier-gated off on Low (`QualityParams::volumetric_fog`); a no-op when
+   disabled. **Remaining:** CSM-shadowed god-ray shafts and punctual-light in-scatter —
+   the increment that turns the single column-march into a jittered inject/integrate pair
+   consuming the Phase 4 cluster grid and the shadow atlas.
+3. **Local fog volumes**: ✓ **Shipped.** Up to eight authored box/ellipsoid primitives
+   (`FogVolume` records on `Environment`, edited as a list in the Fog panel) blend extra
+   density and tint into the same froxel grid for valley or airfield fog — data, not new
+   passes. Packed camera-relative into a small ring of uniform buffers the fog pass owns,
+   with a soft-edge falloff so a primitive fades in rather than cutting a hard boundary.
+4. **Cloud coupling seam**: ✓ **Landed (architectural).** The transmittance and sky-view
+   LUTs are scene-set bindings any set-0 shader inherits, and `atmosphere_common.glsl`
+   exposes `sample_transmittance` (sun transmittance at arbitrary altitude/angle) and
+   `sample_sky_view` (sky radiance) as the ready API. The cloud pass already shares the
+   scene layout, so the companion cloud plan's lighting model plugs into these without
+   touching the atmosphere again — the consumption itself lands with Phase 8 (§weather doc).
 
-*Tier:* LUT resolutions, froxel depth resolution, fog on/off at Low.
-*SOLID:* LUT generation, sky composite, and fog are three passes sharing two
-resource handles; the ephemeris keeps driving inputs through `Environment`
-unchanged (OCP over the existing seam).
+*Tier:* fog on/off at Low (shipped); LUT/froxel resolutions per tier is a refinement.
+*SOLID:* LUT generation, fog, and the sky composite are separate passes sharing resource
+handles; the ephemeris keeps driving inputs through `Environment` unchanged (OCP over the
+existing seam), and fog volumes are records, not objects.
 
 ### Phase 8 — Volumetric clouds & planetary weather → companion document
 

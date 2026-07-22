@@ -106,6 +106,15 @@ namespace SushiEngine
 
             /** @brief Whether the transmission lobe is evaluated at this tier. */
             bool lobe_transmission = true;
+
+            /**
+             * @brief Whether volumetric fog is built at this tier.
+             *
+             * The fog froxel volume is cheap, but its in-scatter is the least essential
+             * atmosphere term, so the lowest tier drops it; every other tier keeps the
+             * author's @c FogParams::enabled decision.
+             */
+            bool volumetric_fog = true;
         };
 
         /**

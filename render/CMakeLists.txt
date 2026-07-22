@@ -60,7 +60,8 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_sampling.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl")
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_common.glsl")
 
 # sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
@@ -139,6 +140,16 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ssr.frag"
     ssr_frag_spv SSR_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ground_shadow_resolve.frag"
     ground_shadow_resolve_frag_spv GROUND_SHADOW_RESOLVE_FRAG_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/transmittance_lut.comp"
+    transmittance_lut_comp_spv TRANSMITTANCE_LUT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/multiscatter_lut.comp"
+    multiscatter_lut_comp_spv MULTISCATTER_LUT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sky_view_lut.comp"
+    sky_view_lut_comp_spv SKY_VIEW_LUT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/aerial_perspective.comp"
+    aerial_perspective_comp_spv AERIAL_PERSPECTIVE_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fog_scatter.comp"
+    fog_scatter_comp_spv FOG_SCATTER_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
@@ -171,6 +182,8 @@ add_library(sushi_render STATIC
     textures/cloud_noise.cpp
     passes/fullscreen.cpp
     passes/ibl_pass.cpp
+    passes/atmosphere_lut_pass.cpp
+    passes/volumetric_fog_pass.cpp
     passes/opaque_pass.cpp
     passes/gtao_pass.cpp
     passes/hiz_pass.cpp
@@ -228,7 +241,12 @@ add_library(sushi_render STATIC
     "${GTAO_RESOLVE_FRAG_HEADER}"
     "${HIZ_COMP_HEADER}"
     "${SSR_FRAG_HEADER}"
-    "${GROUND_SHADOW_RESOLVE_FRAG_HEADER}")
+    "${GROUND_SHADOW_RESOLVE_FRAG_HEADER}"
+    "${TRANSMITTANCE_LUT_HEADER}"
+    "${MULTISCATTER_LUT_HEADER}"
+    "${SKY_VIEW_LUT_HEADER}"
+    "${AERIAL_PERSPECTIVE_HEADER}"
+    "${FOG_SCATTER_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")

@@ -23,6 +23,8 @@
 
 #include "passes/sky_pass.hpp"
 
+#include "passes/atmosphere_lut_pass.hpp"
+#include "passes/volumetric_fog_pass.hpp"
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
 #include "passes/fullscreen.hpp"
@@ -46,9 +48,10 @@ namespace SushiEngine
         {
             SkyPass::SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
-                             Scene::SceneLayout& layout, Textures::CloudNoise& noise)
+                             Scene::SceneLayout& layout, Textures::CloudNoise& noise,
+                             AtmosphereLutPass& atmosphere, VolumetricFogPass& fog)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  noise_(noise)
+                  noise_(noise), atmosphere_(atmosphere), fog_(fog)
             {
                 create_pipeline();
             }
@@ -136,6 +139,19 @@ namespace SushiEngine
                         writer.image(Scene::SceneLayout::SHADOW_DEPTH_BINDING,
                                      context.sampled_view(frame.targets.shadow_atlas),
                                      ShadowPass::atlas_depth_sampler(*frame.samplers));
+                        // The Hillaire LUT stack: the atmosphere march reads the sun's
+                        // transmittance and the multiple-scattering term from these instead
+                        // of integrating a light ray per sample.
+                        writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
+                                     atmosphere_.transmittance_view(), sampler);
+                        writer.image(Scene::SceneLayout::MULTISCATTER_LUT_BINDING,
+                                     atmosphere_.multiscatter_view(), sampler);
+                        writer.image(Scene::SceneLayout::SKY_VIEW_LUT_BINDING,
+                                     atmosphere_.sky_view_view(), sampler);
+                        writer.image(Scene::SceneLayout::AERIAL_LUT_BINDING,
+                                     atmosphere_.aerial_view(), sampler);
+                        writer.image(Scene::SceneLayout::FOG_LUT_BINDING, fog_.fog_view(),
+                                     sampler);
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
                         frame.layout->bind_heap(cmd);

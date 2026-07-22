@@ -1,0 +1,120 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "atmosphere_common.glsl"
+
+// Builds the sky-view LUT (Hillaire 2020): a low-resolution latitude-longitude image
+// of the background sky's in-scattered radiance in the camera's local frame, marched
+// once per frame so a background pixel in sky.frag is a single fetch instead of a
+// 32-step march. Camera-relative throughout — the planet centre and the sun arrive in
+// camera space via push constants, and each texel reconstructs its view ray from the
+// same frame/mapping sky.frag reads it back with. Radiance is stored per unit sun
+// illuminance; sky.frag multiplies by the (eclipse-dimmed) sun radiance on lookup.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D sky_view_lut;
+layout(set = 0, binding = 1) uniform sampler2D transmittance_lut;
+layout(set = 0, binding = 2) uniform sampler2D multiscatter_lut;
+
+layout(push_constant) uniform SkyViewBlock
+{
+    vec4 rayleigh; // xyz = Rayleigh scattering, w = Mie scattering
+    vec4 heights;  // x = Rayleigh h, y = Mie h, z = bottom, w = top
+    vec4 extra;    // x = Mie extinction, y = Mie anisotropy g
+    vec4 center;   // xyz = planet centre in camera-relative space
+    vec4 sun;      // xyz = unit direction to the sun (camera-relative)
+} pc;
+
+AtmosphereMedium medium()
+{
+    AtmosphereMedium m;
+    m.rayleigh_scattering = pc.rayleigh.xyz;
+    m.mie_scattering = pc.rayleigh.w;
+    m.mie_extinction = pc.extra.x;
+    m.rayleigh_scale_height = pc.heights.x;
+    m.mie_scale_height = pc.heights.y;
+    m.bottom_radius = pc.heights.z;
+    m.top_radius = pc.heights.w;
+    return m;
+}
+
+void main()
+{
+    ivec2 size = imageSize(sky_view_lut);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= size.x || coord.y >= size.y)
+        return;
+
+    AtmosphereMedium m = medium();
+    vec3 center = pc.center.xyz;
+    vec3 sun = pc.sun.xyz;
+    float mie_g = pc.extra.y;
+
+    vec3 up, right, forward;
+    sky_view_frame(center, up, right, forward);
+    float r_camera = length(center);
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+    vec3 rd = sky_view_dir(up, right, forward, uv, r_camera, m.bottom_radius);
+
+    // Bound the march: from the camera (origin) to the atmosphere far edge, or to the
+    // ground if this direction hits it (ground-bounded texels are below the horizon and
+    // are not read by sky.frag's escapes-to-space path, so only their extent matters).
+    vec3 ro = vec3(0.0);
+    vec2 atmosphere = atmo_ray_sphere2(ro, rd, center, m.top_radius);
+    vec3 result = vec3(0.0);
+    if (atmosphere.y > 0.0)
+    {
+        vec2 ground = atmo_ray_sphere2(ro, rd, center, m.bottom_radius);
+        float march_start = max(atmosphere.x, 0.0);
+        float march_end = (ground.x > 0.0) ? ground.x : atmosphere.y;
+
+        if (march_end > march_start)
+        {
+            const int STEPS = 32;
+            float march_len = march_end - march_start;
+            float mu = dot(rd, sun);
+            float pr = atmo_phase_rayleigh(mu);
+            float pm = atmo_phase_mie(mu, mie_g);
+            vec2 view_depth = vec2(0.0);
+            float prev_t = 0.0;
+            for (int i = 0; i < STEPS; ++i)
+            {
+                float t1 = float(i + 1) / float(STEPS);
+                t1 = t1 * t1; // cluster samples toward the dense near-camera air
+                float seg = (t1 - prev_t) * march_len;
+                float mid = march_start + (prev_t + (t1 - prev_t) * 0.5) * march_len;
+                prev_t = t1;
+
+                vec3 p = ro + rd * mid;
+                vec3 to_center = p - center;
+                float r = length(to_center);
+                float altitude = max(r - m.bottom_radius, 0.0);
+                float dr = exp(-altitude / m.rayleigh_scale_height) * seg;
+                float dm = exp(-altitude / m.mie_scale_height) * seg;
+                view_depth += vec2(dr, dm);
+
+                vec3 view_transmittance = exp(-(m.rayleigh_scattering * view_depth.x +
+                                                vec3(m.mie_extinction) * view_depth.y));
+                vec3 rayleigh_scatter = dr * m.rayleigh_scattering;
+                vec3 mie_scatter = dm * vec3(m.mie_scattering);
+                float mu_sun = dot(to_center / max(r, 1.0), sun);
+
+                vec3 ms = sample_multiscatter(multiscatter_lut, m, r, mu_sun);
+                vec3 multi = ms * (rayleigh_scatter + mie_scatter);
+
+                vec3 single = vec3(0.0);
+                if (atmo_ray_sphere(r, mu_sun, m.bottom_radius) <= 0.0)
+                {
+                    vec3 sun_transmittance = sample_transmittance(transmittance_lut, m, r, mu_sun);
+                    single = sun_transmittance * (rayleigh_scatter * pr + mie_scatter * pm);
+                }
+
+                result += view_transmittance * (single + multi);
+            }
+        }
+    }
+
+    imageStore(sky_view_lut, coord, vec4(result, 1.0));
+}

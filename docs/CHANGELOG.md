@@ -9,6 +9,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Fixed
+- **`World::get<T>()` no longer silently dereferences a null column.** Creating a
+  primitive (e.g. sphere/box) in the editor could crash with an access violation
+  because `Chunk::column()` returns `nullptr` when an entity's archetype has no
+  column for the requested component, and `get<T>()` dereferenced that pointer
+  unconditionally. Both `get<T>()` overloads in `world.hpp` now assert on a null
+  column so a component/archetype mismatch fails loudly in debug builds instead of
+  corrupting memory silently.
 - **Stochastic sampling no longer prints static speckle over shadows and clouds.**
   Every pass that trades filter taps for noise — the soft-shadow disc rotation, the
   cloud march's start offset, the contact-shadow march — hashed its per-pixel noise
@@ -36,6 +43,36 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   window lists them alongside frame time and FPS.
 
 ### Added
+- **Atmosphere is a Hillaire 2020 LUT stack, not a per-pixel march (Phase 7).** The
+  sky's Rayleigh/Mie scattering now precomputes into a shared set of lookups a new
+  `AtmosphereLutPass` owns, replacing the full-resolution single-scatter integral the
+  sky shader used to run at every pixel. Four resources: a **transmittance LUT**
+  (256×64, optical depth from any altitude and sun angle to space) and a
+  **multiple-scattering LUT** (32×32, the infinite-order isotropic scattering the single
+  march omitted) — both view-independent, rebuilt only when the medium or the planet
+  radii move; a per-frame **sky-view LUT** (192×108, the background sky's in-scatter in
+  the camera's local frame), so a pixel with no geometry is one fetch; and a per-frame
+  **aerial-perspective froxel volume** (32×32×32, camera-frustum-aligned), so a mesh
+  reads the air in front of it as one 3D fetch. `sky.frag` selects among them: background
+  → sky-view LUT, mesh within 32 km → aerial volume, analytic ground and far geometry →
+  a march that now reads the sun's transmittance and the multiple scattering from the
+  LUTs instead of a per-sample light ray. The IBL cube capture keeps the march (its
+  viewpoints do not match the camera-aligned volumes). Builders and samplers share
+  `atmosphere_common.glsl`, so the parameterization can never drift. The captured
+  environment (IBL) now also reads the transmittance/multi-scatter LUTs, so it tracks
+  the same scattering. Net-negative GPU cost — the sky's heaviest per-pixel work becomes
+  texture reads.
+- **Volumetric fog.** A ground-hugging participating medium marched into a
+  camera-frustum froxel volume (`VolumetricFogPass` + `fog_scatter.comp`): the extinction
+  falls off exponentially with altitude, and each froxel gathers the sun (phase-weighted,
+  attenuated by the atmosphere transmittance LUT) plus a constant ambient fill, its in-
+  scatter and transmittance folded over every pixel in the composite. **Local fog
+  volumes** (box/ellipsoid primitives, up to eight) blend extra density into the same
+  grid for valley or airfield fog — data, not new passes. Authored through an
+  `Environment::fog` block and a **Fog** section in the Environment panel (density,
+  height falloff, colour, ambient, sun anisotropy, and the local-volume list). Tier-gated
+  off on Low (`QualityParams::volumetric_fog`); a no-op when disabled. Sun-shadowed god
+  rays and punctual-light fog are later increments.
 - **The renderer's floor is Vulkan 1.4.** Drivers have been conformant industry-wide
   since 2025, so `maintenance5`, `maintenance6`, and push descriptors are now required
   rather than probed, and the fallbacks they obsoleted are gone. Texture streaming

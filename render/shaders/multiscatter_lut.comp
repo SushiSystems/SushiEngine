@@ -1,0 +1,125 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "atmosphere_common.glsl"
+
+// Builds the multiple-scattering LUT (Hillaire 2020): the isotropic, infinite-order
+// scattering the single-scatter march leaves out — the light that keeps bouncing
+// through the air and is why the horizon and the shadowed ground read hazy blue-white
+// at dusk rather than black. For each texel (sun-zenith cosine, radius) it fires 64
+// uniformly-distributed rays, marches each gathering the second-order in-scatter and
+// the fraction that would scatter again, then closes the geometric series
+// psi = L2 / (1 - f_ms) to reach all orders in one stored value. Reads the
+// transmittance LUT for the sun visibility along every step.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D multiscatter_lut;
+layout(set = 0, binding = 1) uniform sampler2D transmittance_lut;
+
+layout(push_constant) uniform AtmosBlock
+{
+    vec4 rayleigh; // xyz = Rayleigh scattering (per m), w = Mie scattering (per m)
+    vec4 heights;  // x = Rayleigh scale height, y = Mie scale height, z = bottom, w = top
+    vec4 extra;    // x = Mie extinction (per m)
+} pc;
+
+AtmosphereMedium medium()
+{
+    AtmosphereMedium m;
+    m.rayleigh_scattering = pc.rayleigh.xyz;
+    m.mie_scattering = pc.rayleigh.w;
+    m.mie_extinction = pc.extra.x;
+    m.rayleigh_scale_height = pc.heights.x;
+    m.mie_scale_height = pc.heights.y;
+    m.bottom_radius = pc.heights.z;
+    m.top_radius = pc.heights.w;
+    return m;
+}
+
+// Integrate one gather ray from P0 along dir, accumulating the second-order scattered
+// luminance (assuming unit sun illuminance, isotropic redistribution) and the
+// multiple-scattering feedback fraction. up is P0's local up (P0 lies on the y axis).
+void march_gather(AtmosphereMedium m, vec3 P0, vec3 dir, vec3 sun_dir,
+                  inout vec3 luminance, inout vec3 feedback)
+{
+    float mu = dir.y; // P0 is on the +y axis, so its local up is (0,1,0)
+    float t_ground = atmo_ray_sphere(length(P0), mu, m.bottom_radius);
+    float t_top = atmo_ray_sphere(length(P0), mu, m.top_radius);
+    float t_max = t_ground > 0.0 ? t_ground : t_top;
+    if (t_max <= 0.0)
+        return;
+
+    const int STEPS = 20;
+    float dt = t_max / float(STEPS);
+    vec3 throughput = vec3(1.0);
+    for (int s = 0; s < STEPS; ++s)
+    {
+        vec3 p = P0 + dir * ((float(s) + 0.5) * dt);
+        float r = length(p);
+        vec3 up = p / r;
+        float mu_sun = dot(up, sun_dir);
+
+        vec3 scattering, extinction;
+        atmo_coefficients(m, r, scattering, extinction);
+        extinction = max(extinction, vec3(1e-9));
+        vec3 sample_transmit = exp(-extinction * dt);
+
+        float shadow = atmo_ray_sphere(r, mu_sun, m.bottom_radius) > 0.0 ? 0.0 : 1.0;
+        vec3 sun_transmit = sample_transmittance(transmittance_lut, m, r, mu_sun);
+
+        // Second-order in-scatter: sunlight scattered once toward this point, isotropic
+        // phase 1/4pi. Analytically integrated across the step for a smooth result.
+        vec3 s_in = sun_transmit * shadow * scattering * (1.0 / (4.0 * ATMO_PI));
+        luminance += throughput * (s_in - s_in * sample_transmit) / extinction;
+
+        // Feedback: the fraction of light scattered again (albedo 1, no phase, since
+        // it redistributes over the whole sphere) — the ratio that closes the series.
+        feedback += throughput * (scattering - scattering * sample_transmit) / extinction;
+
+        throughput *= sample_transmit;
+    }
+}
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    int side = int(MULTISCATTER_LUT_SIZE);
+    if (coord.x >= side || coord.y >= side)
+        return;
+
+    AtmosphereMedium m = medium();
+    vec2 uv = (vec2(coord) + 0.5) / MULTISCATTER_LUT_SIZE;
+    float r, mu_sun;
+    multiscatter_lut_rmu(uv, m.bottom_radius, m.top_radius, r, mu_sun);
+
+    vec3 sun_dir = vec3(atmo_safe_sqrt(1.0 - mu_sun * mu_sun), mu_sun, 0.0);
+    vec3 P0 = vec3(0.0, r, 0.0);
+
+    const int N = 8; // 8x8 = 64 uniformly distributed gather directions
+    vec3 luminance = vec3(0.0);
+    vec3 feedback = vec3(0.0);
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            float rand0 = (float(i) + 0.5) / float(N);
+            float rand1 = (float(j) + 0.5) / float(N);
+            float cos_theta = 1.0 - 2.0 * rand0;
+            float sin_theta = atmo_safe_sqrt(1.0 - cos_theta * cos_theta);
+            float phi = 2.0 * ATMO_PI * rand1;
+            vec3 dir = vec3(sin_theta * cos(phi), cos_theta, sin_theta * sin(phi));
+            march_gather(m, P0, dir, sun_dir, luminance, feedback);
+        }
+    }
+
+    // Monte-Carlo weight over the sphere (4pi/N^2) times the isotropic redistribution
+    // phase (1/4pi) collapses to 1/N^2.
+    float inv_samples = 1.0 / float(N * N);
+    luminance *= inv_samples;
+    feedback *= inv_samples;
+
+    // Geometric series: L2 * (1 + f + f^2 + ...) = L2 / (1 - f), all orders in one read.
+    vec3 psi = luminance / max(vec3(1.0) - feedback, vec3(1e-4));
+    imageStore(multiscatter_lut, coord, vec4(psi, 1.0));
+}

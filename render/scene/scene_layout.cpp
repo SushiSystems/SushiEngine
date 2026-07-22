@@ -142,6 +142,21 @@ namespace SushiEngine
                 bindings[AO_BINDING].descriptorCount = 1;
                 bindings[AO_BINDING].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+                // The atmosphere LUT stack, sampled by the sky march's fragment stage.
+                const std::uint32_t atmosphere_luts[5] = {TRANSMITTANCE_LUT_BINDING,
+                                                          MULTISCATTER_LUT_BINDING,
+                                                          SKY_VIEW_LUT_BINDING,
+                                                          AERIAL_LUT_BINDING,
+                                                          FOG_LUT_BINDING};
+                for (std::uint32_t binding : atmosphere_luts)
+                {
+                    bindings[binding].binding = binding;
+                    bindings[binding].descriptorType =
+                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    bindings[binding].descriptorCount = 1;
+                    bindings[binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                }
+
                 // A push-descriptor set: passes push their bindings inline rather than
                 // allocate and write a throw-away set every frame. The whole set is well
                 // under the 32-descriptor floor every 1.4 device guarantees for a push

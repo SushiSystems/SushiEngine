@@ -90,6 +90,7 @@ namespace SushiEngine
                     q.lobe_clearcoat = false;
                     q.lobe_sheen = false;
                     q.lobe_transmission = false;
+                    q.volumetric_fog = false;
                     break;
 
                 case RenderQuality::Medium:

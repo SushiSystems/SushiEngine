@@ -56,6 +56,8 @@
 #include "graph/render_graph.hpp"
 #include "lighting/light_system.hpp"
 #include "material/material_system.hpp"
+#include "passes/atmosphere_lut_pass.hpp"
+#include "passes/volumetric_fog_pass.hpp"
 #include "passes/cloud_composite_pass.hpp"
 #include "passes/cloud_pass.hpp"
 #include "passes/contact_shadow_pass.hpp"
@@ -154,6 +156,8 @@ namespace SushiEngine
                     RayTracing::SceneAccelerator accelerator_;
                     Graph::GpuProfiler profiler_;
                     Graph::RenderGraph graph_;
+                    Passes::AtmosphereLutPass atmosphere_lut_pass_;
+                    Passes::VolumetricFogPass volumetric_fog_pass_;
                     Passes::IblPass ibl_pass_;
                     Passes::DepthPrepass depth_prepass_;
                     Passes::ShadowPass shadow_pass_;

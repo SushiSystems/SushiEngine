@@ -210,8 +210,52 @@ namespace SushiEngine
                      */
                     static constexpr std::uint32_t AO_BINDING = 23;
 
+                    /**
+                     * @brief Binding of the atmosphere transmittance LUT.
+                     *
+                     * The view-independent optical depth from any altitude and sun angle
+                     * to the top of the atmosphere (Hillaire 2020). The sky march reads the
+                     * sun's transmittance from it instead of integrating a per-sample light
+                     * ray; the IBL sky capture reads it for the same reason.
+                     */
+                    static constexpr std::uint32_t TRANSMITTANCE_LUT_BINDING = 24;
+
+                    /**
+                     * @brief Binding of the atmosphere multiple-scattering LUT.
+                     *
+                     * The infinite-order isotropic scattering the single march omits, so
+                     * the horizon and shadowed ground read hazy rather than black at dusk.
+                     */
+                    static constexpr std::uint32_t MULTISCATTER_LUT_BINDING = 25;
+
+                    /**
+                     * @brief Binding of the per-frame sky-view LUT.
+                     *
+                     * A latitude-longitude image of the background sky's in-scattered
+                     * radiance in the camera's local frame, so a pixel with no geometry is a
+                     * single fetch instead of a full atmosphere march.
+                     */
+                    static constexpr std::uint32_t SKY_VIEW_LUT_BINDING = 26;
+
+                    /**
+                     * @brief Binding of the aerial-perspective froxel volume.
+                     *
+                     * A camera-frustum-aligned 3D texture of the in-scatter and
+                     * transmittance from the camera out to each froxel's depth, so a mesh
+                     * reads the air in front of it as one fetch instead of a march.
+                     */
+                    static constexpr std::uint32_t AERIAL_LUT_BINDING = 27;
+
+                    /**
+                     * @brief Binding of the volumetric-fog froxel volume.
+                     *
+                     * The ground-hugging fog's in-scatter and transmittance, folded over
+                     * every pixel in the sky composite. Shares the aerial volume's addressing.
+                     */
+                    static constexpr std::uint32_t FOG_LUT_BINDING = 28;
+
                     /** @brief Number of bindings in the per-frame set. */
-                    static constexpr std::uint32_t BINDING_COUNT = AO_BINDING + 1;
+                    static constexpr std::uint32_t BINDING_COUNT = FOG_LUT_BINDING + 1;
 
                     /**
                      * @brief Creates the set and pipeline layouts.

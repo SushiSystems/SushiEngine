@@ -65,6 +65,9 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class AtmosphereLutPass;
+            class VolumetricFogPass;
+
             /**
              * @brief Draws the sky and planet into the HDR composite target.
              *
@@ -75,15 +78,18 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Builds the sky pipeline.
-                     * @param device    The live Vulkan device.
-                     * @param shaders   Library the shader modules come from.
-                     * @param pipelines Factory the pipeline is built through.
-                     * @param layout    The shared scene descriptor and pipeline layout.
-                     * @param noise     The cloud noise volumes the sky pass samples.
+                     * @param device     The live Vulkan device.
+                     * @param shaders    Library the shader modules come from.
+                     * @param pipelines  Factory the pipeline is built through.
+                     * @param layout     The shared scene descriptor and pipeline layout.
+                     * @param noise      The cloud noise volumes the sky pass samples.
+                     * @param atmosphere The pass that owns the transmittance/multi-scatter LUTs.
+                     * @param fog        The pass that owns the volumetric-fog froxel volume.
                      */
                     SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout,
-                            Textures::CloudNoise& noise);
+                            Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
+                            VolumetricFogPass& fog);
                     ~SkyPass() override;
 
                     SkyPass(const SkyPass&) = delete;
@@ -102,6 +108,8 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
                     Textures::CloudNoise& noise_;
+                    AtmosphereLutPass& atmosphere_;
+                    VolumetricFogPass& fog_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

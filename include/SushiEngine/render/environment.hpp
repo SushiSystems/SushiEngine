@@ -82,6 +82,56 @@ namespace SushiEngine
         };
 
         /**
+         * @brief Ground-hugging volumetric fog, integrated through a froxel volume.
+         *
+         * A height-graded participating medium the renderer marches into a
+         * camera-frustum-aligned 3D volume: its extinction falls off exponentially with
+         * altitude, and each froxel gathers the sun (phase-weighted, attenuated by the
+         * atmosphere's transmittance LUT) plus a constant ambient fill. Meshes, the ground,
+         * and the sky then read the air in front of them as one fetch, so valleys and
+         * airfields haze over and the low sun lights the fog. Plain data; @c density is the
+         * sea-level extinction per metre and @c height_falloff its exponential rate.
+         */
+        struct FogParams
+        {
+            bool enabled = false;                            /**< Draw volumetric fog at all. */
+            float density = 0.01f;                           /**< Sea-level extinction, per metre. */
+            float height_falloff = 0.0005f;                  /**< Exponential altitude falloff, per metre. */
+            Vector3 scattering_color{Vector3{0.55, 0.6, 0.7}}; /**< Scattering tint of the medium. */
+            float ambient = 0.2f;                            /**< Constant ambient in-scatter fill, [0, 1]. */
+            float phase_anisotropy = 0.4f;                   /**< Henyey-Greenstein g for the sun lobe, [0, 1). */
+        };
+
+        /** @brief The primitive a @ref FogVolume adds its density inside. */
+        enum class FogVolumeShape : std::uint32_t
+        {
+            Box = 0,
+            Ellipsoid = 1,
+        };
+
+        /**
+         * @brief An authored local fog primitive that thickens the fog inside its bounds.
+         *
+         * A box or ellipsoid the fog pass blends into the same froxel grid as the global
+         * height fog — valley fog, an airfield ground layer, a fog bank — so it costs no
+         * new pass, only extra density where it sits. @c edge_falloff softens the boundary
+         * so the primitive fades in rather than cutting a hard edge. Camera-relative when it
+         * reaches the shader, so it rebases with everything else at planet scale.
+         */
+        struct FogVolume
+        {
+            WorldVector3 center{};                          /**< World centre, metres. */
+            Vector3 extent{Vector3{500.0, 120.0, 500.0}};   /**< Half-extents, metres. */
+            Vector3 color{Vector3{0.6, 0.65, 0.7}};         /**< Scattering tint inside. */
+            float density = 0.03f;                          /**< Extinction inside, per metre. */
+            float edge_falloff = 0.35f;                     /**< Soft-edge fraction, [0, 1]. */
+            FogVolumeShape shape = FogVolumeShape::Box;      /**< Box or ellipsoid bounds. */
+        };
+
+        /** @brief Maximum local fog volumes the environment carries to the renderer. */
+        constexpr int MAX_FOG_VOLUMES = 8;
+
+        /**
          * @brief The planet surface's albedo, shaded analytically where the ray hits it.
          *
          * A deliberately simple two-tone surface (ocean vs land) plus a roughness so the
@@ -547,6 +597,9 @@ namespace SushiEngine
             Vector3 planet_pole{Vector3{0.0, 1.0, 0.0}};      /**< The dominant body's north pole, scene frame (orients the ellipsoid). */
             SurfaceStyle planet_surface_style = SurfaceStyle::EarthLike; /**< Procedural pattern of the dominant body's ground. */
             AtmosphereParams atmosphere; /**< The air shell around the planet. */
+            FogParams fog;               /**< Ground-hugging volumetric fog. */
+            FogVolume fog_volumes[MAX_FOG_VOLUMES]{}; /**< Authored local fog primitives. */
+            int fog_volume_count = 0;    /**< Number of populated @ref fog_volumes entries. */
             PlanetParams surface;        /**< How the planet's ground shades. */
             Cloudscape clouds;           /**< The ray-marched, layered cloudscape. */
             StarParams stars;            /**< The space-background star field. */

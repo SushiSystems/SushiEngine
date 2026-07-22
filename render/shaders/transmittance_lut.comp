@@ -1,0 +1,49 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "atmosphere_common.glsl"
+
+// Builds the transmittance LUT: for each texel, the fraction of light that survives
+// the trip from a point at radius r and view-zenith cosine mu to the top of the
+// atmosphere (Bruneton parameterization). View-independent — it depends only on the
+// medium and the planet radii — so it is rebuilt only when those change, and every
+// later atmosphere pass reads the sun's optical depth from it instead of marching it.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D transmittance_lut;
+
+layout(push_constant) uniform AtmosBlock
+{
+    vec4 rayleigh; // xyz = Rayleigh scattering (per m), w = Mie scattering (per m)
+    vec4 heights;  // x = Rayleigh scale height, y = Mie scale height, z = bottom, w = top
+    vec4 extra;    // x = Mie extinction (per m)
+} pc;
+
+AtmosphereMedium medium()
+{
+    AtmosphereMedium m;
+    m.rayleigh_scattering = pc.rayleigh.xyz;
+    m.mie_scattering = pc.rayleigh.w;
+    m.mie_extinction = pc.extra.x;
+    m.rayleigh_scale_height = pc.heights.x;
+    m.mie_scale_height = pc.heights.y;
+    m.bottom_radius = pc.heights.z;
+    m.top_radius = pc.heights.w;
+    return m;
+}
+
+void main()
+{
+    ivec2 size = imageSize(transmittance_lut);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= size.x || coord.y >= size.y)
+        return;
+
+    AtmosphereMedium m = medium();
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+    float r, mu;
+    transmittance_lut_rmu(uv, m.bottom_radius, m.top_radius, r, mu);
+    vec3 transmittance = transmittance_to_top(m, r, mu);
+    imageStore(transmittance_lut, coord, vec4(transmittance, 1.0));
+}

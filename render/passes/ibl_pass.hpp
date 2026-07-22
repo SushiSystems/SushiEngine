@@ -77,6 +77,9 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class AtmosphereLutPass;
+            class VolumetricFogPass;
+
             /**
              * @brief Builds and owns the prefiltered environment, irradiance, and BRDF LUT.
              *
@@ -87,17 +90,21 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Creates the cube chain and generates the view-independent LUT.
-                     * @param device    The live Vulkan device.
-                     * @param shaders   Library the shader modules come from.
-                     * @param pipelines Factory the pipelines are built through.
-                     * @param samplers  Cache providing the cube and LUT samplers.
-                     * @param layout    The shared scene descriptor and pipeline layout.
-                     * @param noise     Cloud noise the captured sky shader samples.
+                     * @param device     The live Vulkan device.
+                     * @param shaders    Library the shader modules come from.
+                     * @param pipelines  Factory the pipelines are built through.
+                     * @param samplers   Cache providing the cube and LUT samplers.
+                     * @param layout     The shared scene descriptor and pipeline layout.
+                     * @param noise      Cloud noise the captured sky shader samples.
+                     * @param atmosphere The pass owning the transmittance/multi-scatter LUTs
+                     *                   the captured sky shader now reads.
+                     * @param fog        The pass owning the fog volume the sky shader binds.
                      */
                     IblPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines,
                             Resources::SamplerCache& samplers, Scene::SceneLayout& layout,
-                            Textures::CloudNoise& noise);
+                            Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
+                            VolumetricFogPass& fog);
                     ~IblPass() override;
 
                     IblPass(const IblPass&) = delete;
@@ -160,6 +167,8 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
                     Textures::CloudNoise& noise_;
+                    AtmosphereLutPass& atmosphere_;
+                    VolumetricFogPass& fog_;
 
                     Cube environment_;
                     Cube specular_;

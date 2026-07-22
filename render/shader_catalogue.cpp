@@ -23,8 +23,13 @@
 
 #include "shader_catalogue.hpp"
 
+#include "aerial_perspective.comp.h"
 #include "brdf_lut.comp.h"
 #include "cluster_build.comp.h"
+#include "fog_scatter.comp.h"
+#include "multiscatter_lut.comp.h"
+#include "sky_view_lut.comp.h"
+#include "transmittance_lut.comp.h"
 #include "light_shadow.vert.h"
 #include "cloud.frag.h"
 #include "cloud_composite.frag.h"
@@ -113,6 +118,18 @@ namespace SushiEngine
                  Shaders::sh_project_comp_spv_word_count, "sh_project.comp"},
                 {"cluster_build.comp", ShaderStage::Compute, Shaders::cluster_build_comp_spv,
                  Shaders::cluster_build_comp_spv_word_count, "cluster_build.comp"},
+                {"transmittance_lut.comp", ShaderStage::Compute,
+                 Shaders::transmittance_lut_comp_spv,
+                 Shaders::transmittance_lut_comp_spv_word_count, "transmittance_lut.comp"},
+                {"multiscatter_lut.comp", ShaderStage::Compute, Shaders::multiscatter_lut_comp_spv,
+                 Shaders::multiscatter_lut_comp_spv_word_count, "multiscatter_lut.comp"},
+                {"sky_view_lut.comp", ShaderStage::Compute, Shaders::sky_view_lut_comp_spv,
+                 Shaders::sky_view_lut_comp_spv_word_count, "sky_view_lut.comp"},
+                {"aerial_perspective.comp", ShaderStage::Compute,
+                 Shaders::aerial_perspective_comp_spv,
+                 Shaders::aerial_perspective_comp_spv_word_count, "aerial_perspective.comp"},
+                {"fog_scatter.comp", ShaderStage::Compute, Shaders::fog_scatter_comp_spv,
+                 Shaders::fog_scatter_comp_spv_word_count, "fog_scatter.comp"},
                 {"light_shadow.vert", ShaderStage::Vertex, Shaders::light_shadow_vert_spv,
                  Shaders::light_shadow_vert_spv_word_count, "light_shadow.vert"},
                 {"gtao.comp", ShaderStage::Compute, Shaders::gtao_comp_spv,

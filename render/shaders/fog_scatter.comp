@@ -1,0 +1,164 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "atmosphere_common.glsl"
+
+// Builds the volumetric-fog froxel volume: a camera-frustum-aligned 32x32x32 grid where
+// froxel (x, y, z) holds the fog's accumulated in-scattered light and transmittance from
+// the camera out to that depth. One thread per (x, y) column marches the depth slices
+// front-to-back through a height-graded fog medium, gathering the sun (phase-weighted,
+// attenuated by the atmosphere transmittance LUT) plus a constant ambient fill, and
+// writing each slice — reusing the aerial-perspective addressing so meshes, the ground,
+// and the sky read it the same way. In-scatter is stored with the sun radiance already
+// folded in, so the composite is one multiply-add.
+//
+// The scene block is read directly (a leading prefix) so the camera basis and the sun
+// match sky.frag; the fog medium arrives via push constants from the environment.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image3D fog_volume;
+layout(set = 0, binding = 1) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+} scene;
+layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
+
+#define MAX_FOG_VOLUMES 8
+layout(set = 0, binding = 3) uniform FogVolumes
+{
+    // Per volume, 3 vec4: [3i+0] = centre.xyz (camera-relative), shape; [3i+1] = extent.xyz,
+    // edge falloff; [3i+2] = colour.rgb, density.
+    vec4 volume[MAX_FOG_VOLUMES * 3];
+    vec4 count; // x = active volume count
+} volumes;
+
+layout(push_constant) uniform FogBlock
+{
+    vec4 color_density; // xyz = scattering tint, w = sea-level extinction (per m)
+    vec4 params;        // x = height falloff (per m), y = ambient, z = phase g, w = enabled
+} fog;
+
+// Extra fog density and its tint-weighted scattering from the local primitives at a
+// camera-relative point. Each volume fades over its edge_falloff shell so it blends in.
+float local_fog(vec3 p, out vec3 tint)
+{
+    tint = vec3(0.0);
+    float density = 0.0;
+    int n = int(volumes.count.x);
+    for (int i = 0; i < n; ++i)
+    {
+        vec4 c = volumes.volume[i * 3 + 0];
+        vec4 e = volumes.volume[i * 3 + 1];
+        vec4 cd = volumes.volume[i * 3 + 2];
+        vec3 local = p - c.xyz;
+        vec3 half_extent = max(e.xyz, vec3(1.0));
+        float falloff = clamp(e.w, 0.0, 0.99);
+        float m;
+        if (c.w < 0.5) // box: Chebyshev distance in normalized extents
+        {
+            vec3 q = abs(local) / half_extent;
+            m = max(max(q.x, q.y), q.z);
+        }
+        else // ellipsoid
+        {
+            m = length(local / half_extent);
+        }
+        float w = 1.0 - smoothstep(1.0 - falloff, 1.0, m);
+        float vd = cd.w * w;
+        density += vd;
+        tint += cd.xyz * vd;
+    }
+    return density;
+}
+
+void main()
+{
+    ivec3 size = imageSize(fog_volume);
+    ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
+    if (cell.x >= size.x || cell.y >= size.y)
+        return;
+
+    vec3 center = scene.planet_center.xyz;
+    float surface_radius = scene.planet_center.w;
+
+    AtmosphereMedium medium;
+    medium.rayleigh_scattering = scene.rayleigh.xyz;
+    medium.mie_scattering = scene.rayleigh.w;
+    medium.mie_extinction = scene.rayleigh.w * 1.1;
+    medium.rayleigh_scale_height = scene.scatter.y;
+    medium.mie_scale_height = scene.scatter.z;
+    medium.bottom_radius = surface_radius;
+    medium.top_radius = surface_radius + scene.planet_radii.w;
+
+    vec3 sun = normalize(scene.sun_dir.xyz);
+    vec3 sun_radiance = scene.sun_color.xyz * scene.sun_dir.w;
+
+    float base_density = (fog.params.w > 0.5) ? fog.color_density.w : 0.0;
+    float height_falloff = fog.params.x;
+    vec3 fog_tint = fog.color_density.xyz;
+    float ambient_fill = fog.params.y;
+    float phase_g = fog.params.z;
+
+    vec2 uv = (vec2(cell) + 0.5) / vec2(size.xy);
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec3 rd = normalize(scene.cam_forward.xyz + ndc.x * scene.cam_right.xyz +
+                        ndc.y * scene.cam_up.xyz);
+    float mu = dot(rd, sun);
+    float phase = atmo_phase_mie(mu, phase_g);
+
+    bool has_fog = base_density > 0.0 || int(volumes.count.x) > 0;
+
+    float throughput = 1.0;
+    vec3 inscatter = vec3(0.0);
+    float prev_t = 0.0;
+
+    for (int s = 0; s < size.z; ++s)
+    {
+        float t_slice = aerial_slice_center_distance(float(s));
+        float dt = t_slice - prev_t;
+        if (has_fog && dt > 0.0)
+        {
+            const int SUB = 2;
+            float sub = dt / float(SUB);
+            for (int k = 0; k < SUB; ++k)
+            {
+                float t = prev_t + (float(k) + 0.5) * sub;
+                vec3 p = rd * t;
+                vec3 to_center = p - center;
+                float r = length(to_center);
+                float altitude = max(r - surface_radius, 0.0);
+
+                // The medium: global height fog plus whatever local primitives overlap.
+                float base = base_density * exp(-altitude * height_falloff);
+                vec3 local_tint;
+                float local = local_fog(p, local_tint);
+                float extinction = (base + local) * sub;
+                // Scattering coefficient carries each source's own tint.
+                vec3 scatter_coeff = fog_tint * base + local_tint;
+                float step_transmittance = exp(-extinction);
+
+                float mu_sun = dot(to_center / max(r, 1.0), sun);
+                vec3 sun_transmittance = sample_transmittance(transmittance_lut, medium, r, mu_sun);
+                vec3 lit = sun_radiance * (phase * sun_transmittance + vec3(ambient_fill));
+
+                vec3 step_scatter = scatter_coeff * sub * lit;
+                inscatter += throughput * step_scatter;
+                throughput *= step_transmittance;
+            }
+        }
+        prev_t = t_slice;
+        imageStore(fog_volume, ivec3(cell, s), vec4(inscatter, throughput));
+    }
+}

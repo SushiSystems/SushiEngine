@@ -908,12 +908,24 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    the sun and an ambient floor, taking the view direction as `-v_world_position`
    (the camera is the origin of this frame), and reads a per-frame scene uniform block
    — the scene view's first descriptor set, shared by every pass.
-2. **Sky** — one fullscreen ray march (`sky.frag`) that works in **camera-relative
+2. **Sky** — a fullscreen pass (`sky.frag`) that works in **camera-relative
    space** (the camera is the origin; the planet centre arrives relative to it, so
    planet-scale metres never leave double precision on the CPU). It intersects the
    WGS84 ellipsoid for the lit ground (onto which the cloud stack casts its combined
-   shadow), integrates Rayleigh + Mie single scattering through the atmosphere shell,
-   and adds the real bright-star catalogue — each of the ~60 stars in
+   shadow), and evaluates the atmosphere's Rayleigh + Mie scattering not as a
+   per-pixel march but through the **Hillaire 2020 LUT stack** a preceding
+   `AtmosphereLutPass` builds (`render/passes/atmosphere_lut_pass.*`,
+   `atmosphere_common.glsl`): a **transmittance LUT** and a **multiple-scattering LUT**
+   (view-independent, change-gated), a per-frame **sky-view LUT** (the background sky in
+   the camera's local frame), and a per-frame **aerial-perspective froxel volume** (the
+   air in front of each mesh). A background pixel is a sky-view fetch, a mesh within
+   32 km an aerial-volume fetch, and the analytic ground and far geometry keep a march
+   that reads the sun's transmittance and the multiple scattering from the LUTs. Over
+   the top a `VolumetricFogPass` (`render/passes/volumetric_fog_pass.*`,
+   `fog_scatter.comp`) marches an authored ground-hugging fog — a global height term
+   plus up to eight local box/ellipsoid volumes — into a second froxel volume folded
+   over every pixel in the composite. It adds the real bright-star catalogue — each of
+   the ~60 stars in
    `astro/star_catalog.hpp` (J2000 position, magnitude, B-V colour) is rotated by
    the ephemeris into the observer's local sky and drawn as a point at its true
    direction, so the constellations are recognisable rather than a random field —

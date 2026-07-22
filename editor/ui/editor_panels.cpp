@@ -2894,6 +2894,102 @@ namespace SushiEngine
                     changed = true;
             }
 
+            if (ImGui::CollapsingHeader("Fog"))
+            {
+                if (ImGui::Checkbox("Fog Enabled", &environment.fog.enabled))
+                    changed = true;
+                if (ImGui::SliderFloat("Density", &environment.fog.density, 0.0f, 0.1f,
+                                       "%.4f /m"))
+                    changed = true;
+                float fog_falloff_km = environment.fog.height_falloff * 1000.0f;
+                if (ImGui::SliderFloat("Height Falloff", &fog_falloff_km, 0.0f, 5.0f,
+                                       "%.3f /km"))
+                {
+                    environment.fog.height_falloff = fog_falloff_km * 0.001f;
+                    changed = true;
+                }
+                float fog_color[3] = {
+                    static_cast<float>(environment.fog.scattering_color.x),
+                    static_cast<float>(environment.fog.scattering_color.y),
+                    static_cast<float>(environment.fog.scattering_color.z)};
+                if (ImGui::ColorEdit3("Fog Color", fog_color))
+                {
+                    environment.fog.scattering_color =
+                        SushiEngine::Vector3{fog_color[0], fog_color[1], fog_color[2]};
+                    changed = true;
+                }
+                if (ImGui::SliderFloat("Ambient Fill", &environment.fog.ambient, 0.0f, 1.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("Sun Anisotropy", &environment.fog.phase_anisotropy,
+                                       0.0f, 0.95f))
+                    changed = true;
+
+                ImGui::SeparatorText("Local Fog Volumes");
+                if (environment.fog_volume_count < SushiEngine::Render::MAX_FOG_VOLUMES &&
+                    ImGui::Button("Add Volume"))
+                {
+                    environment.fog_volumes[environment.fog_volume_count] =
+                        SushiEngine::Render::FogVolume{};
+                    ++environment.fog_volume_count;
+                    changed = true;
+                }
+                for (int i = 0; i < environment.fog_volume_count; ++i)
+                {
+                    ImGui::PushID(i);
+                    SushiEngine::Render::FogVolume& v = environment.fog_volumes[i];
+                    bool open = ImGui::TreeNode("volume", "Volume %d", i);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X"))
+                    {
+                        for (int j = i; j + 1 < environment.fog_volume_count; ++j)
+                            environment.fog_volumes[j] = environment.fog_volumes[j + 1];
+                        --environment.fog_volume_count;
+                        changed = true;
+                        if (open)
+                            ImGui::TreePop();
+                        ImGui::PopID();
+                        break;
+                    }
+                    if (open)
+                    {
+                        int shape = static_cast<int>(v.shape);
+                        if (ImGui::Combo("Shape", &shape, "Box\0Ellipsoid\0"))
+                        {
+                            v.shape = static_cast<SushiEngine::Render::FogVolumeShape>(shape);
+                            changed = true;
+                        }
+                        double center[3] = {v.center.x, v.center.y, v.center.z};
+                        if (ImGui::InputScalarN("Center", ImGuiDataType_Double, center, 3))
+                        {
+                            v.center = SushiEngine::WorldVector3{center[0], center[1], center[2]};
+                            changed = true;
+                        }
+                        float extent[3] = {static_cast<float>(v.extent.x),
+                                           static_cast<float>(v.extent.y),
+                                           static_cast<float>(v.extent.z)};
+                        if (ImGui::DragFloat3("Extent", extent, 5.0f, 1.0f, 100000.0f, "%.0f m"))
+                        {
+                            v.extent = SushiEngine::Vector3{extent[0], extent[1], extent[2]};
+                            changed = true;
+                        }
+                        float col[3] = {static_cast<float>(v.color.x),
+                                        static_cast<float>(v.color.y),
+                                        static_cast<float>(v.color.z)};
+                        if (ImGui::ColorEdit3("Color", col))
+                        {
+                            v.color = SushiEngine::Vector3{col[0], col[1], col[2]};
+                            changed = true;
+                        }
+                        if (ImGui::SliderFloat("Density", &v.density, 0.0f, 0.2f, "%.4f /m"))
+                            changed = true;
+                        if (ImGui::SliderFloat("Edge Falloff", &v.edge_falloff, 0.0f, 0.99f))
+                            changed = true;
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+            }
+
             if (ImGui::CollapsingHeader("Surface"))
             {
                 float ground[3] = {static_cast<float>(environment.surface.ground_albedo.x),

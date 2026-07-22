@@ -51,8 +51,12 @@ namespace SushiEngine
                   accelerator_(device, assets.meshes(), SLOTS),
                   profiler_(device, SLOTS, MAX_TIMED_PASSES),
                   graph_(device, &profiler_),
+                  atmosphere_lut_pass_(device, assets.shaders(), assets.pipelines()),
+                  volumetric_fog_pass_(device, assets.shaders(), assets.pipelines(),
+                                       atmosphere_lut_pass_),
                   ibl_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
-                            assets.layout(), assets.cloud_noise()),
+                            assets.layout(), assets.cloud_noise(), atmosphere_lut_pass_,
+                            volumetric_fog_pass_),
                   depth_prepass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                  assets.meshes(), motion_),
                   shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
@@ -70,7 +74,7 @@ namespace SushiEngine
                                      assets.meshes(), lights_),
                   shading_rate_pass_(device, assets.shaders(), assets.pipelines()),
                   sky_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
-                            assets.cloud_noise()),
+                            assets.cloud_noise(), atmosphere_lut_pass_, volumetric_fog_pass_),
                   ground_shadow_resolve_pass_(device, assets.shaders(), assets.pipelines(),
                                               assets.layout()),
                   cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
@@ -93,7 +97,9 @@ namespace SushiEngine
                 // the sky is what it steers; the temporal resolve needs a complete scene,
                 // so it follows the cloud composite; and the display transform is last
                 // except for the spatial filter and the picking readback.
-                passes_ = {&ibl_pass_,
+                passes_ = {&atmosphere_lut_pass_,
+                           &volumetric_fog_pass_,
+                           &ibl_pass_,
                            &depth_prepass_,
                            &shadow_pass_,
                            &contact_shadow_pass_,
@@ -289,6 +295,9 @@ namespace SushiEngine
                 uniforms.ibl_params[0] = environment.ibl_intensity;
                 uniforms.ibl_params[1] = static_cast<float>(ibl_pass_.specular_mip_count());
                 uniforms.ibl_params[2] = environment.image_based_lighting ? 1.0f : 0.0f;
+                // The main sky pass reads the background from the sky-view LUT; the IBL
+                // cube capture clears this so it keeps the per-pixel march (see IblPass).
+                uniforms.ibl_params[3] = 1.0f;
                 // The jitter enters the projection here and nowhere else, so every pass
                 // that transforms by it inherits the offset and no world-space value
                 // moves. It is subtracted, not added: the third column is scaled by view

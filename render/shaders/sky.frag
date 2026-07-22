@@ -3,6 +3,7 @@
 
 #include "temporal_common.glsl"
 #include "shadow_sampling.glsl"
+#include "atmosphere_common.glsl"
 
 // The planet, atmosphere, clouds, and stars, drawn as one fullscreen ray march after
 // the opaque meshes. Works in camera-relative space (the camera is the origin; the
@@ -75,6 +76,21 @@ layout(set = 0, binding = 6) uniform sampler3D cloud_cirrus_texture;  // R = ani
 // otherwise an object casts onto nothing and reads as floating over its own terrain.
 layout(set = 0, binding = 11) uniform sampler2DShadow shadow_atlas;
 layout(set = 0, binding = 12) uniform sampler2D shadow_atlas_depth;
+// The Hillaire LUT stack: view-independent optical depth to space, and the
+// infinite-order isotropic multiple scattering. Built by atmosphere_lut_pass.
+layout(set = 0, binding = 24) uniform sampler2D transmittance_lut;
+layout(set = 0, binding = 25) uniform sampler2D multiscatter_lut;
+// The per-frame sky-view LUT: the background sky's in-scatter in the camera's local
+// frame, so a pixel with no geometry is one fetch instead of a 32-step march. Disabled
+// (ibl_params.w == 0) during the IBL cube capture, which renders from other viewpoints.
+layout(set = 0, binding = 26) uniform sampler2D sky_view_lut;
+// The aerial-perspective froxel volume: the air between the camera and each mesh pixel,
+// read as one 3D fetch in the geometry composite instead of a per-pixel march.
+layout(set = 0, binding = 27) uniform sampler3D aerial_volume;
+// The volumetric-fog froxel volume: rgb = in-scatter (sun radiance folded in), a =
+// transmittance, folded over every pixel in the composite. Same addressing as the aerial
+// volume, so sample_aerial reads it too.
+layout(set = 0, binding = 28) uniform sampler3D fog_volume;
 
 #define CLOUD_MAX_DECKS 6
 
@@ -256,26 +272,6 @@ float phase_mie(float mu, float g)
 {
     float g2 = g * g;
     return 1.0 / (4.0 * PI) * (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * mu, 1.5);
-}
-
-// Optical depth of the two densities along a ray segment from ro over length seg_len,
-// packed as (rayleigh, mie). Marches a few steps; density falls off exponentially with
-// altitude above the surface (radius R).
-vec2 optical_depth(vec3 ro, vec3 rd, float seg_len, vec3 center, float surface_radius,
-                   float rayleigh_h, float mie_h)
-{
-    const int STEPS = 6;
-    float step_len = seg_len / float(STEPS);
-    vec2 depth = vec2(0.0);
-    for (int i = 0; i < STEPS; ++i)
-    {
-        vec3 p = ro + rd * (step_len * (float(i) + 0.5));
-        float altitude = length(p - center) - surface_radius;
-        altitude = max(altitude, 0.0);
-        depth.x += exp(-altitude / rayleigh_h) * step_len;
-        depth.y += exp(-altitude / mie_h) * step_len;
-    }
-    return depth;
 }
 
 // Linear remap of v from [a,b] to [c,d].
@@ -636,15 +632,50 @@ void main()
 
     vec3 total_transmittance = vec3(1.0);
 
-    if (scene.star_params.z > 0.5 && atmo.y > 0.0 && march_end > march_start)
+    // The spherical medium the LUT stack is parameterized against (mean radius; the
+    // ellipsoid ground intersection stays exact below). Mie extinction carries the same
+    // 1.1 absorption factor the view path applies, so the LUTs and this march agree.
+    AtmosphereMedium medium;
+    medium.rayleigh_scattering = rayleigh_coeff;
+    medium.mie_scattering = mie_coeff;
+    medium.mie_extinction = mie_coeff * 1.1;
+    medium.rayleigh_scale_height = rayleigh_h;
+    medium.mie_scale_height = mie_h;
+    medium.bottom_radius = surface_radius;
+    medium.top_radius = atmosphere_radius;
+
+    // A pixel that sees neither the analytic ground nor a mesh is pure background sky;
+    // there the whole atmosphere column is the sky-view LUT's one fetch, and the view
+    // transmittance to space is the transmittance LUT — no per-pixel march at all.
+    bool escapes_to_space = !ground_hit && geometry_t > 1e29;
+    bool use_sky_view = scene.ibl_params.w > 0.5 && escapes_to_space;
+    // A mesh pixel within froxel range reads its aerial perspective from the volume; the
+    // analytic ground and geometry past the volume keep the march (their air can extend
+    // hundreds of km, far beyond the froxel's reach).
+    bool use_aerial = scene.ibl_params.w > 0.5 && depth > 0.0 && !ground_hit &&
+                      geometry_t < AERIAL_MAX_DISTANCE;
+
+    if (scene.star_params.z > 0.5 && atmo.y > 0.0 && march_end > march_start && use_sky_view)
+    {
+        sky_color = sun_radiance * sample_sky_view(sky_view_lut, center, rd, surface_radius);
+        float r_camera = length(center);
+        float mu_view = dot(normalize(-center), rd);
+        total_transmittance = sample_transmittance(transmittance_lut, medium, r_camera, mu_view);
+    }
+    else if (scene.star_params.z > 0.5 && atmo.y > 0.0 && march_end > march_start && use_aerial)
+    {
+        vec4 aerial = sample_aerial(aerial_volume, uv, geometry_t);
+        sky_color = sun_radiance * aerial.rgb;
+        total_transmittance = vec3(aerial.a);
+    }
+    else if (scene.star_params.z > 0.5 && atmo.y > 0.0 && march_end > march_start)
     {
         const int STEPS = 32;
         float march_len = march_end - march_start;
         float mu = dot(rd, sun);
         float pr = phase_rayleigh(mu);
         float pm = phase_mie(mu, mie_g);
-        vec3 rayleigh_sum = vec3(0.0);
-        vec3 mie_sum = vec3(0.0);
+        vec3 inscatter = vec3(0.0);
         vec2 view_depth = vec2(0.0);
         // Quadratic sample distribution: air density falls off exponentially with
         // altitude, so a horizon ray crosses nearly all its mass in the first stretch out
@@ -662,40 +693,42 @@ void main()
             float mid = march_start + (prev_t + (t1 - prev_t) * 0.5) * march_len;
             prev_t = t1;
             vec3 p = ro + rd * mid;
-            float altitude = max(length(p - center) - surface_radius, 0.0);
+            vec3 to_center = p - center;
+            float r_p = length(to_center);
+            float altitude = max(r_p - surface_radius, 0.0);
             float dr = exp(-altitude / rayleigh_h) * seg;
             float dm = exp(-altitude / mie_h) * seg;
             view_depth += vec2(dr, dm);
 
-            // Light ray from this sample toward the sun through the atmosphere.
-            vec2 light_hit = ray_sphere(p, sun, center, atmosphere_radius);
-            float ground_shadow =
-                ray_ellipsoid(p, sun, center, semi_major, semi_minor, planet_pole);
-            if (ground_shadow > 0.0)
-                continue; // sample is in the planet's shadow
-            vec2 light_depth = optical_depth(p, sun, max(light_hit.y, 0.0), center,
-                                             surface_radius, rayleigh_h, mie_h);
+            // Transmittance from the camera to this sample (the accumulated view path).
+            vec3 view_transmittance =
+                exp(-(rayleigh_coeff * view_depth.x + vec3(mie_coeff) * 1.1 * view_depth.y));
 
-            vec3 tau = rayleigh_coeff * (view_depth.x + light_depth.x) +
-                       vec3(mie_coeff) * 1.1 * (view_depth.y + light_depth.y);
-            vec3 attenuation = exp(-tau);
-            rayleigh_sum += attenuation * dr;
-            mie_sum += attenuation * dm;
+            // Light scattered out of this segment toward the eye: coefficient × density × seg.
+            vec3 rayleigh_scatter = dr * rayleigh_coeff;
+            vec3 mie_scatter = dm * vec3(mie_coeff);
+            float mu_sun = dot(to_center / max(r_p, 1.0), sun);
+
+            // Multiple scattering from the LUT — it already folds the sun's transmittance
+            // into every gather direction, so it fills the shadowed air with the hazy
+            // twilight glow the single term cannot reach.
+            vec3 ms = sample_multiscatter(multiscatter_lut, medium, r_p, mu_sun);
+            vec3 multi = ms * (rayleigh_scatter + mie_scatter);
+
+            // Single scattering: the sun's transmittance to this sample, read from the LUT
+            // instead of a per-sample light-ray march, applied only where the sample can
+            // actually see the sun past the ellipsoid (planet self-shadow).
+            vec3 single = vec3(0.0);
+            if (ray_ellipsoid(p, sun, center, semi_major, semi_minor, planet_pole) <= 0.0)
+            {
+                vec3 sun_transmittance =
+                    sample_transmittance(transmittance_lut, medium, r_p, mu_sun);
+                single = sun_transmittance * (rayleigh_scatter * pr + mie_scatter * pm);
+            }
+
+            inscatter += view_transmittance * (single + multi);
         }
-        sky_color = sun_radiance * (rayleigh_sum * rayleigh_coeff * pr +
-                                    mie_sum * mie_coeff * pm);
-
-        // Cheap multiple-scattering fill: real air keeps bouncing light long after the
-        // single-scatter term above has died out along a long, low-elevation ray, which
-        // is why the horizon reads hazy blue-white at dusk rather than falling to black.
-        // Approximate it by re-summing the same attenuated density integral through an
-        // isotropic phase (1/4pi) instead of the directional Rayleigh/Mie lobes, scaled
-        // down since it is a second-order correction, not another full scattering pass.
-        const float MULTI_SCATTER_STRENGTH = 0.6;
-        vec3 multi_scatter = sun_radiance * (rayleigh_sum * rayleigh_coeff +
-                                             mie_sum * mie_coeff) *
-                             (1.0 / (4.0 * PI)) * MULTI_SCATTER_STRENGTH;
-        sky_color += multi_scatter;
+        sky_color = sun_radiance * inscatter;
 
         total_transmittance = exp(-(rayleigh_coeff * view_depth.x +
                                     vec3(mie_coeff) * 1.1 * view_depth.y));
@@ -758,7 +791,6 @@ void main()
         ground_shadow_out = vec4(ground_direct * total_transmittance, cascade_shadow);
     }
 
-    bool escapes_to_space = !ground_hit && geometry_t > 1e29;
     float air = clamp((total_transmittance.r + total_transmittance.g +
                        total_transmittance.b) / 3.0, 0.0, 1.0);
 
@@ -936,5 +968,21 @@ void main()
         out_color = vec4(scene_color * total_transmittance + sky_color, 1.0);
     else
         out_color = vec4(sky_color, 1.0);
+
+    // Volumetric fog folds over everything: the nearest visible surface's distance picks
+    // the froxel depth, and the fog's own transmittance attenuates the scene while its
+    // in-scatter (sun radiance already folded in) is added. A no-op when fog is disabled
+    // (the volume is all transmittance 1, zero in-scatter). Skipped during the IBL cube
+    // capture, whose viewpoints do not match the camera-frustum-aligned volume.
+    if (scene.ibl_params.w > 0.5)
+    {
+        float scene_distance = ground_hit ? ground_t
+                                          : (depth > 0.0 ? geometry_t : AERIAL_MAX_DISTANCE);
+        vec4 fog = sample_aerial(fog_volume, uv, scene_distance);
+        out_color.rgb = out_color.rgb * fog.a + fog.rgb;
+        // The analytic ground's held-back direct term is attenuated by the same fog so the
+        // sunlit ground under fog dims with the rest of the scene, not through it.
+        ground_shadow_out.rgb *= fog.a;
+    }
     out_ground_shadow = ground_shadow_out;
 }

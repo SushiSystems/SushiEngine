@@ -1,0 +1,123 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "atmosphere_common.glsl"
+
+// Builds the aerial-perspective froxel volume: a camera-frustum-aligned 32x32x32 grid
+// where froxel (x, y, z) holds the in-scattered radiance and transmittance from the
+// camera out to that froxel's depth. A mesh then reads the air in front of it as one 3D
+// fetch (sky.frag's geometry composite) instead of a per-pixel march. One thread per
+// (x, y) column marches front-to-back through the depth slices, accumulating as it goes
+// and writing each slice — so the whole column is integrated once, not per froxel.
+//
+// The scene uniform block is read directly (not pushed) so the camera basis and the
+// atmosphere coefficients are bit-for-bit the ones sky.frag uses; only the leading
+// fields up to `scatter` are declared, which is a valid uniform-buffer prefix.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image3D aerial_volume;
+layout(set = 0, binding = 1) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;   // xyz = unit forward
+    vec4 cam_right;     // xyz = right * tan(fovx/2)
+    vec4 cam_up;        // xyz = up * tan(fovy/2)
+    vec4 planet_center; // xyz = planet centre relative to camera, w = mean radius
+    vec4 planet_radii;  // xyz = ellipsoid semi-axes, w = atmosphere height
+    vec4 sun_dir;       // xyz = direction to sun, w = intensity
+    vec4 sun_color;     // xyz = colour, w = exposure
+    vec4 ambient;       // xyz = ambient radiance
+    vec4 rayleigh;      // xyz = per-metre Rayleigh, w = Mie coefficient
+    vec4 scatter;       // x = Mie g, y = Rayleigh scale height, z = Mie scale height
+} scene;
+layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
+layout(set = 0, binding = 3) uniform sampler2D multiscatter_lut;
+
+void main()
+{
+    ivec3 size = imageSize(aerial_volume);
+    ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
+    if (cell.x >= size.x || cell.y >= size.y)
+        return;
+
+    vec3 center = scene.planet_center.xyz;
+    float surface_radius = scene.planet_center.w;
+
+    AtmosphereMedium medium;
+    medium.rayleigh_scattering = scene.rayleigh.xyz;
+    medium.mie_scattering = scene.rayleigh.w;
+    medium.mie_extinction = scene.rayleigh.w * 1.1;
+    medium.rayleigh_scale_height = scene.scatter.y;
+    medium.mie_scale_height = scene.scatter.z;
+    medium.bottom_radius = surface_radius;
+    medium.top_radius = surface_radius + scene.planet_radii.w;
+
+    vec3 sun = normalize(scene.sun_dir.xyz);
+    float mie_g = scene.scatter.x;
+
+    // The froxel column's view ray, reconstructed from its screen-space cell centre the
+    // same way sky.frag builds its per-pixel ray.
+    vec2 uv = (vec2(cell) + 0.5) / vec2(size.xy);
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec3 rd = normalize(scene.cam_forward.xyz + ndc.x * scene.cam_right.xyz +
+                        ndc.y * scene.cam_up.xyz);
+
+    vec2 atmosphere = atmo_ray_sphere2(vec3(0.0), rd, center, medium.top_radius);
+    float mu = dot(rd, sun);
+    float pr = atmo_phase_rayleigh(mu);
+    float pm = atmo_phase_mie(mu, mie_g);
+
+    vec3 throughput = vec3(1.0);
+    vec3 inscatter = vec3(0.0);
+    float prev_t = 0.0;
+
+    for (int s = 0; s < size.z; ++s)
+    {
+        float t_slice = aerial_slice_center_distance(float(s));
+
+        // Integrate only the part of this slice's span that lies inside the atmosphere.
+        float a = max(prev_t, max(atmosphere.x, 0.0));
+        float b = (atmosphere.y > 0.0) ? min(t_slice, atmosphere.y) : -1.0;
+        if (b > a)
+        {
+            const int SUB = 2;
+            float dt = (b - a) / float(SUB);
+            for (int k = 0; k < SUB; ++k)
+            {
+                float t = a + (float(k) + 0.5) * dt;
+                vec3 p = rd * t;
+                vec3 to_center = p - center;
+                float r = length(to_center);
+                float altitude = max(r - surface_radius, 0.0);
+                float dr = exp(-altitude / medium.rayleigh_scale_height) * dt;
+                float dm = exp(-altitude / medium.mie_scale_height) * dt;
+
+                vec3 step_transmittance = exp(-(medium.rayleigh_scattering * dr +
+                                                vec3(medium.mie_extinction) * dm));
+                vec3 rayleigh_scatter = dr * medium.rayleigh_scattering;
+                vec3 mie_scatter = dm * vec3(medium.mie_scattering);
+                float mu_sun = dot(to_center / max(r, 1.0), sun);
+
+                vec3 ms = sample_multiscatter(multiscatter_lut, medium, r, mu_sun);
+                vec3 multi = ms * (rayleigh_scatter + mie_scatter);
+
+                vec3 single = vec3(0.0);
+                if (atmo_ray_sphere(r, mu_sun, surface_radius) <= 0.0)
+                {
+                    vec3 sun_transmittance =
+                        sample_transmittance(transmittance_lut, medium, r, mu_sun);
+                    single = sun_transmittance * (rayleigh_scatter * pr + mie_scatter * pm);
+                }
+
+                inscatter += throughput * (single + multi);
+                throughput *= step_transmittance;
+            }
+        }
+        prev_t = t_slice;
+
+        float transmittance = dot(throughput, vec3(0.2126, 0.7152, 0.0722));
+        imageStore(aerial_volume, ivec3(cell, s), vec4(inscatter, transmittance));
+    }
+}

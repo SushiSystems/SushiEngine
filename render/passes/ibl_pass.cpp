@@ -29,6 +29,8 @@
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "passes/atmosphere_lut_pass.hpp"
+#include "passes/volumetric_fog_pass.hpp"
 #include "passes/fullscreen.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
@@ -167,9 +169,10 @@ namespace SushiEngine
             IblPass::IblPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Resources::SamplerCache& samplers, Scene::SceneLayout& layout,
-                             Textures::CloudNoise& noise)
+                             Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
+                             VolumetricFogPass& fog)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  noise_(noise)
+                  noise_(noise), atmosphere_(atmosphere), fog_(fog)
             {
                 Resources::SamplerDesc sampler_desc;
                 sampler_desc.max_lod = static_cast<float>(SPECULAR_MIPS);
@@ -716,6 +719,9 @@ namespace SushiEngine
                         uniforms.cam_right[axis] = FACES[face].right[axis];
                         uniforms.cam_up[axis] = FACES[face].up[axis];
                     }
+                    // The sky-view LUT is built for the main camera's frame, so the capture
+                    // marches the atmosphere per pixel instead of reading it (see sky.frag).
+                    uniforms.ibl_params[3] = 0.0f;
                     std::memcpy(face_uniform_mapped_[face], &uniforms, sizeof(uniforms));
                 }
 
@@ -757,6 +763,24 @@ namespace SushiEngine
                     writer.image(4, noise_.detail(), noise_.sampler());
                     writer.image(5, noise_.weather(), noise_.sampler());
                     writer.image(6, noise_.cirrus(), noise_.sampler());
+                    // The captured sky shader reads the atmosphere LUTs like the real sky
+                    // pass does, so the prefiltered environment tracks the same scattering.
+                    writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
+                                 atmosphere_.transmittance_view(), sampler_);
+                    writer.image(Scene::SceneLayout::MULTISCATTER_LUT_BINDING,
+                                 atmosphere_.multiscatter_view(), sampler_);
+                    // Bound so the descriptor is valid, but the capture keeps the per-pixel
+                    // march (ibl_params.w is cleared in the face uniforms below): the
+                    // sky-view LUT is built for the main camera, not these cube viewpoints.
+                    writer.image(Scene::SceneLayout::SKY_VIEW_LUT_BINDING,
+                                 atmosphere_.sky_view_view(), sampler_);
+                    // Bound for a valid descriptor; the capture has no geometry, so the
+                    // aerial volume (a geometry-only term) is never sampled.
+                    writer.image(Scene::SceneLayout::AERIAL_LUT_BINDING,
+                                 atmosphere_.aerial_view(), sampler_);
+                    // Bound for a valid descriptor; the fog composite is gated off in the
+                    // capture (ibl_params.w cleared below), so the volume is never sampled.
+                    writer.image(Scene::SceneLayout::FOG_LUT_BINDING, fog_.fog_view(), sampler_);
 
                     vkCmdBeginRendering(cmd, &rendering);
                     vkCmdSetViewport(cmd, 0, 1, &viewport);
