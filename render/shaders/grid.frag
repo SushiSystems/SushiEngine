@@ -100,5 +100,5 @@ void main()
     coverage *= smoothstep(0.0, 0.12, abs(rd.y));
     coverage *= occlusion;
 
-    out_color = vec4(mix(base, line_color, coverage * 0.85), 1.0);
+    out_color = vec4(mix(base, line_color, coverage * 0.55), 1.0);
 }

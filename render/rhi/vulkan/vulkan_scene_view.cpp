@@ -101,6 +101,7 @@ namespace SushiEngine
                   motion_blur_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   auto_exposure_pass_(device, assets.shaders(), assets.pipelines()),
                   bloom_pass_(device, assets.shaders(), assets.pipelines()),
+                  grid_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   tonemap_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   fxaa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   resources_(device, assets.samplers().get(Resources::SamplerDesc{}), 16u, 16u)
@@ -141,6 +142,7 @@ namespace SushiEngine
                            &motion_blur_pass_,
                            &auto_exposure_pass_,
                            &bloom_pass_,
+                           &grid_pass_,
                            &tonemap_pass_,
                            &fxaa_pass_,
                            &picking_pass_};
@@ -251,7 +253,8 @@ namespace SushiEngine
                                          std::uint32_t selected_id,
                                          const ClothStrandView* strands, std::size_t strand_count,
                                          const PunctualLight* lights, std::size_t light_count,
-                                         const Decal* decals, std::size_t decal_count)
+                                         const Decal* decals, std::size_t decal_count,
+                                         bool show_grid)
             {
                 const std::uint32_t index = frame_counter_ % SLOTS;
                 const VkFence fence = resources_.fence(index);
@@ -307,6 +310,7 @@ namespace SushiEngine
                 frame.draws.decals = decals;
                 frame.draws.decal_count = decal_count;
                 frame.draws.selected_id = selected_id;
+                frame.grid.enabled = show_grid;
                 frame.descriptors = &descriptors_;
                 frame.samplers = &assets_.samplers();
                 frame.layout = &assets_.layout();

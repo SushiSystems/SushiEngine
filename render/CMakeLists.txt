@@ -92,6 +92,8 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/pbr.frag"
     pbr_frag_spv PBR_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.frag"
     outline_frag_spv OUTLINE_FRAG_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/grid.frag"
+    grid_frag_spv GRID_FRAG_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.vert"
     outline_vert_spv OUTLINE_VERT_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.vert"
@@ -244,6 +246,7 @@ add_library(sushi_render STATIC
     passes/motion_blur_pass.cpp
     passes/auto_exposure_pass.cpp
     passes/bloom_pass.cpp
+    passes/grid_pass.cpp
     passes/fxaa_pass.cpp
     passes/shading_rate_pass.cpp
     passes/tonemap_pass.cpp
@@ -261,6 +264,7 @@ add_library(sushi_render STATIC
     "${MESH_GPU_VERT_HEADER}"
     "${PBR_FRAG_HEADER}"
     "${OUTLINE_FRAG_HEADER}"
+    "${GRID_FRAG_HEADER}"
     "${OUTLINE_VERT_HEADER}"
     "${FULLSCREEN_VERT_HEADER}"
     "${SKY_FRAG_HEADER}"

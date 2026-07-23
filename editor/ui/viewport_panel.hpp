@@ -166,7 +166,8 @@ namespace SushiEngine
                           const SushiEngine::Render::PunctualLight* lights = nullptr,
                           std::size_t light_count = 0,
                           const SushiEngine::Render::Decal* decals = nullptr,
-                          std::size_t decal_count = 0, UIOverlay* ui = nullptr);
+                          std::size_t decal_count = 0, UIOverlay* ui = nullptr,
+                          bool show_grid = false);
 
                 /**
                  * @brief Applies the host's fidelity/performance settings to this view.

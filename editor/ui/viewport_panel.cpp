@@ -300,7 +300,7 @@ namespace SushiEngine
                                  const SushiEngine::Render::PunctualLight* lights,
                                  std::size_t light_count,
                                  const SushiEngine::Render::Decal* decals,
-                                 std::size_t decal_count, UIOverlay* ui)
+                                 std::size_t decal_count, UIOverlay* ui, bool show_grid)
         {
             if (!ImGui::Begin(title_, &open))
             {
@@ -393,7 +393,7 @@ namespace SushiEngine
             const SushiEngine::Render::CameraView camera_view =
                 camera_.view(static_cast<float>(width) / static_cast<float>(height));
             view_->render(camera_view, environment, instances, count, selected_id, strands,
-                          strand_count, lights, light_count, decals, decal_count);
+                          strand_count, lights, light_count, decals, decal_count, show_grid);
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
             ImGui::Image(slot_textures_[view_->current_slot()],
@@ -508,6 +508,101 @@ namespace SushiEngine
                             ui_consumed = true;
                         }
                     }
+                }
+            }
+
+            // Debug overlay: the selection's oriented bounds and a small icon at each
+            // punctual light, painted over the 3D image with the same camera projection the
+            // gizmo uses. A read-only developer aid — it never consumes input, and it is
+            // drawn before the gizmo so the handles sit on top. Only in an authoring
+            // (pickable) viewport; the played Game view shows none of it.
+            if (pickable)
+            {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const SushiEngine::Mat4 vp =
+                    SushiEngine::mul(camera_view.projection, camera_view.view);
+                const float w = static_cast<float>(width);
+                const float h = static_cast<float>(height);
+
+                auto project = [&](const SushiEngine::Vector3& p, ImVec2& out) -> bool
+                {
+                    const SushiEngine::Scalar* m = vp.m;
+                    const SushiEngine::Scalar cx = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];
+                    const SushiEngine::Scalar cy = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+                    const SushiEngine::Scalar cw = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+                    if (cw <= SushiEngine::Scalar(0.0001))
+                        return false;
+                    out.x = image_origin.x +
+                            static_cast<float>(cx / cw * SushiEngine::Scalar(0.5) +
+                                               SushiEngine::Scalar(0.5)) * w;
+                    out.y = image_origin.y +
+                            static_cast<float>(cy / cw * SushiEngine::Scalar(0.5) +
+                                               SushiEngine::Scalar(0.5)) * h;
+                    return true;
+                };
+
+                if (selected_id != SushiEngine::Render::NO_PICK)
+                {
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        const SushiEngine::Render::MeshInstance& inst = instances[i];
+                        if (inst.id != selected_id)
+                            continue;
+                        using Kind = SushiEngine::Render::MeshKind;
+                        SushiEngine::Vector3 he = inst.shape_params;
+                        if (inst.kind == Kind::Sphere)
+                            he = SushiEngine::Vector3{inst.shape_params.x, inst.shape_params.x,
+                                                      inst.shape_params.x};
+                        else if (inst.kind == Kind::Cylinder)
+                            he = SushiEngine::Vector3{inst.shape_params.x, inst.shape_params.y,
+                                                      inst.shape_params.x};
+                        const SushiEngine::Scalar* mm = inst.model.m;
+                        ImVec2 corner[8];
+                        bool ok = true;
+                        for (int c = 0; c < 8 && ok; ++c)
+                        {
+                            const SushiEngine::Vector3 local{(c & 1) ? he.x : -he.x,
+                                                             (c & 2) ? he.y : -he.y,
+                                                             (c & 4) ? he.z : -he.z};
+                            const SushiEngine::Vector3 wp{
+                                mm[0] * local.x + mm[4] * local.y + mm[8] * local.z + mm[12],
+                                mm[1] * local.x + mm[5] * local.y + mm[9] * local.z + mm[13],
+                                mm[2] * local.x + mm[6] * local.y + mm[10] * local.z + mm[14]};
+                            ok = project(wp, corner[c]);
+                        }
+                        if (ok)
+                        {
+                            static const int edges[12][2] = {
+                                {0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
+                                {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+                            const ImU32 col = IM_COL32(255, 165, 50, 180);
+                            for (const auto& e : edges)
+                                dl->AddLine(corner[e[0]], corner[e[1]], col, 1.5f);
+                        }
+                        break;
+                    }
+                }
+
+                auto to255 = [](SushiEngine::Scalar v) -> int
+                {
+                    v = v < SushiEngine::Scalar(0) ? SushiEngine::Scalar(0)
+                                                   : (v > SushiEngine::Scalar(1) ? SushiEngine::Scalar(1) : v);
+                    return static_cast<int>(v * SushiEngine::Scalar(255));
+                };
+                for (std::size_t i = 0; i < light_count; ++i)
+                {
+                    const SushiEngine::Vector3 lp{
+                        static_cast<SushiEngine::Scalar>(lights[i].position.x),
+                        static_cast<SushiEngine::Scalar>(lights[i].position.y),
+                        static_cast<SushiEngine::Scalar>(lights[i].position.z)};
+                    ImVec2 s;
+                    if (!project(lp, s))
+                        continue;
+                    const ImU32 col = IM_COL32(to255(lights[i].color.x), to255(lights[i].color.y),
+                                               to255(lights[i].color.z), 230);
+                    const float r = 6.0f;
+                    dl->AddQuad(ImVec2(s.x, s.y - r), ImVec2(s.x + r, s.y), ImVec2(s.x, s.y + r),
+                                ImVec2(s.x - r, s.y), col, 1.5f);
                 }
             }
 

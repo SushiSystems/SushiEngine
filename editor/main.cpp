@@ -204,6 +204,12 @@ int main(int, char**)
         bool running = true;
         bool gizmo_was_dragging = false;
         bool ui_was_dragging = false;
+        // Multi-select drag: every co-selected entity's pose captured at the grab, so a
+        // translate drag carries the whole selection rigidly with the primary.
+        SushiEngine::Simulation::EntityTransform multi_primary_start;
+        std::vector<std::pair<SushiEngine::Simulation::EntityId,
+                              SushiEngine::Simulation::EntityTransform>>
+            multi_drag_start;
         // The one wall-clock read in the editor loop: real elapsed time since the
         // last frame, fed into ISimulation::tick() so its FixedTimestepClock can
         // turn it into whole fixed steps. The sim itself never reads the clock.
@@ -590,7 +596,7 @@ int main(int, char**)
                                                &snap, nullptr, strands.data(), strands.size(),
                                                scene.lights.data(), scene.lights.size(),
                                                scene.decals.data(), scene.decals.size(),
-                                               &scene_ui);
+                                               &scene_ui, context.preferences.grid_visible);
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
@@ -675,16 +681,43 @@ int main(int, char**)
             // the handle is grabbed, commit on the frame it is released.
             const bool gizmo_is_dragging = scene_view.gizmo_dragging();
             if (gizmo_is_dragging && !gizmo_was_dragging)
+            {
                 context.history.begin_change(world);
+                // Snapshot the co-selected entities at the grab, before this frame's
+                // write-back, so every snapshot is the pre-drag pose the delta is measured
+                // from.
+                multi_primary_start = world.world_transform(context.selected_entity);
+                multi_drag_start.clear();
+                for (const SushiEngine::Simulation::EntityId entity : context.selected_entities)
+                    if (entity != context.selected_entity && world.exists(entity))
+                        multi_drag_start.push_back({entity, world.world_transform(entity)});
+            }
             else if (!gizmo_is_dragging && gizmo_was_dragging)
+            {
                 context.history.end_change();
+                multi_drag_start.clear();
+            }
             gizmo_was_dragging = gizmo_is_dragging;
 
             // Write a gizmo edit back only when the selection did not change this frame
             // (a pick and a drag are mutually exclusive).
             if (has_selection && gizmo_edited &&
                 selected == static_cast<std::uint32_t>(context.selected_entity))
+            {
                 world.set_world_transform(context.selected_entity, selected_transform);
+                // Carry the primary's translation delta onto the rest of the selection.
+                // Only position is shared here: rotating or scaling a multi-selection about
+                // a shared pivot is a separate feature, so co-selected entities keep their
+                // own orientation and size.
+                const SushiEngine::Vector3 delta =
+                    selected_transform.position - multi_primary_start.position;
+                for (const auto& entry : multi_drag_start)
+                {
+                    SushiEngine::Simulation::EntityTransform moved = entry.second;
+                    moved.position = entry.second.position + delta;
+                    world.set_world_transform(entry.first, moved);
+                }
+            }
             // A viewport click always replaces the whole selection (no multi-select
             // there yet), but only when it actually changed the pick this frame — this
             // runs every frame regardless, and re-collapsing to one entity every frame

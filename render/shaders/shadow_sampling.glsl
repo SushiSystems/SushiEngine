@@ -150,6 +150,14 @@ float sample_shadow_cascade(sampler2DShadow atlas, sampler2D depth_atlas, int ca
     float gap = max(reference - blocker, 0.0) * shadows.depth_range[cascade];
     float penumbra = gap * shadows.filter_size.z / max(shadows.texel_size[cascade], 1e-5);
     float radius = clamp(penumbra, min_radius, max_radius);
+    // The analytic ground has no temporal resolve to average a razor-thin penumbra, so a
+    // contact-sharp edge (a box sitting on the ground, gap ~ 0) collapses to a single hard
+    // step that the fixed resolve blur can only smear into a stair-stepped "sawtooth" band.
+    // Hold a minimum penumbra of a few texels on that path so every ground shadow edge is
+    // already a gradient the blur can dissolve into a clean soft edge. Meshes are untouched:
+    // their razor edges are wanted and the temporal resolve antialiases them.
+    if (stable)
+        radius = clamp(max(radius, 2.5), min_radius, max_radius);
     return shadow_filter(atlas, cascade, uv, reference, texel, radius, angle, stable);
 }
 

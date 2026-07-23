@@ -136,16 +136,28 @@ vec2 ray_sphere(vec3 ro, vec3 rd, vec3 c, float r)
 // avoids building a basis. Returns nearest positive t, or -1.0 on miss.
 float ray_ellipsoid(vec3 ro, vec3 rd, vec3 c, float a, float b, vec3 pole)
 {
-    vec3 o = ro - c;
-    float o_ax = dot(o, pole);
-    vec3 o_rad = o - pole * o_ax;
-    float d_ax = dot(rd, pole);
-    vec3 d_rad = rd - pole * d_ax;
     float inv_a2 = 1.0 / (a * a);
     float inv_b2 = 1.0 / (b * b);
+    float d_ax = dot(rd, pole);
+    vec3 d_rad = rd - pole * d_ax;
+    // Decompose the ray origin and the (large) centre separately rather than forming
+    // o = ro - c first: c is ~6.4e6 m and squaring it in float32 before the "- 1" below
+    // is a catastrophic cancellation that jitters the hit distance sub-metre per frame.
+    float ro_ax = dot(ro, pole);
+    vec3 ro_rad = ro - pole * ro_ax;
+    float c_ax = dot(c, pole);
+    vec3 c_rad = c - pole * c_ax;
+    float o_ax = ro_ax - c_ax;
+    vec3 o_rad = ro_rad - c_rad;
     float qa = dot(d_rad, d_rad) * inv_a2 + d_ax * d_ax * inv_b2;
     float qb = dot(o_rad, d_rad) * inv_a2 + o_ax * d_ax * inv_b2;
-    float qc = dot(o_rad, o_rad) * inv_a2 + o_ax * o_ax * inv_b2 - 1.0;
+    // qc = |scaled(ro - c)|^2 - 1. The centre-only part (its value when ro is the camera)
+    // is formed on the CPU in double as planet_precision.w, so the "- 1" keeps its bits at
+    // planet scale; only the small ray-origin corrections are added here in float. For a
+    // camera-origin ray (ro == 0) qc equals planet_precision.w exactly.
+    float qc = scene.planet_precision.w +
+               (dot(ro_rad, ro_rad) * inv_a2 + ro_ax * ro_ax * inv_b2) -
+               2.0 * (dot(ro_rad, c_rad) * inv_a2 + ro_ax * c_ax * inv_b2);
     float h = qb * qb - qa * qc;
     if (h < 0.0)
         return -1.0;
@@ -156,13 +168,19 @@ float ray_ellipsoid(vec3 ro, vec3 rd, vec3 c, float a, float b, vec3 pole)
     return t;
 }
 
-// Outward geodetic normal of the oriented spheroid at surface point p.
+// Outward geodetic normal of the oriented spheroid at surface point p. The centre term
+// M^2 c = c_rad/a^2 + pole*c_ax/b^2 is a small vector formed on the CPU in double
+// (planet_precision.xyz); subtracting it from the small per-fragment term recovers the
+// normal without the large-minus-large snap that made lighting and shadows crawl as the
+// camera moved. `c` is unused now (kept for call-site symmetry with ray_ellipsoid).
 vec3 ellipsoid_normal(vec3 p, vec3 c, float a, float b, vec3 pole)
 {
-    vec3 v = p - c;
-    float ax = dot(v, pole);
-    vec3 rad = v - pole * ax;
-    return normalize(rad / (a * a) + pole * (ax / (b * b)));
+    float inv_a2 = 1.0 / (a * a);
+    float inv_b2 = 1.0 / (b * b);
+    float p_ax = dot(p, pole);
+    vec3 p_rad = p - pole * p_ax;
+    vec3 n = (p_rad * inv_a2 + pole * (p_ax * inv_b2)) - scene.planet_precision.xyz;
+    return normalize(n);
 }
 
 float hash13(vec3 p)

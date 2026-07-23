@@ -68,6 +68,7 @@
 #include "passes/depth_prepass.hpp"
 #include "passes/dof_pass.hpp"
 #include "passes/fxaa_pass.hpp"
+#include "passes/grid_pass.hpp"
 #include "passes/motion_blur_pass.hpp"
 #include "passes/ground_shadow_resolve_pass.hpp"
 #include "passes/gtao_pass.hpp"
@@ -140,7 +141,7 @@ namespace SushiEngine
                                 const PunctualLight* lights = nullptr,
                                 std::size_t light_count = 0,
                                 const Decal* decals = nullptr,
-                                std::size_t decal_count = 0) override;
+                                std::size_t decal_count = 0, bool show_grid = false) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
@@ -195,6 +196,7 @@ namespace SushiEngine
                     Passes::MotionBlurPass motion_blur_pass_;
                     Passes::AutoExposurePass auto_exposure_pass_;
                     Passes::BloomPass bloom_pass_;
+                    Passes::GridPass grid_pass_;
                     Passes::TonemapPass tonemap_pass_;
                     Passes::FxaaPass fxaa_pass_;
                     Passes::PickingPass picking_pass_;

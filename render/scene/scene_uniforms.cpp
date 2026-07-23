@@ -107,6 +107,49 @@ namespace SushiEngine
                 uniforms.planet_radii[2] = static_cast<float>(b);
                 uniforms.planet_radii[3] = environment.atmosphere.height;
 
+                // Precision-safe ellipsoid terms for the analytic ground. The centre sits
+                // ~6.4e6 m from the camera, so the shader's ray-intersection and geodetic
+                // normal would otherwise square planet-scale float32 coordinates: the
+                // quadratic's `|M c|^2 - 1` cancels catastrophically (jittering the hit
+                // point, hence dithered/flickering shadows and lighting) and the normal's
+                // `p - c` snaps to the ~0.5 m float grid (crawling shading) as the camera
+                // moves. Both large-minus-large parts are formed here in double and handed
+                // over pre-computed; the shader adds only small camera-relative corrections.
+                {
+                    const double cx = center_local[0] - eye[0];
+                    const double cy = center_local[1] - eye[1];
+                    const double cz = center_local[2] - eye[2];
+                    double px = environment.planet_pole.x;
+                    double py = environment.planet_pole.y;
+                    double pz = environment.planet_pole.z;
+                    const double pole_len = std::sqrt(px * px + py * py + pz * pz);
+                    if (pole_len > 0.0)
+                    {
+                        px /= pole_len;
+                        py /= pole_len;
+                        pz /= pole_len;
+                    }
+                    const double c_ax = cx * px + cy * py + cz * pz;
+                    const double c_rad_x = cx - px * c_ax;
+                    const double c_rad_y = cy - py * c_ax;
+                    const double c_rad_z = cz - pz * c_ax;
+                    const double inv_a2 = 1.0 / (a * a);
+                    const double inv_b2 = 1.0 / (b * b);
+                    // xyz = M^2 c (the centre gradient ellipsoid_normal subtracts).
+                    uniforms.planet_precision[0] =
+                        static_cast<float>(c_rad_x * inv_a2 + px * (c_ax * inv_b2));
+                    uniforms.planet_precision[1] =
+                        static_cast<float>(c_rad_y * inv_a2 + py * (c_ax * inv_b2));
+                    uniforms.planet_precision[2] =
+                        static_cast<float>(c_rad_z * inv_a2 + pz * (c_ax * inv_b2));
+                    // w = |M c|^2 - 1, the ray-ellipsoid quadratic constant for a
+                    // camera-origin ray, with the "- 1" taken in double.
+                    const double c_rad_sq =
+                        c_rad_x * c_rad_x + c_rad_y * c_rad_y + c_rad_z * c_rad_z;
+                    uniforms.planet_precision[3] =
+                        static_cast<float>(c_rad_sq * inv_a2 + c_ax * c_ax * inv_b2 - 1.0);
+                }
+
                 uniforms.sun_dir[0] = static_cast<float>(sun_dir.x);
                 uniforms.sun_dir[1] = static_cast<float>(sun_dir.y);
                 uniforms.sun_dir[2] = static_cast<float>(sun_dir.z);
