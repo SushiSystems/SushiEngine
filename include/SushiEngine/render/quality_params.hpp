@@ -124,6 +124,54 @@ namespace SushiEngine
              * only permits GI — it never forces it on.
              */
             bool probe_gi = false;
+
+            /**
+             * @brief Whether bloom is built and composited at this tier.
+             *
+             * The mip-pyramid scatter is cheap and near-universal, so only the lowest tier
+             * drops it; every other tier keeps the author's @c BloomSettings::enabled choice.
+             */
+            bool bloom = true;
+
+            /**
+             * @brief Whether depth of field runs at this tier.
+             *
+             * A gather-based bokeh is a High/Ultra cinematic effect; the lower tiers force it
+             * off. Gated with the author's @c DepthOfFieldSettings::enabled, so this only
+             * permits DoF — it never forces it on.
+             */
+            bool depth_of_field = false;
+
+            /**
+             * @brief Whether motion blur runs at this tier.
+             *
+             * Like DoF, permitted only on the upper tiers and never forced on; the author's
+             * @c MotionBlurSettings::enabled still decides.
+             */
+            bool motion_blur = false;
+
+            /**
+             * @brief Whether the GPU-driven geometry path is taken at this tier.
+             *
+             * GPU instancing, per-mesh multi-draw-indirect, and GPU frustum/occlusion/LOD
+             * culling remove the per-instance CPU cost of dense scenes. The lowest tier keeps
+             * the classic one-draw-per-instance path — its scenes are the simplest and its
+             * devices least likely to want extra compute passes — while every other tier takes
+             * the GPU-driven path. Gated further by the author's @c GpuCullingSettings::enabled
+             * and by the bindless heap being present, so this only *permits* it.
+             */
+            bool gpu_driven = true;
+
+            /**
+             * @brief Whether the mesh-shader (meshlet) draw path is taken at this tier.
+             *
+             * The Ultra crown only: a task shader culls each mesh's clusters and a mesh shader
+             * emits the survivors, finer than whole-object culling. Gated further by the device
+             * offering VK_EXT_mesh_shader; where it does not, the same geometry draws through
+             * the GPU-driven or classic path, so no hardware is left unable to render — the
+             * meshlet path is purely additive.
+             */
+            bool meshlets = false;
         };
 
         /**

@@ -121,6 +121,9 @@ namespace SushiEngine
                 VkPipelineLayout layout = VK_NULL_HANDLE;
                 VkShaderModule vertex_shader = VK_NULL_HANDLE;
                 VkShaderModule fragment_shader = VK_NULL_HANDLE;
+                /** @brief Task/mesh stages, for a mesh-shader pipeline (no vertex input). */
+                VkShaderModule task_shader = VK_NULL_HANDLE;
+                VkShaderModule mesh_shader = VK_NULL_HANDLE;
 
                 std::uint32_t vertex_stride = 0; /**< Zero means the pipeline fetches no vertices. */
                 VertexAttribute attributes[MAX_VERTEX_ATTRIBUTES]{};
@@ -200,6 +203,19 @@ namespace SushiEngine
                     PipelineHandle create(const GraphicsPipelineDesc& desc);
 
                     /**
+                     * @brief Creates a mesh-shader pipeline (task + mesh + optional fragment).
+                     *
+                     * Always monolithic — the pipeline-library path is vertex-input-centric and
+                     * a mesh pipeline has no vertex input at all. Used for the meshlet draw path;
+                     * @c GraphicsPipelineDesc::task_shader and @c mesh_shader name the stages,
+                     * and a null @c fragment_shader makes a depth-only mesh pipeline.
+                     *
+                     * @param desc What the pipeline must be (task/mesh/fragment + state).
+                     * @return A handle that resolves to the pipeline at bind time.
+                     */
+                    PipelineHandle create_mesh(const GraphicsPipelineDesc& desc);
+
+                    /**
                      * @brief Advances the optimizer's retirement clock by one frame.
                      *
                      * Called once per frame. Superseded fast-linked pipelines are destroyed
@@ -260,6 +276,7 @@ namespace SushiEngine
                     };
 
                     VkPipeline create_monolithic(const GraphicsPipelineDesc& desc);
+                    VkPipeline create_mesh_monolithic(const GraphicsPipelineDesc& desc);
                     VkPipeline create_linked(const GraphicsPipelineDesc& desc);
                     VkPipeline vertex_input_library(const GraphicsPipelineDesc& desc);
                     VkPipeline pre_rasterization_library(const GraphicsPipelineDesc& desc);

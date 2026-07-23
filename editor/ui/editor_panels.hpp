@@ -147,6 +147,33 @@ namespace SushiEngine
         void draw_lighting_panel(EditorContext& context);
 
         /**
+         * @brief Draw the Post Process panel: the display-transform and lens stack.
+         *
+         * The single authoring surface for everything the post-processing passes read — the
+         * exposure mode and its manual or automatic parameters, the tone curve, bloom, the
+         * colour grade, depth of field, motion blur, and the lens effects. It writes the
+         * @ref RenderSettings::post block the passes consume; a tier readout shows which of
+         * the effects the current quality tier permits.
+         *
+         * @param context Shared editor state; reads/writes @ref EditorContext::render_settings.
+         */
+        void draw_post_process_panel(EditorContext& context);
+
+        /**
+         * @brief Draw the GPU Culling panel: the GPU-driven geometry path's controls.
+         *
+         * The authoring surface for the compute cull that replaces one-draw-per-instance with
+         * per-mesh multi-draw-indirect: the master enable, the frustum and occlusion cull
+         * toggles, the small-on-screen LOD gate, and the editor-only debug fields (freeze the
+         * cull frustum, show the per-frame counts). It writes the @ref RenderSettings::gpu_culling
+         * block the culling pass consumes; a tier readout shows whether the current quality
+         * resolves the GPU-driven path on, since the low tier keeps the classic path.
+         *
+         * @param context Shared editor state; reads/writes @ref EditorContext::render_settings.
+         */
+        void draw_gpu_culling_panel(EditorContext& context);
+
+        /**
          * @brief Draw the Project panel: a filesystem browser rooted at the project.
          *
          * Double-clicking a directory descends into it; double-clicking a file opens it

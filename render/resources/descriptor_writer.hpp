@@ -101,11 +101,31 @@ namespace SushiEngine
                     DescriptorWriter& sampled_image(std::uint32_t binding, VkImageView view,
                                                     VkSampler sampler)
                     {
+                        return sampled_image(binding, view, sampler,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    }
+
+                    /**
+                     * @brief Queues a combined image sampler write in an explicit layout.
+                     *
+                     * The layout override is for an image a pass keeps in @c GENERAL across a
+                     * read/write sequence of its own (a compute-built pyramid), which is a valid
+                     * sampling layout but not the shader-read-only one the common overload assumes.
+                     *
+                     * @param binding Binding number in the set.
+                     * @param view    The image view to sample; a null view is skipped.
+                     * @param sampler The sampler to pair with it.
+                     * @param layout  The layout the image is actually in when sampled.
+                     * @return The writer, for chaining.
+                     */
+                    DescriptorWriter& sampled_image(std::uint32_t binding, VkImageView view,
+                                                    VkSampler sampler, VkImageLayout layout)
+                    {
                         if (count_ >= CAPACITY || view == VK_NULL_HANDLE)
                             return *this;
                         images_[count_].sampler = sampler;
                         images_[count_].imageView = view;
-                        images_[count_].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        images_[count_].imageLayout = layout;
                         image_write(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
                         return *this;
                     }

@@ -1,0 +1,49 @@
+#version 450
+
+// Progressive bloom upsample: a 3x3 tent filter expands the coarser level, added to this
+// level's downsample so the halo widens smoothly from the top of the pyramid down. The tent
+// (Jimenez 2014) is what keeps the bloom soft and free of the boxy artefacts a bilinear
+// upsample leaves. Energy is conserved: nothing is thresholded, so the whole HDR image
+// scatters and a bright pixel bleeds in proportion to its own intensity.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D low;  // the coarser level being upsampled
+layout(set = 0, binding = 1) uniform sampler2D base; // this level's downsample, added back
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D dst;
+
+layout(push_constant) uniform Push
+{
+    vec4 a; // x = dst width, y = dst height, z = low lod, w = base lod
+    vec4 b; // x = filter radius (in low-level texels)
+} pc;
+
+vec3 tent(vec2 uv, float lod, float radius)
+{
+    vec2 texel = (1.0 / vec2(textureSize(low, int(lod)))) * radius;
+    vec3 sum = vec3(0.0);
+    sum += textureLod(low, uv + vec2(-1.0, 1.0) * texel, lod).rgb * 1.0;
+    sum += textureLod(low, uv + vec2(0.0, 1.0) * texel, lod).rgb * 2.0;
+    sum += textureLod(low, uv + vec2(1.0, 1.0) * texel, lod).rgb * 1.0;
+    sum += textureLod(low, uv + vec2(-1.0, 0.0) * texel, lod).rgb * 2.0;
+    sum += textureLod(low, uv + vec2(0.0, 0.0) * texel, lod).rgb * 4.0;
+    sum += textureLod(low, uv + vec2(1.0, 0.0) * texel, lod).rgb * 2.0;
+    sum += textureLod(low, uv + vec2(-1.0, -1.0) * texel, lod).rgb * 1.0;
+    sum += textureLod(low, uv + vec2(0.0, -1.0) * texel, lod).rgb * 2.0;
+    sum += textureLod(low, uv + vec2(1.0, -1.0) * texel, lod).rgb * 1.0;
+    return sum * (1.0 / 16.0);
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    int width = int(pc.a.x);
+    int height = int(pc.a.y);
+    if (p.x >= width || p.y >= height)
+        return;
+
+    vec2 uv = (vec2(p) + 0.5) / vec2(width, height);
+    vec3 upsampled = tent(uv, pc.a.z, pc.b.x);
+    vec3 here = textureLod(base, uv, pc.a.w).rgb;
+    imageStore(dst, p, vec4(here + upsampled, 1.0));
+}

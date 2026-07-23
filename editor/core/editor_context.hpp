@@ -68,6 +68,8 @@ namespace SushiEngine
             bool environment = true;
             bool rendering = false;
             bool lighting = false;
+            bool post_process = false;
+            bool gpu_culling = false;
         };
 
         /**

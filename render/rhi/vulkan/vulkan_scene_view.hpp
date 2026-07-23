@@ -58,14 +58,21 @@
 #include "material/material_system.hpp"
 #include "passes/atmosphere_lut_pass.hpp"
 #include "passes/volumetric_fog_pass.hpp"
+#include "passes/auto_exposure_pass.hpp"
+#include "passes/bloom_pass.hpp"
 #include "passes/cloud_composite_pass.hpp"
 #include "passes/cloud_pass.hpp"
+#include "passes/cloth_pass.hpp"
 #include "passes/contact_shadow_pass.hpp"
+#include "passes/cull_pass.hpp"
 #include "passes/depth_prepass.hpp"
+#include "passes/dof_pass.hpp"
 #include "passes/fxaa_pass.hpp"
+#include "passes/motion_blur_pass.hpp"
 #include "passes/ground_shadow_resolve_pass.hpp"
 #include "passes/gtao_pass.hpp"
 #include "passes/hiz_pass.hpp"
+#include "passes/occlusion_pass.hpp"
 #include "passes/ibl_pass.hpp"
 #include "passes/irradiance_volume_pass.hpp"
 #include "passes/ssr_pass.hpp"
@@ -81,6 +88,7 @@
 #include "passes/tonemap_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "raytracing/scene_accelerator.hpp"
+#include "scene/instance_system.hpp"
 #include "scene/motion_system.hpp"
 
 #include "view_resources.hpp"
@@ -139,6 +147,8 @@ namespace SushiEngine
                     std::uint32_t current_slot() const noexcept override { return current_slot_; }
                     std::size_t pass_timing_count() const noexcept override;
                     ScenePassTiming pass_timing(std::size_t index) const noexcept override;
+                    void cull_statistics(std::uint32_t& drawn,
+                                         std::uint32_t& tested) const noexcept override;
 
                 private:
                     /** @brief How many frames may be in flight at once. */
@@ -153,6 +163,7 @@ namespace SushiEngine
                     Geometry::ClothBuffers cloth_;
                     Assets::MaterialSystem materials_;
                     Scene::MotionSystem motion_;
+                    Scene::InstanceSystem instance_system_;
                     Lighting::LightSystem lights_;
                     RayTracing::SceneAccelerator accelerator_;
                     Graph::GpuProfiler profiler_;
@@ -167,6 +178,9 @@ namespace SushiEngine
                     Passes::RayTracedShadowPass ray_shadow_pass_;
                     Passes::GtaoPass gtao_pass_;
                     Passes::HizPass hiz_pass_;
+                    Passes::OcclusionPass occlusion_pass_;
+                    Passes::CullPass cull_pass_;
+                    Passes::ClothPass cloth_pass_;
                     Passes::OpaquePass opaque_pass_;
                     Passes::LightCullPass light_cull_pass_;
                     Passes::LightShadowPass light_shadow_pass_;
@@ -177,6 +191,10 @@ namespace SushiEngine
                     Passes::CloudCompositePass cloud_composite_pass_;
                     Passes::SsrPass ssr_pass_;
                     Passes::TaaPass taa_pass_;
+                    Passes::DofPass dof_pass_;
+                    Passes::MotionBlurPass motion_blur_pass_;
+                    Passes::AutoExposurePass auto_exposure_pass_;
+                    Passes::BloomPass bloom_pass_;
                     Passes::TonemapPass tonemap_pass_;
                     Passes::FxaaPass fxaa_pass_;
                     Passes::PickingPass picking_pass_;
@@ -186,6 +204,14 @@ namespace SushiEngine
                     Frame::ResolutionController resolution_;
                     CameraView previous_camera_{};
                     float previous_jitter_[2] = {0.0f, 0.0f};
+                    /**
+                     * @brief The eye-adaptation exposure carried between frames.
+                     *
+                     * Manual exposure ignores it; automatic exposure adapts it toward the
+                     * value last frame's luminance histogram implied, so the multiplier eases
+                     * rather than snapping. Seeded to the photographic key.
+                     */
+                    float adapted_exposure_ = 0.18f;
                     std::uint32_t width_ = 16;
                     std::uint32_t height_ = 16;
                     std::uint32_t render_width_ = 16;

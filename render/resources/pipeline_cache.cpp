@@ -560,6 +560,88 @@ namespace SushiEngine
                 return pipeline;
             }
 
+            PipelineHandle GraphicsPipelineFactory::create_mesh(const GraphicsPipelineDesc& desc)
+            {
+                // A mesh pipeline is always monolithic — the library path builds a vertex-input
+                // library a mesh pipeline has no use for — so there is nothing to optimize in a
+                // background pass; the first build is the final one.
+                VkPipeline initial = create_mesh_monolithic(desc);
+
+                std::unique_ptr<Slot> slot = std::make_unique<Slot>();
+                slot->desc = desc;
+                slot->initial = initial;
+                slot->active.store(initial, std::memory_order_release);
+                Slot* raw = slot.get();
+                slots_.push_back(std::move(slot));
+                return PipelineHandle(&raw->active);
+            }
+
+            VkPipeline GraphicsPipelineFactory::create_mesh_monolithic(
+                const GraphicsPipelineDesc& desc)
+            {
+                ColorBlendState blend;
+                fill_color_blend(desc, blend);
+                const VkPipelineRasterizationStateCreateInfo raster = fill_rasterization(desc);
+                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(desc);
+                VkPipelineRenderingCreateInfo rendering = fill_rendering(desc);
+
+                VkPipelineShaderStageCreateInfo stages[3]{};
+                std::uint32_t stage_count = 0;
+                if (desc.task_shader != VK_NULL_HANDLE)
+                    stages[stage_count++] =
+                        shader_stage(VK_SHADER_STAGE_TASK_BIT_EXT, desc.task_shader);
+                stages[stage_count++] = shader_stage(VK_SHADER_STAGE_MESH_BIT_EXT, desc.mesh_shader);
+                if (desc.fragment_shader != VK_NULL_HANDLE)
+                    stages[stage_count++] =
+                        shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, desc.fragment_shader);
+
+                VkPipelineViewportStateCreateInfo viewport{};
+                viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+                viewport.viewportCount = 1;
+                viewport.scissorCount = 1;
+
+                VkPipelineMultisampleStateCreateInfo multisample{};
+                multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+                multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+                VkDynamicState dynamic_states[3] = {VK_DYNAMIC_STATE_VIEWPORT,
+                                                    VK_DYNAMIC_STATE_SCISSOR,
+                                                    VK_DYNAMIC_STATE_STENCIL_REFERENCE};
+                VkPipelineDynamicStateCreateInfo dynamic{};
+                dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+                dynamic.dynamicStateCount = desc.dynamic_stencil_reference ? 3u : 2u;
+                dynamic.pDynamicStates = dynamic_states;
+
+                VkGraphicsPipelineCreateInfo info{};
+                info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+                info.pNext = &rendering;
+                if (desc.shading_rate_attachment)
+                    info.flags |=
+                        VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+                info.stageCount = stage_count;
+                info.pStages = stages;
+                // A mesh pipeline has no vertex-input or input-assembly state at all: the mesh
+                // shader produces primitives directly, so those pointers stay null.
+                info.pVertexInputState = nullptr;
+                info.pInputAssemblyState = nullptr;
+                info.pViewportState = &viewport;
+                info.pRasterizationState = &raster;
+                info.pMultisampleState = &multisample;
+                info.pDepthStencilState = &depth;
+                info.pColorBlendState = &blend.info;
+                info.pDynamicState = &dynamic;
+                info.layout = desc.layout;
+
+                VkPipeline pipeline = VK_NULL_HANDLE;
+                {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    Vulkan::check(vkCreateGraphicsPipelines(device_.device(), cache_.handle(), 1,
+                                                            &info, nullptr, &pipeline),
+                                  "vkCreateGraphicsPipelines(mesh)");
+                }
+                return pipeline;
+            }
+
             VkPipeline GraphicsPipelineFactory::vertex_input_library(
                 const GraphicsPipelineDesc& desc)
             {

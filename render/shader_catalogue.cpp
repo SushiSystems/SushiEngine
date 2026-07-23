@@ -24,10 +24,13 @@
 #include "shader_catalogue.hpp"
 
 #include "aerial_perspective.comp.h"
+#include "bloom_down.comp.h"
+#include "bloom_up.comp.h"
 #include "brdf_lut.comp.h"
 #include "cluster_build.comp.h"
 #include "fog_scatter.comp.h"
 #include "gi_probe_relight.comp.h"
+#include "luminance_histogram.comp.h"
 #include "multiscatter_lut.comp.h"
 #include "sdf_populate.comp.h"
 #include "sdf_probe_relight.comp.h"
@@ -37,6 +40,8 @@
 #include "cloud.frag.h"
 #include "cloud_composite.frag.h"
 #include "contact_shadow.frag.h"
+#include "dof.frag.h"
+#include "motion_blur.frag.h"
 #include "cloud_noise_volume.comp.h"
 #include "cloud_noise_weather.comp.h"
 #include "fullscreen.vert.h"
@@ -49,8 +54,13 @@
 #include "ibl_irradiance.comp.h"
 #include "ibl_prefilter.comp.h"
 #include "sh_project.comp.h"
-#include "line.frag.h"
+#include "cloth.comp.h"
+#include "cull.comp.h"
 #include "mesh.vert.h"
+#include "mesh_gpu.vert.h"
+#include "meshlet.mesh.h"
+#include "meshlet.task.h"
+#include "occlusion.comp.h"
 #include "outline.frag.h"
 #include "outline.vert.h"
 #include "pbr.frag.h"
@@ -73,14 +83,14 @@ namespace SushiEngine
             const ShaderSource CATALOGUE[] = {
                 {"mesh.vert", ShaderStage::Vertex, Shaders::mesh_vert_spv,
                  Shaders::mesh_vert_spv_word_count, "mesh.vert"},
+                {"mesh_gpu.vert", ShaderStage::Vertex, Shaders::mesh_gpu_vert_spv,
+                 Shaders::mesh_gpu_vert_spv_word_count, "mesh_gpu.vert"},
                 {"outline.vert", ShaderStage::Vertex, Shaders::outline_vert_spv,
                  Shaders::outline_vert_spv_word_count, "outline.vert"},
                 {"fullscreen.vert", ShaderStage::Vertex, Shaders::fullscreen_vert_spv,
                  Shaders::fullscreen_vert_spv_word_count, "fullscreen.vert"},
                 {"pbr.frag", ShaderStage::Fragment, Shaders::pbr_frag_spv,
                  Shaders::pbr_frag_spv_word_count, "pbr.frag"},
-                {"line.frag", ShaderStage::Fragment, Shaders::line_frag_spv,
-                 Shaders::line_frag_spv_word_count, "line.frag"},
                 {"outline.frag", ShaderStage::Fragment, Shaders::outline_frag_spv,
                  Shaders::outline_frag_spv_word_count, "outline.frag"},
                 {"sky.frag", ShaderStage::Fragment, Shaders::sky_frag_spv,
@@ -147,12 +157,33 @@ namespace SushiEngine
                  Shaders::gtao_resolve_frag_spv_word_count, "gtao_resolve.frag"},
                 {"hiz.comp", ShaderStage::Compute, Shaders::hiz_comp_spv,
                  Shaders::hiz_comp_spv_word_count, "hiz.comp"},
+                {"occlusion.comp", ShaderStage::Compute, Shaders::occlusion_comp_spv,
+                 Shaders::occlusion_comp_spv_word_count, "occlusion.comp"},
+                {"cull.comp", ShaderStage::Compute, Shaders::cull_comp_spv,
+                 Shaders::cull_comp_spv_word_count, "cull.comp"},
+                {"cloth.comp", ShaderStage::Compute, Shaders::cloth_comp_spv,
+                 Shaders::cloth_comp_spv_word_count, "cloth.comp"},
+                {"meshlet.task", ShaderStage::Task, Shaders::meshlet_task_spv,
+                 Shaders::meshlet_task_spv_word_count, "meshlet.task"},
+                {"meshlet.mesh", ShaderStage::Mesh, Shaders::meshlet_mesh_spv,
+                 Shaders::meshlet_mesh_spv_word_count, "meshlet.mesh"},
                 {"ssr.frag", ShaderStage::Fragment, Shaders::ssr_frag_spv,
                  Shaders::ssr_frag_spv_word_count, "ssr.frag"},
                 {"ground_shadow_resolve.frag", ShaderStage::Fragment,
                  Shaders::ground_shadow_resolve_frag_spv,
                  Shaders::ground_shadow_resolve_frag_spv_word_count,
                  "ground_shadow_resolve.frag"},
+                {"bloom_down.comp", ShaderStage::Compute, Shaders::bloom_down_comp_spv,
+                 Shaders::bloom_down_comp_spv_word_count, "bloom_down.comp"},
+                {"bloom_up.comp", ShaderStage::Compute, Shaders::bloom_up_comp_spv,
+                 Shaders::bloom_up_comp_spv_word_count, "bloom_up.comp"},
+                {"luminance_histogram.comp", ShaderStage::Compute,
+                 Shaders::luminance_histogram_comp_spv,
+                 Shaders::luminance_histogram_comp_spv_word_count, "luminance_histogram.comp"},
+                {"dof.frag", ShaderStage::Fragment, Shaders::dof_frag_spv,
+                 Shaders::dof_frag_spv_word_count, "dof.frag"},
+                {"motion_blur.frag", ShaderStage::Fragment, Shaders::motion_blur_frag_spv,
+                 Shaders::motion_blur_frag_spv_word_count, "motion_blur.frag"},
             };
         } // namespace
 

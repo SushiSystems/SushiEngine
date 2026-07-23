@@ -83,6 +83,30 @@ namespace SushiEngine
                 VkBuffer indices = VK_NULL_HANDLE;
                 std::uint32_t vertex_count = 0;
                 std::uint32_t index_count = 0;
+                /**
+                 * @brief Local bounding radius: the farthest vertex from the mesh's origin.
+                 *
+                 * A sphere at the local origin of this radius contains the whole mesh no
+                 * matter where the mesh is centred, so it stays a valid bound after any
+                 * transform. The GPU-driven cull scales it by the model's largest column to
+                 * get the world bound it frustum- and occlusion-tests, so a conservatively
+                 * large radius never culls a visible object — it only culls a bit less.
+                 */
+                float radius = 0.0f;
+
+                /**
+                 * @brief The mesh's meshlet buffers, for the mesh-shader draw path.
+                 *
+                 * Null and zero when the device cannot draw with mesh shaders (the classic
+                 * path never touches them). When present: @c meshlet_descriptors is one
+                 * @c MeshletDescriptor per meshlet, @c meshlet_vertices the global vertex
+                 * indices they reference, @c meshlet_triangles the packed local triangle
+                 * indices — the three storage buffers the task and mesh shaders read.
+                 */
+                VkBuffer meshlet_descriptors = VK_NULL_HANDLE;
+                VkBuffer meshlet_vertices = VK_NULL_HANDLE;
+                VkBuffer meshlet_triangles = VK_NULL_HANDLE;
+                std::uint32_t meshlet_count = 0;
             };
 
             /**
@@ -138,9 +162,6 @@ namespace SushiEngine
                      */
                     const Mesh& primitive(MeshKind kind) const noexcept;
 
-                    /** @brief The ground grid, drawn as a line list. */
-                    const Mesh& grid() const noexcept { return grid_; }
-
                     /**
                      * @brief Uploads an imported mesh and returns the id that names it.
                      * @param vertices     The mesh's vertices, tangents already generated.
@@ -187,8 +208,24 @@ namespace SushiEngine
 
                     Allocation upload(const void* data, VkDeviceSize bytes,
                                       VkBufferUsageFlags usage);
+                    /**
+                     * @brief The usage a mesh vertex buffer needs: vertex fetch, plus storage
+                     *        so the mesh shader can read it when the device draws with meshlets.
+                     */
+                    VkBufferUsageFlags vertex_usage() const;
                     void grow(Allocation& target, VkDeviceSize bytes, VkBufferUsageFlags usage);
                     void destroy(Allocation& target);
+
+                    /**
+                     * @brief Meshletises a mesh and uploads its three meshlet buffers.
+                     *
+                     * A no-op when the device cannot draw with mesh shaders. Otherwise it
+                     * builds the meshlets, uploads the descriptor, vertex, and triangle arrays
+                     * into owned storage buffers, and records their handles and count on @p mesh.
+                     */
+                    void attach_meshlets(Mesh& mesh, const MeshVertex* vertices,
+                                         std::size_t vertex_count, const std::uint32_t* indices,
+                                         std::size_t index_count);
 
                     Vulkan::VulkanDevice& device_;
                     Allocation box_vertices_;
@@ -197,12 +234,11 @@ namespace SushiEngine
                     Allocation sphere_indices_;
                     Allocation cylinder_vertices_;
                     Allocation cylinder_indices_;
-                    Allocation grid_vertices_;
                     std::vector<Imported> imported_;
+                    std::vector<Allocation> meshlet_buffers_; /**< Owns every mesh's meshlet buffers. */
                     Mesh box_;
                     Mesh sphere_;
                     Mesh cylinder_;
-                    Mesh grid_;
                     Mesh empty_;
             };
         } // namespace Geometry

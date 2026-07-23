@@ -698,6 +698,10 @@ namespace SushiEngine
                 if (load_scene(*world, path, &sky))
                 {
                     apply_sky_state(context, sky);
+                    // Environment/Lighting are an editor (host) setting, not scene data, so
+                    // the editor's own value wins over whatever the scene file's (legacy)
+                    // environment block may still contain.
+                    world->set_environment(context.preferences.environment);
                     context.scene_path = path;
                     context.saved_scene_revision = context.history.revision();
                     select_only(context, NULL_ENTITY);
@@ -834,6 +838,8 @@ namespace SushiEngine
                 ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
                 ImGui::MenuItem("Rendering", nullptr, &context.panels.rendering);
                 ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
+                ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
+                ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                 ImGui::MenuItem("Console", nullptr, &context.panels.console);
@@ -2655,6 +2661,202 @@ namespace SushiEngine
             ImGui::End();
         }
 
+        void draw_post_process_panel(EditorContext& context)
+        {
+            if (!context.panels.post_process)
+                return;
+            if (!ImGui::Begin("Post Process", &context.panels.post_process))
+            {
+                ImGui::End();
+                return;
+            }
+
+            using SushiEngine::Render::ExposureMode;
+            using SushiEngine::Render::TonemapOperator;
+            SushiEngine::Render::RenderSettings& settings = context.render_settings;
+            SushiEngine::Render::PostProcessSettings& post = settings.post;
+
+            // Same exhaustive-memcmp persistence as the Rendering panel: RenderSettings is
+            // trivially-copyable, so a snapshot before the widgets catches any edit below.
+            const SushiEngine::Render::RenderSettings settings_before = settings;
+
+            if (ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::PushID("Exposure");
+                const char* const MODES[] = {"Manual", "Automatic"};
+                int mode = static_cast<int>(post.exposure_mode);
+                if (ImGui::Combo("Mode", &mode, MODES, 2))
+                    post.exposure_mode = static_cast<ExposureMode>(mode);
+
+                if (post.exposure_mode == ExposureMode::Manual)
+                {
+                    ImGui::SliderFloat("Compensation (EV)", &post.exposure_compensation,
+                                       -6.0f, 6.0f, "%.2f");
+                    ImGui::TextDisabled("Multiplies the scene's authored exposure.");
+                }
+                else
+                {
+                    ImGui::SliderFloat("Min EV", &post.auto_exposure.min_ev, -10.0f, 8.0f, "%.1f");
+                    ImGui::SliderFloat("Max EV", &post.auto_exposure.max_ev, -2.0f, 20.0f, "%.1f");
+                    ImGui::SliderFloat("Compensation (EV)", &post.auto_exposure.compensation,
+                                       -6.0f, 6.0f, "%.2f");
+                    ImGui::SliderFloat("Adapt Up", &post.auto_exposure.speed_up, 0.1f, 8.0f, "%.2f");
+                    ImGui::SliderFloat("Adapt Down", &post.auto_exposure.speed_down, 0.1f, 8.0f,
+                                       "%.2f");
+                    ImGui::SliderFloat("Key", &post.auto_exposure.key, 0.02f, 0.5f, "%.3f");
+                }
+                ImGui::PopID();
+            }
+
+            if (ImGui::CollapsingHeader("Tone Mapping", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                const char* const OPERATORS[] = {"AgX", "ACES", "Khronos Neutral"};
+                int op = static_cast<int>(post.tonemap);
+                if (ImGui::Combo("Curve", &op, OPERATORS, 3))
+                    post.tonemap = static_cast<TonemapOperator>(op);
+            }
+
+            if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::PushID("Bloom");
+                ImGui::Checkbox("Enabled", &post.bloom.enabled);
+                ImGui::SliderFloat("Intensity", &post.bloom.intensity, 0.0f, 0.5f, "%.3f");
+                ImGui::SliderFloat("Threshold", &post.bloom.threshold, 0.0f, 4.0f, "%.2f");
+                ImGui::SliderFloat("Knee", &post.bloom.threshold_knee, 0.0f, 1.0f, "%.2f");
+                ImGui::PopID();
+            }
+
+            if (ImGui::CollapsingHeader("Color Grade"))
+            {
+                ImGui::PushID("Grade");
+                ImGui::SliderFloat("Temperature", &post.grade.temperature, -1.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Tint", &post.grade.tint, -1.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Contrast", &post.grade.contrast, 0.5f, 2.0f, "%.2f");
+                ImGui::SliderFloat("Saturation", &post.grade.saturation, 0.0f, 2.0f, "%.2f");
+                ImGui::SliderFloat3("Lift", post.grade.lift, -0.5f, 0.5f, "%.3f");
+                ImGui::SliderFloat3("Gamma", post.grade.gamma, 0.1f, 3.0f, "%.2f");
+                ImGui::SliderFloat3("Gain", post.grade.gain, 0.0f, 3.0f, "%.2f");
+                ImGui::PopID();
+            }
+
+            if (ImGui::CollapsingHeader("Depth of Field"))
+            {
+                ImGui::PushID("DoF");
+                ImGui::Checkbox("Enabled", &post.depth_of_field.enabled);
+                ImGui::SliderFloat("Focus Distance (m)", &post.depth_of_field.focus_distance,
+                                   0.1f, 1000.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat("Focus Range (m)", &post.depth_of_field.focus_range,
+                                   0.05f, 100.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat("Aperture (f)", &post.depth_of_field.aperture, 0.7f, 22.0f,
+                                   "%.1f");
+                ImGui::SliderFloat("Max Radius (px)", &post.depth_of_field.max_radius, 1.0f, 16.0f,
+                                   "%.1f");
+                ImGui::PopID();
+            }
+
+            if (ImGui::CollapsingHeader("Motion Blur"))
+            {
+                ImGui::PushID("MotionBlur");
+                ImGui::Checkbox("Enabled", &post.motion_blur.enabled);
+                ImGui::SliderFloat("Intensity", &post.motion_blur.intensity, 0.0f, 2.0f, "%.2f");
+                int samples = static_cast<int>(post.motion_blur.samples);
+                if (ImGui::SliderInt("Samples", &samples, 2, 32))
+                    post.motion_blur.samples = static_cast<std::uint32_t>(samples);
+                ImGui::PopID();
+            }
+
+            if (ImGui::CollapsingHeader("Lens"))
+            {
+                ImGui::PushID("Lens");
+                ImGui::SliderFloat("Vignette", &post.vignette, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Chromatic Aberration", &post.chromatic_aberration, 0.0f, 8.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Film Grain", &post.film_grain, 0.0f, 0.2f, "%.3f");
+                ImGui::PopID();
+            }
+
+            if (ImGui::TreeNode("Tier resolves to"))
+            {
+                const SushiEngine::Render::ResolvedQuality resolved =
+                    SushiEngine::Render::resolve_quality(settings);
+                const SushiEngine::Render::QualityParams& knobs = resolved.params;
+                ImGui::Text("Bloom: %s", knobs.bloom ? "on" : "off (tier)");
+                ImGui::Text("Depth of field: %s", knobs.depth_of_field ? "permitted" : "off (tier)");
+                ImGui::Text("Motion blur: %s", knobs.motion_blur ? "permitted" : "off (tier)");
+                ImGui::TextDisabled("The tier permits an effect; the toggle above enables it.");
+                ImGui::TreePop();
+            }
+
+            if (std::memcmp(&settings_before, &settings, sizeof(settings)) != 0)
+                context.preferences_dirty = true;
+
+            ImGui::End();
+        }
+
+        void draw_gpu_culling_panel(EditorContext& context)
+        {
+            if (!context.panels.gpu_culling)
+                return;
+            if (!ImGui::Begin("GPU Culling", &context.panels.gpu_culling))
+            {
+                ImGui::End();
+                return;
+            }
+
+            SushiEngine::Render::RenderSettings& settings = context.render_settings;
+            SushiEngine::Render::GpuCullingSettings& cull = settings.gpu_culling;
+
+            // Same exhaustive-memcmp persistence as the Post-Process panel: RenderSettings is
+            // trivially-copyable, so a snapshot before the widgets catches any edit below.
+            const SushiEngine::Render::RenderSettings settings_before = settings;
+
+            ImGui::Checkbox("Enabled", &cull.enabled);
+            ImGui::TextDisabled("Take the GPU-driven path when the tier permits it.");
+
+            if (ImGui::CollapsingHeader("Cull Tests", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::PushID("CullTests");
+                ImGui::Indent();
+                ImGui::Checkbox("Frustum", &cull.frustum);
+                ImGui::Checkbox("Occlusion", &cull.occlusion);
+                ImGui::SliderFloat("Min Screen Diameter (px)", &cull.min_screen_diameter,
+                                   0.0f, 16.0f, "%.1f");
+                ImGui::TextDisabled("Drop instances whose projected diameter is below this.");
+                ImGui::Unindent();
+                ImGui::PopID();
+            }
+
+            if (ImGui::CollapsingHeader("Debug"))
+            {
+                ImGui::PushID("Debug");
+                ImGui::Checkbox("Freeze frustum (debug)", &cull.freeze);
+                ImGui::Checkbox("Show statistics", &cull.show_statistics);
+                if (cull.show_statistics)
+                {
+                    // Settings-only panel: it has no ISceneView to read the readback counts
+                    // from, so it points at where the live numbers surface instead.
+                    ImGui::TextDisabled("Live counts appear in the Profiler HUD as the "
+                                        "\"gpu cull\" pass.");
+                }
+                ImGui::PopID();
+            }
+
+            if (ImGui::TreeNode("Tier resolves to"))
+            {
+                const SushiEngine::Render::ResolvedQuality resolved =
+                    SushiEngine::Render::resolve_quality(settings);
+                const SushiEngine::Render::QualityParams& knobs = resolved.params;
+                ImGui::Text("GPU-driven path: %s", knobs.gpu_driven ? "permitted" : "off (tier)");
+                ImGui::TextDisabled("The Low tier keeps the classic one-draw-per-instance path.");
+                ImGui::TreePop();
+            }
+
+            if (std::memcmp(&settings_before, &settings, sizeof(settings)) != 0)
+                context.preferences_dirty = true;
+
+            ImGui::End();
+        }
+
         void draw_lighting_panel(EditorContext& context)
         {
             if (!context.panels.lighting)
@@ -2722,7 +2924,14 @@ namespace SushiEngine
                     env_changed = true;
             }
             if (env_changed)
+            {
                 world->set_environment(environment);
+                // Environment/Lighting are an editor setting (see Preferences::environment),
+                // not scene data, so they persist through the preferences store like theme
+                // or render settings rather than through Save Scene.
+                context.preferences.environment = environment;
+                context.preferences_dirty = true;
+            }
 
             // The sun's cascade shadows are a render-machinery setting, so they live on the
             // render settings the Rendering panel also edits.
@@ -3200,7 +3409,14 @@ namespace SushiEngine
             }
 
             if (changed)
+            {
                 world->set_environment(environment);
+                // Environment/Lighting are an editor setting (see Preferences::environment),
+                // not scene data, so they persist through the preferences store like theme
+                // or render settings rather than through Save Scene.
+                context.preferences.environment = environment;
+                context.preferences_dirty = true;
+            }
 
             ImGui::End();
         }

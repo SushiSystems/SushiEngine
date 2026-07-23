@@ -9,6 +9,92 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **GPU-driven geometry (Phase 10).** The renderer no longer issues one draw per object.
+  The core "remove the per-object CPU wall" work landed: instances are packed on the GPU,
+  culled in compute, and drawn indirectly, so the CPU cost is flat in the number of distinct
+  meshes rather than the number of instances. Everything reads a `RenderSettings::gpu_culling`
+  data block a new editor window authors — no pass names the editor. What landed:
+  - **Instancing + multi-draw-indirect.** A new `InstanceSystem` packs every opaque mesh
+    instance into a `GpuInstance` storage-buffer record (camera-relative transform, bounding
+    sphere, and the material/motion/pick indices the draw used to push) and groups them by
+    mesh into per-mesh buckets. Each bucket issues one `vkCmdDrawIndexedIndirect` whose
+    instance count the GPU decides. (A single call across all meshes would need a pooled mega
+    vertex/index buffer and a MeshRegistry rewrite; the per-mesh-bucket form is the shipped
+    design.)
+  - **GPU occlusion culling.** The cull compute (`cull.comp`) tests each instance's bounding
+    sphere against the *previous* frame's max-Z depth pyramid — reprojected with the previous
+    view-projection plus the eye delta — and drops what is hidden. Single-phase: no readback,
+    no popping; the two-phase re-test that removes the one-frame disocclusion latency is a
+    documented later refinement.
+  - **The occlusion pyramid.** A new `OcclusionPass` builds a persistent max-Z (farthest-depth)
+    depth pyramid after the depth prepass — the conservative twin of the SSR hi-Z's
+    nearest-depth pyramid, which is right for reflection marching and wrong for culling. It
+    lives outside the render graph so next frame's cull can read it before this frame rebuilds
+    it; a freshly created image clears to "far" so nothing occludes until real depth lands.
+  - **Screen-coverage LOD.** An instance whose projected on-screen diameter falls below an
+    authored pixel threshold is dropped — LOD as "not drawn." Discrete mesh-LOD swapping and
+    HLOD/impostors reuse the same bucket mechanism once LOD meshes are authored.
+  - **The GPU vertex path.** `mesh_gpu.vert` is the twin of `mesh.vert`: where the classic
+    shader reads its model matrix, material index, and picking id from a push constant, this
+    reads them from the instance record (an indirect draw carries none), indexing the cull
+    pass's compacted survivor list. Its per-instance buffers ride a new set-2 descriptor set,
+    so the bindless heap keeps set 1. Both paths feed the same `pbr.frag`.
+  - **Two-path design.** The GPU-driven path is taken when the tier permits it, the bindless
+    heap is present, and nothing is selected; anything else (Low tier, a selection whose
+    outline needs the stencil mask, no heap) falls back to the classic CPU per-instance draw.
+    The cull machinery stays primed even on the fallback so the pyramid remains fresh.
+  - **Tier wiring.** `gpu_driven` is off on Low (keeps the classic path) and on for
+    Medium/High/Ultra, gated further by the author's `GpuCullingSettings::enabled` and the
+    bindless heap. A new **GPU Culling** editor panel exposes enable, frustum, occlusion,
+    min-screen-diameter, a debug frustum freeze, and the per-frame cull statistics.
+  - **GPU cloth triangulation.** Soft-body (cloth) triangulation moved from the CPU to a compute
+    pass: the host uploads only particle positions (in a strand-local frame with a per-strand
+    camera-relative origin so planet-scale precision survives), and a new `cloth.comp` driven by a
+    new `ClothPass` computes the area-weighted vertex normals — reproducing the exact CPU triangle
+    winding — and writes the drawable `MeshVertex` and index buffers the opaque pass draws. No
+    per-vertex float work happens on the CPU anymore.
+  - **Meshlet / mesh-shader draw path.** A `VK_EXT_mesh_shader` (task + mesh) path: every mesh is
+    meshletised at import/init (greedy ≤64-vertex / ≤124-triangle clusters, each with a bounding
+    sphere and normal cone, `geometry/meshlet.{hpp,cpp}`). When the tier is Ultra and the device
+    offers mesh shaders, a task shader frustum-culls each mesh's clusters and a mesh shader emits
+    the survivors camera-relative into the shared `pbr.frag`, in both the depth prepass and the
+    opaque pass. Device+Ultra gated and purely additive: without mesh shaders, below Ultra, or when
+    an object is selected, the geometry falls back through the GPU-driven MDI or classic path
+    (meshlets → GPU-driven MDI → classic). Per-meshlet HZB occlusion + normal-cone back-face
+    culling and fully GPU-driven indirect mesh tasks are documented next refinements.
+  - **Deferred with rationale**: sparse virtual texturing (a whole feedback/page-cache/
+    async-transfer subsystem, out of scope).
+- **The post-processing stack and display transform (Phase 9).** The renderer's tail grew
+  from a fixed exposure × ACES × gamma into a full, tier-wired post chain, authored from a
+  new **Post Process** editor window (Window ▸ Post Process). Everything the passes read is a
+  `RenderSettings::post` data block the window writes and the passes consume — no pass names
+  the editor. What landed:
+  - **Auto-exposure (eye adaptation).** A compute pass builds a log-luminance histogram of the
+    resolved frame, copies it into a per-slot host-visible buffer, and the scene view reads it
+    back after the slot's fence — the picking-readback path — to ease a stored exposure toward
+    the value that maps the frame's central luminance onto middle grey. Manual exposure (the
+    prior behaviour, the scene's authored value times an EV compensation) stays the default, so
+    nothing regresses; automatic is opt-in per view with min/max EV, adaptation speeds, and key.
+  - **Energy-conserving bloom.** A progressive mip pyramid, downsampled with a 13-tap
+    Karis-averaged filter and upsampled with a 3×3 tent, written into a half-resolution target
+    the display transform composites in. Threshold-free by default, so a bright pixel bleeds in
+    proportion to its own intensity; the pyramid is owned and barriered by hand on the hi-Z
+    pass's model, as the graph exposes no per-mip storage view.
+  - **Tone-curve choice.** **AgX** is the new default (hue-preserving through the highlights);
+    **ACES** (the prior Narkowicz curve) and **Khronos PBR Neutral** are selectable.
+  - **Colour grade**, applied inside the one display-transform pass: white balance
+    (temperature/tint), lift/gamma/gain, contrast, and saturation.
+  - **Depth of field** (gather-based bokeh from a thin-lens circle of confusion) and **motion
+    blur** (a gather along the shipped velocity target), both after the temporal resolve, both
+    tier-gated to High/Ultra and off by default.
+  - **Lens effects**: vignette, chromatic aberration, and animated film grain, all folded into
+    the display-transform pass; the blue-noise output dither is unchanged.
+  - **Tier wiring.** New `QualityParams` gates — Low drops bloom, DoF, and motion blur; Medium
+    keeps bloom; High and Ultra permit the whole stack. The Post Process window's "Tier resolves
+    to" tree shows which effects the current tier allows.
+  - HDR10 / scRGB swapchain output (design-doc item 9.4) is deferred with recorded rationale: it
+    is swapchain-colourspace surgery in the window renderer that cannot be verified without an
+    HDR display, the same deferral posture the reflection-probe and RT-tier items take.
 - **Saturn's rings.** Saturn now renders with its ring system, drawn the same analytic
   way every other body is — no mesh, no particles, entirely in `sky.frag`. A new
   `Astro::ring_extent(BodyId)` gives Saturn's C-to-A ring span (zero for every other

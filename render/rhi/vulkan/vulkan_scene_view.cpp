@@ -23,9 +23,15 @@
 
 #include "vulkan_scene_view.hpp"
 
+#include <cmath>
+#include <vector>
+
 #include "frame/temporal_jitter.hpp"
+#include "geometry/mesh_registry.hpp"
 #include "material/asset_library.hpp"
+#include "material/material_system.hpp"
 #include "resources/sampler_cache.hpp"
+#include "scene/post_process_uniforms.hpp"
 #include "scene/scene_uniforms.hpp"
 #include "scene/shadow_uniforms.hpp"
 #include "scene/temporal_uniforms.hpp"
@@ -47,7 +53,7 @@ namespace SushiEngine
                                              Assets::AssetLibrary& assets)
                 : device_(device), assets_(assets), descriptors_(device, SLOTS),
                   cloth_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
-                  motion_(device, SLOTS), lights_(device, SLOTS),
+                  motion_(device, SLOTS), instance_system_(device, SLOTS), lights_(device, SLOTS),
                   accelerator_(device, assets.meshes(), SLOTS),
                   profiler_(device, SLOTS, MAX_TIMED_PASSES),
                   graph_(device, &profiler_),
@@ -60,7 +66,7 @@ namespace SushiEngine
                   irradiance_volume_pass_(device, assets.shaders(), assets.pipelines(), ibl_pass_,
                                           assets.meshes()),
                   depth_prepass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
-                                 assets.meshes(), motion_),
+                                 assets.meshes(), motion_, instance_system_),
                   shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes()),
                   contact_shadow_pass_(device, assets.shaders(), assets.pipelines(),
@@ -68,9 +74,14 @@ namespace SushiEngine
                   ray_shadow_pass_(device, assets.shaders(), assets.pipelines(), accelerator_),
                   gtao_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   hiz_pass_(device, assets.shaders(), assets.pipelines()),
+                  occlusion_pass_(device, assets.shaders(), assets.pipelines()),
+                  cull_pass_(device, assets.shaders(), assets.pipelines(), occlusion_pass_,
+                             instance_system_),
+                  cloth_pass_(device, assets.shaders(), assets.pipelines(), cloth_),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes(), cloth_, materials_, motion_,
-                               assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_, lights_),
+                               assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_, lights_,
+                               instance_system_),
                   light_cull_pass_(device, assets.shaders(), assets.pipelines(), lights_),
                   light_shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                      assets.meshes(), lights_),
@@ -86,6 +97,10 @@ namespace SushiEngine
                   ssr_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                             hiz_pass_),
                   taa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  dof_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  motion_blur_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  auto_exposure_pass_(device, assets.shaders(), assets.pipelines()),
+                  bloom_pass_(device, assets.shaders(), assets.pipelines()),
                   tonemap_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   fxaa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   resources_(device, assets.samplers().get(Resources::SamplerDesc{}), 16u, 16u)
@@ -103,7 +118,9 @@ namespace SushiEngine
                            &volumetric_fog_pass_,
                            &ibl_pass_,
                            &irradiance_volume_pass_,
+                           &cull_pass_,
                            &depth_prepass_,
+                           &occlusion_pass_,
                            &shadow_pass_,
                            &contact_shadow_pass_,
                            &ray_shadow_pass_,
@@ -111,6 +128,7 @@ namespace SushiEngine
                            &light_shadow_pass_,
                            &gtao_pass_,
                            &hiz_pass_,
+                           &cloth_pass_,
                            &opaque_pass_,
                            &shading_rate_pass_,
                            &sky_pass_,
@@ -119,6 +137,10 @@ namespace SushiEngine
                            &cloud_composite_pass_,
                            &ssr_pass_,
                            &taa_pass_,
+                           &dof_pass_,
+                           &motion_blur_pass_,
+                           &auto_exposure_pass_,
+                           &bloom_pass_,
                            &tonemap_pass_,
                            &fxaa_pass_,
                            &picking_pass_};
@@ -212,6 +234,16 @@ namespace SushiEngine
                 timing.name = timings[index].name.c_str();
                 timing.milliseconds = timings[index].milliseconds;
                 return timing;
+            }
+
+            void VulkanSceneView::cull_statistics(std::uint32_t& drawn,
+                                                  std::uint32_t& tested) const noexcept
+            {
+                // The current slot's readback holds the counts its submit wrote and this
+                // frame's fence wait made safe to read.
+                const Passes::CullStatistics stats = cull_pass_.statistics(current_slot_);
+                drawn = stats.drawn;
+                tested = stats.tested;
             }
 
             void VulkanSceneView::render(const CameraView& camera, const Environment& environment,
@@ -344,6 +376,42 @@ namespace SushiEngine
                                               width_, height_, frame.history_valid, temporal);
                 resources_.upload_temporal(index, temporal);
 
+                // The exposure the display transform applies. Manual exposure multiplies the
+                // scene-authored value by the user's EV compensation — reproducing the prior
+                // fixed behaviour when the compensation is zero; automatic exposure uses the
+                // value the auto-exposure pass adapted from a past frame's luminance, read back
+                // and eased in update_auto_exposure() at the top of the next frame.
+                float linear_exposure =
+                    environment.exposure * std::exp2(effective.post.exposure_compensation);
+                if (effective.post.exposure_mode == ExposureMode::Automatic)
+                {
+                    // Adapt the stored exposure from the histogram this slot built two frames
+                    // ago (its readback is safe past the fence waited on above). A wild frame
+                    // time is treated as a nominal step so a hitch cannot jerk the exposure.
+                    float delta = measured_frame_milliseconds() * 0.001f;
+                    if (delta <= 0.0f || delta > 0.5f)
+                        delta = 0.016f;
+                    adapted_exposure_ = auto_exposure_pass_.adapt(
+                        index, effective.post.auto_exposure, delta, adapted_exposure_);
+                    linear_exposure = adapted_exposure_;
+                }
+                const bool bloom_active = effective.post.bloom.enabled && resolved.params.bloom;
+                // The display transform and depth of field run at the post-resolve extent — the
+                // output grid when the temporal resolve accumulated into it, the render extent
+                // otherwise — so their pixel-space maths (chromatic aberration, the DoF texel
+                // step) take that resolution, not the internal render one.
+                const bool resolves_temporally =
+                    effective.anti_aliasing == AntiAliasingMode::Temporal;
+                const std::uint32_t post_w = resolves_temporally ? width_ : render_width_;
+                const std::uint32_t post_h = resolves_temporally ? height_ : render_height_;
+                Scene::PostProcessUniforms post_uniforms;
+                Scene::fill_post_process_uniforms(effective.post, linear_exposure, bloom_active,
+                                                  frame_counter_, post_w, post_h, post_uniforms);
+                // The camera near plane the depth-of-field pass linearises reverse-Z depth with;
+                // stamped here rather than by the pack, which knows nothing about the camera.
+                post_uniforms.misc[2] = camera.near_plane;
+                resources_.upload_post(index, post_uniforms);
+
                 materials_.begin_frame(index);
                 motion_.begin_frame(index, frame.eye);
                 // Pack and configure the light engine before the passes register: the cull
@@ -360,6 +428,87 @@ namespace SushiEngine
                 lights_.assign_shadows(lights, light_count, frame.eye,
                                        effective.lights.shadow_atlas_size,
                                        effective.lights.max_shadow_casters, camera.near_plane);
+
+                // --- GPU-driven geometry: pack this frame's instances for the cull pass -----
+                // The path is permitted by the tier and the author, and needs the bindless
+                // heap (its instance set rides set 2). A selection falls back to the classic
+                // per-instance draw so the outline's stencil mask still works, but the cull
+                // machinery is still primed so the pyramid stays fresh for when it resumes.
+                const bool gpu_capable =
+                    resolved.params.gpu_driven && settings_.gpu_culling.enabled &&
+                    assets_.layout().gpu_pipeline_layout() != VK_NULL_HANDLE;
+                // The meshlet path (Ultra + mesh shaders) draws instances itself, so when it is
+                // active the GPU-driven cull is not built — the two are alternative geometry
+                // paths, and meshlets take priority. A selection falls back to neither.
+                const bool meshlet_active =
+                    resolved.params.meshlets && device_.supports_mesh_shader() &&
+                    assets_.layout().meshlet_pipeline_layout() != VK_NULL_HANDLE &&
+                    selected_id == NO_PICK;
+                const bool use_gpu = gpu_capable && !meshlet_active && selected_id == NO_PICK;
+                if (gpu_capable)
+                    occlusion_pass_.ensure_extent(render_width_, render_height_);
+
+                // The previous frame's camera-relative view-projection and the eye shift since,
+                // for the cull's occlusion reprojection onto last frame's depth pyramid. The
+                // view's translation is zeroed to make it camera-relative, matching how the
+                // geometry that built the pyramid was uploaded.
+                Mat4 previous_view = previous_camera_.view;
+                previous_view.m[12] = 0.0;
+                previous_view.m[13] = 0.0;
+                previous_view.m[14] = 0.0;
+                const Mat4 previous_view_projection =
+                    mul(previous_camera_.projection, previous_view);
+                for (int i = 0; i < 16; ++i)
+                    frame.previous_view_projection[i] =
+                        static_cast<float>(previous_view_projection.m[i]);
+                double previous_eye[3];
+                Scene::camera_eye(previous_camera_.view, previous_eye);
+                frame.eye_delta[0] = static_cast<float>(frame.eye[0] - previous_eye[0]);
+                frame.eye_delta[1] = static_cast<float>(frame.eye[1] - previous_eye[1]);
+                frame.eye_delta[2] = static_cast<float>(frame.eye[2] - previous_eye[2]);
+                frame.occlusion_near = previous_camera_.near_plane;
+
+                if (use_gpu)
+                {
+                    // The advanced lobes the tier permits, applied before any material is
+                    // packed — the same gate the opaque pass applies for the classic path.
+                    std::uint32_t allowed_lobes = 0;
+                    if (resolved.params.lobe_anisotropy)
+                        allowed_lobes |= Assets::MATERIAL_ANISOTROPY;
+                    if (resolved.params.lobe_clearcoat)
+                        allowed_lobes |= Assets::MATERIAL_CLEARCOAT;
+                    if (resolved.params.lobe_sheen)
+                        allowed_lobes |= Assets::MATERIAL_SHEEN;
+                    if (resolved.params.lobe_transmission)
+                        allowed_lobes |= Assets::MATERIAL_TRANSMISSION;
+                    materials_.set_allowed_lobes(allowed_lobes);
+
+                    std::vector<std::uint32_t> instance_materials;
+                    std::vector<std::uint32_t> instance_motions;
+                    instance_materials.reserve(count);
+                    instance_motions.reserve(count);
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        const MeshInstance& instance = instances[i];
+                        instance_materials.push_back(materials_.push(instance.material));
+                        const Mat4 model =
+                            instance.mesh != INVALID_MESH
+                                ? instance.model
+                                : mul(instance.model, Geometry::shape_scale(instance.kind,
+                                                                            instance.shape_params));
+                        instance_motions.push_back(motion_.push(instance.id, model));
+                    }
+                    instance_system_.build(index, instances, count, frame.eye,
+                                           instance_materials.data(), instance_motions.data(),
+                                           assets_.meshes());
+                    frame.gpu_bucket_count = instance_system_.bucket_count();
+                    frame.gpu_instance_count = instance_system_.instance_count();
+                }
+
+                // Pack this frame's soft-body particle positions and lay out their geometry; the
+                // cloth pass triangulates them on the GPU and the opaque pass draws the result.
+                cloth_.prepare(index, strands, strand_count, frame.eye);
+
                 graph_.begin_frame(resources_.textures(index), resources_.buffers(index));
                 frame.targets = resources_.declare_targets(
                     graph_, frame, shading_rate_pass_.enabled(frame),
@@ -385,6 +534,9 @@ namespace SushiEngine
                 materials_.upload();
                 motion_.upload();
                 lights_.upload();
+                // The GPU-driven instance and bucket buffers the cull pass reads; a no-op when
+                // the classic path packed nothing this frame.
+                instance_system_.upload();
 
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

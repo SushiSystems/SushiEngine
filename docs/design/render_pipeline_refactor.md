@@ -37,7 +37,24 @@ from the analytic primitives and per-mesh bricks baked at import and sphere-trac
 probe for occlusion and one coloured bounce, amortized by sparse round-robin relight, with
 rough reflections falling back to the same probe cache. Multiple cascades, emissive
 injection, toroidal amortization, and the Tier B ray-query tracer remain as tier-scalable
-refinements. This revision re-audits the codebase, folds in
+refinements. **Phase 9 post-processing is shipped (core):** a tier-wired post chain after the
+temporal resolve — histogram auto-exposure, energy-conserving bloom, an AgX/ACES/Neutral tone
+curve, a white-balance/lift-gamma-gain colour grade, gather-based depth of field and motion
+blur, and the vignette/chromatic-aberration/film-grain lens effects — all reading one post
+parameter block authored by a dedicated **Post Process** editor window; only HDR10/scRGB
+swapchain output is deferred (unverifiable without an HDR display). **Phase 10 GPU-driven
+geometry is shipped (core):** the CPU stops issuing one draw per object — `InstanceSystem`
+packs instances into a `GpuInstance` buffer grouped by mesh into per-mesh buckets, a compute
+`CullPass` frustum-, screen-coverage-, and occlusion-culls each instance (testing against a new
+persistent max-Z occlusion pyramid, the conservative twin of the Phase 5 hi-Z, reprojected from
+last frame) and writes one indirect draw per bucket, and `mesh_gpu.vert` draws them from a set-2
+instance descriptor set — a two-path design (GPU-driven when the tier permits, the heap is
+present, and nothing is selected; classic CPU per-instance draw otherwise), authored by a **GPU
+Culling** editor panel; cloth triangulation moved to a compute pass (`cloth.comp`/`ClothPass`, the
+host uploading only particle positions), and a `VK_EXT_mesh_shader` meshlet path (task + mesh
+shaders, per-meshlet frustum cull, device+Ultra gated with classic fallback) added on top, leaving
+only sparse virtual texturing deferred with recorded rationale. This revision re-audits
+the codebase, folds in
 a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
 GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
 AAA-complete phases. The guiding constraint is unchanged: the *red line between
@@ -699,66 +716,138 @@ transmittance/sky-radiance seam, Phase 5's blue-noise, the temporal core, and th
 SDF assets of Phase 6. Its acceptance criteria (flight-sim-grade: no visible
 repetition, crisp from ground to 20 km, flyable-through) are contractual there.
 
-### Phase 9 — Post-processing stack & display-out
+### Phase 9 — Post-processing stack & display-out — **shipped (core)**
 
-1. **Auto-exposure**: compute luminance histogram → EV with min/max clamps,
-   metering mask, adaptation rates, EV compensation; physical-camera units
-   (EV100) so sun/sky/emissive intensities finally mean something. Replaces the
-   fixed `0.18`.
-2. **Physically-based bloom**: 6–7 mip progressive down/upsample, energy-
-   conserving, threshold-free (scatter parameter), optional lens-dirt. ≤0.4 ms.
-3. **Tonemap upgrade**: **AgX default** (industry consensus for hue preservation),
-   ACES and **Khronos PBR Neutral** selectable; the tonemapper parameterized on
-   display transform, not hard-coded to gamma-sRGB.
-4. **HDR output**: scRGB (FP16) and HDR10 (PQ/Rec.2020) swapchain paths via
-   `VK_EXT_swapchain_colorspace` + `VK_EXT_hdr_metadata`; UI composited in linear
-   before the single encode; peak-nits / paper-white exposed. Cheap, high
-   perceived value.
-5. **Color grading**: white balance, lift-gamma-gain, saturation/contrast, 3D LUT
-   slot — applied inside the tonemap pass (one fullscreen pass for the whole
-   grade+map+encode chain).
-6. **Blue-noise dither** before every 8-bit quantize (kills the sky banding) —
-   consumes Phase 5's shared blue-noise. *Landed early (2026-07):* `tonemap.frag` now
-   applies a **triangular-PDF dither of one LSB** (two decorrelated interleaved-gradient
-   draws) before the UNORM write, static in screen space since the temporal resolve has
-   already run — the horizon/sky gradient no longer bands. Upgrading the source to the
-   shared blue-noise texture is the residual, in step with §5.1.
-7. **DoF** (gather-based bokeh, physical aperture) and **motion blur**
-   (per-object + camera from the shipped velocity target), both tier-gated, both
-   after TAA in the post chain.
-8. **Vignette / chromatic aberration / film grain / lens flare**: standard knobs,
-   grain applied pre-dither in linear.
-9. **Post-Process Volume stack + editor window** (§2.4): global + blendable
-   volumes resolving to the per-camera parameter block the passes read.
+The tail is no longer a fixed exposure × ACES × gamma. A tier-wired post chain now runs
+after the temporal resolve, every pass reading one `PostProcessUniforms` block (scene-set
+binding 31) the scene view fills from `RenderSettings::post` — the block the **Post Process**
+editor window authors. **Shipped:** auto-exposure (9.1), bloom (9.2), the AgX/ACES/Neutral
+tone-curve choice (9.3), the colour grade (9.5), the dither (9.6), DoF + motion blur (9.7),
+the lens effects (9.8), and the editor window (9.9). **Deferred with rationale:** HDR10/scRGB
+output (9.4). The one structural simplification vs the original plan: the Post-Process *volume
+stack* (9.9) resolves today to a single global block per view rather than blendable spatial
+volumes — the block-the-passes-read seam is in place, so blendable volumes are a later data
+refinement over the same interface, not a new one.
 
-*SOLID:* every effect is a pass or a parameter of the display-transform pass;
-the volume stack is pure data resolution (no pass reads the editor).
+1. **Auto-exposure**: ✓ **Shipped.** `AutoExposurePass` builds a 256-bin log-luminance
+   histogram (`luminance_histogram.comp`, tiled shared-memory accumulation) of the resolved
+   frame into a per-slot host-visible buffer; the scene view reads it back after the slot's
+   fence — the picking-readback path, so no second scene-set binding and no cross-frame graph
+   ping-pong — trims the tails, and eases a stored exposure toward the value mapping the
+   central luminance mass onto `key`, with min/max EV clamps, up/down adaptation speeds, and
+   EV compensation. Manual exposure (the scene's authored value × an EV compensation) stays the
+   default and reproduces the fixed `0.18` behaviour exactly, so nothing regresses.
+2. **Physically-based bloom**: ✓ **Shipped.** `BloomPass` — a progressive mip pyramid,
+   13-tap Karis-averaged downsample (`bloom_down.comp`) and 3×3 tent upsample
+   (`bloom_up.comp`), owned dual pyramids barriered by hand on the hi-Z model (the graph
+   exposes no per-mip storage view), the finest upsample written into a half-resolution graph
+   target the display transform composites in scene-linear space before exposure.
+   Threshold-free by default (energy-conserving). Optional lens-dirt is the residual.
+3. **Tonemap upgrade**: ✓ **Shipped.** `tonemap.frag` selects **AgX** (the new default),
+   **ACES**, or **Khronos PBR Neutral** at runtime from the post block; each returns linear
+   display values and the sRGB encode is applied once, so the operators stay interchangeable.
+4. **HDR output**: ○ **Deferred — rationale recorded.** scRGB/HDR10 output is swapchain-
+   colourspace surgery in `vulkan_window_renderer` (`VK_EXT_swapchain_colorspace` +
+   `VK_EXT_hdr_metadata`) whose correctness — the PQ/paper-white/peak-nits encode and the
+   linear UI composite — is only confirmable on an HDR display this project cannot verify
+   against, the same deferral posture the reflection-probe and RT-tier items take. The
+   display transform is already parameterised on the tone curve rather than hard-wired to
+   gamma-sRGB, so the HDR encode lands as a new final-encode branch behind the existing pass,
+   not a rewrite. **Revisit trigger:** when an HDR presentation target is available to verify.
+5. **Color grading**: ✓ **Shipped.** White balance (temperature/tint), lift/gamma/gain,
+   contrast, and saturation, all inside the one display-transform pass (grade → map → encode).
+   A 3D-LUT slot is reserved on the settings but its texture binding is a later increment.
+6. **Blue-noise dither**: ✓ **Shipped (early, 2026-07).** `tonemap.frag` applies a
+   triangular-PDF dither of one LSB before the UNORM write, static in screen space since the
+   temporal resolve has already run. Upgrading the source to the baked blue-noise texture is
+   the residual, in step with §5.1.
+7. **DoF + motion blur**: ✓ **Shipped.** `DofPass` (gather bokeh from a thin-lens circle of
+   confusion, `dof.frag`) and `MotionBlurPass` (a velocity gather, `motion_blur.frag`), both
+   after the temporal resolve, both tier-gated to High/Ultra and off by default. Each hands
+   its output to the next stage through the `post_color` chain the view builds, so the tone
+   map reads the last effect that ran without the passes naming one another.
+8. **Vignette / chromatic aberration / film grain**: ✓ **Shipped**, folded into the display-
+   transform pass; grain is applied in display-linear space before the dither. Lens flare is
+   the residual (a bloom-derived ghost/halo pass).
+9. **Post-Process window** (§2.4): ✓ **Shipped.** A dedicated `draw_post_process_panel`
+   authors the whole `RenderSettings::post` block — exposure mode + parameters, tone curve,
+   bloom, grade, DoF, motion blur, and the lens effects — with a "Tier resolves to" readout,
+   persisted through the preferences JSON like the rest of `RenderSettings`. The blendable
+   spatial volume stack over the same block is the residual.
 
-### Phase 10 — GPU-driven geometry
+*SOLID:* every effect is a pass or a parameter of the display-transform pass; the block the
+passes read is pure data the editor resolves into (no pass reads the editor).
 
-Removes the per-object CPU wall before scene density grows into it.
+### Phase 10 — GPU-driven geometry — **shipped (core)**
 
-1. **Instancing + multi-draw-indirect**: per-instance records in one storage
-   buffer (transform/material/motion indices — the SoA shapes already exist),
-   one `vkCmdDrawIndexedIndirectCount` per pass bucket. CPU cost flat in
-   instance count.
-2. **GPU two-phase occlusion culling**: depth pyramid (**the Phase 5 hi-Z,
-   reused**) — phase 1 draws last-frame-visible + tests the rest against
-   prev-frame HZB; phase 2 retests false negatives against current HZB. No
-   readback, no popping. Per-view (§2.3): scene, shadow cascades, atlas tiles,
-   probes.
-3. **GPU LOD selection** folded into culling (screen-coverage select, hooks into
-   the existing body-LOD ladder so planet-to-space reuses one system);
-   HLOD/impostors for far clusters.
-4. **Meshlets** *(tier)*: `VK_EXT_mesh_shader` path with per-meshlet cone +
-   HZB culling (the Northlight/id pattern — meshlets without software raster);
-   classic path remains the fallback. Adopt `VK_EXT_device_generated_commands`
-   only if pass-bucket switching shows up in profiles.
-5. **Sparse virtual texturing** for terrain/large sets: software SVT with a
-   shader-written feedback buffer (Vulkan has no sampler feedback), page cache +
-   async transfer-queue uploads (Vulkan 1.4 guarantees the queue).
-6. **Cloth on GPU**: triangulation + normals in compute from the persistent
-   per-slot buffers; upload only particle positions.
+Removes the per-object CPU wall before scene density grows into it. The core landed — the
+CPU no longer issues one draw per object. `InstanceSystem` packs every opaque mesh instance
+into a `GpuInstance` storage buffer grouped by mesh into per-mesh buckets; `CullPass` runs
+before the depth prepass and frustum-, screen-coverage-, and occlusion-culls each instance,
+compacting survivors per bucket and writing one `VkDrawIndexedIndirectCommand` each;
+`mesh_gpu.vert` reads the instance record (set 2) in place of the classic push constant and
+draws indirectly. **Shipped:** instancing + MDI (10.1), single-phase GPU occlusion culling
+(10.2), screen-coverage LOD (10.3), a `VK_EXT_mesh_shader` meshlet path (10.4, device+Ultra gated
+with classic fallback), and GPU cloth triangulation (10.6) — the "remove the per-object CPU wall"
+core plus compute-driven soft-body triangulation and a mesh-shader draw path.
+**Deferred with rationale:** sparse virtual texturing (10.5).
+The whole path is two-path: GPU-driven when the tier permits
+(`gpu_driven` — off on Low, on for Medium/High/Ultra), the author's `GpuCullingSettings.enabled`
+is set, the bindless heap is present, and nothing is selected; classic CPU per-instance draw
+otherwise. The editor's **GPU Culling** panel authors `RenderSettings::gpu_culling`.
+
+1. **Instancing + multi-draw-indirect**: ✓ **Shipped** as per-mesh-bucket MDI. `InstanceSystem`
+   packs per-instance records into one storage buffer (transform, bounding sphere, and the
+   material/motion/pick indices — the SoA shapes already exist), grouped by mesh into buckets;
+   one `vkCmdDrawIndexedIndirect` per bucket, the instance count GPU-decided. CPU cost flat in
+   the distinct-mesh count, not the instance count. The single-call-across-all-meshes variant
+   (`vkCmdDrawIndexedIndirectCount` over a pooled mega vertex/index buffer) is deliberately
+   **not** done — it would need a `MeshRegistry` rewrite; the per-mesh-bucket form is the
+   shipped design and the win (flat CPU cost) is already realized.
+2. **GPU occlusion culling**: ✓ **Shipped** as single-phase. `cull.comp` tests each instance's
+   bounding sphere against the **previous frame's** max-Z depth pyramid — reprojected with the
+   previous view-projection and the eye delta — and drops what is hidden. `OcclusionPass` owns
+   that pyramid: a persistent farthest-depth mip chain built after the depth prepass, the
+   conservative twin of the Phase 5 hi-Z (nearest-depth is right for reflection marching and
+   wrong for culling, so this is a *new* pyramid, not the reused one the original plan named).
+   No readback, no popping. The two-phase re-test (phase 1 draws last-frame-visible + tests the
+   rest against the prev-frame HZB, phase 2 retests false negatives against the current HZB)
+   that removes the one-frame disocclusion latency is ○ **deferred** as a documented refinement.
+   Per-view culling of shadow cascades, atlas tiles, and probes (§2.3) rides the same mechanism
+   when those views adopt it.
+3. **GPU LOD selection**: ✓ **Shipped** as screen-coverage culling, folded into the cull — an
+   instance whose projected on-screen diameter is below an authored pixel threshold
+   (`min_screen_diameter`) is dropped (LOD = "not drawn"). Discrete mesh-LOD swapping (multiple
+   LOD meshes, hooking into the body-LOD ladder so planet-to-space reuses one system) and
+   HLOD/impostors for far clusters are ○ **extensions** that reuse the same bucket mechanism
+   once LOD meshes are authored.
+4. **Meshlets** *(tier)*: ✓ **Shipped** as a `VK_EXT_mesh_shader` (task + mesh) draw path. Every
+   mesh is meshletised at import/init — greedy clustering into ≤64-vertex / ≤124-triangle meshlets,
+   each with a bounding sphere and a normal cone (`geometry/meshlet.{hpp,cpp}`). When the tier is
+   **Ultra** and the device offers mesh shaders (`VulkanDevice::supports_mesh_shader()`, detected at
+   runtime), a task shader (`meshlet.task`) frustum-culls each mesh's clusters and a mesh shader
+   (`meshlet.mesh`) emits the survivors camera-relative into the shared `pbr.frag` — used in **both**
+   the depth prepass and the opaque pass so culling stays consistent. The pipeline factory gained a
+   `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParams` gained an Ultra-only
+   `meshlets` flag. It is purely additive and device-gated: where mesh shaders are absent, the tier is
+   below Ultra, or an object is selected, the same geometry falls back through the GPU-driven MDI or
+   classic path (the layering is meshlets → GPU-driven MDI → classic), so no hardware is left unable
+   to render. The task shader currently does per-meshlet **frustum** culling only; per-meshlet
+   hierarchical-Z (HZB) occlusion culling plus normal-cone back-face culling (the latter needs
+   single-sided geometry), and fully GPU-driven indirect mesh tasks (`vkCmdDrawMeshTasksIndirectEXT`
+   in place of the current one-`drawMeshTasks`-per-instance CPU loop), are ○ **deferred** refinements.
+   `VK_EXT_device_generated_commands` is adopted only if pass-bucket switching shows up in profiles.
+5. **Sparse virtual texturing** for terrain/large sets: ○ **Deferred** — a whole subsystem
+   (software SVT with a shader-written feedback buffer since Vulkan has no sampler feedback,
+   a page cache, and async transfer-queue uploads), out of this increment's scope.
+6. **Cloth on GPU**: ✓ **Shipped** as compute-driven soft-body triangulation. The host uploads
+   only particle positions (in a strand-local frame with a per-strand camera-relative origin so
+   planet-scale precision survives); `cloth.comp`, driven by a new `ClothPass`, computes the
+   area-weighted vertex normals — reproducing the exact CPU triangle winding — and writes the
+   drawable `MeshVertex` and index buffers the opaque pass then draws. `ClothBuffers` was
+   reworked into a host-visible positions buffer plus device-local compute-written vertex/index
+   buffers, with a `prepare()` that packs positions and lays out per-strand ranges; no per-vertex
+   float work happens on the CPU anymore.
 
 *Tier:* meshlets, SVT residency budget, HLOD distance. *SOLID:* culling writes
 draw args; passes consume them — the draw loop stops being renderer code and

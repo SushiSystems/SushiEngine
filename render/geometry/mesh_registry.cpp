@@ -27,6 +27,7 @@
 #include <cstring>
 #include <utility>
 
+#include "geometry/meshlet.hpp"
 #include "gi/sdf_clipmap.hpp"
 #include "rhi/vulkan/vulkan_check.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
@@ -43,7 +44,6 @@ namespace SushiEngine
                 constexpr int SPHERE_RINGS = 24;
                 constexpr int SPHERE_SEGMENTS = 32;
                 constexpr int CYLINDER_SEGMENTS = 32;
-                constexpr int GRID_EXTENT = 10;
 
                 /**
                  * @brief Builds a vertex with an explicit tangent, UV, and white colour.
@@ -72,6 +72,25 @@ namespace SushiEngine
                     for (int i = 0; i < 4; ++i)
                         vertex.color[i] = 255;
                     return vertex;
+                }
+
+                /**
+                 * @brief The farthest vertex distance from the local origin.
+                 *
+                 * A local-origin-centred bounding radius rather than a centroid one, so it
+                 * stays a valid bound for an off-centre imported mesh under any transform.
+                 */
+                float bounding_radius(const MeshVertex* vertices, std::size_t vertex_count) noexcept
+                {
+                    float squared = 0.0f;
+                    for (std::size_t i = 0; i < vertex_count; ++i)
+                    {
+                        const float* p = vertices[i].position;
+                        const float distance = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+                        if (distance > squared)
+                            squared = distance;
+                    }
+                    return std::sqrt(squared);
                 }
             } // namespace
 
@@ -302,61 +321,81 @@ namespace SushiEngine
                     cylinder_index.insert(cylinder_index.end(), {top_center, top0, top1});
                 }
 
-                // Ground grid on the XZ plane; the normal and tangent are unused by the
-                // line shader, and the UV carries the world position so a future overlay
-                // can key off it.
-                std::vector<MeshVertex> grid;
-                const float span = static_cast<float>(GRID_EXTENT);
-                const float grid_tangent[3] = {1.0f, 0.0f, 0.0f};
-                for (int i = -GRID_EXTENT; i <= GRID_EXTENT; ++i)
-                {
-                    const float t = static_cast<float>(i);
-                    const float a[3] = {-span, 0.0f, t};
-                    const float b[3] = {span, 0.0f, t};
-                    const float c[3] = {t, 0.0f, -span};
-                    const float d[3] = {t, 0.0f, span};
-                    grid.push_back(make_vertex(a, up, grid_tangent, 0.0f, 0.0f));
-                    grid.push_back(make_vertex(b, up, grid_tangent, 1.0f, 0.0f));
-                    grid.push_back(make_vertex(c, up, grid_tangent, 0.0f, 0.0f));
-                    grid.push_back(make_vertex(d, up, grid_tangent, 0.0f, 1.0f));
-                }
-
                 box_vertices_ = upload(cube.data(), cube.size() * sizeof(MeshVertex),
-                                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+                                       vertex_usage());
                 box_indices_ = upload(cube_index.data(), cube_index.size() * sizeof(std::uint32_t),
                                       VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
                 sphere_vertices_ = upload(sphere.data(), sphere.size() * sizeof(MeshVertex),
-                                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+                                          vertex_usage());
                 sphere_indices_ =
                     upload(sphere_index.data(), sphere_index.size() * sizeof(std::uint32_t),
                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
                 cylinder_vertices_ = upload(cylinder.data(), cylinder.size() * sizeof(MeshVertex),
-                                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+                                            vertex_usage());
                 cylinder_indices_ =
                     upload(cylinder_index.data(), cylinder_index.size() * sizeof(std::uint32_t),
                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-                grid_vertices_ = upload(grid.data(), grid.size() * sizeof(MeshVertex),
-                                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-
                 box_ = Mesh{box_vertices_.buffer, box_indices_.buffer,
                             static_cast<std::uint32_t>(cube.size()),
-                            static_cast<std::uint32_t>(cube_index.size())};
+                            static_cast<std::uint32_t>(cube_index.size()),
+                            bounding_radius(cube.data(), cube.size())};
                 sphere_ = Mesh{sphere_vertices_.buffer, sphere_indices_.buffer,
                                static_cast<std::uint32_t>(sphere.size()),
-                               static_cast<std::uint32_t>(sphere_index.size())};
+                               static_cast<std::uint32_t>(sphere_index.size()),
+                               bounding_radius(sphere.data(), sphere.size())};
                 cylinder_ = Mesh{cylinder_vertices_.buffer, cylinder_indices_.buffer,
                                  static_cast<std::uint32_t>(cylinder.size()),
-                                 static_cast<std::uint32_t>(cylinder_index.size())};
-                grid_ = Mesh{grid_vertices_.buffer, VK_NULL_HANDLE,
-                             static_cast<std::uint32_t>(grid.size()), 0};
+                                 static_cast<std::uint32_t>(cylinder_index.size()),
+                                 bounding_radius(cylinder.data(), cylinder.size())};
+
+                // Meshletise the primitives once, here, so the mesh-shader path can draw them
+                // exactly as it draws imported meshes. A no-op when the device lacks mesh
+                // shaders, so a device on the classic path pays nothing.
+                attach_meshlets(box_, cube.data(), cube.size(), cube_index.data(),
+                                cube_index.size());
+                attach_meshlets(sphere_, sphere.data(), sphere.size(), sphere_index.data(),
+                                sphere_index.size());
+                attach_meshlets(cylinder_, cylinder.data(), cylinder.size(),
+                                cylinder_index.data(), cylinder_index.size());
+            }
+
+            void MeshRegistry::attach_meshlets(Mesh& mesh, const MeshVertex* vertices,
+                                               std::size_t vertex_count,
+                                               const std::uint32_t* indices,
+                                               std::size_t index_count)
+            {
+                if (!device_.supports_mesh_shader())
+                    return;
+                const MeshletData meshlets =
+                    build_meshlets(vertices, vertex_count, indices, index_count);
+                if (meshlets.empty())
+                    return;
+
+                meshlet_buffers_.push_back(upload(meshlets.descriptors.data(),
+                                                  meshlets.descriptors.size() *
+                                                      sizeof(MeshletDescriptor),
+                                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+                meshlet_buffers_.push_back(
+                    upload(meshlets.vertices.data(),
+                           meshlets.vertices.size() * sizeof(std::uint32_t),
+                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+                meshlet_buffers_.push_back(
+                    upload(meshlets.triangles.data(),
+                           meshlets.triangles.size() * sizeof(std::uint32_t),
+                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+
+                const std::size_t base = meshlet_buffers_.size() - 3;
+                mesh.meshlet_descriptors = meshlet_buffers_[base].buffer;
+                mesh.meshlet_vertices = meshlet_buffers_[base + 1].buffer;
+                mesh.meshlet_triangles = meshlet_buffers_[base + 2].buffer;
+                mesh.meshlet_count = static_cast<std::uint32_t>(meshlets.descriptors.size());
             }
 
             MeshRegistry::~MeshRegistry()
             {
                 Allocation* allocations[] = {&box_vertices_,      &box_indices_,
                                              &sphere_vertices_,   &sphere_indices_,
-                                             &cylinder_vertices_, &cylinder_indices_,
-                                             &grid_vertices_};
+                                             &cylinder_vertices_, &cylinder_indices_};
                 for (Allocation* allocation : allocations)
                     destroy(*allocation);
                 for (Imported& entry : imported_)
@@ -365,6 +404,9 @@ namespace SushiEngine
                     destroy(entry.indices);
                 }
                 imported_.clear();
+                for (Allocation& allocation : meshlet_buffers_)
+                    destroy(allocation);
+                meshlet_buffers_.clear();
             }
 
             const Mesh& MeshRegistry::primitive(MeshKind kind) const noexcept
@@ -390,12 +432,14 @@ namespace SushiEngine
 
                 Imported entry;
                 entry.vertices = upload(vertices, vertex_count * sizeof(MeshVertex),
-                                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+                                        vertex_usage());
                 entry.indices = upload(indices, index_count * sizeof(std::uint32_t),
                                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
                 entry.mesh = Mesh{entry.vertices.buffer, entry.indices.buffer,
                                   static_cast<std::uint32_t>(vertex_count),
-                                  static_cast<std::uint32_t>(index_count)};
+                                  static_cast<std::uint32_t>(index_count),
+                                  bounding_radius(vertices, vertex_count)};
+                attach_meshlets(entry.mesh, vertices, vertex_count, indices, index_count);
                 // Bake the mesh's signed-distance brick now, from the caller's fast CPU data,
                 // rather than reading it back from the write-combined upload buffer later. The
                 // brick feeds probe GI's scene distance clipmap; it costs nothing when unused.
@@ -418,6 +462,14 @@ namespace SushiEngine
                 if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
                     return empty_;
                 return imported_[mesh_id].mesh;
+            }
+
+            VkBufferUsageFlags MeshRegistry::vertex_usage() const
+            {
+                VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+                if (device_.supports_mesh_shader())
+                    usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                return usage;
             }
 
             MeshRegistry::Allocation MeshRegistry::upload(const void* data, VkDeviceSize bytes,

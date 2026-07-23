@@ -62,6 +62,7 @@ namespace SushiEngine
         {
             class MotionSystem;
             class SceneLayout;
+            class InstanceSystem;
         }
 
         namespace Vulkan
@@ -93,7 +94,7 @@ namespace SushiEngine
                     DepthPrepass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                  Resources::GraphicsPipelineFactory& pipelines,
                                  Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
-                                 Scene::MotionSystem& motion);
+                                 Scene::MotionSystem& motion, Scene::InstanceSystem& instances);
                     ~DepthPrepass() override;
 
                     DepthPrepass(const DepthPrepass&) = delete;
@@ -113,8 +114,12 @@ namespace SushiEngine
                     Scene::SceneLayout& layout_;
                     Geometry::MeshRegistry& meshes_;
                     Scene::MotionSystem& motion_;
+                    Scene::InstanceSystem& instances_;
                     Resources::PipelineHandle mesh_pipeline_;
-                    Resources::PipelineHandle line_pipeline_;
+                    /** @brief The depth-only pipeline built against the GPU-driven layout. */
+                    Resources::PipelineHandle gpu_mesh_pipeline_;
+                    /** @brief The depth-only mesh-shader pipeline (meshlet.task + meshlet.mesh). */
+                    Resources::PipelineHandle meshlet_pipeline_;
             };
         } // namespace Passes
     } // namespace Render

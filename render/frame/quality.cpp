@@ -91,6 +91,14 @@ namespace SushiEngine
                     q.lobe_sheen = false;
                     q.lobe_transmission = false;
                     q.volumetric_fog = false;
+                    // The cheap floor drops every post effect above the display transform
+                    // itself: no bloom pyramid, no gather-based DoF or motion blur.
+                    q.bloom = false;
+                    q.depth_of_field = false;
+                    q.motion_blur = false;
+                    // The cheap floor keeps the classic one-draw-per-instance path: its scenes
+                    // are simplest and the extra cull/occlusion compute passes buy little.
+                    q.gpu_driven = false;
                     break;
 
                 case RenderQuality::Medium:
@@ -115,6 +123,10 @@ namespace SushiEngine
                     q.lobe_clearcoat = true;
                     q.lobe_sheen = false;
                     q.lobe_transmission = false;
+                    // Bloom stays (it is nearly free); the cinematic gathers wait for High.
+                    q.bloom = true;
+                    q.depth_of_field = false;
+                    q.motion_blur = false;
                     break;
 
                 case RenderQuality::High:
@@ -132,6 +144,10 @@ namespace SushiEngine
                     q.lobe_sheen = true;
                     q.lobe_transmission = true;
                     q.probe_gi = true;
+                    // The full post stack is permitted; the author's per-effect enables decide.
+                    q.bloom = true;
+                    q.depth_of_field = true;
+                    q.motion_blur = true;
                     break;
 
                 case RenderQuality::Ultra:
@@ -162,6 +178,11 @@ namespace SushiEngine
                     q.lobe_sheen = true;
                     q.lobe_transmission = true;
                     q.probe_gi = true;
+                    q.bloom = true;
+                    q.depth_of_field = true;
+                    q.motion_blur = true;
+                    // The Ultra crown: the mesh-shader meshlet path, where the device offers it.
+                    q.meshlets = true;
                     break;
             }
 

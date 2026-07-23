@@ -221,6 +221,8 @@ namespace SushiEngine
                  * @param decals        Pointer to the projected decals, or nullptr for none;
                  *                      culled into the same froxel grid.
                  * @param decal_count   Number of entries in @p decals.
+                 * @param show_grid     Draw the editor reference grid overlay. Off for a
+                 *                      shipped runtime; the Scene viewport turns it on.
                  */
                 virtual void render(const CameraView& camera, const Environment& environment,
                                     const MeshInstance* instances,
@@ -230,7 +232,8 @@ namespace SushiEngine
                                     const PunctualLight* lights = nullptr,
                                     std::size_t light_count = 0,
                                     const Decal* decals = nullptr,
-                                    std::size_t decal_count = 0) = 0;
+                                    std::size_t decal_count = 0,
+                                    bool show_grid = false) = 0;
 
                 /**
                  * @brief The instance id drawn at a pixel of the last rendered frame.
@@ -272,6 +275,24 @@ namespace SushiEngine
                  * @return The pass's name and measured milliseconds.
                  */
                 virtual ScenePassTiming pass_timing(std::size_t index) const noexcept = 0;
+
+                /**
+                 * @brief The GPU-driven cull counts from the last completed frame.
+                 *
+                 * How many mesh instances survived the cull and how many were tested, read
+                 * back from the cull pass a frame late. Both zero on a frame that took the
+                 * classic path (a lower tier, the path disabled, or an object selected) and
+                 * on a view whose backend does not cull on the GPU — the default here.
+                 *
+                 * @param drawn  Receives the instances that survived and were drawn.
+                 * @param tested Receives the instances the cull considered.
+                 */
+                virtual void cull_statistics(std::uint32_t& drawn,
+                                             std::uint32_t& tested) const noexcept
+                {
+                    drawn = 0;
+                    tested = 0;
+                }
         };
     } // namespace Render
 } // namespace SushiEngine

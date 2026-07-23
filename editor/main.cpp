@@ -178,6 +178,11 @@ int main(int, char**)
         context.assets = &renderer->assets();
         context.world_entity_count = simulation->entity_count();
 
+        // The Environment/Lighting panels edit a host setting (see Preferences::environment),
+        // not scene data, so it is applied here from preferences rather than read from
+        // whatever scene ends up open.
+        simulation->world().set_environment(context.preferences.environment);
+
         // The Project panel's root: the last one the user browsed to, or a
         // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
         // so authored project code never mixes with the engine's.
@@ -728,6 +733,8 @@ int main(int, char**)
             SushiEngine::Editor::draw_environment_panel(context);
             SushiEngine::Editor::draw_rendering_panel(context);
             SushiEngine::Editor::draw_lighting_panel(context);
+            SushiEngine::Editor::draw_post_process_panel(context);
+            SushiEngine::Editor::draw_gpu_culling_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);

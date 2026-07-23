@@ -52,6 +52,7 @@
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
 #include "resources/transient_pool.hpp"
+#include "scene/post_process_uniforms.hpp"
 #include "scene/scene_uniforms.hpp"
 #include "scene/shadow_uniforms.hpp"
 #include "scene/temporal_uniforms.hpp"
@@ -120,6 +121,8 @@ namespace SushiEngine
                     void upload_temporal(std::uint32_t slot,
                                          const Scene::TemporalUniforms& uniforms);
                     void upload_shadow(std::uint32_t slot, const Scene::ShadowUniforms& uniforms);
+                    void upload_post(std::uint32_t slot,
+                                     const Scene::PostProcessUniforms& uniforms);
 
                     /** @brief Records the internal extent the id target was written at. */
                     void note_render_extent(std::uint32_t slot, std::uint32_t render_width,
@@ -192,6 +195,10 @@ namespace SushiEngine
                         VmaAllocation shadow_allocation = VK_NULL_HANDLE;
                         void* shadow_mapped = nullptr;
                         Graph::BufferState shadow_state{};
+                        VkBuffer post = VK_NULL_HANDLE;
+                        VmaAllocation post_allocation = VK_NULL_HANDLE;
+                        void* post_mapped = nullptr;
+                        Graph::BufferState post_state{};
                         VkCommandPool pool = VK_NULL_HANDLE;
                         VkCommandBuffer cmd = VK_NULL_HANDLE;
                         VkFence fence = VK_NULL_HANDLE;

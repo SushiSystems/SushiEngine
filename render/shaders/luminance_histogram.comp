@@ -1,0 +1,53 @@
+#version 450
+
+// Builds a log-luminance histogram of the resolved HDR scene for auto-exposure. Each
+// workgroup accumulates a private 256-bin histogram in shared memory, then flushes it to
+// the global buffer with one atomic per bin — the standard tiled histogram, so the global
+// atomics are 256 per group rather than one per pixel. The CPU reads the result back and
+// derives the adapted exposure; keeping the reduction on the host avoids a second binding
+// for the exposure value and reuses the picking readback path.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform sampler2D scene;
+layout(std430, set = 0, binding = 1) buffer Histogram
+{
+    uint bins[256];
+} histogram;
+
+layout(push_constant) uniform Push
+{
+    vec4 a; // x = width, y = height, z = min log2 luminance, w = 1 / log2 luminance range
+} pc;
+
+shared uint local_bins[256];
+
+uint luminance_bin(float luminance)
+{
+    // Near-black falls in bin 0 so it can be excluded from the average as shadow noise.
+    if (luminance < 1e-4)
+        return 0u;
+    float log_lum = clamp((log2(luminance) - pc.a.z) * pc.a.w, 0.0, 1.0);
+    return uint(log_lum * 254.0 + 1.0);
+}
+
+void main()
+{
+    uint local_index = gl_LocalInvocationIndex;
+    local_bins[local_index] = 0u;
+    barrier();
+
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    int width = int(pc.a.x);
+    int height = int(pc.a.y);
+    if (p.x < width && p.y < height)
+    {
+        vec2 uv = (vec2(p) + 0.5) / vec2(width, height);
+        vec3 color = texture(scene, uv).rgb;
+        float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        atomicAdd(local_bins[luminance_bin(luminance)], 1u);
+    }
+    barrier();
+
+    atomicAdd(histogram.bins[local_index], local_bins[local_index]);
+}

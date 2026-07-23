@@ -75,6 +75,23 @@ namespace SushiEngine
             };
 
             /**
+             * @brief The mesh-shader draw entry points, or null members.
+             *
+             * `VK_EXT_mesh_shader` is not a loader-exposed symbol, so the draw commands are
+             * resolved once here. Null when the device does not offer the extension, in which
+             * case the renderer takes the classic vertex-fetch path instead — meshlets are a
+             * tier addition, never a requirement.
+             */
+            struct MeshShaderFunctions
+            {
+                PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks = nullptr;
+                PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect = nullptr;
+
+                /** @brief Whether the mesh-task draw resolved. */
+                bool available() const noexcept { return draw_mesh_tasks != nullptr; }
+            };
+
+            /**
              * @brief A Vulkan 1.4 device with a VMA allocator and a graphics queue.
              *
              * Selects a physical device (by interop UUID when requested, else by
@@ -211,6 +228,35 @@ namespace SushiEngine
                     bool supports_ray_query() const noexcept { return supports_ray_query_; }
 
                     /**
+                     * @brief Whether the device can draw with task and mesh shaders.
+                     *
+                     * True when VK_EXT_mesh_shader and its task/mesh features were available
+                     * and the draw entry points resolved. Meshlet rendering is a tier feature
+                     * gated on this; when false the renderer draws the same geometry through
+                     * the classic vertex-fetch (or GPU-driven indirect) path, so no hardware
+                     * is left unable to render — the mesh-shader path is purely additive.
+                     */
+                    bool supports_mesh_shader() const noexcept { return supports_mesh_shader_; }
+
+                    /** @brief The mesh-shader draw entry points, or null members. */
+                    const MeshShaderFunctions& mesh_shader() const noexcept
+                    {
+                        return mesh_shader_;
+                    }
+
+                    /** @brief Most vertices one mesh-shader workgroup may output. */
+                    std::uint32_t max_mesh_output_vertices() const noexcept
+                    {
+                        return max_mesh_output_vertices_;
+                    }
+
+                    /** @brief Most primitives one mesh-shader workgroup may output. */
+                    std::uint32_t max_mesh_output_primitives() const noexcept
+                    {
+                        return max_mesh_output_primitives_;
+                    }
+
+                    /**
                      * @brief The acceleration-structure entry points, or null members.
                      *
                      * These are extension functions the loader does not expose as symbols,
@@ -245,6 +291,10 @@ namespace SushiEngine
                     bool supports_ray_query_ = false;
                     std::uint32_t scratch_alignment_ = 256;
                     RayTracingFunctions ray_tracing_{};
+                    bool supports_mesh_shader_ = false;
+                    std::uint32_t max_mesh_output_vertices_ = 0;
+                    std::uint32_t max_mesh_output_primitives_ = 0;
+                    MeshShaderFunctions mesh_shader_{};
                     DeviceInfo info_{};
             };
         } // namespace Vulkan

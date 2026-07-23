@@ -184,7 +184,8 @@ float sample_sun_shadow(sampler2DShadow atlas, sampler2D depth_atlas, vec3 posit
                   6.28318530718;
 
     int cascade = select_shadow_cascade(view_depth);
-    float slope = clamp(1.0 - abs(dot(normal, light_dir)), 0.0, 1.0);
+    float n_dot_l = dot(normal, light_dir);
+    float slope = clamp(1.0 - abs(n_dot_l), 0.0, 1.0);
     vec3 offset_position = position + normal * shadows.texel_size[cascade] * shadows.bias.y;
     float visibility =
         sample_shadow_cascade(atlas, depth_atlas, cascade, offset_position, slope, angle, stable);
@@ -207,5 +208,14 @@ float sample_sun_shadow(sampler2DShadow atlas, sampler2D depth_atlas, vec3 posit
         float fade = clamp((view_depth - far * 0.85) / max(far * 0.15, 1e-3), 0.0, 1.0);
         visibility = mix(visibility, 1.0, fade);
     }
+
+    // Terminator fade. As the surface turns edge-on to the sun (n_dot_l -> 0) the direct
+    // term this visibility multiplies vanishes anyway, but the stochastic PCSS is at its
+    // noisiest exactly here: the slope-scaled bias is largest and the per-pixel blocker
+    // search flips on and off across the grazing band, printing a dither the ground has no
+    // temporal resolve to average out. Fading visibility back to lit over that band erases
+    // the one place the speckle is visible without darkening anything that was actually lit.
+    float terminator = 1.0 - smoothstep(0.0, 0.12, max(n_dot_l, 0.0));
+    visibility = mix(visibility, 1.0, terminator);
     return visibility;
 }

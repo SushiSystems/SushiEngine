@@ -142,7 +142,56 @@ namespace SushiEngine
                           {"max_steps", s.ssr.max_steps},
                           {"thickness", s.ssr.thickness},
                           {"roughness_cutoff", s.ssr.roughness_cutoff},
-                          {"intensity", s.ssr.intensity}}}};
+                          {"intensity", s.ssr.intensity}}},
+                    {"post",
+                     json{{"exposure_mode", static_cast<std::uint32_t>(s.post.exposure_mode)},
+                          {"exposure_compensation", s.post.exposure_compensation},
+                          {"tonemap", static_cast<std::uint32_t>(s.post.tonemap)},
+                          {"auto_exposure",
+                           json{{"min_ev", s.post.auto_exposure.min_ev},
+                                {"max_ev", s.post.auto_exposure.max_ev},
+                                {"compensation", s.post.auto_exposure.compensation},
+                                {"speed_up", s.post.auto_exposure.speed_up},
+                                {"speed_down", s.post.auto_exposure.speed_down},
+                                {"key", s.post.auto_exposure.key},
+                                {"low_percent", s.post.auto_exposure.low_percent},
+                                {"high_percent", s.post.auto_exposure.high_percent}}},
+                          {"bloom",
+                           json{{"enabled", s.post.bloom.enabled},
+                                {"intensity", s.post.bloom.intensity},
+                                {"threshold", s.post.bloom.threshold},
+                                {"threshold_knee", s.post.bloom.threshold_knee}}},
+                          {"grade",
+                           json{{"temperature", s.post.grade.temperature},
+                                {"tint", s.post.grade.tint},
+                                {"contrast", s.post.grade.contrast},
+                                {"saturation", s.post.grade.saturation},
+                                {"lift", {s.post.grade.lift[0], s.post.grade.lift[1],
+                                          s.post.grade.lift[2]}},
+                                {"gamma", {s.post.grade.gamma[0], s.post.grade.gamma[1],
+                                           s.post.grade.gamma[2]}},
+                                {"gain", {s.post.grade.gain[0], s.post.grade.gain[1],
+                                          s.post.grade.gain[2]}}}},
+                          {"depth_of_field",
+                           json{{"enabled", s.post.depth_of_field.enabled},
+                                {"focus_distance", s.post.depth_of_field.focus_distance},
+                                {"focus_range", s.post.depth_of_field.focus_range},
+                                {"aperture", s.post.depth_of_field.aperture},
+                                {"max_radius", s.post.depth_of_field.max_radius}}},
+                          {"motion_blur",
+                           json{{"enabled", s.post.motion_blur.enabled},
+                                {"intensity", s.post.motion_blur.intensity},
+                                {"samples", s.post.motion_blur.samples}}},
+                          {"vignette", s.post.vignette},
+                          {"chromatic_aberration", s.post.chromatic_aberration},
+                          {"film_grain", s.post.film_grain}}},
+                    {"gpu_culling",
+                     json{{"enabled", s.gpu_culling.enabled},
+                          {"occlusion", s.gpu_culling.occlusion},
+                          {"frustum", s.gpu_culling.frustum},
+                          {"min_screen_diameter", s.gpu_culling.min_screen_diameter},
+                          {"freeze", s.gpu_culling.freeze},
+                          {"show_statistics", s.gpu_culling.show_statistics}}}};
             }
 
             SushiEngine::Render::RenderSettings render_settings_from_json(const nlohmann::json& json)
@@ -244,7 +293,271 @@ namespace SushiEngine
                     s.ssr.roughness_cutoff = j.value("roughness_cutoff", s.ssr.roughness_cutoff);
                     s.ssr.intensity = j.value("intensity", s.ssr.intensity);
                 }
+                if (json.contains("post") && json["post"].is_object())
+                {
+                    const nlohmann::json& j = json["post"];
+                    s.post.exposure_mode = static_cast<SushiEngine::Render::ExposureMode>(
+                        j.value("exposure_mode", static_cast<std::uint32_t>(s.post.exposure_mode)));
+                    s.post.exposure_compensation =
+                        j.value("exposure_compensation", s.post.exposure_compensation);
+                    s.post.tonemap = static_cast<SushiEngine::Render::TonemapOperator>(
+                        j.value("tonemap", static_cast<std::uint32_t>(s.post.tonemap)));
+                    if (j.contains("auto_exposure") && j["auto_exposure"].is_object())
+                    {
+                        const nlohmann::json& a = j["auto_exposure"];
+                        s.post.auto_exposure.min_ev = a.value("min_ev", s.post.auto_exposure.min_ev);
+                        s.post.auto_exposure.max_ev = a.value("max_ev", s.post.auto_exposure.max_ev);
+                        s.post.auto_exposure.compensation =
+                            a.value("compensation", s.post.auto_exposure.compensation);
+                        s.post.auto_exposure.speed_up =
+                            a.value("speed_up", s.post.auto_exposure.speed_up);
+                        s.post.auto_exposure.speed_down =
+                            a.value("speed_down", s.post.auto_exposure.speed_down);
+                        s.post.auto_exposure.key = a.value("key", s.post.auto_exposure.key);
+                        s.post.auto_exposure.low_percent =
+                            a.value("low_percent", s.post.auto_exposure.low_percent);
+                        s.post.auto_exposure.high_percent =
+                            a.value("high_percent", s.post.auto_exposure.high_percent);
+                    }
+                    if (j.contains("bloom") && j["bloom"].is_object())
+                    {
+                        const nlohmann::json& b = j["bloom"];
+                        s.post.bloom.enabled = b.value("enabled", s.post.bloom.enabled);
+                        s.post.bloom.intensity = b.value("intensity", s.post.bloom.intensity);
+                        s.post.bloom.threshold = b.value("threshold", s.post.bloom.threshold);
+                        s.post.bloom.threshold_knee =
+                            b.value("threshold_knee", s.post.bloom.threshold_knee);
+                    }
+                    if (j.contains("grade") && j["grade"].is_object())
+                    {
+                        const nlohmann::json& g = j["grade"];
+                        s.post.grade.temperature = g.value("temperature", s.post.grade.temperature);
+                        s.post.grade.tint = g.value("tint", s.post.grade.tint);
+                        s.post.grade.contrast = g.value("contrast", s.post.grade.contrast);
+                        s.post.grade.saturation = g.value("saturation", s.post.grade.saturation);
+                        if (g.contains("lift") && g["lift"].is_array() && g["lift"].size() == 3)
+                            for (int k = 0; k < 3; ++k)
+                                s.post.grade.lift[k] = g["lift"][k].get<float>();
+                        if (g.contains("gamma") && g["gamma"].is_array() && g["gamma"].size() == 3)
+                            for (int k = 0; k < 3; ++k)
+                                s.post.grade.gamma[k] = g["gamma"][k].get<float>();
+                        if (g.contains("gain") && g["gain"].is_array() && g["gain"].size() == 3)
+                            for (int k = 0; k < 3; ++k)
+                                s.post.grade.gain[k] = g["gain"][k].get<float>();
+                    }
+                    if (j.contains("depth_of_field") && j["depth_of_field"].is_object())
+                    {
+                        const nlohmann::json& d = j["depth_of_field"];
+                        s.post.depth_of_field.enabled =
+                            d.value("enabled", s.post.depth_of_field.enabled);
+                        s.post.depth_of_field.focus_distance =
+                            d.value("focus_distance", s.post.depth_of_field.focus_distance);
+                        s.post.depth_of_field.focus_range =
+                            d.value("focus_range", s.post.depth_of_field.focus_range);
+                        s.post.depth_of_field.aperture =
+                            d.value("aperture", s.post.depth_of_field.aperture);
+                        s.post.depth_of_field.max_radius =
+                            d.value("max_radius", s.post.depth_of_field.max_radius);
+                    }
+                    if (j.contains("motion_blur") && j["motion_blur"].is_object())
+                    {
+                        const nlohmann::json& m = j["motion_blur"];
+                        s.post.motion_blur.enabled = m.value("enabled", s.post.motion_blur.enabled);
+                        s.post.motion_blur.intensity =
+                            m.value("intensity", s.post.motion_blur.intensity);
+                        s.post.motion_blur.samples = m.value("samples", s.post.motion_blur.samples);
+                    }
+                    s.post.vignette = j.value("vignette", s.post.vignette);
+                    s.post.chromatic_aberration =
+                        j.value("chromatic_aberration", s.post.chromatic_aberration);
+                    s.post.film_grain = j.value("film_grain", s.post.film_grain);
+                }
+                if (json.contains("gpu_culling") && json["gpu_culling"].is_object())
+                {
+                    const nlohmann::json& j = json["gpu_culling"];
+                    s.gpu_culling.enabled = j.value("enabled", s.gpu_culling.enabled);
+                    s.gpu_culling.occlusion = j.value("occlusion", s.gpu_culling.occlusion);
+                    s.gpu_culling.frustum = j.value("frustum", s.gpu_culling.frustum);
+                    s.gpu_culling.min_screen_diameter =
+                        j.value("min_screen_diameter", s.gpu_culling.min_screen_diameter);
+                    s.gpu_culling.freeze = j.value("freeze", s.gpu_culling.freeze);
+                    s.gpu_culling.show_statistics =
+                        j.value("show_statistics", s.gpu_culling.show_statistics);
+                }
                 return s;
+            }
+
+            nlohmann::json vec3_to_json(const SushiEngine::Vector3& v)
+            {
+                return nlohmann::json{{"x", v.x}, {"y", v.y}, {"z", v.z}};
+            }
+
+            SushiEngine::Vector3 vec3_from_json(const nlohmann::json& j)
+            {
+                SushiEngine::Vector3 v;
+                v.x = j.value("x", SushiEngine::Scalar(0));
+                v.y = j.value("y", SushiEngine::Scalar(0));
+                v.z = j.value("z", SushiEngine::Scalar(0));
+                return v;
+            }
+
+            // The Environment fields the Environment/Lighting panels edit. This is a host
+            // (editor) setting, not scene data (see Preferences::environment), so it is
+            // serialized independently of the scene file's own environment block.
+            // `bodies`/`sky_stars`/`dominant_*` are excluded: the ephemeris repopulates
+            // those every frame from SceneSkyState and are not author state.
+            nlohmann::json environment_to_json(const SushiEngine::Render::Environment& e)
+            {
+                using nlohmann::json;
+                json decks = json::array();
+                for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
+                {
+                    const SushiEngine::Render::CloudDeck& d = e.clouds.decks[i];
+                    decks.push_back(json{{"enabled", d.enabled},
+                                          {"genus", static_cast<std::uint32_t>(d.genus)},
+                                          {"coverage_bias", d.coverage_bias},
+                                          {"density_scale", d.density_scale}});
+                }
+
+                return json{
+                    {"sun",
+                     json{{"direction", vec3_to_json(e.sun.direction)},
+                          {"color", vec3_to_json(e.sun.color)},
+                          {"intensity", e.sun.intensity}}},
+                    {"planet_surface_style", static_cast<std::uint32_t>(e.planet_surface_style)},
+                    {"atmosphere",
+                     json{{"enabled", e.atmosphere.enabled},
+                          {"height", e.atmosphere.height},
+                          {"rayleigh_coefficient", vec3_to_json(e.atmosphere.rayleigh_coefficient)},
+                          {"mie_coefficient", e.atmosphere.mie_coefficient},
+                          {"mie_anisotropy", e.atmosphere.mie_anisotropy},
+                          {"rayleigh_scale_height", e.atmosphere.rayleigh_scale_height},
+                          {"mie_scale_height", e.atmosphere.mie_scale_height}}},
+                    {"surface",
+                     json{{"ground_albedo", vec3_to_json(e.surface.ground_albedo)},
+                          {"ocean_color", vec3_to_json(e.surface.ocean_color)},
+                          {"roughness", e.surface.roughness}}},
+                    {"clouds",
+                     json{{"enabled", e.clouds.enabled},
+                          {"light_absorption", e.clouds.light_absorption},
+                          {"forward_scattering", e.clouds.forward_scattering},
+                          {"powder_strength", e.clouds.powder_strength},
+                          {"ambient_strength", e.clouds.ambient_strength},
+                          {"ground_shadow_strength", e.clouds.ground_shadow_strength},
+                          {"weather_scale", e.clouds.weather_scale},
+                          {"evolution_rate", e.clouds.evolution_rate},
+                          {"decks", decks}}},
+                    {"stars",
+                     json{{"enabled", e.stars.enabled},
+                          {"brightness", e.stars.brightness},
+                          {"density", e.stars.density}}},
+                    {"night",
+                     json{{"enabled", e.night.enabled},
+                          {"moon_intensity", e.night.moon_intensity},
+                          {"star_intensity", e.night.star_intensity}}},
+                    {"ambient", vec3_to_json(e.ambient)},
+                    {"exposure", e.exposure},
+                    {"image_based_lighting", e.image_based_lighting},
+                    {"ibl_intensity", e.ibl_intensity}};
+            }
+
+            // Applies the persisted fields onto a default-constructed Environment, leaving
+            // every field the JSON omits (including the ephemeris-owned fields never
+            // written above) at its default.
+            SushiEngine::Render::Environment environment_from_json(const nlohmann::json& j)
+            {
+                SushiEngine::Render::Environment e;
+                if (!j.is_object())
+                    return e;
+
+                if (j.contains("sun") && j["sun"].is_object())
+                {
+                    const nlohmann::json& s = j["sun"];
+                    if (s.contains("direction"))
+                        e.sun.direction = vec3_from_json(s["direction"]);
+                    if (s.contains("color"))
+                        e.sun.color = vec3_from_json(s["color"]);
+                    e.sun.intensity = s.value("intensity", e.sun.intensity);
+                }
+                e.planet_surface_style = static_cast<SushiEngine::Render::SurfaceStyle>(
+                    j.value("planet_surface_style",
+                            static_cast<std::uint32_t>(e.planet_surface_style)));
+                if (j.contains("atmosphere") && j["atmosphere"].is_object())
+                {
+                    const nlohmann::json& a = j["atmosphere"];
+                    e.atmosphere.enabled = a.value("enabled", e.atmosphere.enabled);
+                    e.atmosphere.height = a.value("height", e.atmosphere.height);
+                    if (a.contains("rayleigh_coefficient"))
+                        e.atmosphere.rayleigh_coefficient = vec3_from_json(a["rayleigh_coefficient"]);
+                    e.atmosphere.mie_coefficient =
+                        a.value("mie_coefficient", e.atmosphere.mie_coefficient);
+                    e.atmosphere.mie_anisotropy =
+                        a.value("mie_anisotropy", e.atmosphere.mie_anisotropy);
+                    e.atmosphere.rayleigh_scale_height =
+                        a.value("rayleigh_scale_height", e.atmosphere.rayleigh_scale_height);
+                    e.atmosphere.mie_scale_height =
+                        a.value("mie_scale_height", e.atmosphere.mie_scale_height);
+                }
+                if (j.contains("surface") && j["surface"].is_object())
+                {
+                    const nlohmann::json& s = j["surface"];
+                    if (s.contains("ground_albedo"))
+                        e.surface.ground_albedo = vec3_from_json(s["ground_albedo"]);
+                    if (s.contains("ocean_color"))
+                        e.surface.ocean_color = vec3_from_json(s["ocean_color"]);
+                    e.surface.roughness = s.value("roughness", e.surface.roughness);
+                }
+                if (j.contains("clouds") && j["clouds"].is_object())
+                {
+                    const nlohmann::json& c = j["clouds"];
+                    e.clouds.enabled = c.value("enabled", e.clouds.enabled);
+                    e.clouds.light_absorption = c.value("light_absorption", e.clouds.light_absorption);
+                    e.clouds.forward_scattering =
+                        c.value("forward_scattering", e.clouds.forward_scattering);
+                    e.clouds.powder_strength = c.value("powder_strength", e.clouds.powder_strength);
+                    e.clouds.ambient_strength = c.value("ambient_strength", e.clouds.ambient_strength);
+                    e.clouds.ground_shadow_strength =
+                        c.value("ground_shadow_strength", e.clouds.ground_shadow_strength);
+                    e.clouds.weather_scale = c.value("weather_scale", e.clouds.weather_scale);
+                    e.clouds.evolution_rate = c.value("evolution_rate", e.clouds.evolution_rate);
+                    if (c.contains("decks") && c["decks"].is_array())
+                    {
+                        const nlohmann::json& decks = c["decks"];
+                        for (int i = 0;
+                             i < SushiEngine::Render::CLOUD_MAX_DECKS &&
+                             static_cast<std::size_t>(i) < decks.size();
+                             ++i)
+                        {
+                            const nlohmann::json& d = decks[static_cast<std::size_t>(i)];
+                            SushiEngine::Render::CloudDeck& deck = e.clouds.decks[i];
+                            deck.enabled = d.value("enabled", deck.enabled);
+                            deck.genus = static_cast<SushiEngine::Render::CloudGenus>(
+                                d.value("genus", static_cast<std::uint32_t>(deck.genus)));
+                            deck.coverage_bias = d.value("coverage_bias", deck.coverage_bias);
+                            deck.density_scale = d.value("density_scale", deck.density_scale);
+                        }
+                    }
+                }
+                if (j.contains("stars") && j["stars"].is_object())
+                {
+                    const nlohmann::json& s = j["stars"];
+                    e.stars.enabled = s.value("enabled", e.stars.enabled);
+                    e.stars.brightness = s.value("brightness", e.stars.brightness);
+                    e.stars.density = s.value("density", e.stars.density);
+                }
+                if (j.contains("night") && j["night"].is_object())
+                {
+                    const nlohmann::json& n = j["night"];
+                    e.night.enabled = n.value("enabled", e.night.enabled);
+                    e.night.moon_intensity = n.value("moon_intensity", e.night.moon_intensity);
+                    e.night.star_intensity = n.value("star_intensity", e.night.star_intensity);
+                }
+                if (j.contains("ambient"))
+                    e.ambient = vec3_from_json(j["ambient"]);
+                e.exposure = j.value("exposure", e.exposure);
+                e.image_based_lighting = j.value("image_based_lighting", e.image_based_lighting);
+                e.ibl_intensity = j.value("ibl_intensity", e.ibl_intensity);
+                return e;
             }
 
             /**
@@ -301,6 +614,8 @@ namespace SushiEngine
                         if (json.contains("render_settings"))
                             preferences.render_settings =
                                 render_settings_from_json(json["render_settings"]);
+                        if (json.contains("environment"))
+                            preferences.environment = environment_from_json(json["environment"]);
                         return preferences;
                     }
 
@@ -321,6 +636,7 @@ namespace SushiEngine
                         json["recent_scenes"] = preferences.recent_scenes;
                         json["last_project_root"] = preferences.last_project_root;
                         json["render_settings"] = render_settings_to_json(preferences.render_settings);
+                        json["environment"] = environment_to_json(preferences.environment);
 
                         std::ofstream output(path_, std::ios::trunc);
                         if (!output.is_open())

@@ -86,10 +86,10 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.frag"
     triangle_frag_spv TRIANGLE_FRAG_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.vert"
     mesh_vert_spv MESH_VERT_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_gpu.vert"
+    mesh_gpu_vert_spv MESH_GPU_VERT_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/pbr.frag"
     pbr_frag_spv PBR_FRAG_HEADER)
-sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/line.frag"
-    line_frag_spv LINE_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.frag"
     outline_frag_spv OUTLINE_FRAG_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.vert"
@@ -158,6 +158,26 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_populate.comp
     sdf_populate_comp_spv SDF_POPULATE_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_probe_relight.comp"
     sdf_probe_relight_comp_spv SDF_PROBE_RELIGHT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bloom_down.comp"
+    bloom_down_comp_spv BLOOM_DOWN_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bloom_up.comp"
+    bloom_up_comp_spv BLOOM_UP_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/luminance_histogram.comp"
+    luminance_histogram_comp_spv LUMINANCE_HISTOGRAM_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/dof.frag"
+    dof_frag_spv DOF_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/motion_blur.frag"
+    motion_blur_frag_spv MOTION_BLUR_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cull.comp"
+    cull_comp_spv CULL_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/occlusion.comp"
+    occlusion_comp_spv OCCLUSION_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloth.comp"
+    cloth_comp_spv CLOTH_HEADER)
+sushi_compile_shader(task "${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet.task"
+    meshlet_task_spv MESHLET_TASK_HEADER)
+sushi_compile_shader(mesh "${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet.mesh"
+    meshlet_mesh_spv MESHLET_MESH_HEADER)
 
 # --- Renderer library --------------------------------------------------------
 add_library(sushi_render STATIC
@@ -173,8 +193,10 @@ add_library(sushi_render STATIC
     resources/shader_library.cpp
     scene/scene_layout.cpp
     scene/scene_uniforms.cpp
+    scene/post_process_uniforms.cpp
     scene/temporal_uniforms.cpp
     scene/motion_system.cpp
+    scene/instance_system.cpp
     scene/shadow_uniforms.cpp
     lighting/light_system.cpp
     raytracing/scene_accelerator.cpp
@@ -182,6 +204,7 @@ add_library(sushi_render STATIC
     frame/resolution_controller.cpp
     frame/quality.cpp
     geometry/mesh_registry.cpp
+    geometry/meshlet.cpp
     geometry/cloth_buffers.cpp
     material/asset_library.cpp
     material/texture_library.cpp
@@ -201,6 +224,9 @@ add_library(sushi_render STATIC
     passes/opaque_pass.cpp
     passes/gtao_pass.cpp
     passes/hiz_pass.cpp
+    passes/occlusion_pass.cpp
+    passes/cull_pass.cpp
+    passes/cloth_pass.cpp
     passes/ssr_pass.cpp
     passes/light_cull_pass.cpp
     passes/light_shadow_pass.cpp
@@ -214,6 +240,10 @@ add_library(sushi_render STATIC
     passes/ray_traced_shadow_pass.cpp
     passes/cloud_composite_pass.cpp
     passes/taa_pass.cpp
+    passes/dof_pass.cpp
+    passes/motion_blur_pass.cpp
+    passes/auto_exposure_pass.cpp
+    passes/bloom_pass.cpp
     passes/fxaa_pass.cpp
     passes/shading_rate_pass.cpp
     passes/tonemap_pass.cpp
@@ -228,8 +258,8 @@ add_library(sushi_render STATIC
     "${TRIANGLE_VERT_HEADER}"
     "${TRIANGLE_FRAG_HEADER}"
     "${MESH_VERT_HEADER}"
+    "${MESH_GPU_VERT_HEADER}"
     "${PBR_FRAG_HEADER}"
-    "${LINE_FRAG_HEADER}"
     "${OUTLINE_FRAG_HEADER}"
     "${OUTLINE_VERT_HEADER}"
     "${FULLSCREEN_VERT_HEADER}"
@@ -263,7 +293,17 @@ add_library(sushi_render STATIC
     "${FOG_SCATTER_HEADER}"
     "${GI_PROBE_RELIGHT_HEADER}"
     "${SDF_POPULATE_HEADER}"
-    "${SDF_PROBE_RELIGHT_HEADER}")
+    "${SDF_PROBE_RELIGHT_HEADER}"
+    "${BLOOM_DOWN_HEADER}"
+    "${BLOOM_UP_HEADER}"
+    "${LUMINANCE_HISTOGRAM_HEADER}"
+    "${DOF_HEADER}"
+    "${MOTION_BLUR_HEADER}"
+    "${CULL_HEADER}"
+    "${OCCLUSION_HEADER}"
+    "${CLOTH_HEADER}"
+    "${MESHLET_TASK_HEADER}"
+    "${MESHLET_MESH_HEADER}")
 target_include_directories(sushi_render
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${SHADER_GEN_DIR}")

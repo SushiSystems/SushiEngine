@@ -145,6 +145,17 @@ namespace SushiEngine
             };
 
             /**
+             * @brief The editor-only reference grid overlay for this frame.
+             *
+             * Off for a shipped runtime (the host never enables it), so the grid pass and
+             * its target only come into existence when an editor viewport asks for them.
+             */
+            struct GridOverlay
+            {
+                bool enabled = false;
+            };
+
+            /**
              * @brief The graph resources shared between this frame's passes.
              *
              * Every handle is created fresh each frame by the scene view; a pass stores
@@ -172,17 +183,35 @@ namespace SushiEngine
                 Graph::TextureHandle scene_final; /**< The scene the resolve reads: reflected if SSR ran, else scene. */
                 Graph::TextureHandle history;   /**< Previous frame's resolved HDR, output size. */
                 Graph::TextureHandle resolved;  /**< This frame's resolved HDR, output size. */
+                Graph::TextureHandle bloom;     /**< Half-resolution bloom pyramid result, or invalid when off. */
+                Graph::TextureHandle dof;       /**< Depth-of-field output, or invalid when DoF is off. */
+                Graph::TextureHandle motion_blur; /**< Motion-blur output, or invalid when off. */
+                Graph::TextureHandle grid;        /**< Editor grid composite output, or invalid when off. */
+                Graph::TextureHandle grid_source; /**< The post colour the editor grid composites over. */
+                Graph::TextureHandle post_color; /**< The HDR colour the display transform reads: the last post effect that ran, else the resolve. */
                 Graph::TextureHandle shading_rate; /**< Per-tile shading rate, or invalid. */
                 Graph::TextureHandle display;   /**< What the display transform writes into. */
                 Graph::TextureHandle resolve;   /**< LDR image the editor samples. */
                 Graph::BufferHandle uniforms;   /**< The per-frame scene block. */
                 Graph::BufferHandle temporal;   /**< The per-frame temporal block. */
                 Graph::BufferHandle shadow;     /**< The per-frame shadow cascade block. */
+                Graph::BufferHandle post;       /**< The per-frame post-processing block. */
                 Graph::BufferHandle cluster_grid; /**< Per-cluster punctual-light counts. */
                 Graph::BufferHandle light_index;  /**< Per-cluster punctual-light index list. */
                 Graph::BufferHandle decal_grid;   /**< Per-cluster decal counts. */
                 Graph::BufferHandle decal_index;  /**< Per-cluster decal index list. */
                 Graph::BufferHandle readback;   /**< Host-visible copy of the id target. */
+                /**
+                 * @brief GPU-driven geometry buffers, valid only when @c QualityParams::gpu_driven.
+                 *
+                 * @c draw_commands holds one `VkDrawIndexedIndirectCommand` per bucket whose
+                 * instance count the cull pass wrote; @c compacted is the per-bucket survivor
+                 * list the GPU vertex shader indexes. Invalid when the GPU-driven path is off,
+                 * and no pass touches them then. (The cull statistics the editor reads live in
+                 * the cull pass's own per-slot readback, not here.)
+                 */
+                Graph::BufferHandle draw_commands;
+                Graph::BufferHandle compacted;
             };
 
             /**
@@ -220,6 +249,7 @@ namespace SushiEngine
                 float jitter[2] = {0.0f, 0.0f};  /**< This frame's sub-pixel jitter, NDC. */
                 bool history_valid = false;      /**< Whether a previous resolved frame exists. */
                 SceneDrawList draws;
+                GridOverlay grid;
                 FrameTargets targets;
                 Resources::DescriptorAllocator* descriptors = nullptr;
                 Resources::SamplerCache* samplers = nullptr;
@@ -231,10 +261,57 @@ namespace SushiEngine
                 /** @brief Side of one cascade tile in the shadow atlas, in texels. */
                 std::uint32_t shadow_resolution = 0;
 
+                /**
+                 * @brief GPU-driven geometry counts, filled after the instance system builds.
+                 *
+                 * The number of distinct meshes (buckets) and the total instances the frame
+                 * packed. The target declaration sizes the indirect-command and compacted
+                 * buffers from these, and the cull pass dispatches over them; both are zero
+                 * when the GPU-driven path is off (@c QualityParams::gpu_driven false).
+                 */
+                std::uint32_t gpu_bucket_count = 0;
+                std::uint32_t gpu_instance_count = 0;
+
+                /**
+                 * @brief The previous frame's camera-relative view-projection, for occlusion.
+                 *
+                 * The cull pass reprojects a bounding sphere onto last frame's occlusion
+                 * pyramid with this — the same matrix the motion vector uses — after rebasing
+                 * the sphere onto last frame's eye with @ref eye_delta.
+                 */
+                float previous_view_projection[16] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+                                                      0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+                                                      0.0f, 0.0f, 0.0f, 1.0f};
+
+                /** @brief This frame's eye minus the previous frame's, for occlusion rebasing. */
+                float eye_delta[3] = {0.0f, 0.0f, 0.0f};
+
+                /** @brief The near plane the occlusion pyramid's distances were linearised with. */
+                float occlusion_near = 0.1f;
+
                 /** @brief Whether the frame ends with a temporal resolve. */
                 bool temporal_enabled() const noexcept
                 {
                     return settings.anti_aliasing == AntiAliasingMode::Temporal;
+                }
+
+                /**
+                 * @brief Width the post-resolve chain works at.
+                 *
+                 * The temporal resolve accumulates into the output grid, so the passes after it
+                 * (depth of field, motion blur, bloom, tone map) run at the output extent; with
+                 * no resolve the composited scene is still at the internal render extent and the
+                 * display transform upscales it. Everything past the resolve sizes to this.
+                 */
+                std::uint32_t post_width() const noexcept
+                {
+                    return temporal_enabled() ? output_width : width;
+                }
+
+                /** @brief Height the post-resolve chain works at; see @ref post_width. */
+                std::uint32_t post_height() const noexcept
+                {
+                    return temporal_enabled() ? output_height : height;
                 }
             };
         } // namespace Frame

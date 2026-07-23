@@ -178,18 +178,12 @@ float bent_reflection_visibility(vec3 R, vec3 bent_n, float visibility, float ro
     return clamp((aperture + lobe - between) / (2.0 * lobe), 0.0, 1.0);
 }
 
-layout(push_constant) uniform Push
-{
-    mat4 model;
-    vec4 albedo_metallic;
-    vec4 emissive_roughness;
-    vec4 outline_shift;
-    uint entity_id;
-    uint selected;
-    uint material_index;
-    uint motion_index;
-} pc;
-
+// The two per-instance values this shader still needs — which material to read and which
+// picking id to write — arrive as flat vertex outputs rather than push constants, so this
+// one fragment shader serves both draw paths: the classic path's vertex shader copies them
+// from its push constant, and the GPU-driven path's reads them out of the instance record.
+// Nothing else the draw once pushed reaches the fragment stage (the flat colours were only
+// ever for the grid and outline, which shade with their own shaders).
 layout(location = 0) in vec3 v_world_position;
 layout(location = 1) in vec3 v_world_normal;
 layout(location = 2) in vec4 v_world_tangent;
@@ -198,6 +192,8 @@ layout(location = 4) in vec2 v_uv1;
 layout(location = 5) in vec4 v_color;
 layout(location = 6) in vec4 v_current_clip;
 layout(location = 7) in vec4 v_previous_clip;
+layout(location = 8) flat in uint v_material_index;
+layout(location = 9) flat in uint v_entity_id;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out uint out_id;
@@ -307,7 +303,7 @@ vec3 decode_normal(uint map, vec2 uv, float scale)
 
 void main()
 {
-    GpuMaterial material = material_block.materials[pc.material_index];
+    GpuMaterial material = material_block.materials[v_material_index];
     uint flags = material.maps_c.y;
 
     // Meshes shade in camera-relative space: v_world_position is the fragment's offset
@@ -590,7 +586,7 @@ void main()
     }
 
     out_color = vec4(direct + indirect + emissive, base.a);
-    out_id = pc.entity_id;
+    out_id = v_entity_id;
     // The reflection G-buffer: the SSR trace reads roughness to decide whether this surface
     // reflects and F0 to weight it. F0 is scalar here (its luminance) — a metal's tinted
     // reflection is a later refinement — and metals reflect regardless of the low base roughness.

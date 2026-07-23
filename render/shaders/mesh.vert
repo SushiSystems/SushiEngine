@@ -1,7 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Shared vertex shader for the scene view's lit meshes and flat grid lines. The
+// Shared vertex shader for the scene view's lit meshes. The
 // per-frame camera comes from the scene uniform block; the per-draw model matrix and
 // material index come from the push constant. Everything the fragment stage needs to
 // build a tangent frame and sample a material travels with it: camera-relative
@@ -69,6 +69,11 @@ layout(location = 4) out vec2 v_uv1;
 layout(location = 5) out vec4 v_color;
 layout(location = 6) out vec4 v_current_clip;
 layout(location = 7) out vec4 v_previous_clip;
+// The material index and picking id the fragment shader reads as flat inputs; the shared
+// pbr.frag takes them here rather than from the push constant so the GPU-driven vertex
+// shader can feed the same fragment shader from its instance record instead.
+layout(location = 8) flat out uint v_material_index;
+layout(location = 9) flat out uint v_entity_id;
 
 void main()
 {
@@ -89,5 +94,7 @@ void main()
     v_current_clip = clip;
     v_previous_clip = temporal.previous_view_projection *
                       motion.previous_model[pc.motion_index] * vec4(in_position, 1.0);
+    v_material_index = pc.material_index;
+    v_entity_id = pc.entity_id;
     gl_Position = clip;
 }

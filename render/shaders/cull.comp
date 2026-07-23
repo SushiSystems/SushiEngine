@@ -1,0 +1,236 @@
+#version 450
+
+// GPU instance culling for the GPU-driven geometry path (Phase 10). One thread per
+// candidate instance tests it against the view frustum, its own screen coverage (the LOD
+// gate — an instance too small to matter is simply not drawn), and last frame's occlusion
+// depth pyramid, then compacts the survivors per bucket and writes each bucket's indirect
+// draw. No readback: the CPU never learns how many survived, it just submits one indirect
+// draw per bucket whose instance count this shader decided.
+//
+// Two dispatches share this shader. Mode 0 (one thread per bucket) seeds each indirect
+// command from the bucket metadata and zeroes the counters; mode 1 (one thread per
+// instance) does the culling and the atomic compaction. A buffer barrier between them
+// makes the seeded counters visible to the atomics.
+
+layout(local_size_x = 64) in;
+
+// The scene block's leading two matrices, read camera-relative exactly as the vertex
+// shader clips with them, so an instance the frustum keeps is one the raster would keep.
+layout(set = 0, binding = 0) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+} scene;
+
+layout(set = 0, binding = 1) uniform CullParams
+{
+    mat4 prev_view_proj; // camera-relative, last frame — reprojects onto the occlusion pyramid
+    vec4 delta_eye;      // xyz = current eye - previous eye, to rebase onto last frame's origin
+    vec4 hiz;            // x = mip count, y = width, z = height, w = near plane (last frame)
+    vec4 flags;          // x = frustum on, y = occlusion on, z = min screen diameter (px)
+} params;
+
+struct GpuInstance
+{
+    mat4 model;
+    vec4 bounding_sphere; // xyz = camera-relative centre, w = radius
+    uint material_index;
+    uint motion_index;
+    uint entity_id;
+    uint bucket_index;
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer InstanceBlock
+{
+    GpuInstance instances[];
+} instance_block;
+
+struct BucketMeta
+{
+    uint index_count;
+    uint candidate_base;
+    uint reserved0;
+    uint reserved1;
+};
+
+layout(std430, set = 0, binding = 3) readonly buffer BucketBlock
+{
+    BucketMeta meta[];
+} bucket_block;
+
+struct DrawCommand
+{
+    uint index_count;
+    uint instance_count;
+    uint first_index;
+    int vertex_offset;
+    uint first_instance;
+};
+
+layout(std430, set = 0, binding = 4) buffer DrawBlock
+{
+    DrawCommand commands[];
+} draw_block;
+
+layout(std430, set = 0, binding = 5) writeonly buffer CompactedBlock
+{
+    uint indices[];
+} compacted;
+
+layout(std430, set = 0, binding = 6) buffer StatsBlock
+{
+    uint data[]; // [0] = drawn, [1] = tested
+} stats;
+
+layout(set = 0, binding = 7) uniform sampler2D occlusion_pyramid;
+
+layout(push_constant) uniform Push
+{
+    uint mode;            // 0 = seed commands, 1 = cull
+    uint bucket_count;
+    uint candidate_count;
+    uint pad;
+} pc;
+
+// One frustum plane from the combined matrix, normalised so the sphere test can compare a
+// signed distance against the radius directly.
+vec4 plane_from(mat4 m, int row, float sign)
+{
+    vec4 r3 = vec4(m[0][3], m[1][3], m[2][3], m[3][3]);
+    vec4 rk = vec4(m[0][row], m[1][row], m[2][row], m[3][row]);
+    vec4 plane = r3 + sign * rk;
+    float plane_len = max(length(plane.xyz), 1e-8);
+    return plane / plane_len;
+}
+
+// Linear view distance, matched to occlusion.comp: near / reverse-Z depth, so a nearer
+// surface reads a smaller distance and the two comparisons live in the same space.
+float linear_distance(float ndc_z, float near_plane)
+{
+    return ndc_z > 1e-6 ? near_plane / ndc_z : 1e30;
+}
+
+bool frustum_rejects(mat4 vp, vec3 centre, float radius)
+{
+    // left, right, bottom, top, near, far — the near/far pair for Vulkan's 0..1 clip.
+    if (dot(plane_from(vp, 0, 1.0).xyz, centre) + plane_from(vp, 0, 1.0).w < -radius) return true;
+    if (dot(plane_from(vp, 0, -1.0).xyz, centre) + plane_from(vp, 0, -1.0).w < -radius) return true;
+    if (dot(plane_from(vp, 1, 1.0).xyz, centre) + plane_from(vp, 1, 1.0).w < -radius) return true;
+    if (dot(plane_from(vp, 1, -1.0).xyz, centre) + plane_from(vp, 1, -1.0).w < -radius) return true;
+    // Near plane: clip z >= 0, i.e. row 2 alone; far: clip z <= w, i.e. row3 - row2.
+    vec4 r2 = vec4(vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
+    vec4 r3 = vec4(vp[0][3], vp[1][3], vp[2][3], vp[3][3]);
+    vec4 near_plane = r2;
+    float near_len = max(length(near_plane.xyz), 1e-8);
+    near_plane /= near_len;
+    if (dot(near_plane.xyz, centre) + near_plane.w < -radius) return true;
+    vec4 far_plane = r3 - r2;
+    float far_len = max(length(far_plane.xyz), 1e-8);
+    far_plane /= far_len;
+    if (dot(far_plane.xyz, centre) + far_plane.w < -radius) return true;
+    return false;
+}
+
+// Tests the sphere against last frame's max-depth pyramid: occluded when the object's
+// nearest point is farther than the farthest occluder covering its screen footprint. The
+// 8 AABB corners give a conservative screen rectangle and nearest depth; a footprint that
+// touches the sky (distance 1e30) can never be occluded, which is exactly right.
+bool occlusion_rejects(vec3 centre, float radius)
+{
+    float mip_count = params.hiz.x;
+    if (mip_count < 1.0)
+        return false;
+
+    vec3 rebased = centre + params.delta_eye.xyz;
+    vec2 uv_min = vec2(1e30);
+    vec2 uv_max = vec2(-1e30);
+    float nearest = 1e30;
+    for (int i = 0; i < 8; ++i)
+    {
+        vec3 corner = rebased + radius * vec3((i & 1) != 0 ? 1.0 : -1.0,
+                                              (i & 2) != 0 ? 1.0 : -1.0,
+                                              (i & 4) != 0 ? 1.0 : -1.0);
+        vec4 clip = params.prev_view_proj * vec4(corner, 1.0);
+        if (clip.w <= 1e-6)
+            return false; // straddles the near plane; treat as visible
+        vec3 ndc = clip.xyz / clip.w;
+        vec2 uv = ndc.xy * 0.5 + 0.5;
+        uv_min = min(uv_min, uv);
+        uv_max = max(uv_max, uv);
+        nearest = min(nearest, linear_distance(ndc.z, params.hiz.w));
+    }
+
+    // Off-screen against last frame's view is handled by the frustum test this frame; here
+    // just clamp the footprint into the pyramid so the fetch stays in range.
+    uv_min = clamp(uv_min, vec2(0.0), vec2(1.0));
+    uv_max = clamp(uv_max, vec2(0.0), vec2(1.0));
+    vec2 extent_px = (uv_max - uv_min) * params.hiz.yz;
+    float level = ceil(log2(max(max(extent_px.x, extent_px.y), 1.0)));
+    level = clamp(level, 0.0, mip_count - 1.0);
+
+    // The region's farthest occluder: the max over the footprint's corners at that level.
+    float occ = textureLod(occlusion_pyramid, uv_min, level).r;
+    occ = max(occ, textureLod(occlusion_pyramid, vec2(uv_max.x, uv_min.y), level).r);
+    occ = max(occ, textureLod(occlusion_pyramid, vec2(uv_min.x, uv_max.y), level).r);
+    occ = max(occ, textureLod(occlusion_pyramid, uv_max, level).r);
+    occ = max(occ, textureLod(occlusion_pyramid, 0.5 * (uv_min + uv_max), level).r);
+
+    return nearest > occ;
+}
+
+void main()
+{
+    uint id = gl_GlobalInvocationID.x;
+
+    if (pc.mode == 0u)
+    {
+        if (id < pc.bucket_count)
+        {
+            draw_block.commands[id].index_count = bucket_block.meta[id].index_count;
+            draw_block.commands[id].instance_count = 0u;
+            draw_block.commands[id].first_index = 0u;
+            draw_block.commands[id].vertex_offset = 0;
+            draw_block.commands[id].first_instance = 0u;
+        }
+        if (id == 0u)
+        {
+            stats.data[0] = 0u;
+            stats.data[1] = pc.candidate_count;
+        }
+        return;
+    }
+
+    if (id >= pc.candidate_count)
+        return;
+
+    GpuInstance instance = instance_block.instances[id];
+    vec3 centre = instance.bounding_sphere.xyz;
+    float radius = instance.bounding_sphere.w;
+
+    mat4 vp = scene.proj * scene.view;
+    if (params.flags.x > 0.5 && frustum_rejects(vp, centre, radius))
+        return;
+
+    // Screen-coverage LOD gate: project the radius and drop instances whose on-screen
+    // diameter falls below the authored pixel threshold.
+    if (params.flags.z > 0.0)
+    {
+        vec4 clip = vp * vec4(centre, 1.0);
+        if (clip.w > 1e-6)
+        {
+            float radius_ndc = radius * abs(scene.proj[1][1]) / clip.w;
+            float diameter_px = radius_ndc * params.hiz.z; // ndc half-height * full height * 2
+            if (diameter_px < params.flags.z)
+                return;
+        }
+    }
+
+    if (params.flags.y > 0.5 && occlusion_rejects(centre, radius))
+        return;
+
+    uint bucket = instance.bucket_index;
+    uint slot = atomicAdd(draw_block.commands[bucket].instance_count, 1u);
+    uint base = bucket_block.meta[bucket].candidate_base;
+    compacted.indices[base + slot] = id;
+    atomicAdd(stats.data[0], 1u);
+}

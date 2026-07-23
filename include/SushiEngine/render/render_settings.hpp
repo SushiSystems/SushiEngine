@@ -86,6 +86,161 @@ namespace SushiEngine
             Temporal,
         };
 
+        /**
+         * @brief How the display-transform pass derives its exposure multiplier.
+         *
+         * @c Manual takes the scene-authored exposure (@c Environment::exposure) scaled by
+         * a user EV compensation — the value the renderer has always used, so it is the
+         * default and reproduces the prior look exactly. @c Automatic replaces it with an
+         * eye-adaptation value the auto-exposure pass derives from a luminance histogram of
+         * the resolved frame, so sun, sky, and emissive intensities read correctly across a
+         * wide range without hand-tuning.
+         */
+        enum class ExposureMode : std::uint32_t
+        {
+            Manual,
+            Automatic,
+        };
+
+        /**
+         * @brief Which tone curve maps the linear HDR scene onto the display.
+         *
+         * @c AgX is the default: it desaturates toward white as values climb, preserving
+         * hue through highlights where a filmic curve skews it, and is the current industry
+         * consensus. @c ACES is the prior Narkowicz filmic curve, kept for parity. @c Neutral
+         * is the Khronos PBR Neutral transform, which holds material colour with minimal
+         * shift for look-dev and product rendering.
+         */
+        enum class TonemapOperator : std::uint32_t
+        {
+            AgX,
+            ACES,
+            Neutral,
+        };
+
+        /**
+         * @brief Physically-based auto-exposure (eye adaptation) parameters.
+         *
+         * The auto-exposure pass builds a log-luminance histogram of the resolved frame,
+         * takes the average of its central mass (extremes discarded), and adapts a stored
+         * exposure toward the value that maps that average onto @c key middle grey. Only
+         * consulted when @c PostProcessSettings::exposure_mode is @c Automatic.
+         */
+        struct AutoExposureSettings
+        {
+            float min_ev = -6.0f;      /**< Darkest scene EV100 the adaptation will resolve to. */
+            float max_ev = 16.0f;      /**< Brightest scene EV100 the adaptation will resolve to. */
+            float compensation = 0.0f; /**< Exposure compensation added on top, in stops (EV). */
+            float speed_up = 3.0f;     /**< Adaptation rate toward a brighter scene, stops/second. */
+            float speed_down = 1.0f;   /**< Adaptation rate toward a darker scene, stops/second. */
+
+            /**
+             * @brief The metered luminance the exposure maps to middle grey.
+             *
+             * 0.18 is the photographic key; lowering it exposes darker, raising it brighter.
+             */
+            float key = 0.18f;
+
+            /** @brief Fraction of the darkest histogram mass ignored as shadow noise, [0,1). */
+            float low_percent = 0.5f;
+
+            /** @brief Fraction of the brightest histogram mass ignored as highlights, [0,1). */
+            float high_percent = 0.9f;
+        };
+
+        /**
+         * @brief Energy-conserving bloom (light bleed) parameters.
+         *
+         * A progressive mip pyramid down- then up-sampled so a bright pixel scatters into a
+         * wide, stable halo. Threshold-free by default (the whole HDR image scatters, which
+         * is what conserves energy); @c threshold lifts a soft knee for a stylised, contrasty
+         * bloom when wanted. @c intensity is the linear blend of the scattered pyramid back
+         * into the scene at composite.
+         */
+        struct BloomSettings
+        {
+            bool enabled = true;          /**< Whether the pyramid is built and composited. */
+            float intensity = 0.05f;      /**< Blend of the bloom pyramid into the scene, [0,1]. */
+            float threshold = 0.0f;       /**< Soft-knee luminance floor; 0 = threshold-free. */
+            float threshold_knee = 0.5f;  /**< Width of the soft knee above the threshold. */
+        };
+
+        /**
+         * @brief Colour grade applied inside the display-transform pass, before the tone map.
+         *
+         * One fullscreen pass carries the whole grade → tone map → encode chain, so grading
+         * costs no extra pass. White balance shifts the neutral point; lift/gamma/gain are the
+         * classic three-way shadows/mids/highlights control; contrast and saturation are the
+         * final global shape. A 3D-LUT slot is reserved (@c lut_enabled) for a look-up-table
+         * grade; the texture binding lands with the LUT asset path.
+         */
+        struct ColorGradeSettings
+        {
+            float temperature = 0.0f; /**< White-balance temperature shift, [-1,1] (warm positive). */
+            float tint = 0.0f;        /**< White-balance green/magenta tint, [-1,1]. */
+            float contrast = 1.0f;    /**< Global contrast about middle grey; 1 = neutral. */
+            float saturation = 1.0f;  /**< Global saturation; 0 = greyscale, 1 = neutral. */
+            float lift[3] = {0.0f, 0.0f, 0.0f};  /**< Additive shadow offset per channel. */
+            float gamma[3] = {1.0f, 1.0f, 1.0f}; /**< Midtone power per channel. */
+            float gain[3] = {1.0f, 1.0f, 1.0f};  /**< Highlight multiplier per channel. */
+            bool lut_enabled = false;            /**< Reserved 3D-LUT grade slot; off today. */
+        };
+
+        /**
+         * @brief Gather-based depth-of-field (bokeh) parameters.
+         *
+         * A physical thin-lens circle of confusion from the focus distance and aperture, its
+         * radius bounded so the gather cost stays fixed. Tier-gated off on the low tiers and
+         * off by default: it is a look choice, not a fidelity default.
+         */
+        struct DepthOfFieldSettings
+        {
+            bool enabled = false;         /**< Whether the DoF gather runs. */
+            float focus_distance = 10.0f; /**< Distance in metres held in perfect focus. */
+            float focus_range = 2.0f;     /**< Metres around the focus plane still sharp. */
+            float aperture = 2.8f;        /**< f-number; smaller opens the aperture and blurs more. */
+            float max_radius = 6.0f;      /**< Circle-of-confusion ceiling in pixels. */
+        };
+
+        /**
+         * @brief Per-pixel velocity motion blur parameters.
+         *
+         * Gathers along the shipped velocity target so both camera and object motion smear.
+         * Tier-gated and off by default.
+         */
+        struct MotionBlurSettings
+        {
+            bool enabled = false;      /**< Whether the velocity gather runs. */
+            float intensity = 0.5f;    /**< Scales the sampled velocity; 0 = no blur. */
+            std::uint32_t samples = 8; /**< Taps gathered along the velocity vector. */
+        };
+
+        /**
+         * @brief The whole post-processing and display-transform stack's parameters.
+         *
+         * Every field is data the passes read; no pass names the editor and the editor names
+         * no pass (the Post-Process window writes this block, the passes consume it). Defaults
+         * describe the project target: manual exposure reproducing the prior look, AgX tone
+         * mapping, a gentle energy-conserving bloom, a neutral grade, and the optional
+         * cinematic effects (DoF, motion blur) off until authored.
+         */
+        struct PostProcessSettings
+        {
+            ExposureMode exposure_mode = ExposureMode::Manual;
+            float exposure_compensation = 0.0f; /**< Manual-mode EV compensation, in stops. */
+            TonemapOperator tonemap = TonemapOperator::AgX;
+
+            AutoExposureSettings auto_exposure;
+            BloomSettings bloom;
+            ColorGradeSettings grade;
+            DepthOfFieldSettings depth_of_field;
+            MotionBlurSettings motion_blur;
+
+            float vignette = 0.25f;             /**< Corner darkening strength, 0 = off. */
+            float chromatic_aberration = 0.0f;  /**< Edge colour-fringe width in pixels, 0 = off. */
+            float film_grain = 0.0f;            /**< Linear-space grain intensity, 0 = off. */
+        };
+
         /** @brief How much history the temporal resolve keeps, and how it is filtered. */
         struct TemporalSettings
         {
@@ -306,6 +461,35 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The GPU-driven geometry path's controls.
+         *
+         * When enabled and the tier permits it (Medium and up), the renderer stops issuing
+         * one draw per instance: a compute pass frustum-, coverage-, and occlusion-culls
+         * every instance on the GPU and writes one multi-draw-indirect command per mesh, so
+         * the CPU cost is flat in the number of distinct meshes rather than instances.
+         * @c occlusion tests against the previous frame's depth pyramid; @c min_screen_diameter
+         * is the LOD gate that drops instances too small on screen to matter. The debug fields
+         * surface the cull to the editor without changing what ships.
+         */
+        struct GpuCullingSettings
+        {
+            bool enabled = true;             /**< Take the GPU-driven path when the tier permits. */
+            bool occlusion = true;           /**< Cull instances behind last frame's depth. */
+            bool frustum = true;             /**< Cull instances outside the view frustum. */
+            /** @brief Drop an instance whose projected diameter is below this many pixels. */
+            float min_screen_diameter = 2.0f;
+            /**
+             * @brief Freeze the cull frustum at its current pose for debugging.
+             *
+             * Reserved for the editor's cull debug view: holds the test frustum so the effect
+             * of culling is visible as the camera moves past it. Off in every shipping frame.
+             */
+            bool freeze = false;
+            /** @brief Whether the editor should read back and show the per-frame cull counts. */
+            bool show_statistics = false;
+        };
+
+        /**
          * @brief Everything the host asks of the renderer's performance/fidelity trade.
          *
          * Defaults describe the project's target: High tier, temporal anti-aliasing at
@@ -332,6 +516,8 @@ namespace SushiEngine
             LightEngineSettings lights;
             GtaoSettings gtao;
             SsrSettings ssr;
+            PostProcessSettings post;
+            GpuCullingSettings gpu_culling;
         };
     } // namespace Render
 } // namespace SushiEngine

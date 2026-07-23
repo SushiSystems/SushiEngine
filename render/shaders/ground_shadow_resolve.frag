@@ -28,7 +28,7 @@ void main()
     // A 7x7 Gaussian-weighted footprint: wide enough to dissolve the raw filter's 12-tap
     // grain, small enough to stay a local operation rather than a full-screen fog.
     const int RADIUS = 3;
-    const float SIGMA = 1.6;
+    const float SIGMA = 2.0;
     vec4 sum = vec4(0.0);
     float wsum = 0.0;
     for (int y = -RADIUS; y <= RADIUS; ++y)

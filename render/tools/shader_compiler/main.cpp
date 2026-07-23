@@ -116,6 +116,10 @@ int main(int argc, char** argv)
         stage = EShLangFragment;
     else if (stage_name == "comp")
         stage = EShLangCompute;
+    else if (stage_name == "task")
+        stage = EShLangTask;
+    else if (stage_name == "mesh")
+        stage = EShLangMesh;
     else
     {
         std::fprintf(stderr, "shader_compiler: unknown stage '%s'\n", stage_name.c_str());

@@ -699,10 +699,53 @@ a lower tier scales the expensive half down from it.
   `register_pass(graph, frame)` contract and owning only its own pipelines: the
   environment capture, the opaque geometry pass, the shading-rate mask, the sky pass,
   the half-resolution cloud march, the cloud composite, the temporal resolve, the
-  display transform, the spatial anti-aliasing filter, and the picking readback.
-  Adding an effect is adding one of these and registering it; no neighbouring pass
-  changes. A pass that this frame's settings do not call for registers nothing, so the
-  chain reconfigures without any pass learning what the others do.
+  **post-processing stack** (depth of field, motion blur, auto-exposure metering, and
+  bloom), the display transform, the spatial anti-aliasing filter, and the picking
+  readback. Adding an effect is adding one of these and registering it; no neighbouring
+  pass changes. A pass that this frame's settings do not call for registers nothing, so
+  the chain reconfigures without any pass learning what the others do.
+- **The post-processing stack** runs after the temporal resolve: `DofPass` and
+  `MotionBlurPass` (gather-based, tier-gated) each hand their output to the next stage;
+  `AutoExposurePass` builds a luminance histogram the scene view reads back to adapt the
+  exposure; `BloomPass` builds a Karis-averaged mip pyramid into a half-resolution target;
+  and `TonemapPass` is the single display transform that applies the resolved exposure, a
+  colour grade, one of three tone curves (AgX / ACES / Khronos Neutral), the lens effects,
+  and the sRGB encode with a blue-noise dither. All of them read one `PostProcessUniforms`
+  block (scene-set binding 31) the scene view fills from `RenderSettings::post`, which the
+  editor's **Post Process** window authors — the passes never name the editor.
+- **The GPU-driven geometry path** (Phase 10) replaces the CPU's one-draw-per-instance loop
+  with two device buffers and a cull dispatch, so the CPU cost is flat in the number of
+  distinct meshes rather than the number of instances. `InstanceSystem` (`render/scene/`)
+  packs every opaque mesh instance into a per-frame `GpuInstance` storage-buffer record —
+  camera-relative transform, bounding sphere, and the material/motion/pick indices the classic
+  draw used to push — and groups them by mesh into per-mesh buckets, one host-mapped buffer
+  per frame slot in the exact shape `MaterialSystem` and `MotionSystem` already use. `CullPass`
+  then runs before the depth prepass: one thread per instance tests the bounding sphere against
+  the view frustum, its own on-screen diameter (a screen-coverage LOD gate that drops instances
+  too small to matter), and the occlusion pyramid, then compacts the survivors per bucket and
+  writes one `VkDrawIndexedIndirectCommand` per bucket whose instance count it decides — no CPU
+  readback in the loop (a survivor counter is read back one frame late only for the editor's
+  cull statistics). `OcclusionPass` owns that pyramid: a persistent max-Z (farthest-depth) mip
+  chain built after the depth prepass, the conservative twin of the `HizPass` nearest-depth
+  pyramid the SSR trace marches (nearest is right for reflections and wrong for culling). It
+  lives outside the render graph and is read at the *start* of the next frame by the cull —
+  reprojected with the previous view-projection and the eye delta — so an instance is tested
+  against the depth the last frame actually rendered; a freshly (re)created image clears to
+  "far" so nothing occludes until real depth lands, which self-corrects with no popping and no
+  readback. The draw itself runs through `mesh_gpu.vert`, the twin of `mesh.vert`: it reads the
+  model matrix, material index, and picking id from the instance record (an indirect draw
+  carries no push constant), indexing the cull pass's compacted survivor list from the one
+  value still pushed per bucket — the bucket's base into that list. Its instance and compacted
+  buffers ride a **set-2** descriptor set (`SceneLayout::INSTANCE_SET`), so the bindless heap
+  keeps set 1 and both vertex shaders feed the same `pbr.frag`. The whole path is **two-path**:
+  the scene view takes the GPU-driven route when the tier permits it (`QualityParams::gpu_driven`
+  — off on Low, on for Medium/High/Ultra), the author has left `GpuCullingSettings::enabled`
+  on, the bindless heap is present, and nothing is selected; anything else falls back to the
+  classic CPU per-instance draw (a selection keeps it so the outline's stencil mask still
+  works), while the cull machinery stays primed so the pyramid remains fresh for when it
+  resumes. The editor's **GPU Culling** window authors `RenderSettings::gpu_culling` —
+  enable, frustum, occlusion, min-screen-diameter, a debug frustum freeze, and the per-frame
+  statistics — and, as with post-processing, no pass names the editor.
 - **`render/scene/`, `render/geometry/`, `render/textures/`** — the shared scene
   uniform block and descriptor/pipeline layout, the built-in unit meshes and the
   per-slot soft-body buffers, and the cloud noise volumes. The noise set (two Perlin-

@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 
 namespace SushiEngine
@@ -74,6 +75,15 @@ namespace SushiEngine
              * so it lives here alongside theme and camera speed rather than in the scene file.
              */
             SushiEngine::Render::RenderSettings render_settings;
+
+            /**
+             * @brief The sky/lighting setup edited in the Environment and Lighting panels.
+             *
+             * This is an editor/host setting, not scene data: it describes how the editor
+             * *displays* whatever scene is open, so it lives here (persisted once per user)
+             * rather than round-tripping through every .sushiscene file.
+             */
+            SushiEngine::Render::Environment environment;
         };
 
         /**

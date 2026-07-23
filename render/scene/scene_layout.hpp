@@ -87,6 +87,23 @@ namespace SushiEngine
             };
 
             /**
+             * @brief Per-draw constants a meshlet draw hands its task and mesh shaders.
+             *
+             * 80 bytes. One mesh-shader draw is issued per instance, so the transform and the
+             * material/motion/pick indices that used to ride the classic push constant ride
+             * this one; @c meshlet_count bounds the task shader's meshlet loop. The camera-
+             * relative transform is built the same way the classic path builds it.
+             */
+            struct MeshletPushConstants
+            {
+                float model[16];
+                std::uint32_t material_index;
+                std::uint32_t entity_id;
+                std::uint32_t motion_index;
+                std::uint32_t meshlet_count;
+            };
+
+            /**
              * @brief Owns the shared set layout and pipeline layout, and binds them.
              *
              * Non-copyable: it owns Vulkan layout objects that every pass's pipelines
@@ -273,8 +290,18 @@ namespace SushiEngine
                      */
                     static constexpr std::uint32_t GI_PROBE_CONFIG_BINDING = 30;
 
+                    /**
+                     * @brief Binding of the post-processing parameter block.
+                     *
+                     * The resolved exposure, tone-curve selector, and every grade and lens
+                     * parameter, read by the display-transform pass and the DoF/motion-blur
+                     * passes. The last frame-global binding the guaranteed 32-entry push set
+                     * has room for; a further post resource must ride a pass-local slot.
+                     */
+                    static constexpr std::uint32_t POST_BINDING = 31;
+
                     /** @brief Number of bindings in the per-frame set. */
-                    static constexpr std::uint32_t BINDING_COUNT = GI_PROBE_CONFIG_BINDING + 1;
+                    static constexpr std::uint32_t BINDING_COUNT = POST_BINDING + 1;
 
                     /**
                      * @brief Creates the set and pipeline layouts.
@@ -294,6 +321,73 @@ namespace SushiEngine
                     VkPipelineLayout pipeline_layout() const noexcept { return pipeline_layout_; }
 
                     /**
+                     * @brief Set index of the GPU-driven per-instance set (set 2).
+                     *
+                     * The per-frame push set (set 0) is full at 32 bindings and the bindless
+                     * heap owns set 1, so the GPU-driven instance and compacted buffers ride
+                     * their own set 2 — read only by the vertex stage, which is the only
+                     * place an indirect draw's per-instance data is needed.
+                     */
+                    static constexpr std::uint32_t INSTANCE_SET = 2;
+
+                    /** @brief The set-2 layout the GPU-driven draw writes its two buffers into. */
+                    VkDescriptorSetLayout instance_set_layout() const noexcept
+                    {
+                        return instance_set_layout_;
+                    }
+
+                    /**
+                     * @brief The pipeline layout a GPU-driven (indirect) scene draw is built with.
+                     *
+                     * The same set 0 and set 1 as the classic layout, plus set 2 for the
+                     * instance and compacted buffers, and a small vertex-stage push constant
+                     * carrying the drawn bucket's base into the compacted list. Set 0 and set 1
+                     * being identical is what lets one descriptor push and one heap bind serve
+                     * a draw whichever layout it uses.
+                     */
+                    VkPipelineLayout gpu_pipeline_layout() const noexcept
+                    {
+                        return gpu_pipeline_layout_;
+                    }
+
+                    /**
+                     * @brief Binds the bindless heap at set 1 of the GPU-driven pipeline layout.
+                     * @param cmd The recording command buffer.
+                     */
+                    void bind_gpu_heap(VkCommandBuffer cmd) const;
+
+                    /**
+                     * @brief The set-2 layout the meshlet path binds a mesh's meshlet buffers into.
+                     *
+                     * Four storage buffers read by the task and mesh stages: the meshlet
+                     * descriptors, the meshlet-vertex indices, the packed meshlet triangles, and
+                     * the mesh's own vertex buffer. Null when the device cannot draw with mesh
+                     * shaders (the meshlet path is never taken then).
+                     */
+                    VkDescriptorSetLayout meshlet_set_layout() const noexcept
+                    {
+                        return meshlet_set_layout_;
+                    }
+
+                    /**
+                     * @brief The pipeline layout a meshlet (task + mesh + fragment) draw uses.
+                     *
+                     * The same set 0 and set 1 as the classic layout, plus set 2 for the
+                     * meshlet buffers, and a task/mesh-stage push constant carrying the
+                     * instance transform and indices. Null when mesh shaders are unavailable.
+                     */
+                    VkPipelineLayout meshlet_pipeline_layout() const noexcept
+                    {
+                        return meshlet_pipeline_layout_;
+                    }
+
+                    /**
+                     * @brief Binds the bindless heap at set 1 of the meshlet pipeline layout.
+                     * @param cmd The recording command buffer.
+                     */
+                    void bind_meshlet_heap(VkCommandBuffer cmd) const;
+
+                    /**
                      * @brief Binds the bindless heap at set 1, when present.
                      *
                      * The per-frame set 0 is a push-descriptor set, so it is pushed by
@@ -309,6 +403,10 @@ namespace SushiEngine
                     Resources::DescriptorHeap& heap_;
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
+                    VkDescriptorSetLayout instance_set_layout_ = VK_NULL_HANDLE;
+                    VkPipelineLayout gpu_pipeline_layout_ = VK_NULL_HANDLE;
+                    VkDescriptorSetLayout meshlet_set_layout_ = VK_NULL_HANDLE;
+                    VkPipelineLayout meshlet_pipeline_layout_ = VK_NULL_HANDLE;
             };
 
             /**

@@ -64,6 +64,13 @@ layout(set = 0, binding = 0) uniform SceneBlock
     // 0 = no ring. Appended after the arrays so the shaders sharing this block that read
     // only its earlier fields keep their offsets. Plane normal is planet_frame.xyz.
     vec4 planet_ring;
+    // Ellipsoid precision terms formed on the CPU in double (see SceneUniforms):
+    //   xyz = scaled centre gradient c_rad/a^2 + pole*c_ax/b^2, subtracted in
+    //         ellipsoid_normal() to recover the geodetic normal without the
+    //         large-minus-large snap that made lighting/shadows crawl on the planet;
+    //   w   = the ray-ellipsoid quadratic constant |M c|^2 - 1 for a camera-origin ray,
+    //         so the "- 1" keeps its bits instead of cancelling against a ~6.4e6^2 term.
+    vec4 planet_precision;
 } scene;
 
 #define MAX_BODIES 16

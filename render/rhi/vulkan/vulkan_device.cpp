@@ -242,6 +242,44 @@ namespace SushiEngine
                         physical.enable_extension_features_if_present(query_features);
                 }
 
+                // Mesh shaders drive the meshlet path: a task shader culls a mesh's clusters
+                // (frustum, back-facing cone, hierarchical-Z) and a mesh shader emits the
+                // survivors, no vertex-fetch and no index buffer. Wholly optional — every
+                // piece is a tier addition, and the classic path draws the same geometry when
+                // the device does not offer it.
+                if (physical.enable_extension_if_present(VK_EXT_MESH_SHADER_EXTENSION_NAME))
+                {
+                    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{};
+                    mesh_features.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+                    mesh_features.taskShader = VK_TRUE;
+                    mesh_features.meshShader = VK_TRUE;
+                    supports_mesh_shader_ =
+                        physical.enable_extension_features_if_present(mesh_features);
+                }
+
+                if (supports_mesh_shader_)
+                {
+                    // The most vertices and primitives one mesh workgroup may output; the
+                    // meshlet builder emits fixed 64/124 clusters, so these are read to reject a
+                    // device that could not create the pipeline rather than to size the clusters.
+                    VkPhysicalDeviceMeshShaderPropertiesEXT mesh_properties{};
+                    mesh_properties.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
+                    VkPhysicalDeviceProperties2 properties{};
+                    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    properties.pNext = &mesh_properties;
+                    vkGetPhysicalDeviceProperties2(physical.physical_device, &properties);
+                    max_mesh_output_vertices_ = mesh_properties.maxMeshOutputVertices;
+                    max_mesh_output_primitives_ = mesh_properties.maxMeshOutputPrimitives;
+                    // The mesh shader hard-declares 64 output vertices and 124 output
+                    // primitives (the meshlet builder's caps), so a device below either cannot
+                    // create the pipeline — treat it as unsupported. The Vulkan floor for both
+                    // is 256, so this only guards a pathological driver.
+                    if (max_mesh_output_vertices_ < 64 || max_mesh_output_primitives_ < 124)
+                        supports_mesh_shader_ = false;
+                }
+
                 vkb::DeviceBuilder device_builder(physical);
                 auto device_result = device_builder.build();
                 if (!device_result)
@@ -281,6 +319,19 @@ namespace SushiEngine
                             vkGetDeviceProcAddr(
                                 handle, "vkGetAccelerationStructureDeviceAddressKHR"));
                     supports_ray_query_ = ray_tracing_.available();
+                }
+
+                if (supports_mesh_shader_)
+                {
+                    // The draw commands are not loader symbols; resolve them by hand and
+                    // switch the whole path off if either is missing.
+                    VkDevice handle = device_.device;
+                    mesh_shader_.draw_mesh_tasks = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
+                        vkGetDeviceProcAddr(handle, "vkCmdDrawMeshTasksEXT"));
+                    mesh_shader_.draw_mesh_tasks_indirect =
+                        reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(
+                            vkGetDeviceProcAddr(handle, "vkCmdDrawMeshTasksIndirectEXT"));
+                    supports_mesh_shader_ = mesh_shader_.available();
                 }
 
                 if (supports_ray_query_)

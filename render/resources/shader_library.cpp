@@ -58,6 +58,10 @@ namespace SushiEngine
                             return EShLangVertex;
                         case ShaderStage::Compute:
                             return EShLangCompute;
+                        case ShaderStage::Task:
+                            return EShLangTask;
+                        case ShaderStage::Mesh:
+                            return EShLangMesh;
                         case ShaderStage::Fragment:
                         default:
                             return EShLangFragment;

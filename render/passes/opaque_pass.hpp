@@ -25,7 +25,7 @@
 
 /**
  * @file opaque_pass.hpp
- * @brief The lit geometry pass: grid, mesh instances, soft bodies, selection outline.
+ * @brief The lit geometry pass: mesh instances, soft bodies, selection outline.
  *
  * Writes the HDR scene colour, the R32_UINT picking ids, the per-pixel screen motion
  * the temporal resolve reprojects with, and the reverse-Z depth the sky and cloud
@@ -69,6 +69,7 @@ namespace SushiEngine
         {
             class MotionSystem;
             class SceneLayout;
+            class InstanceSystem;
         }
 
         namespace Lighting
@@ -89,10 +90,9 @@ namespace SushiEngine
             /**
              * @brief Draws the scene's opaque geometry into the HDR, id, and depth targets.
              *
-             * Owns three pipelines that differ only in topology, polygon mode, and
-             * fragment shader: the lit mesh pipeline, the flat line pipeline the grid
-             * uses, and the stencil-masked wireframe pipeline that draws the selection
-             * outline. Non-copyable: it owns Vulkan pipelines.
+             * Owns two pipelines that differ only in polygon mode and fragment shader:
+             * the lit mesh pipeline and the stencil-masked wireframe pipeline that draws
+             * the selection outline. Non-copyable: it owns Vulkan pipelines.
              */
             class OpaquePass final : public IRenderPass
             {
@@ -112,6 +112,8 @@ namespace SushiEngine
                      * @param ibl       The image-based lighting chain surfaces sample.
                      * @param gi        The probe-volume GI the shading pass gathers ambient from.
                      * @param lights    The clustered light engine's per-frame buffers.
+                     * @param instances The GPU-driven instance system; its buckets and buffers
+                     *                  drive the indirect draw when the GPU path is on.
                      */
                     OpaquePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                Resources::GraphicsPipelineFactory& pipelines,
@@ -119,7 +121,8 @@ namespace SushiEngine
                                Geometry::ClothBuffers& cloth,
                                Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                Textures::CloudNoise& noise, IblPass& ibl,
-                               IrradianceVolumePass& gi, Lighting::LightSystem& lights);
+                               IrradianceVolumePass& gi, Lighting::LightSystem& lights,
+                               Scene::InstanceSystem& instances);
                     ~OpaquePass() override;
 
                     OpaquePass(const OpaquePass&) = delete;
@@ -145,9 +148,13 @@ namespace SushiEngine
                     IblPass& ibl_;
                     IrradianceVolumePass& gi_;
                     Lighting::LightSystem& lights_;
+                    Scene::InstanceSystem& instances_;
                     Resources::PipelineHandle mesh_pipeline_;
-                    Resources::PipelineHandle line_pipeline_;
                     Resources::PipelineHandle outline_pipeline_;
+                    /** @brief The lit pipeline built against the GPU-driven layout (mesh_gpu.vert). */
+                    Resources::PipelineHandle gpu_mesh_pipeline_;
+                    /** @brief The lit mesh-shader pipeline (meshlet.task + meshlet.mesh + pbr.frag). */
+                    Resources::PipelineHandle meshlet_pipeline_;
             };
         } // namespace Passes
     } // namespace Render

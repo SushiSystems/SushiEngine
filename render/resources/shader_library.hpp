@@ -59,6 +59,8 @@ namespace SushiEngine
                 Vertex,
                 Fragment,
                 Compute,
+                Task,
+                Mesh,
             };
 
             /** @brief One shader's build-time SPIR-V and the source that produced it. */

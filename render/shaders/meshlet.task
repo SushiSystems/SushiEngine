@@ -1,0 +1,106 @@
+#version 450
+#extension GL_EXT_mesh_shader : require
+
+// Task stage of the meshlet draw path (Phase 10 item 4). One workgroup handles up to 32 of
+// a mesh's meshlets, one per thread: each thread transforms its meshlet's bounding sphere
+// by the instance model and frustum-tests it, and the survivors are compacted into the task
+// payload and amplified to that many mesh-shader workgroups. So an off-screen cluster of a
+// large mesh never reaches the mesh shader at all. (Hierarchical-Z occlusion and normal-cone
+// culling are the next refinement; frustum culling alone is correct for any geometry.)
+
+layout(local_size_x = 32) in;
+
+layout(set = 0, binding = 0) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+} scene;
+
+struct MeshletDescriptor
+{
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+    vec4 bounding_sphere; // xyz = local centre, w = radius
+    vec4 cone;
+};
+
+layout(std430, set = 2, binding = 0) readonly buffer Descriptors
+{
+    MeshletDescriptor meshlets[];
+} descriptor_block;
+
+layout(push_constant) uniform Push
+{
+    mat4 model;  // camera-relative model transform
+    uvec4 info;  // x = material index, y = entity id, z = motion index, w = meshlet count
+} pc;
+
+struct Payload
+{
+    uint meshlet_indices[32];
+};
+taskPayloadSharedEXT Payload payload;
+
+shared uint survivor_count;
+
+float largest_column(mat4 m)
+{
+    float c0 = length(m[0].xyz);
+    float c1 = length(m[1].xyz);
+    float c2 = length(m[2].xyz);
+    return max(c0, max(c1, c2));
+}
+
+vec4 plane_from(mat4 vp, int row, float sign)
+{
+    vec4 r3 = vec4(vp[0][3], vp[1][3], vp[2][3], vp[3][3]);
+    vec4 rk = vec4(vp[0][row], vp[1][row], vp[2][row], vp[3][row]);
+    vec4 plane = r3 + sign * rk;
+    return plane / max(length(plane.xyz), 1e-8);
+}
+
+bool outside(vec4 plane, vec3 centre, float radius)
+{
+    return dot(plane.xyz, centre) + plane.w < -radius;
+}
+
+bool frustum_visible(mat4 vp, vec3 centre, float radius)
+{
+    if (outside(plane_from(vp, 0, 1.0), centre, radius)) return false;
+    if (outside(plane_from(vp, 0, -1.0), centre, radius)) return false;
+    if (outside(plane_from(vp, 1, 1.0), centre, radius)) return false;
+    if (outside(plane_from(vp, 1, -1.0), centre, radius)) return false;
+    vec4 r2 = vec4(vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
+    vec4 r3 = vec4(vp[0][3], vp[1][3], vp[2][3], vp[3][3]);
+    if (outside(r2 / max(length(r2.xyz), 1e-8), centre, radius)) return false;
+    if (outside((r3 - r2) / max(length((r3 - r2).xyz), 1e-8), centre, radius)) return false;
+    return true;
+}
+
+void main()
+{
+    if (gl_LocalInvocationIndex == 0u)
+        survivor_count = 0u;
+    barrier();
+
+    uint id = gl_GlobalInvocationID.x;
+    bool visible = false;
+    if (id < pc.info.w)
+    {
+        MeshletDescriptor m = descriptor_block.meshlets[id];
+        vec3 centre = (pc.model * vec4(m.bounding_sphere.xyz, 1.0)).xyz;
+        float radius = m.bounding_sphere.w * largest_column(pc.model);
+        mat4 vp = scene.proj * scene.view;
+        visible = frustum_visible(vp, centre, radius);
+    }
+    if (visible)
+    {
+        uint slot = atomicAdd(survivor_count, 1u);
+        payload.meshlet_indices[slot] = id;
+    }
+    barrier();
+
+    EmitMeshTasksEXT(survivor_count, 1u, 1u);
+}

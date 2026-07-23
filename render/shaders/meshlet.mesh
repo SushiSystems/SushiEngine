@@ -1,0 +1,137 @@
+#version 450
+#extension GL_EXT_mesh_shader : require
+#extension GL_GOOGLE_include_directive : require
+
+// Mesh stage of the meshlet draw path. One workgroup emits one meshlet the task stage kept:
+// each invocation transforms one of the meshlet's vertices into clip space (camera-relative,
+// exactly as mesh.vert does) and writes one of its triangles. It outputs the same varyings
+// mesh.vert does, at the same locations, so the shared pbr.frag shades a meshlet draw and a
+// classic draw identically — and the depth-only pipeline runs this same shader with no
+// fragment stage at all.
+
+#include "temporal_common.glsl"
+
+layout(local_size_x = 128) in;
+layout(triangles) out;
+layout(max_vertices = 64, max_primitives = 124) out;
+
+layout(set = 0, binding = 0) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+} scene;
+
+// Where every object drawn this frame was one frame ago, indexed by the instance's motion
+// index — the same array and the same purpose as the classic vertex shader's.
+layout(std430, set = 0, binding = 8) readonly buffer MotionBlock
+{
+    mat4 previous_model[];
+} motion;
+
+struct MeshletDescriptor
+{
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+    vec4 bounding_sphere;
+    vec4 cone;
+};
+
+layout(std430, set = 2, binding = 0) readonly buffer Descriptors
+{
+    MeshletDescriptor meshlets[];
+} descriptor_block;
+
+layout(std430, set = 2, binding = 1) readonly buffer MeshletVertices
+{
+    uint indices[];
+} meshlet_vertices;
+
+layout(std430, set = 2, binding = 2) readonly buffer MeshletTriangles
+{
+    uint packed[];
+} meshlet_triangles;
+
+// The mesh's vertex buffer, read as storage: the std430 mirror of Geometry::MeshVertex,
+// scalar arrays so the 60-byte stride matches the C++ struct.
+struct Vertex
+{
+    float position[3];
+    float normal[3];
+    float tangent[4];
+    float uv0[2];
+    float uv1[2];
+    uint color;
+};
+
+layout(std430, set = 2, binding = 3) readonly buffer MeshVertices
+{
+    Vertex vertices[];
+} mesh_vertices;
+
+layout(push_constant) uniform Push
+{
+    mat4 model;
+    uvec4 info; // x = material index, y = entity id, z = motion index, w = meshlet count
+} pc;
+
+struct Payload
+{
+    uint meshlet_indices[32];
+};
+taskPayloadSharedEXT Payload payload;
+
+layout(location = 0) out vec3 v_world_position[];
+layout(location = 1) out vec3 v_world_normal[];
+layout(location = 2) out vec4 v_world_tangent[];
+layout(location = 3) out vec2 v_uv0[];
+layout(location = 4) out vec2 v_uv1[];
+layout(location = 5) out vec4 v_color[];
+layout(location = 6) out vec4 v_current_clip[];
+layout(location = 7) out vec4 v_previous_clip[];
+layout(location = 8) out flat uint v_material_index[];
+layout(location = 9) out flat uint v_entity_id[];
+
+void main()
+{
+    uint meshlet_index = payload.meshlet_indices[gl_WorkGroupID.x];
+    MeshletDescriptor m = descriptor_block.meshlets[meshlet_index];
+    SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
+
+    uint i = gl_LocalInvocationIndex;
+    if (i < m.vertex_count)
+    {
+        uint global = meshlet_vertices.indices[m.vertex_offset + i];
+        Vertex vtx = mesh_vertices.vertices[global];
+        vec3 position = vec3(vtx.position[0], vtx.position[1], vtx.position[2]);
+        vec3 normal = vec3(vtx.normal[0], vtx.normal[1], vtx.normal[2]);
+        vec4 tangent = vec4(vtx.tangent[0], vtx.tangent[1], vtx.tangent[2], vtx.tangent[3]);
+
+        mat3 normal_matrix = mat3(pc.model);
+        vec4 world = pc.model * vec4(position, 1.0);
+        vec4 clip = scene.proj * scene.view * world;
+
+        gl_MeshVerticesEXT[i].gl_Position = clip;
+        v_world_position[i] = world.xyz;
+        v_world_normal[i] = normal_matrix * normal;
+        v_world_tangent[i] = vec4(normal_matrix * tangent.xyz, tangent.w);
+        v_uv0[i] = vec2(vtx.uv0[0], vtx.uv0[1]);
+        v_uv1[i] = vec2(vtx.uv1[0], vtx.uv1[1]);
+        v_color[i] = unpackUnorm4x8(vtx.color);
+        v_current_clip[i] = clip;
+        // The previous transform is applied to the local position, matching mesh.vert; the
+        // difference of the two clip positions is the motion vector.
+        v_previous_clip[i] = temporal.previous_view_projection *
+                             motion.previous_model[pc.info.z] * vec4(position, 1.0);
+        v_material_index[i] = pc.info.x;
+        v_entity_id[i] = pc.info.y;
+    }
+
+    if (i < m.triangle_count)
+    {
+        uint packed = meshlet_triangles.packed[m.triangle_offset + i];
+        gl_PrimitiveTriangleIndicesEXT[i] =
+            uvec3(packed & 0xFFu, (packed >> 8) & 0xFFu, (packed >> 16) & 0xFFu);
+    }
+}

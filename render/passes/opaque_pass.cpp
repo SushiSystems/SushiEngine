@@ -24,10 +24,7 @@
 #include "passes/opaque_pass.hpp"
 
 #include <cstddef>
-#include <utility>
 #include <vector>
-
-#include <SushiEngine/render/cloth_mesh.hpp>
 
 #include "frame/frame_context.hpp"
 #include "geometry/cloth_buffers.hpp"
@@ -35,11 +32,14 @@
 #include "lighting/cluster_config.hpp"
 #include "lighting/light_system.hpp"
 #include "material/material_system.hpp"
+#include "scene/gpu_instance.hpp"
+#include "scene/instance_system.hpp"
 #include "scene/motion_system.hpp"
 #include "passes/ibl_pass.hpp"
 #include "passes/irradiance_volume_pass.hpp"
 #include "graph/render_graph.hpp"
 #include "resources/descriptor_allocator.hpp"
+#include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
@@ -64,6 +64,16 @@ namespace SushiEngine
                 /** @brief The shader stages the mesh push constants are visible to. */
                 constexpr VkShaderStageFlags PUSH_STAGES =
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                /** @brief The stages the meshlet push constants are visible to. */
+                constexpr VkShaderStageFlags MESHLET_PUSH_STAGES =
+                    VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+
+                /** @brief Task workgroups for a meshlet count: one thread per meshlet, 32 wide. */
+                std::uint32_t meshlet_groups(std::uint32_t meshlet_count) noexcept
+                {
+                    return meshlet_count == 0 ? 0u : (meshlet_count + 31u) / 32u;
+                }
 
                 /**
                  * @brief Fills a push constant from a transform, material, and pick ids.
@@ -178,10 +188,11 @@ namespace SushiEngine
                                    Geometry::ClothBuffers& cloth,
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                Textures::CloudNoise& noise, IblPass& ibl,
-                               IrradianceVolumePass& gi, Lighting::LightSystem& lights)
+                               IrradianceVolumePass& gi, Lighting::LightSystem& lights,
+                               Scene::InstanceSystem& instances)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   meshes_(meshes), cloth_(cloth), materials_(materials), motion_(motion),
-                  noise_(noise), ibl_(ibl), gi_(gi), lights_(lights)
+                  noise_(noise), ibl_(ibl), gi_(gi), lights_(lights), instances_(instances)
             {
                 create_pipelines();
             }
@@ -198,11 +209,6 @@ namespace SushiEngine
                 mesh.fragment_shader = shaders_.module("pbr.frag");
                 mesh_pipeline_ = pipelines_.create(mesh);
 
-                Resources::GraphicsPipelineDesc line = mesh;
-                line.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-                line.fragment_shader = shaders_.module("line.frag");
-                line_pipeline_ = pipelines_.create(line);
-
                 // The outline draws the selected shape as a thick wireframe, masked to the
                 // texels the object did not already cover. Reverse-Z makes the bias that
                 // pulls it in front of its object positive.
@@ -218,6 +224,31 @@ namespace SushiEngine
                 outline.stencil.compareOp = VK_COMPARE_OP_NOT_EQUAL;
                 outline.stencil.passOp = VK_STENCIL_OP_KEEP;
                 outline_pipeline_ = pipelines_.create(outline);
+
+                // The GPU-driven lit pipeline: the same MRT and depth state as the classic
+                // mesh pipeline, but built against the layout that carries the instance set and
+                // reading mesh_gpu.vert's instance record. Only when the layout exists.
+                if (layout_.gpu_pipeline_layout() != VK_NULL_HANDLE)
+                {
+                    Resources::GraphicsPipelineDesc gpu = base_desc(layout_.gpu_pipeline_layout());
+                    gpu.vertex_shader = shaders_.module("mesh_gpu.vert");
+                    gpu.fragment_shader = shaders_.module("pbr.frag");
+                    gpu_mesh_pipeline_ = pipelines_.create(gpu);
+                }
+
+                // The lit mesh-shader pipeline: the same MRT and depth state, a task + mesh
+                // shader in place of vertex fetch. Only when the meshlet layout exists (the
+                // device offers mesh shaders).
+                if (layout_.meshlet_pipeline_layout() != VK_NULL_HANDLE)
+                {
+                    Resources::GraphicsPipelineDesc meshlet =
+                        base_desc(layout_.meshlet_pipeline_layout());
+                    meshlet.vertex_shader = VK_NULL_HANDLE;
+                    meshlet.task_shader = shaders_.module("meshlet.task");
+                    meshlet.mesh_shader = shaders_.module("meshlet.mesh");
+                    meshlet.fragment_shader = shaders_.module("pbr.frag");
+                    meshlet_pipeline_ = pipelines_.create_mesh(meshlet);
+                }
             }
 
             void OpaquePass::destroy_pipelines()
@@ -225,8 +256,9 @@ namespace SushiEngine
                 // The factory owns these pipelines and swaps in their optimized rebuilds;
                 // the pass only drops its handles. clear_libraries() frees the pipelines.
                 mesh_pipeline_ = Resources::PipelineHandle{};
-                line_pipeline_ = Resources::PipelineHandle{};
                 outline_pipeline_ = Resources::PipelineHandle{};
+                gpu_mesh_pipeline_ = Resources::PipelineHandle{};
+                meshlet_pipeline_ = Resources::PipelineHandle{};
             }
 
             void OpaquePass::rebuild_pipelines()
@@ -238,60 +270,10 @@ namespace SushiEngine
             void OpaquePass::register_pass(Graph::RenderGraph& graph,
                                            const Frame::FrameContext& frame)
             {
-                // Soft bodies are triangulated and uploaded now, before the graph runs, so
-                // the execute function below only records draws. The upload targets this
-                // frame slot's own buffers, which the GPU is guaranteed to be done with.
-                const Geometry::Mesh* cloth = nullptr;
-                std::vector<std::pair<std::uint32_t, std::uint32_t>> cloth_ranges;
-                if (frame.draws.strand_count > 0)
-                {
-                    std::vector<ClothVertex> triangulated_vertices;
-                    std::vector<std::uint32_t> triangulated_indices;
-                    std::vector<Geometry::MeshVertex> vertices;
-                    std::vector<std::uint32_t> indices;
-                    cloth_ranges.reserve(frame.draws.strand_count);
-
-                    for (std::size_t s = 0; s < frame.draws.strand_count; ++s)
-                    {
-                        const ClothStrandView& strand = frame.draws.strands[s];
-                        triangulate_cloth_grid(strand.vertices, strand.rows, strand.cols,
-                                               triangulated_vertices, triangulated_indices);
-                        if (triangulated_indices.empty())
-                            continue;
-
-                        const std::uint32_t base_vertex =
-                            static_cast<std::uint32_t>(vertices.size());
-                        // Cloth points arrive as absolute world positions, so they are made
-                        // camera-relative here, in double before the float cast, exactly as
-                        // make_push does for a model translation.
-                        for (const ClothVertex& vertex : triangulated_vertices)
-                        {
-                            Geometry::MeshVertex out{};
-                            out.position[0] = static_cast<float>(vertex.position.x - frame.eye[0]);
-                            out.position[1] = static_cast<float>(vertex.position.y - frame.eye[1]);
-                            out.position[2] = static_cast<float>(vertex.position.z - frame.eye[2]);
-                            out.normal[0] = static_cast<float>(vertex.normal.x);
-                            out.normal[1] = static_cast<float>(vertex.normal.y);
-                            out.normal[2] = static_cast<float>(vertex.normal.z);
-                            for (int channel = 0; channel < 4; ++channel)
-                                out.color[channel] = 255;
-                            vertices.push_back(out);
-                        }
-
-                        const std::uint32_t index_offset = static_cast<std::uint32_t>(indices.size());
-                        for (std::uint32_t index : triangulated_indices)
-                            indices.push_back(base_vertex + index);
-                        cloth_ranges.emplace_back(
-                            index_offset, static_cast<std::uint32_t>(triangulated_indices.size()));
-                    }
-
-                    // Soft bodies carry no authored UVs, so no tangent frame can be derived
-                    // from them; their zero tangent tells the shader to fall back to
-                    // screen-space derivatives.
-                    if (!indices.empty())
-                        cloth = &cloth_.upload(frame.slot, vertices.data(), vertices.size(),
-                                               indices.data(), indices.size());
-                }
+                // Soft bodies are triangulated on the GPU by the cloth pass, which ran just
+                // before this one and filled the vertex/index buffers the draw below binds; the
+                // host packed only their particle positions (see ClothBuffers::prepare). What
+                // is still needed here is per-strand material and motion, packed as before.
 
                 // The quality tier decides which advanced BRDF lobes are evaluated at all;
                 // apply that once here, before any material is packed, so a lower tier
@@ -308,14 +290,34 @@ namespace SushiEngine
                     allowed_lobes |= Assets::MATERIAL_TRANSMISSION;
                 materials_.set_allowed_lobes(allowed_lobes);
 
+                // The GPU-driven path is taken when the cull pass produced this frame's draw
+                // commands; the classic per-instance loop is the fallback (and the path when
+                // an object is selected, so the outline still masks correctly). On the GPU
+                // path the instance records already carry every material and motion index, so
+                // the per-instance packing below is skipped — only the CPU loop reads it.
+                const bool gpu = gpu_mesh_pipeline_.get() != VK_NULL_HANDLE &&
+                                 frame.targets.draw_commands.valid() &&
+                                 frame.targets.compacted.valid();
+
+                // The meshlet path (Ultra + mesh shaders) draws every instance with a task and
+                // mesh shader that culls the mesh's clusters. It falls back to the classic or
+                // GPU-driven path when unavailable, and — like the GPU-driven path — steps aside
+                // when an object is selected so the outline's per-instance stencil still works.
+                const bool meshlet = meshlet_pipeline_.get() != VK_NULL_HANDLE &&
+                                     frame.quality.meshlets &&
+                                     frame.draws.selected_id == NO_PICK;
+
                 // Pack every material this frame draws with before the graph runs, so the
                 // execute function records draws only and the array is already complete
                 // when the descriptor set is written. A draw carries this array's index.
                 std::vector<std::uint32_t> instance_materials;
-                instance_materials.reserve(frame.draws.instance_count);
-                for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
-                    instance_materials.push_back(
-                        materials_.push(frame.draws.instances[i].material));
+                if (!gpu)
+                {
+                    instance_materials.reserve(frame.draws.instance_count);
+                    for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
+                        instance_materials.push_back(
+                            materials_.push(frame.draws.instances[i].material));
+                }
 
                 std::vector<std::uint32_t> strand_materials;
                 strand_materials.reserve(frame.draws.strand_count);
@@ -323,23 +325,20 @@ namespace SushiEngine
                     strand_materials.push_back(
                         materials_.push(flat_material(frame.draws.strands[s].color)));
 
-                // Where each of those objects was last frame, packed the same way and
-                // for the same reason. The transform pushed here is the one the draw
-                // actually uses, primitive scaling included, so the two clip positions
-                // the vertex shader differences describe the same geometry.
-                const std::uint32_t grid_motion = motion_.push(NO_PICK, Mat4{});
-
                 std::vector<std::uint32_t> instance_motions;
-                instance_motions.reserve(frame.draws.instance_count);
-                for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
+                if (!gpu)
                 {
-                    const MeshInstance& instance = frame.draws.instances[i];
-                    const Mat4 model =
-                        instance.mesh != INVALID_MESH
-                            ? instance.model
-                            : mul(instance.model, Geometry::shape_scale(instance.kind,
-                                                                        instance.shape_params));
-                    instance_motions.push_back(motion_.push(instance.id, model));
+                    instance_motions.reserve(frame.draws.instance_count);
+                    for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
+                    {
+                        const MeshInstance& instance = frame.draws.instances[i];
+                        const Mat4 model =
+                            instance.mesh != INVALID_MESH
+                                ? instance.model
+                                : mul(instance.model, Geometry::shape_scale(instance.kind,
+                                                                            instance.shape_params));
+                        instance_motions.push_back(motion_.push(instance.id, model));
+                    }
                 }
 
                 std::vector<std::uint32_t> strand_motions;
@@ -401,12 +400,26 @@ namespace SushiEngine
                         builder.read(frame.targets.decal_grid, Graph::BufferAccess::StorageRead);
                         builder.read(frame.targets.decal_index, Graph::BufferAccess::StorageRead);
                         builder.read(frame.targets.ao, Graph::TextureAccess::SampledFragment);
+                        if (gpu)
+                        {
+                            // The cull pass wrote both; reading them here derives the
+                            // compute→draw-indirect and compute→vertex barriers.
+                            builder.read(frame.targets.draw_commands,
+                                         Graph::BufferAccess::IndirectRead);
+                            builder.read(frame.targets.compacted,
+                                         Graph::BufferAccess::StorageRead);
+                        }
                     },
-                    [this, &frame, cloth, cloth_ranges, instance_materials, strand_materials,
-                     grid_motion, instance_motions,
+                    [this, &frame, gpu, meshlet, instance_materials, strand_materials,
+                     instance_motions,
                      strand_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        Scene::SceneSetWriter writer;
+                        // The full scene set the shading fragment shader reads. Factored into a
+                        // lambda because the GPU-driven path pushes it against two layouts in a
+                        // row (the GPU layout for the indirect batch, then the classic layout
+                        // for the cloth draw that follows).
+                        const auto write_scene_set = [&](Scene::SceneSetWriter& writer)
+                        {
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
@@ -480,24 +493,15 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::GI_PROBE_CONFIG_BINDING,
                                        gi_.config_buffer(frame.index),
                                        IrradianceVolumePass::config_bytes());
+                        };
+
+                        Scene::SceneSetWriter writer;
+                        write_scene_set(writer);
                         writer.commit(cmd, frame.layout->pipeline_layout());
                         frame.layout->bind_heap(cmd);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
-
-                        // Ground grid: a single flat-coloured line draw.
-                        const Geometry::Mesh& grid = meshes_.grid();
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, line_pipeline_.get());
-                        vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
-                        vkCmdBindVertexBuffers(cmd, 0, 1, &grid.vertices, &zero);
-                        const MeshPushConstants grid_push =
-                            make_push(Mat4{}, frame.eye,
-                                      flat_material(Vector3{0.32f, 0.33f, 0.40f}), NO_PICK,
-                                      NO_PICK, 0, grid_motion);
-                        vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
-                                           sizeof(MeshPushConstants), &grid_push);
-                        vkCmdDraw(cmd, grid.vertex_count, 1, 0, 0);
 
                         // Instances draw grouped by geometry so each mesh's buffers are
                         // bound once per group rather than once per instance. An instance
@@ -557,34 +561,155 @@ namespace SushiEngine
                             }
                         };
 
-                        draw_instances(mesh_pipeline_.get(), false);
-                        if (frame.draws.selected_id != NO_PICK)
-                            draw_instances(outline_pipeline_.get(), true);
+                        if (meshlet)
+                        {
+                            // Meshlet path: re-push set 0 on the meshlet layout, plant its heap,
+                            // then one mesh-shader draw per instance. The task shader culls the
+                            // mesh's clusters; nothing is selected here, so stencil stays zero.
+                            const VkPipelineLayout meshlet_layout = layout_.meshlet_pipeline_layout();
+                            Scene::SceneSetWriter meshlet_writer;
+                            write_scene_set(meshlet_writer);
+                            meshlet_writer.commit(cmd, meshlet_layout);
+                            layout_.bind_meshlet_heap(cmd);
+                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                              meshlet_pipeline_.get());
+                            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+                            const Vulkan::MeshShaderFunctions& mesh_shader = device_.mesh_shader();
 
-                        if (cloth == nullptr || cloth->index_count == 0)
+                            for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
+                            {
+                                const MeshInstance& instance = frame.draws.instances[i];
+                                const bool imported = instance.mesh != INVALID_MESH;
+                                const Geometry::Mesh& mesh = imported
+                                                                 ? meshes_.mesh(instance.mesh)
+                                                                 : meshes_.primitive(instance.kind);
+                                if (mesh.meshlet_count == 0)
+                                    continue;
+
+                                const VkDescriptorSet meshlet_set =
+                                    frame.descriptors->allocate(layout_.meshlet_set_layout());
+                                Resources::DescriptorWriter meshlet_set_writer;
+                                meshlet_set_writer.storage_buffer(0, mesh.meshlet_descriptors,
+                                                                  VK_WHOLE_SIZE);
+                                meshlet_set_writer.storage_buffer(1, mesh.meshlet_vertices,
+                                                                  VK_WHOLE_SIZE);
+                                meshlet_set_writer.storage_buffer(2, mesh.meshlet_triangles,
+                                                                  VK_WHOLE_SIZE);
+                                meshlet_set_writer.storage_buffer(3, mesh.vertices, VK_WHOLE_SIZE);
+                                meshlet_set_writer.update(device_.device(), meshlet_set);
+                                Resources::bind_descriptor_set(
+                                    cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
+                                    Scene::SceneLayout::INSTANCE_SET, meshlet_set);
+
+                                const Mat4 model =
+                                    imported ? instance.model
+                                             : mul(instance.model,
+                                                   Geometry::shape_scale(instance.kind,
+                                                                         instance.shape_params));
+                                Scene::MeshletPushConstants push{};
+                                for (int m = 0; m < 16; ++m)
+                                    push.model[m] = static_cast<float>(model.m[m]);
+                                push.model[12] = static_cast<float>(model.m[12] - frame.eye[0]);
+                                push.model[13] = static_cast<float>(model.m[13] - frame.eye[1]);
+                                push.model[14] = static_cast<float>(model.m[14] - frame.eye[2]);
+                                push.material_index = instance_materials[i];
+                                push.entity_id = instance.id;
+                                push.motion_index = instance_motions[i];
+                                push.meshlet_count = mesh.meshlet_count;
+                                vkCmdPushConstants(cmd, meshlet_layout, MESHLET_PUSH_STAGES, 0,
+                                                   sizeof(Scene::MeshletPushConstants), &push);
+                                mesh_shader.draw_mesh_tasks(cmd, meshlet_groups(mesh.meshlet_count),
+                                                            1, 1);
+                            }
+
+                            // Restore set 0 and the heap on the classic layout for the cloth
+                            // draw that follows.
+                            Scene::SceneSetWriter restore;
+                            write_scene_set(restore);
+                            restore.commit(cmd, frame.layout->pipeline_layout());
+                            frame.layout->bind_heap(cmd);
+                        }
+                        else if (gpu)
+                        {
+                            // GPU-driven indirect batch: re-push set 0 on the GPU layout, plant
+                            // its heap and instance set, then one indirect draw per bucket whose
+                            // instance count the cull pass decided. No outline path — the GPU
+                            // path is only taken when nothing is selected.
+                            const VkPipelineLayout gpu_layout = layout_.gpu_pipeline_layout();
+                            Scene::SceneSetWriter gpu_writer;
+                            write_scene_set(gpu_writer);
+                            gpu_writer.commit(cmd, gpu_layout);
+                            layout_.bind_gpu_heap(cmd);
+
+                            const VkDescriptorSet instance_set =
+                                frame.descriptors->allocate(layout_.instance_set_layout());
+                            Resources::DescriptorWriter instance_writer;
+                            instance_writer.storage_buffer(0, instances_.instance_buffer(),
+                                                           instances_.instance_buffer_range());
+                            instance_writer.storage_buffer(
+                                1, context.buffer(frame.targets.compacted),
+                                frame.gpu_instance_count * sizeof(std::uint32_t));
+                            instance_writer.update(device_.device(), instance_set);
+                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                           gpu_layout,
+                                                           Scene::SceneLayout::INSTANCE_SET,
+                                                           instance_set);
+
+                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                              gpu_mesh_pipeline_.get());
+                            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+                            const VkBuffer commands = context.buffer(frame.targets.draw_commands);
+                            const std::vector<Scene::GpuDrawBucket>& buckets = instances_.buckets();
+                            const VkDeviceSize zero_offset = 0;
+                            for (std::size_t b = 0; b < buckets.size(); ++b)
+                            {
+                                const Scene::GpuDrawBucket& bucket = buckets[b];
+                                vkCmdBindVertexBuffers(cmd, 0, 1, &bucket.vertices, &zero_offset);
+                                vkCmdBindIndexBuffer(cmd, bucket.indices, 0, VK_INDEX_TYPE_UINT32);
+                                Scene::GpuDrawPush push{bucket.candidate_base, 0};
+                                vkCmdPushConstants(cmd, gpu_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                                                   sizeof(Scene::GpuDrawPush), &push);
+                                vkCmdDrawIndexedIndirect(
+                                    cmd, commands, b * sizeof(VkDrawIndexedIndirectCommand), 1,
+                                    sizeof(VkDrawIndexedIndirectCommand));
+                            }
+
+                            // Restore set 0 and the heap on the classic layout for the cloth
+                            // draw that follows, which uses the classic mesh pipeline.
+                            Scene::SceneSetWriter restore;
+                            write_scene_set(restore);
+                            restore.commit(cmd, frame.layout->pipeline_layout());
+                            frame.layout->bind_heap(cmd);
+                        }
+                        else
+                        {
+                            draw_instances(mesh_pipeline_.get(), false);
+                            if (frame.draws.selected_id != NO_PICK)
+                                draw_instances(outline_pipeline_.get(), true);
+                        }
+
+                        const Geometry::Mesh& cloth_mesh = cloth_.mesh(frame.slot);
+                        if (cloth_mesh.index_count == 0)
                             return;
 
                         // Soft bodies draw with the same lit pipeline the primitives use
                         // (already double-sided), so they shade and pick like any other
-                        // object rather than as a bare wireframe. Their vertices are
-                        // already camera-relative, so the push carries no eye of its own.
+                        // object rather than as a bare wireframe. The cloth pass wrote their
+                        // vertices camera-relative already, so the push carries no eye of its
+                        // own, and the GPU-baked indices are absolute into the shared vertex
+                        // buffer, so each strand's slice draws with vertex offset zero.
                         const double no_eye[3] = {0.0, 0.0, 0.0};
                         const auto draw_cloth = [&](VkPipeline pipeline, bool outline)
                         {
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                            vkCmdBindVertexBuffers(cmd, 0, 1, &cloth->vertices, &zero);
-                            vkCmdBindIndexBuffer(cmd, cloth->indices, 0, VK_INDEX_TYPE_UINT32);
+                            vkCmdBindVertexBuffers(cmd, 0, 1, &cloth_mesh.vertices, &zero);
+                            vkCmdBindIndexBuffer(cmd, cloth_mesh.indices, 0, VK_INDEX_TYPE_UINT32);
                             if (outline)
                                 vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
-                            std::size_t range = 0;
-                            for (std::size_t s = 0; s < frame.draws.strand_count; ++s)
+                            for (const Geometry::ClothStrandRange& range : cloth_.ranges())
                             {
+                                const std::size_t s = range.strand_index;
                                 const ClothStrandView& strand = frame.draws.strands[s];
-                                if (strand.rows < 2 || strand.cols < 2)
-                                    continue;
-                                const std::uint32_t index_offset = cloth_ranges[range].first;
-                                const std::uint32_t index_count = cloth_ranges[range].second;
-                                ++range;
                                 if (outline && strand.id != frame.draws.selected_id)
                                     continue;
                                 if (!outline)
@@ -598,7 +723,7 @@ namespace SushiEngine
                                               outline ? 0.006f : 0.0f);
                                 vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, index_count, 1, index_offset, 0, 0);
+                                vkCmdDrawIndexed(cmd, range.index_count, 1, range.base_index, 0, 0);
                             }
                         };
 

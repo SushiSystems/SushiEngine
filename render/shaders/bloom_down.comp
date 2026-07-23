@@ -1,0 +1,89 @@
+#version 450
+
+// Progressive bloom downsample: the 13-tap filter from Sledgehammer's "Next Generation
+// Post Processing in Call of Duty: Advanced Warfare" (Jimenez 2014). Thirteen bilinear
+// taps grouped into five 2x2 boxes weight the result so the chain is stable under motion
+// rather than shimmering as a naive box would. The first downsample (from the HDR scene)
+// takes a Karis luma-weighted average so a single firefly texel cannot dominate the halo.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1) uniform sampler2D unused_base; // present so one set layout serves both passes
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D dst;
+
+layout(push_constant) uniform Push
+{
+    vec4 a; // x = dst width, y = dst height, z = source lod, w = first-downsample flag
+    vec4 b; // unused by the downsample
+} pc;
+
+vec3 fetch(vec2 uv, vec2 offset, float lod)
+{
+    return textureLod(src, uv + offset, lod).rgb;
+}
+
+float karis_weight(vec3 c)
+{
+    // Weight a group by the inverse of its luma so the average is biased away from
+    // fireflies; only used on the first downsample where the input is raw HDR.
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    return 1.0 / (1.0 + luma);
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    int width = int(pc.a.x);
+    int height = int(pc.a.y);
+    if (p.x >= width || p.y >= height)
+        return;
+
+    float lod = pc.a.z;
+    vec2 uv = (vec2(p) + 0.5) / vec2(width, height);
+    vec2 texel = 1.0 / vec2(textureSize(src, int(lod)));
+
+    // The 13 taps: a centre 2x2 box (a..d overlapping), the four cardinal-edge boxes, and
+    // the four corners, at the offsets Jimenez lays out.
+    vec3 a = fetch(uv, vec2(-2.0, 2.0) * texel, lod);
+    vec3 b = fetch(uv, vec2(0.0, 2.0) * texel, lod);
+    vec3 c = fetch(uv, vec2(2.0, 2.0) * texel, lod);
+    vec3 d = fetch(uv, vec2(-2.0, 0.0) * texel, lod);
+    vec3 e = fetch(uv, vec2(0.0, 0.0) * texel, lod);
+    vec3 f = fetch(uv, vec2(2.0, 0.0) * texel, lod);
+    vec3 g = fetch(uv, vec2(-2.0, -2.0) * texel, lod);
+    vec3 h = fetch(uv, vec2(0.0, -2.0) * texel, lod);
+    vec3 i = fetch(uv, vec2(2.0, -2.0) * texel, lod);
+    vec3 j = fetch(uv, vec2(-1.0, 1.0) * texel, lod);
+    vec3 k = fetch(uv, vec2(1.0, 1.0) * texel, lod);
+    vec3 l = fetch(uv, vec2(-1.0, -1.0) * texel, lod);
+    vec3 m = fetch(uv, vec2(1.0, -1.0) * texel, lod);
+
+    // The five overlapping 2x2 boxes.
+    vec3 box_centre = (j + k + l + m) * 0.25;
+    vec3 box_tl = (a + b + d + e) * 0.25;
+    vec3 box_tr = (b + c + e + f) * 0.25;
+    vec3 box_bl = (d + e + g + h) * 0.25;
+    vec3 box_br = (e + f + h + i) * 0.25;
+
+    vec3 result;
+    if (pc.a.w > 0.5)
+    {
+        // Karis average: weight each box by its inverse luma before combining.
+        float w0 = karis_weight(box_centre);
+        float w1 = karis_weight(box_tl);
+        float w2 = karis_weight(box_tr);
+        float w3 = karis_weight(box_bl);
+        float w4 = karis_weight(box_br);
+        float total = w0 * 0.5 + (w1 + w2 + w3 + w4) * 0.125;
+        result = (box_centre * w0 * 0.5 +
+                  (box_tl * w1 + box_tr * w2 + box_bl * w3 + box_br * w4) * 0.125) /
+                 max(total, 1e-4);
+    }
+    else
+    {
+        result = box_centre * 0.5 + (box_tl + box_tr + box_bl + box_br) * 0.125;
+    }
+
+    imageStore(dst, p, vec4(result, 1.0));
+}

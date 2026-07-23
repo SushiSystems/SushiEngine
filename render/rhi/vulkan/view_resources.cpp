@@ -217,6 +217,15 @@ namespace SushiEngine
                     slot.shadow_mapped = shadow_mapped.pMappedData;
                     slot.shadow_state = Graph::BufferState{};
 
+                    VkBufferCreateInfo post_info = uniform_info;
+                    post_info.size = sizeof(Scene::PostProcessUniforms);
+                    VmaAllocationInfo post_mapped{};
+                    check(vmaCreateBuffer(device_.allocator(), &post_info, &uniform_alloc,
+                                          &slot.post, &slot.post_allocation, &post_mapped),
+                          "vmaCreateBuffer(post uniforms)");
+                    slot.post_mapped = post_mapped.pMappedData;
+                    slot.post_state = Graph::BufferState{};
+
                     slot.ever_rendered = false;
                 }
 
@@ -274,6 +283,8 @@ namespace SushiEngine
 
                 for (Slot& slot : slots_)
                 {
+                    if (slot.post != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.post, slot.post_allocation);
                     if (slot.shadow != VK_NULL_HANDLE)
                         vmaDestroyBuffer(device_.allocator(), slot.shadow,
                                          slot.shadow_allocation);
@@ -291,6 +302,8 @@ namespace SushiEngine
                     if (slot.resolve != VK_NULL_HANDLE)
                         vmaDestroyImage(device_.allocator(), slot.resolve,
                                         slot.resolve_allocation);
+                    slot.post = VK_NULL_HANDLE;
+                    slot.post_mapped = nullptr;
                     slot.shadow = VK_NULL_HANDLE;
                     slot.shadow_mapped = nullptr;
                     slot.temporal = VK_NULL_HANDLE;
@@ -374,6 +387,12 @@ namespace SushiEngine
                                               const Scene::ShadowUniforms& uniforms)
             {
                 std::memcpy(slots_[slot].shadow_mapped, &uniforms, sizeof(uniforms));
+            }
+
+            void ViewResources::upload_post(std::uint32_t slot,
+                                            const Scene::PostProcessUniforms& uniforms)
+            {
+                std::memcpy(slots_[slot].post_mapped, &uniforms, sizeof(uniforms));
             }
 
             void ViewResources::note_render_extent(std::uint32_t slot, std::uint32_t render_width,
@@ -517,6 +536,59 @@ namespace SushiEngine
                               color_target(width_, height_, Frame::RESOLVE_FORMAT, "tonemapped"))
                         : targets.resolve;
 
+                // The colour the display transform reads. It starts as whatever the frame
+                // resolved to — the temporal resolve's output, or the composited scene when
+                // temporal is off — and the depth-of-field and motion-blur passes, when they
+                // run, redirect it to their own output so the tone map reads the last effect
+                // in the chain without the neighbouring passes naming each other.
+                const Graph::TextureHandle base =
+                    frame.temporal_enabled() ? targets.resolved : targets.scene_final;
+                targets.post_color = base;
+
+                // The post-resolve chain works at the source's extent — the output grid the
+                // temporal resolve accumulated into, or the internal render extent with no
+                // resolve — so its targets never quietly re-downsample the resolved image.
+                const std::uint32_t post_w = frame.post_width();
+                const std::uint32_t post_h = frame.post_height();
+
+                // Depth of field and motion blur, when enabled, each take the previous stage's
+                // colour and hand their own output on, so the display transform reads the last
+                // one that ran. The targets exist only when the effect runs; the passes read
+                // their own input from the same rule the chain is built with here.
+                if (frame.settings.post.depth_of_field.enabled && frame.quality.depth_of_field)
+                {
+                    targets.dof = graph.create_texture(
+                        color_target(post_w, post_h, Frame::HDR_FORMAT, "depth of field"));
+                    targets.post_color = targets.dof;
+                }
+                if (frame.settings.post.motion_blur.enabled && frame.quality.motion_blur)
+                {
+                    targets.motion_blur = graph.create_texture(
+                        color_target(post_w, post_h, Frame::HDR_FORMAT, "motion blur"));
+                    targets.post_color = targets.motion_blur;
+                }
+
+                // The bloom pyramid's result, at half the post extent — the display transform
+                // samples it bilinearly back to full. Created only when bloom runs this frame,
+                // so an off frame leaves the handle invalid and the tone map skips the composite.
+                if (frame.settings.post.bloom.enabled && frame.quality.bloom)
+                {
+                    targets.bloom = graph.create_texture(color_target(
+                        (post_w + 1) / 2, (post_h + 1) / 2, Frame::HDR_FORMAT, "bloom"));
+                }
+
+                // The editor reference grid, composited after bloom and auto-exposure so it
+                // neither blooms nor skews the exposure, and just before the tone map. It reads
+                // whatever the post chain produced (grid_source) and writes its own output, which
+                // the tone map then prefers over post_color. Off frames leave both handles invalid
+                // and the tone map reads post_color directly.
+                if (frame.grid.enabled)
+                {
+                    targets.grid_source = targets.post_color;
+                    targets.grid = graph.create_texture(
+                        color_target(post_w, post_h, Frame::HDR_FORMAT, "editor grid"));
+                }
+
                 Graph::ImportedBuffer readback;
                 readback.buffer = slots_[frame.slot].readback;
                 readback.mapped = slots_[frame.slot].readback_mapped;
@@ -557,6 +629,16 @@ namespace SushiEngine
                 shadow.state = &slots_[frame.slot].shadow_state;
                 targets.shadow = graph.import_buffer(shadow);
 
+                Graph::ImportedBuffer post;
+                post.buffer = slots_[frame.slot].post;
+                post.mapped = slots_[frame.slot].post_mapped;
+                post.desc.size = sizeof(Scene::PostProcessUniforms);
+                post.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                post.desc.host_visible = true;
+                post.desc.name = "post uniforms";
+                post.state = &slots_[frame.slot].post_state;
+                targets.post = graph.import_buffer(post);
+
                 // The froxel cluster grid, transient device buffers: the cull pass writes
                 // them and the opaque pass reads them within the same frame, so they are
                 // graph-owned and the compute→fragment barrier is derived, not imported
@@ -584,6 +666,30 @@ namespace SushiEngine
                 decal_index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 decal_index_desc.name = "decal index list";
                 targets.decal_index = graph.create_buffer(decal_index_desc);
+
+                // The GPU-driven geometry buffers, transient and device-local: the cull pass
+                // writes them and the depth/opaque passes read them the same frame, so the
+                // graph derives the compute→draw-indirect and compute→vertex barriers. Only
+                // declared when the path is on and the frame packed something, so an off frame
+                // (or the classic path) allocates nothing.
+                if (frame.quality.gpu_driven && frame.gpu_instance_count > 0 &&
+                    frame.gpu_bucket_count > 0)
+                {
+                    Graph::BufferDesc commands_desc;
+                    commands_desc.size = static_cast<VkDeviceSize>(frame.gpu_bucket_count) *
+                                         sizeof(VkDrawIndexedIndirectCommand);
+                    commands_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                          VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+                    commands_desc.name = "gpu draw commands";
+                    targets.draw_commands = graph.create_buffer(commands_desc);
+
+                    Graph::BufferDesc compacted_desc;
+                    compacted_desc.size = static_cast<VkDeviceSize>(frame.gpu_instance_count) *
+                                          sizeof(std::uint32_t);
+                    compacted_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    compacted_desc.name = "gpu compacted instances";
+                    targets.compacted = graph.create_buffer(compacted_desc);
+                }
 
                 return targets;
             }

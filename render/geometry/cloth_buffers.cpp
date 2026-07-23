@@ -10,7 +10,6 @@
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
 /* you may not use this file except in compliance with the License.       */
-/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -37,6 +36,7 @@ namespace SushiEngine
             ClothBuffers::ClothBuffers(Vulkan::VulkanDevice& device, std::uint32_t frame_slots)
                 : device_(device)
             {
+                positions_.resize(frame_slots);
                 vertices_.resize(frame_slots);
                 indices_.resize(frame_slots);
                 meshes_.resize(frame_slots);
@@ -44,6 +44,8 @@ namespace SushiEngine
 
             ClothBuffers::~ClothBuffers()
             {
+                for (Allocation& allocation : positions_)
+                    destroy(allocation);
                 for (Allocation& allocation : vertices_)
                     destroy(allocation);
                 for (Allocation& allocation : indices_)
@@ -51,7 +53,7 @@ namespace SushiEngine
             }
 
             void ClothBuffers::grow(Allocation& target, VkDeviceSize bytes,
-                                    VkBufferUsageFlags usage)
+                                    VkBufferUsageFlags usage, bool host_visible)
             {
                 if (bytes == 0 || bytes <= target.capacity)
                     return;
@@ -64,14 +66,15 @@ namespace SushiEngine
 
                 VmaAllocationCreateInfo alloc{};
                 alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                              VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                if (host_visible)
+                    alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                  VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
                 VmaAllocationInfo info{};
                 Vulkan::check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc,
                                               &target.buffer, &target.allocation, &info),
                               "vmaCreateBuffer(cloth)");
-                target.mapped = info.pMappedData;
+                target.mapped = host_visible ? info.pMappedData : nullptr;
                 target.capacity = bytes;
             }
 
@@ -82,30 +85,90 @@ namespace SushiEngine
                 target = Allocation{};
             }
 
-            const Mesh& ClothBuffers::upload(std::uint32_t slot, const MeshVertex* vertices,
-                                             std::size_t vertex_count,
-                                             const std::uint32_t* indices,
-                                             std::size_t index_count)
+            void ClothBuffers::prepare(std::uint32_t slot, const ClothStrandView* strands,
+                                       std::size_t strand_count, const double eye[3])
             {
-                Mesh& mesh = meshes_[slot];
-                mesh = Mesh{};
-                if (vertices == nullptr || indices == nullptr || vertex_count == 0 ||
-                    index_count == 0)
-                    return mesh;
+                ranges_.clear();
+                packed_positions_.clear();
+                total_vertices_ = 0;
+                meshes_[slot] = Mesh{};
+                if (strands == nullptr || strand_count == 0)
+                    return;
 
-                Allocation& vertex_buffer = vertices_[slot];
-                Allocation& index_buffer = indices_[slot];
-                grow(vertex_buffer, vertex_count * sizeof(MeshVertex),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-                grow(index_buffer, index_count * sizeof(std::uint32_t),
-                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-                std::memcpy(vertex_buffer.mapped, vertices, vertex_count * sizeof(MeshVertex));
-                std::memcpy(index_buffer.mapped, indices, index_count * sizeof(std::uint32_t));
+                std::uint32_t vertex_total = 0;
+                std::uint32_t index_total = 0;
+                for (std::size_t s = 0; s < strand_count; ++s)
+                {
+                    const ClothStrandView& strand = strands[s];
+                    if (strand.rows < 2 || strand.cols < 2 || strand.vertices == nullptr)
+                        continue;
 
-                mesh = Mesh{vertex_buffer.buffer, index_buffer.buffer,
-                            static_cast<std::uint32_t>(vertex_count),
-                            static_cast<std::uint32_t>(index_count)};
-                return mesh;
+                    const std::uint32_t vertices = strand.rows * strand.cols;
+                    const std::uint32_t indices = (strand.rows - 1) * (strand.cols - 1) * 6;
+
+                    ClothStrandRange range;
+                    range.rows = strand.rows;
+                    range.cols = strand.cols;
+                    range.base_vertex = vertex_total;
+                    range.base_index = index_total;
+                    range.vertex_count = vertices;
+                    range.index_count = indices;
+                    range.strand_index = static_cast<std::uint32_t>(s);
+
+                    // The strand origin is its first particle; the local positions packed
+                    // below are each particle minus that origin, computed in double so a
+                    // planet-scale absolute position never touches single precision. The
+                    // origin itself is made camera-relative the same way, and the GPU adds
+                    // the two back — exactly reproducing the per-vertex eye subtraction the
+                    // classic CPU triangulation did, but only once per strand here.
+                    const Vector3& origin = strand.vertices[0];
+                    range.origin[0] = static_cast<float>(origin.x - eye[0]);
+                    range.origin[1] = static_cast<float>(origin.y - eye[1]);
+                    range.origin[2] = static_cast<float>(origin.z - eye[2]);
+                    ranges_.push_back(range);
+
+                    for (std::uint32_t i = 0; i < vertices; ++i)
+                    {
+                        const Vector3& p = strand.vertices[i];
+                        packed_positions_.push_back(static_cast<float>(p.x - origin.x));
+                        packed_positions_.push_back(static_cast<float>(p.y - origin.y));
+                        packed_positions_.push_back(static_cast<float>(p.z - origin.z));
+                        packed_positions_.push_back(0.0f); // pad to a vec4 for the std430 stride
+                    }
+
+                    vertex_total += vertices;
+                    index_total += indices;
+                }
+
+                if (vertex_total == 0)
+                    return;
+                total_vertices_ = vertex_total;
+
+                grow(positions_[slot], packed_positions_.size() * sizeof(float),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+                std::memcpy(positions_[slot].mapped, packed_positions_.data(),
+                            packed_positions_.size() * sizeof(float));
+
+                // The vertex and index buffers are device-local: the GPU writes them (storage)
+                // and the draw reads them (vertex/index). No host mapping — nothing but the
+                // positions above ever leaves the host.
+                grow(vertices_[slot], static_cast<VkDeviceSize>(vertex_total) * sizeof(MeshVertex),
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
+                grow(indices_[slot], static_cast<VkDeviceSize>(index_total) * sizeof(std::uint32_t),
+                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
+
+                meshes_[slot] = Mesh{vertices_[slot].buffer, indices_[slot].buffer, vertex_total,
+                                     index_total, 0.0f};
+            }
+
+            VkBuffer ClothBuffers::positions(std::uint32_t slot) const noexcept
+            {
+                return positions_[slot].buffer;
+            }
+
+            VkDeviceSize ClothBuffers::positions_range() const noexcept
+            {
+                return static_cast<VkDeviceSize>(total_vertices_) * 4 * sizeof(float);
             }
         } // namespace Geometry
     } // namespace Render
