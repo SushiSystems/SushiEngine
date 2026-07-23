@@ -73,6 +73,30 @@ namespace SushiEngine
             };
 
             /**
+             * @brief A scene field a shading pass can trace a shadow ray against.
+             *
+             * A tracer builds *some* representation of the scene to gather probe radiance
+             * from; where that representation is a distance field, it is also the cheapest
+             * answer to "is this light visible from this surface" that does not cost a
+             * shadow map — which is what lets the light engine shadow more lights than the
+             * atlas has tiles for. Offered, not required: a tracer that keeps no such field
+             * (the environment floor tier) returns an empty record and the shading pass
+             * falls back to shadowing only the lights that hold an atlas tile.
+             */
+            struct VisibilityField
+            {
+                VkImageView distance_field = VK_NULL_HANDLE; /**< sampler3D: rgb albedo, a distance. */
+                VkBuffer config = VK_NULL_HANDLE;            /**< The block locating it in space. */
+                VkDeviceSize config_bytes = 0;
+
+                /** @brief Whether this record names a field that can be traced. */
+                bool valid() const noexcept
+                {
+                    return distance_field != VK_NULL_HANDLE && config != VK_NULL_HANDLE;
+                }
+            };
+
+            /**
              * @brief A pluggable probe relight strategy.
              *
              * Implementations own their own compute pipeline and descriptor layout; the
@@ -94,6 +118,21 @@ namespace SushiEngine
 
                     /** @brief A short name for the profiler and the editor tier readout. */
                     virtual const char* name() const noexcept = 0;
+
+                    /**
+                     * @brief The scene field a shading pass may trace shadow rays against.
+                     *
+                     * Defaulted to empty so a tracer that keeps no traceable field says
+                     * nothing rather than being forced to invent one.
+                     *
+                     * @param frame_index The frame counter, selecting the tracer's ring slot.
+                     * @return The field, or an empty record.
+                     */
+                    virtual VisibilityField visibility_field(std::uint32_t frame_index) const noexcept
+                    {
+                        (void)frame_index;
+                        return {};
+                    }
 
                     /** @brief Rebuilds the compute pipeline after a shader hot-reload. */
                     virtual void rebuild_pipelines() = 0;

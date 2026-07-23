@@ -84,6 +84,10 @@ namespace SushiEngine
                 image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
                 image_info.usage = desc.usage;
                 image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                // Only a transient the graph found on both queues pays for concurrent
+                // sharing; the rest stay exclusive and keep their compression.
+                if (desc.cross_queue)
+                    device_.share_across_queues(image_info);
 
                 VmaAllocationCreateInfo alloc{};
                 alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -189,6 +193,8 @@ namespace SushiEngine
                 buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
                 buffer_info.size = desc.size;
                 buffer_info.usage = desc.usage;
+                if (desc.cross_queue)
+                    device_.share_across_queues(buffer_info);
 
                 VmaAllocationCreateInfo alloc{};
                 alloc.usage = desc.host_visible ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST

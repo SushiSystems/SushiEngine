@@ -42,9 +42,12 @@ namespace SushiEngine
             namespace
             {
                 constexpr std::uint32_t GROUP_SIZE = 16;
-                // The histogram's log2-luminance window. Wide enough to hold moonlight through
-                // a sunlit sky; the authored EV range clamps the *result*, not the bins.
-                constexpr float MIN_LOG = -10.0f;
+                // The histogram's log2-luminance window. The floor has to reach true
+                // moonlight, which is physically derived and lands near 3e-6 of sunlight —
+                // roughly 2^-18 off a sunlit surface — so a -10 floor would pile every
+                // moonlit night into the first bin and meter it as black. The authored EV
+                // range clamps the *result*, not the bins.
+                constexpr float MIN_LOG = -20.0f;
                 constexpr float MAX_LOG = 10.0f;
 
                 std::uint32_t groups(std::uint32_t extent) noexcept

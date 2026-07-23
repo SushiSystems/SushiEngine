@@ -71,33 +71,57 @@ namespace SushiEngine
                 create_pipeline();
             }
 
+            const char* TaaPass::name() const noexcept { return "Temporal (built-in)"; }
+
             void TaaPass::register_pass(Graph::RenderGraph& graph,
                                         const Frame::FrameContext& frame)
             {
                 if (!frame.temporal_enabled())
                     return;
 
+                // The pass's own view of the frame, expressed in the terms every
+                // reconstruction backend takes; a vendor upscaler is handed exactly this.
+                Frame::UpscaleInputs inputs;
+                inputs.color = frame.targets.scene_final;
+                inputs.depth = frame.targets.depth;
+                inputs.velocity = frame.targets.velocity;
+                inputs.history = frame.history_valid ? frame.targets.history
+                                                     : Graph::TextureHandle{};
+                inputs.output = frame.targets.resolved;
+                inputs.scene = frame.targets.uniforms;
+                inputs.temporal = frame.targets.temporal;
+                inputs.render_width = frame.width;
+                inputs.render_height = frame.height;
+                inputs.output_width = frame.output_width;
+                inputs.output_height = frame.output_height;
+                inputs.jitter[0] = frame.jitter[0];
+                inputs.jitter[1] = frame.jitter[1];
+                inputs.reset = !frame.history_valid;
+                register_upscale(graph, frame, inputs);
+            }
+
+            void TaaPass::register_upscale(Graph::RenderGraph& graph,
+                                           const Frame::FrameContext& frame,
+                                           const Frame::UpscaleInputs& inputs)
+            {
                 graph.add_pass(
                     "temporal resolve",
-                    [&](Graph::RenderPassBuilder& builder)
+                    [&frame, inputs](Graph::RenderPassBuilder& builder)
                     {
-                        builder.color_attachment(0, frame.targets.resolved,
+                        builder.color_attachment(0, inputs.output,
                                                  Graph::AttachmentLoad::Discard);
-                        builder.read(frame.targets.scene_final,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.velocity,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);
+                        builder.read(inputs.color, Graph::TextureAccess::SampledFragment);
+                        builder.read(inputs.velocity, Graph::TextureAccess::SampledFragment);
+                        builder.read(inputs.depth, Graph::TextureAccess::SampledFragment);
                         // The history is last frame's resolved image, which this frame
                         // must not also write; the two ping-pong, so declaring the read
                         // is all the graph needs to order them.
-                        if (frame.history_valid)
-                            builder.read(frame.targets.history,
-                                         Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.temporal, Graph::BufferAccess::UniformRead);
+                        if (inputs.history.valid())
+                            builder.read(inputs.history, Graph::TextureAccess::SampledFragment);
+                        builder.read(inputs.scene, Graph::BufferAccess::UniformRead);
+                        builder.read(inputs.temporal, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame, inputs](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         // Clamped addressing everywhere: a reprojection that lands just
                         // outside the image must read its edge, never wrap to the far
@@ -105,18 +129,18 @@ namespace SushiEngine
                         const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
                         Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
-                                       context.buffer(frame.targets.uniforms),
+                                       context.buffer(inputs.scene),
                                        sizeof(Scene::SceneUniforms));
-                        writer.image(1, context.sampled_view(frame.targets.scene_final), sampler);
+                        writer.image(1, context.sampled_view(inputs.color), sampler);
                         writer.image(2,
-                                     context.sampled_view(frame.history_valid
-                                                              ? frame.targets.history
-                                                              : frame.targets.scene_final),
+                                     context.sampled_view(inputs.history.valid()
+                                                              ? inputs.history
+                                                              : inputs.color),
                                      sampler);
-                        writer.image(3, context.sampled_view(frame.targets.velocity), sampler);
-                        writer.image(4, context.sampled_view(frame.targets.depth), sampler);
+                        writer.image(3, context.sampled_view(inputs.velocity), sampler);
+                        writer.image(4, context.sampled_view(inputs.depth), sampler);
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
-                                       context.buffer(frame.targets.temporal),
+                                       context.buffer(inputs.temporal),
                                        sizeof(Scene::TemporalUniforms));
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
@@ -125,6 +149,7 @@ namespace SushiEngine
                         vkCmdDraw(cmd, 3, 1, 0, 0);
                     });
             }
+
         } // namespace Passes
     } // namespace Render
 } // namespace SushiEngine

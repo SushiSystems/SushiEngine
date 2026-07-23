@@ -142,6 +142,10 @@ namespace SushiEngine
                 const Environment& environment = *frame.environment;
 
                 const bool enabled = environment.gi.enabled && frame.quality.probe_gi;
+                // The scene field the shading pass traces shadow rays against is repopulated
+                // by this pass; on a frame it does not run, the field holds whenever GI was
+                // last on and must not be traced.
+                field_live_ = enabled;
 
                 // The config block is written every frame — enabled or not — so the shading
                 // pass always has a valid binding to read and fall back on.

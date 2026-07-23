@@ -27,9 +27,11 @@
  * @file grid_pass.hpp
  * @brief The editor-only reference grid overlay.
  *
- * A fullscreen pass that ray-marches the local horizon plane and composites an adaptive,
- * analytically anti-aliased XZ grid over the HDR post colour, occluded by scene geometry.
- * It slots into the post chain as one more link that redirects @c post_color, exactly like
+ * A fullscreen pass that composites an adaptive, analytically anti-aliased grid over the
+ * HDR post colour, occluded by scene geometry. Near a planet the grid is that planet's
+ * sea level — the same reference ellipsoid the analytic ground is drawn against — and out
+ * in space it becomes the ecliptic plane pinned at the Sun; the camera's altitude above
+ * the dominant body crossfades between them. It slots into the post chain as one more link that redirects @c post_color, exactly like
  * depth of field and motion blur, so the tone map reads it without naming it. Registered
  * only when the frame carries an enabled grid overlay — a shipped runtime never runs it.
  */
@@ -61,6 +63,23 @@ namespace SushiEngine
 
         namespace Passes
         {
+            /**
+             * @brief The interplanetary frame the grid pass needs and the scene block lacks.
+             *
+             * The sea-level regime reads the planet's ellipsoid straight out of the shared
+             * scene block, but nothing there locates the Sun or the ecliptic plane, so the
+             * space regime's origin and orientation ride a push constant instead of growing
+             * the block every pass would then have to re-declare. Explicit float arrays: GPU
+             * data is 32-bit whatever the engine's Scalar precision, so a double build
+             * narrows to float exactly here, after the camera-relative subtraction.
+             */
+            struct GridPushConstants
+            {
+                float sun_position[4];       /**< xyz = Sun centre relative to the camera, metres; w = space regime weight. */
+                float ecliptic_normal[4];    /**< xyz = unit ecliptic pole, scene frame. */
+                float ecliptic_reference[4]; /**< xyz = unit vernal-equinox direction in the ecliptic plane. */
+            };
+
             /**
              * @brief Composites the editor reference grid over the scene.
              *

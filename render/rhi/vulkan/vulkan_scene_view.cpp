@@ -24,12 +24,16 @@
 #include "vulkan_scene_view.hpp"
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include "frame/temporal_jitter.hpp"
 #include "geometry/mesh_registry.hpp"
 #include "material/asset_library.hpp"
+#include "gi/sdf_clipmap.hpp"
 #include "material/material_system.hpp"
+#include "resources/descriptor_heap.hpp"
 #include "resources/sampler_cache.hpp"
 #include "scene/post_process_uniforms.hpp"
 #include "scene/scene_uniforms.hpp"
@@ -217,6 +221,19 @@ namespace SushiEngine
                 render_height_ = height;
             }
 
+            void VulkanSceneView::update_frame_slots(std::uint32_t requested)
+            {
+                const std::uint32_t slots =
+                    requested < 2u ? 2u : (requested > SLOTS ? SLOTS : requested);
+                if (slots == frame_slots_)
+                    return;
+                // Changing the depth changes which slot a frame index maps to, so the frames
+                // already in flight have to land first: their resources would otherwise be
+                // reused by a frame the old mapping never expected to collide with.
+                vkDeviceWaitIdle(device_.device());
+                frame_slots_ = slots;
+            }
+
             SceneViewTexture VulkanSceneView::texture(std::uint32_t slot) const noexcept
             {
                 return resources_.texture(slot);
@@ -256,15 +273,30 @@ namespace SushiEngine
                                          const Decal* decals, std::size_t decal_count,
                                          bool show_grid)
             {
-                const std::uint32_t index = frame_counter_ % SLOTS;
-                const VkFence fence = resources_.fence(index);
-                const VkCommandBuffer cmd = resources_.command_buffer(index);
+                // Resolve the quality tier once, here, into the effective settings every
+                // pass reads and the extra per-pass knobs that have no home in
+                // RenderSettings. The authored settings_ stays the untouched baseline the
+                // tier scales from, so the next frame resolves from the same request. It is
+                // resolved before the slot is picked because how deep the frame chain runs
+                // is one of the things it decides.
+                const ResolvedQuality resolved = resolve_quality(settings_);
+                const RenderSettings& effective = resolved.settings;
 
-                if (resources_.ever_rendered(index))
-                    check(vkWaitForFences(device_.device(), 1, &fence, VK_TRUE, UINT64_MAX),
-                          "vkWaitForFences");
-                // The fence has been waited on, so this slot's previous submit is complete:
-                // its timestamps are readable and its transient resources are free.
+                // TEMPORARY DIAGNOSTIC — remove once the light/decal regression is closed.
+                if (std::getenv("SE_LIGHT_DEBUG") != nullptr && frame_counter_ % 60 == 0)
+                    std::fprintf(stderr,
+                                 "[light-debug] lights=%zu decals=%zu max_lights=%u "
+                                 "max_decals=%u cluster_far=%.1f\n",
+                                 light_count, decal_count, effective.lights.max_lights,
+                                 effective.lights.max_decals,
+                                 effective.lights.cluster_far_distance);
+                update_frame_slots(effective.delivery.frames_in_flight);
+
+                const std::uint32_t index = frame_counter_ % frame_slots_;
+
+                resources_.wait_for_slot(index);
+                // The slot's submissions have completed on both queues, so its timestamps
+                // are readable and its transient resources are free.
                 profiler_.resolve(index);
                 // Texture streaming and shader reload are device-level, so the asset
                 // library owns them; it reports back when the pipelines this view built
@@ -277,9 +309,7 @@ namespace SushiEngine
                 // picks is a response to a completed frame rather than a guess.
                 update_render_extent();
 
-                check(vkResetFences(device_.device(), 1, &fence), "vkResetFences");
-                check(vkResetCommandPool(device_.device(), resources_.command_pool(index), 0),
-                      "vkResetCommandPool");
+                resources_.reset_commands(index);
                 descriptors_.begin_frame(index);
                 resources_.begin_slot(index);
 
@@ -290,12 +320,6 @@ namespace SushiEngine
                 frame.height = render_height_;
                 frame.output_width = width_;
                 frame.output_height = height_;
-                // Resolve the quality tier once, here, into the effective settings every
-                // pass reads and the extra per-pass knobs that have no home in
-                // RenderSettings. The authored settings_ stays the untouched baseline the
-                // tier scales from, so the next frame resolves from the same request.
-                const ResolvedQuality resolved = resolve_quality(settings_);
-                const RenderSettings& effective = resolved.settings;
                 frame.settings = effective;
                 frame.quality = resolved.params;
                 frame.camera = &camera;
@@ -349,10 +373,19 @@ namespace SushiEngine
 
                 // The cascades are fitted before the targets are declared, because the
                 // atlas the graph allocates has to be sized to the fit.
+                //
+                // They follow light 0, not the Sun. The ephemeris orders the celestial
+                // lights by what each actually delivers at the camera, so light 0 is the
+                // Sun by day and whichever body dominates after it sets — which is what
+                // gives a full moon real cast shadows instead of a flat ambient lift. The
+                // single atlas goes to that light because every other one is, by the same
+                // ordering, too faint to resolve a shadow edge from.
+                const Vector3 key_light = environment.light_count > 0
+                                              ? environment.lights[0].direction
+                                              : environment.sun.direction;
                 Scene::ShadowUniforms shadow_uniforms;
                 frame.cascade_count = Scene::fit_shadow_cascades(
-                    camera, frame.eye, environment.sun.direction, effective.shadows,
-                    shadow_uniforms);
+                    camera, frame.eye, key_light, effective.shadows, shadow_uniforms);
                 frame.shadow_resolution =
                     frame.cascade_count > 0 ? (effective.shadows.resolution < 64u
                                                    ? 64u
@@ -432,6 +465,44 @@ namespace SushiEngine
                 lights_.assign_shadows(lights, light_count, frame.eye,
                                        effective.lights.shadow_atlas_size,
                                        effective.lights.max_shadow_casters, camera.near_plane);
+
+                // --- Stochastic shadows for the lights the atlas had no tile for ----------
+                // The GI tracer's distance field is the thing a shadow ray marches, so this
+                // path exists only where that field is live. It is registered in the bindless
+                // heap once — the field's image is created with the device and never
+                // reallocated — because the per-frame push set is full and a volume needs a
+                // home every pipeline can reach.
+                std::uint32_t samples = 0;
+                Gi::SdfClipmapConfig field_config{};
+                if (resolved.params.stochastic_light_samples > 0 &&
+                    effective.lights.stochastic_shadows && irradiance_volume_pass_.field_live())
+                {
+                    if (visibility_field_slot_ == Resources::INVALID_HEAP_INDEX)
+                    {
+                        const Gi::VisibilityField field =
+                            irradiance_volume_pass_.visibility_field(frame_counter_);
+                        if (field.valid())
+                            visibility_field_slot_ = assets_.heap().allocate_volume(
+                                field.distance_field,
+                                assets_.samplers().get(Resources::SamplerDesc{}));
+                    }
+                    if (visibility_field_slot_ != Resources::INVALID_HEAP_INDEX)
+                    {
+                        samples = resolved.params.stochastic_light_samples;
+                        // Derived from the eye by the same pure function the tracer's own
+                        // populate calls, so the block the shading pass marches with and the
+                        // field it marches can never describe different cubes.
+                        Gi::configure_sdf_clipmap(frame.eye, 0, field_config);
+                    }
+                }
+                lights_.set_stochastic_shadows(samples, effective.lights.stochastic_distance,
+                                               effective.lights.stochastic_softness,
+                                               visibility_field_slot_ ==
+                                                       Resources::INVALID_HEAP_INDEX
+                                                   ? 0u
+                                                   : visibility_field_slot_,
+                                               field_config.origin_voxel,
+                                               field_config.resolution);
 
                 // --- GPU-driven geometry: pack this frame's instances for the cull pass -----
                 // The path is permitted by the tier and the author, and needs the bindless
@@ -514,6 +585,12 @@ namespace SushiEngine
                 cloth_.prepare(index, strands, strand_count, frame.eye);
 
                 graph_.begin_frame(resources_.textures(index), resources_.buffers(index));
+                // Decided before the passes register, because a pass's queue declaration is
+                // collapsed at declaration time: the second queue has to exist on the device,
+                // the tier has to permit it, and the author has to have asked for it.
+                graph_.set_async_compute_enabled(device_.supports_async_compute() &&
+                                                 resolved.params.async_compute &&
+                                                 effective.delivery.async_compute);
                 frame.targets = resources_.declare_targets(
                     graph_, frame, shading_rate_pass_.enabled(frame),
                     shading_rate_pass_.texel_width(), shading_rate_pass_.texel_height());
@@ -542,23 +619,74 @@ namespace SushiEngine
                 // the classic path packed nothing this frame.
                 instance_system_.upload();
 
-                VkCommandBufferBeginInfo begin{};
-                begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                check(vkBeginCommandBuffer(cmd, &begin), "vkBeginCommandBuffer");
-                profiler_.begin_frame(index, cmd);
-                graph_.execute(cmd);
-                check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer");
+                // One command buffer per compiled submission, recorded and submitted in
+                // index order. With no async pass the graph compiles to a single graphics
+                // submission and this is exactly the one buffer it always recorded; with
+                // one, the runs alternate between the two queues and the graph's derived
+                // wait is what orders them.
+                const std::uint32_t submissions = graph_.submission_count();
+                std::vector<std::uint64_t> signalled(submissions, 0);
+                bool profiler_started = false;
+                for (std::uint32_t i = 0; i < submissions; ++i)
+                {
+                    const Graph::Submission& submission = graph_.submission(i);
+                    const bool compute = submission.queue == Graph::PassQueue::AsyncCompute;
+                    const VkCommandBuffer buffer =
+                        resources_.acquire_command_buffer(index, submission.queue);
 
-                VkCommandBufferSubmitInfo cmd_submit{};
-                cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                cmd_submit.commandBuffer = cmd;
-                VkSubmitInfo2 submit{};
-                submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-                submit.commandBufferInfoCount = 1;
-                submit.pCommandBufferInfos = &cmd_submit;
-                check(vkQueueSubmit2(device_.graphics_queue(), 1, &submit, fence),
-                      "vkQueueSubmit2");
+                    VkCommandBufferBeginInfo begin{};
+                    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                    check(vkBeginCommandBuffer(buffer, &begin), "vkBeginCommandBuffer");
+                    if (!profiler_started)
+                    {
+                        // The query-pool reset has to precede every timestamp the frame
+                        // writes, and the frame's first submission is the only place that is
+                        // guaranteed — whichever queue it turned out to be on.
+                        profiler_.begin_frame(index, buffer);
+                        profiler_started = true;
+                    }
+                    graph_.execute(buffer, i);
+                    check(vkEndCommandBuffer(buffer), "vkEndCommandBuffer");
+
+                    VkCommandBufferSubmitInfo cmd_submit{};
+                    cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                    cmd_submit.commandBuffer = buffer;
+
+                    VkSemaphoreSubmitInfo wait{};
+                    if (submission.wait != Graph::NO_SUBMISSION)
+                    {
+                        const Graph::Submission& producer = graph_.submission(submission.wait);
+                        wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                        wait.semaphore = resources_.timeline(producer.queue);
+                        wait.value = signalled[submission.wait];
+                        // The producer may have ended in any stage; the consuming queue only
+                        // has to be held before it begins, and its own barriers narrow the
+                        // scope from there.
+                        wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                    }
+
+                    signalled[i] = resources_.signal_next(index, submission.queue);
+                    VkSemaphoreSubmitInfo signal{};
+                    signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                    signal.semaphore = resources_.timeline(submission.queue);
+                    signal.value = signalled[i];
+                    signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+                    VkSubmitInfo2 submit{};
+                    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+                    submit.waitSemaphoreInfoCount =
+                        submission.wait != Graph::NO_SUBMISSION ? 1u : 0u;
+                    submit.pWaitSemaphoreInfos = &wait;
+                    submit.commandBufferInfoCount = 1;
+                    submit.pCommandBufferInfos = &cmd_submit;
+                    submit.signalSemaphoreInfoCount = 1;
+                    submit.pSignalSemaphoreInfos = &signal;
+                    check(vkQueueSubmit2(compute ? device_.async_compute_queue()
+                                                 : device_.graphics_queue(),
+                                         1, &submit, VK_NULL_HANDLE),
+                          "vkQueueSubmit2");
+                }
 
                 motion_.end_frame();
                 previous_camera_ = camera;

@@ -99,6 +99,11 @@ namespace SushiEngine
                     // The cheap floor keeps the classic one-draw-per-instance path: its scenes
                     // are simplest and the extra cull/occlusion compute passes buy little.
                     q.gpu_driven = false;
+                    // One queue and the shallowest pipeline: a small device has the least to
+                    // gain from overlap and the most to lose to a third frame's worth of
+                    // targets, so the floor holds the frame chain at two.
+                    q.async_compute = false;
+                    s.delivery.frames_in_flight = 2;
                     break;
 
                 case RenderQuality::Medium:
@@ -144,6 +149,10 @@ namespace SushiEngine
                     q.lobe_sheen = true;
                     q.lobe_transmission = true;
                     q.probe_gi = true;
+                    // One traced light per pixel: enough that the temporal resolve converges
+                    // on a shadowed answer for every light beyond the atlas budget, cheap
+                    // enough that the cost is a march and not a shadow map.
+                    q.stochastic_light_samples = 1;
                     // The full post stack is permitted; the author's per-effect enables decide.
                     q.bloom = true;
                     q.depth_of_field = true;
@@ -178,6 +187,9 @@ namespace SushiEngine
                     q.lobe_sheen = true;
                     q.lobe_transmission = true;
                     q.probe_gi = true;
+                    // Two traced lights per pixel: half the variance of High's one, so the
+                    // stochastic half of the lighting settles faster under motion.
+                    q.stochastic_light_samples = 2;
                     q.bloom = true;
                     q.depth_of_field = true;
                     q.motion_blur = true;
@@ -188,6 +200,10 @@ namespace SushiEngine
 
             q.shadow_filter_taps = clamp_taps(q.shadow_filter_taps);
             q.shadow_blocker_taps = clamp_taps(q.shadow_blocker_taps);
+            // The frame chain is two or three deep whatever the host authored: one would
+            // stall the CPU on every submit, and a fourth buys latency, not throughput.
+            s.delivery.frames_in_flight =
+                std::min(std::max(s.delivery.frames_in_flight, 2u), 3u);
             return out;
         }
     } // namespace Render

@@ -746,6 +746,57 @@ a lower tier scales the expensive half down from it.
   resumes. The editor's **GPU Culling** window authors `RenderSettings::gpu_culling` —
   enable, frustum, occlusion, min-screen-diameter, a debug frustum freeze, and the per-frame
   statistics — and, as with post-processing, no pass names the editor.
+- **Shadows beyond the atlas** (Phase 12.3). The punctual shadow atlas holds a fixed number of
+  tiles, and a light that does not fit one used to shade unshadowed. It now gets shadowed
+  stochastically instead: `clustered_lighting.glsl` splits a cluster's lights into those with a
+  tile (filtered against it as before) and those without, importance-samples a tier-scaled few of
+  the latter per pixel, and marches the GI distance clipmap toward each with `sdf_visibility()`,
+  weighting by one over the probability it was picked. Because that estimator is unbiased, the
+  temporal resolve is the denoiser — no new pass, no new history. The field is the one
+  `SdfProbeTracer` already builds for probe GI, offered through `IProbeTracer::visibility_field()`
+  so the shading pass depends on a field existing and never on which tier produced it; it reaches
+  every shading pipeline through the bindless heap's volume array, because the per-frame push set
+  is full at its guaranteed 32 bindings. The consequence worth stating plainly: the number of
+  shadowed lights stops being a memory budget and becomes a sample budget.
+- **Two queues, one schedule** (Phase 11). The graph does not assume a single queue. A pass
+  may declare `PassQueue::AsyncCompute`, and `compile()` splits the schedule wherever the
+  queue changes into `Submission`s — one command buffer each, recorded and submitted in
+  order. What orders them is derived, like the barriers, from the resource declarations: a
+  submission waits on the latest earlier submission *on the other queue* that produced what it
+  consumes or consumed what it overwrites (a dependency on its own queue is already ordered by
+  submission order, and per-queue timeline values rise monotonically, so one wait covers every
+  earlier one). The same walk marks which resources both queues touch, and only those are
+  allocated with concurrent sharing (`TextureDesc::cross_queue`) — the graph cannot transfer
+  queue-family ownership, and paying for concurrent sharing on every transient would cost
+  attachment compression for nothing. Two conditions a flagging pass owes the graph: everything
+  it produces must be *declared* (a pass that hand-barriers a resource it owns would leave its
+  consumers unsynchronised), and what it shares must be a graph transient rather than an
+  import, whose sharing mode the graph cannot change. Flagged today: the clustered light cull
+  and the GTAO horizon march. Gated three ways — a compute queue family distinct from graphics,
+  `QualityParams::async_compute` (off on Low), and `FrameDeliverySettings::async_compute` —
+  and with any of them absent every pass records on the graphics queue exactly as before.
+- **Frame delivery** (`ViewResources`). Each queue carries one monotonic **timeline
+  semaphore**: every submission signals its own value, waits on the value it depends on, and a
+  frame slot is reusable once both timelines have reached what that slot submitted. Command
+  buffers are handed out per submission, not per slot, so a frame that compiles to several
+  submissions never records two of them into one buffer. How far the CPU may run ahead
+  (`FrameDeliverySettings::frames_in_flight`, 2 or 3) and how frames are paced onto the display
+  (`PresentMode`, applied through `IWindowRenderer::set_present_mode`) are settings; all slots
+  are allocated up front, so changing depth costs an idle and no reallocation. The editor's
+  **Frame Delivery** section authors the block.
+- **Reconstruction is an interface** (`render/frame/upscaler.hpp`). Rendering below the output
+  extent and reconstructing back up is a contract — colour, depth, motion, history, jitter,
+  exposure, and the two extents — that `TaaPass` is simply the first implementation of. A
+  vendor upscaler (FSR/DLSS/XeSS) lands as another implementation rather than as a fork of the
+  frame loop; `Frame::upscaler_availability` reports which backends this build carries, and one
+  it does not resolves back to the built-in temporal reconstruction with the reason surfaced in
+  the editor.
+- **`render/interop/`** — a device-local buffer whose memory another API can import by OS
+  handle: a dedicated, exportable allocation stamped with the device UUID that
+  `RenderDeviceDesc::required_uuid` already selects the graphics device by, exposed through the
+  public `interop.hpp` with no Vulkan, SYCL, or platform type in sight. The renderer *exports*
+  only; importing belongs to whoever owns the other API, which for SushiRuntime means the
+  runtime — the dependency points one way.
 - **`render/scene/`, `render/geometry/`, `render/textures/`** — the shared scene
   uniform block and descriptor/pipeline layout, the built-in unit meshes and the
   per-slot soft-body buffers, and the cloud noise volumes. The noise set (two Perlin-
@@ -950,7 +1001,7 @@ block for the same reason the temporal block is.
 The environment the renderer lights against is a neutral seam,
 `render/environment.hpp`, depending only on `core/types.hpp` — so the simulation
 authors it and the renderer consumes it without either depending on the other. It
-holds the sun (`DirectionalLight`), the `Wgs84` ellipsoid (equatorial radius
+holds the sun (`DirectionalLight`), the sky's derived `CelestialLight` list, the `Wgs84` ellipsoid (equatorial radius
 6378137 m, inverse flattening 298.257223563), and the `AtmosphereParams`,
 `PlanetParams`, the genus-driven `Cloudscape` (up to `CLOUD_MAX_DECKS` `CloudDeck`s, each a WMO `CloudGenus` resolved through `cloud_genus_profile`), `StarParams`, and metallic-roughness `Material` that
 describe how the planet is lit and surrounded. The simulation carries one
@@ -1064,6 +1115,22 @@ lunar eclipse is the mirror case: the Moon's disk against Earth's umbra at the a
 point, folded into the Moon body's colour and brightness on the CPU (a coppery, dimmed
 disk) with no shader involved. Both are Earth-consistent and ephemeris-driven, so they
 occur only at the real alignments.
+
+**Every body in that sky is also a light.** The ephemeris turns the body list into an
+ordered `CelestialLight` array (`Environment::lights`), and the Sun is not a special case
+in it: an emitter's irradiance is authored, a reflector's follows from the definition of
+geometric albedo — incident irradiance times `albedo * (radius/distance)^2` times
+`phase_brightness`, which is a Lambert sphere for smooth bodies and Allen's lunar fit
+(opposition surge included) for regolith ones. Nothing names a body, so the Moon over
+Earth, Jupiter over Europa, and earthshine on the Moon are one code path, and the numbers
+are real — a full Moon lands near `2.8e-6` of sunlight. The list is ordered by what each
+light *delivers* at the camera (irradiance weighted by elevation), which is what lets the
+single shadow-cascade atlas belong to the Sun by day and to the dominant reflector after
+sunset; the PBR pass and the analytic ground both loop the array, shading the rest with
+the same BRDF minus the cascades. Because the lights are physical, so is the exposure
+path: the auto-exposure histogram's floor reaches `2^-20` to meter a moonlit surface
+rather than crush it, and `PlanetParams::ocean_roughness` gives the ocean mask a tight
+GGX lobe, so a body low over water draws a glitter path instead of a round highlight.
 
 The pipeline is organised around **three coordinate spaces**: *solar* (heliocentric
 ecliptic J2000, double metres — where every body lives), *planet* (body-fixed per body,

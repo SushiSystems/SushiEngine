@@ -58,7 +58,7 @@ namespace SushiEngine
                     buffer_capacity_ > indexing.maxDescriptorSetUpdateAfterBindStorageBuffers)
                     buffer_capacity_ = indexing.maxDescriptorSetUpdateAfterBindStorageBuffers;
 
-                VkDescriptorSetLayoutBinding bindings[2]{};
+                VkDescriptorSetLayoutBinding bindings[3]{};
                 bindings[0].binding = TEXTURE_BINDING;
                 bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 bindings[0].descriptorCount = texture_capacity_;
@@ -67,6 +67,14 @@ namespace SushiEngine
                 bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 bindings[1].descriptorCount = buffer_capacity_;
                 bindings[1].stageFlags = VK_SHADER_STAGE_ALL;
+                // Volume slot: a handful of 3D textures the shading passes address the same
+                // way, so a device-global field (the GI distance clipmap a shadow ray marches)
+                // reaches every pipeline that binds the heap without a set of its own — the
+                // per-frame push set has no room left for one.
+                bindings[2].binding = VOLUME_BINDING;
+                bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[2].descriptorCount = VOLUME_CAPACITY;
+                bindings[2].stageFlags = VK_SHADER_STAGE_ALL;
 
                 // Partially bound: a slot no shader reads may stay unwritten. Update after
                 // bind: registering a texture does not have to wait for the set to be idle.
@@ -74,12 +82,13 @@ namespace SushiEngine
                     VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
                     VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
                     VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT;
-                const VkDescriptorBindingFlags flags[2] = {binding_flags, binding_flags};
+                const VkDescriptorBindingFlags flags[3] = {binding_flags, binding_flags,
+                                                          binding_flags};
 
                 VkDescriptorSetLayoutBindingFlagsCreateInfo flags_info{};
                 flags_info.sType =
                     VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-                flags_info.bindingCount = 2;
+                flags_info.bindingCount = 3;
                 flags_info.pBindingFlags = flags;
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
@@ -87,14 +96,17 @@ namespace SushiEngine
                 layout_info.pNext = &flags_info;
                 layout_info.flags =
                     VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-                layout_info.bindingCount = 2;
+                layout_info.bindingCount = 3;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &layout_),
                               "vkCreateDescriptorSetLayout(heap)");
 
+                // The volume slots are combined image samplers too, so they are counted
+                // into that pool size rather than given one of their own.
                 const VkDescriptorPoolSize sizes[2] = {
-                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texture_capacity_},
+                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                     texture_capacity_ + VOLUME_CAPACITY},
                     {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_capacity_}};
 
                 VkDescriptorPoolCreateInfo pool_info{};
@@ -161,6 +173,31 @@ namespace SushiEngine
                 write.descriptorCount = 1;
                 write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 write.pImageInfo = &image;
+                vkUpdateDescriptorSets(device_.device(), 1, &write, 0, nullptr);
+                return index;
+            }
+
+            std::uint32_t DescriptorHeap::allocate_volume(VkImageView view, VkSampler sampler)
+            {
+                if (!available() || view == VK_NULL_HANDLE)
+                    return INVALID_HEAP_INDEX;
+                if (next_volume_ >= VOLUME_CAPACITY)
+                    return INVALID_HEAP_INDEX;
+                const std::uint32_t index = next_volume_++;
+
+                VkDescriptorImageInfo info{};
+                info.imageView = view;
+                info.sampler = sampler;
+                info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write{};
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = set_;
+                write.dstBinding = VOLUME_BINDING;
+                write.dstArrayElement = index;
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write.pImageInfo = &info;
                 vkUpdateDescriptorSets(device_.device(), 1, &write, 0, nullptr);
                 return index;
             }

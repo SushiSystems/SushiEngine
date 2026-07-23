@@ -71,10 +71,16 @@ layout(set = 0, binding = 0) uniform SceneBlock
     //   w   = the ray-ellipsoid quadratic constant |M c|^2 - 1 for a camera-origin ray,
     //         so the "- 1" keeps its bits instead of cancelling against a ~6.4e6^2 term.
     vec4 planet_precision;
+    // Every body lighting the scene, ordered by what it delivers at the camera, 2 vec4
+    // each: [2i+0] = direction to the body.xyz, irradiance; [2i+1] = colour.rgb, emits.
+    // Light 0 owns the shadow cascades.
+    vec4 lights[10];
+    vec4 light_counts; // x = light count
 } scene;
 
 #define MAX_BODIES 16
 #define MAX_STARS 64
+#define MAX_LIGHTS 5
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
 layout(set = 0, binding = 2) uniform sampler2D hdr_color_texture;
@@ -118,6 +124,27 @@ layout(location = 1) out vec4 out_ground_shadow;
 
 const float PI = 3.14159265359;
 
+// GGX specular for the analytic ground, which is what turns a light over water into a
+// glitter path rather than a round spot: the microfacet lobe is stretched along the view
+// by the grazing geometry, so the reflection of a body low on the horizon draws the
+// column across the sea that the sun makes by day and the moon makes at night. Returns
+// the BRDF value; the caller still applies radiance and the incident cosine.
+float ground_specular(vec3 normal, vec3 view, vec3 light, float roughness, float f0)
+{
+    vec3 h = normalize(view + light);
+    float n_dot_h = max(dot(normal, h), 0.0);
+    float n_dot_v = max(dot(normal, view), 1e-4);
+    float n_dot_l = max(dot(normal, light), 1e-4);
+    float a = max(roughness * roughness, 1e-4);
+    float a2 = a * a;
+    float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    float ndf = a2 / max(PI * d * d, 1e-8);
+    float k = a * 0.5;
+    float g = (n_dot_v / (n_dot_v * (1.0 - k) + k)) * (n_dot_l / (n_dot_l * (1.0 - k) + k));
+    float fresnel = f0 + (1.0 - f0) * pow(1.0 - max(dot(view, h), 0.0), 5.0);
+    return ndf * g * fresnel / max(4.0 * n_dot_v * n_dot_l, 1e-6);
+}
+
 // Ray vs sphere centred at c with radius r. Returns (t_near, t_far); t_far < 0 means miss.
 vec2 ray_sphere(vec3 ro, vec3 rd, vec3 c, float r)
 {
@@ -140,32 +167,50 @@ float ray_ellipsoid(vec3 ro, vec3 rd, vec3 c, float a, float b, vec3 pole)
     float inv_b2 = 1.0 / (b * b);
     float d_ax = dot(rd, pole);
     vec3 d_rad = rd - pole * d_ax;
-    // Decompose the ray origin and the (large) centre separately rather than forming
-    // o = ro - c first: c is ~6.4e6 m and squaring it in float32 before the "- 1" below
-    // is a catastrophic cancellation that jitters the hit distance sub-metre per frame.
     float ro_ax = dot(ro, pole);
     vec3 ro_rad = ro - pole * ro_ax;
-    float c_ax = dot(c, pole);
-    vec3 c_rad = c - pole * c_ax;
-    float o_ax = ro_ax - c_ax;
-    vec3 o_rad = ro_rad - c_rad;
+    // M^2 c, the scaled centre gradient, formed on the CPU in double (planet_precision.xyz).
+    // Every appearance of the ~6.4e6 m centre in this quadratic reduces to a dot against
+    // this small precise vector, since c_rad _|_ pole gives
+    //   dot(v, M^2 c) == radial(v).c_rad/a^2 + axial(v)*c_ax/b^2
+    // for any v. Reconstructing the centre from its 0.5 m-quantised float32 form — as the
+    // old o = ro - c decomposition did for qb — was the residual that dented the silhouette
+    // at half-metre scale; this never touches the large float32 centre at all.
+    vec3 m2c = scene.planet_precision.xyz;
     float qa = dot(d_rad, d_rad) * inv_a2 + d_ax * d_ax * inv_b2;
-    float qb = dot(o_rad, d_rad) * inv_a2 + o_ax * d_ax * inv_b2;
-    // qc = |scaled(ro - c)|^2 - 1. The centre-only part (its value when ro is the camera)
-    // is formed on the CPU in double as planet_precision.w, so the "- 1" keeps its bits at
-    // planet scale; only the small ray-origin corrections are added here in float. For a
+    // qb's centre projection is exactly dot(rd, M^2 c) — the same term ellipsoid_normal
+    // subtracts — so it inherits the CPU-double precision instead of the float32 centre.
+    float qb = (dot(ro_rad, d_rad) * inv_a2 + ro_ax * d_ax * inv_b2) - dot(rd, m2c);
+    // qc = |M(ro - c)|^2 - 1. The centre-only part (ro == 0) is planet_precision.w, formed
+    // on the CPU so the "- 1" keeps its bits at planet scale; the ray-origin corrections are
+    // small and precise, and the cross term is 2 dot(ro, M^2 c) by the same identity. For a
     // camera-origin ray (ro == 0) qc equals planet_precision.w exactly.
     float qc = scene.planet_precision.w +
                (dot(ro_rad, ro_rad) * inv_a2 + ro_ax * ro_ax * inv_b2) -
-               2.0 * (dot(ro_rad, c_rad) * inv_a2 + ro_ax * c_ax * inv_b2);
-    float h = qb * qb - qa * qc;
-    if (h < 0.0)
+               2.0 * dot(ro, m2c);
+    float disc = qb * qb - qa * qc;
+    if (disc < 0.0)
         return -1.0;
-    h = sqrt(h);
-    float t = (-qb - h) / qa;
-    if (t < 0.0)
-        t = (-qb + h) / qa;
-    return t;
+    float h = sqrt(disc);
+    // Numerically stable quadratic roots. Forming (-qb ± h)/qa directly cancels
+    // catastrophically at planet scale: qa·qc is ~1e6x smaller than qb^2, so h ≈ |qb| and
+    // one root is the difference of two nearly-equal numbers. That quantises the hit
+    // distance into millimetre-scale radial bands — concentric rings on the WGS84 ground
+    // that the ground shadow receiver then inherits and breaks on. A flat plane never hits
+    // this regime, which is why only the curved body shows it. The sign-matched intermediate
+    // computes both roots at full precision (Press et al.): one root is q/qa, the other qc/q,
+    // and neither ever subtracts near-equal terms.
+    float q = -(qb + (qb >= 0.0 ? h : -h));
+    // q is zero only on an exactly tangent ray (qb == h == 0), which the caller treats as a
+    // miss; guarding it keeps the divide finite there.
+    if (q == 0.0)
+        return -1.0;
+    float t0 = q / qa;
+    float t1 = qc / q;
+    float t_near = min(t0, t1);
+    float t_far = max(t0, t1);
+    float t = t_near >= 0.0 ? t_near : t_far;
+    return t >= 0.0 ? t : -1.0;
 }
 
 // Outward geodetic normal of the oriented spheroid at surface point p. The centre term
@@ -824,12 +869,14 @@ void main()
         vec3 sphere_dir = normalize(hit - center);
         vec3 normal = ellipsoid_normal(hit, center, semi_major, semi_minor, planet_pole);
         vec3 albedo;
+        float water = 0.0;
         if (planet_style > 0.5 && planet_style < 1.5)
         {
             // Earth keeps its original ground: the coarse ocean/land mask over the
             // geodetic normal, smooth-shaded, no procedural relief.
             float land = smoothstep(0.48, 0.52, fbm(normal * 3.0));
             albedo = mix(scene.ocean_color.xyz, scene.ground_albedo.xyz, land);
+            water = 1.0 - land;
         }
         else
         {
@@ -837,7 +884,11 @@ void main()
             albedo = surface_albedo(planet_style, sphere_dir, planet_pole,
                                     scene.ground_albedo.xyz, scene.ocean_color.xyz);
         }
-        float n_dot_l = max(dot(normal, sun), 0.0);
+        float ground_roughness = mix(max(scene.ground_albedo.w, 0.04),
+                                     max(scene.ocean_color.w, 0.01), water);
+        // Water is a dielectric mirror at 0.02 normal reflectance; land barely specular.
+        float ground_f0 = mix(0.04, 0.02, water);
+        vec3 ground_view = -rd;
 
         // Hemispherical skylight: the same air that hazes the horizon in the pass above
         // also floods the ground with scattered light from the whole sky dome, not just
@@ -853,22 +904,53 @@ void main()
                                      ? rayleigh_coeff * rayleigh_h * 0.5 * sun_radiance * sky_light
                                      : vec3(0.0);
 
-        // Cloud shadow: attenuate only the direct sun term by the cloud stack overhead —
+        // Every body in the sky lights the ground, not just the Sun — which is what puts
+        // the moon's own diffuse lift and its glitter path on a night sea. The list is
+        // ordered by what each light delivers here, so light 0 is the one the cascades
+        // were fitted to; it carries the shadowed direct term, and the rest are added
+        // straight in, being by that same ordering too faint to read a shadow edge from.
+        vec3 key_light = scene.lights[0].xyz;
+        vec3 key_radiance = scene.lights[1].xyz * scene.lights[0].w;
+        int ground_light_count = int(scene.light_counts.x);
+
+        vec3 secondary_direct = vec3(0.0);
+        for (int i = 1; i < MAX_LIGHTS; ++i)
+        {
+            if (i >= ground_light_count)
+                break;
+            vec3 light_dir = scene.lights[i * 2 + 0].xyz;
+            float irradiance = scene.lights[i * 2 + 0].w;
+            if (irradiance <= 0.0)
+                continue;
+            float cos_incident = max(dot(normal, light_dir), 0.0);
+            if (cos_incident <= 0.0)
+                continue;
+            vec3 radiance = scene.lights[i * 2 + 1].xyz * irradiance;
+            float shadow = cloud_ground_shadow(hit, light_dir);
+            vec3 lobe = albedo / PI + vec3(ground_specular(normal, ground_view, light_dir,
+                                                           ground_roughness, ground_f0));
+            secondary_direct += lobe * radiance * cos_incident * shadow;
+        }
+
+        // Cloud shadow: attenuate only the direct term by the cloud stack overhead —
         // the sky-dome skylight and flat ambient still reach the shadowed ground, so it
         // darkens under clouds without going black, the way an overcast ground reads.
-        float cloud_shadow = cloud_ground_shadow(hit, sun);
+        float cloud_shadow = cloud_ground_shadow(hit, key_light);
         // The cascades are fitted in the same camera-relative frame this march works in,
         // so the hit point goes straight in.
         float cascade_shadow = sample_sun_shadow(shadow_atlas, shadow_atlas_depth, hit,
-                                                 normal, sun,
+                                                 normal, key_light,
                                                  dot(scene.cam_forward.xyz, hit), true);
         // The direct sun term is held out of sky_color and handed to the resolve/composite
         // passes instead — see the out_ground_shadow declaration above. Everything that
         // does not carry the PCF's per-pixel noise (ambient, skylight) is unaffected and
         // goes straight into sky_color as before.
+        float key_cos_incident = max(dot(normal, key_light), 0.0);
+        vec3 key_lobe = albedo / PI + vec3(ground_specular(normal, ground_view, key_light,
+                                                           ground_roughness, ground_f0));
         vec3 ground_ambient = albedo * (scene.ambient.xyz + skylight_ambient);
-        vec3 ground_direct = albedo * sun_radiance * n_dot_l / PI * cloud_shadow;
-        sky_color += ground_ambient * total_transmittance;
+        vec3 ground_direct = key_lobe * key_radiance * key_cos_incident * cloud_shadow;
+        sky_color += (ground_ambient + secondary_direct) * total_transmittance;
         ground_shadow_out = vec4(ground_direct * total_transmittance, cascade_shadow);
     }
 

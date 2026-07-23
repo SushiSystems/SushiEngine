@@ -61,6 +61,12 @@ required      = false
 linux_apt     = ["glslang-dev"]
 windows_vcpkg = ["glslang"]
 
+[vulkan-validationlayers]
+description   = "Khronos Vulkan validation layers. Not linked and not shipped: the loader picks the layer up at runtime when a build asks for it, which is how a synchronization or usage error in a new pass is caught as a message instead of as a device loss. Development only."
+required      = false
+linux_apt     = ["vulkan-validationlayers-dev"]
+windows_vcpkg = ["vulkan-validationlayers"]
+
 [nlohmann-json]
 description   = "nlohmann/json — header-only JSON for the editor's persisted Preferences and the .sushiscene format. Editor is OFF by default, so this is optional for a plain library build."
 required      = false

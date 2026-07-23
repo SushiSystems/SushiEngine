@@ -65,7 +65,7 @@ namespace SushiEngine
             {
                 public:
                     /** @brief How many frames may be in flight (matches ViewResources::SLOTS). */
-                    static constexpr std::uint32_t SLOTS = 2;
+                    static constexpr std::uint32_t SLOTS = 3;
 
                     /** @brief Bins in the log-luminance histogram. */
                     static constexpr std::uint32_t BINS = 256;

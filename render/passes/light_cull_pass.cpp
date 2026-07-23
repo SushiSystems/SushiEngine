@@ -174,6 +174,11 @@ namespace SushiEngine
                     "light cull",
                     [grid, index, decal_grid, decal_index](Graph::RenderPassBuilder& builder)
                     {
+                        // Nothing this pass reads is produced by the frame's graphics work —
+                        // the light and decal arrays are host-written — so on the async queue
+                        // it starts immediately and overlaps the depth prepass and the shadow
+                        // cascades, and the opaque pass's wait on its grids is derived.
+                        builder.set_queue(Graph::PassQueue::AsyncCompute);
                         builder.write(grid, Graph::BufferAccess::StorageWrite);
                         builder.write(index, Graph::BufferAccess::StorageWrite);
                         builder.write(decal_grid, Graph::BufferAccess::StorageWrite);

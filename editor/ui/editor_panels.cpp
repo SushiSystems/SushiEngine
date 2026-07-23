@@ -52,6 +52,7 @@
 
 #include <SushiEngine/astro/celestial_bodies.hpp>
 #include <SushiEngine/render/quality_params.hpp>
+#include <SushiEngine/render/upscaler_info.hpp>
 
 namespace fs = std::filesystem;
 
@@ -2510,9 +2511,6 @@ namespace SushiEngine
                 ImGui::SliderFloat("Jitter", &settings.temporal.jitter_scale, 0.0f, 1.0f,
                                    "%.2f");
                 ImGui::Checkbox("Clamp History", &settings.temporal.clamp_history);
-                bool upscale = settings.upscale == UpscaleMode::Temporal;
-                if (ImGui::Checkbox("Temporal Upscale", &upscale))
-                    settings.upscale = upscale ? UpscaleMode::Temporal : UpscaleMode::None;
                 ImGui::PopID();
             }
             else
@@ -2652,6 +2650,60 @@ namespace SushiEngine
                     ImGui::SameLine();
                     ImGui::TextDisabled("base PBR only");
                 }
+                ImGui::Text("Async compute  %s", knobs.async_compute ? "permitted" : "off (tier)");
+                ImGui::Text("Frames in flight %u", effective.delivery.frames_in_flight);
+                ImGui::TreePop();
+            }
+
+            ImGui::Separator();
+            // Delivery, not fidelity: nothing here changes a pixel, only how much of the
+            // device is kept busy and how long a finished frame waits to be seen.
+            if (ImGui::TreeNode("Frame Delivery"))
+            {
+                using SushiEngine::Render::PresentMode;
+                SushiEngine::Render::FrameDeliverySettings& delivery = settings.delivery;
+
+                ImGui::Checkbox("Async Compute", &delivery.async_compute);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Runs the flagged compute passes (cluster build, GTAO)\n"
+                                      "on a second queue so they overlap the graphics work\n"
+                                      "they do not depend on. Ignored where the device has\n"
+                                      "no compute queue family of its own.");
+
+                int in_flight = static_cast<int>(delivery.frames_in_flight);
+                if (ImGui::SliderInt("Frames in Flight", &in_flight, 2, 3))
+                    delivery.frames_in_flight = static_cast<std::uint32_t>(in_flight);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How far the CPU may run ahead of the GPU.\n"
+                                      "Three smooths over a hitch; two cuts latency.");
+
+                const char* const PRESENT[] = {"V-Sync", "Mailbox", "Immediate"};
+                int present = static_cast<int>(delivery.present_mode);
+                if (ImGui::Combo("Present Mode", &present, PRESENT, 3))
+                    delivery.present_mode = static_cast<PresentMode>(present);
+
+                ImGui::Separator();
+                // The upscaler is chosen as a backend, not as a checkbox: the built-in
+                // temporal reconstruction and a vendor library implement one interface, and
+                // this is where the choice between them is made and what it resolved to is
+                // reported.
+                const char* const UPSCALERS[] = {"None", "Temporal (built-in)", "FSR 3.1",
+                                                 "DLSS", "XeSS"};
+                int upscaler = static_cast<int>(settings.upscale);
+                if (ImGui::Combo("Upscaler", &upscaler, UPSCALERS, 5))
+                    settings.upscale = static_cast<UpscaleMode>(upscaler);
+
+                const SushiEngine::Render::Frame::UpscalerAvailability availability =
+                    SushiEngine::Render::Frame::upscaler_availability(settings.upscale);
+                if (availability.available)
+                    ImGui::TextDisabled(
+                        "Runs: %s", SushiEngine::Render::Frame::upscale_mode_name(settings.upscale));
+                else
+                    ImGui::TextDisabled(
+                        "Runs: %s — %s",
+                        SushiEngine::Render::Frame::upscale_mode_name(
+                            SushiEngine::Render::Frame::resolve_upscale_mode(settings.upscale)),
+                        availability.reason);
                 ImGui::TreePop();
             }
 
@@ -2959,6 +3011,35 @@ namespace SushiEngine
                 ImGui::Text("Shadow atlas %u px, %u caster(s)",
                             resolved.settings.lights.shadow_atlas_size,
                             resolved.settings.lights.max_shadow_casters);
+                if (resolved.params.stochastic_light_samples > 0)
+                    ImGui::Text("Beyond the atlas: %u traced sample(s)/pixel",
+                                resolved.params.stochastic_light_samples);
+                else
+                    ImGui::TextDisabled("Beyond the atlas: unshadowed (tier)");
+            }
+
+            // Shadows for the lights the atlas had no tile for. The atlas is a memory
+            // budget; this is a sample budget, which is what lets the caster count stop
+            // being a ceiling.
+            if (ImGui::CollapsingHeader("Stochastic Shadows"))
+            {
+                SushiEngine::Render::LightEngineSettings& engine =
+                    context.render_settings.lights;
+                const SushiEngine::Render::LightEngineSettings engine_before = engine;
+                ImGui::Checkbox("Trace Beyond The Atlas", &engine.stochastic_shadows);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Each pixel samples a few of the lights that hold no\n"
+                                      "atlas tile and marches the GI distance field toward\n"
+                                      "them for visibility; the temporal resolve averages\n"
+                                      "the rest. Needs Probe GI on — it builds the field.");
+                ImGui::SliderFloat("Ray Reach", &engine.stochastic_distance, 5.0f, 200.0f,
+                                   "%.0f m");
+                ImGui::SliderFloat("Penumbra", &engine.stochastic_softness, 1.0f, 32.0f,
+                                   "%.1f");
+                if (!environment.gi.enabled)
+                    ImGui::TextDisabled("Probe GI is off, so there is no field to trace.");
+                if (std::memcmp(&engine_before, &engine, sizeof(engine)) != 0)
+                    context.preferences_dirty = true;
             }
 
             ImGui::Separator();
@@ -3337,11 +3418,15 @@ namespace SushiEngine
                 if (ImGui::Checkbox("Dynamic Ambient", &environment.night.enabled))
                     changed = true;
                 ImGui::BeginDisabled(!environment.night.enabled);
-                if (ImGui::SliderFloat("Moon Intensity", &environment.night.moon_intensity,
-                                       0.0f, 1.0f))
+                if (ImGui::SliderFloat("Reflected Light",
+                                       &environment.night.reflected_intensity, 0.0f, 4.0f))
                     changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Scales every light the sky's reflecting bodies cast. 1 is "
+                        "physical: a full Moon is ~3e-6 of sunlight.");
                 if (ImGui::SliderFloat("Star Ambient", &environment.night.star_intensity,
-                                       0.0f, 0.2f))
+                                       0.0f, 4.0f))
                     changed = true;
                 ImGui::EndDisabled();
                 if (!environment.night.enabled || !context.sky_astronomical_sun)

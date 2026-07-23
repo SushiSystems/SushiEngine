@@ -141,6 +141,42 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Disk-integrated brightness of a sunlit sphere, relative to full phase.
+         *
+         * The factor that turns a body's geometric albedo — defined at full phase — into
+         * what it actually reflects at the phase angle it is seen under, so the same
+         * derivation covers a full moon and a thin crescent.
+         *
+         * A smooth sphere follows the Lambert law, but a regolith one does not: shadow
+         * hiding between grains makes it surge near opposition, so the full Moon is about
+         * eleven times a quarter Moon rather than the two Lambert predicts. That surge is
+         * the whole character of moonlit night, so rocky bodies use Allen's empirical
+         * lunar magnitude fit instead, faded back to the Lambert limit past the ~150° its
+         * calibration covers.
+         *
+         * @param phase_angle_radians Sun-body-observer angle; 0 is full, pi is new.
+         * @param style               Surface the body reflects with; only @c Rocky surges.
+         * @return Brightness relative to full phase, [0, 1].
+         */
+        inline double phase_brightness(double phase_angle_radians,
+                                       Render::SurfaceStyle style) noexcept
+        {
+            constexpr double PI = 3.14159265358979323846;
+            const double alpha = std::fmin(PI, std::fmax(0.0, phase_angle_radians));
+            const double lambert = (std::sin(alpha) + (PI - alpha) * std::cos(alpha)) / PI;
+            if (style != Render::SurfaceStyle::Rocky)
+                return lambert;
+
+            const double degrees = alpha * (180.0 / PI);
+            const double magnitudes =
+                0.026 * degrees + 4.0e-9 * degrees * degrees * degrees * degrees;
+            const double regolith = std::pow(10.0, -0.4 * magnitudes);
+            const double beyond_fit =
+                std::fmin(1.0, std::fmax(0.0, (degrees - 140.0) / 40.0));
+            return regolith * (1.0 - beyond_fit) + lambert * beyond_fit;
+        }
+
+        /**
          * @brief Camera altitude (in the body's own radii) past which a body's analytic
          *        ground and atmosphere hand off to drawing it as a sky body.
          *
@@ -253,6 +289,19 @@ namespace SushiEngine
                     direction * (observer_centric_au * METRES_PER_ASTRONOMICAL_UNIT);
             }
 
+            // The heliocentric frame, expressed in the scene frame. The Sun's centre is
+            // where the interplanetary grid is pinned, and the ecliptic pole and the
+            // vernal equinox give that grid its plane and its rotation — so the planets
+            // ride on the grid rather than cutting through it at an arbitrary angle.
+            environment.sun_center_metres =
+                WorldVector3{world_position[static_cast<int>(BodyId::Sun)].x,
+                             world_position[static_cast<int>(BodyId::Sun)].y,
+                             world_position[static_cast<int>(BodyId::Sun)].z};
+            environment.ecliptic_normal = normalize(to_local(
+                basis, ecliptic_to_body_equatorial(observer_body, Vector3{0.0, 0.0, 1.0})));
+            environment.ecliptic_reference = normalize(to_local(
+                basis, ecliptic_to_body_equatorial(observer_body, Vector3{1.0, 0.0, 0.0})));
+
             // Dominant body: the landable body whose surface the camera is closest to,
             // if within the hand-off range. It becomes the analytic ground; everything
             // else stays a sky body.
@@ -282,12 +331,6 @@ namespace SushiEngine
                 environment.dominant_center_metres =
                     WorldVector3{world_position[dominant].x, world_position[dominant].y,
                                  world_position[dominant].z};
-
-            // Captured while walking the bodies below, so the dynamic night ambient can be
-            // derived afterward from the Moon's true elevation and illuminated fraction.
-            Vector3 moon_direction{0.0, -1.0, 0.0};
-            Vector3 moon_sun_direction{0.0, 1.0, 0.0};
-            bool moon_seen = false;
 
             int count = 0;
             for (int index = 0; index < BODY_COUNT && count < Render::MAX_CELESTIAL_BODIES; ++index)
@@ -344,12 +387,6 @@ namespace SushiEngine
 
                 if (body == BodyId::Sun && observer.astronomical_sun)
                     environment.sun.direction = local_direction;
-                if (body == BodyId::Moon)
-                {
-                    moon_direction = local_direction;
-                    moon_sun_direction = sun_local;
-                    moon_seen = true;
-                }
 
                 ++count;
             }
@@ -433,38 +470,154 @@ namespace SushiEngine
                 }
             }
 
-            // Dynamic night ambient: the Sun dominates by day; as it sets, the Moon takes
-            // over scaled by its illuminated fraction (full moon bright, new moon dark) and
-            // its own elevation, and the star field supplies a small moonless-night floor.
+            // Every body in the sky is a directional light. The emitter's irradiance is
+            // authored; a reflector's follows from the definition of geometric albedo —
+            // the flux a sunlit sphere of radius R sends to an observer at distance d is
+            // its incident irradiance times albedo * (R/d)^2, scaled by how much of its
+            // lit hemisphere faces us. Nothing below names a body: the same three lines
+            // give the Moon over Earth, Jupiter over Europa, and earthshine on the Moon,
+            // so the night sky lights the scene correctly wherever the camera stands.
+            //
+            // The numbers are real, not tuned. A full Moon lands near 2.8e-6 of sunlight,
+            // which is the measured 0.25 lux against noon's 120000 — so the exposure, not
+            // an authored night mode, is what makes moonlight visible.
+            {
+                const double observer_solar_distance_au =
+                    std::fmax(1e-6, length(helio_ecliptic[static_cast<int>(observer_body)]));
+
+                // The list is ordered by what each light actually delivers here, not by its
+                // raw output, because a body below the horizon delivers nothing: the Sun
+                // outshines the Moon by six orders of magnitude and would still sort first
+                // at midnight, and the renderer spends its one shadow map on whichever
+                // light sorts first. Weighting by elevation is what hands that map to the
+                // Moon after sunset. Only the ordering uses it — the shaders still run the
+                // exact horizon test against the body's own ellipsoid. In deep space, with
+                // no ground to set behind, nothing is occluded and the weight is one.
+                const bool has_horizon = dominant >= 0;
+                const auto delivered = [has_horizon](const Render::CelestialLight& light) {
+                    if (!has_horizon)
+                        return static_cast<double>(light.irradiance);
+                    const double above =
+                        std::fmin(1.0, std::fmax(0.0, light.direction.y / 0.05 + 0.5));
+                    return static_cast<double>(light.irradiance) * above;
+                };
+
+                Render::CelestialLight derived[Render::MAX_CELESTIAL_LIGHTS];
+                double key[Render::MAX_CELESTIAL_LIGHTS];
+                int light_count = 0;
+
+                derived[light_count].direction = normalize(environment.sun.direction);
+                derived[light_count].color = environment.sun.color;
+                derived[light_count].irradiance = environment.sun.intensity;
+                derived[light_count].body_id = static_cast<std::uint32_t>(BodyId::Sun);
+                derived[light_count].is_star = 1u;
+                key[light_count] = delivered(derived[light_count]);
+                ++light_count;
+
+                if (environment.night.enabled)
+                {
+                    for (int i = 0; i < count; ++i)
+                    {
+                        const Render::CelestialBody& body = environment.bodies[i];
+                        if (body.is_star || body.distance_metres <= 0.0f)
+                            continue;
+
+                        // Inverse-square on the body's own solar distance, expressed
+                        // against the observer's, because the Sun's authored intensity is
+                        // the irradiance here — so the ratio is 1 for a moon of the planet
+                        // we stand on and correctly dims a reflector further out.
+                        const WorldVector3& helio = body.heliocentric_position;
+                        const double body_solar_distance_au =
+                            std::fmax(1e-6, std::sqrt(helio.x * helio.x + helio.y * helio.y +
+                                                      helio.z * helio.z) /
+                                                METRES_PER_ASTRONOMICAL_UNIT);
+                        const double solar_falloff =
+                            (observer_solar_distance_au * observer_solar_distance_au) /
+                            (body_solar_distance_au * body_solar_distance_au);
+
+                        const double solid_angle_ratio =
+                            static_cast<double>(body.mean_radius_metres) /
+                            static_cast<double>(body.distance_metres);
+                        const double phase_angle = std::acos(std::fmin(
+                            1.0, std::fmax(-1.0, dot(body.sun_direction,
+                                                     body.direction * -1.0))));
+
+                        const double irradiance =
+                            environment.sun.intensity * solar_falloff * body.brightness *
+                            solid_angle_ratio * solid_angle_ratio *
+                            phase_brightness(phase_angle, body.surface_style) *
+                            environment.night.reflected_intensity;
+                        if (irradiance <= 0.0)
+                            continue;
+
+                        // The body's colour is a tint, while its albedo is already carried
+                        // by `brightness`; normalising to unit mean keeps the two from
+                        // multiplying into a second, silent darkening.
+                        const double tint_mean =
+                            std::fmax(1e-6, (body.color.x + body.color.y + body.color.z) / 3.0);
+
+                        Render::CelestialLight light;
+                        light.direction = body.direction;
+                        light.color =
+                            Vector3{environment.sun.color.x * body.color.x / tint_mean,
+                                    environment.sun.color.y * body.color.y / tint_mean,
+                                    environment.sun.color.z * body.color.z / tint_mean};
+                        light.irradiance = static_cast<float>(irradiance);
+                        light.body_id = body.body_id;
+                        light.is_star = 0u;
+
+                        // Insertion sort into a brightest-first list: the array is five
+                        // long, and keeping it ordered is what lets the renderer spend its
+                        // one shadow map on whichever body actually dominates the frame.
+                        const double light_key = delivered(light);
+                        int slot = light_count;
+                        if (slot >= Render::MAX_CELESTIAL_LIGHTS)
+                        {
+                            if (key[Render::MAX_CELESTIAL_LIGHTS - 1] >= light_key)
+                                continue;
+                            slot = Render::MAX_CELESTIAL_LIGHTS - 1;
+                        }
+                        else
+                        {
+                            ++light_count;
+                        }
+                        while (slot > 0 && key[slot - 1] < light_key)
+                        {
+                            derived[slot] = derived[slot - 1];
+                            key[slot] = key[slot - 1];
+                            --slot;
+                        }
+                        derived[slot] = light;
+                        key[slot] = light_key;
+                    }
+                }
+
+                for (int i = 0; i < light_count; ++i)
+                    environment.lights[i] = derived[i];
+                environment.light_count = light_count;
+            }
+
+            // The star field has no direction, so unlike the reflecting bodies above it
+            // stays an ambient floor — the residual glow that keeps a moonless night from
+            // being pure black. Its ratio to sunlight is as measured (~1e-3 lux against
+            // 120000), so it sits far below even a crescent and never washes one out.
             // Only touches `ambient` when astronomical_sun drives the sky, matching how the
             // Sun's direction itself is only astronomically driven under that same flag —
             // otherwise the environment panel's authored ambient is left alone.
             if (observer.astronomical_sun && environment.night.enabled)
             {
+                constexpr double STARLIGHT_SOLAR_RATIO = 8.3e-9;
                 const double sun_elevation = environment.sun.direction.y;
                 const double day_factor =
                     std::fmin(1.0, std::fmax(0.0, sun_elevation / 0.15 + 0.5));
 
-                double moon_light = 0.0;
-                if (moon_seen)
-                {
-                    const double illuminated_fraction =
-                        0.5 * (1.0 - dot(moon_sun_direction, moon_direction));
-                    const double moon_visibility =
-                        std::fmin(1.0, std::fmax(0.0, moon_direction.y / 0.10 + 0.2));
-                    moon_light = illuminated_fraction * moon_visibility *
-                                 environment.night.moon_intensity;
-                }
-                const double star_light =
-                    (1.0 - day_factor) * environment.night.star_intensity;
-
                 const Vector3 day_ambient{0.03, 0.04, 0.06};
-                const Vector3 moonlit_tint{0.55, 0.62, 0.85}; // cool moonlight
-                const Vector3 night_floor{0.10, 0.11, 0.14};  // starlight tint
+                const Vector3 night_floor{0.10, 0.11, 0.14}; // starlight tint
+                const double star_light = (1.0 - day_factor) * environment.sun.intensity *
+                                          STARLIGHT_SOLAR_RATIO *
+                                          environment.night.star_intensity;
 
-                Vector3 night_ambient = moonlit_tint * moon_light + night_floor * star_light;
-                environment.ambient =
-                    day_ambient * day_factor + night_ambient * (1.0 - day_factor);
+                environment.ambient = day_ambient * day_factor + night_floor * star_light;
             }
 
             // Apply the near-field regime. The dominant body's ellipsoid, atmosphere,

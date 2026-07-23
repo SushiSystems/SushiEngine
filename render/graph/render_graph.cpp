@@ -183,6 +183,15 @@ namespace SushiEngine
                 node.has_render_area = true;
             }
 
+            void RenderPassBuilder::set_queue(PassQueue queue)
+            {
+                // Collapsed here rather than at compile time so everything downstream —
+                // the submission split, the profiler labels, the debug view — sees the
+                // queue the pass will actually record on, not the one it asked for.
+                graph_.passes_[pass_].queue =
+                    graph_.async_compute_enabled_ ? queue : PassQueue::Graphics;
+            }
+
             void RenderPassBuilder::set_side_effect()
             {
                 graph_.passes_[pass_].side_effect = true;
@@ -202,6 +211,12 @@ namespace SushiEngine
                 texture_resources_.clear();
                 buffer_resources_.clear();
                 order_.clear();
+                submissions_.clear();
+            }
+
+            void RenderGraph::set_async_compute_enabled(bool enabled) noexcept
+            {
+                async_compute_enabled_ = enabled;
             }
 
             TextureHandle RenderGraph::create_texture(const TextureDesc& desc)
@@ -400,6 +415,143 @@ namespace SushiEngine
                 }
             }
 
+            void RenderGraph::build_submissions()
+            {
+                submissions_.clear();
+                if (order_.empty())
+                    return;
+
+                // The schedule splits wherever the queue changes, so a frame with no async
+                // pass compiles to exactly one submission and the caller's loop degenerates
+                // to the single command buffer it always recorded.
+                for (std::uint32_t position = 0; position < order_.size(); ++position)
+                {
+                    const PassNode& node = passes_[order_[position]];
+                    if (submissions_.empty() || submissions_.back().queue != node.queue)
+                    {
+                        Submission submission;
+                        submission.queue = node.queue;
+                        submission.first = position;
+                        submissions_.push_back(submission);
+                    }
+                    ++submissions_.back().count;
+                }
+
+                // A submission must wait for the work that produced what it consumes and for
+                // the work that consumed what it overwrites. Dependencies on its *own* queue
+                // are already ordered by submission order and need nothing; only a dependency
+                // that crosses to the other queue needs the timeline, and because a queue's
+                // timeline values increase with its submissions, waiting on the latest such
+                // dependency covers every earlier one.
+                std::vector<std::uint32_t> texture_writer(texture_resources_.size(),
+                                                          NO_SUBMISSION);
+                std::vector<std::uint32_t> texture_reader(texture_resources_.size(),
+                                                          NO_SUBMISSION);
+                std::vector<std::uint32_t> buffer_writer(buffer_resources_.size(),
+                                                         NO_SUBMISSION);
+                std::vector<std::uint32_t> buffer_reader(buffer_resources_.size(),
+                                                         NO_SUBMISSION);
+
+                for (std::uint32_t index = 0; index < submissions_.size(); ++index)
+                {
+                    Submission& submission = submissions_[index];
+                    const auto depend = [&](std::uint32_t producer)
+                    {
+                        if (producer == NO_SUBMISSION ||
+                            submissions_[producer].queue == submission.queue)
+                            return;
+                        if (submission.wait == NO_SUBMISSION || submission.wait < producer)
+                            submission.wait = producer;
+                    };
+
+                    for (std::uint32_t offset = 0; offset < submission.count; ++offset)
+                    {
+                        const PassNode& node = passes_[order_[submission.first + offset]];
+                        for (const TextureUse& use : node.texture_reads)
+                            depend(texture_writer[use.handle.index]);
+                        for (const TextureUse& use : node.texture_writes)
+                        {
+                            depend(texture_writer[use.handle.index]);
+                            depend(texture_reader[use.handle.index]);
+                        }
+                        for (const BufferUse& use : node.buffer_reads)
+                            depend(buffer_writer[use.handle.index]);
+                        for (const BufferUse& use : node.buffer_writes)
+                        {
+                            depend(buffer_writer[use.handle.index]);
+                            depend(buffer_reader[use.handle.index]);
+                        }
+                    }
+
+                    // Recorded after the whole submission is scanned, so a resource a
+                    // submission both reads and writes does not make it wait on itself.
+                    for (std::uint32_t offset = 0; offset < submission.count; ++offset)
+                    {
+                        const PassNode& node = passes_[order_[submission.first + offset]];
+                        for (const TextureUse& use : node.texture_reads)
+                            texture_reader[use.handle.index] = index;
+                        for (const TextureUse& use : node.texture_writes)
+                            texture_writer[use.handle.index] = index;
+                        for (const BufferUse& use : node.buffer_reads)
+                            buffer_reader[use.handle.index] = index;
+                        for (const BufferUse& use : node.buffer_writes)
+                            buffer_writer[use.handle.index] = index;
+                    }
+                }
+
+                mark_cross_queue_resources();
+            }
+
+            void RenderGraph::mark_cross_queue_resources()
+            {
+                if (submissions_.size() < 2)
+                    return;
+
+                // Which families touch a resource is a property of the schedule, so the graph
+                // derives it here rather than making a pass author guess: a transient both
+                // queues touch is allocated with concurrent sharing (it must be, or its
+                // contents are undefined across the queue change), and one that stays on a
+                // single queue keeps exclusive ownership and its compression. Runs before
+                // assign_resources(), which is what acquires the pool entries this decides.
+                const auto mark = [&](std::uint32_t position)
+                {
+                    const PassNode& node = passes_[order_[position]];
+                    const bool compute = node.queue == PassQueue::AsyncCompute;
+                    const auto touch_texture = [&](const TextureUse& use)
+                    {
+                        TextureResource& resource = texture_resources_[use.handle.index];
+                        if (resource.touched_by_compute && !compute)
+                            resource.desc.cross_queue = true;
+                        if (resource.touched_by_graphics && compute)
+                            resource.desc.cross_queue = true;
+                        resource.touched_by_compute |= compute;
+                        resource.touched_by_graphics |= !compute;
+                    };
+                    const auto touch_buffer = [&](const BufferUse& use)
+                    {
+                        BufferResource& resource = buffer_resources_[use.handle.index];
+                        if (resource.touched_by_compute && !compute)
+                            resource.desc.cross_queue = true;
+                        if (resource.touched_by_graphics && compute)
+                            resource.desc.cross_queue = true;
+                        resource.touched_by_compute |= compute;
+                        resource.touched_by_graphics |= !compute;
+                    };
+
+                    for (const TextureUse& use : node.texture_reads)
+                        touch_texture(use);
+                    for (const TextureUse& use : node.texture_writes)
+                        touch_texture(use);
+                    for (const BufferUse& use : node.buffer_reads)
+                        touch_buffer(use);
+                    for (const BufferUse& use : node.buffer_writes)
+                        touch_buffer(use);
+                };
+
+                for (std::uint32_t position = 0; position < order_.size(); ++position)
+                    mark(position);
+            }
+
             void RenderGraph::touch(std::uint32_t pass, TextureResource& resource)
             {
                 resource.first_pass = std::min(resource.first_pass, pass);
@@ -472,6 +624,7 @@ namespace SushiEngine
                 for (std::uint32_t i = 0; i < passes_.size(); ++i)
                     if (!passes_[i].culled)
                         order_.push_back(i);
+                build_submissions();
                 assign_resources();
             }
 
@@ -494,14 +647,24 @@ namespace SushiEngine
                 std::vector<VkImageMemoryBarrier2> image_barriers;
                 std::vector<VkBufferMemoryBarrier2> buffer_barriers;
 
+                // A resource last touched by the other queue is already ordered against this
+                // submission by the timeline wait the compiler derived, and its stages are
+                // not even nameable here, so the source scope is dropped and the barrier
+                // carries only the layout transition.
+                const auto foreign_texture = [&](const TextureState& state)
+                {
+                    return state.queue != node.queue;
+                };
+
                 const auto visit_texture = [&](const TextureUse& use)
                 {
                     TextureResource& resource = texture_resources_[use.handle.index];
                     TextureState& current = texture_state(resource);
                     const TextureState wanted = texture_access_state(use.access);
+                    const bool foreign = foreign_texture(current);
                     const bool hazard = current.layout != wanted.layout || writes(current.access) ||
                                         writes(wanted.access);
-                    if (!hazard)
+                    if (!hazard && !foreign)
                     {
                         // Read after read in the same layout needs no barrier, but the
                         // accumulated stages must be kept: the next writer has to wait on
@@ -510,13 +673,24 @@ namespace SushiEngine
                         current.access |= wanted.access;
                         return;
                     }
+                    if (!hazard && foreign)
+                    {
+                        // Same layout, both reads, different queues: the wait already made
+                        // the contents visible and there is nothing to transition. Take
+                        // ownership of the state so this queue's stages accumulate cleanly.
+                        current.stage = wanted.stage;
+                        current.access = wanted.access;
+                        current.queue = node.queue;
+                        return;
+                    }
 
                     VkImageMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = current.stage != VK_PIPELINE_STAGE_2_NONE
-                                               ? current.stage
-                                               : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-                    barrier.srcAccessMask = current.access;
+                    barrier.srcStageMask =
+                        (!foreign && current.stage != VK_PIPELINE_STAGE_2_NONE)
+                            ? current.stage
+                            : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                    barrier.srcAccessMask = foreign ? VK_ACCESS_2_NONE : current.access;
                     barrier.dstStageMask = wanted.stage;
                     barrier.dstAccessMask = wanted.access;
                     barrier.oldLayout = current.layout;
@@ -529,6 +703,7 @@ namespace SushiEngine
                     barrier.subresourceRange.layerCount = resource.desc.array_layers;
                     image_barriers.push_back(barrier);
                     current = wanted;
+                    current.queue = node.queue;
                 };
 
                 const auto visit_buffer = [&](const BufferUse& use)
@@ -536,11 +711,25 @@ namespace SushiEngine
                     BufferResource& resource = buffer_resources_[use.handle.index];
                     BufferState& current = buffer_state(resource);
                     const BufferState wanted = buffer_access_state(use.access);
+                    const bool foreign = current.queue != node.queue;
                     const bool hazard = writes(current.access) || writes(wanted.access);
-                    if (!hazard)
+                    if (!hazard || foreign)
                     {
-                        current.stage |= wanted.stage;
-                        current.access |= wanted.access;
+                        // Without a hazard there is nothing to order; across queues the
+                        // timeline wait has already ordered it and a buffer has no layout to
+                        // transition, so either way the barrier is skipped — only the tracked
+                        // state moves to this queue.
+                        if (foreign)
+                        {
+                            current.stage = wanted.stage;
+                            current.access = wanted.access;
+                            current.queue = node.queue;
+                        }
+                        else
+                        {
+                            current.stage |= wanted.stage;
+                            current.access |= wanted.access;
+                        }
                         return;
                     }
 
@@ -559,6 +748,7 @@ namespace SushiEngine
                     barrier.size = VK_WHOLE_SIZE;
                     buffer_barriers.push_back(barrier);
                     current = wanted;
+                    current.queue = node.queue;
                 };
 
                 for (const TextureUse& use : node.texture_reads)
@@ -687,11 +877,14 @@ namespace SushiEngine
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
             }
 
-            void RenderGraph::execute(VkCommandBuffer cmd)
+            void RenderGraph::execute(VkCommandBuffer cmd, std::uint32_t index)
             {
-                for (std::uint32_t index : order_)
+                if (index >= submissions_.size())
+                    return;
+                const Submission& submission = submissions_[index];
+                for (std::uint32_t offset = 0; offset < submission.count; ++offset)
                 {
-                    PassNode& node = passes_[index];
+                    PassNode& node = passes_[order_[submission.first + offset]];
                     const std::uint32_t timer =
                         profiler_ != nullptr ? profiler_->begin_pass(cmd, node.name.c_str())
                                              : GpuProfiler::INVALID_TIMER;

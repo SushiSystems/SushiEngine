@@ -338,6 +338,16 @@ namespace SushiEngine
                 relight_pipeline_ = VK_NULL_HANDLE;
             }
 
+            VisibilityField SdfProbeTracer::visibility_field(
+                std::uint32_t frame_index) const noexcept
+            {
+                VisibilityField field;
+                field.distance_field = clipmap_view_;
+                field.config = clip_config_buffers_[frame_index % RING];
+                field.config_bytes = sizeof(SdfClipmapConfig);
+                return field;
+            }
+
             void SdfProbeTracer::rebuild_pipelines()
             {
                 destroy_pipelines();

@@ -43,6 +43,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
@@ -76,8 +77,15 @@ namespace SushiEngine
             class ViewResources
             {
                 public:
-                    /** @brief How many frames may be in flight at once. */
-                    static constexpr std::uint32_t SLOTS = 2;
+                    /**
+                     * @brief How many frame slots exist.
+                     *
+                     * The ceiling, not the depth in use: how many frames the CPU actually
+                     * runs ahead is @c FrameDeliverySettings::frames_in_flight, which the
+                     * view changes between frames, so every slot is allocated up front and
+                     * the deepest setting costs no reallocation to reach.
+                     */
+                    static constexpr std::uint32_t SLOTS = 3;
 
                     /**
                      * @brief Brings up the command slots, targets, and history.
@@ -105,9 +113,64 @@ namespace SushiEngine
                     std::uint32_t height() const noexcept { return height_; }
 
                     // --- Command slot access, driven by the view's frame loop -------------
-                    VkCommandPool command_pool(std::uint32_t slot) const noexcept;
-                    VkCommandBuffer command_buffer(std::uint32_t slot) const noexcept;
-                    VkFence fence(std::uint32_t slot) const noexcept;
+                    /**
+                     * @brief Returns a slot's command buffers to the initial state for a frame.
+                     *
+                     * Resets both queues' pools and rewinds the hand-out cursors, so the
+                     * frame's first acquire_command_buffer() starts from the same buffer every
+                     * time and the ones a deeper frame needed are reused rather than regrown.
+                     *
+                     * @param slot The frame slot about to be recorded.
+                     */
+                    void reset_commands(std::uint32_t slot);
+
+                    /**
+                     * @brief Hands out the next unused command buffer for a queue.
+                     *
+                     * One per submission rather than one per slot: how many submissions a
+                     * frame compiles to depends on how its passes were scheduled, and two of
+                     * them recorded into one buffer would submit the same buffer twice. Grows
+                     * the slot's pool of buffers on demand and never shrinks it.
+                     *
+                     * @param slot  The frame slot being recorded.
+                     * @param queue Which queue the submission goes to.
+                     * @return A command buffer in the initial state, from that queue's family.
+                     */
+                    VkCommandBuffer acquire_command_buffer(std::uint32_t slot,
+                                                           Graph::PassQueue queue);
+
+                    /**
+                     * @brief The timeline a queue's submissions signal.
+                     * @param queue Which queue's timeline.
+                     * @return The semaphore submissions on that queue signal and wait on.
+                     */
+                    VkSemaphore timeline(Graph::PassQueue queue) const noexcept;
+
+                    /**
+                     * @brief Reserves the next value a queue's submission will signal.
+                     *
+                     * Timeline values rise monotonically per queue, so the value handed back
+                     * is also what a later submission waits on to order itself after this
+                     * one. Recorded into @p slot so the slot's next occupant knows how far
+                     * the GPU must have got before it may reuse the slot's resources.
+                     *
+                     * @param slot  The frame slot the submission belongs to.
+                     * @param queue The queue the submission goes to.
+                     * @return The value that submission must signal.
+                     */
+                    std::uint64_t signal_next(std::uint32_t slot, Graph::PassQueue queue) noexcept;
+
+                    /**
+                     * @brief Blocks until every submission recorded for a slot has completed.
+                     *
+                     * Replaces the per-slot fence: with work on two queues there are two
+                     * values to reach, and one wait on both is what makes the slot's
+                     * transients, readbacks, and timestamps safe to touch again.
+                     *
+                     * @param slot The frame slot to wait on.
+                     */
+                    void wait_for_slot(std::uint32_t slot) const;
+
                     bool ever_rendered(std::uint32_t slot) const noexcept;
                     void mark_rendered(std::uint32_t slot) noexcept;
 
@@ -200,8 +263,15 @@ namespace SushiEngine
                         void* post_mapped = nullptr;
                         Graph::BufferState post_state{};
                         VkCommandPool pool = VK_NULL_HANDLE;
-                        VkCommandBuffer cmd = VK_NULL_HANDLE;
-                        VkFence fence = VK_NULL_HANDLE;
+                        VkCommandPool compute_pool = VK_NULL_HANDLE;
+                        /** @brief Buffers handed out this frame, per queue, and how many. */
+                        std::vector<VkCommandBuffer> graphics_buffers;
+                        std::vector<VkCommandBuffer> compute_buffers;
+                        std::uint32_t graphics_used = 0;
+                        std::uint32_t compute_used = 0;
+                        /** @brief Timeline values this slot's last submissions signal. */
+                        std::uint64_t graphics_target = 0;
+                        std::uint64_t compute_target = 0;
                         bool ever_rendered = false;
                         /** @brief Render extent the id target in this slot was written at. */
                         std::uint32_t readback_width = 0;
@@ -231,6 +301,18 @@ namespace SushiEngine
 
                     VulkanDevice& device_;
                     VkSampler ui_sampler_ = VK_NULL_HANDLE;
+                    /**
+                     * @brief One monotonic timeline per queue, not one per frame slot.
+                     *
+                     * A single shared counter would have to be signalled in increasing order,
+                     * which is exactly what two overlapping queues cannot promise; a timeline
+                     * per queue lets each rise with its own submissions, and a wait on one
+                     * queue's value still covers everything earlier on that queue.
+                     */
+                    VkSemaphore graphics_timeline_ = VK_NULL_HANDLE;
+                    VkSemaphore compute_timeline_ = VK_NULL_HANDLE;
+                    std::uint64_t graphics_value_ = 0;
+                    std::uint64_t compute_value_ = 0;
                     Slot slots_[SLOTS];
                     History history_[2];
                     bool history_valid_ = false;

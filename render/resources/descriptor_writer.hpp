@@ -42,6 +42,7 @@
  * push-descriptor set.
  */
 
+#include <cassert>
 #include <cstdint>
 
 #include <vulkan/vulkan.h>
@@ -121,6 +122,7 @@ namespace SushiEngine
                     DescriptorWriter& sampled_image(std::uint32_t binding, VkImageView view,
                                                     VkSampler sampler, VkImageLayout layout)
                     {
+                        assert(count_ < CAPACITY && "DescriptorWriter batch overflow");
                         if (count_ >= CAPACITY || view == VK_NULL_HANDLE)
                             return *this;
                         images_[count_].sampler = sampler;
@@ -140,6 +142,7 @@ namespace SushiEngine
                     DescriptorWriter& storage_image(std::uint32_t binding, VkImageView view,
                                                     VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL)
                     {
+                        assert(count_ < CAPACITY && "DescriptorWriter batch overflow");
                         if (count_ >= CAPACITY || view == VK_NULL_HANDLE)
                             return *this;
                         images_[count_].imageView = view;
@@ -157,6 +160,7 @@ namespace SushiEngine
                     DescriptorWriter& acceleration_structure(std::uint32_t binding,
                                                              VkAccelerationStructureKHR structure)
                     {
+                        assert(count_ < CAPACITY && "DescriptorWriter batch overflow");
                         if (count_ >= CAPACITY || structure == VK_NULL_HANDLE)
                             return *this;
                         structure_handles_[count_] = structure;
@@ -208,11 +212,19 @@ namespace SushiEngine
                     }
 
                 private:
-                    static constexpr std::uint32_t CAPACITY = 16;
+                    /**
+                     * @brief Writes one batch may hold, sized to the largest set in the tree.
+                     *
+                     * The shading pass's scene set is the widest at 26 bindings, so a smaller
+                     * bound silently drops its tail — which is where the clustered light and
+                     * decal bindings sit. The asserts below catch a set that outgrows this.
+                     */
+                    static constexpr std::uint32_t CAPACITY = 32;
 
                     DescriptorWriter& buffer_write(std::uint32_t binding, VkBuffer buffer,
                                                    VkDeviceSize range, VkDescriptorType type)
                     {
+                        assert(count_ < CAPACITY && "DescriptorWriter batch overflow");
                         if (count_ >= CAPACITY || buffer == VK_NULL_HANDLE)
                             return *this;
                         buffers_[count_].buffer = buffer;

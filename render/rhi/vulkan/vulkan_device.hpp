@@ -145,6 +145,66 @@ namespace SushiEngine
                     std::uint32_t graphics_queue_family() const noexcept { return graphics_queue_family_; }
 
                     /**
+                     * @brief Whether a compute queue outside the graphics family exists.
+                     *
+                     * Only a queue from a *different* family can genuinely overlap graphics
+                     * work; a second queue from the graphics family would be scheduled on the
+                     * same hardware and buy nothing but submission overhead. False leaves the
+                     * render graph putting every pass on the graphics queue, which is always
+                     * correct — the async path is an optimisation, never a requirement.
+                     */
+                    bool supports_async_compute() const noexcept
+                    {
+                        return async_compute_queue_ != VK_NULL_HANDLE;
+                    }
+
+                    /** @brief The dedicated compute queue, or VK_NULL_HANDLE. */
+                    VkQueue async_compute_queue() const noexcept { return async_compute_queue_; }
+
+                    /** @brief The dedicated compute queue's family, or the graphics family. */
+                    std::uint32_t async_compute_queue_family() const noexcept
+                    {
+                        return async_compute_queue_family_;
+                    }
+
+                    /**
+                     * @brief Marks an image as shared between the graphics and compute queues.
+                     *
+                     * A resource one queue family writes and another reads must either be
+                     * created concurrent or have its ownership transferred; the render graph
+                     * derives the execution dependency but not the transfer, so a resource an
+                     * async-compute pass shares with the graphics queue is created concurrent
+                     * here. A no-op when there is no second family, which is why the caller
+                     * may apply it unconditionally.
+                     *
+                     * @param info The create info to mark, filled in place.
+                     */
+                    void share_across_queues(VkImageCreateInfo& info) const noexcept;
+
+                    /**
+                     * @brief Marks a buffer as shared between the graphics and compute queues.
+                     * @param info The create info to mark, filled in place.
+                     */
+                    void share_across_queues(VkBufferCreateInfo& info) const noexcept;
+
+                    /**
+                     * @brief Whether device memory can be exported to another API.
+                     *
+                     * True when the platform's external-memory extension was enabled, which is
+                     * what lets an allocation this device owns be imported by SushiRuntime's
+                     * SYCL device (matched by @c DeviceInfo::uuid) instead of copied through
+                     * the host. The handle getter itself is resolved by the interop module
+                     * rather than here, because reaching it means pulling the platform's
+                     * Vulkan header — and its Win32 baggage — into every translation unit that
+                     * includes this one. False leaves interop buffers unavailable; no render
+                     * path depends on them.
+                     */
+                    bool supports_external_memory() const noexcept
+                    {
+                        return supports_external_memory_;
+                    }
+
+                    /**
                      * @brief Whether the bindless descriptor heap can be created.
                      *
                      * True when the device offered the descriptor-indexing features the
@@ -280,6 +340,11 @@ namespace SushiEngine
                     VmaAllocator allocator_ = VK_NULL_HANDLE;
                     VkQueue graphics_queue_ = VK_NULL_HANDLE;
                     std::uint32_t graphics_queue_family_ = 0;
+                    VkQueue async_compute_queue_ = VK_NULL_HANDLE;
+                    std::uint32_t async_compute_queue_family_ = 0;
+                    /** @brief {graphics, compute} — the pair a concurrent resource names. */
+                    std::uint32_t shared_families_[2] = {0, 0};
+                    bool supports_external_memory_ = false;
                     bool supports_descriptor_indexing_ = false;
                     bool supports_host_image_copy_ = false;
                     bool supports_pipeline_library_ = false;

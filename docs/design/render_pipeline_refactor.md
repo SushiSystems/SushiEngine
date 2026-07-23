@@ -53,8 +53,17 @@ present, and nothing is selected; classic CPU per-instance draw otherwise), auth
 Culling** editor panel; cloth triangulation moved to a compute pass (`cloth.comp`/`ClothPass`, the
 host uploading only particle positions), and a `VK_EXT_mesh_shader` meshlet path (task + mesh
 shaders, per-meshlet frustum cull, device+Ultra gated with classic fallback) added on top, leaving
-only sparse virtual texturing deferred with recorded rationale. This revision re-audits
-the codebase, folds in
+only sparse virtual texturing deferred with recorded rationale. **Phase 11 delivery is shipped
+(core):** the render graph learned queues — a pass may ask for the async compute queue, and the
+compiler splits the schedule into per-queue submissions, deriving their cross-queue waits and
+their concurrent-sharing needs from the same declarations the barriers come from (the clustered
+light cull and the GTAO march ride it today) — binary fences gave way to per-queue timeline
+semaphores with 2-or-3 frames in flight and selectable present pacing, reconstruction moved
+behind one `IUpscaler` interface that the shipped temporal resolve now implements (vendor
+backends deferred; an absent SDK resolves back to it with the reason surfaced), and the engine
+half of the SushiRuntime interop seam — an exportable, UUID-stamped device allocation — landed
+with the runtime-side import recorded as blocked on an API the runtime does not yet have. This
+revision re-audits the codebase, folds in
 a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
 GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
 AAA-complete phases. The guiding constraint is unchanged: the *red line between
@@ -120,8 +129,10 @@ document.
 3. **Transient "aliasing" is whole-resource reuse**, not memory aliasing on shared
    allocations. Fine at today's target count; revisit when froxel volumes, GI
    probes, and history buffers multiply the transient set.
-4. **The upscaling hook is homegrown-temporal only.** No vendor upscaler behind it,
-   and no abstraction a vendor upscaler could implement yet.
+4. ~~**The upscaling hook is homegrown-temporal only.** No vendor upscaler behind it,
+   and no abstraction a vendor upscaler could implement yet.~~ *Half paid in Phase 11:*
+   the abstraction exists (`IUpscaler`) and the temporal resolve implements it; no vendor
+   backend is vendored yet (§Phase 11.1).
 5. **IBL diffuse is a convolved 32³ cubemap, not SH** — costs a sample per pixel
    where a 9-coefficient SH would be uniform reads, and blocks cheap probe blending
    (Phase 6 needs SH anyway).
@@ -178,8 +189,8 @@ and material inspector exist).
         → [DoF/MotionBlur] → [Tonemap (AgX/ACES/Neutral) + grade + dither]
         → [HDR/SDR encode] → [FXAA ✓] → [ImGui / present]
 
-   (VRS ✓ + dynamic resolution ✓ wrap the shading-heavy passes; the graph places
-    compute passes on the async queue once Phase 11 opens it.)
+   (VRS ✓ + dynamic resolution ✓ wrap the shading-heavy passes; the graph places a
+    flagged compute pass on the async queue ✓ and derives the cross-queue wait.)
 ```
 
 Module layout is unchanged and shipped: `render/graph/`, `render/frame/`,
@@ -246,7 +257,8 @@ Kept for the record; each item is verified in source. Residual debt is listed in
 5. ✓ Shader hot-reload with in-process glslang and `#include`
    (`render/resources/shader_library.*`).
 6. ✓ Cloud noise on compute dispatches (`render/textures/cloud_noise.*`) — Vulkan
-   compute rather than SYCL; the SYCL interop seam remains Phase 11.
+   compute rather than SYCL; the SYCL interop seam landed engine-side in Phase 11.4,
+   with the runtime-side import still blocked on a SushiRuntime API.
 
 ### Phase 1 — Shading core ✓ (shipped)
 
@@ -286,7 +298,7 @@ Kept for the record; each item is verified in source. Residual debt is listed in
 2. ✓ TAA: velocity dilation, YCoCg neighborhood clip, Catmull-Rom history,
    Karis-weighted blend, sharpen (`render/passes/taa_pass.*`, `taa.frag`).
 3. ◐ Upscaling: homegrown temporal upscale (history at output extent) shipped; the
-   vendor-upscaler abstraction is Phase 11.
+   vendor-upscaler abstraction shipped in Phase 11.1 (the resolve now implements it).
 4. ✓ FXAA fallback, fully history-free (`render/passes/fxaa_pass.*`).
 5. ✓ Dynamic resolution driven by measured GPU time, quantized steps
    (`render/frame/resolution_controller.*`).
@@ -853,40 +865,155 @@ otherwise. The editor's **GPU Culling** panel authors `RenderSettings::gpu_culli
 draw args; passes consume them — the draw loop stops being renderer code and
 becomes GPU data (the GPU-driven mandate realized).
 
-### Phase 11 — Upscaling, async compute & frame delivery
+### Phase 11 — Upscaling, async compute & frame delivery — **shipped (core)**
 
-1. **Upscaler abstraction**: one interface (`render/frame/upscaler.hpp`) taking
-   color/depth/motion/exposure/jitter + camera deltas — implemented by the
-   shipped temporal upscale, **FSR 3.1** (vendor-agnostic floor; its API carries
-   forward to FSR4-class ML upgrades), **DLSS via Streamline**, **XeSS** (DP4a
-   fallback covers non-Intel). Camera-relative motion vectors are already the
-   correct input contract. Frame generation: interface-reserved, not integrated
-   until latency plumbing exists.
-2. **Async compute queue**: the graph scheduler places flagged passes (GTAO, GI
-   relight, cluster build, LUTs, histogram, SVT transcode) on the compute queue
-   with cross-queue sync derived like everything else. Target: 10–20% frame-time
-   recovery from overlap.
-3. **Timeline semaphores + frame pacing**: replace binary fences, 3 frames in
-   flight optional, submit-as-late-as-possible latency mode, per-queue
-   present timing.
-4. **SushiRuntime SYCL interop**: device-UUID-matched zero-copy of simulation
-   output (weather grid, particles, soft bodies) into renderer-visible buffers —
-   the "interop-first" mandate's landing.
+The frame now reaches the GPU on two queues and the display on the host's terms, and
+reconstruction became an interface rather than a hard-wired pass. **Shipped:** the
+upscaler seam (11.1), async compute with graph-derived cross-queue sync (11.2), timeline
+semaphores + configurable frames in flight + present pacing (11.3), and the engine half
+of the runtime interop seam (11.4). **Deferred with rationale:** the vendor upscaler
+backends and the runtime-side SYCL import — both blocked on something outside this
+repository, recorded below rather than stubbed.
 
-### Phase 12 — The ray-tracing tier & many-light scaling *(Ultra)*
+1. **Upscaler abstraction**: ✓ **Shipped (the seam), vendor backends deferred.**
+   `render/frame/upscaler.hpp` names the contract — `UpscaleInputs` (colour, depth,
+   velocity, history, output, the scene/temporal blocks, both extents, jitter, exposure,
+   and a history-reset flag) and `IUpscaler`, whose implementations register their own
+   graph passes so a three-dispatch backend and a one-draw backend look identical from
+   outside. `TaaPass` was refactored to *be* that first implementation rather than a pass
+   the frame loop calls by name: its `register_pass` now builds `UpscaleInputs` from the
+   frame and calls its own `register_upscale`, which is exactly what a vendor backend would
+   be handed. `UpscaleMode` gained `Fsr`/`Dlss`/`Xess`, and
+   `Frame::upscaler_availability` reports per backend whether this build carries its SDK;
+   one it does not resolves back to `Temporal` with the reason surfaced in the editor, so a
+   project may author a vendor upscaler unconditionally and a build without it degrades
+   instead of failing. **Deferred — rationale recorded:** none of FSR 3.1, DLSS/Streamline,
+   or XeSS is vendored. Each ships as a separate redistributable under its own licence, and
+   pulling one into the dependency set is a project decision rather than a renderer default;
+   integrating one is also the kind of work whose correctness is only confirmable on screen
+   (ghosting, disocclusion, the reactive mask), which this increment could not verify.
+   Camera-relative motion vectors, the jitter sequence, and the exposure input — the three
+   things a vendor upscaler is fussy about — are already in the contract, so adoption is a
+   new file behind `IUpscaler` and a `SUSHI_WITH_*` definition, not a change to the frame
+   loop. Frame generation stays interface-reserved. **Revisit trigger:** when a target
+   platform makes one backend the obvious floor, or when latency plumbing for frame
+   generation exists.
+2. **Async compute queue**: ✓ **Shipped.** `VulkanDevice` now finds a compute queue whose
+   *family* is distinct from graphics (the separate-family query, not vk-bootstrap's
+   "dedicated" one — dedicated also excludes a family that can transfer, and every real
+   async-compute family can, so AMD's compute rings were being rejected). The graph gained
+   `PassQueue`: a pass declares `AsyncCompute`, `compile()` splits the schedule wherever the
+   queue changes into `Submission`s, and each submission's wait is **derived from the same
+   resource declarations the barriers come from** — the latest earlier submission on the
+   *other* queue that produced what it consumes or consumed what it overwrites. Same-queue
+   dependencies need nothing (submission order), and because a queue's timeline values rise
+   with its submissions, one wait covers every earlier one. The same walk marks which
+   resources both queues touch (`TextureDesc::cross_queue`), and *only those* are allocated
+   concurrent: the graph cannot transfer queue-family ownership, and paying for concurrent
+   sharing on every transient would cost attachment compression for nothing. Barrier
+   emission became queue-aware — a resource last touched by the other queue has its source
+   scope dropped, because those stages are not even nameable on this queue (a compute buffer
+   cannot wait on the fragment-test stage a depth prepass wrote in) and the submission
+   timeline has already ordered it. **Flagged today:** the clustered **light cull** (its
+   inputs are host-written, so it starts immediately and overlaps the depth prepass and the
+   cascades) and the **GTAO horizon march** (the heaviest compute pass, overlapping the
+   punctual shadow atlas). Tier-, device-, and author-gated; absent any of the three every
+   pass records on the graphics queue exactly as before. **Remaining:** the LUT stack, the
+   fog volume, the GI relight, and the histogram are *not* flagged, because each
+   hand-barriers resources it owns and the cross-queue wait is derived from declarations —
+   importing those resources into the graph is the prerequisite, and is the next increment
+   here. Graph-derived queue-family **ownership transfers** (which would remove the
+   concurrent-sharing cost entirely and let an attachment cross queues) are the other
+   documented refinement.
+3. **Timeline semaphores + frame pacing**: ✓ **Shipped.** The per-slot binary fence is gone.
+   Each queue carries one monotonic timeline semaphore; every submission signals its own
+   value and waits on the value it depends on, and a slot is reusable once both timelines
+   have reached what that slot submitted (`vkWaitSemaphores` on both, in place of
+   `vkWaitForFences`). Command buffers are handed out **per submission** rather than per
+   slot — a frame that compiles to several submissions would otherwise record two of them
+   into one buffer, which is exactly the bug validation caught. Frames in flight is now a
+   setting (2 or 3, capped to 2 on Low) with every slot allocated up front, so changing depth
+   costs an idle and no reallocation; present pacing (V-Sync / Mailbox / Immediate) is a
+   setting applied through `IWindowRenderer::set_present_mode`, which rebuilds the swapchain
+   only on an actual change. A **latent bug this surfaced**: the `timelineSemaphore` feature
+   had never been enabled at device creation — core since 1.2 and mandatory at the 1.4 floor,
+   but still a feature that must be asked for, and nothing had used one until now.
+   **Remaining:** an explicit submit-as-late-as-possible latency mode, and per-queue present
+   timing (`VK_GOOGLE_display_timing`).
+4. **SushiRuntime SYCL interop**: ◐ **Engine half shipped; the runtime half is blocked.**
+   `include/SushiEngine/render/interop.hpp` plus `render/interop/vulkan_interop_buffer.cpp`
+   allocate a device-local buffer whose memory another API can import by OS handle: a
+   *dedicated*, exportable allocation (the handle names the whole allocation, so a
+   suballocated block cannot be exported), created concurrent across both queue families,
+   and stamped with the device UUID that `RenderDeviceDesc::required_uuid` already selects
+   the graphics device by. The public header carries no Vulkan, SYCL, or platform type — the
+   one translation unit that pulls in the Win32 Vulkan header is the implementation, which is
+   also why `VulkanDevice` exposes only `supports_external_memory()` and not the handle
+   getter. **Blocked, not stubbed:** the importing half has to live where the SYCL device
+   does, and SushiRuntime's memory surface (`usm_allocator.hpp`, `memory_pool.hpp`) has no
+   external-memory import today. SushiEngine depends on SushiRuntime and never the reverse,
+   so the engine cannot add it; `sushi_render` also links no runtime and compiles no SYCL by
+   design. **Revisit trigger:** when SushiRuntime grows an import-external-memory entry point,
+   at which point the consumer is a sim-side call, not a renderer change.
 
-Everything here drops into seams earlier phases built; nothing forks the pipeline.
+*Verification note:* this phase is where `vulkan-validationlayers` entered the engine's
+`sushistack.deps.toml`. Every claim above was checked against a live run with the layer
+loaded, diffed against a same-build baseline with async compute off, so "no new validation
+errors" means exactly that and not "none were reported". The pre-existing errors that diff
+surfaced (the LUT/fog volumes sampled in `GENERAL`, a `levelCount` of zero, an unwritten
+temporal descriptor) are real and predate this phase; they are logged for the increment that
+imports those hand-barriered resources into the graph.
 
-1. **RT probe feeding**: Phase 6 Tier B matured — ray-query probe relight with
-   SHaRC-style world-space radiance cache; multibounce via cache feedback.
-2. **RT reflections**: replace SSR *misses* only (the hybrid pattern), NRD-class
-   denoiser (ReBLUR) — adopt the library, do not write SVGF from scratch.
-3. **Stochastic direct lighting** (MegaLights-shaped): reservoir-lite importance
-   sampling over the clustered light list, visibility by ray query (Tier B) or
-   SDF trace (Tier A "high"), temporal feedback through the existing TAA chain —
-   removes the per-light shadow-map ceiling; hundreds of shadowed lights.
-4. **RT sun shadows**: already shipped (Phase 2); fold its denoise into the NRD
-   integration.
+### Phase 12 — The ray-tracing tier & many-light scaling *(Ultra)* — **12.3 Tier A shipped**
+
+Everything here drops into seams earlier phases built; nothing forks the pipeline. **Shipped:**
+the Tier A half of stochastic direct lighting (12.3) — the one item of this phase that does not
+need ray-tracing hardware, and the one that carries the phase's actual scaling win. **Deferred
+with recorded rationale:** the three ray-query items (12.1, 12.2, and 12.3's Tier B), because
+the development device offers no ray query and shipping three unrunnable features would be the
+opposite of the posture this document takes everywhere else.
+
+1. **RT probe feeding**: ○ **Deferred — rationale recorded.** Phase 6 Tier B matured:
+   ray-query probe relight with a SHaRC-style world-space radiance cache, multibounce via cache
+   feedback. Every seam it needs exists — `IProbeTracer` is the strategy interface, the
+   BLAS/TLAS is built per frame, and a new tracer is a new file. What is missing is hardware:
+   the development GPU (Pascal) reports no `VK_KHR_ray_query`, so the tracer could be compiled
+   but not executed, let alone compared against the SDF tracer it would replace. **Revisit
+   trigger:** an RT-capable development device.
+2. **RT reflections**: ○ **Deferred — same rationale.** Replace SSR *misses* only (the hybrid
+   pattern), denoised by an NRD-class library rather than a hand-written SVGF. Two blockers, not
+   one: the hardware above, and NRD itself, which is an external SDK this build does not vendor
+   — the same "a redistributable under its own licence is a project decision" line the vendor
+   upscalers sit behind (§11.1).
+3. **Stochastic direct lighting** (MegaLights-shaped): ◐ **Tier A shipped; Tier B deferred.**
+   The shipped half is the one the plan already scoped for non-RT hardware — "visibility by ray
+   query (Tier B) or **SDF trace (Tier A high)**". A pixel's cluster lights split in two: those
+   holding a punctual shadow-atlas tile are filtered against it exactly as before, and those
+   beyond the atlas budget — previously shaded fully unshadowed — are importance-sampled. Each
+   pixel draws a tier-scaled number of them proportionally to `luminance × falloff × cosine`
+   (stratified, frame-advanced so consecutive frames pick differently), marches the GI distance
+   clipmap toward each pick with `sdf_visibility()`, and weights by `1/(K·p)`. The estimator is
+   unbiased, so the existing temporal resolve — no new denoiser — averages it toward shadowing
+   every light. **This is the phase's actual win:** the shadowed-light ceiling stops being the
+   atlas tile count (4–16 by tier) and becomes a per-pixel sample budget that does not grow with
+   the light count. Plumbing worth recording: the per-frame push set was already full at its
+   guaranteed 32 bindings, so the field reaches every shading pipeline through a new *volume*
+   array on the bindless heap (one registration for an image created with the device), and the
+   field's placement rides spare lanes of the cluster block rather than a binding of its own.
+   Tier: one sample on High, two on Ultra, zero below — where there is no GI field to march
+   anyway. **Remaining:** Tier B visibility (a ray query in place of the march, on the same
+   estimator — a one-function change once hardware exists), a reservoir carried across frames
+   (ReSTIR-lite) instead of independent per-frame draws, and specular light sampling (the
+   estimator is diffuse-weighted today).
+4. **RT sun shadows**: ✓ already shipped (Phase 2); folding its denoise into an NRD integration
+   waits on the same library decision as 12.2.
+
+*Verification note:* the shipped half was checked with the validation layer loaded and diffed
+against a same-build baseline — no new validation errors, no device loss, and the estimator
+confirmed to execute (field registered in heap slot 0, one sample per pixel, four non-atlas
+lights in the cluster). Its *look* — how quickly the noise resolves under motion, how the
+penumbra reads — is not verified: that needs an authored many-light scene and a pair of eyes on
+the image, and is the first thing to check when this is next opened.
 
 ### Phase 13 — Completeness (opportunistic, tier-gated)
 

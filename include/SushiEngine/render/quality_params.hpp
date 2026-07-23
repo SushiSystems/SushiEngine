@@ -172,6 +172,31 @@ namespace SushiEngine
              * meshlet path is purely additive.
              */
             bool meshlets = false;
+
+            /**
+             * @brief Whether flagged compute passes may run on the async compute queue.
+             *
+             * Overlapping the LUT, cluster-build, and occlusion work with the graphics
+             * queue's shadow and depth passes recovers frame time that neither queue was
+             * using; the cost is a second command buffer and a cross-queue semaphore per
+             * frame. The lowest tier keeps everything on one queue — its devices are the
+             * least likely to have a queue family to spare and the most likely to lose
+             * more to the extra submission than the overlap returns. Gated further by the
+             * author's @c FrameDeliverySettings::async_compute and by the device actually
+             * offering a compute family distinct from graphics, so this only permits it.
+             */
+            bool async_compute = true;
+
+            /**
+             * @brief Lights each pixel samples and shadow-marches beyond the atlas budget.
+             *
+             * The cost of stochastic light visibility is set by this and not by how many
+             * lights the scene holds, which is the whole point: the shadowed-light ceiling
+             * stops being a memory budget and becomes a sample budget. Zero switches the
+             * path off, restoring "unshadowed beyond the atlas" — the floor tiers, which
+             * have no GI field to march anyway.
+             */
+            std::uint32_t stochastic_light_samples = 0;
         };
 
         /**

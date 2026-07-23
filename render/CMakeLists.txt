@@ -204,6 +204,7 @@ add_library(sushi_render STATIC
     raytracing/scene_accelerator.cpp
     frame/temporal_jitter.cpp
     frame/resolution_controller.cpp
+    frame/upscaler.cpp
     frame/quality.cpp
     geometry/mesh_registry.cpp
     geometry/meshlet.cpp
@@ -251,6 +252,7 @@ add_library(sushi_render STATIC
     passes/shading_rate_pass.cpp
     passes/tonemap_pass.cpp
     passes/picking_pass.cpp
+    interop/vulkan_interop_buffer.cpp
     rhi/vulkan/vulkan_device.cpp
     rhi/vulkan/vulkan_offscreen.cpp
     rhi/vulkan/vulkan_window_renderer.cpp

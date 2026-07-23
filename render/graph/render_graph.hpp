@@ -69,6 +69,28 @@ namespace SushiEngine
             /** @brief The largest number of colour attachments one pass may declare. */
             constexpr std::uint32_t MAX_COLOR_ATTACHMENTS = 8;
 
+            /** @brief The value a submission's @c wait takes when it waits on nothing. */
+            constexpr std::uint32_t NO_SUBMISSION = 0xFFFFFFFFu;
+
+            /**
+             * @brief One contiguous run of passes recorded into one command buffer.
+             *
+             * The compiler splits the schedule wherever the queue changes, so a frame with
+             * no async pass is one submission and the caller's loop degenerates to what it
+             * always did. @c wait is the index of the latest earlier submission on the
+             * *other* queue that this one depends on, or @c NO_SUBMISSION: a dependency on
+             * the same queue is already ordered by submission order and needs no wait, and
+             * because a queue's timeline values rise with its submissions, waiting on the
+             * latest cross-queue dependency covers every earlier one.
+             */
+            struct Submission
+            {
+                PassQueue queue = PassQueue::Graphics;
+                std::uint32_t first = 0; /**< First position in the compiled order. */
+                std::uint32_t count = 0; /**< Passes in this run. */
+                std::uint32_t wait = NO_SUBMISSION;
+            };
+
             /**
              * @brief An externally owned texture the graph may schedule against.
              *
@@ -266,6 +288,27 @@ namespace SushiEngine
                     void set_render_area(std::uint32_t width, std::uint32_t height);
 
                     /**
+                     * @brief Asks for the pass to be recorded on the async compute queue.
+                     *
+                     * Honoured only when the frame enabled async compute and the device has a
+                     * compute family of its own; otherwise the declaration is ignored and the
+                     * pass records on the graphics queue as usual, so declaring it never
+                     * changes what the pass must be able to do.
+                     *
+                     * Two conditions the flagging pass owes the graph. Everything it produces
+                     * must be *declared* — the cross-queue wait is derived from declarations,
+                     * so a pass that hand-barriers a resource it owns (the LUT and fog
+                     * volumes do) would have its consumers unsynchronised. And the resources
+                     * it shares must be graph transients: the graph marks those concurrent
+                     * for itself (@c TextureDesc::cross_queue), but it cannot change the
+                     * sharing mode of an *imported* allocation someone else created, so an
+                     * import that crosses queues has to have been created shared by its owner.
+                     *
+                     * @param queue The queue the pass would prefer to run on.
+                     */
+                    void set_queue(PassQueue queue);
+
+                    /**
                      * @brief Marks the pass as never cullable.
                      *
                      * Needed by passes whose result leaves the graph in a way the graph
@@ -317,6 +360,18 @@ namespace SushiEngine
                                      Resources::BufferPool& buffers);
 
                     /**
+                     * @brief Whether this frame may split passes onto the compute queue.
+                     *
+                     * Set once per frame before the passes register. False collapses every
+                     * @c PassQueue::AsyncCompute declaration back to the graphics queue, so a
+                     * frame always compiles to something submittable regardless of device or
+                     * settings.
+                     *
+                     * @param enabled Whether the second queue is available and wanted.
+                     */
+                    void set_async_compute_enabled(bool enabled) noexcept;
+
+                    /**
                      * @brief Declares a transient texture the graph allocates and may alias.
                      * @param desc What the texture must be; usage is unioned with the
                      *             declared accesses before allocation.
@@ -363,11 +418,33 @@ namespace SushiEngine
                      */
                     void compile();
 
+                    /** @brief How many command buffers this frame compiled into. */
+                    std::uint32_t submission_count() const noexcept
+                    {
+                        return static_cast<std::uint32_t>(submissions_.size());
+                    }
+
                     /**
-                     * @brief Records every surviving pass, with its barriers and rendering scope.
-                     * @param cmd The command buffer to record into.
+                     * @brief One compiled submission: its queue and what it waits on.
+                     * @param index Submission index, below submission_count().
+                     * @return The queue, pass range, and wait dependency.
                      */
-                    void execute(VkCommandBuffer cmd);
+                    const Submission& submission(std::uint32_t index) const
+                    {
+                        return submissions_[index];
+                    }
+
+                    /**
+                     * @brief Records one submission's passes, with barriers and rendering scopes.
+                     *
+                     * Must be called for the submissions in index order: the barrier state
+                     * machine walks the schedule once, so recording them out of order would
+                     * derive transitions from the wrong preceding access.
+                     *
+                     * @param cmd   The command buffer to record into, from that queue's family.
+                     * @param index Which submission to record.
+                     */
+                    void execute(VkCommandBuffer cmd, std::uint32_t index);
 
                 private:
                     friend class RenderPassBuilder;
@@ -429,6 +506,7 @@ namespace SushiEngine
                         DepthAttachment depth;
                         ShadingRateAttachment shading_rate;
                         std::uint32_t color_count = 0;
+                        PassQueue queue = PassQueue::Graphics;
                         VkExtent2D render_area{0, 0};
                         bool has_render_area = false;
                         bool side_effect = false;
@@ -449,6 +527,8 @@ namespace SushiEngine
                         std::uint32_t readers = 0;
                         std::uint32_t first_pass = 0xFFFFFFFFu;
                         std::uint32_t last_pass = 0;
+                        bool touched_by_graphics = false;
+                        bool touched_by_compute = false;
                         std::vector<std::uint32_t> producers;
                     };
 
@@ -464,6 +544,8 @@ namespace SushiEngine
                         std::uint32_t readers = 0;
                         std::uint32_t first_pass = 0xFFFFFFFFu;
                         std::uint32_t last_pass = 0;
+                        bool touched_by_graphics = false;
+                        bool touched_by_compute = false;
                         std::vector<std::uint32_t> producers;
                     };
 
@@ -472,6 +554,8 @@ namespace SushiEngine
                     void declare_buffer(std::uint32_t pass, BufferHandle handle,
                                         BufferAccess access, bool is_write);
                     void cull_passes();
+                    void build_submissions();
+                    void mark_cross_queue_resources();
                     void assign_resources();
                     void touch(std::uint32_t pass, TextureResource& resource);
                     void touch(std::uint32_t pass, BufferResource& resource);
@@ -490,6 +574,8 @@ namespace SushiEngine
                     std::vector<TextureResource> texture_resources_;
                     std::vector<BufferResource> buffer_resources_;
                     std::vector<std::uint32_t> order_;
+                    std::vector<Submission> submissions_;
+                    bool async_compute_enabled_ = false;
             };
         } // namespace Graph
     } // namespace Render

@@ -103,7 +103,7 @@ namespace SushiEngine
 
                 private:
                     /** @brief How many frames may be in flight; matches the view's slot count. */
-                    static constexpr std::uint32_t SLOTS = 2;
+                    static constexpr std::uint32_t SLOTS = 3;
 
                     /** @brief Words in the stats buffer: drawn, tested, and two spare. */
                     static constexpr std::uint32_t STATS_WORDS = 4;

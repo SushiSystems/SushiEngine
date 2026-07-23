@@ -84,11 +84,15 @@ namespace SushiEngine
                 {
                     slot.textures.reset();
                     slot.buffers.reset();
-                    if (slot.fence != VK_NULL_HANDLE)
-                        vkDestroyFence(device_.device(), slot.fence, nullptr);
                     if (slot.pool != VK_NULL_HANDLE)
                         vkDestroyCommandPool(device_.device(), slot.pool, nullptr);
+                    if (slot.compute_pool != VK_NULL_HANDLE)
+                        vkDestroyCommandPool(device_.device(), slot.compute_pool, nullptr);
                 }
+                if (graphics_timeline_ != VK_NULL_HANDLE)
+                    vkDestroySemaphore(device_.device(), graphics_timeline_, nullptr);
+                if (compute_timeline_ != VK_NULL_HANDLE)
+                    vkDestroySemaphore(device_.device(), compute_timeline_, nullptr);
             }
 
             void ViewResources::create_command()
@@ -105,19 +109,35 @@ namespace SushiEngine
                     check(vkCreateCommandPool(device_.device(), &pool_info, nullptr, &slot.pool),
                           "vkCreateCommandPool");
 
-                    VkCommandBufferAllocateInfo cmd_info{};
-                    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                    cmd_info.commandPool = slot.pool;
-                    cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                    cmd_info.commandBufferCount = 1;
-                    check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &slot.cmd),
-                          "vkAllocateCommandBuffers");
+                    if (!device_.supports_async_compute())
+                        continue;
 
-                    VkFenceCreateInfo fence_info{};
-                    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-                    check(vkCreateFence(device_.device(), &fence_info, nullptr, &slot.fence),
-                          "vkCreateFence");
+                    // A command buffer belongs to the family its pool was created on, so the
+                    // async passes need a second pool — created only where there is a second
+                    // family to record for.
+                    pool_info.queueFamilyIndex = device_.async_compute_queue_family();
+                    check(vkCreateCommandPool(device_.device(), &pool_info, nullptr,
+                                              &slot.compute_pool),
+                          "vkCreateCommandPool(compute)");
                 }
+
+                // Timeline rather than binary semaphores: a frame's submissions have to name
+                // the exact point they wait for, and the host has to wait for the same point
+                // without a fence per queue per slot.
+                VkSemaphoreTypeCreateInfo type_info{};
+                type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+                type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+                type_info.initialValue = 0;
+
+                VkSemaphoreCreateInfo semaphore_info{};
+                semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+                semaphore_info.pNext = &type_info;
+                check(vkCreateSemaphore(device_.device(), &semaphore_info, nullptr,
+                                        &graphics_timeline_),
+                      "vkCreateSemaphore(graphics timeline)");
+                check(vkCreateSemaphore(device_.device(), &semaphore_info, nullptr,
+                                        &compute_timeline_),
+                      "vkCreateSemaphore(compute timeline)");
             }
 
             void ViewResources::create_targets()
@@ -330,19 +350,93 @@ namespace SushiEngine
                 create_targets();
             }
 
-            VkCommandPool ViewResources::command_pool(std::uint32_t slot) const noexcept
+            void ViewResources::reset_commands(std::uint32_t slot)
             {
-                return slots_[slot].pool;
+                Slot& s = slots_[slot];
+                // Resetting the pool returns every buffer it handed out to the initial
+                // state at once, which is why the buffers themselves are never freed.
+                check(vkResetCommandPool(device_.device(), s.pool, 0), "vkResetCommandPool");
+                s.graphics_used = 0;
+                if (s.compute_pool == VK_NULL_HANDLE)
+                    return;
+                check(vkResetCommandPool(device_.device(), s.compute_pool, 0),
+                      "vkResetCommandPool(compute)");
+                s.compute_used = 0;
             }
 
-            VkCommandBuffer ViewResources::command_buffer(std::uint32_t slot) const noexcept
+            VkCommandBuffer ViewResources::acquire_command_buffer(std::uint32_t slot,
+                                                                  Graph::PassQueue queue)
             {
-                return slots_[slot].cmd;
+                Slot& s = slots_[slot];
+                const bool compute = queue == Graph::PassQueue::AsyncCompute &&
+                                     s.compute_pool != VK_NULL_HANDLE;
+                std::vector<VkCommandBuffer>& buffers =
+                    compute ? s.compute_buffers : s.graphics_buffers;
+                std::uint32_t& used = compute ? s.compute_used : s.graphics_used;
+
+                if (used == buffers.size())
+                {
+                    VkCommandBufferAllocateInfo cmd_info{};
+                    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                    cmd_info.commandPool = compute ? s.compute_pool : s.pool;
+                    cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                    cmd_info.commandBufferCount = 1;
+                    VkCommandBuffer buffer = VK_NULL_HANDLE;
+                    check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &buffer),
+                          "vkAllocateCommandBuffers");
+                    buffers.push_back(buffer);
+                }
+                return buffers[used++];
             }
 
-            VkFence ViewResources::fence(std::uint32_t slot) const noexcept
+            VkSemaphore ViewResources::timeline(Graph::PassQueue queue) const noexcept
             {
-                return slots_[slot].fence;
+                return queue == Graph::PassQueue::AsyncCompute ? compute_timeline_
+                                                               : graphics_timeline_;
+            }
+
+            std::uint64_t ViewResources::signal_next(std::uint32_t slot,
+                                                     Graph::PassQueue queue) noexcept
+            {
+                if (queue == Graph::PassQueue::AsyncCompute)
+                {
+                    slots_[slot].compute_target = ++compute_value_;
+                    return slots_[slot].compute_target;
+                }
+                slots_[slot].graphics_target = ++graphics_value_;
+                return slots_[slot].graphics_target;
+            }
+
+            void ViewResources::wait_for_slot(std::uint32_t slot) const
+            {
+                const Slot& s = slots_[slot];
+                if (!s.ever_rendered)
+                    return;
+
+                VkSemaphore semaphores[2];
+                std::uint64_t values[2];
+                std::uint32_t count = 0;
+                if (s.graphics_target > 0)
+                {
+                    semaphores[count] = graphics_timeline_;
+                    values[count] = s.graphics_target;
+                    ++count;
+                }
+                if (s.compute_target > 0)
+                {
+                    semaphores[count] = compute_timeline_;
+                    values[count] = s.compute_target;
+                    ++count;
+                }
+                if (count == 0)
+                    return;
+
+                VkSemaphoreWaitInfo wait{};
+                wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+                wait.semaphoreCount = count;
+                wait.pSemaphores = semaphores;
+                wait.pValues = values;
+                check(vkWaitSemaphores(device_.device(), &wait, UINT64_MAX), "vkWaitSemaphores");
             }
 
             bool ViewResources::ever_rendered(std::uint32_t slot) const noexcept
@@ -713,8 +807,7 @@ namespace SushiEngine
 
                 // Ensure the copy that filled the readback buffer has completed before
                 // reading it; a click is rare, so the wait is not a hot path.
-                check(vkWaitForFences(device_.device(), 1, &s.fence, VK_TRUE, UINT64_MAX),
-                      "vkWaitForFences(pick)");
+                wait_for_slot(slot);
 
                 // The id target was written at the internal render extent, which the
                 // resolution governor may have put below the extent the click came in at.

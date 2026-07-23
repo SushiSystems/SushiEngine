@@ -76,14 +76,34 @@ namespace SushiEngine
          *
          * @c Temporal reuses the anti-aliasing history: because every frame is jittered
          * to a different sub-pixel position, accumulating render-resolution samples into
-         * the larger output grid recovers detail a spatial filter cannot. A vendor
-         * upscaler lands here as a new value and a new pass, never as a change to the
-         * existing ones.
+         * the larger output grid recovers detail a spatial filter cannot. The vendor
+         * values name an upscaler backend behind the one @c IUpscaler interface; a
+         * backend the build does not carry resolves back to @c Temporal rather than
+         * failing, so a project may request one unconditionally.
          */
         enum class UpscaleMode : std::uint32_t
         {
             None,
             Temporal,
+            Fsr,  /**< AMD FidelityFX Super Resolution 3.1, vendor-agnostic. */
+            Dlss, /**< NVIDIA DLSS through Streamline. */
+            Xess, /**< Intel XeSS, DP4a fallback on non-Intel. */
+        };
+
+        /**
+         * @brief How finished frames are handed to the display.
+         *
+         * @c Vsync is the tear-free default (FIFO, always available). @c Mailbox keeps
+         * the latest frame and drops the rest — tear-free but with the latency of an
+         * uncapped renderer, at the cost of drawing frames that are never shown.
+         * @c Immediate presents as soon as the frame is ready and may tear; it is the
+         * lowest-latency option and the honest one to measure raw frame cost against.
+         */
+        enum class PresentMode : std::uint32_t
+        {
+            Vsync,
+            Mailbox,
+            Immediate,
         };
 
         /**
@@ -421,6 +441,30 @@ namespace SushiEngine
 
             /** @brief Projected decals culled into the froxel grid per frame (High baseline). */
             std::uint32_t max_decals = 64;
+
+            /**
+             * @brief Shadow the lights the atlas had no tile for, by tracing the GI field.
+             *
+             * The atlas can only hold so many casters; beyond that a light used to be shaded
+             * fully unshadowed. With this on, each pixel instead samples a few of those
+             * lights in proportion to what they are worth to it and marches the global
+             * illumination distance field toward each for visibility, letting the temporal
+             * resolve average the rest. Needs GI to be on (the field is built there) and the
+             * tier to permit it; without either, the prior behaviour stands.
+             */
+            bool stochastic_shadows = true;
+
+            /** @brief How far one stochastic shadow ray marches before giving up, metres. */
+            float stochastic_distance = 40.0f;
+
+            /**
+             * @brief Penumbra width of a stochastic shadow, as an apparent light size.
+             *
+             * Larger blurs the shadow edge wider — the distance field's own soft-shadow
+             * term, which costs nothing extra because the march already knows how close it
+             * passed to a surface.
+             */
+            float stochastic_softness = 8.0f;
         };
 
         /**
@@ -490,6 +534,32 @@ namespace SushiEngine
         };
 
         /**
+         * @brief How the frame reaches the GPU and the display.
+         *
+         * Delivery, not fidelity: nothing here changes a pixel, only how much of the
+         * device is kept busy and how long a finished frame waits. @c async_compute lets
+         * the render graph place its flagged compute passes on a second queue so they
+         * overlap the graphics work they do not depend on; @c frames_in_flight is how
+         * many frames the CPU may run ahead (deeper hides a hitch, shallower cuts input
+         * latency and memory); @c present_mode is the swapchain's pacing.
+         */
+        struct FrameDeliverySettings
+        {
+            /**
+             * @brief Submit graph-flagged compute passes on a dedicated compute queue.
+             *
+             * Ignored on a device with no compute queue family distinct from graphics,
+             * and gated by the tier — so this only *permits* the second queue.
+             */
+            bool async_compute = true;
+
+            /** @brief Frames the CPU may record ahead of the GPU, 2 or 3. */
+            std::uint32_t frames_in_flight = 2;
+
+            PresentMode present_mode = PresentMode::Vsync;
+        };
+
+        /**
          * @brief Everything the host asks of the renderer's performance/fidelity trade.
          *
          * Defaults describe the project's target: High tier, temporal anti-aliasing at
@@ -518,6 +588,7 @@ namespace SushiEngine
             SsrSettings ssr;
             PostProcessSettings post;
             GpuCullingSettings gpu_culling;
+            FrameDeliverySettings delivery;
         };
     } // namespace Render
 } // namespace SushiEngine

@@ -157,7 +157,17 @@ namespace SushiEngine
         {
             Vector3 ground_albedo{Vector3{0.16, 0.20, 0.11}}; /**< Land base colour. */
             Vector3 ocean_color{Vector3{0.02, 0.06, 0.16}};   /**< Ocean base colour. */
-            float roughness = 0.9f;                           /**< Surface roughness for its sun highlight. */
+            float roughness = 0.9f;                           /**< Land roughness for its specular highlight. */
+            /**
+             * @brief Ocean roughness, which is what sets the shape of a glitter path.
+             *
+             * Water is near-mirror, so a light over it does not make a round highlight but
+             * a column stretched toward the viewer — sun glitter by day, the moon's track
+             * on the sea at night. How far it stretches is exactly this number: near zero
+             * it collapses to a point reflection of the body's disk, and the real sea's
+             * wave slope distribution sits around 0.06.
+             */
+            float ocean_roughness = 0.06f;
         };
 
         /**
@@ -437,19 +447,20 @@ namespace SushiEngine
         }
 
         /**
-         * @brief How the Moon and the star field light the scene once the Sun sets.
+         * @brief How the sky's reflecting bodies and the star field light a sunless scene.
          *
-         * The ephemeris derives @ref Environment::ambient each frame from the Sun's
-         * elevation, the Moon's elevation and illuminated fraction, and the star field's
-         * presence, scaled by these knobs — so night lighting stays physically motivated
-         * (full moon brighter than crescent, moonless night darker) while remaining
-         * author-controllable from the environment panel.
+         * The Moon is not a special case here: the ephemeris turns every reflecting body
+         * into a real @ref CelestialLight from its albedo, radius, distance, and phase, so
+         * a full moon casts sharp shadows and a crescent barely lifts the ground with no
+         * authored difference between them. @c reflected_intensity is the one artistic
+         * scale over that derivation; @c star_intensity is the diffuse floor the star field
+         * leaves on a moonless night, which has no direction and so stays ambient.
          */
         struct NightLighting
         {
-            bool enabled = true;         /**< Derive ambient from Sun/Moon/star geometry each frame. */
-            float moon_intensity = 0.35f; /**< Ambient scale from a fully-illuminated, overhead Moon. */
-            float star_intensity = 0.02f; /**< Ambient floor from the star field on a moonless night. */
+            bool enabled = true;              /**< Derive reflected lights and the night ambient from sky geometry each frame. */
+            float reflected_intensity = 1.0f; /**< Author scale over the physically derived reflected-body lights. */
+            float star_intensity = 1.0f;      /**< Author scale over the measured starlight-to-sunlight ratio; 1 is physical. */
         };
 
         /**
@@ -564,6 +575,38 @@ namespace SushiEngine
         };
 
         /**
+         * @brief Maximum directional lights derived from the sky's bodies.
+         *
+         * The emitter plus the four brightest reflectors. Four, because that is what it
+         * takes to carry a moon system without a visible drop: at Saturn the planet, its
+         * ring-shine, and two nearby moons can all land above the noise floor at once,
+         * while Earth's sky never fills more than two.
+         */
+        constexpr int MAX_CELESTIAL_LIGHTS = 5;
+
+        /**
+         * @brief One directional light a sky body casts on the scene.
+         *
+         * The unification of "the sun" and "moonlight": every body in @ref
+         * Environment::bodies is a light, and whether it emits or reflects only changes
+         * how its @c irradiance is derived — the Sun's is authored, a reflector's follows
+         * from its albedo, radius, distance, and phase. Nothing here is Moon-specific, so
+         * Jupiter lighting Europa, Saturn-shine on Titan, and earthshine on the Moon all
+         * fall out of the same list without a special case.
+         *
+         * @c direction points from the surface toward the body, so a normal dotted with
+         * it gives the incident cosine directly, matching @ref DirectionalLight.
+         */
+        struct CelestialLight
+        {
+            Vector3 direction{Vector3{0.0, 1.0, 0.0}}; /**< Unit direction toward the body, local frame. */
+            Vector3 color{Vector3{1.0, 1.0, 1.0}};     /**< Linear RGB: the illuminant tinted by what reflects it. */
+            float irradiance = 0.0f;                   /**< Radiance scale in the same units as @ref DirectionalLight::intensity. */
+            std::uint32_t body_id = 0;                 /**< Ephemeris index of the body casting it. */
+            std::uint32_t is_star = 0;                 /**< 1 when the body emits its own light. */
+        };
+
+        /**
          * @brief One catalogued star placed in the observer's sky this frame.
          *
          * The fixed stars, rotated into the local ENU frame by the same topocentric
@@ -641,6 +684,9 @@ namespace SushiEngine
             /** @brief Scales the captured environment's contribution. */
             float ibl_intensity = 1.0f;
 
+            WorldVector3 sun_center_metres{};             /**< The Sun's centre in the scene frame, metres; the origin the interplanetary grid is drawn around. */
+            Vector3 ecliptic_normal{Vector3{0.0, 1.0, 0.0}};    /**< Unit normal of the ecliptic plane, scene frame. */
+            Vector3 ecliptic_reference{Vector3{1.0, 0.0, 0.0}}; /**< Unit vernal-equinox direction lying in the ecliptic plane, scene frame; fixes the interplanetary grid's rotation. */
             SkyObserver observer;                        /**< Where/when the sky is seen from. */
             bool planet_surface_visible = true;          /**< Draw the analytic ground; the ephemeris clears it past the hand-off altitude, where Earth joins @ref bodies instead. */
             int dominant_body_id = -1;                   /**< Ephemeris index of the body whose surface is the analytic ground this frame, or -1 in deep space; lets the camera ride a moving planet as time animates. */
@@ -650,6 +696,8 @@ namespace SushiEngine
             float solar_eclipse = 0.0f;                  /**< Fraction of the Sun's disk hidden by a nearer body this frame, [0,1]; dims the directional sun so the sky, the ground, and shaded meshes all dusk toward totality together. Computed once by @ref fill_environment_sky and read by both the sky and PBR passes. */
             SkyStar sky_stars[MAX_SKY_STARS]{};          /**< Far-field catalogued stars this frame. */
             int sky_star_count = 0;                      /**< Number of populated @ref sky_stars entries. */
+            CelestialLight lights[MAX_CELESTIAL_LIGHTS]{}; /**< Every body lighting the scene this frame, brightest first. */
+            int light_count = 0;                         /**< Number of populated @ref lights entries. */
         };
     } // namespace Render
 } // namespace SushiEngine

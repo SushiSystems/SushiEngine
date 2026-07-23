@@ -34,6 +34,7 @@
  * on it.
  */
 
+#include "frame/upscaler.hpp"
 #include "passes/render_pass.hpp"
 
 #include <vulkan/vulkan.h>
@@ -64,9 +65,15 @@ namespace SushiEngine
             /**
              * @brief Blends the reprojected history into this frame's scene colour.
              *
+             * The engine's own implementation of @c Frame::IUpscaler, and the only one that
+             * is always present: it reconstructs the output grid from the jittered render
+             * grid whether or not the two are the same size. A vendor backend replaces it by
+             * implementing the same interface, which is why the resolve is reached through
+             * @ref register_upscale rather than being hard-wired into the frame.
+             *
              * Non-copyable: it owns a Vulkan pipeline.
              */
-            class TaaPass final : public IRenderPass
+            class TaaPass final : public IRenderPass, public Frame::IUpscaler
             {
                 public:
                     /**
@@ -87,6 +94,11 @@ namespace SushiEngine
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;
                     void rebuild_pipelines() override;
+
+                    const char* name() const noexcept override;
+                    void register_upscale(Graph::RenderGraph& graph,
+                                          const Frame::FrameContext& frame,
+                                          const Frame::UpscaleInputs& inputs) override;
 
                 private:
                     void create_pipeline();

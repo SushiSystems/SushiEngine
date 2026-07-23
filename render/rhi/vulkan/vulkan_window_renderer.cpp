@@ -90,6 +90,7 @@ namespace SushiEngine
                 if (device_.surface() == VK_NULL_HANDLE)
                     throw std::runtime_error(
                         "SushiEngine: a windowed renderer needs a surface factory");
+                present_mode_ = desc.present_mode;
                 create_swapchain(desc.width, desc.height);
                 create_frames();
                 assets_.reset(new Assets::AssetLibrary(device_));
@@ -111,7 +112,7 @@ namespace SushiEngine
                                               device_.surface());
                 builder.set_desired_format(VkSurfaceFormatKHR{
                            VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-                    .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+                    .set_desired_present_mode(present_mode(present_mode_))
                     .set_desired_extent(width, height)
                     .add_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
                 if (swapchain_.swapchain != VK_NULL_HANDLE)
@@ -135,6 +136,32 @@ namespace SushiEngine
                 for (VkSemaphore& semaphore : render_finished_)
                     check(vkCreateSemaphore(device_.device(), &semaphore_info, nullptr, &semaphore),
                           "vkCreateSemaphore(render_finished)");
+            }
+
+            VkPresentModeKHR VulkanWindowRenderer::present_mode(PresentMode mode) noexcept
+            {
+                switch (mode)
+                {
+                    case PresentMode::Mailbox:
+                        return VK_PRESENT_MODE_MAILBOX_KHR;
+                    case PresentMode::Immediate:
+                        return VK_PRESENT_MODE_IMMEDIATE_KHR;
+                    case PresentMode::Vsync:
+                    default:
+                        return VK_PRESENT_MODE_FIFO_KHR;
+                }
+            }
+
+            void VulkanWindowRenderer::set_present_mode(PresentMode mode)
+            {
+                if (mode == present_mode_)
+                    return;
+                present_mode_ = mode;
+                // The pacing is baked into the swapchain, so changing it means building a
+                // new one; the builder falls back to FIFO where the surface does not offer
+                // what was asked for, which is why no capability check is needed here.
+                vkDeviceWaitIdle(device_.device());
+                create_swapchain(extent_.width, extent_.height);
             }
 
             void VulkanWindowRenderer::destroy_swapchain()

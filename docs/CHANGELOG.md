@@ -9,6 +9,108 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Every body in the sky is a directional light.** Moonlight used to be a scalar added to
+  `Environment::ambient`, so a full moon could not cast a shadow, put a highlight on metal,
+  or lay a glitter path across water. The Sun and the reflecting bodies now share one
+  ordered `Render::CelestialLight` list (`Environment::lights`, at most
+  `MAX_CELESTIAL_LIGHTS`), and nothing in it is Moon-specific — the same derivation lights
+  Europa from Jupiter, Titan from Saturn, and the Moon from Earth, on whichever body the
+  camera stands.
+  - **The irradiance is derived, not authored.** A reflector's contribution follows from the
+    definition of geometric albedo — incident irradiance times `albedo * (radius/distance)^2`
+    times a phase term — so a full Moon lands near `2.8e-6` of sunlight against the measured
+    `0.25 lux / 120000 lux`. `Astro::phase_brightness` supplies the phase term: a Lambert
+    sphere for smooth bodies, and for regolith ones Allen's empirical lunar fit, whose
+    opposition surge is what makes a full Moon about eleven times a quarter Moon rather than
+    the two Lambert predicts.
+  - **The shadow cascades follow the brightest light, not the Sun.** The list is ordered by
+    what each light actually delivers at the camera — irradiance weighted by elevation — so
+    light 0 is the Sun by day and the dominant reflector after it sets, and the single
+    cascade atlas goes to whichever that is. Every other light shades with the same BRDF
+    without cascades, which is free of artefacts because a light that is not the brightest is
+    by construction too faint to resolve a shadow edge from.
+  - **Sun glitter and moon glades on the analytic ground.** `PlanetParams::ocean_roughness`
+    (new, default `0.06`, the real sea's wave-slope spread) drives a GGX lobe on the ocean
+    mask, so a body low over water draws a stretched column instead of a round spot.
+    `PlanetParams::roughness` is now actually uploaded, having been declared but unread.
+- **Input Manager design document (`docs/design/input_manager.md`).** The proposed
+  device-abstracted action-input architecture: an SDL-quarantined translator feeding a
+  header-only action layer (contexts, bindings, composites, deadzones), an edge-safe
+  per-tick reduction into SushiLoop's `sample_command`/`InputHistory<Command>` determinism
+  boundary, and phased delivery of keyboard/mouse, gamepad, rebinding + persistence, touch
+  with virtual controls, editor migration, and local-multiplayer routing. Design only — no
+  code ships with this entry.
+- **Stochastic light visibility (Phase 12.3, Tier A).** The number of lights that can cast a
+  shadow is no longer a memory budget. A light that holds a tile in the punctual shadow atlas
+  is filtered against it exactly as before; the lights *beyond* the atlas budget — which used
+  to be shaded fully unshadowed — are now sampled: each pixel picks a few of them in
+  proportion to what they are worth to it (radiance through falloff and cosine), marches the
+  GI distance field toward each pick for visibility, and weights the result by one over the
+  probability it was picked. The estimator is unbiased, so the temporal resolve averages it
+  toward shadowing every light, at a cost set by the sample count rather than the light count.
+  - **The field a shadow ray marches** is the one probe-volume GI already builds, so nothing
+    new is generated for it. `IProbeTracer` gained a `visibility_field()` query — offered, not
+    required, so a tracer that keeps no traceable field says nothing — and the SDF tracer
+    answers with its distance clipmap. `sdf_visibility()` marches it with the distance field's
+    own soft-shadow term, where how close a ray passed relative to how far it had travelled is
+    the penumbra: a contact hardens and a distant occluder softens for free.
+  - **Where it lives.** The per-frame push set was full at its guaranteed 32 entries, so the
+    field reaches every shading pipeline through a new volume array on the bindless heap
+    (registered once — the image is created with the device and never reallocated), and its
+    placement rides spare lanes of the cluster block rather than a binding of its own.
+  - **Tier and authoring.** One traced sample per pixel on High, two on Ultra, none below
+    (those tiers have no GI field to march). The author's `LightEngineSettings::stochastic_shadows`,
+    ray reach, and penumbra width are edited in the Lighting window's new **Stochastic Shadows**
+    section, and the Punctual Budget readout now says what happens beyond the atlas. Gated off
+    by any of those, the previous behaviour stands exactly.
+- **Upscaling, async compute, and frame delivery (Phase 11).** The frame now reaches the GPU
+  on two queues and the display on the host's terms, and reconstruction became an interface
+  rather than a hard-wired pass. A new **Frame Delivery** section in the Rendering window
+  authors the whole block (`RenderSettings::delivery`); nothing in it changes a pixel, only
+  how much of the device is kept busy and how long a finished frame waits. What landed:
+  - **The upscaler seam.** `render/frame/upscaler.hpp` names the contract every
+    reconstruction backend takes — colour, depth, motion, history, jitter, exposure, and the
+    render/output extents — and `TaaPass` is now its first implementation rather than a pass
+    the frame loop calls by name. `UpscaleMode` gained `Fsr`/`Dlss`/`Xess`; a backend whose SDK
+    the build does not carry reports why and resolves back to the built-in temporal
+    reconstruction, so a project may author one unconditionally. The vendor backends themselves
+    are deferred (each ships as a separate redistributable under its own licence); adopting one
+    is a new file behind this interface, not a change to the frame loop.
+  - **Async compute.** The render graph learned queues. A pass may declare
+    `PassQueue::AsyncCompute`; the compiler splits the schedule wherever the queue changes,
+    derives each submission's cross-queue wait from the same resource declarations the barriers
+    come from, and marks the resources both queues touch so the transient pool allocates exactly
+    those — and nothing else — with concurrent sharing. Two passes are flagged today: the
+    clustered **light cull** (its inputs are host-written, so it starts immediately and overlaps
+    the depth prepass and shadow cascades) and the **GTAO horizon march** (the frame's heaviest
+    compute pass, overlapping the shadow atlas that follows the prepass). A pass that
+    hand-barriers resources it owns — the atmosphere LUTs, the fog volume — cannot be flagged
+    yet: the cross-queue wait is derived from declarations, so those must be imported into the
+    graph first. Device-gated (a compute family distinct from graphics), tier-gated
+    (`QualityParams::async_compute`, off on Low), and author-gated; without all three, every pass
+    records on the graphics queue exactly as before.
+  - **Timeline semaphores.** The per-slot binary fence is gone: each queue carries one
+    monotonic timeline, every submission signals its own value and waits on the value it
+    depends on, and a frame slot is reused once both timelines have reached what that slot
+    submitted. Command buffers are handed out per *submission* rather than per slot, so a frame
+    that compiles to several submissions never records two into one buffer.
+  - **Frames in flight, 2 or 3.** How far the CPU may run ahead is a setting rather than a
+    constant; all slots are allocated up front, so switching depth costs an idle and no
+    reallocation. Three smooths over a hitch, two cuts latency; the Low tier holds it at two.
+  - **Present mode.** V-Sync (FIFO), Mailbox, and Immediate are selectable through
+    `IWindowRenderer::set_present_mode`, which rebuilds the swapchain only when the mode
+    actually changes.
+  - **SushiRuntime interop (engine half).** A new public `interop.hpp` plus a Vulkan
+    implementation allocates a device-local buffer whose memory another API can import by OS
+    handle — a dedicated, exportable allocation stamped with the device UUID that
+    `RenderDeviceDesc::required_uuid` already selects on, so simulation output can become
+    renderable by being written instead of uploaded. The importing half belongs to SushiRuntime,
+    which exposes no external-memory import today; the engine cannot add it without a reverse
+    dependency, so that half is recorded as blocked rather than stubbed.
+  - **Validation layers as a declared dependency.** `vulkan-validationlayers` is now in the
+    engine's `sushistack.deps.toml`, so `ss install` provisions it. It is not linked and not
+    shipped — the loader picks it up when a build asks for it — but without it a
+    synchronization mistake in a new pass surfaces as a device loss instead of a message.
 - **GPU-driven geometry (Phase 10).** The renderer no longer issues one draw per object.
   The core "remove the per-object CPU wall" work landed: instances are packed on the GPU,
   culled in compute, and drawn indirectly, so the CPU cost is flat in the number of distinct
@@ -110,6 +212,37 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   shader sharing the scene block is disturbed.
 
 ### Fixed
+- **Punctual lights and decals never shaded anything.** `DescriptorWriter` held sixteen writes
+  and dropped the rest without a word, but the shading pass's scene set is twenty-six — so
+  every binding past the sixteenth was silently discarded, the cluster config block among them.
+  With that block unwritten the shader read an active light count and decal count of zero and
+  returned before its first loop, which is why a light or a decal placed in the world changed
+  no pixel. The batch is now sized to the widest set in the tree with headroom, and an overflow
+  asserts instead of quietly truncating. The same truncation was starving the punctual shadow
+  atlas, the resolved ambient occlusion, and the probe-volume GI bindings; all three now arrive.
+- **The `timelineSemaphore` feature was never enabled on the device.** Core since Vulkan 1.2
+  and mandatory at the engine's 1.4 floor, but still a feature that has to be asked for — and
+  a device created without it treats every timeline semaphore as garbage. Nothing used one
+  until Phase 11, which is why it went unnoticed; it now sits in the required 1.2 feature set
+  beside dynamic rendering and synchronization2.
+- **Millimetre-scale rings no longer band the WGS84 ground and break the shadow on it.**
+  `ray_ellipsoid` in `sky.frag` solved for the hit distance with the textbook quadratic
+  form `(-qb ± h)/qa`. At planet scale `qa·qc` is ~1e6× smaller than `qb²`, so `h ≈ |qb|`
+  and one root becomes the difference of two nearly-equal numbers — catastrophic
+  cancellation that quantised the hit distance into concentric millimetre radial bands. The
+  analytic ground shadow, whose receiver position is that hit, inherited the banding and
+  came apart along the rings; a flat plane never enters this regime, which is why only the
+  curved body showed it. The intersection now uses the sign-matched stable quadratic (Press
+  et al.): the roots are `q/qa` and `qc/q` with `q = -(qb + sign(qb)·h)`, so neither ever
+  subtracts near-equal terms. Exact, shader-only.
+- **Sub-metre dents in the analytic planet silhouette are gone.** `ray_ellipsoid` in
+  `sky.frag` computed the quadratic's `qb` term from the ~6.4e6 m body centre in float32,
+  whose 0.5 m ULP quantised the hit distance per pixel — denting the WGS84 ground's
+  silhouette and the shadows falling on it. The centre projection is exactly `dot(rd, M²c)`,
+  the same CPU-double `planet_precision.xyz` term `ellipsoid_normal` already uses (identity
+  holds because `c_rad ⟂ pole`), so `qb` now inherits that precision and the intersection no
+  longer reconstructs the large centre from float32 at all. Mathematically exact, no CPU-side
+  or uniform change.
 - **`World::get<T>()` no longer silently dereferences a null column.** Creating a
   primitive (e.g. sphere/box) in the editor could crash with an access violation
   because `Chunk::column()` returns `nullptr` when an entity's archetype has no
@@ -138,6 +271,38 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   and refraction.
 
 ### Changed
+- **Breaking: `Render::NightLighting::moon_intensity` is replaced by `reflected_intensity`.**
+  The Moon no longer has a knob of its own, because it no longer has a code path of its own:
+  the new field is an author scale over every derived reflected-body light, and `1.0` is
+  physical rather than the old `0.35` fudge. `star_intensity` keeps its name but changes
+  meaning and default (`0.02` to `1.0`) — it now scales the measured starlight-to-sunlight
+  ratio instead of being a raw ambient value. Scenes and preferences carrying the old keys
+  fall back to the new defaults.
+- **The auto-exposure histogram reaches real moonlight.** Its floor was `-10` in log2
+  luminance, which is roughly `1e-3` — well above the `~3e-6` a physically derived moonlit
+  surface returns, so every moonlit night piled into the first bin and metered as black. The
+  floor is now `-20`. The authored EV range still clamps the result, not the bins.
+- **The editor grid is now the world it sits in, not an infinite flat plane.** The grid used
+  to ray-cast the world `y = 0` plane, which meant a single sheet running to an infinite
+  horizon at a scale that read as meaningless once the scene became a solar system. It now
+  has two regimes the camera's altitude crossfades between. Near a planet the grid *is* that
+  planet's sea level: `grid.frag` ray-casts the same reference ellipsoid the analytic ground
+  is drawn against, reusing the CPU-formed double-precision `planet_precision` terms, so the
+  lines lie exactly on the ocean surface, curve with the body, and stop at its true limb.
+  Its ray-ellipsoid roots are taken in the numerically stable form: standing on the surface
+  the quadratic's constant term is a near-zero difference of planet-scale terms, and the
+  textbook root cancels it away into concentric bands of quantised distance — invisible in
+  the smoothly shaded ground, glaring in a lattice drawn on it.
+  Out in space the grid becomes the ecliptic plane pinned at the Sun's centre, so the planets
+  ride on it rather than cutting through it. The switch is by distance from the dominant
+  body's centre in that body's own radii — sea level below two, ecliptic above eight, a
+  crossfade between — so it reads the same on a moon as on a gas giant, and deep space with
+  no dominant body is purely the ecliptic grid. Both regimes share the existing base-10
+  adaptive lattice, which spans a metre to an astronomical unit unchanged. `Environment`
+  gained `sun_center_metres`, `ecliptic_normal`, and `ecliptic_reference` (filled by
+  `fill_environment_sky`) to locate that frame, and `GridPass` hands them to the shader as a
+  `GridPushConstants` rather than growing the shared scene block. One "Show grid" toggle
+  still drives all of it.
 - **The GPU profiler moved into the Statistics panel.** The per-pass timing breakdown
   was an overlay drawn over each viewport's image; the main loop now copies both
   visible viewports' timings into the editor context each frame and the Statistics

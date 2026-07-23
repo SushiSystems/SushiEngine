@@ -112,7 +112,7 @@ namespace SushiEngine
                           {"density", e.stars.density}}},
                     {"night",
                      json{{"enabled", e.night.enabled},
-                          {"moon_intensity", e.night.moon_intensity},
+                          {"reflected_intensity", e.night.reflected_intensity},
                           {"star_intensity", e.night.star_intensity}}},
                     {"ambient", vec3_to_json(e.ambient)},
                     {"exposure", e.exposure},
@@ -212,8 +212,8 @@ namespace SushiEngine
                 {
                     const json& n = j["night"];
                     environment.night.enabled = n.value("enabled", environment.night.enabled);
-                    environment.night.moon_intensity =
-                        n.value("moon_intensity", environment.night.moon_intensity);
+                    environment.night.reflected_intensity =
+                        n.value("reflected_intensity", environment.night.reflected_intensity);
                     environment.night.star_intensity =
                         n.value("star_intensity", environment.night.star_intensity);
                 }

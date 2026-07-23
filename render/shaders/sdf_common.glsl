@@ -1,3 +1,6 @@
+#ifndef SDF_COMMON_GLSL
+#define SDF_COMMON_GLSL
+
 // The scene distance clipmap parameterization, shared by the pass that populates it and
 // the probe tracer that marches it. Analytic primitive distances, camera-relative
 // addressing, and a sphere-trace with a gradient normal — written once so the builder and
@@ -132,3 +135,41 @@ bool sdf_trace(sampler3D clipmap, sampler3D emissive_map, SdfClipmapConfig cfg, 
     }
     return false;
 }
+
+// Visibility along a shadow ray, marched through the same clipmap the probes cone-trace.
+// Returns 1 where the light reaches the surface and 0 where the field blocks it, with a
+// soft edge in between: the classic distance-field penumbra, where how close the ray
+// passed to a surface relative to how far it had travelled *is* the penumbra term, so a
+// contact hardens and a distant occluder softens for free. `softness` is the light's
+// apparent size — larger blurs the edge wider.
+//
+// This is what lets a light be shadowed without owning a shadow-map tile: the field is
+// already built for GI, and marching it is a few texture fetches rather than a whole
+// render of the scene from the light.
+float sdf_visibility(sampler3D clipmap, SdfClipmapConfig cfg, vec3 origin, vec3 dir,
+                     float max_distance, float softness)
+{
+    float voxel = cfg.origin_voxel.w;
+    // Start a voxel out so a surface never shadows itself on its own gradient.
+    float t = voxel * 1.5;
+    float visibility = 1.0;
+    for (int i = 0; i < 24; ++i)
+    {
+        if (t >= max_distance)
+            break;
+        vec3 p = origin + dir * t;
+        vec3 tc = sdf_texcoord(cfg, p);
+        // Leaving the clipmap means leaving what the field knows about; an unbounded
+        // march would report shadow where there is simply no data, so it reports lit.
+        if (any(lessThan(tc, vec3(0.0))) || any(greaterThan(tc, vec3(1.0))))
+            break;
+        float d = texture(clipmap, tc).a;
+        if (d < voxel * 0.5)
+            return 0.0;
+        visibility = min(visibility, softness * d / t);
+        t += max(d, voxel * 0.5);
+    }
+    return clamp(visibility, 0.0, 1.0);
+}
+
+#endif // SDF_COMMON_GLSL

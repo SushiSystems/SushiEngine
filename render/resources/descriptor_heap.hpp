@@ -73,6 +73,19 @@ namespace SushiEngine
                     static constexpr std::uint32_t BUFFER_BINDING = 1;
 
                     /**
+                     * @brief Binding number of the 3D-texture (volume) array.
+                     *
+                     * The per-frame push set is full at its guaranteed 32 entries, so a
+                     * device-global volume every shading pass may need — the GI distance
+                     * clipmap a stochastic shadow ray marches — reaches them through the heap
+                     * instead. Kept small: these are engine-owned fields, not content.
+                     */
+                    static constexpr std::uint32_t VOLUME_BINDING = 2;
+
+                    /** @brief Volume slots reserved; engine fields only, so a handful suffices. */
+                    static constexpr std::uint32_t VOLUME_CAPACITY = 4;
+
+                    /**
                      * @brief Creates the heap, or nothing if the device lacks the feature.
                      * @param device           The live Vulkan device.
                      * @param texture_capacity Slots reserved for combined image samplers.
@@ -103,6 +116,19 @@ namespace SushiEngine
                      */
                     std::uint32_t allocate_texture(VkImageView view, VkSampler sampler,
                                                    VkImageLayout layout);
+
+                    /**
+                     * @brief Registers a 3D texture and returns the slot shaders address it by.
+                     *
+                     * Volume slots are never released: the fields that occupy them are created
+                     * once with the device and live as long as it does, so there is no free
+                     * list to keep.
+                     *
+                     * @param view    The 3D image view to sample.
+                     * @param sampler The sampler to pair it with.
+                     * @return The slot index, or INVALID_HEAP_INDEX if unavailable or full.
+                     */
+                    std::uint32_t allocate_volume(VkImageView view, VkSampler sampler);
 
                     /**
                      * @brief Releases a texture slot for reuse.
@@ -138,6 +164,7 @@ namespace SushiEngine
                     std::uint32_t buffer_capacity_ = 0;
                     std::uint32_t next_texture_ = 0;
                     std::uint32_t next_buffer_ = 0;
+                    std::uint32_t next_volume_ = 0;
                     std::vector<std::uint32_t> free_textures_;
                     std::vector<std::uint32_t> free_buffers_;
             };

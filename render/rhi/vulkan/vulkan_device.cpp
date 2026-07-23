@@ -107,6 +107,16 @@ namespace SushiEngine
                 // never narrows the device set at the 1.4 floor. maintenance5/6 fold a
                 // pile of small ergonomics into core; pushDescriptor lets the per-frame
                 // scene set be pushed inline instead of allocated and written.
+                // Timeline semaphores are how a frame's submissions name the point they
+                // wait for and how the host waits for a frame slot to land; core since 1.2
+                // and mandatory at the 1.4 floor, so requiring the feature narrows nothing —
+                // but it is still a feature that has to be asked for, and a device created
+                // without it treats every timeline semaphore as garbage.
+                VkPhysicalDeviceVulkan12Features required_features_12{};
+                required_features_12.sType =
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+                required_features_12.timelineSemaphore = VK_TRUE;
+
                 VkPhysicalDeviceVulkan14Features features_14{};
                 features_14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
                 features_14.maintenance5 = VK_TRUE;
@@ -115,6 +125,7 @@ namespace SushiEngine
 
                 vkb::PhysicalDeviceSelector selector(instance_);
                 selector.set_minimum_version(1, 4)
+                    .set_required_features_12(required_features_12)
                     .set_required_features_13(features_13)
                     .set_required_features_14(features_14);
                 if (surface_ != VK_NULL_HANDLE)
@@ -280,6 +291,21 @@ namespace SushiEngine
                         supports_mesh_shader_ = false;
                 }
 
+                // External memory is the interop hook: an allocation this device owns can
+                // be handed to SushiRuntime's SYCL device by OS handle rather than copied
+                // through the host. Optional everywhere — nothing in the render path uses
+                // it, so a device without it simply offers no interop buffers. Named by
+                // string rather than by the extension macro: the macro lives in the
+                // platform Vulkan header, and including that here would put windows.h in
+                // front of every translation unit that includes this device.
+#if defined(_WIN32)
+                supports_external_memory_ =
+                    physical.enable_extension_if_present("VK_KHR_external_memory_win32");
+#else
+                supports_external_memory_ =
+                    physical.enable_extension_if_present("VK_KHR_external_memory_fd");
+#endif
+
                 vkb::DeviceBuilder device_builder(physical);
                 auto device_result = device_builder.build();
                 if (!device_result)
@@ -293,6 +319,27 @@ namespace SushiEngine
                                              queue_result.error().message());
                 graphics_queue_ = queue_result.value();
                 graphics_queue_family_ = device_.get_queue_index(vkb::QueueType::graphics).value();
+                async_compute_queue_family_ = graphics_queue_family_;
+
+                // A compute queue from a family that cannot do graphics is the only one worth
+                // flagging passes onto: a second queue out of the graphics family runs on the
+                // same hardware and would pay submission overhead for no overlap. The
+                // *separate*-family query, not the "dedicated" one, because dedicated also
+                // excludes a family that can transfer — and every real async-compute family
+                // can (AMD's compute rings report transfer, and would be rejected). The
+                // family check below is what actually decides; absent a distinct one, the
+                // graph keeps every pass on the graphics queue.
+                auto compute_family = device_.get_queue_index(vkb::QueueType::compute);
+                auto compute_queue = device_.get_queue(vkb::QueueType::compute);
+                if (compute_family && compute_queue &&
+                    compute_family.value() != graphics_queue_family_)
+                {
+                    async_compute_queue_ = compute_queue.value();
+                    async_compute_queue_family_ = compute_family.value();
+                }
+                shared_families_[0] = graphics_queue_family_;
+                shared_families_[1] = async_compute_queue_family_;
+
 
                 if (supports_ray_query_)
                 {
@@ -375,6 +422,24 @@ namespace SushiEngine
                     vkb::destroy_surface(instance_, surface_);
                 if (instance_.instance != VK_NULL_HANDLE)
                     vkb::destroy_instance(instance_);
+            }
+
+            void VulkanDevice::share_across_queues(VkImageCreateInfo& info) const noexcept
+            {
+                if (!supports_async_compute())
+                    return;
+                info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+                info.queueFamilyIndexCount = 2;
+                info.pQueueFamilyIndices = shared_families_;
+            }
+
+            void VulkanDevice::share_across_queues(VkBufferCreateInfo& info) const noexcept
+            {
+                if (!supports_async_compute())
+                    return;
+                info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+                info.queueFamilyIndexCount = 2;
+                info.pQueueFamilyIndices = shared_families_;
             }
 
             NativeDeviceHandles VulkanDevice::native_handles() const noexcept

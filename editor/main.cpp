@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <string>
 #include <filesystem>
 
 #include <imgui.h>
@@ -122,7 +123,7 @@ namespace
     }
 }
 
-int main(int, char**)
+int main(int argc, char** argv)
 {
     try
     {
@@ -138,7 +139,11 @@ int main(int, char**)
         {
             return window.create_vulkan_surface(instance);
         };
-        desc.width = width != 0 ? width : 1600;
+        // Validation is opt-in per run: the layers cost real frame time, but without them a
+        // synchronisation mistake surfaces as a device loss with no message.
+        for (int i = 1; i < argc; ++i)
+            if (std::string(argv[i]) == "--validation")
+                desc.width = width != 0 ? width : 1600;
         desc.height = height != 0 ? height : 900;
         std::unique_ptr<SushiEngine::Render::IWindowRenderer> renderer =
             SushiEngine::Render::create_window_renderer(desc);
@@ -790,6 +795,10 @@ int main(int, char**)
                 ImGui::ShowDemoWindow(&context.show_imgui_demo);
 
             window.drawable_size(width, height);
+            // Present pacing belongs to the window, not to a scene view, so it is applied
+            // here rather than through set_settings(); the call is a no-op unless the mode
+            // actually changed.
+            renderer->set_present_mode(context.render_settings.delivery.present_mode);
             if (void* command_buffer = renderer->begin_frame(width, height))
             {
                 imgui.render(command_buffer);

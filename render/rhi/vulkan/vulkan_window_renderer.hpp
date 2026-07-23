@@ -86,6 +86,7 @@ namespace SushiEngine
                     void* begin_frame(std::uint32_t width, std::uint32_t height) override;
                     void end_frame() override;
                     void wait_idle() override;
+                    void set_present_mode(PresentMode mode) override;
                     std::unique_ptr<ISceneView> create_scene_view() override;
                     IAssetLibrary& assets() noexcept override;
 
@@ -102,6 +103,12 @@ namespace SushiEngine
                     };
 
                     void create_swapchain(std::uint32_t width, std::uint32_t height);
+                    /**
+                     * @brief The Vulkan present mode a pacing choice maps to.
+                     * @param mode The authored pacing.
+                     * @return The VkPresentModeKHR to ask the surface for.
+                     */
+                    static VkPresentModeKHR present_mode(PresentMode mode) noexcept;
                     void destroy_swapchain();
                     void create_frames();
                     void destroy_frames();
@@ -115,6 +122,8 @@ namespace SushiEngine
                     VkFormat format_ = VK_FORMAT_UNDEFINED;
                     VkExtent2D extent_{};
                     std::uint32_t min_image_count_ = 2;
+                    /** @brief The pacing the current swapchain was built with. */
+                    PresentMode present_mode_ = PresentMode::Vsync;
                     std::vector<VkImage> images_;
                     std::vector<VkImageView> views_;
                     std::vector<VkSemaphore> render_finished_; // one per swapchain image

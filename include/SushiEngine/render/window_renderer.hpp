@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <memory>
 
+#include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/rhi/device.hpp>
 #include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -61,6 +62,9 @@ namespace SushiEngine
 
             std::uint32_t width = 1280;  /**< Initial framebuffer width in pixels. */
             std::uint32_t height = 720;  /**< Initial framebuffer height in pixels. */
+
+            /** @brief How finished frames are paced onto the display. */
+            PresentMode present_mode = PresentMode::Vsync;
         };
 
         /**
@@ -123,6 +127,17 @@ namespace SushiEngine
 
                 /** @brief Blocks until the device is idle; call before teardown. */
                 virtual void wait_idle() = 0;
+
+                /**
+                 * @brief Chooses how finished frames are paced onto the display.
+                 *
+                 * Rebuilds the swapchain when the mode actually changes, so calling it every
+                 * frame with the same value costs nothing. A mode the surface does not offer
+                 * falls back to vertical sync, which every implementation must support.
+                 *
+                 * @param mode The pacing to present with.
+                 */
+                virtual void set_present_mode(PresentMode mode) = 0;
 
                 /**
                  * @brief Creates an offscreen scene view on this renderer's device.

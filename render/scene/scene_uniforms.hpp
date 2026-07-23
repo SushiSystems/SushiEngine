@@ -82,6 +82,8 @@ namespace SushiEngine
                 float sky_stars[MAX_SKY_STARS * 2][4];
                 float planet_ring[4];   /**< x = near-field ring inner radius (m), y = outer radius (m); 0 = none. Appended so shaders reading only earlier fields keep their offsets. */
                 float planet_precision[4]; /**< Ellipsoid terms formed in double so the analytic ground never squares planet-scale float32 coordinates: xyz = scaled centre gradient c_rad/a^2 + pole*c_ax/b^2 (subtracted to get the geodetic normal without large-minus-large snap), w = the ray-ellipsoid quadratic constant |M c|^2 - 1 for a camera-origin ray (keeps the "- 1" cancellation's bits at planet scale). Appended after planet_ring for the same offset reason. */
+                float lights[MAX_CELESTIAL_LIGHTS * 2][4]; /**< Every body lighting the scene, brightest first. Per light: lane 0 xyz = direction to the body, w = irradiance; lane 1 xyz = colour, w = 1 when the body emits its own light. Appended after planet_precision so shaders reading only earlier fields keep their offsets. */
+                float light_counts[4]; /**< x = populated @ref lights entries. The cascades are always fitted to light 0, since the list is ordered by what each light delivers here. */
             };
 
             /**

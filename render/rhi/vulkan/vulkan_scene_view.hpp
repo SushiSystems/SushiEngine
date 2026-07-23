@@ -152,10 +152,21 @@ namespace SushiEngine
                                          std::uint32_t& tested) const noexcept override;
 
                 private:
-                    /** @brief How many frames may be in flight at once. */
+                    /** @brief The most frames that may be in flight; see @ref frame_slots_. */
                     static constexpr std::uint32_t SLOTS = ViewResources::SLOTS;
 
                     void update_render_extent();
+
+                    /**
+                     * @brief Applies a change to how deep the frame chain runs.
+                     *
+                     * Idles the device when the depth actually changes, because the frame
+                     * index maps to a slot by modulo and a frame already in flight would
+                     * otherwise share a slot with one recorded under the new mapping.
+                     *
+                     * @param requested Frames in flight the resolved settings ask for.
+                     */
+                    void update_frame_slots(std::uint32_t requested);
                     float measured_frame_milliseconds() const noexcept;
 
                     VulkanDevice& device_;
@@ -218,7 +229,23 @@ namespace SushiEngine
                     std::uint32_t height_ = 16;
                     std::uint32_t render_width_ = 16;
                     std::uint32_t render_height_ = 16;
+                    /**
+                     * @brief Heap slot the GI distance field was registered in, or invalid.
+                     *
+                     * Claimed once and kept: the field's image is created with the device and
+                     * never reallocated, so re-registering it every frame would be descriptor
+                     * traffic for an unchanging binding.
+                     */
+                    std::uint32_t visibility_field_slot_ = 0xFFFFFFFFu;
                     std::uint32_t current_slot_ = 0;
+                    /**
+                     * @brief Frames in flight actually in use, at most @ref SLOTS.
+                     *
+                     * Every slot is allocated at construction; this is how many of them the
+                     * frame counter cycles through, which the delivery settings choose and
+                     * the tier caps.
+                     */
+                    std::uint32_t frame_slots_ = 2;
                     std::uint32_t frame_counter_ = 0;
             };
         } // namespace Vulkan

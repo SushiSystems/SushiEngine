@@ -129,7 +129,10 @@ namespace SushiEngine
                           {"cluster_far_distance", s.lights.cluster_far_distance},
                           {"shadow_atlas_size", s.lights.shadow_atlas_size},
                           {"max_shadow_casters", s.lights.max_shadow_casters},
-                          {"max_decals", s.lights.max_decals}}},
+                          {"max_decals", s.lights.max_decals},
+                          {"stochastic_shadows", s.lights.stochastic_shadows},
+                          {"stochastic_distance", s.lights.stochastic_distance},
+                          {"stochastic_softness", s.lights.stochastic_softness}}},
                     {"gtao",
                      json{{"enabled", s.gtao.enabled},
                           {"radius", s.gtao.radius},
@@ -191,7 +194,12 @@ namespace SushiEngine
                           {"frustum", s.gpu_culling.frustum},
                           {"min_screen_diameter", s.gpu_culling.min_screen_diameter},
                           {"freeze", s.gpu_culling.freeze},
-                          {"show_statistics", s.gpu_culling.show_statistics}}}};
+                          {"show_statistics", s.gpu_culling.show_statistics}}},
+                    {"delivery",
+                     json{{"async_compute", s.delivery.async_compute},
+                          {"frames_in_flight", s.delivery.frames_in_flight},
+                          {"present_mode",
+                           static_cast<std::uint32_t>(s.delivery.present_mode)}}}};
             }
 
             SushiEngine::Render::RenderSettings render_settings_from_json(const nlohmann::json& json)
@@ -273,6 +281,12 @@ namespace SushiEngine
                     s.lights.max_shadow_casters =
                         j.value("max_shadow_casters", s.lights.max_shadow_casters);
                     s.lights.max_decals = j.value("max_decals", s.lights.max_decals);
+                    s.lights.stochastic_shadows =
+                        j.value("stochastic_shadows", s.lights.stochastic_shadows);
+                    s.lights.stochastic_distance =
+                        j.value("stochastic_distance", s.lights.stochastic_distance);
+                    s.lights.stochastic_softness =
+                        j.value("stochastic_softness", s.lights.stochastic_softness);
                 }
                 if (json.contains("gtao") && json["gtao"].is_object())
                 {
@@ -384,6 +398,16 @@ namespace SushiEngine
                     s.gpu_culling.show_statistics =
                         j.value("show_statistics", s.gpu_culling.show_statistics);
                 }
+                if (json.contains("delivery") && json["delivery"].is_object())
+                {
+                    const nlohmann::json& j = json["delivery"];
+                    s.delivery.async_compute = j.value("async_compute", s.delivery.async_compute);
+                    s.delivery.frames_in_flight =
+                        j.value("frames_in_flight", s.delivery.frames_in_flight);
+                    s.delivery.present_mode = static_cast<SushiEngine::Render::PresentMode>(
+                        j.value("present_mode",
+                                static_cast<std::uint32_t>(s.delivery.present_mode)));
+                }
                 return s;
             }
 
@@ -453,7 +477,7 @@ namespace SushiEngine
                           {"density", e.stars.density}}},
                     {"night",
                      json{{"enabled", e.night.enabled},
-                          {"moon_intensity", e.night.moon_intensity},
+                          {"reflected_intensity", e.night.reflected_intensity},
                           {"star_intensity", e.night.star_intensity}}},
                     {"ambient", vec3_to_json(e.ambient)},
                     {"exposure", e.exposure},
@@ -549,7 +573,8 @@ namespace SushiEngine
                 {
                     const nlohmann::json& n = j["night"];
                     e.night.enabled = n.value("enabled", e.night.enabled);
-                    e.night.moon_intensity = n.value("moon_intensity", e.night.moon_intensity);
+                    e.night.reflected_intensity =
+                        n.value("reflected_intensity", e.night.reflected_intensity);
                     e.night.star_intensity = n.value("star_intensity", e.night.star_intensity);
                 }
                 if (j.contains("ambient"))

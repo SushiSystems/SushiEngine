@@ -76,6 +76,18 @@ namespace SushiEngine
                 float depth[4];  /**< near, far, log-slice scale, log-slice bias. */
                 float screen[4]; /**< render width, height, tile size x, tile size y (pixels). */
                 float counts[4]; /**< x = active decal count, yzw spare. */
+                /**
+                 * @brief Stochastic light visibility: samples, reach, softness, field slot.
+                 *
+                 * x is how many of a cluster's unshadowed lights each pixel samples and
+                 * shadow-marches — zero switches the whole path off and restores the prior
+                 * "unshadowed beyond the atlas budget" behaviour. y bounds a shadow ray in
+                 * metres, z is the penumbra softness, and w is the heap slot holding the
+                 * distance field to march.
+                 */
+                float stochastic[4];
+                float sdf_origin[4];     /**< xyz field min corner (camera-relative), w voxel metres. */
+                float sdf_resolution[4]; /**< xyz field voxel counts, w spare. */
             };
 
             /**
@@ -155,6 +167,26 @@ namespace SushiEngine
                      */
                     void set_config(std::uint32_t render_width, std::uint32_t render_height,
                                     float near_plane, float far_plane);
+
+                    /**
+                     * @brief Configures stochastic shadow rays for the lights with no atlas tile.
+                     *
+                     * Zero @p samples restores the prior behaviour exactly (a light beyond the
+                     * atlas budget shades unshadowed), so the feature is a strict addition. The
+                     * field is whatever the GI tracer offers; without one there is nothing to
+                     * march and the caller passes zero samples.
+                     *
+                     * @param samples    Lights each pixel samples and shadow-marches.
+                     * @param max_metres How far one shadow ray marches before giving up.
+                     * @param softness   Penumbra width; larger blurs the shadow edge wider.
+                     * @param field_slot Heap slot of the distance field to march.
+                     * @param origin_voxel The field's xyz min corner and voxel size.
+                     * @param resolution   The field's xyz voxel counts.
+                     */
+                    void set_stochastic_shadows(std::uint32_t samples, float max_metres,
+                                                float softness, std::uint32_t field_slot,
+                                                const float origin_voxel[4],
+                                                const std::int32_t resolution[4]) noexcept;
 
                     /**
                      * @brief Assigns shadow atlas tiles to punctual casters and builds maps.

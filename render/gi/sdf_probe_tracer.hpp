@@ -92,6 +92,20 @@ namespace SushiEngine
                     const char* name() const noexcept override { return "sdf"; }
                     void rebuild_pipelines() override;
 
+                    /**
+                     * @brief The distance clipmap, offered as a shadow-ray target.
+                     *
+                     * The same field the probe relight cone-traces: because it already
+                     * encodes the whole local scene as a distance, a shading pass can march
+                     * it toward a light and get visibility without a shadow map, which is
+                     * what lifts the light engine's per-light atlas ceiling. Returns the ring
+                     * slot this frame's populate wrote, so the config matches the contents.
+                     *
+                     * @param frame_index The frame counter, selecting the ring slot.
+                     * @return The clipmap view and its config block.
+                     */
+                    VisibilityField visibility_field(std::uint32_t frame_index) const noexcept override;
+
                 private:
                     static constexpr std::uint32_t RING = 3;
 

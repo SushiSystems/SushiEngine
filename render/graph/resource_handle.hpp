@@ -48,6 +48,21 @@ namespace SushiEngine
             constexpr std::uint32_t INVALID_RESOURCE = 0xFFFFFFFFu;
 
             /**
+             * @brief Which device queue a pass's commands are recorded onto.
+             *
+             * @c AsyncCompute is a request, not a guarantee: the graph honours it only when
+             * the device offers a compute family distinct from graphics and the frame
+             * enabled the second queue, and silently records the pass on the graphics queue
+             * otherwise. A pass that declares it must therefore be correct on either queue —
+             * in practice, compute-only, with no attachment and no draw.
+             */
+            enum class PassQueue : std::uint32_t
+            {
+                Graphics,
+                AsyncCompute,
+            };
+
+            /**
              * @brief A virtual texture inside one frame's graph.
              *
              * Distinct from BufferHandle so a pass cannot bind a buffer where a texture
@@ -151,6 +166,18 @@ namespace SushiEngine
                 VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
                 VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
                 VkImageUsageFlags usage = 0;
+
+                /**
+                 * @brief Whether both queue families touch this resource in one frame.
+                 *
+                 * Derived by the graph at compile time from the queues its passes were
+                 * scheduled on, never authored: a resource one family writes and another
+                 * reads has to be created with concurrent sharing, and concurrent sharing
+                 * costs image compression on some hardware — so it is paid by exactly the
+                 * resources that cross and by nothing else. Part of the pool's reuse key,
+                 * so a shared and an exclusive transient never land on one allocation.
+                 */
+                bool cross_queue = false;
                 const char* name = "texture";
             };
 
@@ -160,6 +187,8 @@ namespace SushiEngine
                 VkDeviceSize size = 0;
                 VkBufferUsageFlags usage = 0;
                 bool host_visible = false; /**< Allocate mapped host memory (readbacks, uploads). */
+                /** @brief Both queue families touch it; see @ref TextureDesc::cross_queue. */
+                bool cross_queue = false;
                 const char* name = "buffer";
             };
 
@@ -179,7 +208,8 @@ namespace SushiEngine
                 return a.width == b.width && a.height == b.height && a.depth == b.depth &&
                        a.mip_levels == b.mip_levels && a.array_layers == b.array_layers &&
                        a.format == b.format && a.type == b.type && a.view_type == b.view_type &&
-                       a.aspect == b.aspect && a.usage == b.usage;
+                       a.aspect == b.aspect && a.usage == b.usage &&
+                       a.cross_queue == b.cross_queue;
             }
 
             /**
@@ -190,7 +220,8 @@ namespace SushiEngine
              */
             inline bool same_buffer_desc(const BufferDesc& a, const BufferDesc& b) noexcept
             {
-                return a.size == b.size && a.usage == b.usage && a.host_visible == b.host_visible;
+                return a.size == b.size && a.usage == b.usage &&
+                       a.host_visible == b.host_visible && a.cross_queue == b.cross_queue;
             }
         } // namespace Graph
     } // namespace Render

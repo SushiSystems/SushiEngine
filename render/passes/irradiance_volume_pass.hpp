@@ -47,6 +47,7 @@
 #include <vk_mem_alloc.h>
 
 #include "gi/probe_volume.hpp"
+#include "gi/tracer.hpp"
 
 namespace SushiEngine
 {
@@ -68,10 +69,6 @@ namespace SushiEngine
             class VulkanDevice;
         }
 
-        namespace Gi
-        {
-            class IProbeTracer;
-        }
 
         namespace Passes
         {
@@ -132,8 +129,35 @@ namespace SushiEngine
                         return sizeof(Gi::ProbeVolumeConfig);
                     }
 
+                    /**
+                     * @brief The scene field the shading pass may trace shadow rays against.
+                     *
+                     * Forwarded from whichever tracer this pass holds, so the shading pass
+                     * depends on the field existing and never on which tier produced it.
+                     *
+                     * @param frame_index The frame counter, selecting the tracer's ring slot.
+                     * @return The field, or an empty record when the tracer keeps none.
+                     */
+                    Gi::VisibilityField visibility_field(std::uint32_t frame_index) const noexcept
+                    {
+                        return tracer_ ? tracer_->visibility_field(frame_index)
+                                       : Gi::VisibilityField{};
+                    }
+
+                    /**
+                     * @brief Whether this frame's field holds what this frame's scene looks like.
+                     *
+                     * The field is repopulated inside this pass, so it is only meaningful on a
+                     * frame the pass actually ran; on any other, the contents belong to
+                     * whenever GI was last on and must not be traced.
+                     */
+                    bool field_live() const noexcept { return field_live_; }
+
                 private:
                     static constexpr std::uint32_t RING = 3;
+
+                    /** @brief Whether the last registered frame repopulated the scene field. */
+                    bool field_live_ = false;
 
                     void create_buffers();
                     void destroy_buffers();

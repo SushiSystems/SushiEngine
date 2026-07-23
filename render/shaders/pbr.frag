@@ -39,17 +39,28 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 planet_frame;
     vec4 cloud_light;    // x = light absorption
     vec4 ibl_params;     // x = intensity, y = specular mip count, z = ambient mode
-    // Declared only so the cloud shadow can reach the deck's weather scale; the block
-    // continues past this point with the body and star arrays, which nothing here reads.
+    // Declared only so the cloud shadow can reach the deck's weather scale; the body and
+    // star arrays that follow are declared purely to carry the offset out to the
+    // celestial light list, which this pass does read.
     vec4 cloud_deck_a[6];
     vec4 cloud_deck_b[6];
     vec4 cloud_deck_c[6];
     vec4 cloud_deck_d[6];
+    vec4 bodies[80];
+    vec4 sky_stars[128];
+    vec4 planet_ring;
+    vec4 planet_precision;
+    vec4 lights[10];      // per light: xyz dir + w irradiance, then xyz colour + w emits
+    vec4 light_counts;    // x = light count
 } scene;
 
 // The bindless texture heap (set 1). Declared before the clustered-lighting include
 // because that file's decal projection samples decal albedo/ORM maps straight from it.
 layout(set = 1, binding = 0) uniform sampler2D bindless_textures[];
+// Engine-owned volume fields, addressed the same way the texture heap is. Slot 0 is the
+// GI distance clipmap; the stochastic light-visibility march in clustered_lighting.glsl
+// reads it, and the per-frame cluster block says which slot to use.
+layout(set = 1, binding = 2) uniform sampler3D bindless_volumes[];
 
 #include "cloud_shadow_common.glsl"
 #include "clustered_lighting.glsl"
@@ -391,12 +402,7 @@ void main()
                                roughness, metallic, occlusion);
     }
 
-    vec3 light_dir = normalize(scene.sun_dir.xyz);
-    vec3 half_vec = normalize(view_dir + light_dir);
     float n_dot_v = max(dot(n, view_dir), 1e-4);
-    float n_dot_l = max(dot(n, light_dir), 0.0);
-    float n_dot_h = max(dot(n, half_vec), 0.0);
-    float v_dot_h = max(dot(view_dir, half_vec), 0.0);
 
     // Dielectric F0 from the index of refraction, so glass and skin are not forced to
     // the 0.04 default every plastic uses.
@@ -405,116 +411,153 @@ void main()
     vec2 dfg = texture(brdf_lut, vec2(n_dot_v, roughness)).rg;
     vec3 compensation = energy_compensation(f0, dfg);
 
-    float visibility = 1.0;
-    if ((flags & MATERIAL_PARALLAX_SHADOWS) != 0u && n_dot_l > 0.0)
-    {
-        vec3 light_tangent = normalize(transpose(tangent_to_world) * light_dir);
-        visibility = parallax_shadow(material.maps_a.w, uv, light_tangent,
-                                     material.parallax.x, surface_height);
-    }
+    // The anisotropic frame follows the surface, not any light, so it is built once and
+    // reused by every light below.
+    float anisotropy_angle = material.anisotropy_clearcoat.y * 6.28318530718;
+    vec3 anisotropic_tangent =
+        normalize(tangent * cos(anisotropy_angle) + bitangent * sin(anisotropy_angle));
+    vec3 anisotropic_bitangent = cross(n, anisotropic_tangent);
+    float anisotropy_aspect = sqrt(1.0 - abs(material.anisotropy_clearcoat.x) * 0.9);
+    float anisotropy_at = max(roughness * roughness / anisotropy_aspect, 1e-4);
+    float anisotropy_ab = max(roughness * roughness * anisotropy_aspect, 1e-4);
 
-    // The sun's own visibility, at three scales. The cascades carry the body of the
-    // shadow; the screen-space march recovers the contact they are too coarse to
-    // resolve; the geometric normal, not the mapped one, offsets the cascade lookup,
-    // because a normal map perturbs shading and not the surface a shadow texel lands on.
-    if (n_dot_l > 0.0)
+    vec2 screen_uv = gl_FragCoord.xy / max(temporal.resolution.xy, vec2(1.0));
+    float view_depth = dot(scene.cam_forward.xyz, v_world_position);
+
+    // Every body in the sky is a light. The list arrives ordered by what it actually
+    // delivers here, so light 0 is the one the cascades were fitted to — the Sun by day,
+    // the Moon (or whatever reflector dominates elsewhere) once the Sun is down. The
+    // others shade with the same BRDF but without the cascades, which costs nothing in
+    // practice: a light that is not the brightest is by construction too faint to read a
+    // shadow edge from.
+    vec3 direct = vec3(0.0);
+    // Light arriving from behind, summed separately because it is exactly the light the
+    // reflected term rejects: a leaf is backlit by the same moon that fails to face it.
+    vec3 wrapped = vec3(0.0);
+    int light_count = int(scene.light_counts.x);
+    for (int light_index = 0; light_index < light_count; ++light_index)
     {
-        vec2 screen_uv = gl_FragCoord.xy / max(temporal.resolution.xy, vec2(1.0));
-        if (shadows.flags.z > 0.5)
+        vec4 light_vector = scene.lights[light_index * 2 + 0];
+        vec4 light_tint = scene.lights[light_index * 2 + 1];
+        vec3 light_dir = light_vector.xyz;
+        vec3 radiance = light_tint.xyz * light_vector.w;
+        if (light_vector.w <= 0.0)
+            continue;
+
+        float n_dot_l = max(dot(n, light_dir), 0.0);
+        vec3 half_vec = normalize(view_dir + light_dir);
+        float n_dot_h = max(dot(n, half_vec), 0.0);
+        float v_dot_h = max(dot(view_dir, half_vec), 0.0);
+
+        // Solar eclipse: the ephemeris packs the covered fraction of the Sun's disk into
+        // sky_counts.w, so a nearer body sliding across the Sun dims lit geometry toward
+        // totality by the same factor the sky pass dusks the sky with — held just short
+        // of black so the scene never becomes pure void. It scales only the emitter; a
+        // reflector is already dark at that geometry, because a body in front of the Sun
+        // is one turning its unlit side to us.
+        if (light_tint.w > 0.5)
+            radiance *= (1.0 - 0.92 * scene.sky_counts.w);
+
+        // The planet itself occludes the light. n_dot_l only asks whether the surface
+        // faces the light's direction, so a wall tilted the right way stays fully lit
+        // long after that body sets; what actually ends direct light is the ground
+        // swallowing it. The horizon a point sees dips below its local horizontal as it
+        // climbs, so the same test lights a mountaintop a little longer than the valley
+        // beneath it. The band softens the cut across the body's disc and the light
+        // refraction drags past the limb, fading through the set instead of switching off.
+        if (scene.sky_counts.z > 0.5 && scene.planet_center.w > 0.0)
         {
-            // Traced: exact, so it replaces the cascades rather than joining them, and
-            // it resolves contact on its own — the screen-space march would only add its
-            // own approximation on top of an answer that has none.
-            visibility *= texture(ray_shadow_texture, screen_uv).r;
+            vec3 to_centre = v_world_position - scene.planet_center.xyz;
+            float radius = max(length(to_centre), 1.0);
+            float surface = scene.planet_center.w;
+            float sin_horizon =
+                radius > surface ? -sqrt(max(radius * radius - surface * surface, 0.0)) / radius
+                                 : 0.0;
+            float elevation = dot(to_centre / radius, light_dir);
+            radiance *= smoothstep(sin_horizon - 0.03, sin_horizon + 0.01, elevation);
         }
-        else
+
+        wrapped += radiance * max(dot(-n, light_dir), 0.0);
+        if (n_dot_l <= 0.0)
+            continue;
+
+        float visibility = 1.0;
+        if ((flags & MATERIAL_PARALLAX_SHADOWS) != 0u)
         {
-            float view_depth = dot(scene.cam_forward.xyz, v_world_position);
-            visibility *= sample_sun_shadow(shadow_atlas, shadow_atlas_depth,
-                                            v_world_position, normalize(v_world_normal),
-                                            light_dir, view_depth, false);
-            if (shadows.flags.y > 0.5)
-                visibility *= texture(contact_shadow_texture, screen_uv).r;
+            vec3 light_tangent = normalize(transpose(tangent_to_world) * light_dir);
+            visibility = parallax_shadow(material.maps_a.w, uv, light_tangent,
+                                         material.parallax.x, surface_height);
+        }
+
+        // The key light's visibility, at three scales. The cascades carry the body of the
+        // shadow; the screen-space march recovers the contact they are too coarse to
+        // resolve; the geometric normal, not the mapped one, offsets the cascade lookup,
+        // because a normal map perturbs shading and not the surface a shadow texel lands on.
+        if (light_index == 0)
+        {
+            if (shadows.flags.z > 0.5)
+            {
+                // Traced: exact, so it replaces the cascades rather than joining them, and
+                // it resolves contact on its own — the screen-space march would only add
+                // its own approximation on top of an answer that has none.
+                visibility *= texture(ray_shadow_texture, screen_uv).r;
+            }
+            else
+            {
+                visibility *= sample_sun_shadow(shadow_atlas, shadow_atlas_depth,
+                                                v_world_position, normalize(v_world_normal),
+                                                light_dir, view_depth, false);
+                if (shadows.flags.y > 0.5)
+                    visibility *= texture(contact_shadow_texture, screen_uv).r;
+            }
         }
         // The deck overhead shades this surface exactly as it shades the analytic
         // ground, so a mesh standing on that ground darkens with it rather than staying
-        // lit inside a cloud shadow.
+        // lit inside a cloud shadow. Clouds hide a moon exactly as they hide the sun.
         visibility *= cloud_sun_transmittance(cloud_weather_texture, v_world_position,
                                               light_dir);
-    }
 
-    vec3 f = f_schlick(v_dot_h, f0);
-    float distribution;
-    if ((flags & MATERIAL_ANISOTROPY) != 0u)
-    {
-        float angle = material.anisotropy_clearcoat.y * 6.28318530718;
-        vec3 anisotropic_tangent = normalize(tangent * cos(angle) + bitangent * sin(angle));
-        vec3 anisotropic_bitangent = cross(n, anisotropic_tangent);
-        float aspect = sqrt(1.0 - abs(material.anisotropy_clearcoat.x) * 0.9);
-        float at = max(roughness * roughness / aspect, 1e-4);
-        float ab = max(roughness * roughness * aspect, 1e-4);
-        distribution = d_ggx_anisotropic(n_dot_h, dot(anisotropic_tangent, half_vec),
-                                         dot(anisotropic_bitangent, half_vec), at, ab);
-    }
-    else
-    {
-        distribution = d_ggx(n_dot_h, roughness);
-    }
+        vec3 f = f_schlick(v_dot_h, f0);
+        float distribution;
+        if ((flags & MATERIAL_ANISOTROPY) != 0u)
+        {
+            distribution = d_ggx_anisotropic(n_dot_h, dot(anisotropic_tangent, half_vec),
+                                             dot(anisotropic_bitangent, half_vec),
+                                             anisotropy_at, anisotropy_ab);
+        }
+        else
+        {
+            distribution = d_ggx(n_dot_h, roughness);
+        }
 
-    vec3 specular = distribution * v_smith_ggx_correlated(n_dot_v, n_dot_l, roughness) * f *
-                    compensation;
-    vec3 diffuse = (vec3(1.0) - f) * (1.0 - metallic) * diffuse_lambert(albedo);
+        vec3 specular = distribution * v_smith_ggx_correlated(n_dot_v, n_dot_l, roughness) *
+                        f * compensation;
+        vec3 diffuse = (vec3(1.0) - f) * (1.0 - metallic) * diffuse_lambert(albedo);
 
-    if ((flags & MATERIAL_SHEEN) != 0u)
-    {
-        float sheen_distribution = d_charlie(n_dot_h, material.sheen.a);
-        specular += material.sheen.rgb * sheen_distribution *
-                    v_ashikhmin(n_dot_v, n_dot_l);
-    }
+        if ((flags & MATERIAL_SHEEN) != 0u)
+        {
+            float sheen_distribution = d_charlie(n_dot_h, material.sheen.a);
+            specular += material.sheen.rgb * sheen_distribution *
+                        v_ashikhmin(n_dot_v, n_dot_l);
+        }
 
-    float clearcoat_attenuation = 1.0;
-    vec3 clearcoat_specular = vec3(0.0);
-    if ((flags & MATERIAL_CLEARCOAT) != 0u)
-    {
-        float clearcoat = material.anisotropy_clearcoat.z;
-        float clearcoat_roughness = material.anisotropy_clearcoat.w;
-        // The coat sits on top of the base layer, so what it reflects it also removes
-        // from what reaches the base — that is the attenuation, not an extra term.
-        float clearcoat_fresnel = f_schlick(v_dot_h, vec3(0.04)).x * clearcoat;
-        clearcoat_specular = vec3(d_ggx(n_dot_h, clearcoat_roughness) * v_kelemen(v_dot_h) *
-                                  clearcoat_fresnel);
-        clearcoat_attenuation = 1.0 - clearcoat_fresnel;
-    }
+        float clearcoat_attenuation = 1.0;
+        vec3 clearcoat_specular = vec3(0.0);
+        if ((flags & MATERIAL_CLEARCOAT) != 0u)
+        {
+            float clearcoat = material.anisotropy_clearcoat.z;
+            float clearcoat_roughness = material.anisotropy_clearcoat.w;
+            // The coat sits on top of the base layer, so what it reflects it also removes
+            // from what reaches the base — that is the attenuation, not an extra term.
+            float clearcoat_fresnel = f_schlick(v_dot_h, vec3(0.04)).x * clearcoat;
+            clearcoat_specular = vec3(d_ggx(n_dot_h, clearcoat_roughness) *
+                                      v_kelemen(v_dot_h) * clearcoat_fresnel);
+            clearcoat_attenuation = 1.0 - clearcoat_fresnel;
+        }
 
-    vec3 radiance = scene.sun_color.xyz * scene.sun_dir.w;
-
-    // Solar eclipse: the ephemeris packs the covered fraction of the Sun's disk into
-    // sky_counts.w, so a nearer body (the Moon) sliding across the Sun dims lit geometry
-    // toward totality by the same factor the sky pass dusks the sky with — held just short
-    // of black so the scene never becomes pure void.
-    radiance *= (1.0 - 0.92 * scene.sky_counts.w);
-
-    // The planet itself occludes the sun. n_dot_l only asks whether the surface faces
-    // the sun's direction, so a wall tilted the right way stays fully lit long after
-    // sunset; what actually ends direct light is the ground swallowing the sun. The
-    // horizon a point sees dips below its local horizontal as it climbs, so the same
-    // test lights a mountaintop a little longer than the valley beneath it. The band
-    // softens the cut across the sun's disc and the light refraction drags past the
-    // limb, fading through sunset instead of switching off.
-    if (scene.sky_counts.z > 0.5 && scene.planet_center.w > 0.0)
-    {
-        vec3 to_centre = v_world_position - scene.planet_center.xyz;
-        float radius = max(length(to_centre), 1.0);
-        float surface = scene.planet_center.w;
-        float sin_horizon =
-            radius > surface ? -sqrt(max(radius * radius - surface * surface, 0.0)) / radius
-                             : 0.0;
-        float sun_elevation = dot(to_centre / radius, light_dir);
-        radiance *= smoothstep(sin_horizon - 0.03, sin_horizon + 0.01, sun_elevation);
-    }
-
-    vec3 direct = ((diffuse + specular) * clearcoat_attenuation + clearcoat_specular) *
+        direct += ((diffuse + specular) * clearcoat_attenuation + clearcoat_specular) *
                   radiance * n_dot_l * visibility;
+    }
 
     // Clustered Forward+: add every punctual light whose froxel this pixel falls in.
     // They shade with the base BRDF and their own windowed inverse-square (and spot
@@ -579,9 +622,8 @@ void main()
     {
         // Thin-surface transmission: light arriving from behind wraps through the
         // surface, tinted by the subsurface colour and attenuated by thickness.
-        float wrap = max(dot(-n, light_dir), 0.0);
         float attenuation = exp(-material.transmission.y * 4.0);
-        indirect += material.subsurface.rgb * albedo * radiance * wrap *
+        indirect += material.subsurface.rgb * albedo * wrapped *
                     material.transmission.x * attenuation;
     }
 

@@ -186,7 +186,11 @@ float sample_sun_shadow(sampler2DShadow atlas, sampler2D depth_atlas, vec3 posit
 
     // The Vogel disc turns the tap set into an even, low-discrepancy spread; the rotation
     // decorrelates it per pixel. Frame-varying for the temporal resolve to average, or a
-    // frame-static hash where there is no resolve to average it (the ground).
+    // frame-static screen-space hash where there is no resolve to average it (the ground).
+    // The screen-space hash is what keeps the residual grain high-frequency, which is the
+    // only grain the ground's plain blur can dissolve; a world-anchored seed decorrelates
+    // poorly at grazing angles and turns the grain into low-frequency blotches the blur
+    // cannot touch.
     float angle = (stable ? interleaved_gradient_noise(gl_FragCoord.xy)
                           : temporal_dither(gl_FragCoord.xy)) *
                   6.28318530718;

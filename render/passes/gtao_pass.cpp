@@ -199,6 +199,7 @@ namespace SushiEngine
                     "gtao",
                     [depth, gtao](Graph::RenderPassBuilder& builder)
                     {
+                        builder.set_queue(Graph::PassQueue::AsyncCompute);
                         builder.read(depth, Graph::TextureAccess::SampledCompute);
                         builder.write(gtao, Graph::TextureAccess::StorageComputeWrite);
                     },

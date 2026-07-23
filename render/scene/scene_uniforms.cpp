@@ -158,6 +158,60 @@ namespace SushiEngine
                 uniforms.sun_color[1] = static_cast<float>(environment.sun.color.y);
                 uniforms.sun_color[2] = static_cast<float>(environment.sun.color.z);
                 uniforms.sun_color[3] = environment.exposure;
+                // The celestial light list. An authored environment that never ran the
+                // ephemeris has none, so the sun is synthesised as the single entry and
+                // every pass loops the same array whether the sky is astronomical or
+                // hand-set. `sun_dir`/`sun_color` deliberately keep carrying the true Sun
+                // and not light 0: the atmosphere's scattering and the sun disk are the
+                // Sun's alone, and would be nonsense pointed at whichever body happens to
+                // dominate the surface lighting after sunset.
+                {
+                    int light_count = environment.light_count;
+                    if (light_count <= 0)
+                    {
+                        uniforms.lights[0][0] = static_cast<float>(sun_dir.x);
+                        uniforms.lights[0][1] = static_cast<float>(sun_dir.y);
+                        uniforms.lights[0][2] = static_cast<float>(sun_dir.z);
+                        uniforms.lights[0][3] = environment.sun.intensity;
+                        uniforms.lights[1][0] = static_cast<float>(environment.sun.color.x);
+                        uniforms.lights[1][1] = static_cast<float>(environment.sun.color.y);
+                        uniforms.lights[1][2] = static_cast<float>(environment.sun.color.z);
+                        uniforms.lights[1][3] = 1.0f;
+                        light_count = 1;
+                    }
+                    else
+                    {
+                        if (light_count > MAX_CELESTIAL_LIGHTS)
+                            light_count = MAX_CELESTIAL_LIGHTS;
+                        for (int i = 0; i < light_count; ++i)
+                        {
+                            const CelestialLight& light = environment.lights[i];
+                            const Vector3 direction = normalize(light.direction);
+                            uniforms.lights[i * 2 + 0][0] = static_cast<float>(direction.x);
+                            uniforms.lights[i * 2 + 0][1] = static_cast<float>(direction.y);
+                            uniforms.lights[i * 2 + 0][2] = static_cast<float>(direction.z);
+                            uniforms.lights[i * 2 + 0][3] = light.irradiance;
+                            uniforms.lights[i * 2 + 1][0] = static_cast<float>(light.color.x);
+                            uniforms.lights[i * 2 + 1][1] = static_cast<float>(light.color.y);
+                            uniforms.lights[i * 2 + 1][2] = static_cast<float>(light.color.z);
+                            uniforms.lights[i * 2 + 1][3] =
+                                light.is_star ? 1.0f : 0.0f;
+                        }
+                    }
+                    for (int i = light_count; i < MAX_CELESTIAL_LIGHTS; ++i)
+                    {
+                        for (int lane = 0; lane < 4; ++lane)
+                        {
+                            uniforms.lights[i * 2 + 0][lane] = 0.0f;
+                            uniforms.lights[i * 2 + 1][lane] = 0.0f;
+                        }
+                    }
+                    uniforms.light_counts[0] = static_cast<float>(light_count);
+                    uniforms.light_counts[1] = 0.0f;
+                    uniforms.light_counts[2] = 0.0f;
+                    uniforms.light_counts[3] = 0.0f;
+                }
+
                 uniforms.ambient[0] = static_cast<float>(environment.ambient.x);
                 uniforms.ambient[1] = static_cast<float>(environment.ambient.y);
                 uniforms.ambient[2] = static_cast<float>(environment.ambient.z);
@@ -183,6 +237,11 @@ namespace SushiEngine
                 uniforms.ocean_color[0] = static_cast<float>(environment.surface.ocean_color.x);
                 uniforms.ocean_color[1] = static_cast<float>(environment.surface.ocean_color.y);
                 uniforms.ocean_color[2] = static_cast<float>(environment.surface.ocean_color.z);
+                // The two roughnesses ride the w lanes the colours leave spare, so the
+                // analytic ground can put a specular lobe on land and a much tighter one
+                // on water without a block change.
+                uniforms.ground_albedo[3] = environment.surface.roughness;
+                uniforms.ocean_color[3] = environment.surface.ocean_roughness;
 
                 // Shared medium: how the whole cloud stack scatters and shadows.
                 uniforms.cloud_light[0] = environment.clouds.light_absorption;

@@ -41,12 +41,21 @@ namespace SushiEngine
     {
         namespace Graph
         {
-            /** @brief The synchronisation state a texture is in for one access. */
+            /**
+             * @brief The synchronisation state a texture is in for one access.
+             *
+             * @c queue records which queue left it in that state. A barrier recorded on the
+             * other queue cannot name the stages of the first — a compute command buffer may
+             * not wait on the fragment-test stage the depth prepass wrote in — and does not
+             * need to: the two are already ordered by the submission timeline, so the barrier
+             * degenerates to the layout transition alone.
+             */
             struct TextureState
             {
                 VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_NONE;
                 VkAccessFlags2 access = VK_ACCESS_2_NONE;
                 VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                PassQueue queue = PassQueue::Graphics;
             };
 
             /** @brief The synchronisation state a buffer is in for one access. */
@@ -54,6 +63,7 @@ namespace SushiEngine
             {
                 VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_NONE;
                 VkAccessFlags2 access = VK_ACCESS_2_NONE;
+                PassQueue queue = PassQueue::Graphics;
             };
 
             /**

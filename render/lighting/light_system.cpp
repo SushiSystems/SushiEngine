@@ -342,6 +342,22 @@ namespace SushiEngine
                 config_.counts[0] = static_cast<float>(decal_count_);
             }
 
+            void LightSystem::set_stochastic_shadows(std::uint32_t samples, float max_metres,
+                                                     float softness, std::uint32_t field_slot,
+                                                     const float origin_voxel[4],
+                                                     const std::int32_t resolution[4]) noexcept
+            {
+                config_.stochastic[0] = static_cast<float>(samples);
+                config_.stochastic[1] = max_metres;
+                config_.stochastic[2] = softness;
+                config_.stochastic[3] = static_cast<float>(field_slot);
+                for (int i = 0; i < 4; ++i)
+                {
+                    config_.sdf_origin[i] = origin_voxel[i];
+                    config_.sdf_resolution[i] = static_cast<float>(resolution[i]);
+                }
+            }
+
             void LightSystem::assign_shadows(const PunctualLight* lights, std::size_t count,
                                              const double eye[3], std::uint32_t atlas_size,
                                              std::uint32_t max_casters, float near_plane)
