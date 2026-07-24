@@ -1,7 +1,7 @@
 # ============================================================================
 # SushiEngine renderer
 #
-# A greenfield Vulkan 1.3 renderer behind an RHI abstraction (include/SushiEngine/
+# A greenfield Vulkan 1.4 renderer behind an RHI abstraction (include/SushiEngine/
 # render/rhi/). Consumers program against the abstract IRenderDevice; the Vulkan
 # backend (rhi/vulkan/) is the only implementation today. Like the editor this is a
 # plain compiled target — it does NOT link the runtime or compile SYCL, so it builds
@@ -63,7 +63,8 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi_common.glsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_common.glsl")
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_common.glsl")
 
 # sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
@@ -88,6 +89,22 @@ sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh.vert"
     mesh_vert_spv MESH_VERT_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_gpu.vert"
     mesh_gpu_vert_spv MESH_GPU_VERT_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_skinned.vert"
+    mesh_skinned_vert_spv MESH_SKINNED_VERT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/skinning.comp"
+    skinning_comp_spv SKINNING_COMP_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_emit.comp"
+    particle_emit_comp_spv PARTICLE_EMIT_COMP_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_simulate.comp"
+    particle_simulate_comp_spv PARTICLE_SIMULATE_COMP_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.vert"
+    particle_vert_spv PARTICLE_VERT_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.frag"
+    particle_frag_spv PARTICLE_FRAG_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_sorted.vert"
+    particle_sorted_vert_spv PARTICLE_SORTED_VERT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_sort.comp"
+    particle_sort_comp_spv PARTICLE_SORT_COMP_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/pbr.frag"
     pbr_frag_spv PBR_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.frag"
@@ -199,6 +216,8 @@ add_library(sushi_render STATIC
     scene/temporal_uniforms.cpp
     scene/motion_system.cpp
     scene/instance_system.cpp
+    scene/skinning_system.cpp
+    scene/particle_system.cpp
     scene/shadow_uniforms.cpp
     lighting/light_system.cpp
     raytracing/scene_accelerator.cpp
@@ -213,6 +232,8 @@ add_library(sushi_render STATIC
     material/texture_library.cpp
     material/material_system.cpp
     material/gltf_importer.cpp
+    material/gltf_skeleton_importer.cpp
+    material/gltf_animation_importer.cpp
     textures/cloud_noise.cpp
     passes/fullscreen.cpp
     passes/ibl_pass.cpp
@@ -230,6 +251,10 @@ add_library(sushi_render STATIC
     passes/occlusion_pass.cpp
     passes/cull_pass.cpp
     passes/cloth_pass.cpp
+    passes/skinning_pass.cpp
+    passes/particle_sim_pass.cpp
+    passes/particle_sort_pass.cpp
+    passes/particle_pass.cpp
     passes/ssr_pass.cpp
     passes/light_cull_pass.cpp
     passes/light_shadow_pass.cpp
@@ -264,6 +289,14 @@ add_library(sushi_render STATIC
     "${TRIANGLE_FRAG_HEADER}"
     "${MESH_VERT_HEADER}"
     "${MESH_GPU_VERT_HEADER}"
+    "${MESH_SKINNED_VERT_HEADER}"
+    "${SKINNING_COMP_HEADER}"
+    "${PARTICLE_EMIT_COMP_HEADER}"
+    "${PARTICLE_SIMULATE_COMP_HEADER}"
+    "${PARTICLE_VERT_HEADER}"
+    "${PARTICLE_FRAG_HEADER}"
+    "${PARTICLE_SORTED_VERT_HEADER}"
+    "${PARTICLE_SORT_COMP_HEADER}"
     "${PBR_FRAG_HEADER}"
     "${OUTLINE_FRAG_HEADER}"
     "${GRID_FRAG_HEADER}"

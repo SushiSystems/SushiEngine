@@ -207,6 +207,24 @@ namespace SushiEngine
                 /** @brief The game world: spawn/destroy entities, reserve archetypes, read components. */
                 World& world() noexcept { return world_; }
 
+                /**
+                 * @brief The runtime this App drives, whether owned or borrowed.
+                 *
+                 * The one seam through which an out-of-band, wall-clock consumer that
+                 * lives *outside* the deterministic sim island — the audio engine's
+                 * optional GPU DSP accelerator — reaches the runtime to allocate USM.
+                 * Gameplay never needs this; the loop already hides the runtime behind
+                 * `world()`, `commands()`, and `system()`. Exposing it does not weaken
+                 * the one-way engine→runtime dependency: the App still owns the
+                 * lifetime, and a borrowed runtime is returned, never destroyed.
+                 *
+                 * @return A reference to the App's runtime.
+                 */
+                SushiRuntime::API::Runtime& runtime() noexcept { return runtime_; }
+
+                /** @copydoc runtime() */
+                const SushiRuntime::API::Runtime& runtime() const noexcept { return runtime_; }
+
                 /** @brief The deferred command buffer, applied at the per-tick barrier. */
                 CommandBuffer& commands() noexcept { return commands_; }
 

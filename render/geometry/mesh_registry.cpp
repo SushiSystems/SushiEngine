@@ -402,6 +402,7 @@ namespace SushiEngine
                 {
                     destroy(entry.vertices);
                     destroy(entry.indices);
+                    destroy(entry.skin);
                 }
                 imported_.clear();
                 for (Allocation& allocation : meshlet_buffers_)
@@ -447,6 +448,27 @@ namespace SushiEngine
                                                 Gi::SDF_BRICK_RESOLUTION);
                 imported_.push_back(std::move(entry));
                 return static_cast<MeshId>(imported_.size() - 1);
+            }
+
+            MeshId MeshRegistry::add_skinned_mesh(const MeshVertex* vertices,
+                                                  std::size_t vertex_count,
+                                                  const std::uint32_t* indices,
+                                                  std::size_t index_count, const void* skin_data,
+                                                  std::size_t skin_bytes)
+            {
+                const MeshId id = add_mesh(vertices, vertex_count, indices, index_count);
+                if (id == INVALID_MESH || skin_data == nullptr || skin_bytes == 0)
+                    return id;
+                // The skin stream is read as a storage buffer by the compute skinning pass.
+                imported_[id].skin = upload(skin_data, skin_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                return id;
+            }
+
+            VkBuffer MeshRegistry::skin_buffer(MeshId mesh_id) const noexcept
+            {
+                if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
+                    return VK_NULL_HANDLE;
+                return imported_[mesh_id].skin.buffer;
             }
 
             const Gi::MeshSdfBrick* MeshRegistry::mesh_brick(MeshId mesh_id) const noexcept

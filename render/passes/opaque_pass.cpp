@@ -28,6 +28,7 @@
 
 #include "frame/frame_context.hpp"
 #include "geometry/cloth_buffers.hpp"
+#include "scene/skinning_system.hpp"
 #include "geometry/mesh_registry.hpp"
 #include "lighting/cluster_config.hpp"
 #include "lighting/light_system.hpp"
@@ -189,10 +190,11 @@ namespace SushiEngine
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                Textures::CloudNoise& noise, IblPass& ibl,
                                IrradianceVolumePass& gi, Lighting::LightSystem& lights,
-                               Scene::InstanceSystem& instances)
+                               Scene::InstanceSystem& instances, Scene::SkinningSystem& skinning)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   meshes_(meshes), cloth_(cloth), materials_(materials), motion_(motion),
-                  noise_(noise), ibl_(ibl), gi_(gi), lights_(lights), instances_(instances)
+                  noise_(noise), ibl_(ibl), gi_(gi), lights_(lights), instances_(instances),
+                  skinning_(skinning)
             {
                 create_pipelines();
             }
@@ -208,6 +210,18 @@ namespace SushiEngine
                 mesh.vertex_shader = vertex;
                 mesh.fragment_shader = shaders_.module("pbr.frag");
                 mesh_pipeline_ = pipelines_.create(mesh);
+
+                // The skinned pipeline: the SkinningPass writes an interleaved SkinnedVertex
+                // (the MeshVertex layout plus a previous-frame skinned position at offset 60),
+                // so the stride grows to 72 and a seventh attribute feeds mesh_skinned.vert the
+                // previous position for a deformation-correct motion vector.
+                Resources::GraphicsPipelineDesc skinned = base_desc(layout_.pipeline_layout());
+                skinned.vertex_stride = static_cast<std::uint32_t>(Scene::SKINNED_VERTEX_SIZE);
+                skinned.attribute_count = 7;
+                skinned.attributes[6] = {6, VK_FORMAT_R32G32B32_SFLOAT, 60};
+                skinned.vertex_shader = shaders_.module("mesh_skinned.vert");
+                skinned.fragment_shader = shaders_.module("pbr.frag");
+                skinned_pipeline_ = pipelines_.create(skinned);
 
                 // The outline draws the selected shape as a thick wireframe, masked to the
                 // texels the object did not already cover. Reverse-Z makes the bias that
@@ -257,6 +271,7 @@ namespace SushiEngine
                 // the pass only drops its handles. clear_libraries() frees the pipelines.
                 mesh_pipeline_ = Resources::PipelineHandle{};
                 outline_pipeline_ = Resources::PipelineHandle{};
+                skinned_pipeline_ = Resources::PipelineHandle{};
                 gpu_mesh_pipeline_ = Resources::PipelineHandle{};
                 meshlet_pipeline_ = Resources::PipelineHandle{};
             }
@@ -346,6 +361,19 @@ namespace SushiEngine
                 for (std::size_t s = 0; s < frame.draws.strand_count; ++s)
                     strand_motions.push_back(motion_.push_camera_relative());
 
+                // Skinned characters pack their material and previous transform the same way as
+                // rigid instances; their previous *pose* rides the vertex stream (mesh_skinned.vert
+                // reads it), while this previous *transform* carries the rigid part of the motion.
+                std::vector<std::uint32_t> skinned_materials;
+                std::vector<std::uint32_t> skinned_motions;
+                skinned_materials.reserve(skinning_.ranges().size());
+                skinned_motions.reserve(skinning_.ranges().size());
+                for (const Scene::SkinnedRange& range : skinning_.ranges())
+                {
+                    skinned_materials.push_back(materials_.push(range.material));
+                    skinned_motions.push_back(motion_.push(range.id, range.model));
+                }
+
                 Graph::ClearColor scene_clear;
                 Graph::ClearColor id_clear;
                 id_clear.integer = true;
@@ -411,8 +439,8 @@ namespace SushiEngine
                         }
                     },
                     [this, &frame, gpu, meshlet, instance_materials, strand_materials,
-                     instance_motions,
-                     strand_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
+                     instance_motions, strand_motions, skinned_materials,
+                     skinned_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         // The full scene set the shading fragment shader reads. Factored into a
                         // lambda because the GPU-driven path pushes it against two layouts in a
@@ -686,6 +714,45 @@ namespace SushiEngine
                             draw_instances(mesh_pipeline_.get(), false);
                             if (frame.draws.selected_id != NO_PICK)
                                 draw_instances(outline_pipeline_.get(), true);
+                        }
+
+                        // Skinned characters: the skinning pass wrote each instance's deformed
+                        // vertices into the output buffer; each slice draws with the skinned
+                        // pipeline, its vertex binding offset to the slice's start so the base
+                        // mesh's indices (0-based) address it. The scene set is already committed
+                        // on the classic layout, which the skinned pipeline shares.
+                        if (!skinning_.empty())
+                        {
+                            const VkBuffer skinned_vertices = skinning_.output_buffer(frame.slot);
+                            if (skinned_vertices != VK_NULL_HANDLE)
+                            {
+                                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                  skinned_pipeline_.get());
+                                const std::vector<Scene::SkinnedRange>& ranges = skinning_.ranges();
+                                for (std::size_t i = 0; i < ranges.size(); ++i)
+                                {
+                                    const Scene::SkinnedRange& range = ranges[i];
+                                    const Geometry::Mesh& mesh = meshes_.mesh(range.mesh);
+                                    if (mesh.index_count == 0)
+                                        continue;
+                                    const VkDeviceSize vertex_offset =
+                                        static_cast<VkDeviceSize>(range.base_vertex) *
+                                        Scene::SKINNED_VERTEX_SIZE;
+                                    vkCmdBindVertexBuffers(cmd, 0, 1, &skinned_vertices,
+                                                           &vertex_offset);
+                                    vkCmdBindIndexBuffer(cmd, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
+                                    vkCmdSetStencilReference(
+                                        cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                        range.id == frame.draws.selected_id ? 1 : 0);
+                                    const MeshPushConstants push = make_push(
+                                        range.model, frame.eye, range.material, range.id,
+                                        frame.draws.selected_id, skinned_materials[i],
+                                        skinned_motions[i]);
+                                    vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
+                                                       sizeof(MeshPushConstants), &push);
+                                    vkCmdDrawIndexed(cmd, range.index_count, 1, 0, 0, 0);
+                                }
+                            }
                         }
 
                         const Geometry::Mesh& cloth_mesh = cloth_.mesh(frame.slot);

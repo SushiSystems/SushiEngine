@@ -1,0 +1,73 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Particle sort (design §5.4, VFX2a): a bitonic sort of the true-alpha bucket back-to-front so
+// overlapping transparent particles composite correctly. Mode 0 seeds one {distance, index} key
+// per pool slot from the alpha list's camera distance (padding slots sink to the end); mode 1 is
+// one bitonic compare-exchange stage, dispatched log2(N)*(log2(N)+1)/2 times by the host over a
+// power-of-two pool capacity. The alpha draw's vertex shader then indexes the alpha list through
+// the sorted keys. The ParticleSortPass owns this descriptor set.
+
+#include "particle_common.glsl"
+
+layout(local_size_x = 64) in;
+
+struct SortEntry
+{
+    float key;
+    uint index;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer AlphaDrawList { Particle alpha_draw[]; };
+layout(std430, set = 0, binding = 1) buffer SortKeys { SortEntry keys[]; };
+layout(std430, set = 0, binding = 2) readonly buffer DrawArgs { uint args[]; };
+
+layout(push_constant) uniform Push
+{
+    uint mode;    // 0 = seed keys, 1 = one bitonic stage
+    uint stage_k; // bitonic subsequence size
+    uint stage_j; // bitonic compare distance
+    uint count;   // padded pool capacity (power of two)
+    vec4 eye;      // xyz camera world position
+} pc;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count)
+        return;
+
+    if (pc.mode == 0u)
+    {
+        const uint alpha_count = args[5];
+        if (i < alpha_count)
+        {
+            Particle p = alpha_draw[i];
+            vec3 to_eye = vec3(p.px, p.py, p.pz) - pc.eye.xyz;
+            // -distance^2: the farthest particle is the most negative and sorts first
+            // (ascending), i.e. drawn first — back to front.
+            keys[i].key = -dot(to_eye, to_eye);
+            keys[i].index = i;
+        }
+        else
+        {
+            keys[i].key = 3.0e38; // padding sinks past every real particle
+            keys[i].index = i;
+        }
+        return;
+    }
+
+    // One bitonic compare-exchange stage.
+    uint partner = i ^ pc.stage_j;
+    if (partner > i)
+    {
+        bool ascending = (i & pc.stage_k) == 0u;
+        SortEntry a = keys[i];
+        SortEntry b = keys[partner];
+        if ((a.key > b.key) == ascending)
+        {
+            keys[i] = b;
+            keys[partner] = a;
+        }
+    }
+}

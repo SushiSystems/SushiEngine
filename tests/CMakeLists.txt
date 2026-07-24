@@ -17,6 +17,12 @@ cmake_minimum_required(VERSION 3.22) # gtest_discover_tests(TEST_FILTER ...)
 
 include(GoogleTest)
 
+# Header-only JSON: the input-bindings serialization test round-trips through
+# SushiEngine::Input::bindings_to_json/from_json, which is the one input header that
+# includes nlohmann/json (the core action layer stays dependency-free). Same package the
+# editor already resolves from vcpkg.
+find_package(nlohmann_json CONFIG REQUIRED)
+
 set(SE_TEST_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
 
 # Applies the cross-cutting settings to a test binary: the shared-helpers include
@@ -47,6 +53,40 @@ add_executable(se_functional_tests
     functional/unit/test_math_primitives.cpp
     functional/unit/test_rng.cpp
     functional/unit/test_fixed_timestep.cpp
+    functional/unit/test_input_action_map.cpp
+    functional/unit/test_input_tick_sample.cpp
+    functional/unit/test_input_gamepad.cpp
+    functional/unit/test_input_rebind.cpp
+    functional/unit/test_input_bindings_json.cpp
+    functional/unit/test_input_virtual_controls.cpp
+    functional/unit/test_input_players.cpp
+    functional/unit/test_input_advanced.cpp
+
+    # Audio: the phase-S1 DSP core in isolation — the lock-free SPSC ring, the
+    # flush-to-zero denormal guard, the SIMD sample kernels, the filter set (one-pole,
+    # RBJ biquad, Cytomic TPT-SVF), and the block graph's one-block feedback semantics.
+    # Pure header-only maths, no device backend.
+    functional/unit/test_audio_dsp.cpp
+
+    # Audio S2: the action layer — parameter smoothing / RTPC, the mixer bus DAG
+    # (insert / post-fader gain / aux send / topological order), and the voice manager's
+    # virtual/real ranking, distance culling, one-shot lifetime, and panning.
+    functional/unit/test_audio_mixer.cpp
+
+    # Audio S3: propagation — the cubic-Lagrange fractional delay line, ISO 9613-1 air
+    # absorption, the distance-attenuation laws, and the per-source Doppler (rising on
+    # approach, falling on recede, none when stationary, snapped on a teleport).
+    functional/unit/test_audio_propagation.cpp
+
+    # Audio S4: the spatializer — real (ACN/SN3D) spherical harmonics, the ambisonic
+    # encode/decode kernel, and the analytic binaural decode (left/right cues, ITD,
+    # front symmetry, and head-tracking through the engine).
+    functional/unit/test_audio_spatial.cpp
+
+    # VFX: the particle authoring model and the deterministic CPU backend, in isolation.
+    # Curve/gradient evaluation + bake, the emitter compiler's POD boundary, and spawn
+    # accounting — pure header-only maths, the shared foundation of both simulation domains.
+    functional/unit/test_vfx_authoring.cpp
 
     # Astro: the solar-system model behind the WGS84/atmosphere/orbital-mechanics regime.
     # Pure double-precision maths, verified against astronomical reference landmarks and
@@ -73,6 +113,8 @@ add_executable(se_functional_tests
     functional/integration/test_net_client_server.cpp
     functional/integration/test_cloth.cpp
     functional/integration/test_app.cpp
+    functional/integration/test_input_determinism.cpp
+    functional/integration/test_particle_determinism.cpp
     functional/integration/test_ui.cpp
     functional/integration/test_soft_body.cpp
     functional/integration/test_astro_dynamics.cpp
@@ -81,6 +123,8 @@ add_executable(se_functional_tests
     functional/regression/test_regression.cpp
 )
 sushi_configure_test_target(se_functional_tests)
+# The input-bindings serialization test includes nlohmann/json directly.
+target_link_libraries(se_functional_tests PRIVATE nlohmann_json::nlohmann_json)
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second

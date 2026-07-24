@@ -43,8 +43,13 @@
 #include <vector>
 
 #include <SushiEngine/astro/ephemeris.hpp>
+#include <SushiEngine/input/bindings_json.hpp>
+#include <SushiEngine/input/input_manager.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
+
+#include "input/editor_contexts.hpp"
+#include "sdl/sdl_input_translator.hpp"
 
 #include <memory>
 
@@ -55,6 +60,8 @@
 #include "serialization/scene_serializer.hpp"
 #include "window/sdl_window.hpp"
 #include "ui/viewport_panel.hpp"
+#include "animation/animation_panel.hpp"
+#include "animation/animator_graph_panel.hpp"
 
 namespace
 {
@@ -150,6 +157,25 @@ int main(int argc, char** argv)
 
         SushiEngine::Editor::ImGuiBackend imgui(window, *renderer);
 
+        // The device-abstracted input manager. The SDL translator is registered after ImGui
+        // on the window's handler list (so ImGui still sees events first); the editor consumes
+        // the resolved snapshot for its shortcuts and tool keys (see the EditorGlobal/
+        // EditorViewport contexts pushed below).
+        SushiEngine::Input::InputManager input;
+        SushiEngine::Input::SdlInputTranslator input_translator(input);
+        window.add_event_handler([&input_translator](const void* event)
+        {
+            input_translator.handle_native_event(event);
+        });
+
+        // The editor's shortcut and tool keys as rebindable contexts. Built with their
+        // compiled-in defaults here; any saved overrides are applied once preferences load
+        // (below), and the Preferences page rebinds against these live objects.
+        SushiEngine::Input::InputContext editor_global{"EditorGlobal"};
+        SushiEngine::Input::InputContext editor_viewport{"EditorViewport"};
+        SushiEngine::Editor::build_editor_global_context(editor_global);
+        SushiEngine::Editor::build_editor_viewport_context(editor_viewport);
+
         // Two Unity viewports, each a ViewportPanel over the same world but a
         // different injected camera: the Scene view flies freely, the Game view
         // follows the world's camera. The cameras are declared before the panels so
@@ -173,6 +199,22 @@ int main(int argc, char** argv)
         SushiEngine::Editor::apply_theme(context.preferences.theme);
         context.render_settings = context.preferences.render_settings;
 
+        // Apply any saved binding overrides onto the compiled-in defaults, then push the
+        // contexts and expose them (and the manager) to the panels. A stale or partial blob
+        // degrades to defaults inside bindings_from_json, so a corrupt file never blocks input.
+        if (!context.preferences.input_bindings.empty())
+        {
+            const nlohmann::json saved_bindings =
+                nlohmann::json::parse(context.preferences.input_bindings, nullptr, false);
+            SushiEngine::Input::bindings_from_json(editor_global, saved_bindings);
+            SushiEngine::Input::bindings_from_json(editor_viewport, saved_bindings);
+        }
+        input.push_context(editor_global);
+        input.push_context(editor_viewport);
+        context.input_manager = &input;
+        context.editor_global_context = &editor_global;
+        context.editor_viewport_context = &editor_viewport;
+
         // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
         // seam. The editor sees only the abstraction and the extracted RenderScene;
         // the runtime, SYCL, and ECS stay inside sushi_sim.
@@ -181,6 +223,11 @@ int main(int argc, char** argv)
         std::vector<SushiEngine::Render::MeshInstance> instances;
         context.simulation = simulation.get();
         context.assets = &renderer->assets();
+
+        // The live VFX preview: authored in the Particle Editor panel, simulated and
+        // billboarded by the renderer, gizmo'd in the Scene viewport.
+        SushiEngine::Editor::EffectPreview particle_preview;
+        context.particle_preview = &particle_preview;
         context.world_entity_count = simulation->entity_count();
 
         // The Environment/Lighting panels edit a host setting (see Preferences::environment),
@@ -228,11 +275,30 @@ int main(int argc, char** argv)
                 std::chrono::duration<SushiEngine::Scalar>(frame_time - last_frame_time).count();
             last_frame_time = frame_time;
 
+            // Advance the VFX preview and rebuild this frame's emitter views, clamped so a
+            // long stall (a resize, a breakpoint) does not spawn a burst of catch-up particles.
+            particle_preview.update(
+                static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
+
             // A close request (the window's X, or File > Exit) is not obeyed directly;
             // it only sets close_requested, so draw_exit_confirm_modal below gets a
             // chance to hold the window open while unsaved changes are pending.
             if (!window.pump_events())
                 context.close_requested = true;
+
+            // Fold this frame's input after the pump (so the translator has received the
+            // native events) and before the world ticks. The gate mirrors ImGui's capture
+            // flags so key/mouse actions stand down while a widget owns the device.
+            {
+                const ImGuiIO& io = ImGui::GetIO();
+                SushiEngine::Input::InputGate gate;
+                gate.want_capture_keyboard = io.WantCaptureKeyboard;
+                gate.want_capture_mouse = io.WantCaptureMouse;
+                gate.want_text_input = io.WantTextInput;
+                input.set_gate(gate);
+                input.begin_frame();
+                context.input_snapshot = &input.snapshot();
+            }
 
             // Tick the world on the runtime only while playing, so the toolbar's
             // Play/Pause gates motion; then take the fresh snapshot to draw. Step
@@ -280,6 +346,22 @@ int main(int argc, char** argv)
                 strands.push_back(strand);
             }
 
+            // Deterministic particles: one billboard per live particle in every emitter
+            // entity's pool, already world-space from the sim's fixed-tick integration.
+            std::vector<SushiEngine::Render::ParticleBillboard> particle_billboards;
+            particle_billboards.reserve(scene.particle_billboards.size());
+            for (const SushiEngine::Simulation::ParticleBillboard& particle :
+                 scene.particle_billboards)
+            {
+                SushiEngine::Render::ParticleBillboard billboard;
+                billboard.position = particle.position;
+                billboard.color = particle.color;
+                billboard.size = particle.size;
+                billboard.alpha = particle.alpha;
+                billboard.rotation = particle.rotation;
+                particle_billboards.push_back(billboard);
+            }
+
             // Resolve which display the Game view shows: the selected display's camera
             // if present, else the default. Also gather the display options for the
             // Game panel's selector so two cameras on different displays never conflict.
@@ -310,25 +392,25 @@ int main(int argc, char** argv)
 
             draw_dockspace();
 
-            // Global undo/redo/save shortcuts, gated off text-entry widgets so Ctrl+Z in
-            // a document or a rename field is not hijacked by the scene history.
-            if (!ImGui::GetIO().WantTextInput && simulation != nullptr)
+            // Global undo/redo/save shortcuts, now resolved through the EditorGlobal input
+            // context (rebindable, persisted). The mapper's capture gate already suppresses
+            // these while a text field owns the keyboard, so Ctrl+Z in a rename field is not
+            // hijacked — the old `!WantTextInput` guard, centralized.
+            if (simulation != nullptr)
             {
+                const SushiEngine::Input::ActionSnapshot& actions = input.snapshot();
                 SushiEngine::Simulation::IWorldEditor& editor_world = simulation->world();
-                const bool ctrl = ImGui::GetIO().KeyCtrl;
-                if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) &&
-                    context.history.undo(editor_world))
+                if (actions.pressed("Undo") && context.history.undo(editor_world))
                     SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
-                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) &&
-                         context.history.redo(editor_world))
+                else if (actions.pressed("Redo") && context.history.redo(editor_world))
                     SushiEngine::Editor::select_only(context, SushiEngine::Simulation::NULL_ENTITY);
-                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+                else if (actions.pressed("Save"))
                     SushiEngine::Editor::save_current_scene(context);
-                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
+                else if (actions.pressed("Copy"))
                     SushiEngine::Editor::copy_selection(context);
-                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_X, false))
+                else if (actions.pressed("Cut"))
                     SushiEngine::Editor::cut_selection(context);
-                else if (ctrl && ImGui::IsKeyPressed(ImGuiKey_V, false))
+                else if (actions.pressed("Paste"))
                     SushiEngine::Editor::paste_clipboard(context);
             }
 
@@ -601,7 +683,9 @@ int main(int argc, char** argv)
                                                &snap, nullptr, strands.data(), strands.size(),
                                                scene.lights.data(), scene.lights.size(),
                                                scene.decals.data(), scene.decals.size(),
-                                               &scene_ui, context.preferences.grid_visible);
+                                               &scene_ui, context.preferences.grid_visible, nullptr,
+                                               false, &particle_preview, particle_billboards.data(),
+                                               particle_billboards.size());
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
@@ -632,7 +716,8 @@ int main(int argc, char** argv)
                                SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
                                strands.data(), strands.size(), scene.lights.data(),
                                scene.lights.size(), scene.decals.data(), scene.decals.size(),
-                               &game_ui);
+                               &game_ui, false, nullptr, true, nullptr,
+                               particle_billboards.data(), particle_billboards.size());
             }
 
             // Copy each visible viewport's per-pass GPU times out for the Statistics
@@ -773,11 +858,15 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_lighting_panel(context);
             SushiEngine::Editor::draw_post_process_panel(context);
             SushiEngine::Editor::draw_gpu_culling_panel(context);
+            SushiEngine::Editor::draw_particle_editor_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);
             SushiEngine::Editor::draw_statistics_panel(context);
+            SushiEngine::Editor::draw_animation_panel(context);
+            SushiEngine::Editor::draw_animator_graph_panel(context);
             SushiEngine::Editor::draw_preferences_window(context);
+            SushiEngine::Editor::draw_input_manager_window(context);
             SushiEngine::Editor::draw_save_scene_as_modal(context, running);
             SushiEngine::Editor::draw_exit_confirm_modal(context, running);
             SushiEngine::Editor::draw_scene_action_confirm_modal(context);

@@ -1,0 +1,120 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Particle simulate (design §5.3): one thread per shared-pool slot. Advances each live particle
+// by the emitter's update modules (gravity, drag, curl-noise turbulence), integrates its motion,
+// ages it, applies the size/colour-over-life LUTs, retires the dead, and appends the survivors
+// to this frame's compacted draw list — atomically bumping the indirect draw's instance count.
+// Shares the ParticleSimPass descriptor set with particle_emit.comp.
+
+#include "particle_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) buffer Pool { Particle pool[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Emitters { Emitter emitters[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer DrawList { Particle draw[]; };
+layout(std430, set = 0, binding = 3) buffer DrawArgs { uint args[]; };
+layout(std430, set = 0, binding = 4) readonly buffer CurveLuts { float curve_luts[]; };
+layout(std430, set = 0, binding = 5) readonly buffer GradientLuts { float gradient_luts[]; };
+layout(std430, set = 0, binding = 6) writeonly buffer AlphaDrawList { Particle alpha_draw[]; };
+
+layout(push_constant) uniform Push
+{
+    uint emitter_index; // unused here
+    uint capacity;      // pool slots to sweep
+    float dt;           // fixed simulation step this frame
+} pc;
+
+float sample_curve(int lut, float t)
+{
+    if (lut < 0)
+        return 1.0;
+    uint base = uint(lut) * CURVE_LUT_WIDTH;
+    float x = clamp(t, 0.0, 1.0) * float(CURVE_LUT_WIDTH - 1u);
+    uint i = uint(x);
+    uint j = min(i + 1u, CURVE_LUT_WIDTH - 1u);
+    return mix(curve_luts[base + i], curve_luts[base + j], x - float(i));
+}
+
+vec4 sample_gradient(int lut, float t)
+{
+    if (lut < 0)
+        return vec4(1.0);
+    uint base = uint(lut) * GRADIENT_LUT_WIDTH * 4u;
+    float x = clamp(t, 0.0, 1.0) * float(GRADIENT_LUT_WIDTH - 1u);
+    uint i = uint(x);
+    uint j = min(i + 1u, GRADIENT_LUT_WIDTH - 1u);
+    float f = x - float(i);
+    vec4 a = vec4(gradient_luts[base + i * 4u + 0u], gradient_luts[base + i * 4u + 1u],
+                  gradient_luts[base + i * 4u + 2u], gradient_luts[base + i * 4u + 3u]);
+    vec4 b = vec4(gradient_luts[base + j * 4u + 0u], gradient_luts[base + j * 4u + 1u],
+                  gradient_luts[base + j * 4u + 2u], gradient_luts[base + j * 4u + 3u]);
+    return mix(a, b, f);
+}
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.capacity)
+        return;
+
+    Particle p = pool[i];
+    if (p.life <= 0.0)
+        return; // a dead slot, awaiting recycling by the emit pass
+
+    Emitter e = emitters[p.emitter_index];
+    vec3 pos = vec3(p.px, p.py, p.pz);
+    vec3 vel = vec3(p.vx, p.vy, p.vz);
+
+    vec3 accel = vec3(0.0);
+    if ((e.update_flags & UPDATE_GRAVITY) != 0u)
+        accel += vec3(e.gx, e.gy, e.gz);
+    if ((e.update_flags & UPDATE_TURBULENCE) != 0u)
+        accel += curl_noise(pos * e.turbulence_frequency) * e.turbulence_amplitude;
+
+    vel += accel * pc.dt;
+    if ((e.update_flags & UPDATE_DRAG) != 0u)
+        vel *= max(0.0, 1.0 - e.drag_coefficient * pc.dt);
+    pos += vel * pc.dt;
+    p.rotation += p.angular_velocity * pc.dt;
+    p.age += pc.dt;
+
+    if (p.age >= p.lifetime)
+    {
+        p.life = 0.0;
+        pool[i] = p;
+        return;
+    }
+
+    float normalized_age = p.age / p.lifetime;
+    p.life = 1.0 - normalized_age;
+    p.px = pos.x;
+    p.py = pos.y;
+    p.pz = pos.z;
+    p.vx = vel.x;
+    p.vy = vel.y;
+    p.vz = vel.z;
+    if ((e.update_flags & UPDATE_SIZE_OVER_LIFE) != 0u)
+        p.size = p.birth_size * sample_curve(e.size_curve_lut, normalized_age);
+    if ((e.update_flags & UPDATE_COLOR_OVER_LIFE) != 0u)
+    {
+        vec4 g = sample_gradient(e.color_gradient_lut, normalized_age);
+        p.cr = g.r;
+        p.cg = g.g;
+        p.cb = g.b;
+        p.alpha = g.a;
+    }
+    uint cells = e.flipbook_rows * e.flipbook_columns;
+    if (cells > 1u)
+        p.flipbook_frame = min(uint(normalized_age * float(cells)), cells - 1u);
+
+    pool[i] = p;
+
+    // Bucket by blend: true-alpha into the alpha list (draw arg [4..7]), additive and
+    // premultiplied into the order-independent additive list (draw arg [0..3]).
+    if (e.blend == BLEND_ALPHA)
+        alpha_draw[atomicAdd(args[5], 1u)] = p;
+    else
+        draw[atomicAdd(args[1], 1u)] = p;
+}

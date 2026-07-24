@@ -58,10 +58,28 @@ namespace SushiEngine
                 virtual bool pump_events() = 0;
 
                 /**
-                 * @brief Registers a sink for raw platform events (used by the ImGui backend).
+                 * @brief Replaces the event-handler list with a single @p handler.
+                 *
+                 * Retained for the ImGui backend's original single-sink registration; it
+                 * clears any previously registered handlers so it stays the "there is one
+                 * handler" call. New sinks (the input translator) append with
+                 * @ref add_event_handler instead.
+                 *
                  * @param handler Called once per event with an opaque native event pointer.
                  */
                 virtual void set_event_handler(EventHandler handler) = 0;
+
+                /**
+                 * @brief Appends @p handler to the event-handler list.
+                 *
+                 * Every registered handler receives each pumped event in registration order,
+                 * so the ImGui backend (registered first) still sees events before a later
+                 * @ref SushiEngine::Input::SdlInputTranslator. This grows the seam from a
+                 * single sink to a list without adding a second `SDL_PollEvent` loop.
+                 *
+                 * @param handler Called once per event with an opaque native event pointer.
+                 */
+                virtual void add_event_handler(EventHandler handler) = 0;
 
                 /**
                  * @brief The current drawable size in pixels.

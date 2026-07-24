@@ -57,7 +57,15 @@ namespace SushiEngine
                 SdlWindow& operator=(const SdlWindow&) = delete;
 
                 bool pump_events() override;
-                void set_event_handler(EventHandler handler) override { handler_ = std::move(handler); }
+                void set_event_handler(EventHandler handler) override
+                {
+                    handlers_.clear();
+                    handlers_.push_back(std::move(handler));
+                }
+                void add_event_handler(EventHandler handler) override
+                {
+                    handlers_.push_back(std::move(handler));
+                }
                 void drawable_size(std::uint32_t& width, std::uint32_t& height) const override;
                 std::vector<std::string> vulkan_instance_extensions() const override;
                 std::uint64_t create_vulkan_surface(std::uint64_t instance) const override;
@@ -65,7 +73,7 @@ namespace SushiEngine
 
             private:
                 SDL_Window* window_ = nullptr;
-                EventHandler handler_;
+                std::vector<EventHandler> handlers_;
         };
     } // namespace Editor
 } // namespace SushiEngine

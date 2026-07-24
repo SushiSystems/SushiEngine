@@ -1,0 +1,116 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "sushi anim test"
+  },
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "scene": 0,
+  "nodes": [
+    {
+      "name": "root",
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "children": [
+        1
+      ]
+    },
+    {
+      "name": "child",
+      "translation": [
+        1,
+        0,
+        0
+      ]
+    }
+  ],
+  "skins": [
+    {
+      "joints": [
+        0,
+        1
+      ],
+      "inverseBindMatrices": 0,
+      "skeleton": 0,
+      "name": "arm"
+    }
+  ],
+  "animations": [
+    {
+      "name": "turn",
+      "samplers": [
+        {
+          "input": 1,
+          "output": 2,
+          "interpolation": "LINEAR"
+        }
+      ],
+      "channels": [
+        {
+          "sampler": 0,
+          "target": {
+            "node": 0,
+            "path": "rotation"
+          }
+        }
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 168,
+      "uri": "data:application/octet-stream;base64,AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAgL8AAAAAAAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAPMENT/zBDU/"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 128
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 128,
+      "byteLength": 8
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 136,
+      "byteLength": 32
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 2,
+      "type": "MAT4"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 2,
+      "type": "SCALAR",
+      "min": [
+        0.0
+      ],
+      "max": [
+        1.0
+      ]
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 2,
+      "type": "VEC4"
+    }
+  ]
+}

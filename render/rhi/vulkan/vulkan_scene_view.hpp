@@ -80,10 +80,14 @@
 #include "passes/light_cull_pass.hpp"
 #include "passes/light_shadow_pass.hpp"
 #include "passes/opaque_pass.hpp"
+#include "passes/particle_pass.hpp"
+#include "passes/particle_sim_pass.hpp"
+#include "passes/particle_sort_pass.hpp"
 #include "passes/picking_pass.hpp"
 #include "passes/ray_traced_shadow_pass.hpp"
 #include "passes/shading_rate_pass.hpp"
 #include "passes/shadow_pass.hpp"
+#include "passes/skinning_pass.hpp"
 #include "passes/sky_pass.hpp"
 #include "passes/taa_pass.hpp"
 #include "passes/tonemap_pass.hpp"
@@ -91,6 +95,8 @@
 #include "raytracing/scene_accelerator.hpp"
 #include "scene/instance_system.hpp"
 #include "scene/motion_system.hpp"
+#include "scene/particle_system.hpp"
+#include "scene/skinning_system.hpp"
 
 #include "view_resources.hpp"
 #include "vulkan_device.hpp"
@@ -141,7 +147,13 @@ namespace SushiEngine
                                 const PunctualLight* lights = nullptr,
                                 std::size_t light_count = 0,
                                 const Decal* decals = nullptr,
-                                std::size_t decal_count = 0, bool show_grid = false) override;
+                                std::size_t decal_count = 0, bool show_grid = false,
+                                const SkinnedInstance* skinned = nullptr,
+                                std::size_t skinned_count = 0,
+                                const ParticleEmitterView* emitters = nullptr,
+                                std::size_t emitter_count = 0,
+                                const ParticleBillboard* billboards = nullptr,
+                                std::size_t billboard_count = 0) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
@@ -176,6 +188,8 @@ namespace SushiEngine
                     Assets::MaterialSystem materials_;
                     Scene::MotionSystem motion_;
                     Scene::InstanceSystem instance_system_;
+                    Scene::SkinningSystem skinning_;
+                    Scene::ParticleSystem particles_;
                     Lighting::LightSystem lights_;
                     RayTracing::SceneAccelerator accelerator_;
                     Graph::GpuProfiler profiler_;
@@ -193,6 +207,9 @@ namespace SushiEngine
                     Passes::OcclusionPass occlusion_pass_;
                     Passes::CullPass cull_pass_;
                     Passes::ClothPass cloth_pass_;
+                    Passes::SkinningPass skinning_pass_;
+                    Passes::ParticleSimPass particle_sim_pass_;
+                    Passes::ParticleSortPass particle_sort_pass_;
                     Passes::OpaquePass opaque_pass_;
                     Passes::LightCullPass light_cull_pass_;
                     Passes::LightShadowPass light_shadow_pass_;
@@ -202,6 +219,7 @@ namespace SushiEngine
                     Passes::CloudPass cloud_pass_;
                     Passes::CloudCompositePass cloud_composite_pass_;
                     Passes::SsrPass ssr_pass_;
+                    Passes::ParticlePass particle_pass_;
                     Passes::TaaPass taa_pass_;
                     Passes::DofPass dof_pass_;
                     Passes::MotionBlurPass motion_blur_pass_;

@@ -45,6 +45,13 @@
 
 namespace SushiEngine
 {
+    namespace Input
+    {
+        class ActionSnapshot;
+        class InputManager;
+        class InputContext;
+    } // namespace Input
+
     namespace Editor
     {
         /**
@@ -65,12 +72,18 @@ namespace SushiEngine
             bool console = true;
             bool statistics = true;
             bool toolbar = true;
+            bool animation = false;
+            bool animator_graph = false;
             bool environment = true;
             bool rendering = false;
             bool lighting = false;
             bool post_process = false;
             bool gpu_culling = false;
+            bool particle_editor = false;
         };
+
+        /** @brief The live particle-effect preview, owned by main() (see effect_preview.hpp). */
+        class EffectPreview;
 
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.
@@ -179,6 +192,10 @@ namespace SushiEngine
             // headless editor, which is why every use is guarded.
             SushiEngine::Render::IAssetLibrary* assets = nullptr;
 
+            // The live particle-effect preview, owned by main() and injected here so the
+            // Particle Editor panel authors it and the Scene viewport renders + gizmos it.
+            EffectPreview* particle_preview = nullptr;
+
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
             // toggles membership, Shift extends a range from `selection_anchor`); a plain
@@ -276,6 +293,15 @@ namespace SushiEngine
             GizmoMode gizmo_mode = GizmoMode::Translate;
             GizmoSpace gizmo_space = GizmoSpace::World;
 
+            // Input (Phase 6): the device-abstracted action layer the editor consumes instead of
+            // polling ImGui keys. main() sets these each frame after folding input, so panels read
+            // resolved actions (input_snapshot) by name and the Preferences page rebinds against
+            // the live contexts (via input_manager). All non-owning; main() owns the objects.
+            const SushiEngine::Input::ActionSnapshot* input_snapshot = nullptr;
+            SushiEngine::Input::InputManager* input_manager = nullptr;
+            SushiEngine::Input::InputContext* editor_global_context = nullptr;
+            SushiEngine::Input::InputContext* editor_viewport_context = nullptr;
+
             // One-shot camera/selection requests raised by the Hierarchy and Entity menu
             // and serviced by the main loop, which owns the Scene camera and world:
             //   frame  — move the Scene camera to look at the selection (double-click).
@@ -293,6 +319,7 @@ namespace SushiEngine
             IPreferencesStore* preferences_store = nullptr;
             bool preferences_dirty = false;
             bool show_preferences = false;
+            bool show_input_manager = false; /**< Toggles the Edit > Input Manager configuration window. */
 
             // How the viewports trade fidelity against frame time: anti-aliasing mode,
             // render scale, the dynamic-resolution governor, and variable-rate shading.

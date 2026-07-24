@@ -148,9 +148,19 @@ namespace SushiEngine
                 void fill_color_blend(const GraphicsPipelineDesc& desc, ColorBlendState& state)
                 {
                     for (std::uint32_t i = 0; i < desc.color_count; ++i)
-                        state.attachments[i].colorWriteMask =
+                    {
+                        VkPipelineColorBlendAttachmentState& attachment = state.attachments[i];
+                        attachment.colorWriteMask =
                             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                        attachment.blendEnable = desc.blend.enable;
+                        attachment.srcColorBlendFactor = desc.blend.src_color;
+                        attachment.dstColorBlendFactor = desc.blend.dst_color;
+                        attachment.colorBlendOp = desc.blend.color_op;
+                        attachment.srcAlphaBlendFactor = desc.blend.src_alpha;
+                        attachment.dstAlphaBlendFactor = desc.blend.dst_alpha;
+                        attachment.alphaBlendOp = desc.blend.alpha_op;
+                    }
                     state.info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
                     state.info.attachmentCount = desc.color_count;
                     state.info.pAttachments = desc.color_count > 0 ? state.attachments : nullptr;
@@ -256,6 +266,9 @@ namespace SushiEngine
                         key.color_formats[i] = desc.color_formats[i];
                     key.depth_format = desc.depth_format;
                     key.stencil_format = desc.stencil_format;
+                    // Blend state belongs to the fragment-output subset: two pipelines that
+                    // differ only in how they blend must not share one cached output library.
+                    key.blend = desc.blend;
                     return key;
                 }
             } // namespace

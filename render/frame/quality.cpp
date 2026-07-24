@@ -99,10 +99,19 @@ namespace SushiEngine
                     // The cheap floor keeps the classic one-draw-per-instance path: its scenes
                     // are simplest and the extra cull/occlusion compute passes buy little.
                     q.gpu_driven = false;
+                    // A small skinned crowd, posed coarsely, four influences.
+                    q.max_skinned_instances = 32;
+                    q.bone_lod_bias = 2;
+                    q.animation_influences = 4;
                     // One queue and the shallowest pipeline: a small device has the least to
                     // gain from overlap and the most to lose to a third frame's worth of
                     // targets, so the floor holds the frame chain at two.
                     q.async_compute = false;
+                    // The cheap floor drops cosmetic GPU particles and keeps a modest pool cap
+                    // for any that a higher-tier authored scene still requests.
+                    q.gpu_particles = false;
+                    q.max_particles = 1u << 15;
+                    q.particle_sim_substeps = 1;
                     s.delivery.frames_in_flight = 2;
                     break;
 
@@ -132,6 +141,9 @@ namespace SushiEngine
                     q.bloom = true;
                     q.depth_of_field = false;
                     q.motion_blur = false;
+                    q.max_skinned_instances = 64;
+                    q.bone_lod_bias = 1;
+                    q.animation_influences = 4;
                     break;
 
                 case RenderQuality::High:
@@ -157,6 +169,9 @@ namespace SushiEngine
                     q.bloom = true;
                     q.depth_of_field = true;
                     q.motion_blur = true;
+                    q.max_skinned_instances = 128;
+                    q.bone_lod_bias = 0;
+                    q.animation_influences = 4;
                     break;
 
                 case RenderQuality::Ultra:
@@ -190,9 +205,17 @@ namespace SushiEngine
                     // Two traced lights per pixel: half the variance of High's one, so the
                     // stochastic half of the lighting settles faster under motion.
                     q.stochastic_light_samples = 2;
+                    // The densest cosmetic particle budget and smoother sub-stepped integration.
+                    q.gpu_particles = true;
+                    q.max_particles = 1u << 20;
+                    q.particle_sim_substeps = 2;
                     q.bloom = true;
                     q.depth_of_field = true;
                     q.motion_blur = true;
+                    // A full skinned crowd at the authored LOD, eight influences on the hero rigs.
+                    q.max_skinned_instances = 256;
+                    q.bone_lod_bias = 0;
+                    q.animation_influences = 8;
                     // The Ultra crown: the mesh-shader meshlet path, where the device offers it.
                     q.meshlets = true;
                     break;

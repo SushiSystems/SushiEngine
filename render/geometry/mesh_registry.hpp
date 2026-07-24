@@ -174,6 +174,33 @@ namespace SushiEngine
                                     const std::uint32_t* indices, std::size_t index_count);
 
                     /**
+                     * @brief Uploads a skinned mesh: its base vertices, indices, and skin stream.
+                     *
+                     * Like @ref add_mesh, plus a parallel per-vertex skin stream (joint indices
+                     * and weights) uploaded as a storage buffer the compute skinning pass reads.
+                     * The base vertices are the rest pose; the skinning pass writes the deformed
+                     * vertices into a transient buffer each frame.
+                     *
+                     * @param vertices     The rest-pose vertices.
+                     * @param vertex_count Number of entries in @p vertices.
+                     * @param indices      Triangle indices into @p vertices.
+                     * @param index_count  Number of entries in @p indices.
+                     * @param skin_data    One skin vertex per base vertex (opaque bytes).
+                     * @param skin_bytes   Bytes of @p skin_data (vertex_count × skin-vertex size).
+                     * @return The mesh id, or INVALID_MESH if the mesh was empty.
+                     */
+                    MeshId add_skinned_mesh(const MeshVertex* vertices, std::size_t vertex_count,
+                                            const std::uint32_t* indices, std::size_t index_count,
+                                            const void* skin_data, std::size_t skin_bytes);
+
+                    /**
+                     * @brief An imported skinned mesh's per-vertex skin stream buffer.
+                     * @param mesh The id returned by add_skinned_mesh().
+                     * @return Its skin storage buffer, or VK_NULL_HANDLE if the mesh has none.
+                     */
+                    VkBuffer skin_buffer(MeshId mesh) const noexcept;
+
+                    /**
                      * @brief An imported mesh by id.
                      * @param mesh The id returned by add_mesh().
                      * @return Its buffers and counts, or an empty mesh if the id is unknown.
@@ -202,6 +229,7 @@ namespace SushiEngine
                     {
                         Allocation vertices;
                         Allocation indices;
+                        Allocation skin; /**< Per-vertex skin stream; unset for non-skinned meshes. */
                         Mesh mesh;
                         Gi::MeshSdfBrick brick; /**< Signed-distance brick baked at import for GI. */
                     };

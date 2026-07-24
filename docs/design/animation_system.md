@@ -6,7 +6,25 @@ trees, an IK / pose-modifier stack, and GPU skinning — built on the archetype-
 the SushiRuntime task graph, and the render graph, without breaking determinism,
 rollback, replay-only graph compilation, or the temporal core.
 
-Status: **design — no phase started.** Companion to
+Status: **A0 shipped; A1 render pipeline complete (pending GPU build); A2–A9 CPU cores
+shipped (A9 editor GUI pending).** A4–A6 add blend trees, mask-gated override/additive layers,
+and the IK / pose-modifier stack (two-bone, look-at, FABRIK, foot placement). A7 adds morph +
+generic float tracks (`.sushianim` v2) with a binding registry; A8 adds the canonical humanoid
+avatar, bind-pose-delta retargeting across proportions, and mirroring; A9 adds the controller
+JSON persistence (byte-identical round-trip) and edit-mode scrub preview — only the A9 editor GUI
+remains, with the deferred GPU skinning pipeline. A3's compiled controller,
+the `animator_step` interpreter (state machine, crossfades, triggers, events, root motion), and
+its determinism + rollback guarantee are done
+and CPU-verified (`animator_demo`). A2's ACL-shaped compression, batched evaluator,
+bone-LOD/update-rate throttling, and the headless benchmark are done and CPU-verified. For A1:
+clip asset,
+evaluator, glTF animation import, skin-vertex format, and `QualityParams` tier fields done
+and CPU-verified. The GPU skinning pipeline is written end to end — `SkinningSystem` +
+`SkinningPass` (compute LBS into a transient interleaved vertex buffer), `mesh_skinned.vert`
+(previous-pose motion vectors), the `SkinnedInstance` extract channel on `ISceneView::render`,
+skinned draw in the opaque pass, and mesh-registry skin buffers — awaiting a GPU build. The
+one remaining wire is feeding it: a skinned-mesh import (glTF JOINTS_0/WEIGHTS_0 → mesh
+registry) and an app/editor loop that evaluates palettes into `SkinnedInstance`. Companion to
 `render_pipeline_refactor.md` (the AAA roadmap); Phase 10 of that document (GPU-driven
 geometry) and this plan share the instancing/SoA trajectory and must not diverge.
 
@@ -372,13 +390,21 @@ constant, not a redesign.
 
 ### 6.3 JointPaletteSystem and motion vectors
 
-`render/scene/joint_palette_system.*`, modeled exactly on `MotionSystem`: a per-frame
-palette SoA storage buffer at scene-set **binding 14** (vertex/compute visible),
-double-buffered so the previous frame's palettes survive for 6.2's prev-position
-skinning. Instances reference palettes by `palette_offset` in the same SoA-index slot
-pattern as `material_index`/`motion_index` (kills 5; aligns with Phase 10's future
-instance records — the push constant gains one index now and folds into the instance
-SoA when Phase 10 lands).
+`render/scene/joint_palette_system.*`, modeled on `MotionSystem`: a per-frame palette
+SoA storage buffer, double-buffered so the previous frame's palettes survive for 6.2's
+prev-position skinning.
+
+> **Correction (A1 implementation).** This section originally placed the palette at
+> **scene-set binding 14**. By the time animation landed, the scene set (set 0) was a
+> push-descriptor set **full at 32 bindings** (`SceneLayout::BINDING_COUNT == 32`, with
+> binding 14 taken by `LIGHT_BINDING`), so the palette cannot ride set 0 — exactly the
+> slot pressure §11 warned about. It does not need to: under the compute-pre-skin model
+> (§6.2) the *graphics* passes consume the skinned vertex streams as static meshes and
+> never read the palette. The palette is therefore a **SkinningPass-local** resource,
+> bound to that compute pass's own descriptor set, current + previous. `mesh.vert` reads
+> a skinned stream's previous position (a vertex input, keyed off a push-constant flag),
+> not a palette. No scene-set binding is added. Instances still reference their palette
+> slice by a stable `palette_offset`, which folds into Phase 10's instance SoA as planned.
 
 ### 6.4 Bounds and culling
 
@@ -436,7 +462,7 @@ Prefix **A**. Each phase is independently shippable, lands tier wiring + editor
 surface + profiler budget + CHANGELOG/ARCHITECTURE in the same PR, and none breaks
 `compile_count == 1` or determinism tests.
 
-- **A0 — Math seam + skeleton foundations (triage).** Add to the seam through
+- **A0 — Math seam + skeleton foundations (triage). ✅ SHIPPED.** Add to the seam through
   `core/types.hpp`: `lerp`, `nlerp`, `slerp` (neighborhood-corrected), quaternion-
   from-matrix, affine inverse, TRS decompose — parametric on scalar type (evaluation
   runs float; boundary stays double). `SkeletonAsset` + blob loader +
@@ -450,32 +476,70 @@ surface + profiler budget + CHANGELOG/ARCHITECTURE in the same PR, and none brea
   (binding 14), `SkinningPass` with prev-position stream, skin vertex stream import,
   first `QualityParams` fields. Acceptance criterion 5 is A1's exit test.
   *Ships: a character looping an animation with zero TAA ghosting.* (Kills 1, 5, 6, 7.)
-- **A2 — Compression + batching + LOD.** ACL-shaped compression with the virtual-
-  vertex error solver; batched multi-instance evaluation; bone LOD + update-rate
-  throttling; headless animation benchmark target (criterion 4 numbers measured from
-  here on); statistics panel rows. *Ships: 1000-instance crowd scene in budget.*
-- **A3 — Animator core: parameters, state machine, events, root motion.**
-  `ControllerAsset` JSON + blob compiler + interpreter; `animator_step` /
-  `apply_root_motion` systems; crossfades; trigger semantics; event queue +
-  `IAnimationEventSink`; determinism + rollback replay tests (criterion 2's exit).
-  Editor: parameter panel + live state readout. *Ships: scripted state machine
-  driving a character with root motion, rollback-clean.*
-- **A4 — Blend trees.** All five node kinds; gradient-band precompute at compile;
-  interpolation-alpha sampling polish. Editor: blend tree inspector + 2D
-  visualization. *Ships: WASD locomotion blend space.*
-- **A5 — Layers + masks + additive.** Avatar mask asset, mask-gated layer fold,
-  import-time additive baking, layer weights animatable from gameplay. *Ships: upper-
-  body aim layer over locomotion.*
-- **A6 — IK / pose-modifier stack.** `IPoseModifier` + `IPoseTaskContext` seams;
-  TwoBone, LookAt, Chain (FABRIK), FootPlacement (ground-plane provider); gizmos;
-  tier gating. *Ships: foot-planted character on uneven ground, aiming at a target.*
-- **A7 — Morph targets + generic tracks.** Morph import + skin-pass integration;
-  generic float tracks + binding registry; event payloads to UI/material hooks.
-- **A8 — Humanoid avatar + import retargeting.** Canonical avatar map, name-hash +
-  heuristic joint mapping, bind-pose-delta retarget at import, mirror flag.
-  *Ships: one clip library driving differently-proportioned rigs.*
-- **A9 — Authoring suite completion.** Animator graph window, Animation dope sheet /
-  curve editor, edit-mode preview scrubbing, controller undo/redo polish. *Ships: a
+- **A2 — Compression + batching + LOD. ✅ CPU CORE SHIPPED.** ACL-shaped compression with the
+  virtual-vertex error solver (`clip_compress.hpp`, `SUSHACMP` blob decoded transparently by
+  `ClipView`); batched multi-instance evaluation, bone LOD + update-rate throttling
+  (`batch_evaluator.hpp`); headless `animation_benchmark`. Verified 6.6×–17.6× compression,
+  correct round-trip, and the 350/1100 re-pose throttle. Remaining: the editor statistics-panel
+  rows (the benchmark already exposes the numbers), and porting the batched pose from the naïve
+  header loop onto the SIMD/runtime-graph device path the §9 CPU budget assumes.
+- **A3 — Animator core: parameters, state machine, events, root motion. ✅ CPU CORE SHIPPED.**
+  `ControllerAsset` blob compiler + interpreter (`animator_controller.hpp`); `animator_step` /
+  `apply_root_motion` (`animator_step.hpp`); crossfades; trigger semantics; event queue +
+  `IAnimationEventSink`; deterministic trivially-copyable columns (`animator_components.hpp`).
+  Determinism + rollback proven byte-exact by `animator_demo` (criterion 2's exit met CPU-side).
+  Remaining: the `ControllerAsset` JSON authoring (the `.sushiscene`-style editor serialization
+  of `ControllerDesc`), registering `animator_step`/`apply_root_motion` as ECS systems in the
+  loop, the editor parameter panel + live state readout, and rotation root motion (translation
+  ships; rotation is a refinement).
+- **A4 — Blend trees. ✅ CPU CORE SHIPPED.** All five node kinds — 1D, 2D
+  simple-directional, 2D freeform-directional, 2D freeform-cartesian, direct — as a flat
+  node/child array plus a compile-time gradient-band pair table (`blend_tree.hpp`); a state
+  holds a clip *or* a blend tree (`StateRecord::blend_tree`, controller blob v2); nested trees
+  flatten; the `AnimatorEvaluator` samples and weight-blends the resolved contributions with
+  per-contribution normalized-time sync. `blend_tree_demo` checks all five kinds' weights
+  against the analytic answer and poses a 1D locomotion state end to end. Remaining: the editor
+  blend-tree inspector + 2D visualizer (GPU/editor-side), and porting weight resolution onto the
+  batched device path. *Ships: WASD locomotion blend space.*
+- **A5 — Layers + masks + additive. ✅ CPU CORE SHIPPED.** Avatar mask asset
+  (`.sushimask`, name-hash keyed, skeleton-resolved — `avatar_mask.hpp`); mask-gated layer fold
+  (override nlerp / additive FMA) in `AnimatorEvaluator`; import-time additive baking against a
+  reference pose (`additive.hpp`); layer weight animatable from a parameter
+  (`LayerRecord::weight_parameter`, applied in `animator_step`). `layered_animation_demo` proves
+  the shipped upper-body aim layer over locomotion, the halfway weight blend, and the baked
+  additive delta. Remaining: the editor mask editor + per-layer weight UI (editor-side).
+  *Ships: upper-body aim layer over locomotion.*
+- **A6 — IK / pose-modifier stack. ✅ CPU CORE SHIPPED.** The `IPoseModifier` +
+  `IPoseTaskContext` seams (`pose_modifier.hpp`); the stack runs in model space between compose
+  and palette in `AnimatorEvaluator`. Solvers: analytic pole-controlled `TwoBoneIk`
+  (`ik_two_bone.hpp`, law of cosines, soft-clamp beyond reach, per-solver weight); chain-aim
+  `LookAtIk` (`ik_look_at.hpp`, weight-distributed, cone-clamped); FABRIK `ChainIk`
+  (`ik_chain.hpp`, iteration-capped); composite `FootPlacementIk` (`ik_foot_placement.hpp`,
+  ray → two-bone → ankle-to-normal). `ik_demo` checks reach, length preservation, aim, FABRIK
+  convergence, and foot planting numerically, plus the evaluator stack path. Remaining: the
+  editor gizmos, pelvis-height (cross-foot) adjustment, and grouping the closed-form solvers
+  into the batched device kernel. *Ships: foot-planted character on uneven ground, aiming at a
+  target.*
+- **A7 — Morph targets + generic tracks. ✅ CPU CORE SHIPPED.** The `.sushianim` blob is v2:
+  morph-weight and generic float tracks alongside the joint tracks, sampled through the same
+  `ClipView`. `morph.hpp` maps a clip's morph tracks onto a mesh's target order by name, holds
+  the per-instance `MorphState`, and gives the CPU reference of the SkinningPass morph blend;
+  `generic_track.hpp` routes generic tracks to an `IFloatSink` binding registry (material/UI/script
+  hooks). `morph_demo` verifies all of it. Remaining: the skin-pass dispatch that applies the
+  vertex deltas (GPU), and morph/generic on the *compressed* clip path.
+- **A8 — Humanoid avatar + import retargeting. ✅ CPU CORE SHIPPED.** `humanoid.hpp` — the
+  canonical `HumanBone` set and an `Avatar` mapping built by name (explicit table or an alias
+  heuristic). `retarget.hpp` — bind-pose-delta `retarget_clip` across differently-proportioned
+  rigs (root translation scaled by hip height) and `mirror_clip` (opposite bone + sagittal
+  reflection). `retarget_demo` proves mapping, retarget, and mirror. Remaining: wiring these into
+  the glTF import lane and the humanoid muscle-space refinement. *Ships: one clip library driving
+  differently-proportioned rigs.*
+- **A9 — Authoring suite completion. ◐ CPU SEAMS SHIPPED (editor GUI pending).** The
+  headless-verifiable seams: `animator_controller_json.hpp` — `ControllerDesc` ⇄ JSON (the
+  editor's save/load and undo/redo snapshot), round-tripping to a byte-identical blob; and
+  `edit_preview.hpp` — `scrub_to_state` pins a state at an explicit time so the `AnimatorEvaluator`
+  poses it off the loop. `authoring_demo` verifies both. Remaining (the editor GUI push): the
+  Animator graph window, the dope sheet / curve editor, and live preview scrubbing UI. *Ships: a
   character animated end-to-end without leaving the editor.*
 - **Future (post-A9, seams already shaped for them):** motion matching as a state
   kind, ragdoll blending as a pose modifier over the existing XPBD bodies,

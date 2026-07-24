@@ -135,6 +135,15 @@ namespace SushiEngine
                 std::size_t instance_count = 0;
                 const ClothStrandView* strands = nullptr;
                 std::size_t strand_count = 0;
+                /** @brief The frame's skinned characters, skinned by the compute pass then drawn. */
+                const SkinnedInstance* skinned = nullptr;
+                std::size_t skinned_count = 0;
+                /** @brief The frame's cosmetic particle emitters, GPU-simulated then billboarded. */
+                const ParticleEmitterView* emitters = nullptr;
+                std::size_t emitter_count = 0;
+                /** @brief The frame's already-simulated deterministic particles, billboarded directly. */
+                const ParticleBillboard* billboards = nullptr;
+                std::size_t billboard_count = 0;
                 /** @brief The frame's punctual lights, culled into the cluster grid. */
                 const PunctualLight* lights = nullptr;
                 std::size_t light_count = 0;
@@ -212,6 +221,38 @@ namespace SushiEngine
                  */
                 Graph::BufferHandle draw_commands;
                 Graph::BufferHandle compacted;
+
+                /**
+                 * @brief Per-frame particle hand-off buffers, valid only when emitters exist.
+                 *
+                 * @c particle_draw is the compacted list of this frame's alive particles the
+                 * billboard vertex shader pulls from; @c particle_args is the
+                 * `VkDrawIndirectCommand` the simulate pass builds (6 vertices, one instance per
+                 * alive particle). Both are transient: the simulate pass writes them and the
+                 * particle draw pass reads them the same frame, so the graph derives the
+                 * compute→indirect and compute→storage barriers. Invalid on a frame with no
+                 * cosmetic emitters, and no pass touches them then. The persistent particle
+                 * state pools live in the ParticleSystem, not here.
+                 */
+                Graph::BufferHandle particle_draw;
+                Graph::BufferHandle particle_args;
+                /**
+                 * @brief The alpha-blended particle segment, drawn separately from the additive one.
+                 *
+                 * The simulate/emit passes bucket each particle by its emitter's blend mode:
+                 * additive/premultiplied into @c particle_draw, true-alpha into @c particle_alpha,
+                 * so the two are drawn with different blend pipelines. @c particle_args carries two
+                 * `VkDrawIndirectCommand`s — additive at offset 0, alpha at offset 16.
+                 */
+                Graph::BufferHandle particle_alpha;
+                /**
+                 * @brief Sort keys for the alpha bucket: one {distance, index} per pool slot.
+                 *
+                 * The sort pass fills this from the alpha list's camera distances and bitonic-sorts
+                 * it back-to-front; the alpha draw's vertex shader indexes the alpha list through
+                 * @c index so overlapping transparent particles composite in the right order.
+                 */
+                Graph::BufferHandle particle_sort_keys;
             };
 
             /**
@@ -271,6 +312,14 @@ namespace SushiEngine
                  */
                 std::uint32_t gpu_bucket_count = 0;
                 std::uint32_t gpu_instance_count = 0;
+
+                /**
+                 * @brief The shared particle pool's capacity, sizing the per-frame draw transient.
+                 *
+                 * Set from the ParticleSystem when the frame has cosmetic emitters; zero
+                 * otherwise, in which case no particle transient is declared.
+                 */
+                std::uint32_t particle_capacity = 0;
 
                 /**
                  * @brief The previous frame's camera-relative view-projection, for occlusion.

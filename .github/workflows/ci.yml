@@ -12,11 +12,14 @@ jobs:
   functional:
     name: Functional tests
     runs-on: ubuntu-latest
-    # Intel oneAPI base image provides SYCL/DPC++ (icx/icpx), matching the dev
-    # Dockerfile's SYCL toolchain. We build against the checked-out trees directly
-    # rather than rebuilding the dev image.
-    container:
-      image: intel/oneapi-basekit:latest
+    # intel/llvm nightly clang++ -fsycl — the same primary, tested SYCL toolchain
+    # the dev Dockerfile provisions (see INTEL_LLVM_DATE below), not the Intel
+    # oneAPI commercial icpx path: that path's IntelSYCLConfig.cmake is not the one
+    # this project is built/tested against and its add_sycl_to_target() has been
+    # observed to fail to create the IntelSYCL::SYCL_CXX target on newer oneAPI
+    # releases. Plain ubuntu-latest, no container needed.
+    env:
+      INTEL_LLVM_DATE: 2026-06-12
     steps:
       # Engine into sushiengine/, runtime sibling into sushiruntime/, so the
       # engine's default SUSHIRUNTIME_DIR (../sushiruntime) resolves to it.
@@ -34,20 +37,30 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config git libhwloc-dev libgtest-dev
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config git libhwloc-dev libgtest-dev \
+            wget ocl-icd-opencl-dev ocl-icd-libopencl1
+
+      - name: Install the intel/llvm nightly SYCL bundle
+        run: |
+          set -e
+          wget -q \
+            "https://github.com/intel/llvm/releases/download/nightly-${INTEL_LLVM_DATE}/sycl_linux.tar.gz" \
+            -O /tmp/sycl_linux.tar.gz
+          sudo mkdir -p /opt/llvm-sycl
+          sudo tar -xzf /tmp/sycl_linux.tar.gz -C /opt/llvm-sycl --strip-components=1
+          echo "/opt/llvm-sycl/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=/opt/llvm-sycl/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure, build, and run the functional suite
         shell: bash
         working-directory: sushiengine
         run: |
           set -e
-          source /opt/intel/oneapi/setvars.sh --force
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
-            -DCMAKE_CXX_FLAGS=-fsycl \
+            -DCMAKE_CXX_COMPILER=clang++ \
             -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
             -DSE_BUILD_TESTS=ON \
             -DSR_BUILD_BENCHMARKS=OFF        # the engine pulls the runtime in; skip its heavy benchmarks
@@ -57,12 +70,19 @@ jobs:
   editor:
     name: Editor shell
     runs-on: ubuntu-latest
-    # Same SYCL container as the functional job: the engine's root CMakeLists
-    # always pulls the runtime subdirectory in, so even an editor-only configure
-    # needs the SYCL toolchain. We build only the se_editor target, so the runtime
-    # itself is configured but never compiled.
-    container:
-      image: intel/oneapi-basekit:latest
+    # Same SYCL toolchain as the functional job (see its comment): the engine's
+    # root CMakeLists always pulls the runtime subdirectory in, so even an
+    # editor-only configure needs it. We build only the se_editor target, so the
+    # runtime itself is configured but never compiled.
+    #
+    # SE_BUILD_EDITOR forces SE_BUILD_RENDER on, which needs Vulkan-Headers,
+    # Vulkan-Loader, VMA, vk-bootstrap, glslang, stb, cgltf, and nlohmann-json
+    # (render/CMakeLists.txt, editor/CMakeLists.txt). vk-bootstrap and cgltf have
+    # no Linux apt package (cli/sushistack.deps.toml lists empty linux_apt for
+    # both), so this job provisions all of them from a throwaway vcpkg checkout
+    # rather than mixing apt and vcpkg per-package.
+    env:
+      INTEL_LLVM_DATE: 2026-06-12
     steps:
       - name: Check out SushiEngine
         uses: actions/checkout@v4
@@ -79,21 +99,43 @@ jobs:
 
       - name: Install build and editor dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config git libhwloc-dev \
-            libsdl2-dev libgl1-mesa-dev
+            libsdl2-dev libgl1-mesa-dev wget \
+            ocl-icd-opencl-dev ocl-icd-libopencl1
+
+      - name: Install the intel/llvm nightly SYCL bundle
+        run: |
+          set -e
+          wget -q \
+            "https://github.com/intel/llvm/releases/download/nightly-${INTEL_LLVM_DATE}/sycl_linux.tar.gz" \
+            -O /tmp/sycl_linux.tar.gz
+          sudo mkdir -p /opt/llvm-sycl
+          sudo tar -xzf /tmp/sycl_linux.tar.gz -C /opt/llvm-sycl --strip-components=1
+          echo "/opt/llvm-sycl/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=/opt/llvm-sycl/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: Bootstrap vcpkg and install the renderer's dependencies
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git /tmp/vcpkg
+          /tmp/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          /tmp/vcpkg/vcpkg install --triplet x64-linux \
+            vulkan-headers vulkan-loader vulkan-memory-allocator \
+            vk-bootstrap glslang stb cgltf nlohmann-json
+          echo "VCPKG_ROOT=/tmp/vcpkg" >> "$GITHUB_ENV"
 
       - name: Configure and build the editor shell
         shell: bash
         working-directory: sushiengine
         run: |
           set -e
-          source /opt/intel/oneapi/setvars.sh --force
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
-            -DCMAKE_CXX_FLAGS=-fsycl \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
             -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
             -DSE_BUILD_EDITOR=ON \
             -DSE_BUILD_TESTS=OFF \

@@ -55,6 +55,9 @@
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/vfx/deterministic_backend.hpp>
+#include <SushiEngine/vfx/effect_database.hpp>
+#include <SushiEngine/vfx/particle_effect.hpp>
 
 namespace SushiEngine
 {
@@ -111,6 +114,7 @@ namespace SushiEngine
                         world_.reserve<Transform, Orientation, Tint>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Camera>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Tint, Camera>(CHUNK_CAPACITY);
+                        register_built_in_effects();
                         register_systems();
                         extract(); // a valid (empty) snapshot before the first tick
                     }
@@ -1045,6 +1049,76 @@ namespace SushiEngine
                         extract();
                     }
 
+                    EntityId create_particle_emitter(const std::string& display_name) override
+                    {
+                        Transform transform;
+                        transform.position = Vector3{0, Scalar(1), 0};
+                        const Entity entity = world_.spawn(transform, Orientation{});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false, false};
+                        record.has_particle_emitter = true;
+                        Vfx::CpuDeterministicBackend::reset(record.particle_pool,
+                                                            record.emitter_params.seed);
+                        records_.emplace(id, std::move(record));
+                        extract();
+                        return id;
+                    }
+
+                    bool has_particle_emitter(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_particle_emitter;
+                    }
+
+                    ParticleEmitterParams particle_emitter_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return (record != nullptr && record->has_particle_emitter)
+                                   ? record->emitter_params
+                                   : ParticleEmitterParams{};
+                    }
+
+                    void set_particle_emitter_params(EntityId id,
+                                                     const ParticleEmitterParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_particle_emitter)
+                            return;
+                        // A seed or effect change restarts the deterministic stream so the
+                        // preview reflects the new choice from a clean pool.
+                        const bool restart = record->emitter_params.seed != params.seed ||
+                                             record->emitter_params.effect != params.effect;
+                        record->emitter_params = params;
+                        if (restart)
+                            Vfx::CpuDeterministicBackend::reset(record->particle_pool, params.seed);
+                        extract();
+                    }
+
+                    void set_has_particle_emitter(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_particle_emitter == value)
+                            return;
+                        record->has_particle_emitter = value;
+                        if (value)
+                            Vfx::CpuDeterministicBackend::reset(record->particle_pool,
+                                                                record->emitter_params.seed);
+                        extract();
+                    }
+
+                    std::uint32_t particle_effect_count() const noexcept override
+                    {
+                        return static_cast<std::uint32_t>(built_in_effects_.size());
+                    }
+
+                    const char* particle_effect_name(std::uint32_t index) const noexcept override
+                    {
+                        return index < built_in_effect_names_.size()
+                                   ? built_in_effect_names_[index].c_str()
+                                   : "";
+                    }
+
                     void set_visible(EntityId id, bool value) override
                     {
                         Record* record = find(id);
@@ -1156,6 +1230,13 @@ namespace SushiEngine
                         // light, extracted into RenderScene::decals each frame.
                         bool has_decal = false;
                         DecalParams decal_params{};
+                        // A deterministic particle emitter: same plain host bookkeeping as
+                        // cloth (no ECS migration). The ~80 KB fixed pool lives here, off the
+                        // ECS chunk, and is advanced on the fixed tick and extracted to
+                        // RenderScene::particle_billboards each frame.
+                        bool has_particle_emitter = false;
+                        ParticleEmitterParams emitter_params{};
+                        Vfx::DeterministicEmitterState particle_pool{};
                         // Neither read nor written by any Schedule system, so — like
                         // has_physics_body/has_cloth — these are plain host bookkeeping
                         // rather than ECS components; no archetype migration needed.
@@ -1897,6 +1978,7 @@ namespace SushiEngine
                         }
 
                         schedule_.run(world_);
+                        step_particle_emitters();
                         extract();
                     }
 
@@ -2276,6 +2358,32 @@ namespace SushiEngine
                             scene_.cloth_instances.push_back(cloth_instance);
                         }
 
+                        // Deterministic particle emitters: one billboard per live particle in
+                        // each emitter's host-side pool, already world-space from the fixed-tick
+                        // integration, drawn by the renderer as camera-facing quads.
+                        scene_.particle_billboards.clear();
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_particle_emitter ||
+                                !record->visible)
+                                continue;
+                            const Vfx::DeterministicEmitterState& pool = record->particle_pool;
+                            for (std::uint32_t i = 0; i < pool.alive_count; ++i)
+                            {
+                                const Vfx::GpuParticle& particle = pool.particles[i];
+                                ParticleBillboard billboard;
+                                billboard.position = Vector3{particle.position[0], particle.position[1],
+                                                             particle.position[2]};
+                                billboard.color = Vector3{particle.color[0], particle.color[1],
+                                                          particle.color[2]};
+                                billboard.size = particle.size;
+                                billboard.alpha = particle.alpha;
+                                billboard.rotation = particle.rotation;
+                                scene_.particle_billboards.push_back(billboard);
+                            }
+                        }
+
                         // Punctual lights: a light is a record on the entity, so its world
                         // position and (spot) aim come straight from the entity's transform,
                         // exactly as a mesh instance's model does. The renderer culls the
@@ -2347,6 +2455,161 @@ namespace SushiEngine
                                                           : default_camera();
                     }
 
+                    /** @brief Builds the built-in deterministic effect library. */
+                    void register_built_in_effects()
+                    {
+                        built_in_effects_.clear();
+                        built_in_effect_names_.clear();
+                        auto add = [this](const char* name, Vfx::ParticleEffect effect)
+                        {
+                            built_in_effects_.push_back(effect_db_.add(std::move(effect)));
+                            built_in_effect_names_.emplace_back(name);
+                        };
+                        add("Fire", make_fire_effect());
+                        add("Sparks", make_spark_effect());
+                        add("Smoke", make_smoke_effect());
+                    }
+
+                    /** @brief Advances every playing emitter's deterministic pool by one tick. */
+                    void step_particle_emitters()
+                    {
+                        if (built_in_effects_.empty())
+                            return;
+                        const float dt = static_cast<float>(clock_.fixed_dt());
+                        for (const EntityId id : order_)
+                        {
+                            Record* record = find(id);
+                            if (record == nullptr || !record->has_particle_emitter ||
+                                !record->emitter_params.playing || !world_.alive(record->entity))
+                                continue;
+                            const std::uint32_t effect_index =
+                                record->emitter_params.effect < built_in_effects_.size()
+                                    ? record->emitter_params.effect
+                                    : 0;
+                            const Vfx::CompiledEffect& compiled =
+                                effect_db_.compiled(built_in_effects_[effect_index]);
+                            if (compiled.emitters.empty())
+                                continue;
+                            const Vector3 position = world_.get<Transform>(record->entity).position;
+                            const Quaternion rotation =
+                                world_.get<Orientation>(record->entity).rotation;
+                            Vfx::CpuDeterministicBackend::step(record->particle_pool,
+                                                               compiled.emitters[0], compiled, dt,
+                                                               position, rotation);
+                        }
+                    }
+
+                    /** @brief A deterministic fire plume: buoyant cone, warm colour ramp. */
+                    static Vfx::ParticleEffect make_fire_effect()
+                    {
+                        Vfx::EmitterDescriptor e;
+                        e.name = "Fire";
+                        e.domain = Vfx::SimulationDomain::Deterministic;
+                        e.capacity = 512;
+                        e.spawn.rate_per_second = 140.0f;
+                        e.shape.shape = Vfx::EmitterShape::Cone;
+                        e.shape.radius = 0.2f;
+                        e.shape.cone_angle_radians = 0.35f;
+                        e.init.lifetime_min = 0.7f;
+                        e.init.lifetime_max = 1.4f;
+                        e.init.speed_min = 1.2f;
+                        e.init.speed_max = 3.0f;
+                        e.init.size_min = 0.05f;
+                        e.init.size_max = 0.13f;
+                        e.gravity.enabled = true;
+                        e.gravity.acceleration = Vector3{0, 3.2, 0};
+                        e.drag.enabled = true;
+                        e.drag.coefficient = 0.5f;
+                        e.turbulence.enabled = true;
+                        e.turbulence.frequency = 1.0f;
+                        e.turbulence.amplitude = 1.4f;
+                        e.size_over_life.enabled = true;
+                        e.size_over_life.curve.add_key(Vfx::CurveKey{0.0f, 0.3f, 0.0f, 1.5f});
+                        e.size_over_life.curve.add_key(Vfx::CurveKey{0.3f, 1.0f, 0.0f, 0.0f});
+                        e.size_over_life.curve.add_key(Vfx::CurveKey{1.0f, 0.0f, -1.0f, 0.0f});
+                        e.color_over_life.enabled = true;
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{1.0, 0.9, 0.45}});
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.5f, Vector3{1.0, 0.35, 0.08}});
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.15, 0.03, 0.02}});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 0.0f});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.1f, 1.0f});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
+                        Vfx::ParticleEffect effect;
+                        effect.name = "Fire";
+                        effect.emitters.push_back(e);
+                        return effect;
+                    }
+
+                    /** @brief A deterministic spark burst: fast, gravity-pulled, short-lived. */
+                    static Vfx::ParticleEffect make_spark_effect()
+                    {
+                        Vfx::EmitterDescriptor e;
+                        e.name = "Sparks";
+                        e.domain = Vfx::SimulationDomain::Deterministic;
+                        e.capacity = 256;
+                        e.spawn.rate_per_second = 60.0f;
+                        e.shape.shape = Vfx::EmitterShape::Sphere;
+                        e.shape.radius = 0.05f;
+                        e.init.lifetime_min = 0.5f;
+                        e.init.lifetime_max = 1.1f;
+                        e.init.speed_min = 3.0f;
+                        e.init.speed_max = 6.0f;
+                        e.init.size_min = 0.02f;
+                        e.init.size_max = 0.05f;
+                        e.gravity.enabled = true;
+                        e.gravity.acceleration = Vector3{0, -9.0, 0};
+                        e.drag.enabled = true;
+                        e.drag.coefficient = 0.2f;
+                        e.color_over_life.enabled = true;
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{1.0, 0.95, 0.7}});
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{1.0, 0.4, 0.1}});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 1.0f});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
+                        Vfx::ParticleEffect effect;
+                        effect.name = "Sparks";
+                        effect.emitters.push_back(e);
+                        return effect;
+                    }
+
+                    /** @brief A deterministic smoke column: slow, swelling, alpha-fading. */
+                    static Vfx::ParticleEffect make_smoke_effect()
+                    {
+                        Vfx::EmitterDescriptor e;
+                        e.name = "Smoke";
+                        e.domain = Vfx::SimulationDomain::Deterministic;
+                        e.capacity = 384;
+                        e.spawn.rate_per_second = 40.0f;
+                        e.shape.shape = Vfx::EmitterShape::Cone;
+                        e.shape.radius = 0.15f;
+                        e.shape.cone_angle_radians = 0.25f;
+                        e.init.lifetime_min = 2.0f;
+                        e.init.lifetime_max = 3.5f;
+                        e.init.speed_min = 0.6f;
+                        e.init.speed_max = 1.4f;
+                        e.init.size_min = 0.15f;
+                        e.init.size_max = 0.3f;
+                        e.gravity.enabled = true;
+                        e.gravity.acceleration = Vector3{0, 1.2, 0};
+                        e.drag.enabled = true;
+                        e.drag.coefficient = 0.6f;
+                        e.turbulence.enabled = true;
+                        e.turbulence.frequency = 0.5f;
+                        e.turbulence.amplitude = 0.8f;
+                        e.size_over_life.enabled = true;
+                        e.size_over_life.curve.add_key(Vfx::CurveKey{0.0f, 0.4f, 0.0f, 1.0f});
+                        e.size_over_life.curve.add_key(Vfx::CurveKey{1.0f, 1.6f, 0.0f, 0.0f});
+                        e.color_over_life.enabled = true;
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{0.35, 0.35, 0.38}});
+                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.12, 0.12, 0.13}});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 0.0f});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.15f, 0.55f});
+                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
+                        Vfx::ParticleEffect effect;
+                        effect.name = "Smoke";
+                        effect.emitters.push_back(e);
+                        return effect;
+                    }
+
                     SushiRuntime::API::Runtime runtime_;
                     World world_;
                     Schedule schedule_;
@@ -2370,6 +2633,13 @@ namespace SushiEngine
                     std::unique_ptr<IPhysicsSimulation> physics_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
+
+                    // The deterministic particle path: a small library of built-in effects
+                    // (Deterministic domain) an emitter entity references by index, and their
+                    // display names for the inspector's picker. Compiled lazily on first step.
+                    Vfx::EffectDatabase effect_db_;
+                    std::vector<Vfx::AssetId> built_in_effects_;
+                    std::vector<std::string> built_in_effect_names_;
 
                     // The master simulation epoch: the single "now" that both the orbital
                     // dynamics and the scene-frame placement of astro bodies read, so a

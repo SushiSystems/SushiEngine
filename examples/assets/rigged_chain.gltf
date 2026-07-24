@@ -1,0 +1,79 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "sushi skeleton test"
+  },
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "scene": 0,
+  "nodes": [
+    {
+      "name": "root",
+      "translation": [
+        0,
+        1.0,
+        0
+      ],
+      "children": [
+        1
+      ]
+    },
+    {
+      "name": "mid",
+      "translation": [
+        0,
+        0.5,
+        0
+      ],
+      "children": [
+        2
+      ]
+    },
+    {
+      "name": "tip",
+      "translation": [
+        0,
+        0.5,
+        0
+      ]
+    }
+  ],
+  "skins": [
+    {
+      "joints": [
+        2,
+        0,
+        1
+      ],
+      "inverseBindMatrices": 0,
+      "skeleton": 0,
+      "name": "chain"
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 192,
+      "uri": "data:application/octet-stream;base64,AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAMAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAADAvwAAAAAAAIA/"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 192
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3,
+      "type": "MAT4"
+    }
+  ]
+}

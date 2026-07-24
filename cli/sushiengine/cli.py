@@ -10,6 +10,7 @@ from typing import List, Optional
 
 import typer
 
+from .services import audio as audio_svc
 from .services import diag as diag_svc
 from .services import docker as docker_svc
 from .services import editor as editor_svc
@@ -128,6 +129,23 @@ def render(
 ):
     """Build and run the Vulkan renderer probe (configures with SE_BUILD_RENDER=ON)."""
     raise typer.Exit(render_svc.build_and_run(run=not no_run))
+
+
+# --------------------------------------------------------------------------- #
+# audio
+# --------------------------------------------------------------------------- #
+@app.command("audio")
+def audio(
+    no_run: bool = typer.Option(
+        False, "--no-run", help="Build the audio demo but do not run it."),
+):
+    """Build and run the audio demo (configures with SE_BUILD_AUDIO=ON).
+
+    The phase S0 vertical slice: the silent block-producing device loop over the
+    SDL2 backend. Verifies the block loop in software, then best-effort opens a real
+    device (a no-op on a headless host).
+    """
+    raise typer.Exit(audio_svc.build_and_run(run=not no_run))
 
 
 # --------------------------------------------------------------------------- #

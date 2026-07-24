@@ -37,7 +37,10 @@ namespace SushiEngine
     {
         SdlWindow::SdlWindow(const char* title, int width, int height)
         {
-            if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
+            // Game-controller support (implies the joystick subsystem) so the input
+            // translator can open pads and receive hot-plug/button/axis events. Core SDL2,
+            // no extra vcpkg feature. Video and timer back the window and present pacing.
+            if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
                 throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
 
             const auto flags = static_cast<SDL_WindowFlags>(
@@ -65,8 +68,8 @@ namespace SushiEngine
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
-                if (handler_)
-                    handler_(&event);
+                for (const EventHandler& handler : handlers_)
+                    handler(&event);
                 if (event.type == SDL_QUIT)
                     keep_running = false;
                 if (event.type == SDL_WINDOWEVENT &&

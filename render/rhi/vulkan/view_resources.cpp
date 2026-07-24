@@ -25,6 +25,8 @@
 
 #include <cstring>
 
+#include <SushiEngine/vfx/compiled_emitter.hpp>
+
 #include "lighting/cluster_config.hpp"
 #include "vulkan_check.hpp"
 
@@ -783,6 +785,41 @@ namespace SushiEngine
                     compacted_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                     compacted_desc.name = "gpu compacted instances";
                     targets.compacted = graph.create_buffer(compacted_desc);
+                }
+
+                // The particle hand-off buffers, transient and device-local: the sim pass writes
+                // the compacted alive list and the indirect draw arguments, the billboard pass
+                // reads them the same frame, so the graph derives the compute→vertex/indirect
+                // barriers. Only declared when the frame has cosmetic emitters.
+                if (frame.draws.emitter_count > 0 && frame.particle_capacity > 0)
+                {
+                    Graph::BufferDesc draw_desc;
+                    draw_desc.size = static_cast<VkDeviceSize>(frame.particle_capacity) *
+                                     sizeof(Vfx::GpuParticle);
+                    draw_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    draw_desc.name = "particle draw list";
+                    targets.particle_draw = graph.create_buffer(draw_desc);
+
+                    Graph::BufferDesc alpha_desc = draw_desc;
+                    alpha_desc.name = "particle alpha list";
+                    targets.particle_alpha = graph.create_buffer(alpha_desc);
+
+                    Graph::BufferDesc sort_desc;
+                    // One {float distance, uint index} entry per pool slot (8 bytes).
+                    sort_desc.size =
+                        static_cast<VkDeviceSize>(frame.particle_capacity) * 2 * sizeof(std::uint32_t);
+                    sort_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    sort_desc.name = "particle sort keys";
+                    targets.particle_sort_keys = graph.create_buffer(sort_desc);
+
+                    Graph::BufferDesc args_desc;
+                    // Two VkDrawIndirectCommand: additive at offset 0, alpha at offset 16.
+                    args_desc.size = sizeof(std::uint32_t) * 8;
+                    args_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                    args_desc.name = "particle draw args";
+                    targets.particle_args = graph.create_buffer(args_desc);
                 }
 
                 return targets;

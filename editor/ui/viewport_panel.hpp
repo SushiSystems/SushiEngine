@@ -34,6 +34,8 @@
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
+#include "../animation/skeleton_debug_draw.hpp"
+#include "../vfx/effect_preview.hpp"
 #include "../gizmo/gizmo_controller.hpp"
 #include "imgui_backend.hpp"
 #include "../camera/scene_camera.hpp"
@@ -167,7 +169,11 @@ namespace SushiEngine
                           std::size_t light_count = 0,
                           const SushiEngine::Render::Decal* decals = nullptr,
                           std::size_t decal_count = 0, UIOverlay* ui = nullptr,
-                          bool show_grid = false);
+                          bool show_grid = false, const SkeletonPreview* skeleton = nullptr,
+                          bool skeleton_names = true,
+                          const EffectPreview* particle_preview = nullptr,
+                          const SushiEngine::Render::ParticleBillboard* billboards = nullptr,
+                          std::size_t billboard_count = 0);
 
                 /**
                  * @brief Applies the host's fidelity/performance settings to this view.

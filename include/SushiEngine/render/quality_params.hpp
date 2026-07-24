@@ -188,6 +188,34 @@ namespace SushiEngine
             bool async_compute = true;
 
             /**
+             * @brief The most skinned characters evaluated and skinned at full rate.
+             *
+             * The animation system's headline budget knob (design §6.6): instances beyond
+             * this either drop to a throttled update rate (A2) or are not skinned. The floor
+             * tier keeps a small crowd; Ultra allows a full one. A1 reads it as a hard cap on
+             * skinned instances; the LOD/throttle ladder that softens it lands in A2.
+             */
+            std::uint32_t max_skinned_instances = 128;
+
+            /**
+             * @brief Levels the skinned bone-LOD ladder is biased coarser by at this tier.
+             *
+             * Added to each instance's distance-derived LOD level, so a lower tier poses
+             * fewer joints per character at the same distance. Zero on High/Ultra (the
+             * authored ladder is used as-is); positive on the cheaper tiers.
+             */
+            std::uint32_t bone_lod_bias = 0;
+
+            /**
+             * @brief Bone influences blended per skinned vertex (4 or 8).
+             *
+             * Four covers all but the most deforming rigs; Ultra spends the second set of
+             * four on shoulders and hips. The skin vertex stream and the skinning dispatch
+             * both read this so the two never disagree.
+             */
+            std::uint32_t animation_influences = 4;
+
+            /**
              * @brief Lights each pixel samples and shadow-marches beyond the atlas budget.
              *
              * The cost of stochastic light visibility is set by this and not by how many
@@ -197,6 +225,33 @@ namespace SushiEngine
              * have no GI field to march anyway.
              */
             std::uint32_t stochastic_light_samples = 0;
+
+            /**
+             * @brief Whether the GPU cosmetic particle path runs at this tier.
+             *
+             * The compute emit/simulate passes and the billboard draw are permitted on every
+             * tier but the lowest, which drops cosmetic VFX entirely — its devices are the least
+             * able to spare the compute and its scenes the least likely to demand spectacle. The
+             * deterministic CPU particle path is unaffected; it is gameplay, not a quality knob.
+             */
+            bool gpu_particles = true;
+
+            /**
+             * @brief The shared particle pool's ceiling at this tier.
+             *
+             * The cosmetic pool is sized once, but this caps how many particles the emitters may
+             * keep alive at a tier: Ultra allows a dense storm, the lower tiers a modest haze.
+             * A budget the host scales spawn rates against, mirroring @c max_skinned_instances.
+             */
+            std::uint32_t max_particles = 1u << 18;
+
+            /**
+             * @brief Fixed sub-steps the particle integrator takes per frame at this tier.
+             *
+             * More sub-steps keep fast, turbulent particles stable at a cost linear in this;
+             * one is the floor, the upper tiers spend more for smoother motion.
+             */
+            std::uint32_t particle_sim_substeps = 1;
         };
 
         /**

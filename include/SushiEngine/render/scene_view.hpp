@@ -119,6 +119,71 @@ namespace SushiEngine
             std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
         };
 
+        /**
+         * @brief One skinned character to skin and draw this frame — the extract seam.
+         *
+         * The renderer's view of a skinned instance (design §3, "SkinnedGeometry channel"):
+         * a mesh that carries a skin vertex stream, the object-to-world transform, and the
+         * object-space joint palettes (current and previous frame) the compute skinning pass
+         * consumes. The renderer never sees clips, controllers, or the evaluator — only
+         * palette floats and a mesh, exactly as it sees cloth vertices. @c palette and
+         * @c previous_palette point at @c joint_count matrices of 16 column-major floats each
+         * (`JointMatrix`), object space; @c previous_palette may be null on an instance's
+         * first frame, in which case the skinning pass reuses @c palette for prev-position.
+         */
+        struct SkinnedInstance
+        {
+            Mat4 model;                               /**< Object-to-world transform. */
+            const void* palette = nullptr;            /**< joint_count × 16 floats, this frame. */
+            const void* previous_palette = nullptr;   /**< Same, last frame (null = reuse current). */
+            std::uint32_t joint_count = 0;            /**< Joints in the palettes. */
+            std::uint32_t id = 0;                     /**< Picking id (0 = none). */
+            MeshId mesh = INVALID_MESH;               /**< A skinned mesh (carries a skin stream). */
+            Material material{};                      /**< Surface to shade with. */
+        };
+
+        /**
+         * @brief One VFX emitter to simulate and draw this frame — the particle extract seam.
+         *
+         * The renderer's view of a cosmetic (GPU-simulated) emitter. As with @ref SkinnedInstance
+         * it never sees the authoring types: @c compiled points at the emitter's flattened POD
+         * parameters (a `Vfx::CompiledEmitter`), and @c curve_luts / @c gradient_luts at the
+         * effect's baked look-up-table atlases the compiled offsets index into — all opaque
+         * bytes to the renderer, which uploads them and lets the compute passes interpret them.
+         * @c spawn_count is how many particles the host decided to emit this frame (rate over
+         * time plus bursts, advanced host-side), so the emit shader stays a pure allocator.
+         */
+        struct ParticleEmitterView
+        {
+            Mat4 model;                            /**< Emitter object-to-world transform. */
+            const void* compiled = nullptr;        /**< `Vfx::CompiledEmitter*`, opaque here. */
+            const float* curve_luts = nullptr;     /**< The effect's baked scalar-curve atlas. */
+            const float* gradient_luts = nullptr;  /**< The effect's baked RGBA gradient atlas. */
+            std::uint32_t curve_lut_floats = 0;    /**< Length of @ref curve_luts in floats. */
+            std::uint32_t gradient_lut_floats = 0; /**< Length of @ref gradient_luts in floats. */
+            std::uint32_t spawn_count = 0;         /**< Particles to emit this frame (host-computed). */
+            std::uint32_t seed = 0;                /**< Emitter RNG seed. */
+            float dt = 0.0f;                       /**< Simulation timestep this frame, seconds. */
+            std::uint32_t id = 0;                  /**< Picking id (0 = none). */
+        };
+
+        /**
+         * @brief One already-simulated particle drawn as a camera-facing billboard.
+         *
+         * The extract seam for the CPU-deterministic path: unlike @ref ParticleEmitterView (an
+         * emitter the GPU simulates), these are final world-space particles the sim advanced on
+         * its fixed tick, handed to the renderer to billboard directly — the particle analogue of
+         * @ref ClothStrandView's already-simulated vertices.
+         */
+        struct ParticleBillboard
+        {
+            Vector3 position;                /**< World-space centre. */
+            Vector3 color{Vector3{1, 1, 1}}; /**< Linear-RGB tint. */
+            float size = 0.1f;               /**< World-space size. */
+            float alpha = 1.0f;              /**< Opacity. */
+            float rotation = 0.0f;           /**< Roll, radians. */
+        };
+
         /** @brief The id a pick returns when no instance covers the sampled pixel. */
         constexpr std::uint32_t NO_PICK = 0;
 
@@ -223,6 +288,13 @@ namespace SushiEngine
                  * @param decal_count   Number of entries in @p decals.
                  * @param show_grid     Draw the editor reference grid overlay. Off for a
                  *                      shipped runtime; the Scene viewport turns it on.
+                 * @param skinned       Pointer to the skinned characters to skin and draw, or
+                 *                      nullptr for none; the compute skinning pass deforms them.
+                 * @param skinned_count Number of entries in @p skinned.
+                 * @param emitters      Pointer to the cosmetic particle emitters to simulate and
+                 *                      draw, or nullptr for none; the compute particle passes
+                 *                      emit, integrate, and billboard them.
+                 * @param emitter_count Number of entries in @p emitters.
                  */
                 virtual void render(const CameraView& camera, const Environment& environment,
                                     const MeshInstance* instances,
@@ -233,7 +305,13 @@ namespace SushiEngine
                                     std::size_t light_count = 0,
                                     const Decal* decals = nullptr,
                                     std::size_t decal_count = 0,
-                                    bool show_grid = false) = 0;
+                                    bool show_grid = false,
+                                    const SkinnedInstance* skinned = nullptr,
+                                    std::size_t skinned_count = 0,
+                                    const ParticleEmitterView* emitters = nullptr,
+                                    std::size_t emitter_count = 0,
+                                    const ParticleBillboard* billboards = nullptr,
+                                    std::size_t billboard_count = 0) = 0;
 
                 /**
                  * @brief The instance id drawn at a pixel of the last rendered frame.

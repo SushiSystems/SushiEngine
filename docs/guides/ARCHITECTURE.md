@@ -37,6 +37,7 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 | SushiLoop core | `loop/app.hpp`, `loop/fixed_timestep.hpp`, `loop/rng.hpp`, `loop/input.hpp`, `loop/rollback.hpp`, `loop/net.hpp` | The `Loop::App` authoring API over a fixed-step deterministic loop; plus seeded RNG, per-tick input capture, rollback snapshots, and loopback network reconciliation (see §8, §9, §10). |
 | UI | `ui/rect.hpp`, `ui/components.hpp`, `ui/layout.hpp`, `ui/interaction.hpp`, `ui/ui.hpp` | Retained ECS UI (Unity UGUI-shaped): `RectTransform`/`Canvas`/`UIImage`/`UIText`/`UIButton` components, the `resolve_rect` anchor solver, the pointer/click model, and the `UI` façade that builds, lays out, and drives a canvas of buttons (see §11). |
 | Physics     | `physics/pgs_solver.hpp`, `physics/graph_coloring.hpp`, `physics/xpbd_solver.hpp`, `physics/rigid_body.hpp`, `physics/physics_world.hpp`, `physics/cloth.hpp` | Graph-coloured PGS solver, its unified XPBD rigid-body generalization, and cloth grids built from it (see §4). |
+| Animation   | `animation/skeleton*.hpp`, `animation/clip*.hpp`, `animation/animator_*.hpp`, `animation/blend_tree.hpp`, `animation/avatar_mask.hpp`, `animation/additive.hpp`, `animation/pose_modifier.hpp`, `animation/ik_*.hpp`, `animation/morph.hpp`, `animation/generic_track.hpp`, `animation/humanoid.hpp`, `animation/retarget.hpp`, `animation/edit_preview.hpp`, `animation/animation_database.hpp` | Skeletal-animation stack (phases A0–A9): skeleton/clip/controller/mask assets, the deterministic `animator_step`, the `AnimatorEvaluator` (blend trees, mask-gated layers, additive), the IK / pose-modifier stack, morph + generic tracks, humanoid retargeting, and controller JSON authoring, behind the `IAnimationDatabase` seam (see §12). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
 | World       | `ecs/world.hpp` | Entities, archetypes, spawn/destroy, component access. |
@@ -1540,3 +1541,563 @@ seam a Vulkan 2D overlay pass (not yet written) consumes. `examples/ui_demo.cpp`
 `Integration_UI` drive a canvas + button headlessly and assert layout, clicks, and
 button states. Rasterising the draw list and authoring UI in the editor's panels are
 the remaining visual work.
+
+## 12. Skeletal animation (assets, animator, blend trees, layers, IK, retargeting — phases A0–A9)
+
+The skeletal-animation stack (full plan in `docs/design/animation_system.md`) is a
+Unity-Mecanim-parity character system split across three domains — an asset domain that
+cooks skeletons, clips, and controllers; a deterministic simulation domain that advances
+animator state at fixed tick; and a per-frame evaluation domain that samples, blends, and
+skins. Phase A0 is the foundation the other domains stand on: the math and the skeleton
+asset, with no evaluator, ECS columns, or renderer coupling yet.
+
+**The math seam additions (`core/types.hpp`, §6).** Sampling, blending, and IK are all
+interpolation and matrix algebra the seam did not previously expose. A0 adds, behind the
+same one file, `lerp` (vector and scalar), `nlerp`/`slerp` (both neighbourhood-corrected:
+they flip a rotation to the near hemisphere so a blend takes the short arc, and `slerp`
+degrades to `nlerp` when the inputs are nearly parallel), `quaternion_from_matrix`,
+`affine_inverse` (a true inverse through the adjugate, so it is correct under non-uniform
+scale — this is what builds inverse-bind matrices, where the rotation-only transpose short
+cut would be wrong), and `decompose_transform` (the TRS decompose that inverts
+`compose_transform`). The interpolators are element-parametric (`Vector3T<T>`/
+`QuaternionT<T>`) so the evaluator can run float while the boundary stays double; the
+matrix ops stay at boundary precision because they run at import, not per frame.
+
+**The skeleton asset (`animation/`).** A skeleton is a flat, immutable, relocatable blob,
+never a pointer-linked tree. `SkeletonView` (`skeleton.hpp`) is a non-owning
+structure-of-arrays view: a topologically sorted parent array with the invariant
+`parent[i] < i` (so composing model space is a forward scan, never a pointer chase — this
+is what retires the engine's old host-side, non-topological hierarchy), bind-pose local
+TRS, object-space inverse-bind matrices (`JointMatrix`, 16 floats, GLSL column-major — the
+palette layout, distinct from the double `Mat4` because object-space joint data never needs
+the range that forces double), FNV-1a 64 joint name hashes (`hash.hpp`) for mask / IK /
+attachment lookup, and a bone-LOD table. The `.sushiskel` format (`skeleton_blob.hpp`) is
+versioned, little-endian, and position-independent (byte offsets, no pointers): the cook
+`build_skeleton_blob` sorts joints by depth so the invariant holds, remaps every parent
+reference, derives inverse-bind matrices from the bind pose when the source did not supply
+them (glTF does), and lays the SoA sections out at aligned offsets; the load
+`load_skeleton_blob` validates the header and returns a `SkeletonView` that aliases the
+bytes with zero copy or parse.
+
+**The glTF import lane (`animation/gltf_skeleton_import.hpp`).** The mesh importer bakes
+each primitive into its node's world transform and drops the node graph, skins, and
+inverse-bind matrices — the exact data a rig is. `import_gltf_skeleton` is the parallel
+lane that keeps them: it reads one skin, turns each joint node's local transform into
+bind-pose TRS, copies the inverse-bind matrices through (or lets the cook derive them), and
+produces a `.sushiskel` blob. The declaration lives on the engine's animation surface; the
+implementation lives in the renderer's cgltf lane — the one place cgltf is linked — and adds
+no new dependency, since animation is header-only over `core/types.hpp`.
+
+**The database seam (`animation_database.hpp`).** `IAnimationDatabase` is the
+dependency-inversion boundary the simulation and evaluator will sit behind — they request a
+`SkeletonView` by `AssetId` and never see the importer, the file format, or the byte
+buffers. `AnimationDatabase` is the in-memory owner: each blob lives in its own heap buffer
+so the buffers do not move as the database grows and the views it hands out stay valid for
+its lifetime. Clip and controller views extend this same interface in later phases; the id
+space is shared across all three asset kinds.
+
+**The editor overlay (`editor/animation/skeleton_debug_draw.*`).** `SkeletonPreview` imports a
+rigged glTF and caches its bind-pose model-space joint positions; `draw_skeleton_overlay`
+projects those through the Scene panel's camera (the gizmo's exact view-projection) and paints
+bones, joint octahedra, and names over the rendered image. The viewport panel takes it as one
+optional, defaulted parameter, so no other call site changes. A "Skeleton Preview" window in
+the editor drives it — the surface behind A0's "load a rigged glTF, see its rest pose". The
+readable names come from the blob's debug name table (`SkeletonView::joint_name`), added for
+this and the coming joint inspector; the runtime path still addresses joints by hash.
+
+`examples/skeleton_demo.cpp` validates the whole data foundation headlessly (TRS round-trips,
+the affine inverse, slerp/nlerp behaviour, an out-of-order chain that cooks and loads to
+satisfy `parent[i] < i`, name-hash lookup, name-string round-trip, and an identity skin matrix
+at the bind pose), and `import_gltf_skeleton` is exercised by `examples/assets/rigged_chain.gltf`.
+With this, **A0 is complete**; A1 adds single-clip playback and GPU skinning (a skinned
+character looping an animation with zero TAA ghosting).
+
+**The evaluation + animator stack (phases A1–A5, CPU cores shipped).** Above the A0 assets sits
+the two-halves split of design §5. The *deterministic tick* (`animator_step.hpp`) is the
+interpreter over the compiled `.sushictrl` controller (`animator_controller.hpp`): per layer it
+advances normalized time, runs the state machine (Any-State then current, crossfades, triggers,
+events), and accumulates root motion — all over trivially-copyable ECS columns
+(`animator_components.hpp`), so it is byte-snapshottable and rollback-exact (A3). The *derived
+frame pose* (`animator_evaluator.hpp`) is recomputed each frame and never snapshotted: it
+resolves each layer's active state to weighted clip contributions, samples and weight-blends
+them, folds the layers, composes model space, and builds the object-space palette. A state's
+motion is a single clip or a **blend tree** (`blend_tree.hpp`, A4) — five node kinds (1D, 2D
+simple/freeform-directional, freeform-cartesian, direct) over a flat node/child array with a
+gradient-band pair table baked at compile; the controller blob is v2 to carry it. Layers fold
+gated by an **avatar mask** (`avatar_mask.hpp`, A5) — a name-hash-keyed `.sushimask` resolved to
+the rig — either override (nlerp) or **additive** (FMA of a delta baked at import by
+`additive.hpp`); a layer's weight can be driven by a parameter through `animator_step`. Clip
+sampling and compression (`clip*.hpp`, A1/A2) and the batched crowd evaluator with bone-LOD and
+update-rate throttling (`batch_evaluator.hpp`, A2) sit behind the same views. After the layers fold, an ordered **pose-modifier stack** (`pose_modifier.hpp`, A6) runs in
+model space between compose and palette — the `IPoseModifier` seam, Unity's pass ordering, so IK
+corrects the final blended pose. The shipped solvers are analytic pole-controlled two-bone
+(`ik_two_bone.hpp`), weight-distributed cone-clamped look-at (`ik_look_at.hpp`), iteration-capped
+FABRIK (`ik_chain.hpp`), and composite foot placement (`ik_foot_placement.hpp`) that rays to the
+ground through the `IPoseTaskContext` seam. Beyond posing joints, a clip carries **morph-weight and generic float tracks** (`.sushianim` v2,
+A7): `morph.hpp` maps a clip's morph tracks onto a mesh's target order and gives the CPU
+reference of the skin-pass morph blend, and `generic_track.hpp` routes generic tracks to an
+`IFloatSink` binding registry (material/UI/script hooks). **Retargeting** (A8) lets one clip
+library drive many rigs: `humanoid.hpp` maps a skeleton's joints to canonical `HumanBone`s (by an
+alias heuristic or an explicit table), and `retarget.hpp` transfers a clip's bind-pose deltas onto
+another rig (`retarget_clip`) or mirrors them left-to-right (`mirror_clip`). **Authoring** (A9)
+persists a controller as JSON (`animator_controller_json.hpp`, the only animation header that
+pulls in nlohmann/json — the editor's save/load and undo/redo, round-tripping to a byte-identical
+blob) and previews states off the loop (`edit_preview.hpp`'s `scrub_to_state`). Under the *dense* runtime clip sits the *sparse* **keyframe authoring model** (`keyframe.hpp`):
+`ScalarCurve` / `QuaternionCurve` (the dope-sheet / curve-editor primitives, constant/linear/
+cubic), a `ClipAuthoring` bundle that `bake`s to the dense `ClipDesc`, and a `PoseRecorder` that
+captures a live pose into keys (the "record" workflow). The editor's **Animation window**
+(`editor/animation/animation_panel.*`) is a GUI over it, Unity's Animation-window shape: it targets
+the **Hierarchy-selected entity**, and with Record armed keys its transform as it is moved, or with
+Record off **drives the object live in the Scene view** from its keys as the timeline is scrubbed —
+Bake writes a dense `.sushianim`. The **Animator window** (`editor/animation/animator_graph_panel.*`)
+is the Mecanim state-machine graph editor over a `ControllerDesc` — a grid canvas of draggable
+state nodes, transition arrows made by right-click ▸ Make Transition To (a `"Exit"` target compiles
+to the layer's entry), Entry/Exit/Any-State nodes, a parameter panel, and JSON save/load through
+`animator_controller_json.hpp`. Verified headless
+by `clip_demo` (A1), `animation_benchmark` (A2), `animator_demo` (A3), `blend_tree_demo` (A4),
+`layered_animation_demo` (A5), `ik_demo` (A6), `morph_demo` (A7), `retarget_demo` (A8),
+`authoring_demo` (A9), and `keyframe_demo`. What remains is GPU/editor-side: the A1 GPU skinning pipeline
+(`render/passes/skinning_pass.*`, `render/scene/skinning_system.*`, `skinning.comp`, written and
+awaiting a GPU build) and the A9 editor windows (Animator graph, dope sheet, live scrubbing UI).
+
+## 13. Input (device-abstracted actions, Phase 1)
+
+Design: `docs/design/input_manager.md`. Gameplay and editor code bind to named actions
+(`"Move"`, `"Jump"`), never to a device control — a control is what a *binding* names, in
+data, once. Keyboard/mouse, gamepad, and touch all reduce to three action shapes: `Button`,
+`Axis1D`, `Axis2D`. No consumer branches on device type.
+
+**The header-only action layer (`include/SushiEngine/input/`)** carries zero SDL, zero
+SYCL, and no runtime link — the same discipline `sushi_render`'s abstract side keeps. Its
+pieces are seven single-responsibility objects (SRP by construction):
+
+- `controls.hpp` — the engine-owned control enums. `Key` is numbered by USB HID keyboard
+  usage IDs (the table SDL scancodes are built on), so the numbering is physical-position
+  based and layout-independent, and the SDL translator *reinterprets* a scancode as a `Key`
+  rather than looking it up. Every ordinal here is a serialized wire value and must never
+  renumber. A `ControlPath` (family + ordinal) is the atom a binding stores.
+- `events.hpp` — the single trivially-copyable `InputEvent` record every source emits, the
+  `EventType` tags, the stable `DeviceId` slot scheme (keyboard 0, mouse 1, gamepads from 2),
+  and a float `Vector2` (distinct from `UI::Vector2`, which is double).
+- `source.hpp` — `IInputSource` (one method: drain this frame's events) and the header-only
+  `ScriptedInputSource`. Because all state is folded from events *above* the source, a
+  scripted, SDL, and (later) virtual source are indistinguishable downstream — Liskov holds
+  by construction, which is what lets the whole layer run headless in tests with no mocks.
+- `device_registry.hpp` — `DeviceRegistry`, the single owner of "what is held now", folded
+  from the event stream. Level state (keys, buttons, stick/trigger values) persists; relative
+  state (mouse delta, wheel) accumulates within a frame and resets at its start — the split
+  the tick-boundary sampler (Phase 2) needs.
+- `bindings.hpp` — bindings as data: `Binding`, `Deadzone` (radial for whole sticks, axial
+  for triggers), `ChordGate` (Ctrl+Z), and the composite/`Vector2` bindings. Every evaluator
+  is a pure function of the registry, run through a fixed processor order (deadzone → invert →
+  scale, then composite assembly and diagonal normalization), so a keyboard composite and an
+  analog stick feed one action through identical downstream math. A new binding shape is a new
+  struct and evaluator, no consumer change — OCP as data.
+- `action_map.hpp` — `Action`/`ActionType`, `InputContext` with fluent builders
+  (`add_axis2d("Move").bind_composite(W,S,A,D).bind(GamepadAxis::LeftStick, ...)`), and
+  `ActionMapper`. The mapper holds a priority-ordered context stack and resolves every action
+  once per host frame into an `ActionSnapshot`; a higher context *consumes* the controls its
+  actions reference, so pushing a `"Menu"` context masks gameplay movement with no consumer
+  testing a flag. An `InputGate` mirrors ImGui's `WantCapture*` flags to suppress key- or
+  mouse-sourced actions in one place.
+- `input_manager.hpp` — the `InputManager` façade. `begin_frame()` drains every registered
+  source, folds the events into the registry, and resolves the mapper. It never touches the
+  `World` and never registers a system.
+
+**The compiled backend (`input/`, `sushi_input` STATIC).** The mirror of `sushi_render`'s
+recipe: links `SDL2::SDL2` only, no SYCL, no runtime, C++17. It holds the one SDL-aware input
+component, `Input::SdlInputTranslator`, which turns already-pumped `SDL_Event` records into
+engine `InputEvent`s. It does **not** pump SDL — the single `SDL_PollEvent` loop stays in
+`SdlWindow`, and the translator registers on the window's event-handler seam alongside ImGui.
+That seam grew from one handler to a handler list: `IPlatformWindow::add_event_handler`
+appends, so ImGui still sees events first. The native `SDL_Event` crosses the translator's
+header as `const void*`, so SDL leaks into no consumer translation unit — the editor's
+"only SDL-aware components" set grows from two (`SdlWindow`, `ImGuiBackend`) to three.
+
+**Gamepad and haptics.** A controller is a device family, not a special case: the same
+`"Move"`/`"Jump"` bindings drive keyboard or pad. `SdlWindow` inits `SDL_INIT_GAMECONTROLLER`
+(core SDL2) and the translator opens/closes controllers on hot-plug, translating their button
+and axis events to the same `InputEvent` shapes a stick binding already reads (SDL's button and
+axis ordinals match the engine enums, so the translation is a reinterpretation). A controller's
+identity to the engine is its `DeviceId` slot, allocated by `GamepadSlotTable` — a header-only,
+SDL-free, unit-tested policy that hands a pad the lowest free slot and keeps it across an
+unplug/replug of the same ordering, so bindings and player assignments survive a reconnect. The
+translator also implements `IHapticsSink`, so the object gameplay drives rumble through is the
+same one it never sees as SDL — `SDL_GameControllerRumble` behind
+`rumble(device, low, high, duration)`.
+
+**Rebinding and persistence.** Because a binding is data, changing one changes no consumer
+code — the property `rebinding.hpp` makes operational. `RebindingListener` captures the next
+control of an expected shape (a button rebind is deaf to axis noise; an axis rebind demands
+deflection past a threshold so a drifting stick cannot bind itself) and cancels on Escape or
+timeout; `binding_conflict` warns when a captured control is already used in the context, and
+`set_button_binding` writes it back. Persistence is `bindings_json.hpp`
+(`bindings_to_json`/`bindings_from_json`), tolerant field-by-field with defaulted reads exactly
+like the editor's `render_settings`: a missing action entry keeps its compiled-in defaults, a
+malformed entry is ignored rather than throwing, and unknown actions survive a round-trip. It
+is the only input header that pulls in nlohmann/json, so the core action layer and any headless
+build that never persists stay dependency-free. The editor holds the serialized document in
+`Preferences::input_bindings` (as text, so the struct stays JSON-free) and nests it in
+`preferences.json`; the game owns where its own file lives — the engine provides the functions,
+not a path policy.
+
+**Touch and virtual controls.** Touch decomposes into two layers, and only the first is device
+code. Pointers: the translator turns `SDL_FINGERDOWN/MOTION/UP` into touch events (normalized →
+pixels, stable finger→slot), and the `DeviceRegistry` folds up to `MAX_TOUCH_POINTS` of them; a
+`set_mouse_as_pointer` flag folds the mouse into pointer 0 so a touch UI is developable on
+desktop, and `primary_pointer()` is the one pointer the engine UI reads (via the opt-in
+`ui_pointer` adapter) instead of the host hand-feeding `UI::PointerInput`. Virtual controls:
+`VirtualControlSource` owns a screen-space layout of sticks and buttons and, each frame, claims
+the pointers inside them and emits ordinary gamepad-shaped events — a virtual stick is
+`GamepadAxis::LeftStick` on a dedicated slot, so a `"Move"` binding resolves it through the exact
+path a hardware stick takes. It runs on the manager's second-pass virtual-source stage
+(`add_virtual_source`), polled after the primary fold so it reads this frame's pointer state and
+its output is folded back for the mapper. Adding touch to a shipped gamepad game is placing
+controls, not writing input code; rendering them is the engine UI's job, and gesture recognition
+is a recorded follow-on.
+
+**Editor migration.** The editor's shortcuts and tool keys, once scattered `ImGui::IsKeyPressed`
+polls, are now two rebindable contexts (`editor/input/editor_contexts.hpp`): `EditorGlobal`
+(Undo/Redo/Save/Copy/Cut/Paste, chorded on Control) and `EditorViewport` (gizmo W/E/R). `main.cpp`
+pushes them, applies any overrides saved in `Preferences::input_bindings`, and consumes
+`input.snapshot().pressed(...)` for the global shortcuts; the toolbar reads the same snapshot for
+the gizmo keys (via a non-owning `ActionSnapshot*` on `EditorContext`). The `!WantTextInput` guards
+each poll wrote by hand are now the mapper's single capture gate. The Preferences window gained a
+rebind page — list an action, click Rebind, press a key — that runs the `RebindingListener`,
+rewrites the binding, and serializes the set so a rebind survives a restart. Camera flight (WASD
+while right-mouse is held) stays on the viewport's own `Editor::InputState` seam, unchanged.
+
+**Local-multiplayer routing.** Binding resolution asks a `DeviceAssignment` — held per
+`ActionMapper` — which device answers each control family, instead of hard-coding the first
+connected pad. The default (keyboard, mouse, first pad) reproduces single-player exactly, so the
+routing costs nothing until used. A local-multiplayer game gives each player a `PlayerHandle` (its
+own mapper, tick accumulator, and assignment) resolving the *shared* contexts against its own
+devices, collected in a `PlayerRoster` that routes claims and answers "press A to join"
+(`join_candidates`). Device events are folded once into the one shared registry; N players is N
+reductions of that state, one per `Command` — the exact shape SushiLoop's "a player is an ECS
+entity, input a per-tick command" already prescribes.
+
+**Completion pass.** Four recorded follow-ons close the system out. *Buffering* (§2.2): the
+`TickSampleAccumulator` stamps each tick with ticks-since-press per action, so
+`TickSample::pressed_within(name, window)` gives jump-buffer and coyote-time windows at the tick
+cadence. *Gestures* (`gestures.hpp`, §2.4): a `GestureRecognizer` turns the registry's pointers
+into tap/long-press/drag/pinch results, time-driven by `update(dt)` and left for the consumer to
+map onto actions — a pure sensor. *Replay* (`replay.hpp`, §6): an `InputRecorder` captures the
+frame event stream and replays it through a `ScriptedInputSource`, reproducing *mapper* behaviour
+the way `InputHistory` reproduces the *sim* — the two straddle the tick boundary, the design's
+central line; `replay_json.hpp` is an opt-in file format. *Text* (`text_input.hpp`, §6): a
+`TextInputChannel` is an active-gated UTF-8 buffer the translator feeds `SDL_TEXTINPUT` into, with
+actions suppressed for its duration by the same capture gate — text is a channel, not an action.
+The editor exposes all of it through an **Edit > Input Manager** window: contexts and their actions
+with the current binding, click-to-rebind with conflict flagging, and Reset to Defaults, persisted
+to preferences.
+
+**The tick boundary (`tick_sample.hpp`).** Two consumers read the input at two cadences. The
+editor and any immediate-mode UI read the per-frame `ActionSnapshot`. The simulation reads a
+per-tick `TickSample`, and only ever as a reduced, quantized value — because the fixed-step
+loop (`App::advance`) runs zero, one, or several ticks per host frame, per-frame state cannot
+cross directly (a tap in a zero-tick frame would vanish; one press in a two-tick hitch would
+fire twice). `TickSampleAccumulator` resolves this: `accumulate` folds each frame's snapshot,
+`consume` (called once per tick from inside `sample_command`) hands out one sample and then
+clears the edges and zeroes the relative axes it returned. Three laws hold by construction —
+edges stay sticky until a tick consumes them, the first tick of a burst consumes the edge
+while later ticks see level only, and relative axes (mouse deltas) sum since the last tick
+while absolute axes (sticks) are latest-wins. A sub-frame tap survives because the
+`DeviceRegistry` folds press/release *edges* independently of the final level, so the mapper's
+button edges do not depend on a frame-boundary level change. `quantize_axis` maps a normalized
+value to a symmetric `std::int16_t` *before* it enters the game's `Command`, so `InputHistory`,
+rollback replay, and server reconciliation all operate on bit-identical values — prediction
+misses from float jitter cannot exist. The manager stays on the OS-event thread forever, and
+`consume_tick_sample()` returns a value snapshot, which is already the thread-crossing currency
+the future sim-thread split prescribes.
+
+**Layering.** The one-way `SushiEngine → SushiRuntime` arrow is untouched — input never sees
+the runtime. Headless examples and tests use `ScriptedInputSource` and link neither SDL nor
+`sushi_input`; only a binary that opens a window needs the compiled library. `SE_BUILD_INPUT`
+gates it (forced on by `SE_BUILD_EDITOR`). All seven roadmap phases and the design's recorded
+follow-ons (buffering, gestures, replay, text) have landed; the editor consumes the action
+snapshot for its shortcuts and tool keys and configures bindings through its Input Manager window.
+The one deliberately-untouched seam is the viewport's camera-flight `Editor::InputState` fill,
+kept on ImGui because its per-mode latching (right-mouse-held owns WASD) is viewport state, not a
+binding — a good seam the design keeps as-is.
+
+## 14. Audio (from-scratch AAA game-audio, Phase S0)
+
+Design: `docs/design/audio_system.md`. A from-scratch, middleware-free game-audio engine,
+placed like skeletal animation and cosmetic VFX — a **wall-clock snapshot consumer that
+lives outside the deterministic sim island**, so a run is byte-identical with audio on or
+off. Its shaping decision is the split every shipping AAA runtime is built on: a **control
+plane** (the game/ECS thread, which allocates freely and only publishes intent) and an
+**audio-render plane** (a high-priority callback thread that mixes under hard real-time
+discipline — no heap allocation, no locks, no syscalls). The real-time mix runs on the
+device callback and deliberately **sidesteps SushiRuntime**, which is a
+block-until-quiescent throughput engine with no real-time thread class; the runtime enters
+only through an optional, deferred GPU batch-DSP seam.
+
+Phase S0 stands up the render-plane boundary end to end with a trivial renderer, before any
+DSP exists — the same "seams first, then fill" discipline the render and input stacks used.
+
+**The header-only seams (`include/SushiEngine/audio/`)** carry zero SDL, zero SYCL, and no
+runtime link:
+
+- `device.hpp` — the device I/O seam. `AudioStreamFormat` is the negotiated stream shape
+  (sample rate, channel count, power-of-two block size); a backend may return a format
+  other than the one requested, so a consumer always reads the obtained format back.
+  `IAudioRenderer` is the real-time render sink: `render(float* const* channels, int
+  channel_count, int frame_count) noexcept`, called once per block on the audio thread with
+  **planar** (deinterleaved) buffers — the discipline the DSP core keeps throughout,
+  interleaving only at the device boundary. `IAudioDevice` (open/close/is_running/format)
+  isolates the one unstable, platform-specific dependency so the whole mix is testable
+  against a trivial renderer and the backend is swappable without touching a line of DSP.
+- `accelerator.hpp` — `IDspAccelerator`, the optional GPU batch-DSP seam, declared now and
+  implemented later (S10). It carries a single `available()` query so a subsystem that could
+  offload long convolution / HRTF / ambisonic decode asks first and falls back to its CPU
+  path — which is every build today. Kept intentionally thin because the runtime's fluent
+  API is unstable; the batch-submit surface lands with the real implementation.
+
+**The compiled backend (`audio/`, `sushi_audio` STATIC).** The mirror of `sushi_input`: a
+plain STATIC library linking SDL2 and nothing else — no SYCL, no runtime — so it builds on a
+stock toolchain and never touches the one-way `SushiEngine → SushiRuntime` arrow. It carries
+the sole SDL-aware audio component, `Audio::SdlAudioDevice`, which opens an
+`SDL_AudioDevice` and drives an `IAudioRenderer` once per block on SDL's callback thread:
+the planar scratch and channel-pointer table are allocated once in `open` (never in the
+callback), the renderer fills them, and the device interleaves the result into SDL's output
+buffer. The OS handle crosses its header as an opaque `std::uint32_t`, so SDL never leaks
+into a consumer translation unit.
+
+**The `App::runtime()` seam.** `Loop::App` now exposes its owned or borrowed runtime — the
+one handle the later GPU accelerator path needs to allocate USM. It does not weaken the
+one-way dependency: the App still owns the lifetime, and a borrowed runtime is returned,
+never destroyed. Gameplay never needs it; the loop still hides the runtime behind `world()`,
+`commands()`, and `system()`.
+
+**Layering & build.** `SE_BUILD_AUDIO` gates the compiled backend (OFF by default). The
+`audio_demo` example is the S0 vertical slice: a headless, self-checking software block loop
+(pump N blocks through a silence renderer, assert every sample is silent and the renderer
+ran), then a best-effort real device open that is a clean no-op on a headless host. `se
+audio` builds and runs it (configuring `SE_BUILD_AUDIO=ON`, exactly as `se render` does for
+the renderer probe).
+
+**The DSP core (`include/SushiEngine/audio/dsp/`, Phase S1).** The portable, real-time-safe
+C++17 layer beneath the seams — no SDL, no SYCL, no runtime — that every later mix, filter,
+and spatializer is built on. It has no build option: like the input action layer it rides
+the SushiEngine INTERFACE target and is exercised headlessly by `Unit_Audio` tests.
+
+- **Real-time primitives.** `ScopedNoDenormals` (`denormals.hpp`) is the RAII guard that
+  sets flush-to-zero + denormals-are-zero on the FPU for the span of a callback — the fix
+  for the slow subnormal arithmetic a decaying IIR or reverb tail would otherwise fall into;
+  it restores the exact prior control word, and being outside the deterministic island the
+  bit-level change is harmless. `SpscRing<T>` (`spsc_ring.hpp`) is the one queue of the
+  two-plane model: a power-of-two, wait-free single-producer/single-consumer ring with its
+  two indices on separate cache lines and acquire/release publication — the control thread
+  pushes command records, the audio thread drains them, neither ever locks.
+- **SIMD kernels (`simd.hpp`).** The per-block hot loops — `apply_gain`, `apply_gain_ramp`
+  (the zipper-free level change), `mix_accumulate`, `copy_scaled`, `fill`, and constant-power
+  `equal_power_pan` — as a 4-wide SSE path with a scalar remainder tail on x86 and a scalar
+  fallback elsewhere. Applied to *summed* bus buffers, so they cost O(bus), not O(voice).
+- **Filters (`dsp/filters/`).** `OnePole` (the cheapest smoother / DC block / parameter
+  ramp), `Biquad` (the RBJ cookbook set — low/high-pass, band-pass, notch, peaking, shelves
+  — in the numerically well-behaved Transposed Direct Form II), and `StateVariableFilter`
+  (Andrew Simper's Cytomic TPT-SVF, the modulation-stable default that yields every mode from
+  one pair of integrator states). Coefficients are designed in `double` off-thread and stored
+  `float`, the audio-path rule even though the engine's `Scalar` is double.
+- **Block graph (`graph.hpp`, `nodes.hpp`).** `BlockGraph` is a DAG of `Node` processors
+  linearized by a Kahn topological sort computed off the audio thread; `process()` pulls one
+  fixed block through that order and never allocates. **Feedback** is a connection flag, not a
+  special node: a feedback edge is excluded from the ordering and, because each output buffer
+  persists between blocks, the consumer reads the producer's previous-block output — a
+  one-block z⁻¹, which is exactly what lets a comb or reverb loop be computed in a single
+  forward pass. Built-in nodes are `SineNode`, `GainNode` (per-block ramp), `MixNode`, and
+  `BiquadNode`. The `audio_dsp_demo` slice wires sine → mix → low-pass → gain and self-checks
+  that the settled RMS proves the high tone was filtered out; `Unit_Audio`
+  (`tests/functional/unit/test_audio_dsp.cpp`) pins the ring, denormal flush, every filter,
+  the SIMD kernels, the pan law, the topological order, and the one-block feedback exactly.
+
+**The action layer (`include/SushiEngine/audio/`, Phase S2).** The header-only game glue
+over the DSP core — a prioritized multi-source mix — reached through the `audio/audio.hpp`
+umbrella (now in `SushiEngine.hpp`). Like the DSP core it has no build option and is
+exercised headlessly by `Unit_Audio`.
+
+- **Parameters (`parameter.hpp`).** Every runtime mix change crosses the thread boundary the
+  same way: `SmoothedValue` holds an atomic **target** the control thread publishes and the
+  audio thread **slews toward** at a configured rate, bracketing each block as `[start, end]`
+  for a click-free gain ramp — never a raw jump. `Rtpc` layers the "game variable → authored
+  curve → target" mapping on top, evaluating the clamped piecewise-linear `RtpcCurve` on the
+  control thread so the audio thread only ever ramps.
+- **Voices (`voice.hpp`).** A `VoiceSource` renders mono and also offers a cheap `advance`
+  (skip forward without producing output) — the path a *virtualized* voice takes to keep its
+  play position current for ~free. `VoiceDescriptor` carries gain, priority, bus, pan, and a
+  linear distance attenuation that reaches true silence, which is what makes it a clean
+  culling signal. `ToneSource` and `BufferSource` are the S2 sources; decode/streaming is S8.
+- **Mixer (`mixer.hpp`).** Voices sum into stereo **buses**, not into each other, so an
+  effect runs once on a summed bus buffer (O(bus)) instead of per voice. A `Bus` has a series
+  **insert chain** (`IBusEffect`), a post-fader `SmoothedValue` gain, an **output** route into
+  a parent, and **aux sends** that copy its signal at a level into a parallel bus (the
+  reverb-send pattern). `MixerGraph` orders buses by a topological sort over the routing and
+  send edges so every contributor precedes its consumer, with the master rendered last. Buses
+  are stereo now; the ambisonic scene bus of §4 replaces that path at S4 without changing the
+  routing/insert/send structure.
+- **Voice manager + engine (`voice_manager.hpp`, `engine.hpp`).** `VoiceManager` holds a
+  fixed pool and, each block, computes an effective **audibility** (base gain × attenuation)
+  per active voice, ranks the set by `(priority, audibility)`, promotes the top **real**
+  voices up to a cap to full rendering, and leaves the rest **virtual** (position bookkeeping
+  only) — so hundreds of possible sounds collapse to a bounded render set that pans into a
+  handful of bus buffers. Real voices ramp their gain and free themselves when a one-shot
+  ends. `AudioEngine` is the `IAudioRenderer` the device drives: it sets the denormal guard,
+  clears the mixer, folds the voice manager's real voices into the buses, runs the bus graph,
+  and fans the stereo master out to the device channels. `audio_mixer_demo` starts 26 voices
+  against a cap of 6 and self-checks the cap and the out-of-earshot virtualization; the
+  `Unit_Audio` suite (`test_audio_mixer.cpp`) pins the smoother, RTPC, aux-send arithmetic,
+  post-fader gain, bus order, the real/virtual cap, distance culling, pan centring, and
+  one-shot lifetime. Occlusion, the HDR window, a separate decode cap, and voice stealing
+  layer onto this ranking in later phases.
+
+**Propagation (`propagation.hpp` + `dsp/fractional_delay.hpp`, `dsp/air_absorption.hpp`,
+Phase S3).** A source's whole travel through the air is modelled as **one variable
+fractional delay line of length distance/c**, and the Doppler falls out for free: the read
+pointer sits that far behind the write pointer, so when the distance changes between blocks
+the read rate stops being one — and a read rate other than one *is* a pitch shift. This is
+why there is no velocity term anywhere; motion is implicit in the frame-to-frame distance
+change. `FractionalDelayLine` does the read with a 4-point cubic-Lagrange (Farrow) kernel
+(non-recursive, no ringing, clean to modulate). `SourcePropagation` wraps it: it slew-limits
+the delay so a source cannot appear to break the sound barrier (`|v_radial| < 0.9·c`),
+**snaps** the delay on a teleport instead of sweeping it (a sweep would fire a synthetic
+Doppler screech), then dulls the block with a distance-driven air-absorption low-pass and
+scales it by the distance gain. The air model is the full ISO 9613-1 absorption
+(`air_absorption_db_per_meter` from temperature/humidity/pressure) reduced to a one-pole
+corner that falls with distance (`air_absorption_cutoff`); the speed of sound feeds both the
+delay and the absorption from the same temperature, so delay, Doppler, and dullness stay
+consistent. `DistanceModel` (Linear/Inverse/Exponent) and the shared `distance_attenuation`
+give the rolloff, used by *both* the audibility ranking and the rendered gain so a voice is
+culled by the level it is played at. The voice manager runs a `SourcePropagation` per spatial
+real voice; `VoiceManager::set_voice_position` is how a moving emitter (or, at S6, the ECS
+snapshot) drives the whole effect. `audio_propagation_demo` flies a tone past the listener
+(pitch up approaching, down receding) and `test_audio_propagation.cpp` pins the delay-line
+accuracy, the ISO absorption, the distance laws, the delay ≈ distance/c, the Doppler
+direction, and the teleport snap.
+
+`AudioEngine::render` clamps its internal work to the prepared maximum block and zero-fills
+any surplus device samples, so an OS mixer that hands back a larger callback block than
+`prepare` was told degrades to brief silence rather than overrunning a buffer.
+
+**The spatializer (`spatializer.hpp` + `dsp/spherical_harmonics.hpp`, Phase S4).** The 3D
+rendering core, and the reason the audio path scales: a source is placed by **encoding** it
+into a shared **ambisonic scene bus** with its spherical-harmonic gains — `(order+1)²` gains,
+cheap, per source — so any number of sources collapse into one fixed field. The harmonics are
+real AmbiX (**ACN** ordering, **SN3D** normalisation, so W = 1 and the first-order channels
+are the direction's y/z/x), evaluated from the associated-Legendre recurrence. The field is
+**decoded once** to a fixed 26-point virtual-speaker layout and each speaker is rendered to
+the two ears through an analytic head model — a Woodworth interaural time difference (a
+fractional delay per ear) and a head-shadow low-pass on the far ear — so the number of ear
+renders is constant no matter how many sources play. Head tracking is free: the voice manager
+encodes each source in **head-relative** coordinates (`head_relative_direction` rotates a
+world direction into the listener's `forward`/`up` frame), so a head turn re-aims every source
+with no extra state. `AudioEngine` owns the spatializer, decodes it to binaural each block,
+and sums that with the non-spatial stereo master; a spatial voice encodes into the scene bus
+instead of stereo-panning when a spatializer is present, and the decode is skipped on a block
+with no spatial source. `audio_spatial_demo` orbits a tone around the head (audibly circling
+on headphones); `test_audio_spatial.cpp` pins the SH convention and orthogonality, the
+encode/decode kernel, the left/right level cues, the ITD, front symmetry, and head-tracking.
+
+The analytic HRTF is self-contained (no measured data) and gives solid horizontal
+localisation and externalisation; a measured-HRTF / SOFA + MagLS decode is a fidelity upgrade
+that slots in behind the same encode → decode seam. The roadmap continues S5 (FDN reverb +
+I3DL2 + per-zone aux) through S10; S0–S4 (the critical path) are complete.
+
+## 15. VFX particle system (authoring model, dual backends, GPU render — phase VFX1)
+
+Design: `docs/design/vfx_particle_system.md`. One authored effect asset feeds **two** simulation
+backends behind one seam — a GPU-cosmetic path (millions of particles, render-side, *outside* the
+deterministic sim island, like skinning/audio) and a CPU-deterministic path (bounded, byte-
+reproducible, rollback-safe, like `AnimatorInstance`). Both consume the same compiled POD.
+
+**Authoring model (`include/SushiEngine/vfx/`, header-only, C++17, depends only on `core/types.hpp`).**
+An emitter is a stack of modules across four stages (spawn / shape / init / update) plus a render
+module; each module is its own trivially-copyable descriptor struct (the Open/Closed seam — a new
+behaviour adds a descriptor, a compiler handler, and a shader/integrator branch, touching no
+existing module). `AnimationCurve` and `ColorGradient` are keyframed authoring types bakeable to
+fixed-width LUTs. `EmitterCompiler` flattens a `ParticleEffect` (a list of `EmitterDescriptor`)
+into a `CompiledEffect`: an array of POD `CompiledEmitter` records plus two baked LUT atlases — the
+single artifact both backends and the GPU consume, the particle equivalent of resolving authored
+`RenderSettings` into a POD `QualityParams`. `EffectDatabase` is the AssetId registry (lazy
+compilation), mirroring `AnimationDatabase`. `GpuParticle` is the shared 80-byte, five-`vec4`
+std430 record used by the CPU backend, the GPU pools, and the shaders.
+
+**Deterministic backend (`vfx/deterministic_backend.hpp` + `Simulation::ParticleEmitter`).** A
+fixed-pool integrator run as an ECS system inside the fixed step. Its whole per-emitter state is a
+`DeterministicEmitterState` — a capped `GpuParticle` pool, a count, a `Pcg32`, and a few scalars,
+pointer-free — so a tick is byte-snapshottable and a rolled-back-then-replayed tick reproduces it
+exactly (`Integration_ParticleDeterminism`). Shapes, forces (gravity/drag/curl-noise turbulence),
+and the size/colour-over-life LUTs all run here too, sampling the same baked LUTs the GPU does.
+
+**GPU render path.** `Render::Scene::ParticleSystem` owns the shared, persistent, device-local
+particle pool (zero-cleared once), the per-slot host-visible emitter table (`GpuEmitter`, a std430
+mirror of the compute-visible `CompiledEmitter` subset with the emitter's world transform and ring
+cursor baked in), and the uploaded LUT atlases. `ParticleSimPass` (a compute `IRenderPass`, after
+`skinning_pass_`) sweeps the pool: a simulate dispatch advances/ages/retires and appends survivors
+to a compacted draw list, then a per-emitter emit dispatch allocates ring slots and initialises new
+particles — both atomically build a `VkDrawIndirectCommand`. `ParticlePass` (a graphics
+`IRenderPass`, between `ssr_pass_` and `taa_pass_`, writing `scene_final`) draws vertex-lessly: six
+vertices per alive particle, expanded into a camera-facing billboard pulled from the draw list,
+sampling the scene depth (never attaching it) to discard fragments behind geometry, additively
+blended. The compacted draw list and indirect args are graph transients (the graph derives the
+compute→draw barriers); the pool is system-owned. `ISceneView::render` gained a
+`ParticleEmitterView` extract channel (opaque `CompiledEmitter` bytes + LUT pointers + host-computed
+spawn count), the same shape as `SkinnedInstance`. Additive-only for the slice; alpha depth-sorting,
+lit particles, ribbons, mesh particles, and GPU collision are phases VFX2–VFX5.
+
+**Enabling seams.** `Resources::GraphicsPipelineDesc` gained a `ColorBlend` member folded into the
+fragment-output pipeline-library key (defaults reproduce opaque, so transparent draws are now
+expressible without disturbing existing passes). `QualityParams` gained `gpu_particles` /
+`max_particles` / `particle_sim_substeps`, scaled per tier (Low drops cosmetic particles). Build:
+the four shaders (`particle_emit.comp`, `particle_simulate.comp`, `particle.vert`, `particle.frag`,
+sharing `particle_common.glsl`) go through `sushi_compile_shader` + the shader catalogue; the two
+systems and two passes into `sushi_render`.
+
+### 15.1 Deterministic emitter entities + alpha particles (Bağla + VFX2a)
+
+**Deterministic emitter entities.** A gameplay entity carries a particle emitter through the sim's
+`IWorldEditor` (the emitter quartet `create_particle_emitter` / `has_particle_emitter` /
+`particle_emitter_params` / `set_particle_emitter_params` / `set_has_particle_emitter` +
+`particle_effect_count`/`particle_effect_name`). Like cloth, this is host bookkeeping — no ECS
+migration: `RuntimeSimulation::Record` gains the fixed `Vfx::DeterministicEmitterState pool` (~80 KB,
+off the ECS chunk), plus the effect handle and play head. `step_particle_emitters()` runs inside
+`step_once()` (after the schedule, before extract), advancing every playing pool one fixed step via
+`CpuDeterministicBackend::step`; `extract()` emits one `RenderScene::particle_billboard` per live
+particle. A built-in effect library (Fire/Sparks/Smoke, Deterministic domain) lives on the sim's
+`EffectDatabase`. The renderer draws these through a new `ParticleBillboard` extract channel on
+`ISceneView::render` — already-simulated world-space particles billboarded directly (the particle
+analogue of `ClothStrandView`), uploaded to a host-visible `GpuParticle` buffer by
+`ParticleSystem::prepare_billboards` and drawn by a `vkCmdDraw` in `ParticlePass`. The editor adds
+"GameObject ▸ Particle Emitter", an Add-Component entry, an Inspector section (effect/seed/playing),
+and `.sushiscene` persistence.
+
+**Alpha particles (VFX2a).** `GpuEmitter` now carries the emitter's blend and sort modes. During the
+compute compaction, `particle_simulate.comp`/`particle_emit.comp` bucket each particle by blend —
+additive/premultiplied into `particle_draw`, true-alpha into `particle_alpha` — each with its own
+`VkDrawIndirectCommand` in a single `particle_args` buffer (additive at offset 0, alpha at 16).
+`ParticlePass` draws the two buckets with two pipelines: the additive glow (`src+dst`, order-
+independent) and a premultiplied "over" for true alpha (`src + dst*(1-a)`), both on the premultiplied
+fragment output. Smoke and dust composite correctly instead of only glowing. Deferred to the next
+VFX2 slice: clustered-punctual-light particles (the froxel version — needs camera-relative conversion).
+
+**Alpha depth-sort (VFX2a).** The alpha bucket is bitonic-sorted back-to-front on the GPU. A new
+`ParticleSortPass` (compute, between the sim and draw passes) runs `particle_sort.comp`: mode 0 seeds
+one `{-distance², index}` key per pool slot from the alpha list's camera distance (padding slots sink to
+the end); mode 1 is one bitonic compare-exchange stage, dispatched `log2(N)*(log2(N)+1)/2` times by the
+host over the power-of-two pool capacity — the engine's "dispatch a host-known max, read the alive count
+on the GPU" idiom, so no indirect dispatch is needed (the tree's first GPU sort). The seed stage always
+runs so the key buffer has a producer; the bitonic stages run only when `ParticleSystem::has_alpha()`.
+The alpha draw uses `particle_sorted.vert`, which indexes the alpha list through the sorted keys
+(binding 2 on the draw pass's set), so `gl_InstanceIndex` walks particles far-to-near; the additive and
+billboard draws keep the direct `particle.vert`. The pool capacity was set to 2^16 to keep the sort
+tractable.
+
+**Lit particles (VFX2b).** The true-alpha bucket (smoke, dust) is lit by the sun; the additive bucket
+(fire, sparks) stays emissive. The sun is a **world-space** directional light (`Environment::sun`), so
+lit particles need no camera-relative conversion — sidestepping the biggest hazard of clustered-light
+particles. The billboard fragment shades the sprite as a camera-facing hemisphere (a spherical normal
+from the sprite offset), takes `max(dot(n, sun_dir), 0)`, and adds a flat ambient; the sun direction,
+radiance, and a per-draw lit flag ride the 128-byte push constant (which replaced the unused viewport
+lanes). The clustered-punctual-light and IBL-SH version (camera-relative, set-0 b13-17) is the deferred
+refinement.

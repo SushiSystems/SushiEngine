@@ -159,6 +159,40 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The authorable parameters of a "Particle Emitter" entity (deterministic path).
+         *
+         * An emitter entity plays a VFX effect on the CPU-deterministic backend so its particles
+         * are gameplay-authoritative and rollback-safe. It stores only the effect handle and the
+         * play head; the ~80 KB fixed pool lives host-side on the sim, not in the ECS column, and
+         * the effect asset lives in the sim's effect database. The emitter's pose comes from the
+         * entity's transform.
+         */
+        struct ParticleEmitterParams
+        {
+            std::uint32_t effect = 0;  /**< Index of the built-in effect this emitter plays. */
+            std::uint32_t seed = 1;    /**< Per-instance RNG seed (drives the deterministic stream). */
+            bool playing = true;       /**< Whether the emitter is currently emitting. */
+        };
+
+        /**
+         * @brief One already-simulated particle handed to the renderer as a billboard.
+         *
+         * The extract channel for the CPU-deterministic path (analogous to @ref ClothInstance for
+         * cloth): the sim advances each emitter's pool on the fixed tick and emits one of these per
+         * live particle, world-space, which the renderer draws as a camera-facing quad. Distinct
+         * from the renderer's GPU emitter path (`Render::ParticleEmitterView`), which simulates on
+         * the GPU; these positions are already final.
+         */
+        struct ParticleBillboard
+        {
+            Vector3 position;                    /**< World-space centre. */
+            Vector3 color{Vector3{1, 1, 1}};     /**< Linear-RGB tint. */
+            float size = 0.1f;                   /**< World-space size. */
+            float alpha = 1.0f;                  /**< Opacity. */
+            float rotation = 0.0f;               /**< Roll, radians. */
+        };
+
+        /**
          * @brief The authorable parameters of a "Rigid Body" entity.
          *
          * Mirrors `Physics::RigidBody`'s mass/inertia, in editor-facing form: no
@@ -386,6 +420,7 @@ namespace SushiEngine
             std::vector<Vector3> cloth_vertices;         /**< World-space points for every @ref cloth_instances entry, concatenated. */
             std::vector<Render::PunctualLight> lights;   /**< Every punctual light this frame, placed by its entity's transform. */
             std::vector<Render::Decal> decals;           /**< Every projected decal this frame, placed by its entity's transform. */
+            std::vector<ParticleBillboard> particle_billboards; /**< Every live deterministic-emitter particle this frame. */
             Render::Environment environment;             /**< The sun, WGS84 planet, atmosphere, clouds, and stars lighting this frame. */
         };
 
@@ -618,6 +653,51 @@ namespace SushiEngine
                  * @param value Whether it should have a Camera after this call.
                  */
                 virtual void set_is_camera(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Creates a new entity that plays a VFX effect (deterministic path).
+                 *
+                 * A particle emitter is a first-class entity with a transform but no mesh; its
+                 * particles are simulated on the CPU-deterministic backend each fixed tick and
+                 * drawn as billboards. Its pool lives host-side on the sim, so attaching one needs
+                 * no ECS migration — like cloth.
+                 *
+                 * @param name Display name for the new emitter.
+                 * @return The new emitter's stable id.
+                 */
+                virtual EntityId create_particle_emitter(const std::string& name) = 0;
+
+                /** @brief Whether @p id is a deterministic particle emitter. */
+                virtual bool has_particle_emitter(EntityId id) const noexcept = 0;
+
+                /** @brief The emitter's parameters (defaults if @p id is not an emitter). */
+                virtual ParticleEmitterParams particle_emitter_params(EntityId id) const = 0;
+
+                /** @brief Writes an emitter's parameters; a no-op for non-emitters. */
+                virtual void set_particle_emitter_params(EntityId id,
+                                                         const ParticleEmitterParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches the particle emitter on an existing entity.
+                 *
+                 * Host-side like cloth: no ECS migration; attaching starts a deterministic pool
+                 * tracking the entity's transform, detaching stops it.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should be a particle emitter after this call.
+                 */
+                virtual void set_has_particle_emitter(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief The number of built-in particle effects an emitter may reference.
+                 *
+                 * The editor's effect picker enumerates @c [0, particle_effect_count()); each
+                 * index names one built-in effect (see @ref particle_effect_name).
+                 */
+                virtual std::uint32_t particle_effect_count() const noexcept = 0;
+
+                /** @brief The display name of built-in particle effect @p index. */
+                virtual const char* particle_effect_name(std::uint32_t index) const noexcept = 0;
 
                 /**
                  * @brief Whether @p id is driven by the physics world (a "Rigid Body").

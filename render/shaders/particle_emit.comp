@@ -1,0 +1,82 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Particle emit (design §5.3): one thread per particle the host asked this emitter to spawn.
+// Each thread pops a ring slot in the shared pool, initialises the particle from the emitter's
+// shape and init modules with a per-particle seeded stream, and appends it to this frame's
+// compacted draw list, atomically bumping the indirect draw's instance count. The
+// ParticleSimPass owns this descriptor set; the bindings are its contract, shared with
+// particle_simulate.comp.
+
+#include "particle_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) buffer Pool { Particle pool[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Emitters { Emitter emitters[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer DrawList { Particle draw[]; };
+layout(std430, set = 0, binding = 3) buffer DrawArgs { uint args[]; }; // vertexCount, instanceCount, ...
+layout(std430, set = 0, binding = 4) readonly buffer CurveLuts { float curve_luts[]; };
+layout(std430, set = 0, binding = 5) readonly buffer GradientLuts { float gradient_luts[]; };
+layout(std430, set = 0, binding = 6) writeonly buffer AlphaDrawList { Particle alpha_draw[]; };
+
+layout(push_constant) uniform Push
+{
+    uint emitter_index; // which emitter in the table this dispatch spawns for
+    uint capacity;      // shared pool capacity (unused here; kept for a common layout)
+    float dt;           // unused here
+} pc;
+
+void main()
+{
+    uint t = gl_GlobalInvocationID.x;
+    Emitter e = emitters[pc.emitter_index];
+    if (t >= e.spawn_count)
+        return;
+
+    uint slot = (e.spawn_base + t) % e.capacity;
+    uint seed = pcg_hash(e.seed ^ pcg_hash(e.frame * 2654435761u + t + 1u));
+
+    vec3 local_position;
+    vec3 local_direction;
+    sample_shape(seed, e, local_position, local_direction);
+
+    float speed = rand_range(seed, e.speed_min, e.speed_max);
+    float size = rand_range(seed, e.size_min, e.size_max);
+    float lifetime = rand_range(seed, e.lifetime_min, e.lifetime_max);
+    float rotation = rand_range(seed, e.rotation_min, e.rotation_max);
+    float angular = rand_range(seed, e.angular_min, e.angular_max);
+
+    vec3 world_position = (e.model * vec4(local_position, 1.0)).xyz;
+    vec3 world_velocity = mat3(e.model) * (local_direction * speed);
+
+    Particle p;
+    p.px = world_position.x;
+    p.py = world_position.y;
+    p.pz = world_position.z;
+    p.life = 1.0;
+    p.vx = world_velocity.x;
+    p.vy = world_velocity.y;
+    p.vz = world_velocity.z;
+    p.age = 0.0;
+    p.cr = e.cr;
+    p.cg = e.cg;
+    p.cb = e.cb;
+    p.alpha = 1.0;
+    p.size = size;
+    p.rotation = rotation;
+    p.lifetime = max(lifetime, 0.0001);
+    p.angular_velocity = angular;
+    p.seed = slot;
+    p.emitter_index = pc.emitter_index;
+    p.flipbook_frame = 0u;
+    p.birth_size = size;
+
+    pool[slot] = p;
+
+    // Bucket newborns by blend, matching particle_simulate.comp.
+    if (e.blend == BLEND_ALPHA)
+        alpha_draw[atomicAdd(args[5], 1u)] = p;
+    else
+        draw[atomicAdd(args[1], 1u)] = p;
+}

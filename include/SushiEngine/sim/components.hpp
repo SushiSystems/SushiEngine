@@ -41,6 +41,7 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/vfx/asset_id.hpp>
 
 namespace SushiEngine
 {
@@ -109,6 +110,30 @@ namespace SushiEngine
             std::uint32_t display_index = 0;
             std::int32_t priority = 0;
             bool active = true;
+        };
+
+        /** @brief @ref ParticleEmitter::flags bit: the emitter is actively simulating. */
+        constexpr std::uint32_t PARTICLE_EMITTER_PLAYING = 1u << 0;
+
+        /**
+         * @brief The "Particle Emitter" component: an entity that plays a VFX effect.
+         *
+         * Present only on entities with an emitter attached. It stores just a handle into a
+         * `Vfx::EffectDatabase` plus the small runtime state a play head needs — the heavy
+         * authored data (modules, curves, gradients) lives in the effect asset, and the live
+         * particles live in a backend pool (GPU-side for cosmetic emitters, a deterministic
+         * CPU pool for gameplay ones). Every field is an id, a scalar, or a flag, so the
+         * component is trivially copyable and byte-snapshottable like the rest. The emitter's
+         * pose comes from Transform + Orientation, the same columns the renderer reads; each
+         * emitter within the referenced effect chooses its own simulation domain.
+         */
+        struct ParticleEmitter
+        {
+            Vfx::AssetId effect = Vfx::INVALID_EFFECT; /**< The effect asset to play. */
+            std::uint32_t seed = 0;                    /**< Per-instance RNG seed (deterministic path). */
+            float time = 0.0f;                         /**< Seconds since the emitter started playing. */
+            float spawn_accumulator = 0.0f;            /**< Fractional continuous-spawn carry. */
+            std::uint32_t flags = PARTICLE_EMITTER_PLAYING; /**< @ref PARTICLE_EMITTER_PLAYING and future bits. */
         };
 
         /**

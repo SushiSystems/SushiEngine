@@ -300,7 +300,11 @@ namespace SushiEngine
                                  const SushiEngine::Render::PunctualLight* lights,
                                  std::size_t light_count,
                                  const SushiEngine::Render::Decal* decals,
-                                 std::size_t decal_count, UIOverlay* ui, bool show_grid)
+                                 std::size_t decal_count, UIOverlay* ui, bool show_grid,
+                                 const SkeletonPreview* skeleton, bool skeleton_names,
+                                 const EffectPreview* particle_preview,
+                                 const SushiEngine::Render::ParticleBillboard* billboards,
+                                 std::size_t billboard_count)
         {
             if (!ImGui::Begin(title_, &open))
             {
@@ -392,8 +396,13 @@ namespace SushiEngine
 
             const SushiEngine::Render::CameraView camera_view =
                 camera_.view(static_cast<float>(width) / static_cast<float>(height));
+            const SushiEngine::Render::ParticleEmitterView* emitters =
+                particle_preview != nullptr ? particle_preview->views() : nullptr;
+            const std::size_t emitter_count =
+                particle_preview != nullptr ? particle_preview->view_count() : 0;
             view_->render(camera_view, environment, instances, count, selected_id, strands,
-                          strand_count, lights, light_count, decals, decal_count, show_grid);
+                          strand_count, lights, light_count, decals, decal_count, show_grid, nullptr,
+                          0, emitters, emitter_count, billboards, billboard_count);
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
             ImGui::Image(slot_textures_[view_->current_slot()],
@@ -605,6 +614,20 @@ namespace SushiEngine
                                 ImVec2(s.x - r, s.y), col, 1.5f);
                 }
             }
+
+            // Skeleton preview: draw the rest pose of a loaded rigged glTF over the scene
+            // (A0's "see its rest pose"), before the gizmo so handles stay on top.
+            if (skeleton != nullptr && skeleton->loaded())
+                draw_skeleton_overlay(*skeleton, camera_view, image_origin,
+                                      static_cast<float>(width), static_cast<float>(height),
+                                      ImGui::GetWindowDrawList(), skeleton_names);
+
+            // Particle emitter gizmo: mark where the previewed effect spawns, before the
+            // transform gizmo so its handles stay on top.
+            if (particle_preview != nullptr)
+                draw_emitter_gizmo(*particle_preview, camera_view, image_origin,
+                                   static_cast<float>(width), static_cast<float>(height),
+                                   ImGui::GetWindowDrawList());
 
             // Transform gizmo: the GizmoController owns the handle drawing and drag mapping
             // for the active mode. Handled before picking so grabbing a handle never

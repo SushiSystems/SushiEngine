@@ -25,6 +25,23 @@ option(SE_BUILD_TESTS "Build the SushiEngine test suite" OFF)
 # -DSE_BUILD_RENDER=ON) turns it on.
 option(SE_BUILD_RENDER "Build the SushiEngine Vulkan renderer" OFF)
 
+# The compiled input backend (input/). A plain STATIC library — no runtime link, no
+# SYCL — that carries the one SDL-aware input component (the event translator) and
+# needs only the SDL2 vcpkg package the editor already requires. OFF so a plain
+# configure needs nothing; the editor forces it ON (its window feeds the translator),
+# and `-DSE_BUILD_INPUT=ON` turns it on for a standalone windowed game. The header-only
+# action layer (include/SushiEngine/input/) needs no build option — it rides the
+# SushiEngine INTERFACE target and is exercised headlessly by the test suite.
+option(SE_BUILD_INPUT "Build the SushiEngine compiled input backend (SDL translator)" OFF)
+
+# The compiled audio backend (audio/). A plain STATIC library — no runtime link, no
+# SYCL — that carries the one SDL-aware audio component (the SdlAudioDevice) and needs
+# only the SDL2 vcpkg package the editor and input backend already require. OFF so a
+# plain configure needs nothing; `se audio` (or -DSE_BUILD_AUDIO=ON) turns it on. The
+# from-scratch DSP core and action layer (include/SushiEngine/audio/) need no build
+# option — they ride the SushiEngine INTERFACE target.
+option(SE_BUILD_AUDIO "Build the SushiEngine compiled audio backend (SDL device)" OFF)
+
 # Determinism guard rail (SushiLoop M0/M1, docs/slop/SUSHILOOP.md): reassociation and
 # fused contraction let the compiler evaluate the same floating-point expression
 # differently between builds or optimisation levels, which breaks the "same input,

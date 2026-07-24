@@ -55,6 +55,14 @@
 #include "ibl_prefilter.comp.h"
 #include "sh_project.comp.h"
 #include "cloth.comp.h"
+#include "mesh_skinned.vert.h"
+#include "skinning.comp.h"
+#include "particle_emit.comp.h"
+#include "particle_simulate.comp.h"
+#include "particle.vert.h"
+#include "particle.frag.h"
+#include "particle_sorted.vert.h"
+#include "particle_sort.comp.h"
 #include "cull.comp.h"
 #include "mesh.vert.h"
 #include "mesh_gpu.vert.h"
@@ -90,6 +98,18 @@ namespace SushiEngine
                  Shaders::outline_vert_spv_word_count, "outline.vert"},
                 {"fullscreen.vert", ShaderStage::Vertex, Shaders::fullscreen_vert_spv,
                  Shaders::fullscreen_vert_spv_word_count, "fullscreen.vert"},
+                {"particle.vert", ShaderStage::Vertex, Shaders::particle_vert_spv,
+                 Shaders::particle_vert_spv_word_count, "particle.vert"},
+                {"particle.frag", ShaderStage::Fragment, Shaders::particle_frag_spv,
+                 Shaders::particle_frag_spv_word_count, "particle.frag"},
+                {"particle_emit.comp", ShaderStage::Compute, Shaders::particle_emit_comp_spv,
+                 Shaders::particle_emit_comp_spv_word_count, "particle_emit.comp"},
+                {"particle_simulate.comp", ShaderStage::Compute, Shaders::particle_simulate_comp_spv,
+                 Shaders::particle_simulate_comp_spv_word_count, "particle_simulate.comp"},
+                {"particle_sorted.vert", ShaderStage::Vertex, Shaders::particle_sorted_vert_spv,
+                 Shaders::particle_sorted_vert_spv_word_count, "particle_sorted.vert"},
+                {"particle_sort.comp", ShaderStage::Compute, Shaders::particle_sort_comp_spv,
+                 Shaders::particle_sort_comp_spv_word_count, "particle_sort.comp"},
                 {"pbr.frag", ShaderStage::Fragment, Shaders::pbr_frag_spv,
                  Shaders::pbr_frag_spv_word_count, "pbr.frag"},
                 {"outline.frag", ShaderStage::Fragment, Shaders::outline_frag_spv,
@@ -166,6 +186,10 @@ namespace SushiEngine
                  Shaders::cull_comp_spv_word_count, "cull.comp"},
                 {"cloth.comp", ShaderStage::Compute, Shaders::cloth_comp_spv,
                  Shaders::cloth_comp_spv_word_count, "cloth.comp"},
+                {"skinning.comp", ShaderStage::Compute, Shaders::skinning_comp_spv,
+                 Shaders::skinning_comp_spv_word_count, "skinning.comp"},
+                {"mesh_skinned.vert", ShaderStage::Vertex, Shaders::mesh_skinned_vert_spv,
+                 Shaders::mesh_skinned_vert_spv_word_count, "mesh_skinned.vert"},
                 {"meshlet.task", ShaderStage::Task, Shaders::meshlet_task_spv,
                  Shaders::meshlet_task_spv_word_count, "meshlet.task"},
                 {"meshlet.mesh", ShaderStage::Mesh, Shaders::meshlet_mesh_spv,

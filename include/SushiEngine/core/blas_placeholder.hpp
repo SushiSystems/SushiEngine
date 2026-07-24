@@ -468,5 +468,222 @@ namespace SushiEngine
         {
             return mul(translation(position), mul(mat4_from_quaternion(rotation), scaling(scale)));
         }
+
+        /** @brief Dot product of two quaternions (their 4-vectors). */
+        template <typename T>
+        inline T dot(const QuaternionT<T>& a, const QuaternionT<T>& b) noexcept
+        {
+            return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+        }
+
+        /**
+         * @brief Componentwise linear interpolation of two vectors.
+         * @param a Value at @p t == 0.
+         * @param b Value at @p t == 1.
+         * @param t Interpolation parameter, normally in [0, 1] (not clamped).
+         * @return `a + (b - a) * t`.
+         */
+        template <typename T>
+        inline Vector3T<T> lerp(const Vector3T<T>& a, const Vector3T<T>& b, T t) noexcept
+        {
+            return a + (b - a) * t;
+        }
+
+        /**
+         * @brief Scalar linear interpolation.
+         * @param a Value at @p t == 0.
+         * @param b Value at @p t == 1.
+         * @param t Interpolation parameter, normally in [0, 1] (not clamped).
+         * @return `a + (b - a) * t`.
+         */
+        template <typename T>
+        inline T lerp(T a, T b, T t) noexcept
+        {
+            return a + (b - a) * t;
+        }
+
+        /**
+         * @brief Neighbourhood-corrected normalized quaternion interpolation.
+         *
+         * The workhorse of pose blending: cheaper than @ref slerp and, for the small
+         * per-track angles a sampled animation produces, visually identical. Flips
+         * @p b to the near hemisphere first (a quaternion and its negation are the same
+         * rotation) so the interpolation always takes the short arc, then normalizes the
+         * linear blend back onto the unit sphere.
+         *
+         * @param a Rotation at @p t == 0.
+         * @param b Rotation at @p t == 1.
+         * @param t Interpolation parameter in [0, 1].
+         * @return The blended unit quaternion.
+         */
+        template <typename T>
+        inline QuaternionT<T> nlerp(const QuaternionT<T>& a, QuaternionT<T> b, T t) noexcept
+        {
+            if (dot(a, b) < T(0))
+                b = QuaternionT<T>{-b.x, -b.y, -b.z, -b.w};
+            return normalize(QuaternionT<T>{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                                            a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t});
+        }
+
+        /**
+         * @brief Neighbourhood-corrected spherical quaternion interpolation.
+         *
+         * Constant-angular-velocity blend along the short arc; reserved for the two-input
+         * crossfades where the uniform rate of @ref nlerp is visibly wrong. Flips @p b to
+         * the near hemisphere, then falls back to @ref nlerp when the inputs are nearly
+         * parallel (the `sin(omega)` denominator would otherwise be ill-conditioned).
+         *
+         * @param a Rotation at @p t == 0.
+         * @param b Rotation at @p t == 1.
+         * @param t Interpolation parameter in [0, 1].
+         * @return The blended unit quaternion.
+         */
+        template <typename T>
+        inline QuaternionT<T> slerp(const QuaternionT<T>& a, QuaternionT<T> b, T t) noexcept
+        {
+            T cos_omega = dot(a, b);
+            if (cos_omega < T(0))
+            {
+                b = QuaternionT<T>{-b.x, -b.y, -b.z, -b.w};
+                cos_omega = -cos_omega;
+            }
+            if (cos_omega > T(1) - T(1e-6))
+                return nlerp(a, b, t);
+            const T omega = std::acos(cos_omega);
+            const T sin_omega = std::sin(omega);
+            const T s0 = std::sin((T(1) - t) * omega) / sin_omega;
+            const T s1 = std::sin(t * omega) / sin_omega;
+            return QuaternionT<T>{a.x * s0 + b.x * s1, a.y * s0 + b.y * s1,
+                                  a.z * s0 + b.z * s1, a.w * s0 + b.w * s1};
+        }
+
+        /**
+         * @brief The unit quaternion equivalent of a rotation matrix.
+         *
+         * Inverse of @ref mat4_from_quaternion. Reads only the upper-left 3x3 basis, which
+         * is assumed orthonormal (scale removed — see @ref decompose_transform); the
+         * translation and projective rows are ignored. Uses the trace-partitioned form
+         * (Shepperd's method) for numerical stability across all four sign branches.
+         *
+         * @param matrix A column-major affine matrix with an orthonormal linear part.
+         * @return The equivalent unit quaternion.
+         */
+        inline Quaternion quaternion_from_matrix(const Mat4& matrix) noexcept
+        {
+            // r(row, col) reads the column-major element at m[col * 4 + row].
+            const Float m00 = matrix.m[0], m10 = matrix.m[1], m20 = matrix.m[2];
+            const Float m01 = matrix.m[4], m11 = matrix.m[5], m21 = matrix.m[6];
+            const Float m02 = matrix.m[8], m12 = matrix.m[9], m22 = matrix.m[10];
+            const Float trace = m00 + m11 + m22;
+            Quaternion q{};
+            if (trace > Float(0))
+            {
+                Float s = std::sqrt(trace + Float(1)) * Float(2); // s = 4 * w
+                q.w = Float(0.25) * s;
+                q.x = (m21 - m12) / s;
+                q.y = (m02 - m20) / s;
+                q.z = (m10 - m01) / s;
+            }
+            else if (m00 > m11 && m00 > m22)
+            {
+                Float s = std::sqrt(Float(1) + m00 - m11 - m22) * Float(2); // s = 4 * x
+                q.w = (m21 - m12) / s;
+                q.x = Float(0.25) * s;
+                q.y = (m01 + m10) / s;
+                q.z = (m02 + m20) / s;
+            }
+            else if (m11 > m22)
+            {
+                Float s = std::sqrt(Float(1) + m11 - m00 - m22) * Float(2); // s = 4 * y
+                q.w = (m02 - m20) / s;
+                q.x = (m01 + m10) / s;
+                q.y = Float(0.25) * s;
+                q.z = (m12 + m21) / s;
+            }
+            else
+            {
+                Float s = std::sqrt(Float(1) + m22 - m00 - m11) * Float(2); // s = 4 * z
+                q.w = (m10 - m01) / s;
+                q.x = (m02 + m20) / s;
+                q.y = (m12 + m21) / s;
+                q.z = Float(0.25) * s;
+            }
+            return normalize(q);
+        }
+
+        /**
+         * @brief The inverse of an affine (rotation-scale-shear + translation) matrix.
+         *
+         * Inverts the upper-left 3x3 by its adjugate and maps the translation through it;
+         * the projective row is assumed `(0, 0, 0, 1)`. Handles non-uniform scale, which
+         * is why it is used to build inverse-bind matrices rather than the transpose short
+         * cut. Returns the identity if the linear part is singular.
+         *
+         * @param matrix A column-major affine matrix.
+         * @return Its inverse, or the identity if @p matrix is degenerate.
+         */
+        inline Mat4 affine_inverse(const Mat4& matrix) noexcept
+        {
+            const Float a = matrix.m[0], b = matrix.m[4], c = matrix.m[8];
+            const Float d = matrix.m[1], e = matrix.m[5], f = matrix.m[9];
+            const Float g = matrix.m[2], h = matrix.m[6], i = matrix.m[10];
+            const Float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+            if (det == Float(0))
+                return Mat4{};
+            const Float inv_det = Float(1) / det;
+            Mat4 r{};
+            // Inverse of the linear 3x3 (adjugate / det), written column-major:
+            // r.m[col * 4 + row] holds inverse-element (row, col).
+            r.m[0] = (e * i - f * h) * inv_det;
+            r.m[1] = (f * g - d * i) * inv_det;
+            r.m[2] = (d * h - e * g) * inv_det;
+            r.m[4] = (c * h - b * i) * inv_det;
+            r.m[5] = (a * i - c * g) * inv_det;
+            r.m[6] = (b * g - a * h) * inv_det;
+            r.m[8] = (b * f - c * e) * inv_det;
+            r.m[9] = (c * d - a * f) * inv_det;
+            r.m[10] = (a * e - b * d) * inv_det;
+            // Inverse translation: -inv_linear * original_translation.
+            const Float tx = matrix.m[12], ty = matrix.m[13], tz = matrix.m[14];
+            r.m[12] = -(r.m[0] * tx + r.m[4] * ty + r.m[8] * tz);
+            r.m[13] = -(r.m[1] * tx + r.m[5] * ty + r.m[9] * tz);
+            r.m[14] = -(r.m[2] * tx + r.m[6] * ty + r.m[10] * tz);
+            return r;
+        }
+
+        /**
+         * @brief Decomposes an affine matrix into translation, rotation, and scale.
+         *
+         * Inverse of @ref compose_transform for a well-formed TRS matrix. Translation is
+         * the fourth column; scale is the length of each basis column; rotation is read
+         * from the scale-normalized basis via @ref quaternion_from_matrix. A negative
+         * determinant folds one reflection onto the x scale so the residual rotation stays
+         * a proper (right-handed) rotation. Shear is not recovered — a sheared matrix
+         * decomposes to the nearest TRS.
+         *
+         * @param matrix       A column-major TRS matrix.
+         * @param out_position Receives the translation.
+         * @param out_rotation Receives the unit-quaternion rotation.
+         * @param out_scale    Receives the per-axis scale.
+         */
+        inline void decompose_transform(const Mat4& matrix, Vector3& out_position,
+                                        Quaternion& out_rotation, Vector3& out_scale) noexcept
+        {
+            out_position = Vector3{matrix.m[12], matrix.m[13], matrix.m[14]};
+            Vector3 col0{matrix.m[0], matrix.m[1], matrix.m[2]};
+            Vector3 col1{matrix.m[4], matrix.m[5], matrix.m[6]};
+            Vector3 col2{matrix.m[8], matrix.m[9], matrix.m[10]};
+            Float sx = length(col0), sy = length(col1), sz = length(col2);
+            // A reflection (det < 0) cannot be a scale of a proper rotation; absorb it into x.
+            const Float det = dot(col0, cross(col1, col2));
+            if (det < Float(0))
+                sx = -sx;
+            out_scale = Vector3{sx, sy, sz};
+            Mat4 rotation{};
+            if (sx != Float(0)) { rotation.m[0] = col0.x / sx; rotation.m[1] = col0.y / sx; rotation.m[2] = col0.z / sx; }
+            if (sy != Float(0)) { rotation.m[4] = col1.x / sy; rotation.m[5] = col1.y / sy; rotation.m[6] = col1.z / sy; }
+            if (sz != Float(0)) { rotation.m[8] = col2.x / sz; rotation.m[9] = col2.y / sz; rotation.m[10] = col2.z / sz; }
+            out_rotation = quaternion_from_matrix(rotation);
+        }
     } // namespace placeholder
 } // namespace SushiEngine

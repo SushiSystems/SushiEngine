@@ -69,6 +69,17 @@ namespace SushiEngine
             std::string last_project_root;
 
             /**
+             * @brief The editor's input bindings, as a serialized JSON document.
+             *
+             * Held as the dumped text of @ref SushiEngine::Input::bindings_to_json so this
+             * struct stays free of the JSON dependency; the store nests it as a real object in
+             * the preferences file. Empty means "use the compiled-in defaults". The editor
+             * loads it into its @c InputContext with @ref SushiEngine::Input::bindings_from_json,
+             * so a stale or partial document degrades to defaults rather than failing.
+             */
+            std::string input_bindings;
+
+            /**
              * @brief The renderer performance/fidelity trade, persisted across sessions.
              *
              * A host setting (not scene data — see @ref SushiEngine::Render::RenderSettings),

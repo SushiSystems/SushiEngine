@@ -25,6 +25,7 @@
 #include "material_inspector.hpp"
 
 #include "../serialization/scene_serializer.hpp"
+#include "../vfx/effect_preview.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -51,8 +52,12 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <SushiEngine/astro/celestial_bodies.hpp>
+#include <SushiEngine/input/bindings_json.hpp>
+#include <SushiEngine/input/input_manager.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 #include <SushiEngine/render/upscaler_info.hpp>
+
+#include "../input/editor_contexts.hpp"
 
 namespace fs = std::filesystem;
 
@@ -403,6 +408,13 @@ namespace SushiEngine
                         context.history.record(*world);
                         select_only(context, world->create_cloth("Cloth"));
                         editor_log(context, "Created object 'Cloth'.");
+                    }
+                    if (ImGui::MenuItem("Particle Emitter"))
+                    {
+                        context.history.record(*world);
+                        select_only(context,
+                                    world->create_particle_emitter("Particle Emitter"));
+                        editor_log(context, "Created object 'Particle Emitter'.");
                     }
                     if (ImGui::MenuItem("Light"))
                     {
@@ -812,6 +824,8 @@ namespace SushiEngine
                 ImGui::Separator();
                 draw_clipboard_menu_items(context, world);
                 ImGui::Separator();
+                if (ImGui::MenuItem("Input Manager...", nullptr))
+                    context.show_input_manager = true;
                 if (ImGui::MenuItem("Preferences...", nullptr))
                     context.show_preferences = true;
                 ImGui::EndMenu();
@@ -841,11 +855,14 @@ namespace SushiEngine
                 ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
                 ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
                 ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
+                ImGui::MenuItem("Particle Editor", nullptr, &context.panels.particle_editor);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                 ImGui::MenuItem("Console", nullptr, &context.panels.console);
                 ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
                 ImGui::MenuItem("Toolbar", nullptr, &context.panels.toolbar);
+                ImGui::MenuItem("Animation", nullptr, &context.panels.animation);
+                ImGui::MenuItem("Animator", nullptr, &context.panels.animator_graph);
                 ImGui::Separator();
                 ImGui::MenuItem("ImGui Demo", nullptr, &context.show_imgui_demo);
                 ImGui::EndMenu();
@@ -2032,6 +2049,66 @@ namespace SushiEngine
                 }
             }
 
+            if (world->has_particle_emitter(id))
+            {
+                bool keep_emitter = true;
+                const bool emitter_open = ImGui::CollapsingHeader(
+                    "Particle Emitter", &keep_emitter, ImGuiTreeNodeFlags_DefaultOpen);
+                if (!keep_emitter)
+                {
+                    context.history.record(*world);
+                    world->set_has_particle_emitter(id, false);
+                }
+                else if (emitter_open)
+                {
+                    SushiEngine::Simulation::ParticleEmitterParams params =
+                        world->particle_emitter_params(id);
+                    bool changed = false;
+
+                    const std::uint32_t effect_count = world->particle_effect_count();
+                    const std::uint32_t current =
+                        params.effect < effect_count ? params.effect : 0;
+                    const char* preview =
+                        effect_count > 0 ? world->particle_effect_name(current) : "None";
+                    if (ImGui::BeginCombo("Effect", preview))
+                    {
+                        for (std::uint32_t e = 0; e < effect_count; ++e)
+                        {
+                            if (ImGui::Selectable(world->particle_effect_name(e),
+                                                  params.effect == e))
+                            {
+                                context.history.begin_change(*world);
+                                params.effect = e;
+                                changed = true;
+                                context.history.end_change();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    int seed = static_cast<int>(params.seed);
+                    if (ImGui::DragInt("Seed", &seed, 1.0f, 0, 1000000))
+                    {
+                        params.seed = static_cast<std::uint32_t>(seed < 0 ? 0 : seed);
+                        changed = true;
+                    }
+                    if (ImGui::IsItemActivated())
+                        context.history.begin_change(*world);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        context.history.end_change();
+
+                    if (ImGui::Checkbox("Playing", &params.playing))
+                    {
+                        context.history.begin_change(*world);
+                        changed = true;
+                        context.history.end_change();
+                    }
+
+                    if (changed)
+                        world->set_particle_emitter_params(id, params);
+                }
+            }
+
             if (world->has_light(id))
             {
                 bool keep_light = true;
@@ -2408,6 +2485,11 @@ namespace SushiEngine
                 {
                     context.history.record(*world);
                     world->set_has_cloth(id, true);
+                }
+                if (!world->has_particle_emitter(id) && ImGui::MenuItem("Particle Emitter"))
+                {
+                    context.history.record(*world);
+                    world->set_has_particle_emitter(id, true);
                 }
                 if (!world->has_light(id) && ImGui::MenuItem("Light"))
                 {
@@ -3873,17 +3955,136 @@ namespace SushiEngine
                                                                                 : GizmoSpace::Local;
             ImGui::EndDisabled();
 
+            // Tool hotkeys now resolve through the EditorViewport input context (rebindable),
+            // gated centrally by the mapper's capture gate so a text field never switches tools.
             // While right mouse is held the Scene camera owns WASD for flight, so the tool
-            // hotkeys stand down to avoid switching tools as the user moves.
-            if (!ImGui::GetIO().WantTextInput && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+            // hotkeys still stand down to avoid switching tools as the user moves.
+            if (context.input_snapshot != nullptr && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
             {
-                if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+                if (context.input_snapshot->pressed("GizmoTranslate"))
                     context.gizmo_mode = GizmoMode::Translate;
-                else if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+                else if (context.input_snapshot->pressed("GizmoRotate"))
                     context.gizmo_mode = GizmoMode::Rotate;
-                else if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+                else if (context.input_snapshot->pressed("GizmoScale"))
                     context.gizmo_mode = GizmoMode::Scale;
             }
+
+            ImGui::End();
+        }
+
+        void draw_particle_editor_panel(EditorContext& context)
+        {
+            if (!context.panels.particle_editor)
+                return;
+            if (!ImGui::Begin("Particle Editor", &context.panels.particle_editor))
+            {
+                ImGui::End();
+                return;
+            }
+
+            EffectPreview* preview = context.particle_preview;
+            if (preview == nullptr)
+            {
+                ImGui::TextDisabled("No particle preview is available.");
+                ImGui::End();
+                return;
+            }
+
+            const bool playing = preview->playing();
+            if (ImGui::Button(playing ? "Pause" : "Play"))
+                preview->set_playing(!playing);
+            ImGui::SameLine();
+            if (ImGui::Button("Restart"))
+                preview->restart();
+
+            Vector3 position = preview->position();
+            float position_values[3] = {static_cast<float>(position.x),
+                                        static_cast<float>(position.y),
+                                        static_cast<float>(position.z)};
+            if (ImGui::DragFloat3("Emitter Position", position_values, 0.05f))
+                preview->set_position(Vector3{position_values[0], position_values[1],
+                                              position_values[2]});
+
+            Vfx::ParticleEffect& effect = preview->effect();
+            if (effect.emitters.empty())
+            {
+                ImGui::End();
+                return;
+            }
+            Vfx::EmitterDescriptor& emitter = effect.emitters[0];
+
+            ImGui::SeparatorText("Emission");
+            ImGui::DragFloat("Rate /s", &emitter.spawn.rate_per_second, 1.0f, 0.0f, 5000.0f);
+            int capacity = static_cast<int>(emitter.capacity);
+            if (ImGui::DragInt("Capacity", &capacity, 64.0f, 1, 1 << 20))
+                emitter.capacity = static_cast<std::uint32_t>(capacity < 1 ? 1 : capacity);
+
+            ImGui::SeparatorText("Shape");
+            const char* shape_names[] = {"Point", "Sphere", "Hemisphere", "Cone", "Box", "Circle"};
+            int shape = static_cast<int>(emitter.shape.shape);
+            if (ImGui::Combo("Shape", &shape, shape_names, IM_ARRAYSIZE(shape_names)))
+                emitter.shape.shape = static_cast<Vfx::EmitterShape>(shape);
+            ImGui::DragFloat("Radius", &emitter.shape.radius, 0.01f, 0.0f, 20.0f);
+            ImGui::SliderAngle("Cone Angle", &emitter.shape.cone_angle_radians, 0.0f, 90.0f);
+
+            ImGui::SeparatorText("Birth");
+            ImGui::DragFloatRange2("Lifetime", &emitter.init.lifetime_min, &emitter.init.lifetime_max,
+                                   0.05f, 0.0f, 30.0f);
+            ImGui::DragFloatRange2("Speed", &emitter.init.speed_min, &emitter.init.speed_max, 0.05f,
+                                   0.0f, 50.0f);
+            ImGui::DragFloatRange2("Size", &emitter.init.size_min, &emitter.init.size_max, 0.005f,
+                                   0.0f, 5.0f);
+            float birth_color[3] = {static_cast<float>(emitter.init.color.x),
+                                    static_cast<float>(emitter.init.color.y),
+                                    static_cast<float>(emitter.init.color.z)};
+            if (ImGui::ColorEdit3("Base Colour", birth_color))
+                emitter.init.color = Vector3{birth_color[0], birth_color[1], birth_color[2]};
+
+            ImGui::SeparatorText("Forces");
+            ImGui::Checkbox("Gravity", &emitter.gravity.enabled);
+            if (emitter.gravity.enabled)
+            {
+                float gravity[3] = {static_cast<float>(emitter.gravity.acceleration.x),
+                                    static_cast<float>(emitter.gravity.acceleration.y),
+                                    static_cast<float>(emitter.gravity.acceleration.z)};
+                if (ImGui::DragFloat3("Acceleration", gravity, 0.1f))
+                    emitter.gravity.acceleration = Vector3{gravity[0], gravity[1], gravity[2]};
+            }
+            ImGui::Checkbox("Drag", &emitter.drag.enabled);
+            if (emitter.drag.enabled)
+                ImGui::DragFloat("Drag Coefficient", &emitter.drag.coefficient, 0.01f, 0.0f, 10.0f);
+            ImGui::Checkbox("Turbulence", &emitter.turbulence.enabled);
+            if (emitter.turbulence.enabled)
+            {
+                ImGui::DragFloat("Frequency", &emitter.turbulence.frequency, 0.01f, 0.0f, 10.0f);
+                ImGui::DragFloat("Amplitude", &emitter.turbulence.amplitude, 0.05f, 0.0f, 50.0f);
+            }
+
+            ImGui::SeparatorText("Over Life");
+            ImGui::Checkbox("Size over life", &emitter.size_over_life.enabled);
+            ImGui::Checkbox("Colour over life", &emitter.color_over_life.enabled);
+            if (emitter.color_over_life.enabled &&
+                emitter.color_over_life.gradient.color_keys().size() >= 2)
+            {
+                std::vector<Vfx::ColorKey>& keys = emitter.color_over_life.gradient.color_keys();
+                float start[3] = {static_cast<float>(keys.front().color.x),
+                                  static_cast<float>(keys.front().color.y),
+                                  static_cast<float>(keys.front().color.z)};
+                if (ImGui::ColorEdit3("Start", start))
+                    keys.front().color = Vector3{start[0], start[1], start[2]};
+                float end[3] = {static_cast<float>(keys.back().color.x),
+                                static_cast<float>(keys.back().color.y),
+                                static_cast<float>(keys.back().color.z)};
+                if (ImGui::ColorEdit3("End", end))
+                    keys.back().color = Vector3{end[0], end[1], end[2]};
+            }
+
+            ImGui::SeparatorText("Render");
+            const char* blend_names[] = {"Additive", "Alpha", "Premultiplied"};
+            int blend = static_cast<int>(emitter.render.blend);
+            if (ImGui::Combo("Blend", &blend, blend_names, IM_ARRAYSIZE(blend_names)))
+                emitter.render.blend = static_cast<Vfx::BlendMode>(blend);
+            ImGui::TextDisabled("Alpha sorting and lit particles arrive in VFX2.");
 
             ImGui::End();
         }
@@ -4211,11 +4412,198 @@ namespace SushiEngine
             }
 
             ImGui::Separator();
+            if (ImGui::Button("Configure Input... (Edit > Input Manager)"))
+                context.show_input_manager = true;
+
+            ImGui::Separator();
             if (context.preferences_store != nullptr)
                 ImGui::TextDisabled("%s", context.preferences_store->path().c_str());
 
             if (changed)
                 context.preferences_dirty = true;
+
+            ImGui::End();
+        }
+
+        namespace
+        {
+            // A readable label for a control, for the Input Manager window. The editor contexts
+            // are keyboard-only, so keys get their glyph and modifiers a "Ctrl"/"Shift"/"Alt"
+            // prefix; other families fall back to a family name (they are not editor-bound yet).
+            std::string input_key_name(std::uint16_t ordinal)
+            {
+                if (ordinal >= 4 && ordinal <= 29) // A..Z
+                    return std::string(1, static_cast<char>('A' + (ordinal - 4)));
+                if (ordinal >= 30 && ordinal <= 38) // 1..9
+                    return std::string(1, static_cast<char>('1' + (ordinal - 30)));
+                switch (ordinal)
+                {
+                    case 39: return "0";
+                    case 40: return "Enter";
+                    case 41: return "Esc";
+                    case 42: return "Backspace";
+                    case 43: return "Tab";
+                    case 44: return "Space";
+                    case 70: return "PrintScreen";
+                    case 72: return "Pause";
+                    case 73: return "Insert";
+                    case 74: return "Home";
+                    case 75: return "PageUp";
+                    case 76: return "Delete";
+                    case 77: return "End";
+                    case 78: return "PageDown";
+                    case 79: return "Right";
+                    case 80: return "Left";
+                    case 81: return "Down";
+                    case 82: return "Up";
+                    case 118: return "Menu";
+                    case 224: case 228: return "Ctrl";
+                    case 225: case 229: return "Shift";
+                    case 226: case 230: return "Alt";
+                    default: return "Key#" + std::to_string(ordinal);
+                }
+            }
+
+            std::string input_control_label(const SushiEngine::Input::ControlPath& path)
+            {
+                using SushiEngine::Input::DeviceFamily;
+                switch (path.family)
+                {
+                    case DeviceFamily::Keyboard: return input_key_name(path.control);
+                    case DeviceFamily::Mouse:    return "Mouse";
+                    case DeviceFamily::Gamepad:  return "Pad";
+                    case DeviceFamily::Virtual:  return "Virtual";
+                    case DeviceFamily::Touch:    return "Touch";
+                }
+                return "?";
+            }
+
+            std::string input_binding_label(const SushiEngine::Input::Binding& binding)
+            {
+                std::string label;
+                for (std::uint8_t i = 0; i < binding.chord.count; ++i)
+                    label += input_control_label(binding.chord.modifiers[i]) + "+";
+                label += input_control_label(binding.control);
+                return label;
+            }
+        } // namespace
+
+        void draw_input_manager_window(EditorContext& context)
+        {
+            if (!context.show_input_manager)
+                return;
+
+            // Needs the live contexts and manager main() wired in; without them there is nothing
+            // to configure, so close quietly rather than show an empty shell.
+            if (context.input_manager == nullptr || context.editor_global_context == nullptr ||
+                context.editor_viewport_context == nullptr)
+            {
+                context.show_input_manager = false;
+                return;
+            }
+
+            ImGui::SetNextWindowSize(ImVec2(540.0f, 480.0f), ImGuiCond_FirstUseEver);
+            if (!ImGui::Begin("Input Manager", &context.show_input_manager))
+            {
+                ImGui::End();
+                return;
+            }
+
+            ImGui::TextWrapped("Bind editor shortcuts and viewport tools. Click Rebind, then press a "
+                               "key (Esc cancels). Changes are saved to your preferences and restored "
+                               "on the next launch.");
+            ImGui::Separator();
+
+            static SushiEngine::Input::RebindingListener rebind_listener;
+            static std::string rebinding_action;
+            static SushiEngine::Input::InputContext* rebinding_context = nullptr;
+
+            const auto serialize_bindings = [&]()
+            {
+                nlohmann::json bindings =
+                    SushiEngine::Input::bindings_to_json(*context.editor_global_context);
+                bindings = SushiEngine::Input::bindings_to_json(*context.editor_viewport_context, bindings);
+                context.preferences.input_bindings = bindings.dump();
+                context.preferences_dirty = true;
+            };
+
+            const auto draw_context_section =
+                [&](const char* label, SushiEngine::Input::InputContext& bindings_context)
+            {
+                if (!ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen))
+                    return;
+                for (const auto& action : bindings_context.actions())
+                {
+                    if (action->type != SushiEngine::Input::ActionType::Button)
+                        continue;
+                    ImGui::PushID(action->name.c_str());
+                    ImGui::TextUnformatted(action->name.c_str());
+
+                    ImGui::SameLine(170.0f);
+                    const std::string binding_text = action->button_bindings.empty()
+                                                         ? std::string("(unbound)")
+                                                         : input_binding_label(action->button_bindings[0]);
+                    ImGui::TextDisabled("%s", binding_text.c_str());
+
+                    ImGui::SameLine(320.0f);
+                    const bool capturing =
+                        rebind_listener.listening() && rebinding_action == action->name;
+                    if (capturing)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Press a key... (Esc)");
+                    }
+                    else if (ImGui::Button("Rebind"))
+                    {
+                        rebind_listener.begin(SushiEngine::Input::RebindShape::Button, 0.5f, 5.0f);
+                        rebinding_action = action->name;
+                        rebinding_context = &bindings_context;
+                    }
+
+                    if (!action->button_bindings.empty())
+                    {
+                        const SushiEngine::Input::Action* conflict = SushiEngine::Input::binding_conflict(
+                            bindings_context, action->button_bindings[0].control, action->name);
+                        if (conflict != nullptr)
+                        {
+                            ImGui::SameLine();
+                            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "conflicts with %s",
+                                               conflict->name.c_str());
+                        }
+                    }
+                    ImGui::PopID();
+                }
+            };
+
+            draw_context_section("Editor Global", *context.editor_global_context);
+            draw_context_section("Editor Viewport", *context.editor_viewport_context);
+
+            ImGui::Separator();
+            if (ImGui::Button("Reset to Defaults"))
+            {
+                // Rebuild in place: the objects keep their addresses (main() pushed pointers to
+                // them onto the mapper stack), so a move-assign of a fresh context is safe.
+                *context.editor_global_context = SushiEngine::Input::InputContext{"EditorGlobal"};
+                build_editor_global_context(*context.editor_global_context);
+                *context.editor_viewport_context = SushiEngine::Input::InputContext{"EditorViewport"};
+                build_editor_viewport_context(*context.editor_viewport_context);
+                context.preferences.input_bindings.clear();
+                context.preferences_dirty = true;
+            }
+
+            // Advance an active capture with this frame's raw events.
+            if (rebind_listener.listening())
+            {
+                const SushiEngine::Input::RebindStatus status =
+                    rebind_listener.update(context.input_manager->frame_events());
+                if (status == SushiEngine::Input::RebindStatus::Captured && rebinding_context != nullptr)
+                {
+                    if (SushiEngine::Input::Action* action =
+                            rebinding_context->find_action(rebinding_action))
+                        SushiEngine::Input::set_button_binding(*action, rebind_listener.captured());
+                    serialize_bindings();
+                    rebinding_context = nullptr;
+                }
+            }
 
             ImGui::End();
         }

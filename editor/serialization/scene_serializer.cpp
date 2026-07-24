@@ -427,6 +427,16 @@ namespace SushiEngine
                                           {"compliance", params.compliance}};
                 }
 
+                const bool has_particle_emitter = world.has_particle_emitter(id);
+                entry["has_particle_emitter"] = has_particle_emitter;
+                if (has_particle_emitter)
+                {
+                    const auto params = world.particle_emitter_params(id);
+                    entry["particle_emitter"] = json{{"effect", params.effect},
+                                                     {"seed", params.seed},
+                                                     {"playing", params.playing}};
+                }
+
                 // Not mutually exclusive with any of the above, so it is its own field
                 // pair too.
                 const bool has_shape = world.has_shape(id);
@@ -559,6 +569,20 @@ namespace SushiEngine
                         params.spacing = c.value("spacing", params.spacing);
                         params.compliance = c.value("compliance", params.compliance);
                         world.set_cloth_params(id, params);
+                    }
+                }
+
+                if (entry.value("has_particle_emitter", false))
+                {
+                    world.set_has_particle_emitter(id, true);
+                    if (entry.contains("particle_emitter"))
+                    {
+                        const json& p = entry["particle_emitter"];
+                        SushiEngine::Simulation::ParticleEmitterParams params;
+                        params.effect = p.value("effect", params.effect);
+                        params.seed = p.value("seed", params.seed);
+                        params.playing = p.value("playing", params.playing);
+                        world.set_particle_emitter_params(id, params);
                     }
                 }
 

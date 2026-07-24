@@ -57,7 +57,9 @@ namespace SushiEngine
                                              Assets::AssetLibrary& assets)
                 : device_(device), assets_(assets), descriptors_(device, SLOTS),
                   cloth_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
-                  motion_(device, SLOTS), instance_system_(device, SLOTS), lights_(device, SLOTS),
+                  motion_(device, SLOTS), instance_system_(device, SLOTS),
+                  skinning_(device, SLOTS), particles_(device, SLOTS, 1u << 16),
+                  lights_(device, SLOTS),
                   accelerator_(device, assets.meshes(), SLOTS),
                   profiler_(device, SLOTS, MAX_TIMED_PASSES),
                   graph_(device, &profiler_),
@@ -82,10 +84,14 @@ namespace SushiEngine
                   cull_pass_(device, assets.shaders(), assets.pipelines(), occlusion_pass_,
                              instance_system_),
                   cloth_pass_(device, assets.shaders(), assets.pipelines(), cloth_),
+                  skinning_pass_(device, assets.shaders(), assets.pipelines(), skinning_,
+                                 assets.meshes()),
+                  particle_sim_pass_(device, assets.shaders(), assets.pipelines(), particles_),
+                  particle_sort_pass_(device, assets.shaders(), assets.pipelines(), particles_),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes(), cloth_, materials_, motion_,
                                assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_, lights_,
-                               instance_system_),
+                               instance_system_, skinning_),
                   light_cull_pass_(device, assets.shaders(), assets.pipelines(), lights_),
                   light_shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                      assets.meshes(), lights_),
@@ -100,6 +106,7 @@ namespace SushiEngine
                                         assets.layout()),
                   ssr_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                             hiz_pass_),
+                  particle_pass_(device, assets.shaders(), assets.pipelines(), particles_),
                   taa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   dof_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   motion_blur_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
@@ -124,6 +131,9 @@ namespace SushiEngine
                            &ibl_pass_,
                            &irradiance_volume_pass_,
                            &cull_pass_,
+                           &skinning_pass_,
+                           &particle_sim_pass_,
+                           &particle_sort_pass_,
                            &depth_prepass_,
                            &occlusion_pass_,
                            &shadow_pass_,
@@ -141,6 +151,7 @@ namespace SushiEngine
                            &cloud_pass_,
                            &cloud_composite_pass_,
                            &ssr_pass_,
+                           &particle_pass_,
                            &taa_pass_,
                            &dof_pass_,
                            &motion_blur_pass_,
@@ -271,7 +282,12 @@ namespace SushiEngine
                                          const ClothStrandView* strands, std::size_t strand_count,
                                          const PunctualLight* lights, std::size_t light_count,
                                          const Decal* decals, std::size_t decal_count,
-                                         bool show_grid)
+                                         bool show_grid, const SkinnedInstance* skinned,
+                                         std::size_t skinned_count,
+                                         const ParticleEmitterView* emitters,
+                                         std::size_t emitter_count,
+                                         const ParticleBillboard* billboards,
+                                         std::size_t billboard_count)
             {
                 // Resolve the quality tier once, here, into the effective settings every
                 // pass reads and the extra per-pass knobs that have no home in
@@ -329,6 +345,13 @@ namespace SushiEngine
                 frame.draws.instance_count = count;
                 frame.draws.strands = strands;
                 frame.draws.strand_count = strand_count;
+                frame.draws.skinned = skinned;
+                frame.draws.skinned_count = skinned_count;
+                frame.draws.emitters = emitters;
+                frame.draws.emitter_count = emitter_count;
+                frame.draws.billboards = billboards;
+                frame.draws.billboard_count = billboard_count;
+                frame.particle_capacity = emitter_count > 0 ? particles_.capacity() : 0;
                 frame.draws.lights = lights;
                 frame.draws.light_count = light_count;
                 frame.draws.decals = decals;
@@ -583,6 +606,16 @@ namespace SushiEngine
                 // Pack this frame's soft-body particle positions and lay out their geometry; the
                 // cloth pass triangulates them on the GPU and the opaque pass draws the result.
                 cloth_.prepare(index, strands, strand_count, frame.eye);
+
+                // Pack this frame's skinned characters' palettes and lay out their output; the
+                // skinning pass deforms them into the output buffer and the opaque pass draws it.
+                skinning_.prepare(index, skinned, skinned_count, assets_.meshes());
+
+                // Flatten this frame's cosmetic emitters and upload their table and LUT atlases;
+                // the particle sim pass emits and integrates into the shared pool and the
+                // particle pass billboards the result.
+                particles_.prepare(index, frame_counter_, emitters, emitter_count);
+                particles_.prepare_billboards(index, billboards, billboard_count);
 
                 graph_.begin_frame(resources_.textures(index), resources_.buffers(index));
                 // Decided before the passes register, because a pass's queue declaration is

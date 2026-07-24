@@ -1,0 +1,126 @@
+#version 450
+
+// Compute pre-skinning (design §6.2): skin each skinned character once per frame into a
+// transient vertex buffer, so every consumer (opaque, depth, shadows) binds the result as
+// a static mesh and pays the skin cost once, not per pass. Linear-blend skinning; the
+// output is one interleaved SkinnedVertex per base vertex — the 60-byte MeshVertex layout
+// plus a 12-byte previous-frame skinned position, so a single vertex binding (stride 72)
+// feeds both the shaded draw and the motion-vector's previous position. The SkinningPass
+// (render/passes/skinning_pass.*) owns this descriptor set; the bindings are its contract.
+
+layout(local_size_x = 64) in;
+
+// The base MeshVertex (60 bytes), read as scalar fields — std430 array stride 60.
+struct BaseVertex
+{
+    float px, py, pz;
+    float nx, ny, nz;
+    float tx, ty, tz, tw;
+    float u0, v0;
+    float u1, v1;
+    uint  color;
+};
+
+// The skin stream (12 bytes): four 16-bit joint indices in two uints, four unorm8 weights.
+struct SkinVertex
+{
+    uint joints_lo; // joints[0] | joints[1] << 16
+    uint joints_hi; // joints[2] | joints[3] << 16
+    uint weights;   // w0 | w1<<8 | w2<<16 | w3<<24 (unorm8)
+};
+
+// The output (72 bytes): a MeshVertex followed by the previous-frame skinned position.
+struct SkinnedVertex
+{
+    float px, py, pz;
+    float nx, ny, nz;
+    float tx, ty, tz, tw;
+    float u0, v0;
+    float u1, v1;
+    uint  color;
+    float ppx, ppy, ppz; // previous-frame skinned position
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer BaseVertices { BaseVertex base[]; };
+layout(std430, set = 0, binding = 1) readonly buffer SkinVertices { SkinVertex skin[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Palette { mat4 palette[]; };
+layout(std430, set = 0, binding = 3) readonly buffer PrevPalette { mat4 prev_palette[]; };
+layout(std430, set = 0, binding = 4) writeonly buffer OutVertices { SkinnedVertex out_vertex[]; };
+
+layout(push_constant) uniform Push
+{
+    uint vertex_count; // vertices in this skinned mesh
+    uint palette_base; // first joint slot of this instance in the palette pool
+    uint out_base;     // first output vertex of this instance in the output buffer
+    uint prev_valid;   // 1 if prev_palette holds last frame's pose, else 0 (reuse current)
+} pc;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.vertex_count)
+        return;
+
+    BaseVertex v = base[i];
+    SkinVertex s = skin[i];
+    uint out_index = pc.out_base + i;
+
+    uint joints[4];
+    joints[0] = s.joints_lo & 0xFFFFu;
+    joints[1] = s.joints_lo >> 16;
+    joints[2] = s.joints_hi & 0xFFFFu;
+    joints[3] = s.joints_hi >> 16;
+    float weights[4];
+    weights[0] = float(s.weights & 0xFFu) / 255.0;
+    weights[1] = float((s.weights >> 8) & 0xFFu) / 255.0;
+    weights[2] = float((s.weights >> 16) & 0xFFu) / 255.0;
+    weights[3] = float((s.weights >> 24) & 0xFFu) / 255.0;
+
+    vec4 position = vec4(v.px, v.py, v.pz, 1.0);
+    vec3 normal = vec3(v.nx, v.ny, v.nz);
+    vec3 tangent = vec3(v.tx, v.ty, v.tz);
+
+    float total = weights[0] + weights[1] + weights[2] + weights[3];
+    vec3 skinned = position.xyz;
+    vec3 skinned_prev = position.xyz;
+    vec3 skinned_normal = normal;
+    vec3 skinned_tangent = tangent;
+    if (total > 0.0)
+    {
+        mat4 m = mat4(0.0);
+        mat4 mp = mat4(0.0);
+        for (int k = 0; k < 4; ++k)
+        {
+            float w = weights[k];
+            if (w <= 0.0)
+                continue;
+            uint j = pc.palette_base + joints[k];
+            m += palette[j] * w;
+            mp += (pc.prev_valid != 0u ? prev_palette[j] : palette[j]) * w;
+        }
+        skinned = (m * position).xyz;
+        skinned_prev = (mp * position).xyz;
+        mat3 rotation = mat3(m);
+        skinned_normal = normalize(rotation * normal);
+        skinned_tangent = normalize(rotation * tangent);
+    }
+
+    out_vertex[out_index].px = skinned.x;
+    out_vertex[out_index].py = skinned.y;
+    out_vertex[out_index].pz = skinned.z;
+    out_vertex[out_index].nx = skinned_normal.x;
+    out_vertex[out_index].ny = skinned_normal.y;
+    out_vertex[out_index].nz = skinned_normal.z;
+    out_vertex[out_index].tx = skinned_tangent.x;
+    out_vertex[out_index].ty = skinned_tangent.y;
+    out_vertex[out_index].tz = skinned_tangent.z;
+    out_vertex[out_index].tw = v.tw;
+    out_vertex[out_index].u0 = v.u0;
+    out_vertex[out_index].v0 = v.v0;
+    out_vertex[out_index].u1 = v.u1;
+    out_vertex[out_index].v1 = v.v1;
+    out_vertex[out_index].color = v.color;
+    out_vertex[out_index].ppx = skinned_prev.x;
+    out_vertex[out_index].ppy = skinned_prev.y;
+    out_vertex[out_index].ppz = skinned_prev.z;
+}

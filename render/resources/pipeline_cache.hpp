@@ -110,6 +110,27 @@ namespace SushiEngine
             constexpr std::uint32_t MAX_PIPELINE_COLOR_ATTACHMENTS = 8;
 
             /**
+             * @brief Colour-blend state applied to every colour attachment of a pipeline.
+             *
+             * A flat POD so it byte-compares as part of the fragment-output library key. The
+             * default is no blending (@c enable false with one/zero factors), which reproduces
+             * the renderer's original opaque behaviour, so a pipeline that never sets it is
+             * created exactly as before. Transparent draws — additive or alpha billboards — set
+             * @c enable and the factors. The same state applies to all attachments, which is all
+             * the engine needs today: multi-attachment G-buffer passes leave it disabled.
+             */
+            struct ColorBlend
+            {
+                VkBool32 enable = VK_FALSE;                          /**< Whether blending is on. */
+                VkBlendFactor src_color = VK_BLEND_FACTOR_ONE;      /**< Source colour factor. */
+                VkBlendFactor dst_color = VK_BLEND_FACTOR_ZERO;     /**< Destination colour factor. */
+                VkBlendOp color_op = VK_BLEND_OP_ADD;               /**< Colour blend op. */
+                VkBlendFactor src_alpha = VK_BLEND_FACTOR_ONE;      /**< Source alpha factor. */
+                VkBlendFactor dst_alpha = VK_BLEND_FACTOR_ZERO;     /**< Destination alpha factor. */
+                VkBlendOp alpha_op = VK_BLEND_OP_ADD;               /**< Alpha blend op. */
+            };
+
+            /**
              * @brief A graphics pipeline expressed as plain data.
              *
              * Deliberately a flat POD: it is both the creation parameter and — split into
@@ -148,6 +169,16 @@ namespace SushiEngine
                 std::uint32_t color_count = 0;
                 VkFormat depth_format = VK_FORMAT_UNDEFINED;
                 VkFormat stencil_format = VK_FORMAT_UNDEFINED;
+
+                /**
+                 * @brief Colour-blend state; part of the fragment-output library key.
+                 *
+                 * Default-constructed (no blending) reproduces the original opaque behaviour, so
+                 * every existing pass is unaffected. A transparent pass — an additive or alpha
+                 * particle billboard — sets it. Because it keys the fragment-output library, two
+                 * pipelines identical but for their blend do not alias to one cached library.
+                 */
+                ColorBlend blend{};
 
                 VkBool32 dynamic_stencil_reference = VK_FALSE;
 

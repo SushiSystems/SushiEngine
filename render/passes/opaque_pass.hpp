@@ -70,6 +70,7 @@ namespace SushiEngine
             class MotionSystem;
             class SceneLayout;
             class InstanceSystem;
+            class SkinningSystem;
         }
 
         namespace Lighting
@@ -122,7 +123,7 @@ namespace SushiEngine
                                Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                Textures::CloudNoise& noise, IblPass& ibl,
                                IrradianceVolumePass& gi, Lighting::LightSystem& lights,
-                               Scene::InstanceSystem& instances);
+                               Scene::InstanceSystem& instances, Scene::SkinningSystem& skinning);
                     ~OpaquePass() override;
 
                     OpaquePass(const OpaquePass&) = delete;
@@ -149,8 +150,11 @@ namespace SushiEngine
                     IrradianceVolumePass& gi_;
                     Lighting::LightSystem& lights_;
                     Scene::InstanceSystem& instances_;
+                    Scene::SkinningSystem& skinning_;
                     Resources::PipelineHandle mesh_pipeline_;
                     Resources::PipelineHandle outline_pipeline_;
+                    /** @brief The lit pipeline for skinned meshes (mesh_skinned.vert, stride 72). */
+                    Resources::PipelineHandle skinned_pipeline_;
                     /** @brief The lit pipeline built against the GPU-driven layout (mesh_gpu.vert). */
                     Resources::PipelineHandle gpu_mesh_pipeline_;
                     /** @brief The lit mesh-shader pipeline (meshlet.task + meshlet.mesh + pbr.frag). */

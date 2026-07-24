@@ -641,6 +641,10 @@ namespace SushiEngine
                                 render_settings_from_json(json["render_settings"]);
                         if (json.contains("environment"))
                             preferences.environment = environment_from_json(json["environment"]);
+                        // Input bindings are nested as a real object; hold their dumped text so
+                        // the Preferences struct stays free of the JSON dependency.
+                        if (json.contains("input_bindings") && json["input_bindings"].is_object())
+                            preferences.input_bindings = json["input_bindings"].dump();
                         return preferences;
                     }
 
@@ -662,6 +666,15 @@ namespace SushiEngine
                         json["last_project_root"] = preferences.last_project_root;
                         json["render_settings"] = render_settings_to_json(preferences.render_settings);
                         json["environment"] = environment_to_json(preferences.environment);
+                        // Re-nest the bindings blob as an object when it parses; a corrupt or empty
+                        // blob is simply omitted so the next load falls back to defaults.
+                        if (!preferences.input_bindings.empty())
+                        {
+                            nlohmann::json bindings =
+                                nlohmann::json::parse(preferences.input_bindings, nullptr, false);
+                            if (bindings.is_object())
+                                json["input_bindings"] = bindings;
+                        }
 
                         std::ofstream output(path_, std::ios::trunc);
                         if (!output.is_open())

@@ -59,8 +59,12 @@
 #include <SushiEngine/loop/rollback.hpp>
 #include <SushiEngine/loop/net.hpp>
 #include <SushiEngine/loop/app.hpp>
+#include <SushiEngine/animation/animation.hpp>
+#include <SushiEngine/vfx/vfx.hpp>
+#include <SushiEngine/audio/audio.hpp>
 #include <SushiEngine/ui/rect.hpp>
 #include <SushiEngine/ui/components.hpp>
 #include <SushiEngine/ui/interaction.hpp>
 #include <SushiEngine/ui/layout.hpp>
 #include <SushiEngine/ui/ui.hpp>
+#include <SushiEngine/input/input_manager.hpp>

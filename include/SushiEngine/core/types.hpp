@@ -96,20 +96,26 @@ namespace SushiEngine
     using FloatingOriginVector3 = placeholder::FloatingOriginVector3;
 
     // Vector, matrix, and quaternion operations, from the same seam as the types.
+    using placeholder::affine_inverse;
     using placeholder::compose_transform;
     using placeholder::conjugate;
     using placeholder::cross;
+    using placeholder::decompose_transform;
     using placeholder::dot;
     using placeholder::from_floating_origin;
     using placeholder::length;
+    using placeholder::lerp;
     using placeholder::look_at;
     using placeholder::mat4_from_quaternion;
     using placeholder::mul;
+    using placeholder::nlerp;
     using placeholder::normalize;
     using placeholder::perspective;
     using placeholder::quaternion_axis_angle;
+    using placeholder::quaternion_from_matrix;
     using placeholder::rotate;
     using placeholder::scaling;
+    using placeholder::slerp;
     using placeholder::to_floating_origin;
     using placeholder::translation;
 } // namespace SushiEngine
