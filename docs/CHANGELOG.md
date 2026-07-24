@@ -21,6 +21,62 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   install all of them for the `x64-linux` triplet.
 
 ### Added
+- **Audio — ECS integration: emitter/listener/reverb-zone components + wall-clock snapshot extract (Phase S6).**
+  The bridge between the ECS world and the audio engine (`slop/audio_system.md` §9), following the
+  render/VFX extract pattern: a **read-only** host projection run at wall-clock rate, so a
+  deterministic run is byte-identical with audio on or off.
+  - **Components (`include/SushiEngine/sim/components.hpp`).** `AudioListener` (the ears; pose from
+    Transform + Orientation), `AudioEmitter` (a `sound` id + routing/attenuation mirroring
+    `VoiceDescriptor`; pose from Transform), and `ReverbZone` (a world box + inline I3DL2). All
+    trivially copyable. `I3DL2Reverb` was split into the dependency-free
+    `include/SushiEngine/audio/reverb_params.hpp` so the component carries the data without pulling
+    in the reverb engine (Interface-Segregation).
+  - **Control-plane bridge (`include/SushiEngine/audio/audio_scene.hpp`).** `AudioScene` reconciles a
+    per-frame `SceneSnapshot` against the live voice pool — starts a voice when an emitter appears,
+    moves/re-gains it while it persists (the frame-to-frame position change is the Doppler), stops it
+    on silence or removal, and steers the reverb aux bus from the active zone. It knows **nothing**
+    about the ECS (Dependency-Inversion — plain float, listener-local, unit-testable) and resolves a
+    `sound` id to a source through an injected `IEmitterSourceFactory`, the seam the S8 bank/event
+    system implements. Added to the `audio/audio.hpp` umbrella.
+  - **The extract (`include/SushiEngine/sim/audio_extract.hpp`).** `build_audio_snapshot` /
+    `extract_audio_scene` — the sim-layer glue that walks the component columns, converts double
+    `WorldVector3` positions to listener-local float (eye-subtracted in double, the renderer's idiom)
+    and the listener's Orientation quaternion into a facing frame, then drives the `AudioScene`.
+  - **Slice + tests.** `audio_scene_demo` (an emitter flyby with Doppler + L/R motion, a second
+    emitter appearing, and one being dropped, self-checked headless then played best-effort);
+    `test_audio_scene.cpp` under `Unit_Audio` (the reconciliation in isolation) and
+    `test_audio_ecs.cpp` under `Integration_AudioEcs` (the extract against the real ECS world: the
+    listener-local conversion, reverb-zone containment, the read-only byte-identical invariant, and
+    voices tracking emitters as they move and are destroyed). `Room`/`Portal` and the I3DL2 early
+    reflections are deferred to S7 with the acoustic BVH.
+- **Audio — FDN reverb + I3DL2 API + room-geometry RT60 (Phase S5).**
+  The audio subsystem's late-reverberation stage (`slop/audio_system.md` §3.7, §7, §13),
+  replacing the low-pass placeholder the S2 mixer stood in for the reverb send. Built from
+  scratch, header-only, real-time-safe, behind clean SOLID seams.
+  - **DSP core (`include/SushiEngine/audio/dsp/`).** `feedback_matrix.hpp` — the lossless
+    Householder (`I − (2/N)·11ᵀ`, `O(N)`) and normalized Walsh–Hadamard mixing matrices,
+    both energy-preserving so the tail's decay is set *only* by the damping. `fdn_reverb.hpp`
+    — an order-16 **Jot feedback delay network**: coprime prime-length delay lines read
+    through the cubic-Lagrange `FractionalDelayLine` with slow per-line modulation (the tail
+    de-metaliser), a per-line one-pole **damping filter** whose DC and Nyquist gains realise
+    the broadband and HF RT60, input Schroeder-allpass diffusion, predelay, and decorrelated
+    stereo output taps. Orthogonal mixing + strictly-contractive damping ⇒ the network is
+    unconditionally stable. Added to the `dsp/dsp.hpp` umbrella.
+  - **Action layer (`include/SushiEngine/audio/reverb.hpp`).** The **`IReverb`** seam (§13,
+    FDN today / convolution later — same seam); the **I3DL2 / EAX** parameter set with
+    `generic`/`room_small`/`concert_hall`/`cave` presets and the I3DL2→FDN mapping
+    (`FdnReverbEffect`, with a RoomHF + Jot tonal-correction high-shelf); the
+    **`ReverbBusEffect`** adapter that drops any `IReverb` onto a per-zone aux bus as an
+    `IBusEffect`; and **Sabine/Eyring** room-geometry RT60 (`sabine_rt60`, `eyring_rt60`,
+    the ᾱ = 0.3 crossover `reverb_rt60`, and the `shoebox_reverb` geometry factory). Added
+    to the `audio/audio.hpp` umbrella.
+  - **Slice + tests.** `audio_reverb_demo` (S5 vertical slice: a bounded/decaying impulse
+    tail, a working predelay, longer-decay-rings-longer, the shoebox factory, then best-effort
+    playback through the aux bus); `test_audio_reverb.cpp` under `Unit_Audio` (matrix
+    losslessness + Householder involution, FDN boundedness/stability, coprime line lengths, a
+    measured T30 RT60 that tracks the request, a darker tail as the HF decays faster, predelay,
+    Sabine textbook value + Eyring/Sabine crossover, and the full mixer-aux-bus seam).
+    `audio_mixer_demo` now drives the real reverb in place of its old low-pass placeholder.
 - **VFX particle system — authoring model + dual backends + GPU render path (Phase VFX1).**
   The first vertical slice of the AAA VFX particle system (`slop/vfx_particle_system.md`):
   one authored effect asset feeds two interchangeable simulation backends behind

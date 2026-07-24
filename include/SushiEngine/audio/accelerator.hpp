@@ -44,7 +44,7 @@
  * this header on purpose — the runtime's fluent API is unstable, so the seam is
  * kept intentionally thin until there is a real implementation to shape it.
  *
- * See `docs/design/audio_system.md` §2, §12.2, §13.
+ * See `docs/slop/audio_system.md` §2, §12.2, §13.
  */
 
 namespace SushiEngine

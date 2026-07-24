@@ -23,6 +23,9 @@
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "lighting/cluster_config.hpp"
+#include "lighting/light_system.hpp"
+#include "passes/ibl_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
@@ -41,14 +44,19 @@ namespace SushiEngine
             ParticlePass::ParticlePass(Vulkan::VulkanDevice& device,
                                        Resources::ShaderLibrary& shaders,
                                        Resources::GraphicsPipelineFactory& pipelines,
-                                       Scene::ParticleSystem& particles)
-                : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles)
+                                       Scene::ParticleSystem& particles,
+                                       Lighting::LightSystem& lights, IblPass& ibl)
+                : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles),
+                  lights_(lights), ibl_(ibl)
             {
                 // Binding 0: the draw list the vertex stage reads to place each billboard.
                 // Binding 1: the scene depth, sampled by the fragment stage for the occlusion test.
                 // Binding 2: the sort keys the sorted-alpha vertex shader indexes through (unused by
                 // the additive/billboard draws, whose shader never references it).
-                VkDescriptorSetLayoutBinding bindings[3]{};
+                // Bindings 3-7: the clustered-lighting inputs the lit bucket's fragment shades from —
+                // the light array, the per-cluster count grid + index list the light-cull pass wrote,
+                // the froxel config block, and the environment SH for ambient (unread by unlit draws).
+                VkDescriptorSetLayoutBinding bindings[8]{};
                 bindings[0].binding = 0;
                 bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 bindings[0].descriptorCount = 1;
@@ -61,10 +69,18 @@ namespace SushiEngine
                 bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 bindings[2].descriptorCount = 1;
                 bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                for (std::uint32_t b = 3; b <= 7; ++b)
+                {
+                    bindings[b].binding = b;
+                    bindings[b].descriptorType = b == 6 ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                                                        : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    bindings[b].descriptorCount = 1;
+                    bindings[b].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                }
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 3;
+                layout_info.bindingCount = 8;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -162,6 +178,11 @@ namespace SushiEngine
                         builder.color_attachment(0, frame.targets.scene_final,
                                                  Graph::AttachmentLoad::Load);
                         builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);
+                        // The froxel grid the light-cull pass built: read so the graph derives the
+                        // compute→fragment barrier that makes the light lists visible before the lit
+                        // bucket loops them (the same declaration opaque_pass makes).
+                        builder.read(frame.targets.cluster_grid, Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.light_index, Graph::BufferAccess::StorageRead);
                         if (draw_emitters)
                         {
                             builder.read(frame.targets.particle_draw,
@@ -185,20 +206,27 @@ namespace SushiEngine
                             mul(frame.camera->projection, frame.camera->view);
                         for (int i = 0; i < 16; ++i)
                             push.view_projection[i] = static_cast<float>(view_projection.m[i]);
+                        // The camera world position rides the spare w lanes (the scene_uniforms
+                        // packing), so the vertex stage can subtract it to reach the camera-relative
+                        // space the clustered lights live in without spending another vec4. Cast to
+                        // float here, so the shading position inherits the pool's float32 precision —
+                        // acceptable for the near-camera cosmetic particles this path serves.
                         const Mat4& view = frame.camera->view;
                         push.camera_right[0] = static_cast<float>(view.m[0]);
                         push.camera_right[1] = static_cast<float>(view.m[4]);
                         push.camera_right[2] = static_cast<float>(view.m[8]);
+                        push.camera_right[3] = static_cast<float>(frame.eye[0]);
                         push.camera_up[0] = static_cast<float>(view.m[1]);
                         push.camera_up[1] = static_cast<float>(view.m[5]);
                         push.camera_up[2] = static_cast<float>(view.m[9]);
+                        push.camera_up[3] = static_cast<float>(frame.eye[1]);
                         // The sun is a world-space directional light, so lit particles need no
                         // camera-relative conversion (unlike the clustered froxel lights).
                         const Environment& environment = *frame.environment;
                         push.sun_direction[0] = static_cast<float>(environment.sun.direction.x);
                         push.sun_direction[1] = static_cast<float>(environment.sun.direction.y);
                         push.sun_direction[2] = static_cast<float>(environment.sun.direction.z);
-                        push.sun_direction[3] = 0.15f; // flat ambient fill for lit particles
+                        push.sun_direction[3] = static_cast<float>(frame.eye[2]);
                         push.sun_radiance[0] =
                             static_cast<float>(environment.sun.color.x) * environment.sun.intensity;
                         push.sun_radiance[1] =
@@ -206,17 +234,24 @@ namespace SushiEngine
                         push.sun_radiance[2] =
                             static_cast<float>(environment.sun.color.z) * environment.sun.intensity;
 
-                        // Draws one bucket: sets the lit flag, pushes, binds its source + pipeline,
-                        // then issues the caller's draw. Additive/billboards are emissive (unlit);
-                        // the true-alpha bucket (smoke/dust) receives the sun.
+                        // The ambient scale the lit (true-alpha) bucket applies to the environment
+                        // SH: the IBL intensity, or 0 when image-based lighting is off (then lit
+                        // particles get only the sun + punctual lights, like a mesh would).
+                        const float lit_ambient =
+                            environment.image_based_lighting ? environment.ibl_intensity : 0.0f;
+
+                        // Draws one bucket: sets the lit/ambient flag (negative = unlit/emissive,
+                        // >=0 = lit with that SH-ambient scale), pushes, binds its source + pipeline,
+                        // then issues the caller's draw. Additive/billboards are emissive; the
+                        // true-alpha bucket (smoke/dust) receives the sun + clustered lights.
                         const VkDeviceSize keys_range =
                             static_cast<VkDeviceSize>(particles_.capacity()) * 2 *
                             sizeof(std::uint32_t);
                         auto draw_bucket = [&](Resources::PipelineHandle& pipeline, VkBuffer source,
-                                               VkDeviceSize range, float lit, VkBuffer keys,
+                                               VkDeviceSize range, float lit_flag, VkBuffer keys,
                                                auto&& issue)
                         {
-                            push.sun_radiance[3] = lit;
+                            push.sun_radiance[3] = lit_flag;
                             vkCmdPushConstants(cmd, pipeline_layout_,
                                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                                0, sizeof(Push), &push);
@@ -228,6 +263,20 @@ namespace SushiEngine
                             // shaders never touch it, so a valid buffer there is harmless.
                             writer.storage_buffer(2, keys != VK_NULL_HANDLE ? keys : source,
                                                   keys != VK_NULL_HANDLE ? keys_range : range);
+                            // The clustered-lighting inputs the lit bucket shades from. Bound on
+                            // every bucket (the set is freshly allocated per draw); the unlit
+                            // fragment path never samples them, so they are inert for those draws.
+                            writer.storage_buffer(3, lights_.light_buffer(),
+                                                  lights_.light_buffer_range());
+                            writer.storage_buffer(
+                                4, context.buffer(frame.targets.cluster_grid),
+                                Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
+                            writer.storage_buffer(
+                                5, context.buffer(frame.targets.light_index),
+                                Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
+                            writer.uniform_buffer(6, lights_.config_buffer(),
+                                                  lights_.config_buffer_range());
+                            writer.storage_buffer(7, ibl_.sh_buffer(), IblPass::sh_buffer_bytes());
                             writer.update(device_.device(), set);
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.get());
                             Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -239,12 +288,12 @@ namespace SushiEngine
                         {
                             const VkBuffer args = context.buffer(frame.targets.particle_args);
                             draw_bucket(pipeline_, context.buffer(frame.targets.particle_draw),
-                                        particles_.pool_range(), 0.0f, VK_NULL_HANDLE, [&]() {
+                                        particles_.pool_range(), -1.0f, VK_NULL_HANDLE, [&]() {
                                             vkCmdDrawIndirect(cmd, args, 0, 1,
                                                               sizeof(VkDrawIndirectCommand));
                                         });
                             draw_bucket(alpha_pipeline_, context.buffer(frame.targets.particle_alpha),
-                                        particles_.pool_range(), 1.0f,
+                                        particles_.pool_range(), lit_ambient,
                                         context.buffer(frame.targets.particle_sort_keys), [&]() {
                                             vkCmdDrawIndirect(cmd, args, sizeof(VkDrawIndirectCommand),
                                                               1, sizeof(VkDrawIndirectCommand));
@@ -253,7 +302,7 @@ namespace SushiEngine
                         if (draw_billboards)
                         {
                             draw_bucket(pipeline_, particles_.billboard_buffer(slot),
-                                        particles_.billboard_range(), 0.0f, VK_NULL_HANDLE,
+                                        particles_.billboard_range(), -1.0f, VK_NULL_HANDLE,
                                         [&]() { vkCmdDraw(cmd, 6, particles_.billboard_count(), 0, 0); });
                         }
                     });

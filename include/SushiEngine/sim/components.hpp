@@ -40,6 +40,7 @@
 
 #include <cstdint>
 
+#include <SushiEngine/audio/reverb_params.hpp>
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/vfx/asset_id.hpp>
 
@@ -134,6 +135,78 @@ namespace SushiEngine
             float time = 0.0f;                         /**< Seconds since the emitter started playing. */
             float spawn_accumulator = 0.0f;            /**< Fractional continuous-spawn carry. */
             std::uint32_t flags = PARTICLE_EMITTER_PLAYING; /**< @ref PARTICLE_EMITTER_PLAYING and future bits. */
+        };
+
+        // --- Audio (Phase S6) ------------------------------------------------------
+        //
+        // Consumed by the **wall-clock audio snapshot extract** (`sim/audio_extract.hpp`
+        // → `Audio::AudioScene` → the voice manager), like the render extract reads
+        // Transform/Tint. No fixed-step Schedule system reads or writes them, and the
+        // extract only *reads* the world, so a deterministic run is byte-identical with
+        // audio on or off (`docs/slop/audio_system.md` §0, §9). Pose comes from
+        // Transform (+ Orientation for the listener's facing), the same columns the
+        // renderer reads — an emitter is just an entity that also makes sound.
+
+        /**
+         * @brief The "Audio Listener" component: this entity's pose is the ears.
+         *
+         * Present on the entity the mix is heard from (typically the active camera).
+         * Its position and facing come from Transform + Orientation; this adds only the
+         * master gain and an active flag. If several exist, the extract takes the first
+         * active one.
+         */
+        struct AudioListener
+        {
+            float gain = 1.0f;  /**< Master linear gain for the whole mix at this listener. */
+            bool active = true; /**< Only an active listener is chosen as the ears. */
+        };
+
+        /** @brief @ref AudioEmitter::flags bit: the emitter is actively sounding. */
+        constexpr std::uint32_t AUDIO_EMITTER_PLAYING = 1u << 0;
+        /** @brief @ref AudioEmitter::flags bit: distance/Doppler apply (else a 2D sound). */
+        constexpr std::uint32_t AUDIO_EMITTER_SPATIAL = 1u << 1;
+
+        /**
+         * @brief The "Audio Emitter" component: an entity that plays a sound.
+         *
+         * Stores the routing and attenuation a designer authors plus a @ref sound id the
+         * host resolves to a voice source (a tone/sample today; a bank **event** id at
+         * S8). Its world position comes from Transform, the same column the renderer
+         * reads; the extract feeds that position to the voice manager each wall-clock
+         * frame, and the frame-to-frame change is what drives Doppler. Every field is an
+         * id, a scalar, or a flag, so the component is trivially copyable like the rest.
+         * The fields mirror @ref Audio::VoiceDescriptor so the extract maps them 1:1.
+         */
+        struct AudioEmitter
+        {
+            std::uint32_t sound = 0;      /**< Sound/event id the host factory resolves to a source. */
+            float gain = 1.0f;           /**< Linear base gain before attenuation. */
+            float priority = 0.0f;       /**< Voice-manager real-slot priority (higher wins). */
+            std::uint32_t bus = 0;       /**< Target mixer bus id. */
+            float min_distance = 1.0f;   /**< Full gain within this radius (metres). */
+            float max_distance = 100.0f; /**< Silent and cullable beyond this radius (metres). */
+            std::uint32_t distance_model = 0; /**< 0 Linear, 1 Inverse, 2 Exponent (@ref Audio::DistanceModel). */
+            float rolloff = 1.0f;        /**< Rolloff factor for the inverse/exponent models. */
+            float doppler_scale = 1.0f;  /**< Doppler exaggeration (0 off, 1 physical, >1 more). */
+            std::uint32_t flags = AUDIO_EMITTER_PLAYING | AUDIO_EMITTER_SPATIAL;
+        };
+
+        /**
+         * @brief The "Reverb Zone" component: a world box that imposes its reverb.
+         *
+         * A box centred on the entity's Transform position with @ref half_extents; when
+         * the listener is inside, its @ref reverb (the I3DL2 set) drives the reverb aux
+         * bus. Overlapping zones are resolved by @ref priority (higher wins) — the
+         * distance-weighted blending across zone boundaries (§7) is a later refinement.
+         * The I3DL2 parameters live inline (a trivially-copyable POD, `reverb_params.hpp`)
+         * so the component needs no reverb *engine*.
+         */
+        struct ReverbZone
+        {
+            Vector3 half_extents{Vector3{10, 10, 10}}; /**< Box half-size around the Transform. */
+            Audio::I3DL2Reverb reverb;                 /**< The environment's I3DL2 reverb. */
+            float send = 1.0f;                         /**< Aux-send scale for emitters in the zone. */
+            std::int32_t priority = 0;                 /**< Overlapping zones: higher wins. */
         };
 
         /**

@@ -29,7 +29,7 @@
  * @brief Parameter smoothing and RTPC — the control-plane → audio-plane value bridge.
  *
  * Every mix parameter a game changes at runtime (a bus fader, a voice gain, a filter
- * cutoff) crosses the thread boundary the same way (see `docs/design/audio_system.md`
+ * cutoff) crosses the thread boundary the same way (see `docs/slop/audio_system.md`
  * §8): the control thread publishes a **target** into an atomic, and the audio thread
  * **ramps toward it** — never a raw jump, which would click. @ref SmoothedValue is
  * that primitive; @ref Rtpc layers the "game variable → authored curve → target"

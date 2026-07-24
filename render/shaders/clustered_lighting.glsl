@@ -15,24 +15,13 @@
 #define CLUSTERED_LIGHTING_GLSL
 
 #include "sdf_common.glsl"
+// The grid dimensions, the PunctualLight struct, cluster_index(), and punctual_attenuation()
+// are the binding-free primitives every froxel consumer shares (particle.frag also includes
+// this header); only this file's own set-0 storage/UBO bindings and the shading that reads
+// them live below.
+#include "clustered_lighting_common.glsl"
 
-#define CLUSTER_X 16u
-#define CLUSTER_Y 9u
-#define CLUSTER_Z 24u
-#define MAX_LIGHTS_PER_CLUSTER 64u
 #define MAX_DECALS_PER_CLUSTER 16u
-#define LIGHT_TYPE_SPOT 1.0
-
-// One packed punctual light, matching the GpuLight lanes LightSystem writes. Positions
-// are camera-relative (eye already subtracted), the same space the mesh fragment shades
-// in, so a light-to-fragment vector is a plain difference.
-struct PunctualLight
-{
-    vec4 position_range;  // xyz = camera-relative position, w = range
-    vec4 color_intensity; // xyz = linear colour, w = radiance scale
-    vec4 direction_type;  // xyz = spot axis, w = light type (0 point, 1 spot)
-    vec4 cone;            // x = cos(outer), y = 1/(cos(inner)-cos(outer)), zw spare
-};
 
 layout(std430, set = 0, binding = 14) readonly buffer LightBuffer
 {
@@ -158,43 +147,12 @@ float sample_punctual_shadow(int record, vec3 world_pos)
 // build agree on cluster membership.
 uint cluster_index_for(vec2 frag_coord, float view_z)
 {
-    uint cx = uint(clamp(frag_coord.x / max(cluster.screen.z, 1.0), 0.0, float(CLUSTER_X) - 1.0));
-    uint cy = uint(clamp(frag_coord.y / max(cluster.screen.w, 1.0), 0.0, float(CLUSTER_Y) - 1.0));
-    float slice = floor(log(max(view_z, cluster.depth.x)) * cluster.depth.z + cluster.depth.w);
-    uint cz = uint(clamp(slice, 0.0, float(CLUSTER_Z) - 1.0));
-    return cx + cy * CLUSTER_X + cz * CLUSTER_X * CLUSTER_Y;
+    return cluster_index(frag_coord, view_z, cluster.depth, cluster.screen);
 }
 
-// One punctual light's direct contribution, base BRDF only (the advanced lobes stay a
-// sun-path feature for now). Falloff is windowed inverse-square (the Karis window), so
-// a light reaches exactly zero at its range instead of being clipped hard.
-// The unshadowed attenuation of one light at a point: distance falloff windowed to the
-// light's range, times the spot cone. Split out of the shading because the stochastic
-// path needs it twice — once as the importance weight that decides which lights are worth
-// tracing a shadow ray for, and once inside the shading itself.
-float punctual_attenuation(PunctualLight light, vec3 world_pos, out vec3 light_dir,
-                           out float distance_to_light)
-{
-    vec3 to_light = light.position_range.xyz - world_pos;
-    float dist2 = dot(to_light, to_light);
-    float inv_dist = inversesqrt(max(dist2, 1e-8));
-    light_dir = to_light * inv_dist;
-    distance_to_light = dist2 * inv_dist;
-
-    float range = light.position_range.w;
-    float attenuation = 1.0 / max(dist2, 1e-4);
-    float ratio = dist2 / max(range * range, 1e-4);
-    float window = clamp(1.0 - ratio * ratio, 0.0, 1.0);
-    attenuation *= window * window;
-
-    if (light.direction_type.w > 0.5) // spot
-    {
-        float cos_angle = dot(-light_dir, light.direction_type.xyz);
-        float spot = clamp((cos_angle - light.cone.x) * light.cone.y, 0.0, 1.0);
-        attenuation *= spot * spot;
-    }
-    return attenuation;
-}
+// punctual_attenuation() — one light's unshadowed windowed inverse-square + spot falloff —
+// now lives in clustered_lighting_common.glsl, shared with the particle path. The stochastic
+// path below still uses it twice: as the importance weight and inside the shading.
 
 // A scalar estimate of what a light is worth at this point, before any visibility is
 // known: its radiance through its own falloff and the cosine term. This is the

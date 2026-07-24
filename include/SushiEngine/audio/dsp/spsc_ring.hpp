@@ -29,7 +29,7 @@
  * @brief The lock-free single-producer/single-consumer ring — the workhorse that
  *        joins the control plane to the audio-render plane.
  *
- * This is the one queue of the two-plane model (see `docs/design/audio_system.md`
+ * This is the one queue of the two-plane model (see `docs/slop/audio_system.md`
  * §0, §3.2): the control (game/ECS) thread pushes small trivially-copyable command
  * records — play, stop, set-parameter targets, or *pointers* to immutable pre-built
  * data — and the audio thread drains them at the top of each block. It is also used

@@ -83,6 +83,18 @@ add_executable(se_functional_tests
     # front symmetry, and head-tracking through the engine).
     functional/unit/test_audio_spatial.cpp
 
+    # Audio S5: reverb — the lossless feedback matrices (Householder/Hadamard energy
+    # preservation), the Jot FDN (coprime lengths, bounded/stable, a measured RT60 that
+    # tracks the request, a darker tail as the HF decays faster, predelay), and the
+    # room-geometry RT60 (Sabine/Eyring + crossover + the shoebox factory), all reached
+    # through the IReverb seam and the mixer aux-bus adapter.
+    functional/unit/test_audio_reverb.cpp
+
+    # Audio S6: the ECS bridge's control-plane structure (AudioScene) in isolation — the
+    # snapshot → live-voice reconciliation (start on appear, move/re-gain on persist, stop
+    # on silence or removal) and reverb-zone steering, driven by a hand-built snapshot.
+    functional/unit/test_audio_scene.cpp
+
     # VFX: the particle authoring model and the deterministic CPU backend, in isolation.
     # Curve/gradient evaluation + bake, the emitter compiler's POD boundary, and spawn
     # accounting — pure header-only maths, the shared foundation of both simulation domains.
@@ -115,6 +127,12 @@ add_executable(se_functional_tests
     functional/integration/test_app.cpp
     functional/integration/test_input_determinism.cpp
     functional/integration/test_particle_determinism.cpp
+
+    # Audio S6: the wall-clock audio snapshot extract against the real ECS world — the
+    # listener-local conversion (facing from the Orientation quaternion, eye-subtracted
+    # emitter positions), reverb-zone containment, the read-only (byte-identical) invariant,
+    # and driving an AudioScene's voices as emitters move and are destroyed.
+    functional/integration/test_audio_ecs.cpp
     functional/integration/test_ui.cpp
     functional/integration/test_soft_body.cpp
     functional/integration/test_astro_dynamics.cpp

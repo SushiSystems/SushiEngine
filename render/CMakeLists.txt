@@ -59,6 +59,7 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_sampling.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_common.glsl"
@@ -349,7 +350,8 @@ target_include_directories(sushi_render
 # Shader hot-reload watches this directory when it exists, which is the case for a
 # development build from the source tree and not for a deployed binary.
 target_compile_definitions(sushi_render PRIVATE
-    SUSHI_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+    SUSHI_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+    SUSHI_PIPELINE_CACHE_DIR="${CMAKE_BINARY_DIR}")
 target_link_libraries(sushi_render PUBLIC
     Vulkan::Headers
     Vulkan::Loader

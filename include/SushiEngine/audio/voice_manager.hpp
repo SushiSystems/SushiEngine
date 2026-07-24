@@ -34,7 +34,7 @@
  * ranks the active set by `(priority, audibility)`, and promotes the top **real**
  * voices (capped) to full rendering while the rest go **virtual** — position
  * bookkeeping only, at ~no cost, ready to resume seamlessly if they climb back into
- * the audible set (see `docs/design/audio_system.md` §8).
+ * the audible set (see `docs/slop/audio_system.md` §8).
  *
  * Real voices render mono, ramp their gain, and pan into their target mixer bus, so N
  * sources collapse into a handful of bus buffers before any effect runs. Occlusion,

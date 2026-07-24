@@ -12,19 +12,23 @@ column + snapshot extract + a compute subsystem wired end to end), `audio_system
 sibling wall-clock snapshot consumer that also lives *outside* the deterministic island), and the
 renderer's `../ARCHITECTURE.md` (the render graph the draw passes plug into).
 
-**Status (2026-07-24): VFX1 + the deterministic-ECS connection + most of VFX2 are shipped and
-build-verified** (`se editor --no-run` green each increment). Done: the whole VFX1 vertical slice
-(authoring model, both simulation backends, GPU emit/simulate/billboard render, blend-state
-prerequisite, quality tiers, editor panel + emitter gizmo, demo, tests); the **deterministic emitter →
-ECS** connection (`IWorldEditor` emitter quartet, host-side pools on `RuntimeSimulation::Record`,
-`ParticleBillboard` extract, editor GameObject/Add-Component/Inspector/`.sushiscene`); **VFX2a**
-(per-blend bucketing → additive + true-alpha draws, and GPU **bitonic back-to-front depth-sort** of the
-alpha bucket); and **VFX2b sun-lit particles** (world-space directional sun + ambient on the alpha
-bucket — the camera-relative hazard sidestepped). **Not yet done (the one remaining deferred
-refinement): clustered-punctual-light particles** — the froxel version, which needs the camera-relative
-conversion and injecting the cluster grid / light list / IBL into the particle pass (see §12/§13); it is
-deliberately left for a GPU-verified focused step because its correctness cannot be seen at compile time.
-The roadmap in §12 marks each item's state.
+**Status (2026-07-24): VFX1 + the deterministic-ECS connection + all of VFX2's lighting are
+implemented** (`se editor --no-run` green each increment; the newest step is build-pending + awaits a
+GPU visual check). Done: the whole VFX1 vertical slice (authoring model, both simulation backends, GPU
+emit/simulate/billboard render, blend-state prerequisite, quality tiers, editor panel + emitter gizmo,
+demo, tests); the **deterministic emitter → ECS** connection (`IWorldEditor` emitter quartet, host-side
+pools on `RuntimeSimulation::Record`, `ParticleBillboard` extract, editor
+GameObject/Add-Component/Inspector/`.sushiscene`); **VFX2a** (per-blend bucketing → additive + true-alpha
+draws, and GPU **bitonic back-to-front depth-sort** of the alpha bucket); **VFX2b sun-lit particles**
+(world-space directional sun + ambient on the alpha bucket — the camera-relative hazard sidestepped); and
+**VFX2c clustered-punctual-light particles** — the froxel version: the lit (true-alpha) bucket now maps
+each sprite to a cluster and shades it with the scene's punctual lights + the environment SH ambient, in
+the same camera-relative space the meshes use. The froxel primitives were refactored into a binding-free
+`clustered_lighting_common.glsl` shared with `pbr.frag` (§7.7), and the camera-relative hazard was met by
+carrying `centre − eye` down from the vertex stage and reading the view-depth from `gl_Position.w`; the
+one accepted limitation is that this camera-relative subtraction is in float, so it inherits the cosmetic
+pool's float32 position precision (a near-camera envelope, documented in §13). The roadmap in §12 marks
+each item's state.
 
 ---
 
@@ -341,6 +345,37 @@ untouched. Without this, "transparent" particles draw opaque.
 scales them per tier (Low disables `gpu_particles`, Ultra raises `max_particles`), mirroring the
 `max_skinned_instances` precedent. Passes early-out when `!frame.quality.gpu_particles`.
 
+### 7.7 Clustered lighting for the lit bucket (VFX2c)
+
+The lit (true-alpha) bucket shades with the scene's punctual lights through the same Forward+ froxel
+grid the meshes use, plus the environment SH ambient — a diffuse blob, so no BRDF and no per-light
+shadow. Three decisions kept it correct **and** device-agnostic:
+
+- **One copy of the froxel math.** The pure primitives — the grid `#define`s, the `PunctualLight`
+  struct, `cluster_index(frag, view_z, depth, screen)`, and `punctual_attenuation(...)` — moved to a
+  binding-free `render/shaders/clustered_lighting_common.glsl`. `clustered_lighting.glsl` now includes
+  it and keeps only its own `set 0` bindings 14–22 and the shading that reads them (its
+  `cluster_index_for` became a one-line wrapper, behaviour-identical for `pbr.frag`); `particle.frag`
+  includes the same header and declares a **smaller subset** of those buffers on the pass's own set
+  (bindings 3–7), so the two consumers share the math but bind on different sets. This is the header's
+  Open/Closed seam — a new consumer adds a binding block, not another copy of `cluster_index`.
+- **Camera-relative without a precision cliff or a sign trap.** Particles are stored in absolute-world
+  float, but the froxels and `light_buffer` are camera-relative. The vertex stage subtracts the eye
+  (`centre − eye`, the eye packed into the push's spare `w` lanes exactly as `scene_uniforms` packs it)
+  and passes the camera-relative centre down as a varying; the froxel **view-depth is read straight from
+  `gl_Position.w`** (the perspective clip `w` equals the positive view distance the z-slice is keyed on),
+  which needs no `cam_forward` vector and so has no cross-product sign ambiguity. The one accepted
+  limitation: the `centre − eye` subtraction is in float, so it inherits the cosmetic pool's float32
+  position precision — a near-camera envelope (see §13).
+- **Within the 128-byte push budget.** No new push space was spent: the eye rides `camera_right.w`,
+  `camera_up.w`, `sun_direction.w`, and the lit flag doubles as the SH-ambient scale on `sun_radiance.w`
+  (`<0` = unlit/emissive, `>=0` = lit with that IBL ambient scale), so the block stays exactly 128 bytes,
+  matching `MeshPushConstants` — the house budget that keeps the layout portable to a 128-byte device.
+
+The pass reads `frame.targets.cluster_grid` / `light_index` (so the graph derives the compute→fragment
+barrier), and binds `lights_.light_buffer()`, `lights_.config_buffer()` (a truncated, layout-compatible
+`ClusterBlock`), and `ibl_.sh_buffer()` on every bucket — the unlit fragment path never samples them.
+
 ---
 
 ## §8 Editor authoring
@@ -439,10 +474,13 @@ No mocks — everything runs against the real runtime, per house style.
     to keep the sort tractable).
   - ✅ **Sun-lit particles** — the alpha bucket receives the world-space directional sun + a flat ambient
     (camera-relative hazard sidestepped); the additive bucket stays emissive.
-  - ☐ **Clustered-punctual-light particles** (the froxel version) — the remaining refinement: inject the
-    cluster grid / light-index / light buffer / IBL SH into the particle pass and shade the lit bucket
-    with `punctual_attenuation` + `gi_sh_irradiance`, converting each particle to **camera-relative**
-    first. Left for a GPU-verified focused step (see §13); the seams are mapped in §7 and ARCHITECTURE §15.
+  - ✅ **Clustered-punctual-light particles** (VFX2c, the froxel version) — the lit bucket maps each
+    sprite to a cluster and accumulates `punctual_attenuation(...) * NdotL * radiance` over that
+    cluster's lights, plus `gi_sh_irradiance(sh, n)` ambient (the flat ambient became the SH ambient).
+    Camera-relative via `centre − eye` + `gl_Position.w` view-depth; the froxel primitives extracted into
+    the binding-free `clustered_lighting_common.glsl` shared with `pbr.frag`. See §7.7. **Implemented,
+    build-pending + awaits a GPU visual check** (the camera-relative correctness is not visible at
+    compile time).
   - ☐ Volumetric-shadow receive.
 - ☐ **VFX3 — Ribbons / trails / beams.** Compute trail-geometry generator + ribbon draw.
 - ☐ **VFX4 — Mesh particles.** Mesh-instance emission wired onto the existing GPU-driven indirect path
@@ -456,19 +494,35 @@ No mocks — everything runs against the real runtime, per house style.
 
 ## §13 Deferred / open
 
-- **Clustered-punctual-light particles (the immediate next step).** Sun-lit particles ship; the froxel
-  version does not. The plan: give the particle draw pass access to the light buffer (`lights_.light_buffer()`),
-  cluster grid (`frame.targets.cluster_grid`), light-index list (`frame.targets.light_index`), the
-  `ClusterBlock` UBO (`lights_.config_buffer()`), and the IBL SH buffer (`ibl_.sh_buffer()`) — either by
-  adding those bindings to the pass's own descriptor set (less invasive) or routing the draw through the
-  shared `SceneLayout`. In the lit fragment, **convert the particle to camera-relative first**
-  (`camrel = world - eye`, eye from the scene block), then `cluster_index_for(gl_FragCoord.xy, view_z)` and
-  accumulate `punctual_attenuation(...) * NdotL * light.radiance` over the cluster's lights, plus
-  `gi_sh_irradiance(sh, n)` ambient. **The camera-relative conversion is the single biggest hazard**
-  (particles are stored in absolute world; the clustered froxels and `light_buffer` are camera-relative),
-  so this must be visually verified on a GPU. `clustered_lighting.glsl` declares fixed `set 0` bindings
-  14–17, which collide with the pass's own set 0 bindings 0–2, so the helpers are best copied (the no-BRDF
-  `punctual_attenuation`/`cluster_index_for`) rather than the file included wholesale.
+- **▶ RESUME HERE (2026-07-25).** VFX2c is code-complete but **not yet built or GPU-verified**. Next
+  session, in order:
+  1. **Build** — `se editor --no-run` (user builds; do not run ninja/cmake). Touched files:
+     `render/shaders/clustered_lighting_common.glsl` (new include), `clustered_lighting.glsl`,
+     `particle.frag` / `particle.vert` / `particle_sorted.vert`, `render/passes/particle_pass.{hpp,cpp}`,
+     `render/rhi/vulkan/vulkan_scene_view.cpp`, `render/CMakeLists.txt` (added the new include to
+     `SHADER_INCLUDES`). Fix any GLSL/C++ error before proceeding.
+  2. **GPU visual check** — place a point/spot light beside a lit (true-alpha, e.g. Smoke) emitter and
+     confirm the puff picks up the light and reads correctly; confirm no z-slice mismatch (the froxel
+     view-depth now comes from `gl_Position.w`, which must equal the mesh path's
+     `dot(cam_forward, v_world_position)`).
+  3. **Only after it looks right on the GPU**, flip §12's VFX2c ✅ note from "build-pending" to shipped
+     and move VFX2 from ◐ toward the next item (Volumetric-shadow receive, or VFX3 ribbons).
+  Details of the implementation and the accepted float-precision limitation are below.
+- **Clustered-punctual-light particles — IMPLEMENTED (2026-07-24), awaiting build + GPU visual check.**
+  The lit bucket's draw pass took `lights_` + `ibl_` in its constructor and added `set 0` bindings 3–7
+  (light buffer, cluster grid, light-index list, `ClusterBlock` UBO, IBL SH) — the "pass's own set"
+  option, not the shared `SceneLayout`. The predicted binding collision was sidestepped not by *copying*
+  the helpers but by *extracting* them: `clustered_lighting_common.glsl` now holds the binding-free
+  `PunctualLight` / `cluster_index` / `punctual_attenuation` / grid `#define`s, included by both
+  `clustered_lighting.glsl` (which keeps its 14–22 bindings) and `particle.frag` (which declares 3–7), so
+  there is exactly one copy of the froxel math (§7.7). The camera-relative conversion was done in the
+  **vertex** stage (`centre − eye`, eye packed into the push's spare `w` lanes) with the froxel view-depth
+  taken from **`gl_Position.w`** rather than a `dot(cam_forward, camrel)` — no `cam_forward` in the push
+  (keeps the block at the 128-byte house budget) and no cross-product sign trap. **Still to verify on a
+  GPU:** that `gl_Position.w` matches the mesh path's `dot(cam_forward, v_world_position)` z-slice and that
+  lit smoke reads correctly near punctual lights. **Accepted limitation:** the `centre − eye` subtraction
+  is in float, so at planetary distances it inherits the cosmetic pool's float32 position precision — a
+  near-camera envelope, the same envelope the pool's absolute-float positions already live in.
 - **Known slice limitations to revisit.** Deterministic billboards draw additively (no per-billboard blend
   on `Render::ParticleBillboard`), so a deterministic Smoke emitter glows rather than composites; only
   `emitters[0]` of a multi-emitter effect is CPU-simulated on the deterministic path; the alpha sort runs

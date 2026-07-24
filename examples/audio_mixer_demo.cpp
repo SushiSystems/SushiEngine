@@ -73,8 +73,9 @@ int main()
 
     AudioEngine engine(64, max_real);
 
-    // Bus topology: master <- {music, sfx}; sfx aux-sends a reverb bus (darkened by a
-    // low-pass insert as an S5 placeholder) that also routes to master.
+    // Bus topology: master <- {music, sfx}; sfx aux-sends a reverb bus that also routes
+    // to master. The reverb is the real S5 FDN behind the IReverb seam (it replaced the
+    // low-pass placeholder this demo used to stand in for it).
     const int master = engine.mixer().add_bus(NO_BUS);
     const int music_bus = engine.mixer().add_bus(master);
     const int sfx_bus = engine.mixer().add_bus(master);
@@ -82,10 +83,14 @@ int main()
     engine.mixer().set_master(master);
     engine.mixer().add_aux_send(sfx_bus, reverb_bus, 0.25f);
     {
-        std::unique_ptr<BiquadBusEffect> damp(new BiquadBusEffect());
-        damp->left().set_low_pass(1200.0, 0.707, sample_rate);
-        damp->right().set_low_pass(1200.0, 0.707, sample_rate);
-        engine.mixer().add_insert(reverb_bus, std::move(damp));
+        std::unique_ptr<FdnReverbEffect> fx(new FdnReverbEffect());
+        // A short, restrained room: this S2 slice checks the voice/mixer path, so the
+        // reverb stays subtle (a long tail would build up under the sustained test tones).
+        I3DL2Reverb params = I3DL2Reverb::room_small();
+        params.wet_dry_mix = 100.0f; // aux bus: pure wet, dry routes direct to master
+        fx->set_params(params);
+        engine.mixer().add_insert(
+            reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     }
 
     engine.prepare(sample_rate, block);

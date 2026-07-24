@@ -11,9 +11,9 @@ Companion docs: `vfx_particle_system.md` (the sibling wall-clock snapshot consum
 lives *outside* the deterministic island), `animation_system.md` (the structural template —
 trivially-copyable state column + snapshot extract), and `../ARCHITECTURE.md`.
 
-**Status:** Design; **phases S0–S4 landed — the S0–S4 critical path is complete** (device seam + silent
+**Status:** Design; **phases S0–S6 landed — the S0–S4 critical path is complete, plus the S5 reverb and S6 ECS integration** (device seam + silent
 block loop; DSP core base; voice manager + mixer bus DAG + RTPC; propagation/Doppler/air-absorption;
-ambisonic scene bus + binaural spatializer with head-tracking — see §14). In the tree: the header-only seams and the `sushi_audio`
+ambisonic scene bus + binaural spatializer with head-tracking; Jot FDN reverb on a per-zone aux bus; ECS emitter/listener/reverb-zone components + wall-clock snapshot extract — see §14). In the tree: the header-only seams and the `sushi_audio`
 SDL2 backend; the `App::runtime()` accessor; the portable DSP core (`audio/dsp/`: `ScopedNoDenormals`,
 `SpscRing`, SIMD kernels, one-pole/biquad/TPT-SVF filters, the topo-sorted block graph with one-block
 feedback, built-in nodes); and the header-only action layer (`audio/`: `SmoothedValue`/`Rtpc`, voices
@@ -24,10 +24,18 @@ prioritized mix, and the `AudioEngine` renderer), reached through `audio/audio.h
 `SourcePropagation` — delay-line Doppler with slew/teleport-snap — integrated per spatial voice).
 Plus the spatializer (`audio/dsp/spherical_harmonics.hpp`, `audio/spatializer.hpp`: real ACN/SN3D
 spherical harmonics, the ambisonic scene bus, and the virtual-speaker + analytic-HRTF binaural decode
-with head-relative encoding, integrated into the voice manager and `AudioEngine`). Slices
-`audio_demo`/`audio_dsp_demo`/`audio_mixer_demo`/`audio_propagation_demo`/`audio_spatial_demo`; 38
-`Unit_Audio` tests. Everything from S5 (FDN reverb + I3DL2 + per-zone aux) onward remains design. The
-S5+ phases follow this doc directly.
+with head-relative encoding, integrated into the voice manager and `AudioEngine`). Plus the reverb
+(`audio/dsp/feedback_matrix.hpp` + `dsp/fdn_reverb.hpp`, `audio/reverb.hpp`: the lossless
+Householder/Hadamard mixing matrices, the order-16 Jot FDN with per-line damping for
+frequency-dependent RT60, the `IReverb` seam behind the mixer's aux-bus adapter, the I3DL2
+parameter set, and Sabine/Eyring room-geometry RT60). Plus the ECS integration
+(`sim/components.hpp`: `AudioListener`/`AudioEmitter`/`ReverbZone` components;
+`audio/audio_scene.hpp`: the `AudioScene` control-plane bridge + `IEmitterSourceFactory` seam;
+`sim/audio_extract.hpp`: the read-only wall-clock snapshot extract that reads those columns into a
+listener-local snapshot and reconciles it against the voice pool). Slices
+`audio_demo`/`audio_dsp_demo`/`audio_mixer_demo`/`audio_propagation_demo`/`audio_spatial_demo`/`audio_reverb_demo`/`audio_scene_demo`;
+`Unit_Audio` + `Integration_AudioEcs` tests. Everything from S7 (occlusion/rooms/portals + acoustic
+BVH) onward remains design. The S7+ phases follow this doc directly.
 
 **Scope note (locked 2026-07-24):** this is a *game-audio* engine only. The earlier ambition to also ship
 a standalone JCM800 amp simulator, VST3/CLAP plugins, a separate reusable **SushiDSP** repository, and
@@ -40,10 +48,10 @@ in-engine feature (phase S10), never as a product.
 
 ## Implementation status — where we left off (2026-07-24)
 
-The **S0–S4 critical path is complete and verified**: a working, audible AAA audio core —
-device I/O → real-time DSP → prioritized multi-source mixer → Doppler/air propagation →
-head-tracked binaural 3D. 38 `Unit_Audio` tests pass; five demos build and run (and were heard
-playing through a real device). Everything below S4 in the table is still design.
+The **S0–S4 critical path is complete and verified**, and **S5 (reverb) has landed on top of it**: a
+working, audible AAA audio core — device I/O → real-time DSP → prioritized multi-source mixer →
+Doppler/air propagation → head-tracked binaural 3D → a per-zone FDN reverb. `Unit_Audio` covers each
+phase; six demos build and run. Everything below S5 in the table is still design.
 
 | Phase | Status | Delivered | Key files | Demo · verifying tests |
 |---|---|---|---|---|
@@ -52,14 +60,44 @@ playing through a real device). Everything below S4 in the table is still design
 | **S2** | ✅ done | RTPC/smoothing, voices+sources, stereo mixer bus DAG (inserts/aux/topo), voice manager (virtual/real cap, audibility sort), `AudioEngine` | `audio/parameter.hpp`, `voice.hpp`, `mixer.hpp`, `voice_manager.hpp`, `engine.hpp` | `audio_mixer_demo` · `test_audio_mixer.cpp` |
 | **S3** | ✅ done | Propagation: Farrow fractional delay, ISO 9613-1 air absorption, distance models, `SourcePropagation` (delay-line Doppler, slew/teleport-snap) | `audio/dsp/fractional_delay.hpp`, `dsp/air_absorption.hpp`, `audio/propagation.hpp` | `audio_propagation_demo` · `test_audio_propagation.cpp` |
 | **S4** | ✅ done | Ambisonic scene bus (ACN/SN3D SH encode) + virtual-speaker + analytic-HRTF binaural decode; head-tracking via head-relative encode | `audio/dsp/spherical_harmonics.hpp`, `audio/spatializer.hpp` | `audio_spatial_demo` · `test_audio_spatial.cpp` |
-| **S5** | ▶ **next** | FDN reverb (Householder/Hadamard, coprime delays, per-line damping) + I3DL2 API + per-zone aux bus + Sabine/Eyring RT60 | — | — |
-| S6–S10 | design | ECS components; occlusion/rooms/portals+BVH; asset/bank/streaming; editor; procedural SFX + GPU `IDspAccelerator` | — | — |
+| **S5** | ✅ done | FDN reverb (Householder/Hadamard lossless mix, coprime prime delays, per-line Jot damping) + `IReverb` seam + I3DL2 API + per-zone aux-bus adapter + Sabine/Eyring RT60 | `audio/dsp/feedback_matrix.hpp`, `dsp/fdn_reverb.hpp`, `audio/reverb.hpp` | `audio_reverb_demo` · `test_audio_reverb.cpp` |
+| **S6** | ✅ done | ECS integration: `AudioListener`/`AudioEmitter`/`ReverbZone` components + `AudioScene` control-plane bridge + read-only wall-clock snapshot extract | `sim/components.hpp`, `audio/audio_scene.hpp`, `sim/audio_extract.hpp` | `audio_scene_demo` · `test_audio_scene.cpp` · `test_audio_ecs.cpp` |
+| **S7** | ▶ **next** | Occlusion/obstruction: acoustic BVH (static BLAS + dynamic TLAS), volumetric soft occlusion, material transmission, rooms+portals propagation (+ `Room`/`Portal` components, I3DL2 early reflections) | — | — |
+| S8–S10 | design | asset/bank/streaming + events; editor; procedural SFX + GPU `IDspAccelerator` | — | — |
 
-**The next concrete step (S5).** Replace the placeholder low-pass insert on the reverb aux
-bus (currently in `audio_mixer_demo`) with a real **FDN**: N prime-power coprime delay lines,
-a lossless feedback matrix, per-line damping for frequency-dependent RT60, the **I3DL2**
-parameter set as the public API, and Sabine/Eyring RT60 from geometry. The S2 aux-send
-machinery is already in place to route voices into it. See §3.7 and §7.
+**S5 delivered (reverb).** The placeholder low-pass on the reverb aux bus is gone; in its
+place is a real order-16 **Jot FDN** (`dsp/fdn_reverb.hpp`): coprime prime-length delay
+lines read through the cubic-Lagrange fractional line with slow per-line modulation (the
+tail de-metaliser), a **lossless** Householder/Hadamard feedback matrix
+(`dsp/feedback_matrix.hpp`), a per-line one-pole **Jot damping filter** whose DC and
+Nyquist gains realise the broadband and HF RT60, input Schroeder-allpass diffusion, and a
+predelay. Above it (`audio/reverb.hpp`) sit the **`IReverb` seam** (FDN today, convolution
+later — same seam), the **I3DL2** public parameter set with presets and the I3DL2→FDN
+mapping, the `ReverbBusEffect` adapter that drops any `IReverb` onto a per-zone aux bus, and
+the **Sabine/Eyring** room-geometry RT60 (`shoebox_reverb`). The **early reflections**
+(I3DL2 Reflections/ReflectionsDelay) are carried on the parameter set but not yet
+rendered — the image-source method over acoustic geometry is S7 (it needs the acoustic BVH).
+
+**S6 delivered (ECS integration).** Three trivially-copyable components join
+`sim/components.hpp` — `AudioListener` (pose = the ears), `AudioEmitter` (a `sound` id +
+routing/attenuation, pose from Transform), and `ReverbZone` (a world box + inline I3DL2). None
+is touched by a fixed-step Schedule system; they are read by a **read-only wall-clock extract**
+(`sim/audio_extract.hpp`), the audio sibling of the render `extract()`, so a deterministic run is
+byte-identical with audio on or off (§0). The extract converts double `WorldVector3` positions to
+**listener-local float** (eye-subtracted in double, the renderer's idiom) and the listener's
+Orientation quaternion into a facing frame, producing a plain-float `Audio::SceneSnapshot`. That
+snapshot is reconciled against the live voice pool by `Audio::AudioScene` (`audio/audio_scene.hpp`):
+start a voice when an emitter appears, move/re-gain it while it persists (the Doppler source), stop
+it on silence or removal, and steer the reverb aux bus from the containing zone. `AudioScene`
+deliberately knows nothing about the ECS (Dependency-Inversion) — it is plain float and
+unit-testable — and resolves a `sound` id to a source through an injected `IEmitterSourceFactory`,
+the seam the S8 bank/event system implements. `I3DL2Reverb` was split into the dependency-free
+`audio/reverb_params.hpp` so the component carries the data without the reverb engine.
+
+**The next concrete step (S7).** Occlusion/obstruction over a dedicated **acoustic BVH** (static
+BLAS + dynamic TLAS), volumetric soft occlusion, per-material 3-band transmission, and the
+**rooms + portals** propagation model — which is also where the `Room`/`Portal` components and the
+I3DL2 **early reflections** (image-source method, deferred from S6) land. See §6 and §7.
 
 **Consciously deferred (intentional gaps, not omissions to "fix").**
 - **Batched command ring** — the control thread cannot yet start/stop voices mid-stream; S2+
@@ -422,8 +460,8 @@ Prefix **S**. S0–S4 are the critical path. Each phase builds with the `se` CLI
 | **S2** ✅ | Voice manager (virtual/real, audibility sort) + bus/mixer DAG + insert/aux-send + RTPC ramping. Multi-source prioritized mix (`audio_mixer_demo`, `Unit_Audio`). |
 | **S3** ✅ | Propagation: Farrow fractional delay (Doppler + delay), distance-model gain, ISO 9613-1 air-absorption LPF, slew/teleport-snap. Flyby Doppler (`audio_propagation_demo`, `Unit_Audio`). |
 | **S4** ✅ | Spatializer: ambisonic encode (ACN/SN3D) → head-relative rotation → virtual-speaker + analytic-HRTF binaural decode (Woodworth ITD + head-shadow). Binaural 3D + head-track (`audio_spatial_demo`, `Unit_Audio`). *(SOFA/MagLS/UPOLS = later fidelity upgrade behind the same seam.)* |
-| **S5** | Reverb: FDN (Householder, coprime delays, damping) + I3DL2 API + per-zone aux bus; Sabine/Eyring RT60. |
-| **S6** | ECS integration: `AudioEmitter`/`AudioListener`/`ReverbZone`/`Room`/`Portal` + wall-clock snapshot extract. |
+| **S5** ✅ | Reverb: order-16 Jot FDN (Householder/Hadamard lossless mix, coprime prime delays, per-line damping, allpass diffusion, predelay, delay modulation) behind the `IReverb` seam + I3DL2 API + per-zone aux-bus adapter; Sabine/Eyring room RT60. Bounded/decaying tail + tracked RT60 (`audio_reverb_demo`, `Unit_Audio`). |
+| **S6** ✅ | ECS integration: `AudioListener`/`AudioEmitter`/`ReverbZone` components + `AudioScene` control-plane bridge (`IEmitterSourceFactory` seam) + read-only wall-clock snapshot extract (`sim/audio_extract.hpp`), listener-local from double `WorldVector3`. `Room`/`Portal` + early reflections deferred to S7 (`audio_scene_demo`, `Unit_Audio` + `Integration_AudioEcs`). |
 | **S7** | Occlusion/obstruction: acoustic BVH (static BLAS + dynamic TLAS), volumetric soft occlusion, material transmission, rooms+portals propagation. |
 | **S8** | Asset/streaming: bank format, codecs (PCM/ADPCM/Opus), disk streaming + decode thread; event system. |
 | **S9** | Editor authoring: mixer/bus panel, emitter inspector, RTPC curves, live profiler. |

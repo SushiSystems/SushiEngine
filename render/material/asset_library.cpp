@@ -41,8 +41,13 @@ namespace SushiEngine
                 /** @brief Slots reserved in the bindless storage-buffer heap. */
                 constexpr std::uint32_t HEAP_BUFFERS = 256;
 
+#ifndef SUSHI_PIPELINE_CACHE_DIR
+#define SUSHI_PIPELINE_CACHE_DIR "."
+#endif
+
                 /** @brief File the driver's compiled pipeline blob is carried across runs in. */
-                constexpr const char* PIPELINE_CACHE_PATH = "sushi_pipeline_cache.bin";
+                constexpr const char* PIPELINE_CACHE_PATH =
+                    SUSHI_PIPELINE_CACHE_DIR "/sushi_pipeline_cache.bin";
 
                 /**
                  * @brief Device memory the resident texture set is held under.

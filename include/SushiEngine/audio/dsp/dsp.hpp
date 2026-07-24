@@ -28,15 +28,19 @@
  * @file dsp.hpp
  * @brief Umbrella for the portable CPU DSP core (`SushiEngine::Audio::Dsp`).
  *
- * One include pulls in the phase-S1 base: the real-time primitives (the flush-to-zero
+ * One include pulls in the DSP core: the real-time primitives (the flush-to-zero
  * denormal guard and the lock-free SPSC ring), the SIMD sample kernels, the filter
- * set (one-pole, RBJ biquad, Cytomic TPT state-variable), and the block processing
- * graph with its built-in nodes. All header-only, portable C++17, no SDL and no
- * SushiRuntime. See `docs/design/audio_system.md` §3.
+ * set (one-pole, RBJ biquad, Cytomic TPT state-variable), the block processing graph
+ * with its built-in nodes, the propagation primitives (fractional delay, air
+ * absorption), the spatial primitives (spherical harmonics), and the late-reverb
+ * primitive (the lossless feedback matrices and the Jot FDN). All header-only, portable
+ * C++17, no SDL and no SushiRuntime. See `docs/slop/audio_system.md` §3.
  */
 
 #include <SushiEngine/audio/dsp/air_absorption.hpp>
 #include <SushiEngine/audio/dsp/denormals.hpp>
+#include <SushiEngine/audio/dsp/fdn_reverb.hpp>
+#include <SushiEngine/audio/dsp/feedback_matrix.hpp>
 #include <SushiEngine/audio/dsp/filters/biquad.hpp>
 #include <SushiEngine/audio/dsp/filters/one_pole.hpp>
 #include <SushiEngine/audio/dsp/filters/state_variable.hpp>

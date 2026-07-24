@@ -2234,8 +2234,19 @@ namespace SushiEngine
                             {
                                 const Scalar c = orbit[i].cos_angle;
                                 const Scalar s = orbit[i].sin_angle;
-                                const Scalar nc = c * orbit[i].step_cos - s * orbit[i].step_sin;
-                                const Scalar ns = s * orbit[i].step_cos + c * orbit[i].step_sin;
+                                Scalar nc = c * orbit[i].step_cos - s * orbit[i].step_sin;
+                                Scalar ns = s * orbit[i].step_cos + c * orbit[i].step_sin;
+                                // Repeated rotation composition drifts off the unit circle by
+                                // rounding error each step; renormalizing keeps that drift from
+                                // growing without bound, which matters once it is multiplied by
+                                // radius below — at planetary orbit scales an unnormalized drift
+                                // of a few ULPs becomes a visible position jitter.
+                                const Scalar norm = std::sqrt(nc * nc + ns * ns);
+                                if (norm > Scalar(0))
+                                {
+                                    nc /= norm;
+                                    ns /= norm;
+                                }
                                 orbit[i].cos_angle = nc;
                                 orbit[i].sin_angle = ns;
                                 transform[i].position.x = orbit[i].center.x + orbit[i].radius * nc;

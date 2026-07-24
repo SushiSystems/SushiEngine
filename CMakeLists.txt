@@ -177,6 +177,19 @@ if(SE_BUILD_AUDIO)
     # cues + head-tracking) then played best-effort (headphones recommended).
     add_sushi_sycl_executable(audio_spatial_demo examples/audio_spatial_demo.cpp)
     target_link_libraries(audio_spatial_demo PRIVATE sushi_audio)
+
+    # audio_reverb_demo, the S5 slice: the Jot FDN reverb on a per-zone aux bus (I3DL2
+    # params, Sabine/Eyring room RT60), self-checked headless (bounded/decaying tail,
+    # predelay, longer-decay-rings-longer, shoebox factory) then played best-effort.
+    add_sushi_sycl_executable(audio_reverb_demo examples/audio_reverb_demo.cpp)
+    target_link_libraries(audio_reverb_demo PRIVATE sushi_audio)
+
+    # audio_scene_demo, the S6 slice: the ECS→audio control-plane bridge (AudioScene)
+    # reconciling per-frame world snapshots into live voices — an emitter flyby (Doppler +
+    # L/R), a second emitter appearing, and one being dropped — self-checked headless then
+    # played best-effort. The real ECS read is covered by Integration_AudioEcs.
+    add_sushi_sycl_executable(audio_scene_demo examples/audio_scene_demo.cpp)
+    target_link_libraries(audio_scene_demo PRIVATE sushi_audio)
 endif()
 
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target

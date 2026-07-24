@@ -58,8 +58,15 @@ namespace SushiEngine
             class ParticleSystem;
         }
 
+        namespace Lighting
+        {
+            class LightSystem;
+        }
+
         namespace Passes
         {
+            class IblPass;
+
             /** @brief Billboards the frame's alive particles into the HDR scene. */
             class ParticlePass : public IRenderPass
             {
@@ -70,10 +77,14 @@ namespace SushiEngine
                      * @param shaders   The catalogue particle.vert/frag come from.
                      * @param pipelines The factory owning the graphics pipeline.
                      * @param particles The pool the compacted draw list is sized from.
+                     * @param lights    The clustered-light engine the lit bucket shades from
+                     *                  (light array + froxel config).
+                     * @param ibl       The image-based lighting whose SH the lit bucket reads for ambient.
                      */
                     ParticlePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                  Resources::GraphicsPipelineFactory& pipelines,
-                                 Scene::ParticleSystem& particles);
+                                 Scene::ParticleSystem& particles, Lighting::LightSystem& lights,
+                                 IblPass& ibl);
                     ~ParticlePass() override;
 
                     ParticlePass(const ParticlePass&) = delete;
@@ -84,13 +95,22 @@ namespace SushiEngine
                     void rebuild_pipelines() override;
 
                 private:
+                    /**
+                     * @brief 128-byte draw constants (the house push-constant budget, matching
+                     *        MeshPushConstants). The camera world position is packed into the spare
+                     *        w lanes exactly as scene_uniforms packs the eye, so no extra vec4 is
+                     *        needed: the vertex reads eye = (camera_right.w, camera_up.w,
+                     *        sun_direction.w) to form the camera-relative shading position, and takes
+                     *        the froxel view-depth straight from gl_Position.w (perspective clip w =
+                     *        the positive view-space distance the cluster z-slice is keyed on).
+                     */
                     struct Push
                     {
                         float view_projection[16];
-                        float camera_right[4]; /**< xyz: world camera right. */
-                        float camera_up[4];    /**< xyz: world camera up. */
-                        float sun_direction[4]; /**< xyz: direction to the sun; w: ambient term. */
-                        float sun_radiance[4];  /**< rgb: sun colour * intensity; w: lit flag (0/1). */
+                        float camera_right[4];  /**< xyz: world camera right; w: eye.x. */
+                        float camera_up[4];     /**< xyz: world camera up; w: eye.y. */
+                        float sun_direction[4]; /**< xyz: direction to the sun; w: eye.z. */
+                        float sun_radiance[4];  /**< rgb: sun colour * intensity; w: lit/ambient — <0 unlit, >=0 lit (value = IBL ambient scale). */
                     };
 
                     void create_pipeline();
@@ -100,6 +120,8 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::ParticleSystem& particles_;
+                    Lighting::LightSystem& lights_;
+                    IblPass& ibl_;
 
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;

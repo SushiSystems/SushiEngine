@@ -34,16 +34,18 @@
  * manager, and the @ref SushiEngine::Audio::AudioEngine that renders them as one
  * @ref SushiEngine::Audio::IAudioRenderer. No SDL and no SushiRuntime — the SDL2 device
  * backend (`sushi_audio`) is linked separately, exactly as the input backend is.
- * See `docs/design/audio_system.md`.
+ * See `docs/slop/audio_system.md`.
  */
 
 #include <SushiEngine/audio/accelerator.hpp>
+#include <SushiEngine/audio/audio_scene.hpp>
 #include <SushiEngine/audio/device.hpp>
 #include <SushiEngine/audio/dsp/dsp.hpp>
 #include <SushiEngine/audio/engine.hpp>
 #include <SushiEngine/audio/mixer.hpp>
 #include <SushiEngine/audio/parameter.hpp>
 #include <SushiEngine/audio/propagation.hpp>
+#include <SushiEngine/audio/reverb.hpp>
 #include <SushiEngine/audio/spatializer.hpp>
 #include <SushiEngine/audio/voice.hpp>
 #include <SushiEngine/audio/voice_manager.hpp>
