@@ -7,10 +7,10 @@ single seam, the render-graph integration, and the editor authoring surface. The
 math lives in compute shaders (`render/shaders/particle_*.comp`) and in the deterministic CPU
 integrator; this doc specifies the **architecture and the seams**, not the shader source.
 
-Companion docs: `docs/design/animation_system.md` (the structural template — trivially-copyable state
-column + snapshot extract + a compute subsystem wired end to end), `docs/design/audio_system.md` (the
+Companion docs: `animation_system.md` (the structural template — trivially-copyable state
+column + snapshot extract + a compute subsystem wired end to end), `audio_system.md` (the
 sibling wall-clock snapshot consumer that also lives *outside* the deterministic island), and the
-renderer's `docs/guides/ARCHITECTURE.md` (the render graph the draw passes plug into).
+renderer's `../ARCHITECTURE.md` (the render graph the draw passes plug into).
 
 **Status (2026-07-24): VFX1 + the deterministic-ECS connection + most of VFX2 are shipped and
 build-verified** (`se editor --no-run` green each increment). Done: the whole VFX1 vertical slice

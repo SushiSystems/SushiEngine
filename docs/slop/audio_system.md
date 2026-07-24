@@ -7,9 +7,9 @@ editor authoring surface. The heavy per-sample math lives in the portable CPU DS
 (`include/SushiEngine/audio/dsp/`); this doc specifies the **architecture and the seams**, not every
 kernel's source.
 
-Companion docs: `docs/design/vfx_particle_system.md` (the sibling wall-clock snapshot consumer that also
-lives *outside* the deterministic island), `docs/design/animation_system.md` (the structural template —
-trivially-copyable state column + snapshot extract), and `docs/guides/ARCHITECTURE.md`.
+Companion docs: `vfx_particle_system.md` (the sibling wall-clock snapshot consumer that also
+lives *outside* the deterministic island), `animation_system.md` (the structural template —
+trivially-copyable state column + snapshot extract), and `../ARCHITECTURE.md`.
 
 **Status:** Design; **phases S0–S4 landed — the S0–S4 critical path is complete** (device seam + silent
 block loop; DSP core base; voice manager + mixer bus DAG + RTPC; propagation/Doppler/air-absorption;

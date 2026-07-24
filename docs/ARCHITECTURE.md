@@ -1544,7 +1544,7 @@ the remaining visual work.
 
 ## 12. Skeletal animation (assets, animator, blend trees, layers, IK, retargeting — phases A0–A9)
 
-The skeletal-animation stack (full plan in `docs/design/animation_system.md`) is a
+The skeletal-animation stack (full plan in `slop/animation_system.md`) is a
 Unity-Mecanim-parity character system split across three domains — an asset domain that
 cooks skeletons, clips, and controllers; a deterministic simulation domain that advances
 animator state at fixed tick; and a per-frame evaluation domain that samples, blends, and
@@ -1823,7 +1823,7 @@ binding — a good seam the design keeps as-is.
 
 ## 14. Audio (from-scratch AAA game-audio, Phase S0)
 
-Design: `docs/design/audio_system.md`. A from-scratch, middleware-free game-audio engine,
+Design: `slop/audio_system.md`. A from-scratch, middleware-free game-audio engine,
 placed like skeletal animation and cosmetic VFX — a **wall-clock snapshot consumer that
 lives outside the deterministic sim island**, so a run is byte-identical with audio on or
 off. Its shaping decision is the split every shipping AAA runtime is built on: a **control
@@ -2006,7 +2006,7 @@ I3DL2 + per-zone aux) through S10; S0–S4 (the critical path) are complete.
 
 ## 15. VFX particle system (authoring model, dual backends, GPU render — phase VFX1)
 
-Design: `docs/design/vfx_particle_system.md`. One authored effect asset feeds **two** simulation
+Design: `slop/vfx_particle_system.md`. One authored effect asset feeds **two** simulation
 backends behind one seam — a GPU-cosmetic path (millions of particles, render-side, *outside* the
 deterministic sim island, like skinning/audio) and a CPU-deterministic path (bounded, byte-
 reproducible, rollback-safe, like `AnimatorInstance`). Both consume the same compiled POD.

@@ -192,6 +192,6 @@ against the runtime — there are no mocks.
 
 ## Documentation
 
-- `docs/guides/ARCHITECTURE.md` — how the layers fit together and the seams a
+- `ARCHITECTURE.md` — how the layers fit together and the seams a
   cross-cutting change touches.
 - `docs/CHANGELOG.md` — notable changes.

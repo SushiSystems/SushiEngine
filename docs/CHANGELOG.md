@@ -22,7 +22,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ### Added
 - **VFX particle system — authoring model + dual backends + GPU render path (Phase VFX1).**
-  The first vertical slice of the AAA VFX particle system (`docs/design/vfx_particle_system.md`):
+  The first vertical slice of the AAA VFX particle system (`slop/vfx_particle_system.md`):
   one authored effect asset feeds two interchangeable simulation backends behind
   `Vfx::IParticleBackend`-shaped seams — a GPU-cosmetic path (millions of particles, outside the
   deterministic island, like skinning) and a CPU-deterministic path (bounded, byte-reproducible,
@@ -192,7 +192,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
     pins the ring, denormal flush, filters, SIMD kernels, pan law, topo order, and the
     one-block feedback semantics against the real code.
 - **Audio system — device seam + silent block loop (Phase S0).** The first slice of the
-  from-scratch AAA game-audio engine (`docs/design/audio_system.md`): the render-plane
+  from-scratch AAA game-audio engine (`slop/audio_system.md`): the render-plane
   boundary stood up end to end with a trivial renderer, before any DSP exists. No `World`
   coupling, no SYCL, no `sushiruntime` link.
   - **Header-only seams (`include/SushiEngine/audio/`).** `device.hpp` — the device I/O
@@ -585,7 +585,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
     the scene set is full at 32 bindings, and under compute pre-skin the graphics passes consume
     skinned streams, not palettes (design §6.3 updated).
 - **Skeletal animation foundations (phase A0).** The first slice of the animation stack
-  (`docs/design/animation_system.md`): the data and math the rest of the system stands on,
+  (`slop/animation_system.md`): the data and math the rest of the system stands on,
   with no evaluator or renderer coupling yet.
   - **Math seam additions (`core/types.hpp`).** `lerp` (vector and scalar), `nlerp` and
     `slerp` (both neighbourhood-corrected — they flip to the near hemisphere so a blend
@@ -2386,5 +2386,5 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   temporary placeholder today and is the one file to re-point at SushiBLAS when
   that library lands.
 - Project governance and docs: `CONTRIBUTING.md`, `SECURITY.md`,
-  `CODE_OF_CONDUCT.md`, and `docs/guides/ARCHITECTURE.md`, mirroring SushiRuntime's
+  `CODE_OF_CONDUCT.md`, and `ARCHITECTURE.md`, mirroring SushiRuntime's
   conventions.

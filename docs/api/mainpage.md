@@ -10,7 +10,7 @@ parallel across CPU and GPU.
 This reference documents the public engine surface under
 `include/SushiEngine`. The layered design — how the ECS schedule maps onto the
 runtime's graph, and how the PGS solver is coloured and batched — is described in
-the hand-written [Architecture guide](../guides/ARCHITECTURE.md).
+the hand-written [Architecture guide](../ARCHITECTURE.md).
 
 ## Where to start
 

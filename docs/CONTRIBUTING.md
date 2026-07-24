@@ -7,7 +7,7 @@ request merged.
 By contributing you agree that your contributions are licensed under the
 project's **Apache License, Version 2.0** (see [`LICENSE`](LICENSE)).
 
-> New to the codebase? Read [`docs/guides/ARCHITECTURE.md`](docs/guides/ARCHITECTURE.md)
+> New to the codebase? Read [`ARCHITECTURE.md`](ARCHITECTURE.md)
 > first — it explains the head/battery split, the layers, and how the engine hands
 > simulation work to SushiRuntime as a task graph.
 
@@ -157,7 +157,7 @@ Treat the following as hard requirements, not suggestions:
   Add an entry under `## [Unreleased]` in the right group (`Added` / `Changed` /
   `Fixed` / `Removed` / `Deprecated`).
 - **A new or changed feature updates the guides.** When you add, rename, or change
-  behavior, update [`docs/guides/ARCHITECTURE.md`](docs/guides/ARCHITECTURE.md) —
+  behavior, update [`ARCHITECTURE.md`](ARCHITECTURE.md) —
   every class, system, and concept it names must still exist — and the top-level
   [`README.md`](README.md) when the change touches what the project *is* or how a
   first-time reader gets started.
