@@ -23,10 +23,15 @@
 
 #include "viewport_panel.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <vector>
 
+#include <imgui_internal.h>
+
 #include <SushiEngine/ui/layout.hpp>
+
+#include "game_view_toolbar.hpp"
 
 namespace SushiEngine
 {
@@ -321,19 +326,55 @@ namespace SushiEngine
                                  AnimatedMeshPreview* animated_mesh,
                                  const SushiEngine::Render::ParticleEmitterView* emitters_in,
                                  std::size_t emitter_count_in, bool ik_gizmo,
-                                 bool preview_controls)
+                                 bool preview_controls, GameViewSettings* game_view)
         {
-            if (!ImGui::Begin(title_, &open))
+            // Fullscreen (Unity's "Maximize on Play"): undock the panel and cover the
+            // whole editor viewport instead of just stretching the rendered image inside
+            // its current dock slot. The dock id it came from is remembered so turning
+            // fullscreen back off restores it to the same tab/split rather than leaving
+            // it floating.
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_None;
+            const bool want_fullscreen = game_view != nullptr && game_view->fullscreen;
+            if (want_fullscreen)
+            {
+                if (!was_fullscreen_)
+                {
+                    const ImGuiWindow* self = ImGui::FindWindowByName(title_);
+                    saved_dock_id_ = self != nullptr ? self->DockId : 0;
+                    was_fullscreen_ = true;
+                }
+                const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+                ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+                ImGui::SetNextWindowPos(main_viewport->Pos, ImGuiCond_Always);
+                ImGui::SetNextWindowSize(main_viewport->Size, ImGuiCond_Always);
+                ImGui::SetNextWindowFocus();
+                window_flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
+            }
+            else if (was_fullscreen_)
+            {
+                ImGui::SetNextWindowDockID(saved_dock_id_, ImGuiCond_Always);
+                was_fullscreen_ = false;
+            }
+
+            if (!ImGui::Begin(title_, &open, window_flags))
             {
                 ImGui::End();
                 return false;
             }
+
+            // Game view toolbar: aspect/orientation/fullscreen, drawn before the display
+            // selector so the row reads left-to-right the way Unity's Game view does.
+            if (game_view != nullptr)
+                draw_game_view_toolbar(*game_view);
 
             // Display selector (Game view): a combo over the resolved displays. Drawn before
             // the image so it takes its own strip and the image keeps the correct aspect.
             if (display != nullptr && display->displays != nullptr && display->selected != nullptr &&
                 display->count > 0)
             {
+                if (game_view != nullptr)
+                    ImGui::SameLine();
                 int current = 0;
                 for (std::size_t i = 0; i < display->count; ++i)
                     if (display->displays[i] == *display->selected)
@@ -357,12 +398,49 @@ namespace SushiEngine
                 }
             }
 
+            const ImVec2 content_origin = ImGui::GetCursorScreenPos();
             const ImVec2 available = ImGui::GetContentRegionAvail();
-            const std::uint32_t width =
-                static_cast<std::uint32_t>(available.x > 1.0f ? available.x : 1.0f);
-            const std::uint32_t height =
-                static_cast<std::uint32_t>(available.y > 1.0f ? available.y : 1.0f);
+            const float available_w = available.x > 1.0f ? available.x : 1.0f;
+            const float available_h = available.y > 1.0f ? available.y : 1.0f;
+
+            // The Game view's aspect preset constrains the rendered image to a letterboxed
+            // (or pillarboxed) rect centered in the panel, matching a played build's fixed
+            // target aspect instead of stretching to whatever shape the panel happens to be.
+            // This applies whether or not fullscreen (panel-maximize) is on — the two are
+            // independent: fullscreen decides how big the panel itself is, aspect decides
+            // the shape of the image inside it.
+            float image_w = available_w;
+            float image_h = available_h;
+            float aspect_ratio = 0.0f;
+            const bool constrained = game_view != nullptr &&
+                                     resolve_game_view_aspect_ratio(game_view->aspect,
+                                                                    game_view->orientation,
+                                                                    aspect_ratio);
+            if (constrained)
+            {
+                if (available_w / available_h > aspect_ratio)
+                    image_w = available_h * aspect_ratio;
+                else
+                    image_h = available_w / aspect_ratio;
+            }
+            const ImVec2 image_offset((available_w - image_w) * 0.5f, (available_h - image_h) * 0.5f);
+
+            const std::uint32_t width = static_cast<std::uint32_t>(image_w > 1.0f ? image_w : 1.0f);
+            const std::uint32_t height = static_cast<std::uint32_t>(image_h > 1.0f ? image_h : 1.0f);
             resize_to(width, height);
+
+            if (constrained && (image_offset.x > 0.5f || image_offset.y > 0.5f))
+            {
+                // Letterbox/pillarbox bars: fill the panel's whole content region first so
+                // the empty margins around the constrained image read as intentional bars
+                // rather than an unfilled window background.
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    content_origin,
+                    ImVec2(content_origin.x + available_w, content_origin.y + available_h),
+                    IM_COL32(0, 0, 0, 255));
+            }
+            ImGui::SetCursorScreenPos(
+                ImVec2(content_origin.x + image_offset.x, content_origin.y + image_offset.y));
 
             // Unity fly navigation: right mouse over the panel starts a look session that
             // lasts until the button is released, even if the cursor leaves the panel.

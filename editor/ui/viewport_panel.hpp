@@ -40,6 +40,7 @@
 #include "../gizmo/gizmo_controller.hpp"
 #include "imgui_backend.hpp"
 #include "../camera/scene_camera.hpp"
+#include "../core/game_view_settings.hpp"
 
 namespace SushiEngine
 {
@@ -150,6 +151,13 @@ namespace SushiEngine
                  * @param display     When non-null, a display-selection combo is drawn over
                  *                    the viewport (used by the Game view to choose which
                  *                    display's camera it shows). Null draws no combo.
+                 * @param game_view   When non-null, draws the Game view's aspect/orientation/
+                 *                    fullscreen toolbar and constrains the rendered image to
+                 *                    the chosen aspect (letterboxed/pillarboxed, centered).
+                 *                    Setting fullscreen undocks the panel and expands it to
+                 *                    cover the whole editor viewport (Unity's "Maximize on
+                 *                    Play"). Null draws no toolbar and fills the panel
+                 *                    exactly, as before (the Scene/Preview views).
                  * @param strands       Soft-body wireframes to draw this frame, or nullptr.
                  * @param strand_count  Number of entries in @p strands.
                  * @param lights        Punctual lights to shade with this frame, or nullptr.
@@ -189,7 +197,7 @@ namespace SushiEngine
                           AnimatedMeshPreview* animated_mesh = nullptr,
                           const SushiEngine::Render::ParticleEmitterView* emitters = nullptr,
                           std::size_t emitter_count = 0, bool ik_gizmo = false,
-                          bool preview_controls = false);
+                          bool preview_controls = false, GameViewSettings* game_view = nullptr);
 
                 /**
                  * @brief Applies the host's fidelity/performance settings to this view.
@@ -265,6 +273,10 @@ namespace SushiEngine
                 // (0 = body/move, 1..4 = corner resize), or -1 when no drag is in progress.
                 int ui_drag_index_ = -1;
                 int ui_drag_handle_ = -1;
+                // Fullscreen (Game view "Maximize on Play"): whether the panel is currently
+                // forced undocked and full-viewport, and the dock id to restore on exit.
+                bool was_fullscreen_ = false;
+                unsigned int saved_dock_id_ = 0;
                 GizmoController gizmo_;
                 // A second, independent GizmoController for the animated-mesh IK target (design
                 // §12.1) — its own drag state, separate from the selection gizmo above, since

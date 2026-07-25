@@ -882,7 +882,7 @@ namespace SushiEngine
         {
             if (!context.panels.animator_graph)
                 return;
-            if (!ImGui::Begin("Animator", &context.panels.animator_graph))
+            if (!ImGui::Begin("Animator Graph", &context.panels.animator_graph))
             {
                 ImGui::End();
                 return;

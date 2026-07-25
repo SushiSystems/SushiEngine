@@ -576,13 +576,24 @@ editor draws. Cameras are ECS entities too (a `Camera` component: lens plus a
 `display_index`/`priority`/`active` routing), posed by their transform; the extract picks,
 per display, the active camera with the highest priority into `RenderScene::display_cameras`,
 and the Game view chooses which display it shows so two cameras never conflict.
-`RenderScene::has_camera` reports whether any camera resolved at all; the Game view
-draws zero instances when it is false rather than falling back to a synthetic default
-camera, since there is then nothing to play the scene through. `create_simulation()`
+`RenderScene::has_camera` reports whether any camera resolved at all; `create_simulation()`
 seeds no demo entities — the live world starts empty, and `default_camera()` exists
 only to give `RenderScene::camera` a well-formed value when `has_camera` is false, not
-as something the Game view renders through. The Scene view authors the world (pick,
-gizmo) and is the only place a selection is drawn
+as something the Game view renders through. `GameViewRenderPolicy::should_render`
+(`editor/core/game_view_render_policy.hpp`) is the one place that gates a render pass on
+`has_active_camera && has_display`; when it says no, the Game window still opens (it no
+longer skips `ImGui::Begin` and disappear) and shows a centered "No cameras rendering"
+placeholder plus its toolbar instead of a render, via `draw_no_camera_game_view`
+(`editor/ui/game_view_toolbar.hpp`). That toolbar — an aspect/resolution preset, a
+Landscape/Portrait orientation combo, and a Fullscreen checkbox, held in
+`EditorContext::game_view_settings` (`GameViewSettings`,
+`editor/core/game_view_settings.hpp`) — is shared between the no-camera placeholder and
+the normal render path so the row never drifts into two implementations; when a preset
+constrains the aspect, `ViewportPanel::draw` letterboxes/pillarboxes the rendered image
+within the panel instead of stretching it to the panel's shape, independently of
+Fullscreen — which instead undocks the panel and expands it to cover the whole editor
+viewport (Unity's "Maximize on Play"), restoring its dock slot when unchecked. The
+Scene view authors the world (pick, gizmo) and is the only place a selection is drawn
 highlighted; the Game view is played, not authored, so it neither picks nor receives the
 Scene selection. The editor ticks only while the toolbar is Playing (or on a one-shot
 `step_requested`, set by the toolbar's Step button and cleared every frame), binding the

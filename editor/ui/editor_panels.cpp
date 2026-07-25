@@ -865,7 +865,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
                 ImGui::MenuItem("Toolbar", nullptr, &context.panels.toolbar);
                 ImGui::MenuItem("Animation", nullptr, &context.panels.animation);
-                ImGui::MenuItem("Animator", nullptr, &context.panels.animator_graph);
+                ImGui::MenuItem("Animator Graph", nullptr, &context.panels.animator_graph);
                 ImGui::MenuItem("Animator", nullptr, &context.panels.animator_preview);
                 ImGui::MenuItem("Audio Mixer", nullptr, &context.panels.audio_mixer);
                 ImGui::MenuItem("Audio Profiler", nullptr, &context.panels.audio_profiler);
@@ -4139,6 +4139,7 @@ namespace SushiEngine
                 {
                     if (t > 0)
                         ImGui::SameLine();
+                    ImGui::PushID(static_cast<int>(t));
                     if (ImGui::SmallButton(templates[t].name))
                     {
                         const std::string keep = target.name;
@@ -4148,6 +4149,7 @@ namespace SushiEngine
                         loaded_one = true;
                         status = std::string("Started from ") + templates[t].name;
                     }
+                    ImGui::PopID();
                 }
 
                 if (files.empty())
@@ -4156,10 +4158,12 @@ namespace SushiEngine
                 }
                 else if (ImGui::BeginListBox("##effects", ImVec2(-FLT_MIN, 100.0f)))
                 {
-                    for (const std::string& file : files)
+                    for (std::size_t i = 0; i < files.size(); ++i)
                     {
+                        const std::string& file = files[i];
                         const std::string label =
                             std::filesystem::path(file).stem().string();
+                        ImGui::PushID(static_cast<int>(i));
                         if (ImGui::Selectable(label.c_str()))
                         {
                             // A library entry is a **template**: it is copied into this emitter,
@@ -4185,6 +4189,7 @@ namespace SushiEngine
                                 status = "Could not read " + file;
                             }
                         }
+                        ImGui::PopID();
                     }
                     ImGui::EndListBox();
                 }

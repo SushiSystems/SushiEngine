@@ -56,6 +56,7 @@
 #include "core/editor_context.hpp"
 #include "core/game_view_render_policy.hpp"
 #include "ui/editor_panels.hpp"
+#include "ui/game_view_toolbar.hpp"
 #include "ui/imgui_backend.hpp"
 #include "core/preferences.hpp"
 #include "serialization/effect_serializer.hpp"
@@ -744,28 +745,40 @@ int main(int argc, char** argv)
             SushiEngine::Editor::GameViewRenderInputs game_view_render_inputs;
             game_view_render_inputs.has_active_camera = scene.has_camera;
             game_view_render_inputs.has_display = !displays.empty();
-            if (context.panels.game_view &&
-                game_view_render_policy.should_render(game_view_render_inputs))
+            if (context.panels.game_view)
             {
-                // The Game view is played, not authored: no picking, no gizmo. It offers
-                // a display selector so multiple cameras can target different displays.
-                SushiEngine::Editor::DisplaySelector selector;
-                selector.displays = displays.data();
-                selector.count = displays.size();
-                selector.selected = &context.game_display;
-                // Pass no selection so the Scene view's pick never highlights in the
-                // Game view; it is not pickable here so nothing writes this back.
-                std::uint32_t no_selection = 0;
-                game_view.set_render_settings(context.render_settings);
-                game_view.draw(context.panels.game_view, instances.data(), instances.size(),
-                               environment, no_selection, false, nullptr,
-                               SushiEngine::Editor::GizmoMode::Translate,
-                               SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
-                               strands.data(), strands.size(), scene.lights.data(),
-                               scene.lights.size(), scene.decals.data(), scene.decals.size(),
-                               &game_ui, false, nullptr, true, nullptr,
-                               particle_billboards.data(), particle_billboards.size(),
-                               &animated_mesh_preview, scene_emitters, scene_emitter_count);
+                if (game_view_render_policy.should_render(game_view_render_inputs))
+                {
+                    // The Game view is played, not authored: no picking, no gizmo. It offers
+                    // a display selector so multiple cameras can target different displays.
+                    SushiEngine::Editor::DisplaySelector selector;
+                    selector.displays = displays.data();
+                    selector.count = displays.size();
+                    selector.selected = &context.game_display;
+                    // Pass no selection so the Scene view's pick never highlights in the
+                    // Game view; it is not pickable here so nothing writes this back.
+                    std::uint32_t no_selection = 0;
+                    game_view.set_render_settings(context.render_settings);
+                    game_view.draw(context.panels.game_view, instances.data(), instances.size(),
+                                   environment, no_selection, false, nullptr,
+                                   SushiEngine::Editor::GizmoMode::Translate,
+                                   SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
+                                   strands.data(), strands.size(), scene.lights.data(),
+                                   scene.lights.size(), scene.decals.data(), scene.decals.size(),
+                                   &game_ui, false, nullptr, true, nullptr,
+                                   particle_billboards.data(), particle_billboards.size(),
+                                   &animated_mesh_preview, scene_emitters, scene_emitter_count,
+                                   /*ik_gizmo=*/false, /*preview_controls=*/false,
+                                   &context.game_view_settings);
+                }
+                else
+                {
+                    // No camera to play through (or nothing for it to target): keep the
+                    // Game window open with its toolbar, same as Unity's Game view showing
+                    // "Display 1 No cameras rendering" instead of just disappearing.
+                    SushiEngine::Editor::draw_no_camera_game_view(context.panels.game_view,
+                                                                  context.game_view_settings);
+                }
             }
 
             if (context.panels.preview)

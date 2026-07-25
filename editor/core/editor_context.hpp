@@ -42,6 +42,7 @@
 
 #include "command_history.hpp"
 #include "../gizmo/gizmo_controller.hpp"
+#include "game_view_settings.hpp"
 #include "preferences.hpp"
 
 namespace SushiEngine
@@ -338,6 +339,9 @@ namespace SushiEngine
 
             // Which display the Game view renders, chosen from the resolved cameras.
             std::uint32_t game_display = 0;
+
+            // The Game view's aspect/orientation/fullscreen toolbar state.
+            GameViewSettings game_view_settings;
 
             // The active Scene-view transform tool (W/E/R) and axis frame (Local/World),
             // shared between the toolbar that sets them and the viewport that draws the

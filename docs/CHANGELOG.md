@@ -8,7 +8,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- **Game view: "No cameras rendering" placeholder, and an aspect/orientation/fullscreen toolbar.**
+  Previously the Game window simply disappeared (its `ImGui::Begin` was skipped entirely) whenever
+  the scene had no camera or no display to target. It now stays open and shows a centered
+  "No cameras rendering" message, matching the always-present-but-empty Game view of other editors
+  instead of a panel that vanishes. The Game view also gained a toolbar (`GameViewSettings`,
+  `editor/core/game_view_settings.hpp`) with an aspect/resolution preset combo (Free Aspect,
+  Standard 4:3, Widescreen 16:9, Ultrawide 21:9, Square 1:1), a Landscape/Portrait orientation combo
+  that flips non-square presets, and a Fullscreen checkbox that undocks the panel and expands it to
+  cover the whole editor viewport (Unity's "Maximize on Play"), restoring it to its original dock
+  slot when unchecked. A non-Free preset letterboxes/pillarboxes the rendered image, centered, with
+  black bars, independently of fullscreen — `ViewportPanel::draw` takes an optional
+  `GameViewSettings*` and the shared toolbar/placeholder drawing lives in
+  `editor/ui/game_view_toolbar.hpp` so both the camera-present and no-camera code paths render the
+  identical row.
+
 ### Fixed
+- **Editor: duplicate "Animator" window/menu-item IDs.** The Animator Graph panel and the
+  Animator (layers/masks/IK) preview panel both used the bare title `"Animator"`, and the
+  Window menu had two `MenuItem("Animator", ...)` entries — ImGui warned of the ID conflict
+  ("2 visible items with conflicting ID") and the two windows shared one dock/focus slot.
+  The graph panel is now titled `"Animator Graph"` (menu item to match); the preview panel
+  keeps `"Animator"`, per its existing intent as the authoring surface for layers/masks/IK.
+
 - **CI: functional and editor jobs failing to configure.** Both jobs ran on the
   `intel/oneapi-basekit` image with `icpx`, which resolves SushiRuntime's SYCL
   toolchain to the "oneapi" (Intel commercial) path — untested by this project and
