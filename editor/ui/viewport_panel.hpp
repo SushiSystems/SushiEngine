@@ -173,6 +173,12 @@ namespace SushiEngine
                  *                    gizmo). The Scene view passes true; the Game view passes
                  *                    false — the same "authored here, played there" split as
                  *                    @p gizmo_target/@p pickable.
+                 * @param scene_skinned Crowd characters extracted from the live world this
+                 *                    frame (design §12.3/§12.4's `RenderScene::skinned_instances`),
+                 *                    concatenated with @p animated_mesh's own preview instance —
+                 *                    the same "world content plus whatever's being authored"
+                 *                    merge @p billboards/@p emitters already do for their kinds.
+                 * @param scene_skinned_count Number of entries in @p scene_skinned.
                  * @return Whether the gizmo edited @p gizmo_target this frame.
                  */
                 bool draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
@@ -197,7 +203,9 @@ namespace SushiEngine
                           AnimatedMeshPreview* animated_mesh = nullptr,
                           const SushiEngine::Render::ParticleEmitterView* emitters = nullptr,
                           std::size_t emitter_count = 0, bool ik_gizmo = false,
-                          bool preview_controls = false, GameViewSettings* game_view = nullptr);
+                          bool preview_controls = false, GameViewSettings* game_view = nullptr,
+                          const SushiEngine::Render::SkinnedInstance* scene_skinned = nullptr,
+                          std::size_t scene_skinned_count = 0);
 
                 /**
                  * @brief Applies the host's fidelity/performance settings to this view.
@@ -267,6 +275,22 @@ namespace SushiEngine
                 ISceneCamera& camera_;
                 std::unique_ptr<SushiEngine::Render::ISceneView> view_;
                 std::vector<ImTextureID> slot_textures_;
+                /**
+                 * @brief The frame's UI geometry, kept alive across the render call.
+                 *
+                 * `Render::UiView` is non-owning, so the list it points at has to outlive the
+                 * call. Holding it here rather than on the stack also keeps its capacity between
+                 * frames, which matters because it is rebuilt from scratch every one.
+                 */
+                SushiEngine::UI::UIDrawList ui_draw_list_;
+                /**
+                 * @brief Where the viewport image sat last frame, in screen pixels.
+                 *
+                 * The UI draw list is built before this frame's image position is known, and the
+                 * only thing that needs it is converting the pointer into viewport-local space
+                 * for a button's hover shade.
+                 */
+                ImVec2 last_image_origin_{0.0f, 0.0f};
                 bool looking_ = false;
                 bool panning_ = false;
                 // Active UI drag: the element index being dragged and which handle grabbed

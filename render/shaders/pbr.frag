@@ -52,6 +52,10 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 planet_precision;
     vec4 lights[10];      // per light: xyz dir + w irradiance, then xyz colour + w emits
     vec4 light_counts;    // x = light count
+    // Secondary directional casters' punctual-atlas shadow record index, brightest-first,
+    // -1 = unshadowed; light 0 always -1 here since it samples the cascades instead.
+    vec4 light_shadow_a;  // lights 0-3
+    vec4 light_shadow_b;  // light 4 in x, yzw spare
 } scene;
 
 // The bindless texture heap (set 1). Declared before the clustered-lighting include
@@ -222,6 +226,7 @@ layout(location = 3) out vec2 out_gbuffer; // r = roughness, g = F0, for screen-
 #define MATERIAL_CLEARCOAT         (1u << 8)
 #define MATERIAL_SHEEN             (1u << 9)
 #define MATERIAL_TRANSMISSION      (1u << 10)
+#define MATERIAL_FADE_SPECULAR     (1u << 11)
 
 vec4 sample_map(uint index, vec2 uv)
 {
@@ -511,6 +516,16 @@ void main()
                     visibility *= texture(contact_shadow_texture, screen_uv).r;
             }
         }
+        else
+        {
+            // A secondary body (the Moon, typically) that opted into a shadow map and
+            // won a tile this frame: a single non-cascaded map in the same punctual
+            // atlas the spot/point casters share, filtered by the same function they use.
+            float shadow_index = light_index < 4 ? scene.light_shadow_a[light_index]
+                                                  : scene.light_shadow_b.x;
+            if (false && shadow_index >= 0.0)
+                visibility *= sample_punctual_shadow(int(shadow_index), v_world_position);
+        }
         // The deck overhead shades this surface exactly as it shades the analytic
         // ground, so a mesh standing on that ground darkens with it rather than staying
         // lit inside a cloud shadow. Clouds hide a moon exactly as they hide the sun.
@@ -607,6 +622,11 @@ void main()
                                 (vec3(1.0) - fresnel_ibl) * ao_combined;
         vec3 indirect_specular = prefiltered * (fresnel_ibl * dfg.x + dfg.y) * compensation *
                                  specular_ao;
+        // Transparent keeps its reflection at full strength as the surface thins out —
+        // a pane of glass at low alpha still shows a bright highlight. Fade dissolves
+        // the whole surface uniformly, so its reflection fades with the base alpha too.
+        if ((flags & MATERIAL_FADE_SPECULAR) != 0u)
+            indirect_specular *= base.a;
         indirect = (indirect_diffuse + indirect_specular) * scene.ibl_params.x;
     }
     else

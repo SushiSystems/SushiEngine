@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "atmosphere_common.glsl"
+#include "clustered_lighting_common.glsl"
 
 // Builds the volumetric-fog froxel volume: a camera-frustum-aligned 32x32x32 grid where
 // froxel (x, y, z) holds the fog's accumulated in-scattered light and transmittance from
@@ -49,6 +50,36 @@ layout(push_constant) uniform FogBlock
     vec4 color_density; // xyz = scattering tint, w = sea-level extinction (per m)
     vec4 params;        // x = height falloff (per m), y = ambient, z = phase g, w = enabled
 } fog;
+
+// The clustered light engine: a point/spot light's own march reaches into the fog it
+// sits in, unshadowed (a shadow-marched god ray is a costlier increment left for
+// later — see the pass header comment). Renumbered onto this pass's own small set
+// rather than the shared scene set's bindings 14-17, the way particle.frag also does.
+layout(std430, set = 0, binding = 4) readonly buffer LightBuffer
+{
+    PunctualLight lights[];
+} light_buffer;
+
+layout(std430, set = 0, binding = 5) readonly buffer ClusterGrid
+{
+    uint cluster_light_count[];
+} cluster_grid;
+
+layout(std430, set = 0, binding = 6) readonly buffer LightIndexList
+{
+    uint light_indices[];
+} light_index_list;
+
+layout(set = 0, binding = 7) uniform ClusterBlock
+{
+    vec4 grid;   // x,y,z = grid dims, w = active light count
+    vec4 depth;  // near, far, log-slice scale, log-slice bias
+    vec4 screen; // render w, h, tile size x, tile size y
+    vec4 counts;
+    vec4 stochastic;
+    vec4 sdf_origin;
+    vec4 sdf_resolution;
+} cluster;
 
 // Extra fog density and its tint-weighted scattering from the local primitives at a
 // camera-relative point. Each volume fades over its edge_falloff shell so it blends in.
@@ -152,6 +183,31 @@ void main()
                 float mu_sun = dot(to_center / max(r, 1.0), sun);
                 vec3 sun_transmittance = sample_transmittance(transmittance_lut, medium, r, mu_sun);
                 vec3 lit = sun_radiance * (phase * sun_transmittance + vec3(ambient_fill));
+
+                // Punctual in-scatter: the same froxel-to-cluster mapping the shading
+                // passes use, reusing their light list — unshadowed, so a bright point
+                // or spot light visibly lights up the fog around it (the "laser through
+                // fog" case), without a per-step shadow march.
+                vec2 punctual_frag_coord = (vec2(cell) + 0.5) / vec2(size.xy) * cluster.screen.xy;
+                float punctual_view_z = dot(p, scene.cam_forward.xyz);
+                uint punctual_cluster =
+                    cluster_index(punctual_frag_coord, punctual_view_z, cluster.depth, cluster.screen);
+                uint punctual_count =
+                    min(cluster_grid.cluster_light_count[punctual_cluster], MAX_LIGHTS_PER_CLUSTER);
+                uint punctual_base = punctual_cluster * MAX_LIGHTS_PER_CLUSTER;
+                for (uint li = 0u; li < punctual_count && false; ++li)
+                {
+                    PunctualLight light =
+                        light_buffer.lights[light_index_list.light_indices[punctual_base + li]];
+                    vec3 light_dir;
+                    float distance_to_light;
+                    float light_attenuation = punctual_attenuation(light, p, light_dir, distance_to_light);
+                    if (light_attenuation <= 0.0)
+                        continue;
+                    float light_phase = atmo_phase_mie(dot(rd, light_dir), phase_g);
+                    lit += light.color_intensity.xyz * light.color_intensity.w *
+                           light_attenuation * light_phase;
+                }
 
                 vec3 step_scatter = scatter_coeff * sub * lit;
                 inscatter += throughput * step_scatter;

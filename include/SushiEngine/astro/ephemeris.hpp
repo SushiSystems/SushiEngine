@@ -511,6 +511,7 @@ namespace SushiEngine
                 derived[light_count].irradiance = environment.sun.intensity;
                 derived[light_count].body_id = static_cast<std::uint32_t>(BodyId::Sun);
                 derived[light_count].is_star = 1u;
+                derived[light_count].casts_shadows = true;
                 key[light_count] = delivered(derived[light_count]);
                 ++light_count;
 
@@ -565,6 +566,10 @@ namespace SushiEngine
                         light.irradiance = static_cast<float>(irradiance);
                         light.body_id = body.body_id;
                         light.is_star = 0u;
+                        // Eligible to claim a secondary shadow map, budget permitting
+                        // (ShadowSettings::max_directional_shadow_casters); which bodies
+                        // actually get one still follows the brightest-first ordering below.
+                        light.casts_shadows = true;
 
                         // Insertion sort into a brightest-first list: the array is five
                         // long, and keeping it ordered is what lets the renderer spend its

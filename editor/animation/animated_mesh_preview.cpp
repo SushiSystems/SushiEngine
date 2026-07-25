@@ -80,6 +80,7 @@ namespace SushiEngine
             mesh_ = meshes[0];
             material_ = materials[0];
             source_path_ = path;
+            morph_weights_.assign(assets.morph_target_count(mesh_), 0.0f);
             return true;
         }
 
@@ -254,6 +255,7 @@ namespace SushiEngine
             pose_scratch_.clear();
             instances_.clear();
             source_path_.clear();
+            morph_weights_.clear();
         }
 
         void AnimatedMeshPreview::update(float dt)

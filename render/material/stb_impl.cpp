@@ -21,13 +21,19 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// stb_image and cgltf are header-only: each needs exactly one translation unit to
-// define its implementation, and this is that unit for both. Nothing else in the
-// renderer may define STB_IMAGE_IMPLEMENTATION or CGLTF_IMPLEMENTATION.
+// stb_image, stb_truetype and cgltf are header-only: each needs exactly one translation
+// unit to define its implementation, and this is that unit for all three. Nothing else in
+// the renderer may define STB_IMAGE_IMPLEMENTATION, STB_TRUETYPE_IMPLEMENTATION or
+// CGLTF_IMPLEMENTATION.
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO_WARNING
 #include <stb_image.h>
+
+// The UI overlay's glyph atlas. Ships in the same vcpkg `Stb` package the image loader
+// already comes from, so the font path costs no new dependency.
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb_truetype.h>
 
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>

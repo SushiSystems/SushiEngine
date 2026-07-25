@@ -24,6 +24,8 @@
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "lighting/light_system.hpp"
+#include "lighting/cluster_config.hpp"
 #include "passes/atmosphere_lut_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
@@ -82,10 +84,12 @@ namespace SushiEngine
             VolumetricFogPass::VolumetricFogPass(Vulkan::VulkanDevice& device,
                                                  Resources::ShaderLibrary& shaders,
                                                  Resources::GraphicsPipelineFactory& pipelines,
-                                                 AtmosphereLutPass& atmosphere)
-                : device_(device), shaders_(shaders), pipelines_(pipelines), atmosphere_(atmosphere)
+                                                 AtmosphereLutPass& atmosphere,
+                                                 Lighting::LightSystem& lights)
+                : device_(device), shaders_(shaders), pipelines_(pipelines), atmosphere_(atmosphere),
+                  lights_(lights)
             {
-                VkDescriptorSetLayoutBinding bindings[4]{};
+                VkDescriptorSetLayoutBinding bindings[8]{};
                 bindings[0].binding = 0;
                 bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 bindings[0].descriptorCount = 1;
@@ -102,10 +106,30 @@ namespace SushiEngine
                 bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 bindings[3].descriptorCount = 1;
                 bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                // The clustered light engine: the light array and config block are
+                // host-written and bound directly, the count grid and index list are the
+                // graph transients the cull pass wrote this frame — the same four bindings
+                // every shading pass reads, just renumbered onto this pass's own set.
+                bindings[4].binding = 4;
+                bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[4].descriptorCount = 1;
+                bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                bindings[5].binding = 5;
+                bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[5].descriptorCount = 1;
+                bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                bindings[6].binding = 6;
+                bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[6].descriptorCount = 1;
+                bindings[6].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                bindings[7].binding = 7;
+                bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                bindings[7].descriptorCount = 1;
+                bindings[7].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 4;
+                layout_info.bindingCount = 8;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -294,13 +318,19 @@ namespace SushiEngine
                 const VkBuffer volume_buffer = volume_buffers_[ring];
 
                 const Graph::BufferHandle uniforms = frame.targets.uniforms;
+                const Graph::BufferHandle cluster_grid = frame.targets.cluster_grid;
+                const Graph::BufferHandle light_index = frame.targets.light_index;
                 graph.add_pass(
                     "volumetric-fog",
-                    [uniforms](Graph::RenderPassBuilder& builder)
+                    [uniforms, cluster_grid, light_index](Graph::RenderPassBuilder& builder)
                     {
                         // The volume is pass-owned and barriered by hand; the scene block is
-                        // the one graph resource, read for the camera basis and the sun.
+                        // read for the camera basis and the sun, and the cluster grid/index
+                        // list are the cull pass's transients this frame's punctual in-scatter
+                        // reads — this pass must be registered after Lighting::LightCullPass.
                         builder.read(uniforms, Graph::BufferAccess::UniformRead);
+                        builder.read(cluster_grid, Graph::BufferAccess::StorageRead);
+                        builder.read(light_index, Graph::BufferAccess::StorageRead);
                         builder.set_side_effect();
                     },
                     [this, &frame, push, uniforms, volume_buffer](
@@ -320,6 +350,13 @@ namespace SushiEngine
                         writer.uniform_buffer(1, scene_buffer, sizeof(Scene::SceneUniforms));
                         writer.sampled_image(2, atmosphere_.transmittance_view(), sampler);
                         writer.uniform_buffer(3, volume_buffer, sizeof(VolumesBlock));
+                        writer.storage_buffer(4, lights_.light_buffer(), lights_.light_buffer_range());
+                        writer.storage_buffer(5, context.buffer(frame.targets.cluster_grid),
+                                              Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
+                        writer.storage_buffer(6, context.buffer(frame.targets.light_index),
+                                              Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
+                        writer.uniform_buffer(7, lights_.config_buffer(),
+                                              lights_.config_buffer_range());
                         writer.update(device_.device(), set);
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,

@@ -105,6 +105,11 @@ namespace SushiEngine
                 return textures_.resident_bytes();
             }
 
+            std::uint32_t AssetLibrary::morph_target_count(MeshId mesh) const noexcept
+            {
+                return meshes_.morph_target_count(mesh);
+            }
+
             bool AssetLibrary::update()
             {
                 textures_.update();

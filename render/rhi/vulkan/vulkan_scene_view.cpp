@@ -57,7 +57,8 @@ namespace SushiEngine
                                              Assets::AssetLibrary& assets)
                 : device_(device), assets_(assets), descriptors_(device, SLOTS),
                   cloth_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
-                  motion_(device, SLOTS), instance_system_(device, SLOTS),
+                  motion_(device, SLOTS), ui_geometry_(device, SLOTS),
+                  instance_system_(device, SLOTS),
                   skinning_(device, SLOTS), particles_(device, SLOTS, 1u << 16),
                   lights_(device, SLOTS),
                   accelerator_(device, assets.meshes(), SLOTS),
@@ -65,7 +66,7 @@ namespace SushiEngine
                   graph_(device, &profiler_),
                   atmosphere_lut_pass_(device, assets.shaders(), assets.pipelines()),
                   volumetric_fog_pass_(device, assets.shaders(), assets.pipelines(),
-                                       atmosphere_lut_pass_),
+                                       atmosphere_lut_pass_, lights_),
                   ibl_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
                             assets.layout(), assets.cloud_noise(), atmosphere_lut_pass_,
                             volumetric_fog_pass_),
@@ -87,18 +88,23 @@ namespace SushiEngine
                   skinning_pass_(device, assets.shaders(), assets.pipelines(), skinning_,
                                  assets.meshes()),
                   particle_sim_pass_(device, assets.shaders(), assets.pipelines(), particles_,
-                                     hiz_pass_),
+                                     hiz_pass_, irradiance_volume_pass_),
                   particle_sort_pass_(device, assets.shaders(), assets.pipelines(), particles_),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes(), cloth_, materials_, motion_,
                                assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_, lights_,
                                instance_system_, skinning_),
+                  transparent_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
+                                    assets.meshes(), materials_, motion_, skinning_,
+                                    assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_,
+                                    lights_),
                   light_cull_pass_(device, assets.shaders(), assets.pipelines(), lights_),
                   light_shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                      assets.meshes(), lights_),
                   shading_rate_pass_(device, assets.shaders(), assets.pipelines()),
                   sky_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
-                            assets.cloud_noise(), atmosphere_lut_pass_, volumetric_fog_pass_),
+                            assets.cloud_noise(), atmosphere_lut_pass_, volumetric_fog_pass_,
+                            lights_),
                   ground_shadow_resolve_pass_(device, assets.shaders(), assets.pipelines(),
                                               assets.layout()),
                   cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
@@ -119,8 +125,16 @@ namespace SushiEngine
                   grid_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   tonemap_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   fxaa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
+                  ui_pass_(device, assets.shaders(), assets.pipelines(), ui_geometry_, font_,
+                           assets.textures(), assets.heap()),
                   resources_(device, assets.samplers().get(Resources::SamplerDesc{}), 16u, 16u)
             {
+                // Bake the overlay font once, here, because it is a device upload and the
+                // overlay pass must never rasterize a glyph mid-frame. A failure is not fatal:
+                // the atlas stays invalid, the pass falls back to the opaque-white default, and
+                // the UI draws its panels without its labels.
+                font_.build_from_system_font(assets.textures(), UI_FONT_PIXEL_HEIGHT);
+
                 // Registration order is execution order. The IBL chain is captured before
                 // anything samples it; the depth prepass runs first among the geometry so
                 // the contact-shadow march has a complete depth buffer to walk, and the
@@ -131,7 +145,6 @@ namespace SushiEngine
                 // so it follows the cloud composite; and the display transform is last
                 // except for the spatial filter and the picking readback.
                 passes_ = {&atmosphere_lut_pass_,
-                           &volumetric_fog_pass_,
                            &ibl_pass_,
                            &irradiance_volume_pass_,
                            &cull_pass_,
@@ -144,6 +157,11 @@ namespace SushiEngine
                            &contact_shadow_pass_,
                            &ray_shadow_pass_,
                            &light_cull_pass_,
+                           // The punctual in-scatter march reads the cluster grid/index
+                           // list the cull pass just wrote this frame, so it must follow
+                           // it; runs before the shadow pass since it doesn't sample the
+                           // punctual atlas (unshadowed in-scatter, see the pass header).
+                           &volumetric_fog_pass_,
                            &light_shadow_pass_,
                            &gtao_pass_,
                            &hiz_pass_,
@@ -152,6 +170,10 @@ namespace SushiEngine
                            // Mesh particles are solid geometry, so they belong with the opaque
                            // surfaces and before anything that reads a finished depth buffer.
                            &particle_mesh_pass_,
+                           // Transparent surfaces composite over the finished opaque depth;
+                           // they test against it but never write it, so they must follow
+                           // every pass that still contributes to that depth buffer.
+                           &transparent_pass_,
                            &shading_rate_pass_,
                            &sky_pass_,
                            &ground_shadow_resolve_pass_,
@@ -167,6 +189,9 @@ namespace SushiEngine
                            &grid_pass_,
                            &tonemap_pass_,
                            &fxaa_pass_,
+                           // The game's own UI, last of the colour passes: composited onto the
+                           // finished image so it is neither tone mapped nor anti-aliased.
+                           &ui_pass_,
                            &picking_pass_};
             }
 
@@ -294,7 +319,7 @@ namespace SushiEngine
                                          const ParticleEmitterView* emitters,
                                          std::size_t emitter_count,
                                          const ParticleBillboard* billboards,
-                                         std::size_t billboard_count)
+                                         std::size_t billboard_count, const UiView* ui)
             {
                 // Resolve the quality tier once, here, into the effective settings every
                 // pass reads and the extra per-pass knobs that have no home in
@@ -306,7 +331,17 @@ namespace SushiEngine
                 const RenderSettings& effective = resolved.settings;
 
                 // TEMPORARY DIAGNOSTIC — remove once the light/decal regression is closed.
-                if (std::getenv("SE_LIGHT_DEBUG") != nullptr && frame_counter_ % 60 == 0)
+#ifdef _WIN32
+                char* light_debug_env = nullptr;
+                std::size_t light_debug_env_length = 0;
+                const bool light_debug_enabled =
+                    _dupenv_s(&light_debug_env, &light_debug_env_length, "SE_LIGHT_DEBUG") == 0 &&
+                    light_debug_env != nullptr;
+                std::free(light_debug_env);
+#else
+                const bool light_debug_enabled = std::getenv("SE_LIGHT_DEBUG") != nullptr;
+#endif
+                if (light_debug_enabled && frame_counter_ % 60 == 0)
                     std::fprintf(stderr,
                                  "[light-debug] lights=%zu decals=%zu max_lights=%u "
                                  "max_decals=%u cluster_far=%.1f\n",
@@ -358,6 +393,9 @@ namespace SushiEngine
                 frame.draws.emitter_count = emitter_count;
                 frame.draws.billboards = billboards;
                 frame.draws.billboard_count = billboard_count;
+                // Only a non-empty overlay reaches the pass: a null or degenerate one is the
+                // normal case for a viewport that draws no game UI at all.
+                frame.draws.ui = (ui != nullptr && !ui->empty()) ? ui : nullptr;
                 frame.particle_capacity = emitter_count > 0 ? particles_.capacity() : 0;
                 frame.draws.lights = lights;
                 frame.draws.light_count = light_count;
@@ -379,9 +417,26 @@ namespace SushiEngine
                     Frame::frame_jitter(frame_counter_, render_width_, render_height_,
                                         settings_.temporal.jitter_scale, phases, frame.jitter);
 
+                // Secondary directional casters need their atlas tile before the scene
+                // block is filled, so its shadow-index lanes can be patched in below;
+                // begin_frame() also resets the light system's other per-frame buffers,
+                // which the packing calls further down fill in.
+                lights_.begin_frame(index);
+                lights_.assign_directional_shadows(environment.lights, environment.light_count,
+                                                   effective.lights.shadow_atlas_size,
+                                                   effective.shadows.max_directional_shadow_casters,
+                                                   effective.shadows.distance);
+
                 Scene::SceneUniforms uniforms;
                 Scene::fill_scene_uniforms(camera, environment, frame.eye,
                                            static_cast<float>(frame_counter_) * 0.016f, uniforms);
+                for (int i = 0; i < 4; ++i)
+                    uniforms.light_shadow_a[i] =
+                        static_cast<float>(lights_.directional_shadow_index(static_cast<std::uint32_t>(i)));
+                uniforms.light_shadow_b[0] = static_cast<float>(lights_.directional_shadow_index(4));
+                uniforms.light_shadow_b[1] = 0.0f;
+                uniforms.light_shadow_b[2] = 0.0f;
+                uniforms.light_shadow_b[3] = 0.0f;
                 // The image-based lighting chain is this view's, so its parameters are
                 // stamped in here rather than by the environment fill, which knows
                 // nothing about the renderer's internals.
@@ -484,7 +539,8 @@ namespace SushiEngine
                 // Pack and configure the light engine before the passes register: the cull
                 // pass reads the packed count and the grid's near/far when it builds its
                 // push constant, and the far distance is the tier-scaled cluster reach.
-                lights_.begin_frame(index);
+                // (begin_frame() and assign_directional_shadows() already ran above, before
+                // the scene block was filled, so its shadow-index lanes could be patched in.)
                 lights_.pack(lights, light_count, frame.eye, effective.lights.max_lights);
                 lights_.pack_decals(decals, decal_count, frame.eye, effective.lights.max_decals,
                                     assets_.textures());
@@ -617,6 +673,14 @@ namespace SushiEngine
                 // Pack this frame's skinned characters' palettes and lay out their output; the
                 // skinning pass deforms them into the output buffer and the opaque pass draws it.
                 skinning_.prepare(index, skinned, skinned_count, assets_.meshes());
+
+                // Tessellate this frame's UI overlay into one vertex/index buffer. Done here,
+                // beside the other host packs and before the graph is built, because the pass
+                // has to know whether there is anything to draw when it registers.
+                if (frame.draws.ui != nullptr)
+                    ui_geometry_.prepare(index, *frame.draws.ui, font_);
+                else
+                    ui_geometry_.prepare(index, UiView{}, font_);
 
                 // Flatten this frame's cosmetic emitters and upload their table and LUT atlases;
                 // the particle sim pass emits and integrates into the shared pool and the

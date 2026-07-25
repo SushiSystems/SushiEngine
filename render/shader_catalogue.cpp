@@ -46,6 +46,8 @@
 #include "cloud_noise_weather.comp.h"
 #include "fullscreen.vert.h"
 #include "fxaa.frag.h"
+#include "ui.frag.h"
+#include "ui.vert.h"
 #include "gtao.comp.h"
 #include "gtao_resolve.frag.h"
 #include "ground_shadow_resolve.frag.h"
@@ -149,6 +151,10 @@ namespace SushiEngine
                  Shaders::tonemap_frag_spv_word_count, "tonemap.frag"},
                 {"fxaa.frag", ShaderStage::Fragment, Shaders::fxaa_frag_spv,
                  Shaders::fxaa_frag_spv_word_count, "fxaa.frag"},
+                {"ui.vert", ShaderStage::Vertex, Shaders::ui_vert_spv,
+                 Shaders::ui_vert_spv_word_count, "ui.vert"},
+                {"ui.frag", ShaderStage::Fragment, Shaders::ui_frag_spv,
+                 Shaders::ui_frag_spv_word_count, "ui.frag"},
                 {"shading_rate.comp", ShaderStage::Compute, Shaders::shading_rate_comp_spv,
                  Shaders::shading_rate_comp_spv_word_count, "shading_rate.comp"},
                 {"cloud_noise_volume.comp", ShaderStage::Compute,

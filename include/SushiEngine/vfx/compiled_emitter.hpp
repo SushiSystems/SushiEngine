@@ -128,6 +128,16 @@ namespace SushiEngine
              * the bindless heap with a slot that was never allocated.
              */
             RENDER_TEXTURED = 1u << 2,
+            /**
+             * @brief Collide against the SDF clipmap rather than the depth pyramid.
+             *
+             * Rides here rather than taking its own @ref UpdateFlags bit because it selects
+             * *how* @ref UPDATE_COLLISION collides, not *whether* it does: a shader that sees
+             * `UPDATE_COLLISION` still knows exactly one branch to take. It is also the bit the
+             * renderer clears when the distance field is unavailable, which drops the emitter
+             * back to the depth test rather than to no collision at all.
+             */
+            RENDER_DISTANCE_FIELD_COLLISION = 1u << 3,
         };
 
         /**
@@ -192,6 +202,14 @@ namespace SushiEngine
             std::uint32_t mesh = 0;                           /**< Mesh-registry handle, Mesh alignment only. */
             std::uint32_t flipbook_rows = 1;                  /**< Sub-UV atlas rows. */
             std::uint32_t flipbook_columns = 1;               /**< Sub-UV atlas columns. */
+
+            float beam_start[3] = {0.0f, 0.0f, 0.0f};         /**< Beam origin, emitter-local. */
+            float beam_width = 0.25f;                         /**< Beam strip width, metres. */
+            float beam_end[3] = {0.0f, 0.0f, 5.0f};           /**< Beam terminus, emitter-local. */
+            float beam_sag = 0.0f;                            /**< Midpoint droop, metres. */
+            float beam_noise_amplitude = 0.0f;                /**< Lateral jitter, metres. */
+            float beam_noise_frequency = 4.0f;                /**< Jitter cycles along the span. */
+            float beam_pad[2] = {0.0f, 0.0f};                 /**< Keeps the beam block three vec4s wide. */
         };
 
         /**

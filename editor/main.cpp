@@ -156,7 +156,8 @@ int main(int argc, char** argv)
         // synchronisation mistake surfaces as a device loss with no message.
         for (int i = 1; i < argc; ++i)
             if (std::string(argv[i]) == "--validation")
-                desc.width = width != 0 ? width : 1600;
+                desc.enable_validation = true;
+        desc.width = width != 0 ? width : 1600;
         desc.height = height != 0 ? height : 900;
         std::unique_ptr<SushiEngine::Render::IWindowRenderer> renderer =
             SushiEngine::Render::create_window_renderer(desc);
@@ -734,7 +735,9 @@ int main(int argc, char** argv)
                                                particle_billboards.data(),
                                                particle_billboards.size(), &animated_mesh_preview,
                                                scene_emitters, scene_emitter_count,
-                                               /*ik_gizmo=*/true);
+                                               /*ik_gizmo=*/true, /*preview_controls=*/false,
+                                               nullptr, scene.skinned_instances.data(),
+                                               scene.skinned_instances.size());
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
@@ -769,7 +772,8 @@ int main(int argc, char** argv)
                                    particle_billboards.data(), particle_billboards.size(),
                                    &animated_mesh_preview, scene_emitters, scene_emitter_count,
                                    /*ik_gizmo=*/false, /*preview_controls=*/false,
-                                   &context.game_view_settings);
+                                   &context.game_view_settings, scene.skinned_instances.data(),
+                                   scene.skinned_instances.size());
                 }
                 else
                 {

@@ -98,6 +98,7 @@ namespace SushiEngine
             VelocityStretched = 1, /**< Stretched along the velocity vector. */
             Ribbon = 2,            /**< A trail strip through the particle's recent positions. */
             Mesh = 3,              /**< A solid mesh instance per particle (debris, shells). */
+            Beam = 4,              /**< A strip between two authored endpoints (see @ref BeamModule). */
         };
 
         /** @brief One scheduled burst of particles at a point in the emitter's life. */
@@ -218,7 +219,19 @@ namespace SushiEngine
          */
         struct CollisionModule
         {
-            bool enabled = false;      /**< Whether depth collision is applied. */
+            bool enabled = false;      /**< Whether collision is applied. */
+            /**
+             * @brief Collide against the GI distance field instead of the depth buffer.
+             *
+             * The depth test above only knows about surfaces the camera can see. The SDF
+             * clipmap the global illumination already maintains is a volume around the
+             * camera, so it answers for particles that are off screen or occluded — at the
+             * cost of the clipmap's resolution (it rounds off detail finer than a voxel) and
+             * its extent (particles outside the clipmap fall back to no collision). Sparks
+             * that must keep bouncing while the camera looks away want this; sparks skittering
+             * across a floor in view are sharper without it.
+             */
+            bool use_distance_field = false;
             float restitution = 0.35f; /**< Fraction of the normal velocity kept on bounce. */
             float friction = 0.2f;     /**< Fraction of the tangential velocity shed on bounce. */
             /**
@@ -243,6 +256,33 @@ namespace SushiEngine
         {
             bool enabled = false;    /**< Whether the colour gradient is applied. */
             ColorGradient gradient;  /**< Colour and alpha vs normalized age. */
+        };
+
+        /**
+         * @brief Render stage: the two authored endpoints a @ref RenderAlignment::Beam spans.
+         *
+         * A ribbon samples a particle's own recent positions; a beam samples a straight line
+         * between two points the artist placed. That is the only difference — the strip
+         * expansion, the width taper, the texturing and the draw are shared — which is why a
+         * beam is an alignment rather than a separate render path. Endpoints are in the
+         * emitter's local space, so moving the emitter carries the beam with it.
+         *
+         * @ref sag bends the line under an imagined gravity (a hanging cable, a slack wire)
+         * and @ref noise_amplitude jitters it laterally (an arc of lightning); with both at
+         * zero the beam is exactly straight.
+         *
+         * Cosmetic only: the deterministic CPU backend draws nothing, so a beam never affects
+         * simulation state.
+         */
+        struct BeamModule
+        {
+            bool enabled = false;          /**< Whether the endpoints below are used. */
+            Vector3 start;                 /**< Emitter-local start point. */
+            Vector3 end{Vector3{0, 0, 5}}; /**< Emitter-local end point. */
+            float width = 0.25f;           /**< Strip width in metres, constant along the span. */
+            float sag = 0.0f;              /**< Metres the midpoint droops below the chord. */
+            float noise_amplitude = 0.0f;  /**< Lateral jitter in metres; 0 is a clean line. */
+            float noise_frequency = 4.0f;  /**< Jitter cycles along the span. */
         };
 
         /** @brief The @ref RenderModule::texture value meaning "no sprite texture". */

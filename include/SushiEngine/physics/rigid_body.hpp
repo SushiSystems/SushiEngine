@@ -67,23 +67,25 @@ namespace SushiEngine
         using RigidBody = RigidBodyT<Scalar>;
 
         /**
-         * @brief Applies a rotation correction expressed in @p q's own local frame.
+         * @brief Applies a rotation correction expressed in the world frame.
          *
-         * The angular equivalent of a positional impulse: `local_delta` is the
-         * (small) local-frame rotation vector a constraint projection wants to add,
-         * folded in as `q += 0.5 * Quaternion(local_delta, 0) * q`, then renormalized. Used
-         * by both the predicted-pose integration below and constraint projections.
+         * The angular equivalent of a positional impulse: `world_delta` is the (small)
+         * world-frame rotation vector a projection wants to add, folded in as
+         * `q += 0.5 * Quaternion(world_delta, 0) * q`, then renormalized. The
+         * left-multiplication is what makes it world-frame rather than body-frame, and
+         * it is why @ref predict can hand it a world-frame angular velocity directly and
+         * @ref update_velocity can recover one from a left-multiplied orientation delta.
          *
          * @tparam T The scalar element type.
          * @param q           The orientation to correct.
-         * @param local_delta The rotation vector to apply, in @p q's local frame.
+         * @param world_delta The rotation vector to apply, in world space.
          * @return The corrected, renormalized orientation.
          */
         template <typename T>
         inline QuaternionT<T> apply_angular_correction(const QuaternionT<T>& q,
-                                                       const Vector3T<T>& local_delta) noexcept
+                                                       const Vector3T<T>& world_delta) noexcept
         {
-            const QuaternionT<T> vq{local_delta.x, local_delta.y, local_delta.z, T(0)};
+            const QuaternionT<T> vq{world_delta.x, world_delta.y, world_delta.z, T(0)};
             const QuaternionT<T> dq = mul(vq, q);
             const QuaternionT<T> updated{q.x + T(0.5) * dq.x, q.y + T(0.5) * dq.y,
                                q.z + T(0.5) * dq.z, q.w + T(0.5) * dq.w};

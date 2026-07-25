@@ -78,10 +78,11 @@ namespace SushiEngine
              * dropped, because the compiled record both backends read is a fixed-size POD.
              */
             std::vector<ForceFieldModule> force_fields;
-            CollisionModule collision;                        /**< Screen-space depth bounce. */
+            CollisionModule collision;                        /**< Depth or distance-field bounce. */
             SizeOverLifeModule size_over_life;                /**< Size multiplier vs age. */
             ColorOverLifeModule color_over_life;              /**< Colour/alpha vs age. */
             RenderModule render;                              /**< Draw settings. */
+            BeamModule beam;                                  /**< Endpoints, Beam alignment only. */
         };
     } // namespace Vfx
 } // namespace SushiEngine

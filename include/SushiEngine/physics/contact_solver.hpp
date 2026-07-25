@@ -23,7 +23,7 @@
 
 /**
  * @file contact_solver.hpp
- * @brief Positional (PBD) contact resolution for spherical rigid bodies.
+ * @brief Positional (PBD) contact resolution for rigid bodies and cloth particles.
  *
  * Non-penetration is an inequality constraint — a contact only ever pushes bodies
  * apart, never pulls them together — so it is handled as a projection pass over the
@@ -33,8 +33,12 @@
  * `update_velocity` in a sub-step: the position change it makes is exactly what
  * `update_velocity` then reads back as the post-contact velocity, so a body landing
  * on a surface loses its downward velocity without any explicit restitution term
- * (inelastic contact). Bodies are treated as spheres (each with a radius); this is
- * the smallest contact model that makes the editor's colliders actually collide.
+ * (inelastic contact).
+ *
+ * A body collides as an oriented box or a sphere, and a correction is split between
+ * the pair by generalized inverse mass, so it moves *and* turns them. What this model
+ * still does not have: friction, restitution, a clipped contact manifold (each pair
+ * yields one point, so a resting box rocks), and cloth self-collision.
  */
 
 #include <cstddef>
@@ -199,25 +203,75 @@ namespace SushiEngine
         }
 
         /**
-         * @brief One body in the unified contact pass: a shape plus a live position pointer.
+         * @brief One body in the unified contact pass: a shape plus live pose pointers.
          *
          * The rigid and cloth worlds live in separate buffers, so the two-way contact
-         * solver views both through a common handle: `position` points straight into the
-         * owning buffer's body (a correction updates the real body), `inv_mass` weights how
-         * much of a contact this body absorbs, and the shape is either an oriented box or a
-         * sphere. `is_cloth` lets the pass skip cloth-cloth pairs (no self-collision yet).
+         * solver views both through a common handle: `position` and `orientation` point
+         * straight into the owning buffer's body (a correction updates the real body),
+         * `inv_mass` and `inv_inertia` weight how much of a contact this body absorbs
+         * linearly and angularly, and the shape is either an oriented box or a sphere.
+         * `is_cloth` lets the pass skip cloth-cloth pairs (no self-collision yet).
+         *
+         * `orientation` may be null for a body that has no meaningful rotation (a cloth
+         * particle), in which case it reads as identity and never rotates. A zero
+         * `inv_inertia` likewise pins every rotational degree of freedom, which is what
+         * keeps cloth particles and spheres behaving exactly as they did before contacts
+         * could produce torque.
          */
         template <typename T>
         struct ContactBody
         {
             Vector3T<T>* position = nullptr;
+            QuaternionT<T>* orientation = nullptr;
             T inv_mass = T(0);
+            Vector3T<T> inv_inertia; /**< Diagonal body-local inverse inertia; zero pins rotation. */
             bool is_box = false;
             Vector3T<T> half_extents{Vector3T<T>{T(0.5), T(0.5), T(0.5)}}; /**< Box shape. */
-            QuaternionT<T> orientation{QuaternionT<T>{T(0), T(0), T(0), T(1)}};
             T radius = T(0.5); /**< Sphere shape. */
             bool is_cloth = false;
         };
+
+        /** @brief A contact body's orientation, or identity when it carries none. */
+        template <typename T>
+        inline QuaternionT<T> contact_body_orientation(const ContactBody<T>& body) noexcept
+        {
+            return body.orientation ? *body.orientation
+                                    : QuaternionT<T>{T(0), T(0), T(0), T(1)};
+        }
+
+        /**
+         * @brief Applies a body's world-space inverse inertia to a world-space vector.
+         *
+         * The inertia is stored as a body-local diagonal, so the vector is rotated into
+         * the body frame, scaled per axis, and rotated back — the similarity transform
+         * `R * I_local^-1 * R^T` without forming the matrix.
+         */
+        template <typename T>
+        inline Vector3T<T> apply_inverse_inertia(const ContactBody<T>& body,
+                                                 const Vector3T<T>& world_vector) noexcept
+        {
+            const QuaternionT<T> q = contact_body_orientation(body);
+            const Vector3T<T> local = rotate(conjugate(q), world_vector);
+            const Vector3T<T> scaled{local.x * body.inv_inertia.x, local.y * body.inv_inertia.y,
+                                     local.z * body.inv_inertia.z};
+            return rotate(q, scaled);
+        }
+
+        /**
+         * @brief The generalized inverse mass a body presents along @p normal at @p lever.
+         *
+         * The linear share plus the angular share the lever arm exposes:
+         * `inv_mass + (r x n) . I^-1 (r x n)`. A body with no rotational freedom returns
+         * its inverse mass unchanged, which is what makes the angular path a strict
+         * extension of the purely positional one.
+         */
+        template <typename T>
+        inline T contact_generalized_mass(const ContactBody<T>& body, const Vector3T<T>& lever,
+                                          const Vector3T<T>& normal) noexcept
+        {
+            const Vector3T<T> torque_axis = cross(lever, normal);
+            return body.inv_mass + dot(torque_axis, apply_inverse_inertia(body, torque_axis));
+        }
 
         /** @brief The world-space AABB enclosing a contact body's shape. */
         template <typename T>
@@ -231,7 +285,8 @@ namespace SushiEngine
                 // Enclose the oriented box: each axis's world extent is the sum of the
                 // absolute projections of the (rotated) half-extent axes onto that axis.
                 Vector3T<T> axes[3];
-                const OrientedBox<T> box{*body.position, body.half_extents, body.orientation};
+                const OrientedBox<T> box{*body.position, body.half_extents,
+                                         contact_body_orientation(body)};
                 obb_axes(box, axes);
                 ex = std::abs(axes[0].x) * body.half_extents.x +
                      std::abs(axes[1].x) * body.half_extents.y +
@@ -258,18 +313,17 @@ namespace SushiEngine
         inline Contact<T> contact_body_narrowphase(const ContactBody<T>& a,
                                                    const ContactBody<T>& b) noexcept
         {
+            const OrientedBox<T> box_a{*a.position, a.half_extents, contact_body_orientation(a)};
+            const OrientedBox<T> box_b{*b.position, b.half_extents, contact_body_orientation(b)};
             if (a.is_box && b.is_box)
-                return collide_obb_obb(OrientedBox<T>{*a.position, a.half_extents, a.orientation},
-                                       OrientedBox<T>{*b.position, b.half_extents, b.orientation});
+                return collide_obb_obb(box_a, box_b);
             if (a.is_box)
-                return collide_obb_sphere(OrientedBox<T>{*a.position, a.half_extents, a.orientation},
-                                          SphereCollider<T>{*b.position, b.radius});
+                return collide_obb_sphere(box_a, SphereCollider<T>{*b.position, b.radius});
             if (b.is_box)
             {
                 // Box is the second shape: test box→sphere then flip the normal to a→b.
                 Contact<T> contact =
-                    collide_obb_sphere(OrientedBox<T>{*b.position, b.half_extents, b.orientation},
-                                       SphereCollider<T>{*a.position, a.radius});
+                    collide_obb_sphere(box_b, SphereCollider<T>{*a.position, a.radius});
                 contact.normal = contact.normal * T(-1);
                 return contact;
             }
@@ -278,30 +332,69 @@ namespace SushiEngine
         }
 
         /**
-         * @brief Resolves one contacting pair, splitting the correction by inverse mass.
+         * @brief Applies one body's share of a contact impulse to its pose.
          *
-         * The standard two-way PBD projection: each body moves along the contact normal in
-         * proportion to its share of the total inverse mass, so a light body yields to a
-         * heavy one and two equal bodies split the push. Skips cloth-cloth pairs and pairs
-         * with no movable mass.
+         * `sign` is +1 for the body the normal points toward and -1 for the other, so the
+         * pair pushes apart. The linear part moves the centre of mass; the angular part
+         * turns the body about the lever arm from its centre to the contact point, which
+         * is what lets a box struck off-centre topple instead of sliding flat.
+         */
+        template <typename T>
+        inline void apply_contact_impulse(ContactBody<T>& body, const Vector3T<T>& impulse,
+                                          const Vector3T<T>& lever, T sign) noexcept
+        {
+            *body.position = *body.position + impulse * (sign * body.inv_mass);
+            if (!body.orientation)
+                return;
+            const Vector3T<T> rotation =
+                apply_inverse_inertia(body, cross(lever, impulse * sign));
+            if (dot(rotation, rotation) > T(0))
+                *body.orientation = apply_angular_correction(*body.orientation, rotation);
+        }
+
+        /**
+         * @brief Resolves one contacting pair, splitting the correction by generalized mass.
+         *
+         * The two-way PBD projection, extended to rotation: each body's share is weighted
+         * by `inv_mass + (r x n) . I^-1 (r x n)`, so a light body yields to a heavy one,
+         * two equal bodies split the push, and a contact away from the centre of mass
+         * spends part of its correction as a turn rather than a slide. Bodies with no
+         * rotational freedom (cloth particles, spheres) reduce exactly to the older
+         * inverse-mass split. Skips cloth-cloth pairs and pairs with no movable mass.
+         *
+         * The manifold is a single point, so a box resting on a face is held by one
+         * corner at a time and rocks slightly rather than settling rigidly flat.
          */
         template <typename T>
         inline void resolve_contact_bodies(ContactBody<T>& a, ContactBody<T>& b) noexcept
         {
             if (a.is_cloth && b.is_cloth)
                 return;
-            const T w = a.inv_mass + b.inv_mass;
-            if (w <= T(0))
+            if (a.inv_mass + b.inv_mass <= T(0))
                 return;
             const Contact<T> contact = contact_body_narrowphase(a, b);
             if (!contact.hit)
                 return;
-            const Vector3T<T> correction = contact.normal * (contact.depth / w);
-            *a.position = *a.position - correction * a.inv_mass;
-            *b.position = *b.position + correction * b.inv_mass;
+
+            const Vector3T<T> lever_a = contact.point - *a.position;
+            const Vector3T<T> lever_b = contact.point - *b.position;
+            const T w = contact_generalized_mass(a, lever_a, contact.normal) +
+                        contact_generalized_mass(b, lever_b, contact.normal);
+            if (w <= T(0))
+                return;
+
+            const Vector3T<T> impulse = contact.normal * (contact.depth / w);
+            apply_contact_impulse(a, impulse, lever_a, T(-1));
+            apply_contact_impulse(b, impulse, lever_b, T(1));
         }
 
-        /** @brief Pushes one contact body out of a static half-space plane (full correction). */
+        /**
+         * @brief Pushes one contact body out of a static half-space plane.
+         *
+         * The plane is immovable, so the body absorbs the whole correction — but it
+         * absorbs it at the contact point, so a box that lands on a corner rotates
+         * toward lying flat instead of being lifted rigidly.
+         */
         template <typename T>
         inline void resolve_contact_body_plane(ContactBody<T>& body,
                                                const PlaneCollider<T>& plane) noexcept
@@ -311,11 +404,20 @@ namespace SushiEngine
             const Contact<T> contact =
                 body.is_box
                     ? collide_obb_plane(OrientedBox<T>{*body.position, body.half_extents,
-                                                       body.orientation},
+                                                       contact_body_orientation(body)},
                                         plane)
                     : collide_sphere_plane(SphereCollider<T>{*body.position, body.radius}, plane);
-            if (contact.hit)
-                *body.position = *body.position + contact.normal * contact.depth;
+            if (!contact.hit)
+                return;
+
+            const Vector3T<T> lever = contact.point - *body.position;
+            const T w = contact_generalized_mass(body, lever, contact.normal);
+            if (w <= T(0))
+                return;
+            // Scaled so the centre-of-mass motion still clears the penetration exactly
+            // when there is no angular share, matching the previous behaviour.
+            const Vector3T<T> impulse = contact.normal * (contact.depth * body.inv_mass / w);
+            apply_contact_impulse(body, impulse, lever, T(1));
         }
     } // namespace Physics
 } // namespace SushiEngine

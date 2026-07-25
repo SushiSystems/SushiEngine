@@ -9,6 +9,102 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Editor/feature sync pass — GTAO, SSR, ray-traced shadows, particle bursts, and blend shapes
+  gained the editor UI their engine-side implementation already supported.** An audit of the
+  editor against the features it's meant to expose found several settings that were fully wired
+  and consumed by the renderer but had no widget anywhere — an author could only reach them by
+  hand-editing the preferences JSON. Fixed (see `docs/slop/editor_feature_sync_gaps.md` for the
+  full audit, including what's deliberately deferred):
+  - **GTAO and SSR** (`RenderSettings::gtao`/`ssr`) gained a Rendering panel section each
+    (enabled/radius/intensity/power/slices/steps for GTAO; enabled/max_steps/thickness/
+    roughness_cutoff/intensity for SSR), next to the existing Shadows/VRS sections.
+  - **Ray-traced sun shadows** (`ShadowSettings::ray_traced`) and **secondary directional shadow
+    casters** (`max_directional_shadow_casters`) gained a toggle/slider in the Shadows section —
+    both were already read by `ray_traced_shadow_pass.cpp`/`quality.cpp`.
+  - **Particle bursts** (`Vfx::ParticleBurst`): the effect timeline only ever drew existing
+    bursts; the Particle System component's Emission section now lists them with editable
+    time/count fields and Add/Remove buttons.
+  - **Blend shapes**: `AnimatedMeshPreview::set_morph_weights` was a dead seam with nothing to
+    drive it or size it from. `IAssetLibrary` gained `morph_target_count(MeshId)` (glTF morph
+    import already existed in `gltf_importer.cpp`, just unqueried); `load_gltf` now sizes the
+    preview's weight buffer from it, and the Animator panel gained one slider per target. Still
+    manually posed, not clip-driven (`animation_system.md` §12.1/§12.2 tracks the glTF
+    `WEIGHTS`-channel work that would change that).
+- **UI — the game's interface is drawn by the renderer.** The ECS UI layer built a
+  `UIDrawList` that nothing consumed; the editor painted its own, disjoint mirror
+  (`Simulation::UIElementParams`) with ImGui. So a shipped build had no UI at all, and
+  what the Game view showed was ImGui pretending. Closed by an actual Vulkan pass:
+  - `include/SushiEngine/ui/draw_list.hpp` splits `UIDrawRect`/`UITextRun`/`UIDrawList`
+    out of `ui.hpp` so the render seam can name them without pulling in the ECS. Text
+    runs gained a `TextAlign`, because a button's caption is centred and a label is not
+    — a property of the element, not of the rasterizer.
+  - `Render::UiView` (a non-owning POD, like `ClothStrandView`) is the 17th `render()`
+    parameter, defaulted, so no existing call site changes.
+  - `Material::FontAtlas` bakes printable ASCII once at bring-up with `stb_truetype` —
+    already in the `Stb` vcpkg package the image loader uses, so no new dependency —
+    into a `TextureLibrary` entry with a reserved opaque-white texel, which is what lets
+    panels and glyphs share one atlas, one pipeline and one indexed draw.
+  - `Geometry::UiBuffers` tessellates the list into per-frame-slot host-visible vertex
+    and index buffers, growing only, the arrangement `ClothBuffers` already uses.
+  - `Passes::UiPass` draws it into `targets.resolve` with `AttachmentLoad::Load`, after
+    tone mapping and FXAA: UI drawn earlier would drift in hue with the scene's exposure
+    and soften under the AA filter.
+  - The editor's `paint_ui_overlay` is now only authoring chrome — canvas extents,
+    edit-mode outlines, selection handles. The elements themselves come from the
+    renderer, so the Game view finally shows what a shipped build shows.
+  - Degrades rather than fails: with no font the atlas slot resolves to the library's
+    opaque-white default, so panels still draw and only labels are missing; with no
+    bindless heap the pass does not register.
+- **Animation — §12.3's device-batched evaluator wired into a real live scene.** A new
+  "Crowd" entity kind end-to-end: `Simulation::CrowdParams` (skeleton/clip/mesh/material
+  handles + playback state), `ISimulation::register_crowd_skeleton`/`register_crowd_clip`
+  (glTF import into a private `Animation::AnimationDatabase`, cached by path),
+  `IWorldEditor::create_crowd`/`has_crowd`/`crowd_params`/`set_crowd_params`, and
+  `RenderScene::skinned_instances`. `RuntimeSimulation` owns an
+  `Animation::DeviceBatchEvaluator` member; `step_crowd_playback()` advances every
+  playing crowd entity's clip time on the fixed tick, and `extract_crowd()` finds the
+  frame's bound skeleton (first crowd entity seen wins; a differently-rigged entity is
+  skipped that frame, not drawn wrong — `DeviceBatchEvaluator`'s own one-skeleton-per-
+  batch scoping), lazily binds newly-seen clips, runs one `set_instances`+`evaluate()`
+  for the whole batch, and fills one `Render::SkinnedInstance` per entity pointing into
+  the evaluator's retained palette buffer. `editor/ui/viewport_panel.*` merges
+  `RenderScene::skinned_instances` with the single-instance `AnimatedMeshPreview`
+  channel, the same "world content plus the authored subject" pattern the particle
+  billboard/emitter merges already use. `sushi_sim` and the full `se_editor.exe` both
+  compile and link cleanly; an actual GPU-visual check is still open (see the next
+  entry). Closes `slop/animation_system.md` §12.3's live-scene-wiring gap.
+- **Fixed a real, pre-existing `VK_ERROR_DEVICE_LOST` on editor launch.**
+  `editor/main.cpp`'s `--validation` CLI flag was dead code from a copy-paste mistake
+  (`c6618377`, 2026-07-24): it set `desc.width` instead of `desc.enable_validation`
+  inside the flag's `if`. The real damage was that `desc.width` (the swapchain's sizing
+  input) was consequently never set at all outside that dead branch, silently
+  defaulting to 1280x720 while the actual window is created at 1600x900 — a swapchain
+  sized against the wrong extent relative to the real surface, a plausible cause of the
+  early device loss every launch hit. Both are fixed: `--validation` now actually
+  enables the Vulkan validation layers, and `desc.width` is always set from the
+  window's real drawable size. Found while investigating the device loss for the crowd
+  entry above; unrelated to it. Not yet re-verified end to end — an unrelated,
+  in-progress refactor elsewhere in the tree currently blocks the full engine from
+  compiling.
+- **Shadows for secondary directional lights, and two point/spot lighting gaps closed.**
+  Previously only `Environment::lights[0]` (the brightest celestial body — the Sun by
+  day, the Moon or another reflector after dark) cast a shadow; every other directional
+  light shaded flat. A secondary body with the new `CelestialLight::casts_shadows` flag
+  set can now claim a single non-cascaded shadow map, up to the new
+  `ShadowSettings::max_directional_shadow_casters` (default 1), placed as extra tiles in
+  the existing shared punctual shadow atlas (`LightSystem::assign_directional_shadows`)
+  and sampled by `pbr.frag`/`sky.frag` through the same `sample_punctual_shadow()` the
+  spot/point casters already use — split out, along with the atlas binding and the
+  cube-face helper, into `render/shaders/punctual_shadow_common.glsl` so a shader that
+  only needs shadow visibility (not the full cluster grid/decal machinery) can include
+  just that. Two related point/spot lighting gaps found while scoping this are fixed in
+  the same change: the analytic planet ground (`sky.frag`'s `ground_hit` branch) now
+  reads the clustered punctual-light buffer, so a light placed near the ground actually
+  lights it (previously only meshes standing on the ground did); and
+  `render/shaders/fog_scatter.comp`'s volumetric fog march now accumulates unshadowed
+  in-scatter from the same buffer, so a bright point/spot light visibly lights up the
+  fog around it. The fog pass moved later in the frame's pass registration order (after
+  `LightCullPass`) so its cluster-grid read sees this frame's data.
 - **Game view: "No cameras rendering" placeholder, and an aspect/orientation/fullscreen toolbar.**
   Previously the Game window simply disappeared (its `ImGui::Begin` was skipped entirely) whenever
   the scene had no camera or no display to target. It now stays open and shows a centered
@@ -25,6 +121,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   identical row.
 
 ### Fixed
+- **Transparent and Fade materials rendered fully opaque; `Material::base_alpha` had no visible
+  effect.** `OpaquePass` was the only pass drawing scene meshes, and its pipelines never enabled
+  blending (`blendEnable` defaulted false, `depth_write` always true) — every `SurfaceType`,
+  including `Transparent` and `Fade`, drew through the same opaque pipelines regardless of alpha.
+  A new `Passes::TransparentPass` (`render/passes/transparent_pass.hpp`/`.cpp`) now draws
+  `SurfaceType::Transparent`/`Fade` instances with standard alpha blending
+  (`SRC_ALPHA`/`ONE_MINUS_SRC_ALPHA`), `depth_write` off and `depth_test` on against the depth
+  `OpaquePass` already wrote, sorted back-to-front by distance from the eye. `OpaquePass` skips
+  alpha-blended instances across all four of its draw paths (classic, skinned, GPU-driven
+  indirect, and meshlet), and `Scene::InstanceSystem::build()` excludes them from the GPU-driven
+  cull/compaction buffers so they are never indirect-drawn opaque. The new shared
+  `Render::is_alpha_blended(SurfaceType)` (`include/SushiEngine/render/material.hpp`) is the one
+  place that answers "does this surface type belong to the blended pass," used by all of the
+  above so the two never drift apart. `Transparent` and `Fade` share one pipeline; a new
+  `MATERIAL_FADE_SPECULAR` flag tells `pbr.frag` to additionally fade the IBL specular
+  reflection by alpha for `Fade` (a pane of glass under `Transparent` keeps its highlight at
+  full strength as it thins out; `Fade` dissolves the whole surface, reflection included).
+  Per-light direct specular is not separately split out for this — doing so would mean carrying
+  two accumulators through the whole clustered-lighting/IBL/clearcoat path — so `Transparent`
+  and `Fade` still look identical under strong direct light; only the IBL term differs today.
+  `TransparentPass` also owns a second, skinned pipeline (`mesh_skinned.vert`, the same 72-byte
+  output-vertex layout `OpaquePass`'s skinned pipeline reads) so an animated character with a
+  `Transparent`/`Fade` material blends too — `OpaquePass`'s skinned draw loop and material/motion
+  packing both now skip alpha-blended `SkinnedRange`s the same way they skip alpha-blended rigid
+  instances. Rigid instances and skinned ranges sort into one back-to-front list keyed on world
+  distance from the eye, so an animated character interleaves correctly with rigid transparent
+  geometry instead of the two kinds drawing as separate, wrongly-ordered batches.
+
 - **Editor: duplicate "Animator" window/menu-item IDs.** The Animator Graph panel and the
   Animator (layers/masks/IK) preview panel both used the bare title `"Animator"`, and the
   Window menu had two `MenuItem("Animator", ...)` entries — ImGui warned of the ID conflict

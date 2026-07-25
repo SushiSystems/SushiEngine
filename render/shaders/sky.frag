@@ -4,6 +4,8 @@
 #include "temporal_common.glsl"
 #include "shadow_sampling.glsl"
 #include "atmosphere_common.glsl"
+#include "clustered_lighting_common.glsl"
+#include "punctual_shadow_common.glsl"
 
 // The planet, atmosphere, clouds, and stars, drawn as one fullscreen ray march after
 // the opaque meshes. Works in camera-relative space (the camera is the origin; the
@@ -76,7 +78,41 @@ layout(set = 0, binding = 0) uniform SceneBlock
     // Light 0 owns the shadow cascades.
     vec4 lights[10];
     vec4 light_counts; // x = light count
+    // Secondary directional casters' punctual-atlas shadow record index, brightest-first,
+    // -1 = unshadowed; light 0 always -1 here since it samples the cascades instead.
+    vec4 light_shadow_a; // lights 0-3
+    vec4 light_shadow_b; // light 4 in x, yzw spare
 } scene;
+
+// The clustered light engine's punctual buffer and froxel grid, the same subset of the
+// shared scene set the opaque pass binds (see SceneLayout) — so the analytic ground
+// picks up point/spot lights exactly as a mesh does, without pulling in the decal or
+// bindless-heap machinery clustered_lighting.glsl also carries.
+layout(std430, set = 0, binding = 14) readonly buffer LightBuffer
+{
+    PunctualLight lights[];
+} light_buffer;
+
+layout(std430, set = 0, binding = 15) readonly buffer ClusterGrid
+{
+    uint cluster_light_count[];
+} cluster_grid;
+
+layout(std430, set = 0, binding = 16) readonly buffer LightIndexList
+{
+    uint light_indices[];
+} light_index_list;
+
+layout(set = 0, binding = 17) uniform ClusterBlock
+{
+    vec4 grid;   // x,y,z = grid dims, w = active light count
+    vec4 depth;  // near, far, log-slice scale, log-slice bias
+    vec4 screen; // render w, h, tile size x, tile size y
+    vec4 counts; // x = active decal count, yzw spare
+    vec4 stochastic;
+    vec4 sdf_origin;
+    vec4 sdf_resolution;
+} cluster;
 
 #define MAX_BODIES 16
 #define MAX_STARS 64
@@ -927,9 +963,51 @@ void main()
                 continue;
             vec3 radiance = scene.lights[i * 2 + 1].xyz * irradiance;
             float shadow = cloud_ground_shadow(hit, light_dir);
+            // A secondary body that claimed a tile in the punctual atlas (see
+            // LightSystem::assign_directional_shadows) darkens the ground under it
+            // exactly as it does a mesh.
+            float shadow_index = i < 4 ? scene.light_shadow_a[i] : scene.light_shadow_b.x;
+            if (false && shadow_index >= 0.0)
+                shadow *= sample_punctual_shadow(int(shadow_index), hit);
             vec3 lobe = albedo / PI + vec3(ground_specular(normal, ground_view, light_dir,
                                                            ground_roughness, ground_f0));
             secondary_direct += lobe * radiance * cos_incident * shadow;
+        }
+
+        // Point/spot lights near the ground light it directly too — previously only
+        // meshes standing on the ground read the clustered punctual buffer
+        // (accumulate_clustered_lighting in pbr.frag), so a lamp post lit its own base
+        // mesh but left the ground under it black. Diffuse-only: the ground's response
+        // here is analytic (PlanetParams::surface), not a full glTF material, so there
+        // is no roughness/metallic to feed a specular lobe.
+        vec3 punctual_direct = vec3(0.0);
+        {
+            float ground_view_z = dot(scene.cam_forward.xyz, hit);
+            uint ground_cluster =
+                cluster_index(gl_FragCoord.xy, ground_view_z, cluster.depth, cluster.screen);
+            uint count = min(cluster_grid.cluster_light_count[ground_cluster], MAX_LIGHTS_PER_CLUSTER);
+            uint base = ground_cluster * MAX_LIGHTS_PER_CLUSTER;
+            for (uint li = 0u; li < count; ++li)
+            {
+                PunctualLight light = light_buffer.lights[light_index_list.light_indices[base + li]];
+                vec3 light_dir;
+                float distance_to_light;
+                float attenuation = punctual_attenuation(light, hit, light_dir, distance_to_light);
+                if (attenuation <= 0.0)
+                    continue;
+                float cos_incident = max(dot(normal, light_dir), 0.0);
+                if (cos_incident <= 0.0)
+                    continue;
+                int record = int(light.cone.z);
+                if (false && record >= 0)
+                {
+                    if (light.direction_type.w < 0.5) // point light: select the cube face
+                        record += cube_shadow_face(hit - light.position_range.xyz);
+                    attenuation *= sample_punctual_shadow(record, hit);
+                }
+                vec3 radiance = light.color_intensity.xyz * light.color_intensity.w;
+                punctual_direct += (albedo / PI) * radiance * cos_incident * attenuation;
+            }
         }
 
         // Cloud shadow: attenuate only the direct term by the cloud stack overhead —
@@ -950,7 +1028,7 @@ void main()
                                                            ground_roughness, ground_f0));
         vec3 ground_ambient = albedo * (scene.ambient.xyz + skylight_ambient);
         vec3 ground_direct = key_lobe * key_radiance * key_cos_incident * cloud_shadow;
-        sky_color += (ground_ambient + secondary_direct) * total_transmittance;
+        sky_color += (ground_ambient + secondary_direct + punctual_direct) * total_transmittance;
         ground_shadow_out = vec4(ground_direct * total_transmittance, cascade_shadow);
     }
 

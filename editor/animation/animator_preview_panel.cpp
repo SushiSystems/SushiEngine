@@ -243,6 +243,29 @@ namespace SushiEngine
             draw_ik_section(*preview, preview->skeleton());
 
             ImGui::Separator();
+            ImGui::Text("Blend Shapes");
+            const std::uint32_t morph_count = preview->morph_target_count();
+            if (morph_count == 0)
+            {
+                ImGui::TextDisabled("Loaded mesh has no morph targets.");
+            }
+            else
+            {
+                for (std::uint32_t i = 0; i < morph_count; ++i)
+                {
+                    ImGui::PushID(static_cast<int>(i));
+                    float weight = preview->morph_weight(i);
+                    if (ImGui::SliderFloat("##weight", &weight, 0.0f, 1.0f))
+                        preview->set_morph_weight(i, weight);
+                    ImGui::SameLine();
+                    ImGui::Text("Target %u", i);
+                    ImGui::PopID();
+                }
+                ImGui::TextDisabled(
+                    "Manual weights (design §12.1/§12.2: not yet clip-driven).");
+            }
+
+            ImGui::Separator();
             bool use_dqs = preview->dual_quaternion_skinning();
             if (ImGui::Checkbox("Dual-Quaternion Skinning", &use_dqs))
                 preview->set_dual_quaternion_skinning(use_dqs);

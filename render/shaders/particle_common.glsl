@@ -6,6 +6,11 @@
 // Vfx::GpuParticle and Scene::GpuEmitter field for field, read with scalar std430 members so the
 // byte layout matches the host upload exactly.
 
+// For particle_sdf_collide. sdf_common declares no bindings and no version — it is pure
+// parameterization and maths taking its sampler as an argument — so including it here costs the
+// draw shaders nothing but lets the simulate pass reuse the GI field rather than restate it.
+#include "sdf_common.glsl"
+
 // Force fields one emitter can carry; mirrors Vfx::MAX_FORCE_FIELDS. Declared before the Emitter
 // struct because it sizes a member of it.
 #define MAX_FORCE_FIELDS 4u
@@ -29,7 +34,7 @@ struct Particle
     float birth_size;
 };
 
-// One active emitter — mirrors Scene::GpuEmitter (mat4 + thirteen vec4s + the force-field table).
+// One active emitter — mirrors Scene::GpuEmitter (mat4 + sixteen vec4s + the force-field table).
 struct Emitter
 {
     mat4  model;
@@ -70,6 +75,15 @@ struct Emitter
     uint  texture;
     float soft_fade_distance;
     float pad_material;
+    // The beam span, already in world space (Beam alignment only).
+    float beam_sx, beam_sy, beam_sz;
+    float beam_width;
+    float beam_ex, beam_ey, beam_ez;
+    float beam_sag;
+    float beam_noise_amplitude;
+    float beam_noise_frequency;
+    float beam_pad0;
+    float beam_pad1;
     // Three vec4s per field: (centre.xyz, strength), (axis.xyz, radius),
     // (kind, falloff, pad, pad). Already in world space — the host baked the emitter transform in.
     vec4  force_fields[MAX_FORCE_FIELDS * 3];
@@ -89,12 +103,14 @@ const uint BLEND_PREMULTIPLIED = 2u;
 const uint RENDER_SOFT = 1u;
 const uint RENDER_LIT = 2u;
 const uint RENDER_TEXTURED = 4u;
+const uint RENDER_DISTANCE_FIELD_COLLISION = 8u;
 
 // Vfx::RenderAlignment values.
 const uint ALIGN_FACE_CAMERA = 0u;
 const uint ALIGN_VELOCITY_STRETCHED = 1u;
 const uint ALIGN_RIBBON = 2u;
 const uint ALIGN_MESH = 3u;
+const uint ALIGN_BEAM = 4u;
 
 // Distinct meshes drawable as mesh particles in one frame; mirrors
 // Scene::ParticleSystem::MAX_MESH_EMITTERS. Each owns an equal slice of the mesh draw list and one
@@ -457,6 +473,97 @@ vec3 curl_noise(vec3 p)
     float inv = 1.0 / (2.0 * e);
     return vec3(((p3_y1 - p3_y0) - (p2_z1 - p2_z0)) * inv, ((p1_z1 - p1_z0) - (p3_x1 - p3_x0)) * inv,
                 ((p2_x1 - p2_x0) - (p1_y1 - p1_y0)) * inv);
+}
+
+// Bounce a particle off the GI distance field.
+//
+// The counterpart to particle_depth_collide for particles that must keep colliding when the
+// camera is not looking at them: the clipmap is a volume around the eye, not a view of it, so
+// being off screen or occluded is no longer a reason to pass through. What it costs is
+// resolution — the field rounds off anything finer than a voxel — and reach, since a particle
+// outside the clipmap gets no collision at all rather than a wrong one.
+//
+// `clipmap` and `cfg` are camera-relative, so `eye` converts the particle's absolute world
+// position into the field's space. The response is deliberately identical to the depth path's,
+// so switching an emitter between the two changes what it collides with and nothing else.
+bool particle_sdf_collide(sampler3D clipmap, SdfClipmapConfig cfg, Emitter e, vec3 eye,
+                          inout vec3 position, inout vec3 velocity)
+{
+    vec3 local = position - eye;
+
+    // Outside the clipmap the field has nothing to say; its border voxels would otherwise
+    // clamp-extend into a phantom surface the particle would bounce off in mid-air.
+    vec3 extent = vec3(cfg.resolution.xyz) * cfg.origin_voxel.w;
+    vec3 relative = local - cfg.origin_voxel.xyz;
+    if (any(lessThan(relative, vec3(0.0))) || any(greaterThan(relative, extent)))
+        return false;
+
+    float distance_to_surface = sdf_sample_distance(clipmap, cfg, local);
+    // Above the surface, or so far inside that the particle is through the object rather than
+    // resting on it — the same "surface, not a solid" reasoning as the depth path.
+    if (distance_to_surface > 0.0 || -distance_to_surface > e.collision_thickness)
+        return false;
+
+    vec3 gradient = sdf_gradient(clipmap, cfg, local);
+    if (dot(gradient, gradient) < 1e-12)
+        return false; // flat region of the field, no direction to bounce along
+    vec3 normal = normalize(gradient);
+
+    float into = dot(velocity, normal);
+    if (into < 0.0)
+    {
+        vec3 normal_velocity = normal * into;
+        vec3 tangent_velocity = velocity - normal_velocity;
+        velocity = tangent_velocity * (1.0 - e.collision_friction) -
+                   normal_velocity * e.collision_restitution;
+    }
+    position += normal * (-distance_to_surface);
+    return true;
+}
+
+// One sample along an authored beam, in the same (position.xyz, width) form the ribbon
+// path reads out of the trail buffer — which is what lets the two share a vertex stage.
+//
+// `t` runs 0 at the start endpoint to 1 at the end. Sag pulls the middle down by a
+// parabola that vanishes at both ends (so the endpoints stay exactly where the artist put
+// them), and the noise displaces laterally, never along the span, so jitter cannot make
+// the strip fold back on itself.
+//
+// `seed` is the drawing particle's own seed, so an emitter holding several live particles
+// draws several distinct arcs between the same two endpoints rather than stacking
+// identical strips — which is what makes a multi-particle beam read as forked lightning
+// instead of as overdraw. With the noise amplitude at zero they all collapse onto the one
+// straight line, as they should.
+vec4 particle_beam_sample(Emitter e, float t, uint seed)
+{
+    vec3 start = vec3(e.beam_sx, e.beam_sy, e.beam_sz);
+    vec3 end = vec3(e.beam_ex, e.beam_ey, e.beam_ez);
+    vec3 position = mix(start, end, t);
+
+    vec3 span = end - start;
+    float span_length = length(span);
+    vec3 direction = span_length > 1e-6 ? span / span_length : vec3(0.0, 0.0, 1.0);
+
+    // A pair of axes across the span, chosen off whichever world axis the span leans on
+    // least so the cross product never degenerates.
+    vec3 reference = abs(direction.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 side = normalize(cross(direction, reference));
+    vec3 up = cross(side, direction);
+
+    position -= up * (e.beam_sag * 4.0 * t * (1.0 - t));
+
+    if (e.beam_noise_amplitude > 0.0)
+    {
+        float phase = t * e.beam_noise_frequency;
+        float stream = float(seed) * 0.017 + float(e.frame) * 0.013;
+        float across = value_noise(vec3(phase, stream, 0.0)) * 2.0 - 1.0;
+        float along = value_noise(vec3(phase, stream, 11.0)) * 2.0 - 1.0;
+        // Taper the jitter to zero at both ends, for the same reason as the sag.
+        float envelope = e.beam_noise_amplitude * 4.0 * t * (1.0 - t);
+        position += (side * across + up * along) * envelope;
+    }
+
+    return vec4(position, e.beam_width);
 }
 
 #endif // PARTICLE_COMMON_GLSL

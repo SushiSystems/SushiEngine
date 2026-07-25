@@ -2665,6 +2665,61 @@ namespace SushiEngine
                     if (ImGui::SliderInt("Contact Steps", &steps, 4, 32))
                         settings.shadows.contact_steps = static_cast<std::uint32_t>(steps);
                 }
+
+                ImGui::Checkbox("Ray Traced (Ultra)", &settings.shadows.ray_traced);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Traces the sun ray instead of sampling a cascade.\n"
+                                      "Ignored unless the device offers ray queries and an\n"
+                                      "acceleration structure was built; cascades remain the\n"
+                                      "fallback for whatever the structure does not contain.");
+
+                int secondary_casters =
+                    static_cast<int>(settings.shadows.max_directional_shadow_casters);
+                if (ImGui::SliderInt("Secondary Shadow Casters", &secondary_casters, 0, 4))
+                    settings.shadows.max_directional_shadow_casters =
+                        static_cast<std::uint32_t>(secondary_casters);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Secondary celestial lights (beyond light 0) that may\n"
+                                      "claim a shadow map. They share a tile budget with\n"
+                                      "punctual shadow casters below. Zero disables secondary\n"
+                                      "directional shadows entirely.");
+                ImGui::PopID();
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Ambient Occlusion (GTAO)", &settings.gtao.enabled);
+            if (settings.gtao.enabled)
+            {
+                ImGui::PushID("Gtao");
+                ImGui::SliderFloat("Radius (m)", &settings.gtao.radius, 0.1f, 4.0f, "%.2f");
+                ImGui::SliderFloat("Intensity", &settings.gtao.intensity, 0.0f, 2.0f, "%.2f");
+                ImGui::SliderFloat("Power", &settings.gtao.power, 0.5f, 4.0f, "%.2f");
+
+                int slices = static_cast<int>(settings.gtao.slices);
+                if (ImGui::SliderInt("Slices", &slices, 1, 6))
+                    settings.gtao.slices = static_cast<std::uint32_t>(slices);
+
+                int gtao_steps = static_cast<int>(settings.gtao.steps);
+                if (ImGui::SliderInt("Steps", &gtao_steps, 2, 12))
+                    settings.gtao.steps = static_cast<std::uint32_t>(gtao_steps);
+                ImGui::TextDisabled("Darkens creases and contacts the ambient/IBL term can't see.");
+                ImGui::PopID();
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Screen-Space Reflections", &settings.ssr.enabled);
+            if (settings.ssr.enabled)
+            {
+                ImGui::PushID("Ssr");
+                int ssr_steps = static_cast<int>(settings.ssr.max_steps);
+                if (ImGui::SliderInt("Max Steps", &ssr_steps, 8, 128))
+                    settings.ssr.max_steps = static_cast<std::uint32_t>(ssr_steps);
+                ImGui::SliderFloat("Thickness (m)", &settings.ssr.thickness, 0.05f, 4.0f, "%.2f");
+                ImGui::SliderFloat("Roughness Cutoff", &settings.ssr.roughness_cutoff, 0.0f, 1.0f,
+                                   "%.2f");
+                ImGui::SliderFloat("Intensity", &settings.ssr.intensity, 0.0f, 1.0f, "%.2f");
+                ImGui::TextDisabled("Traces the scene's own colour into glossy surfaces through\n"
+                                    "the hi-Z pyramid, falling back to IBL where a ray misses.");
                 ImGui::PopID();
             }
 
@@ -4420,6 +4475,35 @@ namespace SushiEngine
             int capacity = static_cast<int>(emitter.capacity);
             if (ImGui::DragInt("Capacity", &capacity, 64.0f, 1, 1 << 20))
                 emitter.capacity = static_cast<std::uint32_t>(capacity < 1 ? 1 : capacity);
+
+            ImGui::TextDisabled("Bursts (additive to the rate above)");
+            int burst_to_remove = -1;
+            for (std::size_t i = 0; i < emitter.spawn.bursts.size(); ++i)
+            {
+                Vfx::ParticleBurst& burst = emitter.spawn.bursts[i];
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::SetNextItemWidth(90.0f);
+                ImGui::DragFloat("##time", &burst.time, 0.05f, 0.0f, emitter.duration);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(90.0f);
+                int count = static_cast<int>(burst.count);
+                if (ImGui::DragInt("##count", &count, 1.0f, 0, 100000))
+                    burst.count = static_cast<std::uint32_t>(count < 0 ? 0 : count);
+                ImGui::SameLine();
+                if (ImGui::Button("Remove"))
+                    burst_to_remove = static_cast<int>(i);
+                ImGui::PopID();
+            }
+            if (burst_to_remove >= 0)
+            {
+                emitter.spawn.bursts.erase(emitter.spawn.bursts.begin() + burst_to_remove);
+                context.particle_effect_dirty = true;
+            }
+            if (ImGui::Button("Add Burst"))
+            {
+                emitter.spawn.bursts.push_back(Vfx::ParticleBurst{0.0f, 10u});
+                context.particle_effect_dirty = true;
+            }
 
             ImGui::SeparatorText("Shape");
             const char* shape_names[] = {"Point", "Sphere", "Hemisphere", "Cone", "Box", "Circle"};

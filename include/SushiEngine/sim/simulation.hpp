@@ -284,6 +284,37 @@ namespace SushiEngine
          * pinned, matching `build_cloth_grid`'s only supported topology today —
          * pinning just the corners is not yet exposed (see ARCHITECTURE.md §4.2).
          */
+        /**
+         * @brief The authorable parameters of a "Crowd" entity: one skinned character
+         * batched with every other crowd entity for SYCL device-side sampling (design
+         * §12.3/§12.4).
+         *
+         * `skeleton`/`clip` are opaque handles from `ISimulation::register_crowd_skeleton`/
+         * `register_crowd_clip` — the same "id the host factory resolves" shape
+         * `AudioEmitterParams::sound` already uses, so this seam never carries a raw file
+         * path or touches the render asset library directly (the sim seam's own rule:
+         * "none of that leaks across this interface"). `mesh`/`material` are `Render::`
+         * handles a host mesh/material system already resolved, exactly like every other
+         * entity kind's visual (`RenderInstance::material` already crosses this boundary
+         * the same way; only *loading* stays outside the sim).
+         *
+         * Every crowd entity extracted in the same frame must share one `skeleton` handle
+         * — `Animation::DeviceBatchEvaluator` batches one shared skeleton per call
+         * (§12.3's own scoping). The frame's first-seen crowd entity's skeleton wins; any
+         * entity naming a different one is skipped that frame, not silently drawn wrong —
+         * see `RenderScene::skinned_instances`' own comment.
+         */
+        struct CrowdParams
+        {
+            std::uint32_t skeleton = 0;     /**< A handle from register_crowd_skeleton (0 = none). */
+            std::uint32_t clip = 0;         /**< A handle from register_crowd_clip (0 = none). */
+            Render::MeshId mesh = Render::INVALID_MESH; /**< The skinned mesh to draw with. */
+            Render::Material material{};    /**< Surface to shade with. */
+            float time_seconds = 0.0f;      /**< Playback time; `tick()` advances it while playing. */
+            bool loop = true;               /**< Whether playback wraps at the clip's end. */
+            bool playing = true;            /**< Whether `tick()` advances @ref time_seconds. */
+        };
+
         struct ClothParams
         {
             std::size_t rows = 4;      /**< Grid rows (>= 1); row 0 is pinned. */
@@ -501,6 +532,20 @@ namespace SushiEngine
              */
             std::vector<Render::ParticleEmitterView> particle_emitters;
             Render::Environment environment;             /**< The sun, WGS84 planet, atmosphere, clouds, and stars lighting this frame. */
+            /**
+             * @brief Every crowd character this frame, device-batch-sampled (design §12.3/§12.4).
+             *
+             * `RuntimeSimulation` gathers every crowd entity sharing the frame's bound skeleton,
+             * samples them all in one `Animation::DeviceBatchEvaluator::evaluate()` call, and
+             * fills one `Render::SkinnedInstance` per entity here — `palette`/`previous_palette`
+             * point into the evaluator's own retained buffers (valid until the next `tick()`
+             * calls `evaluate()` again, which is after this snapshot's consumer has read it).
+             * A crowd entity naming a skeleton other than the frame's bound one is skipped
+             * (not drawn) rather than sampled wrong; `previous_palette` is always null (the
+             * device evaluator does not yet retain a prior-frame palette, so crowd motion
+             * vectors currently read as zero motion — a documented, not silent, limitation).
+             */
+            std::vector<Render::SkinnedInstance> skinned_instances;
         };
 
         /**
@@ -879,6 +924,34 @@ namespace SushiEngine
                  */
                 virtual std::vector<Vector3> cloth_particle_positions(EntityId id) const = 0;
 
+                /**
+                 * @brief Whether @p id is a Crowd entity (design §12.3/§12.4).
+                 *
+                 * Like cloth, a crowd entity needs no ECS component migration for its
+                 * animation state — playback time is host-side bookkeeping keyed by
+                 * `EntityId`, sampled through `Animation::DeviceBatchEvaluator` at extract.
+                 * The entity's own `Transform`/`Orientation` place it, same as every other
+                 * visual entity kind.
+                 */
+                virtual bool has_crowd(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's authored crowd parameters (defaults if not a crowd). */
+                virtual CrowdParams crowd_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes a crowd entity's parameters; a no-op for non-crowd entities.
+                 * @param id     The entity to update.
+                 * @param params The new skeleton/clip/mesh/material/playback state.
+                 */
+                virtual void set_crowd_params(EntityId id, const CrowdParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches crowd-batched animation on an existing entity.
+                 * @param id    The entity to update.
+                 * @param value Whether it should be a crowd entity after this call.
+                 */
+                virtual void set_has_crowd(EntityId id, bool value) = 0;
+
                 /** @brief Whether @p id carries a punctual light. */
                 virtual bool has_light(EntityId id) const noexcept = 0;
 
@@ -1028,6 +1101,20 @@ namespace SushiEngine
                  * @return The new entity's stable id.
                  */
                 virtual EntityId create_cloth(const std::string& name) = 0;
+
+                /**
+                 * @brief Creates a Crowd entity: a device-batch-sampled skinned character.
+                 *
+                 * Equivalent to creating an empty entity and `set_has_crowd(id, true)`,
+                 * bundled so the Entity menu can offer Crowd as a first-class object. The
+                 * new entity's `crowd_params` are all defaults (no skeleton/clip/mesh bound
+                 * yet) until `set_crowd_params` names ids from
+                 * `register_crowd_skeleton`/`register_crowd_clip`.
+                 *
+                 * @param name Display name for the new entity.
+                 * @return The new entity's stable id.
+                 */
+                virtual EntityId create_crowd(const std::string& name) = 0;
 
                 /** @brief Whether @p id carries a visual Shape (Box/Sphere/Cylinder). */
                 virtual bool has_shape(EntityId id) const noexcept = 0;
@@ -1305,6 +1392,36 @@ namespace SushiEngine
                  * @param days_per_second Sky-days advanced per real second (0 freezes it).
                  */
                 virtual void set_time_scale_days_per_second(Scalar days_per_second) = 0;
+
+                /**
+                 * @brief Loads a glTF skeleton for crowd device-batch sampling (design §12.3).
+                 *
+                 * Pure animation-data import (`Animation::AnimationDatabase`, no Vulkan/render
+                 * dependency) — unlike a mesh, a skeleton needs no render asset library, so the
+                 * sim loads it directly rather than requiring a host to resolve it first.
+                 * Loading the same path twice returns the same handle (cached), not a second
+                 * copy. Rebinding `Animation::DeviceBatchEvaluator` to a different skeleton
+                 * (a crowd entity naming a handle other than the currently-bound one)
+                 * invalidates every clip registered so far for the *device* path — see
+                 * `register_crowd_clip`.
+                 *
+                 * @param gltf_path Filesystem path to a `.gltf`/`.glb` file naming a skeleton.
+                 * @return A handle for `CrowdParams::skeleton`, or 0 if the file is missing or
+                 *         carries no skeleton.
+                 */
+                virtual std::uint32_t register_crowd_skeleton(const std::string& gltf_path) = 0;
+
+                /**
+                 * @brief Loads a glTF animation clip for crowd device-batch sampling (design §12.3).
+                 *
+                 * @param gltf_path        Filesystem path to a `.gltf`/`.glb` file naming a clip.
+                 * @param skeleton_handle  The skeleton (from `register_crowd_skeleton`) the clip's
+                 *                        joint tracks are authored against.
+                 * @return A handle for `CrowdParams::clip`, or 0 if the file is missing, carries
+                 *         no clip, or `skeleton_handle` is invalid.
+                 */
+                virtual std::uint32_t register_crowd_clip(const std::string& gltf_path,
+                                                          std::uint32_t skeleton_handle) = 0;
         };
 
         /**

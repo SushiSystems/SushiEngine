@@ -78,6 +78,11 @@ namespace SushiEngine
             void LightShadowPass::register_pass(Graph::RenderGraph& graph,
                                                 const Frame::FrameContext& frame)
             {
+                // TEMPORARY DIAGNOSTIC — bisecting VK_ERROR_DEVICE_LOST: force this pass off
+                // to rule out the punctual/directional shadow atlas render entirely.
+                if (true)
+                    return;
+
                 if (lights_.shadow_caster_count() == 0 ||
                     !frame.targets.light_shadow_atlas.valid())
                     return;

@@ -78,6 +78,23 @@ namespace SushiEngine
             Fade,        /**< Alpha fades the whole surface including its specular. */
         };
 
+        /**
+         * @brief Whether a surface type draws through the alpha-blended transparent pass.
+         *
+         * Opaque and Cutout draw fully covered (Cutout discards below its alpha
+         * threshold instead of blending) and belong to the depth-writing opaque pass.
+         * Transparent and Fade both blend by alpha with no depth write, so both route
+         * to the same pass and pipeline; @ref MATERIAL_FADE_SPECULAR in the material
+         * flags tells the shader which of the two it is shading.
+         *
+         * @param type The material's surface type.
+         * @return True for Transparent and Fade, false for Opaque and Cutout.
+         */
+        inline bool is_alpha_blended(SurfaceType type) noexcept
+        {
+            return type == SurfaceType::Transparent || type == SurfaceType::Fade;
+        }
+
         /** @brief Which faces a material rasterises. */
         enum class MaterialCullMode : std::uint32_t
         {
@@ -268,6 +285,16 @@ namespace SushiEngine
                  * The streaming budget is enforced against this; the editor surfaces it.
                  */
                 virtual std::size_t resident_texture_bytes() const noexcept = 0;
+
+                /**
+                 * @brief Morph (blend-shape) targets attached to an imported mesh.
+                 *
+                 * @ref load_gltf_skinned_mesh uploads a primitive's `primitive.targets[]` deltas
+                 * under this count; the editor's blend-shape sliders size themselves from it.
+                 * @param mesh The mesh to query.
+                 * @return Target count, or 0 if @p mesh has none (including an invalid id).
+                 */
+                virtual std::uint32_t morph_target_count(MeshId mesh) const noexcept = 0;
         };
     } // namespace Render
 } // namespace SushiEngine

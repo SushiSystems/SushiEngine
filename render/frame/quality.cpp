@@ -21,6 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
+#include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 
 #include <algorithm>
@@ -78,6 +79,9 @@ namespace SushiEngine
                         std::min(authored.lights.shadow_atlas_size, 1024u);
                     s.lights.max_shadow_casters = std::min(authored.lights.max_shadow_casters, 4u);
                     s.lights.max_decals = std::min(authored.lights.max_decals, 16u);
+                    // The cheap floor drops the Moon's own shadow map; it shares the
+                    // punctual atlas the cap above already shrank.
+                    s.shadows.max_directional_shadow_casters = 0u;
                     s.gtao.slices = std::min(authored.gtao.slices, 2u);
                     s.gtao.steps = std::min(authored.gtao.steps, 4u);
                     q.shadow_filter_taps = 6;
@@ -189,6 +193,11 @@ namespace SushiEngine
                         std::max(authored.lights.shadow_atlas_size, 4096u);
                     s.lights.max_shadow_casters = std::max(authored.lights.max_shadow_casters, 16u);
                     s.lights.max_decals = std::max(authored.lights.max_decals, 128u);
+                    // A floor, like the shadow fields: every reflector besides the key
+                    // light may claim its own shadow map on the top tier.
+                    s.shadows.max_directional_shadow_casters = std::max(
+                        authored.shadows.max_directional_shadow_casters,
+                        static_cast<std::uint32_t>(MAX_CELESTIAL_LIGHTS - 1));
                     s.gtao.slices = std::max(authored.gtao.slices, 4u);
                     s.gtao.steps = std::max(authored.gtao.steps, 8u);
                     q.shadow_filter_taps = 16;

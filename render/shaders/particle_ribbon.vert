@@ -53,19 +53,40 @@ const vec2 SEGMENT[6] = vec2[](vec2(0.0, -1.0), vec2(0.0, 1.0), vec2(1.0, 1.0),
 void main()
 {
     Particle p = draw[gl_InstanceIndex];
+    Emitter e = emitters[p.emitter_index];
     // Set at emit time and never rewritten, so the draw-list copy still names the pool slot whose
     // trail this is.
     uint base = p.seed * TRAIL_POINTS;
+    // A beam shares this whole stage with a trail and differs only in where the samples come
+    // from: an authored span evaluated at the sample's parameter, rather than the particle's
+    // own recorded history.
+    bool is_beam = e.alignment == ALIGN_BEAM;
 
     uint segment = uint(gl_VertexIndex) / 6u;
     vec2 corner = SEGMENT[uint(gl_VertexIndex) % 6u];
     uint sample_index = min(segment + uint(corner.x), TRAIL_POINTS - 1u);
 
-    vec4 here = trail[base + sample_index];
+    uint newer = max(sample_index, 1u) - 1u;
+    uint older = min(sample_index + 1u, TRAIL_POINTS - 1u);
+    float span = 1.0 / float(TRAIL_POINTS - 1u);
+
+    vec4 here;
     // The local direction from the neighbours, so a corner shared by two segments resolves to the
     // same offset from both and the band has no crease at the seam.
-    vec4 ahead = trail[base + max(sample_index, 1u) - 1u];
-    vec4 behind = trail[base + min(sample_index + 1u, TRAIL_POINTS - 1u)];
+    vec4 ahead;
+    vec4 behind;
+    if (is_beam)
+    {
+        here = particle_beam_sample(e, float(sample_index) * span, p.seed);
+        ahead = particle_beam_sample(e, float(newer) * span, p.seed);
+        behind = particle_beam_sample(e, float(older) * span, p.seed);
+    }
+    else
+    {
+        here = trail[base + sample_index];
+        ahead = trail[base + newer];
+        behind = trail[base + older];
+    }
 
     vec3 eye = vec3(pc.camera_right.w, pc.camera_up.w, pc.sun_direction.w);
     vec3 camera_relative = here.xyz - eye;
@@ -86,13 +107,13 @@ void main()
     }
 
     // Taper: the tail is thinner and fainter than the head. `here.w` is the sample's own recorded
-    // size, so a size-over-life curve is already baked into the strip's profile.
+    // size, so a size-over-life curve is already baked into the strip's profile. A beam is not a
+    // trail — both its ends are authored — so it keeps its width and alpha the whole way.
     float t = float(sample_index) / float(TRAIL_POINTS - 1u);
-    float taper = 1.0 - t;
+    float taper = is_beam ? 1.0 : 1.0 - t;
     vec3 world = here.xyz + side * (corner.y * here.w * taper);
 
     out_uv = vec2(corner.y * 0.5 + 0.5, 0.5);
-    Emitter e = emitters[p.emitter_index];
     out_atlas_uv = particle_sprite_uv(vec2(corner.y, t * 2.0 - 1.0), p.flipbook_frame,
                                       e.flipbook_rows, e.flipbook_columns);
     particle_material(e, out_material.x, out_material.y, out_soft_fade);

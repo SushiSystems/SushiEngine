@@ -70,6 +70,21 @@ namespace SushiEngine
                     m.m[14] = (far_plane * near_plane) / (near_plane - far_plane);
                     return m;
                 }
+
+                /** @brief A conventional orthographic projection matching @ref shadow_perspective's
+                 * depth 0→1, no-Y-flip convention, so it lands in the same atlas the same way. */
+                Mat4 shadow_ortho(double half_extent, double near_plane, double far_plane)
+                {
+                    Mat4 m;
+                    for (int i = 0; i < 16; ++i)
+                        m.m[i] = 0.0;
+                    m.m[0] = 1.0 / half_extent;
+                    m.m[5] = 1.0 / half_extent;
+                    m.m[10] = -1.0 / (far_plane - near_plane);
+                    m.m[14] = -near_plane / (far_plane - near_plane);
+                    m.m[15] = 1.0;
+                    return m;
+                }
             } // namespace
 
             LightSystem::LightSystem(Vulkan::VulkanDevice& device, std::uint32_t frame_slots)
@@ -199,6 +214,8 @@ namespace SushiEngine
                 current_slot_ = slot;
                 packed_.clear();
                 decal_packed_.clear();
+                shadow_packed_.clear();
+                shadow_tiles_.clear();
                 light_count_ = 0;
                 decal_count_ = 0;
             }
@@ -358,12 +375,82 @@ namespace SushiEngine
                 }
             }
 
+            void LightSystem::assign_directional_shadows(const CelestialLight* lights, std::size_t count,
+                                                          std::uint32_t atlas_size,
+                                                          std::uint32_t max_casters,
+                                                          float coverage_distance)
+            {
+                for (std::int32_t& index : directional_shadow_index_)
+                    index = -1;
+
+                if (atlas_size == 0 || max_casters == 0 || count == 0)
+                    return;
+
+                const std::uint32_t tile_capacity =
+                    SHADOW_TILES_PER_SIDE * SHADOW_TILES_PER_SIDE;
+                const float inv_side = 1.0f / static_cast<float>(SHADOW_TILES_PER_SIDE);
+                const std::uint32_t tile_size = atlas_size / SHADOW_TILES_PER_SIDE;
+                const double half_extent = std::max(static_cast<double>(coverage_distance), 1.0);
+                const double near_d = 0.02;
+                const double far_d = half_extent * 2.0;
+
+                // Light 0 keeps its own cascaded shadow (fit_shadow_cascades); this only
+                // ever assigns tiles to secondary lights[1..].
+                const std::uint32_t limit = static_cast<std::uint32_t>(
+                    std::min<std::size_t>(count, MAX_CELESTIAL_LIGHTS));
+                std::uint32_t casters_used = 0;
+                for (std::uint32_t i = 1; i < limit; ++i)
+                {
+                    if (casters_used >= max_casters)
+                        break;
+                    const CelestialLight& light = lights[i];
+                    if (!light.casts_shadows)
+                        continue;
+
+                    const std::uint32_t slot_index =
+                        static_cast<std::uint32_t>(shadow_tiles_.size());
+                    if (slot_index >= tile_capacity)
+                        break;
+
+                    // Pulled back from the eye along the light direction so the whole
+                    // coverage box sits in front of it, exactly as the cascade fit does —
+                    // camera-relative, so the eye is the origin and the numbers stay small.
+                    const Vector3 look_dir = normalize(light.direction);
+                    const Vector3 eye_rel{0.0, 0.0, 0.0};
+                    const Vector3 light_pos{eye_rel.x - look_dir.x * half_extent,
+                                            eye_rel.y - look_dir.y * half_extent,
+                                            eye_rel.z - look_dir.z * half_extent};
+                    const Vector3 up = std::abs(look_dir.y) > 0.99 ? Vector3{0.0, 0.0, 1.0}
+                                                                    : Vector3{0.0, 1.0, 0.0};
+                    const Mat4 view = look_at(light_pos, eye_rel, up);
+                    const Mat4 proj = shadow_ortho(half_extent, near_d, far_d);
+                    const Mat4 view_proj = mul(proj, view);
+
+                    const std::uint32_t col = slot_index % SHADOW_TILES_PER_SIDE;
+                    const std::uint32_t row = slot_index / SHADOW_TILES_PER_SIDE;
+
+                    const std::size_t base = shadow_packed_.size();
+                    shadow_packed_.resize(base + SHADOW_RECORD_FLOATS);
+                    float* out = shadow_packed_.data() + base;
+                    for (int m = 0; m < 16; ++m)
+                        out[m] = static_cast<float>(view_proj.m[m]);
+                    out[16] = static_cast<float>(col) * inv_side;
+                    out[17] = static_cast<float>(row) * inv_side;
+                    out[18] = inv_side;
+                    out[19] = 0.0f;
+
+                    shadow_tiles_.push_back(
+                        ShadowTile{col * tile_size, row * tile_size, tile_size, slot_index});
+
+                    directional_shadow_index_[i] = static_cast<std::int32_t>(slot_index);
+                    ++casters_used;
+                }
+            }
+
             void LightSystem::assign_shadows(const PunctualLight* lights, std::size_t count,
                                              const double eye[3], std::uint32_t atlas_size,
                                              std::uint32_t max_casters, float near_plane)
             {
-                shadow_packed_.clear();
-                shadow_tiles_.clear();
                 if (atlas_size == 0 || max_casters == 0)
                     return;
 

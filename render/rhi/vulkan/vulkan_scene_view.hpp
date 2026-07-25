@@ -52,6 +52,8 @@
 #include "frame/frame_context.hpp"
 #include "frame/resolution_controller.hpp"
 #include "geometry/cloth_buffers.hpp"
+#include "geometry/ui_buffers.hpp"
+#include "material/font_atlas.hpp"
 #include "graph/gpu_profiler.hpp"
 #include "graph/render_graph.hpp"
 #include "lighting/light_system.hpp"
@@ -68,6 +70,7 @@
 #include "passes/depth_prepass.hpp"
 #include "passes/dof_pass.hpp"
 #include "passes/fxaa_pass.hpp"
+#include "passes/ui_pass.hpp"
 #include "passes/grid_pass.hpp"
 #include "passes/motion_blur_pass.hpp"
 #include "passes/ground_shadow_resolve_pass.hpp"
@@ -80,6 +83,7 @@
 #include "passes/light_cull_pass.hpp"
 #include "passes/light_shadow_pass.hpp"
 #include "passes/opaque_pass.hpp"
+#include "passes/transparent_pass.hpp"
 #include "passes/particle_mesh_pass.hpp"
 #include "passes/particle_pass.hpp"
 #include "passes/particle_sim_pass.hpp"
@@ -154,7 +158,8 @@ namespace SushiEngine
                                 const ParticleEmitterView* emitters = nullptr,
                                 std::size_t emitter_count = 0,
                                 const ParticleBillboard* billboards = nullptr,
-                                std::size_t billboard_count = 0) override;
+                                std::size_t billboard_count = 0,
+                                const UiView* ui = nullptr) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
@@ -167,6 +172,15 @@ namespace SushiEngine
                 private:
                     /** @brief The most frames that may be in flight; see @ref frame_slots_. */
                     static constexpr std::uint32_t SLOTS = ViewResources::SLOTS;
+
+                    /**
+                     * @brief Pixel height the overlay font is baked at.
+                     *
+                     * The atlas is rasterized once, so this is the size text is sharpest at;
+                     * runs authored larger are magnified from it. Chosen a little above the
+                     * common UI body size so the usual case magnifies barely at all.
+                     */
+                    static constexpr float UI_FONT_PIXEL_HEIGHT = 32.0f;
 
                     void update_render_extent();
 
@@ -188,6 +202,13 @@ namespace SushiEngine
                     Geometry::ClothBuffers cloth_;
                     Assets::MaterialSystem materials_;
                     Scene::MotionSystem motion_;
+                    /**
+                     * @brief The overlay's per-frame geometry and its one baked font.
+                     *
+                     * Declared before the passes so @ref ui_pass_ can hold references to them.
+                     */
+                    Geometry::UiBuffers ui_geometry_;
+                    Assets::FontAtlas font_;
                     Scene::InstanceSystem instance_system_;
                     Scene::SkinningSystem skinning_;
                     Scene::ParticleSystem particles_;
@@ -212,6 +233,7 @@ namespace SushiEngine
                     Passes::ParticleSimPass particle_sim_pass_;
                     Passes::ParticleSortPass particle_sort_pass_;
                     Passes::OpaquePass opaque_pass_;
+                    Passes::TransparentPass transparent_pass_;
                     Passes::LightCullPass light_cull_pass_;
                     Passes::LightShadowPass light_shadow_pass_;
                     Passes::ShadingRatePass shading_rate_pass_;
@@ -230,6 +252,7 @@ namespace SushiEngine
                     Passes::GridPass grid_pass_;
                     Passes::TonemapPass tonemap_pass_;
                     Passes::FxaaPass fxaa_pass_;
+                    Passes::UiPass ui_pass_;
                     Passes::PickingPass picking_pass_;
                     std::vector<Passes::IRenderPass*> passes_;
                     ViewResources resources_;

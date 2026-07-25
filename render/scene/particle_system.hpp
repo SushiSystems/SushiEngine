@@ -141,6 +141,21 @@ namespace SushiEngine
                 float pad_material;
 
                 /**
+                 * @brief The beam span, in world space (Beam alignment only).
+                 *
+                 * The compiled record keeps the endpoints emitter-local; like the force fields
+                 * below they are transformed here, once per frame, so the vertex stage reads
+                 * the space its particles already live in.
+                 */
+                float beam_start[3];
+                float beam_width;         /**< Strip width in metres. */
+                float beam_end[3];
+                float beam_sag;           /**< Metres the midpoint droops below the chord. */
+                float beam_noise_amplitude; /**< Lateral jitter, metres. */
+                float beam_noise_frequency; /**< Jitter cycles along the span. */
+                float beam_pad[2];
+
+                /**
                  * @brief The emitter's placed force fields, baked to world space.
                  *
                  * Three `vec4`s each: (centre.xyz, strength), (axis.xyz, radius),

@@ -232,10 +232,41 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The box's furthest point along @p direction (its support point).
+         *
+         * Steps out from the centre along each local axis by that axis's half-extent,
+         * signed to follow @p direction. Contact resolution needs this rather than the
+         * centre: the lever arm from the centre of mass to where a body is actually
+         * touched is what turns a push into a torque.
+         *
+         * @tparam T The scalar element type.
+         * @param box       The box to query.
+         * @param direction The (not necessarily unit) direction to support along.
+         * @return The world-space corner furthest along @p direction.
+         */
+        template <typename T>
+        inline Vector3T<T> obb_support_point(const OrientedBox<T>& box,
+                                             const Vector3T<T>& direction) noexcept
+        {
+            Vector3T<T> axes[3];
+            obb_axes(box, axes);
+            const T extents[3] = {box.half_extents.x, box.half_extents.y, box.half_extents.z};
+            Vector3T<T> point = box.center;
+            for (int i = 0; i < 3; ++i)
+            {
+                const T sign = dot(axes[i], direction) < T(0) ? T(-1) : T(1);
+                point = point + axes[i] * (extents[i] * sign);
+            }
+            return point;
+        }
+
+        /**
          * @brief Contact between an oriented box and a half-space plane.
          *
          * The box's extent along the plane normal is the sum of each axis's projection,
          * so a rotated box resting on the ground touches by its true lowest corner/face.
+         * The contact point is the box's support corner along the inward normal — the
+         * corner that is actually touching — not the centre's projection onto the plane.
          *
          * @return The contact if the box crosses the plane, else a miss (normal = plane normal).
          */
@@ -256,7 +287,7 @@ namespace SushiEngine
             contact.hit = true;
             contact.normal = plane.normal;
             contact.depth = depth;
-            contact.point = box.center - plane.normal * signed_distance;
+            contact.point = obb_support_point(box, plane.normal * T(-1));
             return contact;
         }
 
@@ -363,7 +394,13 @@ namespace SushiEngine
             // Orient the least-overlap axis from a toward b.
             contact.normal =
                 dot(best_axis, center_delta) < T(0) ? best_axis * T(-1) : best_axis;
-            contact.point = a.center + center_delta * T(0.5);
+            // Each box's support point along the contact normal is the region where they
+            // touch; their midpoint is a representative point inside the overlap. This is
+            // still a single point, not a full clipped manifold — enough for a lever arm,
+            // not enough for a box to rest on a face without rocking.
+            contact.point = (obb_support_point(a, contact.normal) +
+                             obb_support_point(b, contact.normal * T(-1))) *
+                            T(0.5);
             return contact;
         }
     } // namespace Physics

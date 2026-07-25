@@ -370,6 +370,19 @@ namespace SushiEngine
              * structure does not contain.
              */
             bool ray_traced = false;
+
+            /**
+             * @brief Secondary celestial lights that may claim a shadow map, beyond light 0.
+             *
+             * Light 0 (the brightest body — the Sun by day, the Moon or another
+             * reflector after dark) always keeps its full cascaded shadow regardless of
+             * this setting. A secondary body with @ref CelestialLight::casts_shadows set,
+             * up to this many (brightest-first), instead claims a single non-cascaded
+             * shadow map in the shared punctual atlas alongside spot/point casters — see
+             * @ref LightEngineSettings::max_shadow_casters, which they share a tile
+             * budget with. Zero disables secondary directional shadows entirely.
+             */
+            std::uint32_t max_directional_shadow_casters = 1;
         };
 
         /**

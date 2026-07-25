@@ -43,6 +43,7 @@
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/render_settings.hpp>
+#include <SushiEngine/ui/draw_list.hpp>
 
 namespace SushiEngine
 {
@@ -211,6 +212,35 @@ namespace SushiEngine
         constexpr std::uint32_t NO_PICK = 0;
 
         /**
+         * @brief The frame's 2D UI overlay: already-resolved screen-space geometry.
+         *
+         * Non-owning, like every other view here: the arrays must outlive the `render()`
+         * call and no longer. The rectangles are in pixels with a top-left origin and are
+         * already laid out — anchors, pivots and parent chains were resolved by whoever
+         * built the list, so the renderer neither knows nor needs the layout rules.
+         *
+         * @ref width and @ref height are the screen the layout was solved against, which is
+         * what turns those pixels into clip space. They are carried rather than taken from
+         * the render target because an editor viewport solves its UI against the viewport it
+         * is drawn into, not against the window.
+         */
+        struct UiView
+        {
+            const UI::UIDrawRect* rects = nullptr;
+            std::size_t rect_count = 0;
+            const UI::UITextRun* texts = nullptr;
+            std::size_t text_count = 0;
+            float width = 0.0f;  /**< Screen width the layout was solved against, pixels. */
+            float height = 0.0f; /**< Screen height the layout was solved against, pixels. */
+
+            /** @brief Whether this frame has any UI to draw at all. */
+            bool empty() const noexcept
+            {
+                return (rect_count == 0 && text_count == 0) || width <= 0.0f || height <= 0.0f;
+            }
+        };
+
+        /**
          * @brief One render pass's measured GPU time from the last completed frame.
          *
          * @c name points at storage the scene view owns and is valid until the next
@@ -318,6 +348,12 @@ namespace SushiEngine
                  *                      draw, or nullptr for none; the compute particle passes
                  *                      emit, integrate, and billboard them.
                  * @param emitter_count Number of entries in @p emitters.
+                 * @param billboards    Pointer to already-simulated deterministic particles to
+                 *                      billboard directly, or nullptr for none.
+                 * @param billboard_count Number of entries in @p billboards.
+                 * @param ui            The 2D UI overlay to composite over the finished image,
+                 *                      or nullptr for none. Drawn after tone mapping and
+                 *                      anti-aliasing, so it is neither tonemapped nor blurred.
                  */
                 virtual void render(const CameraView& camera, const Environment& environment,
                                     const MeshInstance* instances,
@@ -334,7 +370,8 @@ namespace SushiEngine
                                     const ParticleEmitterView* emitters = nullptr,
                                     std::size_t emitter_count = 0,
                                     const ParticleBillboard* billboards = nullptr,
-                                    std::size_t billboard_count = 0) = 0;
+                                    std::size_t billboard_count = 0,
+                                    const UiView* ui = nullptr) = 0;
 
                 /**
                  * @brief The instance id drawn at a pixel of the last rendered frame.

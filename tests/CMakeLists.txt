@@ -49,6 +49,8 @@ add_executable(se_functional_tests
     functional/unit/test_network_id.cpp
     functional/unit/test_ui_layout.cpp
     functional/unit/test_collision.cpp
+    functional/unit/test_broadphase.cpp
+    functional/unit/test_contact_body.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
     functional/unit/test_rng.cpp
@@ -165,6 +167,7 @@ add_executable(se_functional_tests
     functional/integration/test_xpbd_solver.cpp
     functional/integration/test_physics_world.cpp
     functional/integration/test_physics_bridge.cpp
+    functional/integration/test_physics_simulation.cpp
     functional/integration/test_rollback.cpp
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp

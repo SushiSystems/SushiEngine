@@ -47,6 +47,8 @@
 #include <vector>
 
 #include <SushiEngine/SushiEngine.hpp>
+#include <SushiEngine/animation/device_batch_evaluator.hpp>
+#include <SushiEngine/animation/gltf_skeleton_import.hpp>
 #include <SushiEngine/astro/astro_dynamics.hpp>
 #include <SushiEngine/astro/scene_frame.hpp>
 #include <SushiEngine/astro/surface_frame.hpp>
@@ -101,7 +103,8 @@ namespace SushiEngine
                           world_(runtime_, CHUNK_CAPACITY),
                           schedule_(runtime_),
                           clock_(FIXED_TICK_DT_SECONDS),
-                          physics_(create_physics_simulation(runtime_))
+                          physics_(create_physics_simulation(runtime_)),
+                          crowd_evaluator_(runtime_)
                     {
                         // Reserve every archetype up front so neither the seed, the
                         // editor's first create, nor a later Add/Remove Component
@@ -602,6 +605,86 @@ namespace SushiEngine
                         return physics_->cloth_positions(id);
                     }
 
+                    bool has_crowd(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_crowd;
+                    }
+
+                    CrowdParams crowd_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->crowd_params : CrowdParams{};
+                    }
+
+                    void set_crowd_params(EntityId id, const CrowdParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->crowd_params = params;
+                    }
+
+                    void set_has_crowd(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->has_crowd = value;
+                    }
+
+                    std::uint32_t register_crowd_skeleton(const std::string& gltf_path) override
+                    {
+                        const auto cached = crowd_skeleton_cache_.find(gltf_path);
+                        if (cached != crowd_skeleton_cache_.end())
+                            return cached->second;
+
+                        std::vector<std::byte> blob;
+                        if (!Animation::import_gltf_skeleton(gltf_path.c_str(), blob))
+                            return 0;
+                        const Animation::AssetId asset_id = crowd_database_.add_skeleton(std::move(blob));
+                        if (asset_id == Animation::INVALID_ASSET)
+                            return 0;
+
+                        crowd_skeletons_.push_back(asset_id);
+                        const std::uint32_t handle = static_cast<std::uint32_t>(crowd_skeletons_.size());
+                        crowd_skeleton_cache_.emplace(gltf_path, handle);
+                        return handle;
+                    }
+
+                    std::uint32_t register_crowd_clip(const std::string& gltf_path,
+                                                      std::uint32_t skeleton_handle) override
+                    {
+                        if (skeleton_handle == 0 || skeleton_handle > crowd_skeletons_.size())
+                            return 0;
+                        const std::string cache_key =
+                            gltf_path + "|" + std::to_string(skeleton_handle);
+                        const auto cached = crowd_clip_cache_.find(cache_key);
+                        if (cached != crowd_clip_cache_.end())
+                            return cached->second;
+
+                        // The joint order this produces must match the registered skeleton's —
+                        // true when both come from the same file (the common case), a real,
+                        // undetected mismatch if not (no cross-check performed here; a caller
+                        // mixing skeleton and clip files takes that on faith, same as
+                        // Animation::retarget_clip's own documented assumptions elsewhere).
+                        Animation::GltfAnimationImport import;
+                        if (!Animation::import_gltf_animated(gltf_path.c_str(), import) ||
+                            import.clips.empty())
+                            return 0;
+                        // The first animation in the file — selecting one by name is real,
+                        // unbuilt follow-up scope (see register_crowd_clip's own Doxygen).
+                        const Animation::AssetId asset_id =
+                            crowd_database_.add_clip(std::move(import.clips.front().blob));
+                        if (asset_id == Animation::INVALID_ASSET)
+                            return 0;
+
+                        crowd_clips_.push_back(asset_id);
+                        const std::uint32_t handle = static_cast<std::uint32_t>(crowd_clips_.size());
+                        crowd_clip_cache_.emplace(cache_key, handle);
+                        return handle;
+                    }
+
                     bool has_light(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -823,6 +906,21 @@ namespace SushiEngine
                         record.has_cloth = true;
                         records_.emplace(id, record);
                         cloth_dirty_ = true;
+                        extract();
+                        return id;
+                    }
+
+                    EntityId create_crowd(const std::string& display_name) override
+                    {
+                        // A bare entity that owns crowd-batched animation: no Renderer/Shape
+                        // (a crowd character draws through RenderScene::skinned_instances, not
+                        // a solid-mesh RenderInstance).
+                        const Entity entity = world_.spawn(Transform{}, Orientation{});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        record.has_crowd = true;
+                        records_.emplace(id, record);
                         extract();
                         return id;
                     }
@@ -1320,6 +1418,12 @@ namespace SushiEngine
                         // has_physics_body: cloth needs no ECS component migration.
                         bool has_cloth = false;
                         ClothParams cloth_params{};
+                        // A crowd-batched skinned character (design §12.3/§12.4): same plain
+                        // host bookkeeping as cloth (no ECS migration) — playback time is
+                        // advanced on the fixed tick and sampled through crowd_evaluator_ at
+                        // extract, keyed by EntityId, not a per-instance component.
+                        bool has_crowd = false;
+                        CrowdParams crowd_params{};
                         // A punctual light on this entity: same plain host bookkeeping as
                         // cloth/shape, extracted into RenderScene::lights each frame with
                         // the entity's transform supplying the light's position and aim.
@@ -2108,6 +2212,7 @@ namespace SushiEngine
 
                         schedule_.run(world_);
                         step_particle_emitters();
+                        step_crowd_playback();
                         extract();
                     }
 
@@ -2498,6 +2603,8 @@ namespace SushiEngine
                             scene_.cloth_instances.push_back(cloth_instance);
                         }
 
+                        extract_crowd();
+
                         // Deterministic particle emitters: one billboard per live particle in
                         // each emitter's host-side pool, already world-space from the fixed-tick
                         // integration, drawn by the renderer as camera-facing quads.
@@ -2726,6 +2833,120 @@ namespace SushiEngine
                         }
                     }
 
+                    /** @brief Advances every playing crowd entity's clip playback time. */
+                    void step_crowd_playback()
+                    {
+                        const float dt = static_cast<float>(clock_.fixed_dt());
+                        for (const EntityId id : order_)
+                        {
+                            Record* record = find(id);
+                            if (record == nullptr || !record->has_crowd ||
+                                !record->crowd_params.playing)
+                                continue;
+                            record->crowd_params.time_seconds += dt;
+                        }
+                    }
+
+                    /**
+                     * @brief Samples every crowd entity sharing this frame's bound skeleton
+                     * through the SYCL device evaluator and fills @ref scene_'s skinned
+                     * instances (design §12.3/§12.4).
+                     *
+                     * The frame's bound skeleton is whichever crowd entity's `crowd_params.skeleton`
+                     * is seen first while walking @ref order_; every later entity naming a
+                     * different (nonzero) skeleton handle is skipped this frame — a real,
+                     * documented limitation of `Animation::DeviceBatchEvaluator`'s
+                     * one-shared-skeleton-per-batch scoping (see `RenderScene::skinned_instances`'
+                     * own comment), not a silent drop.
+                     */
+                    void extract_crowd()
+                    {
+                        scene_.skinned_instances.clear();
+
+                        // Find the frame's bound skeleton and every crowd entity that shares it.
+                        std::uint32_t batch_skeleton_handle = 0;
+                        std::vector<EntityId> batch_entities;
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_crowd || !record->visible ||
+                                record->crowd_params.skeleton == 0 ||
+                                record->crowd_params.mesh == Render::INVALID_MESH)
+                                continue;
+                            if (batch_skeleton_handle == 0)
+                                batch_skeleton_handle = record->crowd_params.skeleton;
+                            if (record->crowd_params.skeleton != batch_skeleton_handle)
+                                continue; // A different rig than this frame's batch — skipped, not drawn wrong.
+                            batch_entities.push_back(id);
+                        }
+                        if (batch_entities.empty())
+                            return;
+
+                        if (batch_skeleton_handle != crowd_bound_skeleton_handle_)
+                        {
+                            const Animation::SkeletonView skeleton =
+                                crowd_database_.skeleton(crowd_skeletons_[batch_skeleton_handle - 1]);
+                            if (!crowd_evaluator_.bind_skeleton(skeleton))
+                                return;
+                            crowd_bound_skeleton_handle_ = batch_skeleton_handle;
+                            // bind_skeleton invalidates every previously bound device clip.
+                            crowd_device_clips_.clear();
+                        }
+
+                        std::vector<Animation::DeviceInstanceDesc> instances;
+                        instances.reserve(batch_entities.size());
+                        std::vector<EntityId> included_entities;
+                        included_entities.reserve(batch_entities.size());
+                        for (const EntityId id : batch_entities)
+                        {
+                            const Record* record = find(id);
+                            const std::uint32_t clip_handle = record->crowd_params.clip;
+                            if (clip_handle == 0 || clip_handle > crowd_clips_.size())
+                                continue;
+
+                            auto bound = crowd_device_clips_.find(clip_handle);
+                            if (bound == crowd_device_clips_.end())
+                            {
+                                const Animation::ClipView clip =
+                                    crowd_database_.clip(crowd_clips_[clip_handle - 1]);
+                                const std::uint32_t device_handle = crowd_evaluator_.bind_clip(clip);
+                                if (device_handle == Animation::INVALID_CLIP_HANDLE)
+                                    continue;
+                                bound = crowd_device_clips_.emplace(clip_handle, device_handle).first;
+                            }
+
+                            Animation::DeviceInstanceDesc desc;
+                            desc.clip_handle = bound->second;
+                            desc.time_seconds = record->crowd_params.time_seconds;
+                            desc.loop = record->crowd_params.loop ? 1u : 0u;
+                            instances.push_back(desc);
+                            included_entities.push_back(id);
+                        }
+                        if (instances.empty())
+                            return;
+
+                        crowd_evaluator_.set_instances(instances);
+                        crowd_evaluator_.evaluate();
+
+                        const std::uint32_t joint_count = crowd_evaluator_.joint_count();
+                        const Animation::JointMatrix* palettes = crowd_evaluator_.palettes().data();
+                        scene_.skinned_instances.reserve(included_entities.size());
+                        for (std::size_t i = 0; i < included_entities.size(); ++i)
+                        {
+                            const EntityId id = included_entities[i];
+                            const Record* record = find(id);
+                            Render::SkinnedInstance instance;
+                            instance.model = world_matrix(id);
+                            instance.palette = palettes + i * joint_count;
+                            instance.previous_palette = nullptr; // see this method's Doxygen
+                            instance.joint_count = joint_count;
+                            instance.id = id;
+                            instance.mesh = record->crowd_params.mesh;
+                            instance.material = record->crowd_params.material;
+                            scene_.skinned_instances.push_back(instance);
+                        }
+                    }
+
                     /** @brief A deterministic fire plume: buoyant cone, warm colour ramp. */
                     static Vfx::ParticleEffect make_fire_effect()
                     {
@@ -2809,6 +3030,27 @@ namespace SushiEngine
                     // The gravitational field the orbital integrator pulls from, behind the
                     // IGravityField seam so the model (summed rails today) is swappable.
                     Astro::SummedRailsGravityField gravity_field_;
+
+                    // Crowd device-batch skinning (design §12.3/§12.4): register_crowd_skeleton/
+                    // register_crowd_clip cook glTF content into crowd_database_ once, at load
+                    // time; crowd_skeletons_/crowd_clips_ are that database's asset ids, indexed
+                    // by the 1-based handle CrowdParams::skeleton/clip name (handle 0 is always
+                    // invalid, matching every other "0 = none" id in this codebase). The path
+                    // caches make re-registering the same file a no-op lookup, not a re-import.
+                    Animation::AnimationDatabase crowd_database_;
+                    std::vector<Animation::AssetId> crowd_skeletons_;
+                    std::vector<Animation::AssetId> crowd_clips_;
+                    std::unordered_map<std::string, std::uint32_t> crowd_skeleton_cache_;
+                    std::unordered_map<std::string, std::uint32_t> crowd_clip_cache_;
+                    // The SYCL device evaluator every crowd entity is sampled through at
+                    // extract (see extract_crowd()). Bound to whichever skeleton handle the
+                    // frame's crowd entities actually use — DeviceBatchEvaluator batches one
+                    // shared skeleton per call, so a skeleton change rebinds it and every clip
+                    // registered against it (crowd_device_clips_ tracks which of our clip
+                    // handles are currently bound into *this* skeleton binding).
+                    Animation::DeviceBatchEvaluator crowd_evaluator_;
+                    std::uint32_t crowd_bound_skeleton_handle_ = 0;
+                    std::unordered_map<std::uint32_t, std::uint32_t> crowd_device_clips_;
             };
         } // namespace
 

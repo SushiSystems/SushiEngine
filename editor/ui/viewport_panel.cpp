@@ -118,20 +118,6 @@ namespace SushiEngine
                 return rect;
             }
 
-            /** @brief Packs a colour (0..1) and opacity into an ImGui ABGR value. */
-            ImU32 ui_color(const SushiEngine::Vector3& c, float alpha)
-            {
-                const auto channel = [](SushiEngine::Scalar v)
-                {
-                    const float f = static_cast<float>(v);
-                    const float clamped = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
-                    return static_cast<int>(clamped * 255.0f + 0.5f);
-                };
-                const float a = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
-                return IM_COL32(channel(c.x), channel(c.y), channel(c.z),
-                                static_cast<int>(a * 255.0f + 0.5f));
-            }
-
             /** @brief Resolves every element's pixel rect against @p root, in one pass. */
             void compute_ui_rects(const UIOverlay& ui, const ImVec4& root,
                                   std::vector<ImVec4>& rects)
@@ -145,12 +131,109 @@ namespace SushiEngine
             /** @brief Half-size of a corner resize handle, in pixels. */
             constexpr float UI_HANDLE = 5.0f;
 
+            /** @brief Copies a UI element's colour and opacity into a draw-list colour. */
+            SushiEngine::UI::Color to_ui_color(const SushiEngine::Vector3& c, SushiEngine::Scalar a)
+            {
+                SushiEngine::UI::Color color;
+                color.r = c.x;
+                color.g = c.y;
+                color.b = c.z;
+                color.a = a;
+                return color;
+            }
+
             /**
-             * @brief Paints the UI overlay over the rendered viewport image.
+             * @brief Turns the flattened overlay into the renderer's UI draw list.
              *
-             * In edit mode fills are drawn translucent (so the 3D view shows through a
-             * canvas) with an outline, and the selected element gets an outline plus four
-             * corner resize handles; in play mode fills are solid — the runtime look.
+             * This is the seam that moves the game's interface off the editor's ImGui draw
+             * list and into the renderer proper: the same authored elements, resolved into the
+             * same pixel rectangles, but expressed in the renderer-agnostic form the Vulkan
+             * overlay pass consumes. Coordinates are viewport-local (origin at the image's top
+             * left), because that is the space the offscreen target is drawn in — the panel's
+             * position on screen is an ImGui concern the renderer never sees.
+             *
+             * @param ui           The flattened overlay.
+             * @param rects        Each element's resolved viewport-local rect.
+             * @param local_mouse  Pointer position in viewport-local pixels, for button hover.
+             * @param mouse_down   Whether the left button is held, for the pressed shade.
+             * @param out          Receives the rects and text runs, in paint order.
+             */
+            void build_ui_draw_list(const UIOverlay& ui, const std::vector<ImVec4>& rects,
+                                    const ImVec2& local_mouse, bool mouse_down,
+                                    SushiEngine::UI::UIDrawList& out)
+            {
+                using Kind = SushiEngine::Simulation::UIElementKind;
+                out.clear();
+                for (std::size_t i = 0; i < ui.count; ++i)
+                {
+                    const SushiEngine::Simulation::UIElementParams& p = ui.elements[i].params;
+                    const ImVec4 r = rects[i];
+                    SushiEngine::UI::Rect rect;
+                    rect.min.x = r.x;
+                    rect.min.y = r.y;
+                    rect.size.x = r.z;
+                    rect.size.y = r.w;
+
+                    // A canvas is a coordinate space, not a surface: it contributes no pixels of
+                    // its own, which is why only the editor draws a bound for it.
+                    if (p.kind == Kind::Canvas)
+                        continue;
+
+                    if (p.kind == Kind::Button)
+                    {
+                        const bool hovered = !ui.edit_mode && local_mouse.x >= r.x &&
+                                             local_mouse.x <= r.x + r.z && local_mouse.y >= r.y &&
+                                             local_mouse.y <= r.y + r.w;
+                        const SushiEngine::Scalar tint =
+                            hovered ? (mouse_down ? SushiEngine::Scalar(0.8)
+                                                  : SushiEngine::Scalar(1.15))
+                                    : SushiEngine::Scalar(1);
+                        out.rects.push_back(SushiEngine::UI::UIDrawRect{
+                            rect, to_ui_color(SushiEngine::Vector3{p.color.x * tint,
+                                                                  p.color.y * tint,
+                                                                  p.color.z * tint},
+                                              p.alpha)});
+                    }
+                    else if (p.kind != Kind::Text)
+                    {
+                        out.rects.push_back(
+                            SushiEngine::UI::UIDrawRect{rect, to_ui_color(p.color, p.alpha)});
+                    }
+
+                    if (p.kind == Kind::Text || p.kind == Kind::Button)
+                    {
+                        SushiEngine::UI::UITextRun run;
+                        run.rect = rect;
+                        run.font_size = p.font_size;
+                        // A button's label is white against its own fill; a text element paints
+                        // in its authored colour.
+                        run.color = p.kind == Kind::Button
+                                        ? to_ui_color(SushiEngine::Vector3{1, 1, 1}, p.alpha)
+                                        : to_ui_color(p.color, p.alpha);
+                        run.align = p.kind == Kind::Button ? SushiEngine::UI::TextAlign::Center
+                                                           : SushiEngine::UI::TextAlign::Left;
+                        std::uint32_t length = 0;
+                        while (length + 1 < SushiEngine::UI::UI_TEXT_CAPACITY &&
+                               p.text[length] != '\0')
+                        {
+                            run.text[length] = p.text[length];
+                            ++length;
+                        }
+                        run.length = length;
+                        if (length > 0)
+                            out.texts.push_back(run);
+                    }
+                }
+            }
+
+            /**
+             * @brief Paints the editor's authoring chrome over the rendered viewport image.
+             *
+             * The elements themselves — fills and labels — are drawn by the renderer's own UI
+             * overlay pass, inside the image this paints over, so what is left here is only
+             * what the *editor* adds and a shipped game never shows: a canvas's extent, an
+             * outline making an otherwise-invisible element grabbable while authoring, and the
+             * selected element's outline and four corner resize handles.
              *
              * @param draw_list Panel draw list (clips to the panel, above the image).
              * @param ui        The overlay (elements + edit-mode flag).
@@ -160,54 +243,24 @@ namespace SushiEngine
                                   const std::vector<ImVec4>& rects)
             {
                 using Kind = SushiEngine::Simulation::UIElementKind;
-                ImFont* font = ImGui::GetFont();
-                const ImVec2 mouse = ImGui::GetIO().MousePos;
-                const bool mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-                // Translucent in edit mode so a full-screen canvas never hides the scene.
-                const float fill_scale = ui.edit_mode ? 0.35f : 1.0f;
                 for (std::size_t i = 0; i < ui.count; ++i)
                 {
                     const SushiEngine::Simulation::UIElementParams& p = ui.elements[i].params;
                     const ImVec4 r = rects[i];
                     const ImVec2 mn(r.x, r.y);
                     const ImVec2 mx(r.x + r.z, r.y + r.w);
-                    const float alpha = static_cast<float>(p.alpha);
 
                     if (p.kind == Kind::Canvas)
                     {
-                        // The canvas draws only a faint bound so its extent is visible.
+                        // The canvas paints nothing of its own, so its bound is the only way to
+                        // see the space its children are anchored in.
                         draw_list->AddRect(mn, mx, IM_COL32(120, 120, 130, 110));
                     }
-                    else if (p.kind == Kind::Button)
+                    else if (ui.edit_mode)
                     {
-                        const bool hovered = !ui.edit_mode && mouse.x >= mn.x && mouse.x <= mx.x &&
-                                             mouse.y >= mn.y && mouse.y <= mx.y;
-                        float tint = 1.0f;
-                        if (hovered)
-                            tint = mouse_down ? 0.8f : 1.15f;
-                        const SushiEngine::Vector3 shaded{p.color.x * tint, p.color.y * tint,
-                                                          p.color.z * tint};
-                        draw_list->AddRectFilled(mn, mx, ui_color(shaded, alpha * fill_scale), 4.0f);
-                        draw_list->AddRect(mn, mx, IM_COL32(20, 20, 25, 200), 4.0f);
-                        const float font_size = static_cast<float>(p.font_size);
-                        const ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, p.text);
-                        const ImVec2 text_pos(mn.x + (r.z - text_size.x) * 0.5f,
-                                              mn.y + (r.w - text_size.y) * 0.5f);
-                        draw_list->AddText(font, font_size, text_pos, IM_COL32(255, 255, 255, 255),
-                                           p.text);
-                    }
-                    else if (p.kind == Kind::Text)
-                    {
-                        const float font_size = static_cast<float>(p.font_size);
-                        draw_list->AddText(font, font_size, mn, ui_color(p.color, alpha), p.text);
-                        if (ui.edit_mode)
-                            draw_list->AddRect(mn, mx, IM_COL32(150, 150, 160, 90));
-                    }
-                    else // Panel / Image
-                    {
-                        draw_list->AddRectFilled(mn, mx, ui_color(p.color, alpha * fill_scale), 2.0f);
-                        if (ui.edit_mode)
-                            draw_list->AddRect(mn, mx, IM_COL32(150, 150, 160, 130), 2.0f);
+                        // A transparent panel or an empty label still has to be clickable while
+                        // authoring, which it cannot be if nothing marks where it is.
+                        draw_list->AddRect(mn, mx, IM_COL32(150, 150, 160, 110), 2.0f);
                     }
 
                     if (ui.elements[i].selected && ui.edit_mode)
@@ -326,7 +379,9 @@ namespace SushiEngine
                                  AnimatedMeshPreview* animated_mesh,
                                  const SushiEngine::Render::ParticleEmitterView* emitters_in,
                                  std::size_t emitter_count_in, bool ik_gizmo,
-                                 bool preview_controls, GameViewSettings* game_view)
+                                 bool preview_controls, GameViewSettings* game_view,
+                                 const SushiEngine::Render::SkinnedInstance* scene_skinned,
+                                 std::size_t scene_skinned_count)
         {
             // Fullscreen (Unity's "Maximize on Play"): undock the panel and cover the
             // whole editor viewport instead of just stretching the rendered image inside
@@ -509,10 +564,27 @@ namespace SushiEngine
                 emitters = merged_emitters.data();
                 emitter_count = merged_emitters.size();
             }
-            const SushiEngine::Render::SkinnedInstance* skinned =
+            // World crowd characters (design §12.3/§12.4) plus whatever single character is
+            // being previewed — the same "world content plus the authored subject" merge
+            // billboards/emitters already do for their own kinds, just below.
+            const SushiEngine::Render::SkinnedInstance* preview_skinned =
                 animated_mesh != nullptr ? animated_mesh->skinned() : nullptr;
-            const std::size_t skinned_count =
+            const std::size_t preview_skinned_count =
                 animated_mesh != nullptr ? animated_mesh->skinned_count() : 0;
+            const SushiEngine::Render::SkinnedInstance* skinned = preview_skinned;
+            std::size_t skinned_count = preview_skinned_count;
+            std::vector<SushiEngine::Render::SkinnedInstance> merged_skinned;
+            if (scene_skinned_count > 0)
+            {
+                merged_skinned.reserve(scene_skinned_count + preview_skinned_count);
+                merged_skinned.insert(merged_skinned.end(), scene_skinned,
+                                      scene_skinned + scene_skinned_count);
+                if (preview_skinned_count > 0)
+                    merged_skinned.insert(merged_skinned.end(), preview_skinned,
+                                          preview_skinned + preview_skinned_count);
+                skinned = merged_skinned.data();
+                skinned_count = merged_skinned.size();
+            }
 
             // The deterministic preview simulates on the CPU and hands over finished particles, the
             // same channel the sim's own deterministic emitters use, so the two are concatenated
@@ -533,10 +605,37 @@ namespace SushiEngine
                 all_billboard_count = merged_billboards.size();
             }
 
+            // The game's own UI, drawn by the renderer into the image rather than painted over
+            // it afterwards — so what the Game view shows is what a shipped build shows. The
+            // rects are resolved viewport-local (origin at the image's top left), which is the
+            // space the offscreen target lives in; where the panel sits on screen is an ImGui
+            // concern the renderer never learns. The pointer is converted with the previous
+            // frame's image origin, which is not yet known for this one; a frame of latency on
+            // a hover tint is not perceptible, and it is the only thing that depends on it.
+            SushiEngine::Render::UiView ui_view;
+            if (ui != nullptr && ui->count > 0)
+            {
+                std::vector<ImVec4> local_rects;
+                compute_ui_rects(*ui, ImVec4(0.0f, 0.0f, static_cast<float>(width),
+                                             static_cast<float>(height)),
+                                 local_rects);
+                const ImVec2 mouse = ImGui::GetIO().MousePos;
+                const ImVec2 local_mouse(mouse.x - last_image_origin_.x,
+                                         mouse.y - last_image_origin_.y);
+                build_ui_draw_list(*ui, local_rects, local_mouse,
+                                   ImGui::IsMouseDown(ImGuiMouseButton_Left), ui_draw_list_);
+                ui_view.rects = ui_draw_list_.rects.data();
+                ui_view.rect_count = ui_draw_list_.rects.size();
+                ui_view.texts = ui_draw_list_.texts.data();
+                ui_view.text_count = ui_draw_list_.texts.size();
+                ui_view.width = static_cast<float>(width);
+                ui_view.height = static_cast<float>(height);
+            }
+
             view_->render(camera_view, environment, instances, count, selected_id, strands,
                           strand_count, lights, light_count, decals, decal_count, show_grid,
                           skinned, skinned_count, emitters, emitter_count, all_billboards,
-                          all_billboard_count);
+                          all_billboard_count, ui_view.empty() ? nullptr : &ui_view);
 
             // The transport for whatever this surface previews. One row for every kind of subject,
             // because "the thing being authored, playing or paused" is a property of the surface;
@@ -567,6 +666,7 @@ namespace SushiEngine
             }
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
+            last_image_origin_ = image_origin;
             ImGui::Image(slot_textures_[view_->current_slot()],
                          ImVec2(static_cast<float>(width), static_cast<float>(height)));
             const bool image_hovered = ImGui::IsItemHovered();

@@ -260,6 +260,42 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Morph targets the loaded mesh carries, per @ref set_morph_weights.
+                 *
+                 * Sized from @ref load_gltf's `IAssetLibrary::morph_target_count`, so a
+                 * blend-shape authoring UI can build one slider per target without a separate
+                 * asset query. 0 when nothing is loaded or the mesh has no morph targets.
+                 */
+                std::uint32_t morph_target_count() const noexcept
+                {
+                    return static_cast<std::uint32_t>(morph_weights_.size());
+                }
+
+                /**
+                 * @brief A single target's current weight, for a blend-shape slider to read.
+                 * @param index A target index in [0, @ref morph_target_count).
+                 * @return The weight, or 0 if @p index is out of range.
+                 */
+                float morph_weight(std::uint32_t index) const noexcept
+                {
+                    return index < morph_weights_.size() ? morph_weights_[index] : 0.0f;
+                }
+
+                /**
+                 * @brief Sets a single target's weight in place, for a blend-shape slider to write.
+                 *
+                 * Cheaper than round-tripping @ref set_morph_weights' full-array assign when only
+                 * one target moved, and safe to call every frame from a slider.
+                 * @param index  A target index in [0, @ref morph_target_count).
+                 * @param weight The new weight; out-of-range @p index is ignored.
+                 */
+                void set_morph_weight(std::uint32_t index, float weight) noexcept
+                {
+                    if (index < morph_weights_.size())
+                        morph_weights_[index] = weight;
+                }
+
+                /**
                  * @brief Toggles dual-quaternion skinning for this preview's instance (design §12.4).
                  *
                  * Off by default (linear-blend, unchanged behavior). The candy-wrapper fix is most
@@ -354,7 +390,9 @@ namespace SushiEngine
                 Mat4 world_{};
                 bool playing_ = true;
                 bool use_dual_quaternion_skinning_ = false; /**< See set_dual_quaternion_skinning. */
-                std::vector<float> morph_weights_; /**< Constant weights; see set_morph_weights. */
+                // Sized to the loaded mesh's morph target count by load_gltf (zero-filled), then
+                // overwritten in place by set_morph_weights; see morph_target_count().
+                std::vector<float> morph_weights_;
                 std::vector<Render::SkinnedInstance> instances_;
         };
     } // namespace Editor

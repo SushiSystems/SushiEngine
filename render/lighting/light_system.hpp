@@ -43,6 +43,7 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
+#include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
 
 namespace SushiEngine
@@ -210,6 +211,29 @@ namespace SushiEngine
                                         const double eye[3], std::uint32_t atlas_size,
                                         std::uint32_t max_casters, float near_plane);
 
+                    /**
+                     * @brief Assigns tiles to secondary directional shadow casters.
+                     *
+                     * Light 0 keeps its own cascaded shadow (@ref Scene::fit_shadow_cascades)
+                     * and is never touched here. Walks @p lights[1 .. max_casters] and, for
+                     * each entry with @c casts_shadows set, builds a single camera-relative
+                     * orthographic shadow map covering @p coverage_distance around the eye
+                     * and claims one tile for it in the same atlas @ref assign_shadows
+                     * places punctual casters into — call this first each frame so secondary
+                     * directional casters get first claim on a tile, before @ref assign_shadows
+                     * fills the rest of the budget with spot/point casters.
+                     *
+                     * @param lights            The environment's celestial lights, brightest first.
+                     * @param count             How many entries @p lights holds.
+                     * @param atlas_size        Side of the square shadow atlas, texels (0 disables).
+                     * @param max_casters       Secondary lights (beyond light 0) that may claim a tile.
+                     * @param coverage_distance World metres around the eye the shadow map covers.
+                     */
+                    void assign_directional_shadows(const CelestialLight* lights, std::size_t count,
+                                                    std::uint32_t atlas_size,
+                                                    std::uint32_t max_casters,
+                                                    float coverage_distance);
+
                     /** @brief One shadow caster's tile placement in the atlas, in texels. */
                     struct ShadowTile
                     {
@@ -229,6 +253,20 @@ namespace SushiEngine
                     const ShadowTile& shadow_tile(std::uint32_t i) const noexcept
                     {
                         return shadow_tiles_[i];
+                    }
+
+                    /**
+                     * @brief The shadow record index a celestial light claimed this frame.
+                     * @param light_index Index into the same array passed to @ref assign_directional_shadows.
+                     * @return The record @c sample_punctual_shadow should read, or -1 if
+                     *         that light is unshadowed (light 0, no budget left, or the
+                     *         light did not opt in).
+                     */
+                    std::int32_t directional_shadow_index(std::uint32_t light_index) const noexcept
+                    {
+                        return light_index < MAX_CELESTIAL_LIGHTS
+                                   ? directional_shadow_index_[light_index]
+                                   : -1;
                     }
 
                     /** @brief The buffer holding this slot's shadow matrices + tile rects. */
@@ -304,6 +342,7 @@ namespace SushiEngine
                     std::vector<float> decal_packed_;
                     std::vector<float> shadow_packed_;
                     std::vector<ShadowTile> shadow_tiles_;
+                    std::int32_t directional_shadow_index_[MAX_CELESTIAL_LIGHTS] = {};
                     LightClusterUniforms config_{};
                     std::uint32_t light_count_ = 0;
                     std::uint32_t decal_count_ = 0;

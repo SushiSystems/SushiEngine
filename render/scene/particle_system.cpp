@@ -231,6 +231,26 @@ namespace SushiEngine
                         out[11] = 0.0f;
                     }
 
+                    // Beam endpoints, placed into the world by the same rule as a force-field
+                    // centre: the full transform, so moving or turning the emitter carries the
+                    // beam with it.
+                    const auto to_world = [&gpu](const float local[3], float out[3])
+                    {
+                        for (int row = 0; row < 3; ++row)
+                        {
+                            out[row] = gpu.model[row] * local[0] + gpu.model[4 + row] * local[1] +
+                                       gpu.model[8 + row] * local[2] + gpu.model[12 + row];
+                        }
+                    };
+                    to_world(compiled->beam_start, gpu.beam_start);
+                    to_world(compiled->beam_end, gpu.beam_end);
+                    gpu.beam_width = compiled->beam_width;
+                    gpu.beam_sag = compiled->beam_sag;
+                    gpu.beam_noise_amplitude = compiled->beam_noise_amplitude;
+                    gpu.beam_noise_frequency = compiled->beam_noise_frequency;
+                    gpu.beam_pad[0] = 0.0f;
+                    gpu.beam_pad[1] = 0.0f;
+
                     gpu.mesh_slot = NO_MESH_SLOT;
                     if (compiled->alignment == Vfx::RenderAlignment::Mesh &&
                         mesh_draws_.size() < MAX_MESH_EMITTERS)

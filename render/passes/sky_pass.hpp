@@ -58,6 +58,11 @@ namespace SushiEngine
             class CloudNoise;
         }
 
+        namespace Lighting
+        {
+            class LightSystem;
+        }
+
         namespace Vulkan
         {
             class VulkanDevice;
@@ -85,11 +90,14 @@ namespace SushiEngine
                      * @param noise      The cloud noise volumes the sky pass samples.
                      * @param atmosphere The pass that owns the transmittance/multi-scatter LUTs.
                      * @param fog        The pass that owns the volumetric-fog froxel volume.
+                     * @param lights     The clustered light engine; the ground reads its
+                     *                   punctual buffer and shared shadow atlas directly,
+                     *                   the same way the opaque pass's meshes do.
                      */
                     SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout,
                             Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
-                            VolumetricFogPass& fog);
+                            VolumetricFogPass& fog, Lighting::LightSystem& lights);
                     ~SkyPass() override;
 
                     SkyPass(const SkyPass&) = delete;
@@ -110,6 +118,7 @@ namespace SushiEngine
                     Textures::CloudNoise& noise_;
                     AtmosphereLutPass& atmosphere_;
                     VolumetricFogPass& fog_;
+                    Lighting::LightSystem& lights_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

@@ -23,6 +23,8 @@
 
 #include "passes/sky_pass.hpp"
 
+#include "lighting/light_system.hpp"
+#include "lighting/cluster_config.hpp"
 #include "passes/atmosphere_lut_pass.hpp"
 #include "passes/volumetric_fog_pass.hpp"
 #include "frame/frame_context.hpp"
@@ -49,9 +51,10 @@ namespace SushiEngine
             SkyPass::SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Scene::SceneLayout& layout, Textures::CloudNoise& noise,
-                             AtmosphereLutPass& atmosphere, VolumetricFogPass& fog)
+                             AtmosphereLutPass& atmosphere, VolumetricFogPass& fog,
+                             Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  noise_(noise), atmosphere_(atmosphere), fog_(fog)
+                  noise_(noise), atmosphere_(atmosphere), fog_(fog), lights_(lights)
             {
                 create_pipeline();
             }
@@ -107,6 +110,15 @@ namespace SushiEngine
                         builder.read(frame.targets.shadow, Graph::BufferAccess::UniformRead);
                         builder.read(frame.targets.shadow_atlas,
                                      Graph::TextureAccess::SampledFragment);
+                        // The clustered light engine's transients: the ground reads the
+                        // punctual buffer and the shared punctual shadow atlas exactly as
+                        // the opaque pass's meshes do, so it needs the same graph reads.
+                        builder.read(frame.targets.cluster_grid,
+                                     Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.light_index,
+                                     Graph::BufferAccess::StorageRead);
+                        builder.read(frame.targets.light_shadow_atlas,
+                                     Graph::TextureAccess::SampledFragment);
                         // The atmosphere and star march is the frame's heaviest fill, so
                         // it is the pass worth shading below one sample per pixel where
                         // the mask says the difference cannot be seen.
@@ -152,6 +164,23 @@ namespace SushiEngine
                                      atmosphere_.aerial_view(), sampler);
                         writer.image(Scene::SceneLayout::FOG_LUT_BINDING, fog_.fog_view(),
                                      sampler);
+                        // The clustered light engine, so the analytic ground picks up
+                        // point/spot lights and their shadows the same way a mesh does.
+                        writer.storage(Scene::SceneLayout::LIGHT_BINDING, lights_.light_buffer(),
+                                       lights_.light_buffer_range());
+                        writer.storage(Scene::SceneLayout::CLUSTER_GRID_BINDING,
+                                       context.buffer(frame.targets.cluster_grid),
+                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
+                        writer.storage(Scene::SceneLayout::LIGHT_INDEX_BINDING,
+                                       context.buffer(frame.targets.light_index),
+                                       Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
+                        writer.uniform(Scene::SceneLayout::CLUSTER_CONFIG_BINDING,
+                                       lights_.config_buffer(), lights_.config_buffer_range());
+                        writer.image(Scene::SceneLayout::LIGHT_SHADOW_ATLAS_BINDING,
+                                     context.sampled_view(frame.targets.light_shadow_atlas),
+                                     ShadowPass::atlas_sampler(*frame.samplers));
+                        writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
+                                       lights_.shadow_buffer(), lights_.shadow_buffer_range());
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
                         frame.layout->bind_heap(cmd);

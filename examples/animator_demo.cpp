@@ -25,7 +25,6 @@
 // the whole animator state is bit-reproducible — a fresh replay of the same inputs, and a
 // rollback snapshot/restore/replay, both reproduce the final state byte-for-byte.
 
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -48,8 +47,6 @@ namespace
             ++failures;
         }
     }
-    bool nearly(double a, double b, double eps = 1e-4) { return std::fabs(a - b) <= eps; }
-
     struct CountingSink : IAnimationEventSink
     {
         int footsteps = 0;

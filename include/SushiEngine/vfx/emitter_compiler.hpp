@@ -101,7 +101,8 @@ namespace SushiEngine
                     compile_shape(descriptor.shape, compiled);
                     compile_init(descriptor.init, compiled);
                     compile_update(descriptor, compiled, effect);
-                    compile_render(descriptor.render, compiled);
+                    compile_render(descriptor.render, descriptor.collision, compiled);
+                    compile_beam(descriptor.beam, compiled);
                     return compiled;
                 }
 
@@ -221,8 +222,17 @@ namespace SushiEngine
                     }
                 }
 
-                /** @brief Packs the render settings. */
-                static void compile_render(const RenderModule& render, CompiledEmitter& compiled)
+                /**
+                 * @brief Packs the render settings.
+                 *
+                 * Takes the collision module too because the choice of collision *surface* is
+                 * a @ref RenderFlags bit (see @ref RENDER_DISTANCE_FIELD_COLLISION), and this
+                 * is the step that owns that word — @ref compile_update runs earlier and would
+                 * have its bit cleared by the reset below.
+                 */
+                static void compile_render(const RenderModule& render,
+                                           const CollisionModule& collision,
+                                           CompiledEmitter& compiled)
                 {
                     compiled.blend = render.blend;
                     compiled.sort = render.sort;
@@ -235,11 +245,35 @@ namespace SushiEngine
                         compiled.render_flags |= RENDER_LIT;
                     if (render.texture != NO_PARTICLE_TEXTURE)
                         compiled.render_flags |= RENDER_TEXTURED;
+                    if (collision.enabled && collision.use_distance_field)
+                        compiled.render_flags |= RENDER_DISTANCE_FIELD_COLLISION;
                     compiled.soft_fade_distance = std::max(render.soft_fade_distance, 0.0f);
                     compiled.texture = render.texture;
                     compiled.mesh = render.mesh;
                     compiled.flipbook_rows = std::max(render.flipbook_rows, 1u);
                     compiled.flipbook_columns = std::max(render.flipbook_columns, 1u);
+                }
+
+                /**
+                 * @brief Packs the beam endpoints, leaving the defaults when it is disabled.
+                 *
+                 * A disabled beam still compiles to a valid span so a switch to Beam alignment
+                 * draws something the artist can then place, rather than a degenerate strip.
+                 */
+                static void compile_beam(const BeamModule& beam, CompiledEmitter& compiled)
+                {
+                    if (!beam.enabled)
+                        return;
+                    compiled.beam_start[0] = static_cast<float>(beam.start.x);
+                    compiled.beam_start[1] = static_cast<float>(beam.start.y);
+                    compiled.beam_start[2] = static_cast<float>(beam.start.z);
+                    compiled.beam_end[0] = static_cast<float>(beam.end.x);
+                    compiled.beam_end[1] = static_cast<float>(beam.end.y);
+                    compiled.beam_end[2] = static_cast<float>(beam.end.z);
+                    compiled.beam_width = std::max(beam.width, 0.0f);
+                    compiled.beam_sag = beam.sag;
+                    compiled.beam_noise_amplitude = std::max(beam.noise_amplitude, 0.0f);
+                    compiled.beam_noise_frequency = std::max(beam.noise_frequency, 0.0f);
                 }
 
                 /**

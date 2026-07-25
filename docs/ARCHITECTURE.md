@@ -855,7 +855,9 @@ textures existed.
   shader library, and the pipeline and sampler caches are device-level, so two
   viewports drawing the same model share one upload and one pipeline. It is also the
   implementation of the public `IAssetLibrary` seam (`IWindowRenderer::assets()`),
-  which is how a host loads a texture or a glTF file without seeing a Vulkan type.
+  which is how a host loads a texture or a glTF file without seeing a Vulkan type —
+  including `morph_target_count(MeshId)`, which lets a host (the editor's blend-shape
+  sliders) size a per-target weight buffer without reaching into the mesh registry.
 - `TextureLibrary` — decode (stb), upload with a GPU-generated mip chain, bindless
   registration, path deduplication. Residency is mip-based against a budget: a texture
   that will not fit is uploaded from a lower mip and upgraded later, at most one per
@@ -1547,11 +1549,44 @@ paint and hit-test order. Each frame `update(screen_size, pointer)` resolves eve
 press-and-release-inside click detection off an explicit per-frame `PointerInput`
 (input as a value, not a global — the same determinism discipline the sim follows),
 tints each button's graphic, and fires `on_click` callbacks. `build_draw_list()` emits
-a renderer-agnostic `UIDrawList` of coloured rects and text runs, in paint order — the
-seam a Vulkan 2D overlay pass (not yet written) consumes. `examples/ui_demo.cpp` and
-`Integration_UI` drive a canvas + button headlessly and assert layout, clicks, and
-button states. Rasterising the draw list and authoring UI in the editor's panels are
-the remaining visual work.
+a renderer-agnostic `UIDrawList` of coloured rects and text runs, in paint order.
+`examples/ui_demo.cpp` and `Integration_UI` drive a canvas + button headlessly and
+assert layout, clicks, and button states.
+
+### 11.1 The overlay pass
+
+`UIDrawList` lives in its own header (`ui/draw_list.hpp`) rather than in `ui.hpp`,
+because the two sides of that contract weigh very differently: building a list needs
+the world and the layout solver, drawing one needs three structs. That split is what
+lets `render/scene_view.hpp` name a UI draw list without pulling the ECS in behind it.
+
+`Render::UiView` carries it across the render seam as a non-owning POD, the same shape
+as `ClothStrandView`, plus the screen size the layout was solved against — an editor
+viewport solves its UI against the viewport, not the window, so the renderer cannot
+infer it from the target.
+
+`Passes::UiPass` runs **last of the colour passes**, after tone mapping and FXAA, and
+composites into `targets.resolve` with `AttachmentLoad::Load`. The position is the
+point: UI drawn before the tone map would shift hue with the scene's exposure, and UI
+drawn before the AA filter would have its text softened. Drawn here it is exactly the
+colour it was authored as.
+
+Rectangles and glyphs share one vertex format, one atlas and one indexed draw.
+`Material::FontAtlas` bakes printable ASCII once at bring-up with `stb_truetype` (from
+the `Stb` vcpkg package the image loader already uses, so the font path costs no new
+dependency) and reserves texel (0,0) as opaque white, which is what untextured
+geometry samples — without it a solid panel would need a second pipeline.
+`Geometry::UiBuffers` tessellates the list into per-frame-slot host-visible buffers
+that only grow, the arrangement `ClothBuffers` uses and for the same reason.
+
+It degrades rather than fails. With no font the atlas slot falls back to the texture
+library's opaque-white default, so panels still draw and only the labels go missing;
+with no bindless heap the pass does not register at all.
+
+In the editor the elements now come from the renderer, so the Game view shows what a
+shipped build shows. `paint_ui_overlay` is reduced to authoring chrome the runtime
+never has: canvas extents, an edit-mode outline that keeps a transparent element
+grabbable, and the selected element's outline and resize handles.
 
 ## 12. Skeletal animation (assets, animator, blend trees, layers, IK, retargeting — phases A0–A9)
 

@@ -604,6 +604,16 @@ namespace SushiEngine
             float irradiance = 0.0f;                   /**< Radiance scale in the same units as @ref DirectionalLight::intensity. */
             std::uint32_t body_id = 0;                 /**< Ephemeris index of the body casting it. */
             std::uint32_t is_star = 0;                 /**< 1 when the body emits its own light. */
+            /**
+             * @brief Whether this body claims a shadow map.
+             *
+             * Light 0 (the brightest body) always gets its full cascaded shadow
+             * regardless of this flag — see @ref ShadowSettings. This flag instead
+             * gates the single-cascade shadow a *secondary* body may claim in the
+             * shared punctual atlas, up to @ref ShadowSettings::max_directional_shadow_casters;
+             * a body past that budget, or with this false, shades unshadowed.
+             */
+            bool casts_shadows = false;
         };
 
         /**

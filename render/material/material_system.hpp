@@ -79,6 +79,7 @@ namespace SushiEngine
                 MATERIAL_CLEARCOAT = 1u << 8,
                 MATERIAL_SHEEN = 1u << 9,
                 MATERIAL_TRANSMISSION = 1u << 10,
+                MATERIAL_FADE_SPECULAR = 1u << 11,
             };
 
             /**

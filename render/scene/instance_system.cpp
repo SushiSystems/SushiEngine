@@ -81,6 +81,8 @@ namespace SushiEngine
                 for (std::size_t i = 0; i < count; ++i)
                 {
                     const MeshInstance& instance = instances[i];
+                    if (is_alpha_blended(instance.material.surface_type))
+                        continue;
                     const bool imported = instance.mesh != INVALID_MESH;
                     const Geometry::Mesh& mesh =
                         imported ? meshes.mesh(instance.mesh) : meshes.primitive(instance.kind);

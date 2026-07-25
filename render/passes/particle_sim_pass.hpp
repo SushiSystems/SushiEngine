@@ -61,6 +61,7 @@ namespace SushiEngine
         namespace Passes
         {
             class HizPass;
+            class IrradianceVolumePass;
 
             /** @brief Emits and integrates the frame's cosmetic particles on the GPU. */
             class ParticleSimPass : public IRenderPass
@@ -74,10 +75,13 @@ namespace SushiEngine
                      * @param particles The shared pool, emitter table, and LUT atlases to drive.
                      * @param hiz       The depth pyramid the collision test reads (last frame's,
                      *                  since this pass runs before the depth prepass).
+                     * @param volumes   The pass owning the GI distance field, the collision
+                     *                  surface for emitters that must collide off screen.
                      */
                     ParticleSimPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                     Resources::GraphicsPipelineFactory& pipelines,
-                                    Scene::ParticleSystem& particles, HizPass& hiz);
+                                    Scene::ParticleSystem& particles, HizPass& hiz,
+                                    IrradianceVolumePass& volumes);
                     ~ParticleSimPass() override;
 
                     ParticleSimPass(const ParticleSimPass&) = delete;
@@ -90,32 +94,43 @@ namespace SushiEngine
                 private:
                     /** @brief Binding of last frame's depth pyramid, read by the collision test. */
                     static constexpr std::uint32_t DEPTH_PYRAMID_BINDING = 11;
+                    /** @brief Binding of the GI distance field, the off-screen collision surface. */
+                    static constexpr std::uint32_t SDF_CLIPMAP_BINDING = 12;
+                    /** @brief Binding of the distance field's camera-relative parameterization. */
+                    static constexpr std::uint32_t SDF_CONFIG_BINDING = 13;
+                    /** @brief Bindings in the shared emit/simulate set. */
+                    static constexpr std::uint32_t BINDING_COUNT = 14;
 
                     /**
                      * @brief 128-byte compute constants, shared by the emit and simulate dispatches.
                      *
-                     * The camera block is here for the depth collision alone, which projects each
-                     * particle into the pyramid; the emit dispatch reads only the emitter index.
+                     * The camera block is here for the collision tests alone — the depth path
+                     * projects each particle into the pyramid, the distance-field path rebases it
+                     * against the eye — while the emit dispatch reads only the emitter index.
                      */
                     struct Push
                     {
                         float view_projection[16];
                         float camera_right[4];       /**< xyz right; w = tan(half horizontal fov). */
                         float camera_up[4];          /**< xyz up; w = tan(half vertical fov). */
-                        std::uint32_t counts[4];     /**< x emitter index, y capacity, z pyramid usable. */
-                        float misc[4];               /**< x = simulation step. */
+                        /** @brief x emitter index, y capacity, z pyramid usable, w field usable. */
+                        std::uint32_t counts[4];
+                        float misc[4];               /**< x = simulation step; yzw = eye position. */
                     };
 
                     void create_pipelines();
                     void destroy_pipelines();
                     void create_fallback_depth();
                     void destroy_fallback_depth();
+                    void create_fallback_field();
+                    void destroy_fallback_field();
 
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::ParticleSystem& particles_;
                     HizPass& hiz_;
+                    IrradianceVolumePass& volumes_;
 
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
@@ -134,6 +149,20 @@ namespace SushiEngine
                     VmaAllocation fallback_allocation_ = VK_NULL_HANDLE;
                     VkImageView fallback_view_ = VK_NULL_HANDLE;
                     bool fallback_ready_ = false;
+
+                    /**
+                     * @brief A 1x1x1 volume and an empty config block, for the same reason.
+                     *
+                     * The distance field belongs to the GI tier and is absent whenever that tier
+                     * is off; the bindings still have to resolve, so they resolve to these and the
+                     * shader is told through the push constant not to read them.
+                     */
+                    VkImage fallback_field_image_ = VK_NULL_HANDLE;
+                    VmaAllocation fallback_field_allocation_ = VK_NULL_HANDLE;
+                    VkImageView fallback_field_view_ = VK_NULL_HANDLE;
+                    VkBuffer fallback_config_ = VK_NULL_HANDLE;
+                    VmaAllocation fallback_config_allocation_ = VK_NULL_HANDLE;
+                    bool fallback_field_ready_ = false;
             };
         } // namespace Passes
     } // namespace Render

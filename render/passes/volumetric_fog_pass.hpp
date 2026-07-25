@@ -32,9 +32,12 @@
  * ambient light scattered toward the camera through the fog and the fog's transmittance
  * out to that depth. sky.frag then folds the fog over every pixel as one fetch. The
  * volume is owned by this pass and barriered by hand; the sun's attenuation through the
- * air comes from the atmosphere transmittance LUT the pass is handed. Sun-shadowed god
- * rays and punctual-light fog are later increments that turn the single march into an
- * inject/integrate pair.
+ * air comes from the atmosphere transmittance LUT the pass is handed. Each froxel also
+ * gathers the clustered punctual-light buffer (unshadowed — a shadow-marched god ray is
+ * a further, costlier increment left for later), which is what lets a bright point/spot
+ * light visibly light up the fog around it. That reuses the same cull pass's cluster
+ * grid the shading passes read, so this pass must run after Lighting::LightCullPass in
+ * the graph's registration order.
  */
 
 #include "passes/render_pass.hpp"
@@ -59,6 +62,11 @@ namespace SushiEngine
             class VulkanDevice;
         }
 
+        namespace Lighting
+        {
+            class LightSystem;
+        }
+
         namespace Passes
         {
             class AtmosphereLutPass;
@@ -77,11 +85,13 @@ namespace SushiEngine
                      * @param shaders    Library the compute module comes from.
                      * @param pipelines  Factory the compute pipeline is built through.
                      * @param atmosphere The pass owning the transmittance LUT the fog reads.
+                     * @param lights     The clustered light engine the fog march samples.
                      */
                     VolumetricFogPass(Vulkan::VulkanDevice& device,
                                       Resources::ShaderLibrary& shaders,
                                       Resources::GraphicsPipelineFactory& pipelines,
-                                      AtmosphereLutPass& atmosphere);
+                                      AtmosphereLutPass& atmosphere,
+                                      Lighting::LightSystem& lights);
                     ~VolumetricFogPass() override;
 
                     VolumetricFogPass(const VolumetricFogPass&) = delete;
@@ -134,6 +144,7 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     AtmosphereLutPass& atmosphere_;
+                    Lighting::LightSystem& lights_;
 
                     Volume volume_;
                     VkBuffer volume_buffers_[RING] = {};

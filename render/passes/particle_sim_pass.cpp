@@ -19,13 +19,16 @@
 
 #include "passes/particle_sim_pass.hpp"
 
+#include <cstring>
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
 
 #include "frame/frame_context.hpp"
+#include "gi/sdf_clipmap.hpp"
 #include "graph/render_graph.hpp"
 #include "passes/hiz_pass.hpp"
+#include "passes/irradiance_volume_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
@@ -72,28 +75,34 @@ namespace SushiEngine
             ParticleSimPass::ParticleSimPass(Vulkan::VulkanDevice& device,
                                              Resources::ShaderLibrary& shaders,
                                              Resources::GraphicsPipelineFactory& pipelines,
-                                             Scene::ParticleSystem& particles, HizPass& hiz)
+                                             Scene::ParticleSystem& particles, HizPass& hiz,
+                                             IrradianceVolumePass& volumes)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles),
-                  hiz_(hiz)
+                  hiz_(hiz), volumes_(volumes)
             {
                 // Eleven storage buffers: pool, emitter table, additive draw list, indirect args,
                 // curve LUTs, gradient LUTs, alpha draw list, ribbon draw list, trail history,
                 // mesh draw list, mesh indirect args. Shared by emit and simulate.
-                // Plus binding 11: last frame's depth pyramid, the collision surface.
-                VkDescriptorSetLayoutBinding bindings[12]{};
-                for (std::uint32_t i = 0; i < 12; ++i)
+                // Plus binding 11: last frame's depth pyramid, the on-screen collision surface;
+                // binding 12: the GI distance field, the off-screen one; binding 13: that field's
+                // camera-relative parameterization.
+                VkDescriptorSetLayoutBinding bindings[BINDING_COUNT]{};
+                for (std::uint32_t i = 0; i < BINDING_COUNT; ++i)
                 {
                     bindings[i].binding = i;
-                    bindings[i].descriptorType = i == DEPTH_PYRAMID_BINDING
-                                                     ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                                                     : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    if (i == DEPTH_PYRAMID_BINDING || i == SDF_CLIPMAP_BINDING)
+                        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    else if (i == SDF_CONFIG_BINDING)
+                        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    else
+                        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                     bindings[i].descriptorCount = 1;
                     bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 }
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 12;
+                layout_info.bindingCount = BINDING_COUNT;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -114,12 +123,14 @@ namespace SushiEngine
                               "vkCreatePipelineLayout(particle sim)");
 
                 create_fallback_depth();
+                create_fallback_field();
                 create_pipelines();
             }
 
             ParticleSimPass::~ParticleSimPass()
             {
                 destroy_fallback_depth();
+                destroy_fallback_field();
                 destroy_pipelines();
                 if (pipeline_layout_ != VK_NULL_HANDLE)
                     vkDestroyPipelineLayout(device_.device(), pipeline_layout_, nullptr);
@@ -167,6 +178,76 @@ namespace SushiEngine
                 fallback_view_ = VK_NULL_HANDLE;
                 fallback_image_ = VK_NULL_HANDLE;
                 fallback_allocation_ = VK_NULL_HANDLE;
+            }
+
+            void ParticleSimPass::create_fallback_field()
+            {
+                VkImageCreateInfo image_info{};
+                image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                image_info.imageType = VK_IMAGE_TYPE_3D;
+                image_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+                image_info.extent = {1, 1, 1};
+                image_info.mipLevels = 1;
+                image_info.arrayLayers = 1;
+                image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+                image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                VmaAllocationCreateInfo allocation_info{};
+                allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
+                Vulkan::check(vmaCreateImage(device_.allocator(), &image_info, &allocation_info,
+                                             &fallback_field_image_, &fallback_field_allocation_,
+                                             nullptr),
+                              "vmaCreateImage(particle sim fallback field)");
+
+                VkImageViewCreateInfo view_info{};
+                view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                view_info.image = fallback_field_image_;
+                view_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
+                view_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+                view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                Vulkan::check(
+                    vkCreateImageView(device_.device(), &view_info, nullptr, &fallback_field_view_),
+                    "vkCreateImageView(particle sim fallback field)");
+
+                // Zero-filled: a config whose resolution is zero makes every position fall
+                // outside the clipmap, so even a shader that ignored the usable flag would read
+                // nothing rather than bounce off a phantom surface.
+                VkBufferCreateInfo buffer_info{};
+                buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                buffer_info.size = sizeof(Gi::SdfClipmapConfig);
+                buffer_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+                VmaAllocationCreateInfo config_allocation{};
+                config_allocation.usage = VMA_MEMORY_USAGE_AUTO;
+                config_allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VmaAllocationInfo mapped{};
+                Vulkan::check(vmaCreateBuffer(device_.allocator(), &buffer_info, &config_allocation,
+                                              &fallback_config_, &fallback_config_allocation_,
+                                              &mapped),
+                              "vmaCreateBuffer(particle sim fallback config)");
+                if (mapped.pMappedData != nullptr)
+                    std::memset(mapped.pMappedData, 0, sizeof(Gi::SdfClipmapConfig));
+            }
+
+            void ParticleSimPass::destroy_fallback_field()
+            {
+                if (fallback_config_ != VK_NULL_HANDLE)
+                    vmaDestroyBuffer(device_.allocator(), fallback_config_,
+                                     fallback_config_allocation_);
+                if (fallback_field_view_ != VK_NULL_HANDLE)
+                    vkDestroyImageView(device_.device(), fallback_field_view_, nullptr);
+                if (fallback_field_image_ != VK_NULL_HANDLE)
+                    vmaDestroyImage(device_.allocator(), fallback_field_image_,
+                                    fallback_field_allocation_);
+                fallback_config_ = VK_NULL_HANDLE;
+                fallback_config_allocation_ = VK_NULL_HANDLE;
+                fallback_field_view_ = VK_NULL_HANDLE;
+                fallback_field_image_ = VK_NULL_HANDLE;
+                fallback_field_allocation_ = VK_NULL_HANDLE;
             }
 
             void ParticleSimPass::create_pipelines()
@@ -227,9 +308,9 @@ namespace SushiEngine
                             context.buffer(frame.targets.particle_mesh_args);
                         const VkBuffer args_buffer = context.buffer(frame.targets.particle_args);
 
-                        // The 1x1 stand-in has to be in a samplable layout before it is bound, even
-                        // though the shader never reads it — the descriptor is written regardless.
-                        if (!fallback_ready_)
+                        // The stand-ins have to be in a samplable layout before they are bound, even
+                        // though the shader never reads them — the descriptors are written regardless.
+                        const auto make_samplable = [&cmd](VkImage image)
                         {
                             VkImageMemoryBarrier2 barrier{};
                             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -238,14 +319,23 @@ namespace SushiEngine
                             barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
                             barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                             barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-                            barrier.image = fallback_image_;
+                            barrier.image = image;
                             barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
                             VkDependencyInfo dependency{};
                             dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                             dependency.imageMemoryBarrierCount = 1;
                             dependency.pImageMemoryBarriers = &barrier;
                             vkCmdPipelineBarrier2(cmd, &dependency);
+                        };
+                        if (!fallback_ready_)
+                        {
+                            make_samplable(fallback_image_);
                             fallback_ready_ = true;
+                        }
+                        if (!fallback_field_ready_)
+                        {
+                            make_samplable(fallback_field_image_);
+                            fallback_field_ready_ = true;
                         }
 
                         // Zero the device-local pool and trail history exactly once, so every slot
@@ -310,6 +400,20 @@ namespace SushiEngine
                             DEPTH_PYRAMID_BINDING,
                             depth_usable ? hiz_.pyramid_view() : fallback_view_,
                             frame.samplers->get(Resources::SamplerDesc{}));
+
+                        // The GI distance field, or the stand-in when the GI tier is off. Its
+                        // config comes from the same record, so the field and the parameterization
+                        // locating it can never come from different frames.
+                        const Gi::VisibilityField field = volumes_.visibility_field(frame.index);
+                        const bool field_usable = field.valid();
+                        writer.sampled_image(SDF_CLIPMAP_BINDING,
+                                             field_usable ? field.distance_field
+                                                          : fallback_field_view_,
+                                             frame.samplers->get(Resources::SamplerDesc{}));
+                        writer.uniform_buffer(SDF_CONFIG_BINDING,
+                                              field_usable ? field.config : fallback_config_,
+                                              field_usable ? field.config_bytes
+                                                           : sizeof(Gi::SdfClipmapConfig));
                         writer.update(device_.device(), set);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
@@ -320,7 +424,13 @@ namespace SushiEngine
                         Push push{};
                         push.counts[1] = capacity;
                         push.counts[2] = depth_usable ? 1u : 0u;
+                        push.counts[3] = field_usable ? 1u : 0u;
                         push.misc[0] = dt;
+                        // The eye, which rebases a particle's absolute world position into the
+                        // distance field's camera-relative space.
+                        push.misc[1] = static_cast<float>(frame.eye[0]);
+                        push.misc[2] = static_cast<float>(frame.eye[1]);
+                        push.misc[3] = static_cast<float>(frame.eye[2]);
                         if (frame.camera != nullptr)
                         {
                             const Mat4 view_projection =

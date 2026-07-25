@@ -364,14 +364,18 @@ namespace SushiEngine
                 // Skinned characters pack their material and previous transform the same way as
                 // rigid instances; their previous *pose* rides the vertex stream (mesh_skinned.vert
                 // reads it), while this previous *transform* carries the rigid part of the motion.
-                std::vector<std::uint32_t> skinned_materials;
-                std::vector<std::uint32_t> skinned_motions;
-                skinned_materials.reserve(skinning_.ranges().size());
-                skinned_motions.reserve(skinning_.ranges().size());
-                for (const Scene::SkinnedRange& range : skinning_.ranges())
+                // An alpha-blended range draws through TransparentPass instead, so it is left
+                // unpacked here (the placeholder index is never read, since the draw loop below
+                // skips it too).
+                std::vector<std::uint32_t> skinned_materials(skinning_.ranges().size(), 0);
+                std::vector<std::uint32_t> skinned_motions(skinning_.ranges().size(), 0);
+                for (std::size_t i = 0; i < skinning_.ranges().size(); ++i)
                 {
-                    skinned_materials.push_back(materials_.push(range.material));
-                    skinned_motions.push_back(motion_.push(range.id, range.model));
+                    const Scene::SkinnedRange& range = skinning_.ranges()[i];
+                    if (is_alpha_blended(range.material.surface_type))
+                        continue;
+                    skinned_materials[i] = materials_.push(range.material);
+                    skinned_motions[i] = motion_.push(range.id, range.model);
                 }
 
                 Graph::ClearColor scene_clear;
@@ -545,6 +549,8 @@ namespace SushiEngine
                             for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
                             {
                                 const MeshInstance& instance = frame.draws.instances[i];
+                                if (is_alpha_blended(instance.material.surface_type))
+                                    continue;
                                 if (outline && instance.id != frame.draws.selected_id)
                                     continue;
 
@@ -607,6 +613,8 @@ namespace SushiEngine
                             for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
                             {
                                 const MeshInstance& instance = frame.draws.instances[i];
+                                if (is_alpha_blended(instance.material.surface_type))
+                                    continue;
                                 const bool imported = instance.mesh != INVALID_MESH;
                                 const Geometry::Mesh& mesh = imported
                                                                  ? meshes_.mesh(instance.mesh)
@@ -732,6 +740,8 @@ namespace SushiEngine
                                 for (std::size_t i = 0; i < ranges.size(); ++i)
                                 {
                                     const Scene::SkinnedRange& range = ranges[i];
+                                    if (is_alpha_blended(range.material.surface_type))
+                                        continue;
                                     const Geometry::Mesh& mesh = meshes_.mesh(range.mesh);
                                     if (mesh.index_count == 0)
                                         continue;

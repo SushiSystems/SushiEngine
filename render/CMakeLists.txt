@@ -143,6 +143,10 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/taa.frag"
     taa_frag_spv TAA_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fxaa.frag"
     fxaa_frag_spv FXAA_FRAG_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui.vert"
+    ui_vert_spv UI_VERT_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui.frag"
+    ui_frag_spv UI_FRAG_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shading_rate.comp"
     shading_rate_comp_spv SHADING_RATE_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_volume.comp"
@@ -238,7 +242,9 @@ add_library(sushi_render STATIC
     geometry/mesh_registry.cpp
     geometry/meshlet.cpp
     geometry/cloth_buffers.cpp
+    geometry/ui_buffers.cpp
     material/asset_library.cpp
+    material/font_atlas.cpp
     material/texture_library.cpp
     material/material_system.cpp
     material/gltf_importer.cpp
@@ -256,6 +262,7 @@ add_library(sushi_render STATIC
     gi/sdf_probe_tracer.cpp
     gi/mesh_sdf_baker.cpp
     passes/opaque_pass.cpp
+    passes/transparent_pass.cpp
     passes/gtao_pass.cpp
     passes/hiz_pass.cpp
     passes/occlusion_pass.cpp
@@ -285,6 +292,7 @@ add_library(sushi_render STATIC
     passes/bloom_pass.cpp
     passes/grid_pass.cpp
     passes/fxaa_pass.cpp
+    passes/ui_pass.cpp
     passes/shading_rate_pass.cpp
     passes/tonemap_pass.cpp
     passes/picking_pass.cpp
@@ -323,6 +331,8 @@ add_library(sushi_render STATIC
     "${CLOUD_COMPOSITE_FRAG_HEADER}"
     "${TAA_FRAG_HEADER}"
     "${FXAA_FRAG_HEADER}"
+    "${UI_VERT_HEADER}"
+    "${UI_FRAG_HEADER}"
     "${SHADING_RATE_HEADER}"
     "${SHADOW_VERT_HEADER}"
     "${CONTACT_SHADOW_FRAG_HEADER}"

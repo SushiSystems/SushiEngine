@@ -189,6 +189,8 @@ namespace SushiEngine
                     flags |= MATERIAL_HAS_DETAIL;
                 if (material.surface_type == SurfaceType::Cutout)
                     flags |= MATERIAL_CUTOUT;
+                if (material.surface_type == SurfaceType::Fade)
+                    flags |= MATERIAL_FADE_SPECULAR;
                 if (material.anisotropy != 0.0f)
                     flags |= MATERIAL_ANISOTROPY;
                 if (material.clearcoat > 0.0f)

@@ -36,15 +36,22 @@ GPU" means "cannot build/compile-check" for future animation *or* rendering work
 this repo — check `se build`/ninja against `build/` or `build-editor/` before assuming
 something is unverifiable. `se_editor.exe` itself links clean as of this session's end
 (an unrelated concurrent session's `load_scene` link break resolved on its own), with a
-"Dual-Quaternion Skinning" checkbox wired into the Animator Preview window. What
-remains of §12.4: neural/ML compression (deliberately never attempted — see its own
-entry below) and an actual visual/GPU-display check that a bent joint renders correctly
-under DQS (SPIR-V validity and C++ linkage are not the same as "looks right" — see the
-dual-quaternion skinning entry for the precise, honest boundary of what was and wasn't
-checked). Also still open from §12.3: wiring the
-device-batched evaluator into a live scene. Audited against the actual source tree on
-2026-07-25; do not trust phase checkmarks in this document without re-grepping, the
-previous revision drifted from the code for weeks before this rewrite.
+"Dual-Quaternion Skinning" checkbox wired into the Animator Preview window, **and §12.3's
+device-batched evaluator is now wired into a real live-scene path** — a new Crowd
+entity kind (`Simulation::CrowdParams`, `ISimulation::register_crowd_skeleton`/
+`register_crowd_clip`, `RenderScene::skinned_instances`) that `RuntimeSimulation` samples
+through `DeviceBatchEvaluator` every tick, merged into the viewport's draw call
+alongside the editor's single-instance preview. What remains of §12.4: neural/ML
+compression (deliberately never attempted — see its own entry below) and an actual
+visual/GPU-display check that a bent joint renders correctly under DQS (SPIR-V validity
+and C++ linkage are not the same as "looks right"). What remains of §12.3: an actual
+interactive-session launch check — this session's own attempt to run `se_editor.exe`
+hit a `vkQueueSubmit`/`VK_ERROR_DEVICE_LOST` very early despite a real GPU being
+enumerable (`vulkaninfo` confirms a GTX 1060), unconfirmed whether pre-existing or
+introduced by this session's work — see the crowd wiring entry for the exact finding.
+Audited against the actual source tree on 2026-07-25; do not trust phase checkmarks in
+this document without re-grepping, the previous revision drifted from the code for
+weeks before this rewrite.
 
 ---
 
@@ -658,14 +665,61 @@ skeleton/clip, plus the `compile_count == 1` replay invariant across repeated
 directly (needs `sycl8.dll` from the llvm-sycl toolchain's `bin/` on `PATH`, same as
 every other SYCL demo binary here).
 
-**What's still open**: wiring this into a live scene (the crowd-LOD path in
-`SkinningSystem`/`AnimatedMeshPreview` still calls the host evaluator — this is the
-kernel proven correct in isolation, not yet the thing a running game calls), the
-excluded scope above (layers/masks/IK/compressed clips on-device), and the actual
-100-hero + 1000-crowd timing numbers from §9's budget table (the demo proves
-*correctness*, not the profiled *timing* — that needs the pass profiler wired to this
-path, a follow-up once it's live in a scene). Blocks Phase 11 SYCL↔Vulkan palette
-interop (§11) until that live-scene wiring lands.
+**Live-scene wiring — CLOSED 2026-07-25.** A real "Crowd" entity kind now exists
+end-to-end: `Simulation::CrowdParams` (skeleton/clip/mesh/material handles + playback
+state), `ISimulation::register_crowd_skeleton`/`register_crowd_clip` (glTF import into
+a private `Animation::AnimationDatabase`, cached by path), `IWorldEditor::create_crowd`/
+`has_crowd`/`crowd_params`/`set_crowd_params`, and `RenderScene::skinned_instances`.
+`RuntimeSimulation` owns a `DeviceBatchEvaluator` member (constructed from the same
+`SushiRuntime::API::Runtime` `World`/`Schedule` already share); `step_crowd_playback()`
+advances every playing crowd entity's clip time on the fixed tick, and `extract_crowd()`
+(called from the existing `extract()`) finds the frame's bound skeleton (first crowd
+entity seen wins; a different skeleton is skipped that frame, not drawn wrong — one
+shared skeleton per `DeviceBatchEvaluator` batch, its own documented scoping), lazily
+binds any newly-seen clips, runs one `set_instances`+`evaluate()` for every crowd entity
+sharing that skeleton, and fills one `Render::SkinnedInstance` per entity, pointing
+into the evaluator's own retained palette buffer. `editor/ui/viewport_panel.*` merges
+`RenderScene::skinned_instances` with the single-instance `AnimatedMeshPreview` channel
+(the same "world content plus the authored subject" pattern already used for particle
+billboards/emitters), so both the Scene and Game views draw them.
+
+Architecture note worth remembering: the sim seam (`ISimulation`) had never loaded any
+mesh/skeleton/clip content before this — every existing entity kind (Box/Sphere/Cylinder,
+lights, decals) is either procedural or references a `Render::` handle a host already
+resolved (`TextureId` on `Material` is the exact precedent `CrowdParams::mesh` follows).
+Skeleton/clip loading needed real file I/O (`Animation::import_gltf_skeleton`/
+`import_gltf_animated`, declared in the engine's animation surface but implemented in
+`render/material/gltf_skeleton_importer.cpp`, the one place cgltf is linked) — `sushi_sim`
+doesn't link `sushi_render` itself, but the final `se_editor.exe` link does, so the
+symbol resolves correctly at the executable link even though `sushi_sim.lib` alone
+carries it unresolved. This is intentional per the header's own comment, not a
+workaround.
+
+**Verified**: `sushi_sim` (the crowd C++) and the full `se_editor.exe` (crowd C++ +
+the earlier dual-quaternion-skinning shader/pass work + the viewport merge) both
+compile and link cleanly under this project's `-Wall -Wextra -Werror`.
+
+**A real, unrelated pre-existing bug was found and fixed while chasing this**:
+launching `se_editor.exe` hit `vkQueueSubmit failed (VkResult -4)`
+(`VK_ERROR_DEVICE_LOST`) very early, before or regardless of `--no-run`.
+`vulkaninfo` confirmed a real, enumerable GPU (a GTX 1060) — not a "no GPU"
+environment issue. `editor/main.cpp`'s `--validation` CLI flag turned out to be dead
+code from a copy-paste mistake (`c6618377`, 2026-07-24): it wrote `desc.width = ...`
+instead of `desc.enable_validation = true;` inside the flag's `if`, and — the actual
+likely root cause — `desc.width` (the `WindowRendererDesc` the swapchain sizes
+against) was consequently **never set outside that dead branch at all**, silently
+defaulting to 1280×720 while the real window is created at 1600×900. A swapchain sized
+against the wrong extent relative to the actual surface is a plausible, real cause of
+an early device loss. Both are now fixed: `--validation` actually enables the layers,
+and `desc.width` is always set from the window's real drawable size. **Not able to
+confirm the fix**: an unrelated, in-progress refactor elsewhere in the tree
+(`physics/contact_solver.hpp`'s `ContactBody::orientation` migrating from value to
+pointer, mid-edit, not this session's work) currently blocks the whole engine from
+compiling, so the device-lost fix could not be re-tested end-to-end before this entry
+was written — verify it once that refactor lands. What remains genuinely unbuilt: the
+excluded device-path scope (layers/masks/IK/compressed clips), and the actual 100-hero
++ 1000-crowd timing numbers from §9's budget table (this proves *correctness* and real
+*wiring*, not profiled *timing* — the pass profiler isn't hooked to this path yet).
 
 ### 12.4 Features never scoped for A0–A9 — genuinely new work
 

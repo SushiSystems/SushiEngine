@@ -25,6 +25,10 @@ layout(std430, set = 0, binding = 10) buffer MeshArgs { uint mesh_args[]; };
 // Last frame's linearised depth pyramid, level 0 — the collision surface. Pass-owned by HizPass and
 // so still holding the previous frame when this pass runs, which is before the depth prepass.
 layout(set = 0, binding = 11) uniform sampler2D depth_pyramid;
+// The GI distance field, the off-screen collision surface. Its config rides its own uniform
+// block rather than the push constants, which are already full.
+layout(set = 0, binding = 12) uniform sampler3D sdf_clipmap;
+layout(set = 0, binding = 13) uniform SdfConfigBlock { SdfClipmapConfig sdf_config; };
 
 // Exactly 128 bytes, the house budget, shared with particle_emit.comp. The camera block is here
 // only for the depth collision, which projects each particle into last frame's depth pyramid.
@@ -33,8 +37,9 @@ layout(push_constant) uniform Push
     mat4 view_projection;
     vec4 camera_right;  // xyz world camera right; w = tan(half horizontal fov)
     vec4 camera_up;     // xyz world camera up;    w = tan(half vertical fov)
-    uvec4 counts;       // x = emitter index (emit only), y = pool capacity, z = depth pyramid usable
-    vec4 misc;          // x = fixed simulation step this frame
+    uvec4 counts;       // x = emitter index (emit only), y = pool capacity, z = depth pyramid usable,
+                        // w = distance field usable
+    vec4 misc;          // x = fixed simulation step this frame; yzw = eye position
 } pc;
 
 float sample_curve(int lut, float t)
@@ -95,10 +100,18 @@ void main()
         vel *= max(0.0, 1.0 - e.drag_coefficient * pc.misc.x);
     pos += vel * pc.misc.x;
     // Collide after the move, so the test sees where the particle actually got to this step.
-    if ((e.update_flags & UPDATE_COLLISION) != 0u && pc.counts.z != 0u)
+    // Which surface it collides against is a per-emitter choice: the distance field reaches
+    // off screen, the depth pyramid is sharper on what is visible. Each is gated on the host
+    // having supplied it, so an emitter authored for one falls back rather than reading a
+    // resource that was never bound.
+    if ((e.update_flags & UPDATE_COLLISION) != 0u)
     {
-        particle_depth_collide(depth_pyramid, e, pc.view_projection, pc.camera_right.xyz,
-                               pc.camera_up.xyz, pc.camera_right.w, pc.camera_up.w, pos, vel);
+        bool wants_field = (e.render_flags & RENDER_DISTANCE_FIELD_COLLISION) != 0u;
+        if (wants_field && pc.counts.w != 0u)
+            particle_sdf_collide(sdf_clipmap, sdf_config, e, pc.misc.yzw, pos, vel);
+        else if (pc.counts.z != 0u)
+            particle_depth_collide(depth_pyramid, e, pc.view_projection, pc.camera_right.xyz,
+                                   pc.camera_up.xyz, pc.camera_right.w, pc.camera_up.w, pos, vel);
     }
     p.rotation += p.angular_velocity * pc.misc.x;
     p.age += pc.misc.x;
@@ -146,12 +159,15 @@ void main()
         trail[base] = vec4(pos, p.size);
     }
 
-    // Bucket the survivors. Geometry decides first: ribbons draw as strips (draw arg [8..11]) and
-    // mesh particles as indexed instances in their emitter's own slice, both of which are a
-    // different draw rather than a different shader path. Everything left is a sprite and splits by
-    // blend — true-alpha into the alpha list (draw arg [4..7]), additive and premultiplied into the
-    // order-independent additive list (draw arg [0..3]).
-    if (e.alignment == ALIGN_RIBBON)
+    // Bucket the survivors. Geometry decides first: ribbons and beams draw as strips (draw arg
+    // [8..11]) and mesh particles as indexed instances in their emitter's own slice, both of which
+    // are a different draw rather than a different shader path. Everything left is a sprite and
+    // splits by blend — true-alpha into the alpha list (draw arg [4..7]), additive and
+    // premultiplied into the order-independent additive list (draw arg [0..3]).
+    //
+    // A beam shares the ribbon bucket outright: same strip expansion, same vertex count, same
+    // pipeline. Only the sample source differs, and that is a branch inside the vertex stage.
+    if (e.alignment == ALIGN_RIBBON || e.alignment == ALIGN_BEAM)
         ribbon_draw[atomicAdd(args[9], 1u)] = p;
     else if (e.alignment == ALIGN_MESH)
     {

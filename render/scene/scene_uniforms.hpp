@@ -84,6 +84,18 @@ namespace SushiEngine
                 float planet_precision[4]; /**< Ellipsoid terms formed in double so the analytic ground never squares planet-scale float32 coordinates: xyz = scaled centre gradient c_rad/a^2 + pole*c_ax/b^2 (subtracted to get the geodetic normal without large-minus-large snap), w = the ray-ellipsoid quadratic constant |M c|^2 - 1 for a camera-origin ray (keeps the "- 1" cancellation's bits at planet scale). Appended after planet_ring for the same offset reason. */
                 float lights[MAX_CELESTIAL_LIGHTS * 2][4]; /**< Every body lighting the scene, brightest first. Per light: lane 0 xyz = direction to the body, w = irradiance; lane 1 xyz = colour, w = 1 when the body emits its own light. Appended after planet_precision so shaders reading only earlier fields keep their offsets. */
                 float light_counts[4]; /**< x = populated @ref lights entries. The cascades are always fitted to light 0, since the list is ordered by what each light delivers here. */
+                /**
+                 * @brief Secondary directional casters' shadow record index, one float per light.
+                 *
+                 * Light 0 never appears here — it samples the cascades, not the punctual
+                 * atlas. Lanes 1..4 of light_shadow_a/light_shadow_b (packed 4 then 1,
+                 * matching @ref lights' brightest-first order) hold the atlas record
+                 * @ref LightSystem::assign_directional_shadows placed that light in, or
+                 * -1 when it is unshadowed. Appended after light_counts so shaders
+                 * reading only earlier fields keep their offsets.
+                 */
+                float light_shadow_a[4]; /**< Lights 0-3's shadow record index (lane 0 always -1). */
+                float light_shadow_b[4]; /**< Light 4's shadow record index in lane 0; yzw spare. */
             };
 
             /**

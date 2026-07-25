@@ -53,6 +53,7 @@
 #include <SushiEngine/ecs/entity.hpp>
 #include <SushiEngine/ecs/world.hpp>
 #include <SushiEngine/ui/components.hpp>
+#include <SushiEngine/ui/draw_list.hpp>
 #include <SushiEngine/ui/interaction.hpp>
 #include <SushiEngine/ui/layout.hpp>
 #include <SushiEngine/ui/rect.hpp>
@@ -61,36 +62,6 @@ namespace SushiEngine
 {
     namespace UI
     {
-        /** @brief One coloured rectangle to draw, in paint order. */
-        struct UIDrawRect
-        {
-            Rect rect;
-            Color color;
-        };
-
-        /** @brief One text run to draw: its rectangle, string, size, and colour. */
-        struct UITextRun
-        {
-            Rect rect;
-            char text[UI_TEXT_CAPACITY] = {0};
-            std::uint32_t length = 0;
-            Scalar font_size = 18;
-            Color color;
-        };
-
-        /**
-         * @brief A frame's UI geometry, back to front, for a 2D overlay pass to draw.
-         *
-         * Renderer-agnostic on purpose: it names no graphics API, so a Vulkan overlay,
-         * a test, or a headless tool consume the same list. Rects and texts are each in
-         * creation (paint) order, so a later element draws over an earlier one.
-         */
-        struct UIDrawList
-        {
-            std::vector<UIDrawRect> rects;
-            std::vector<UITextRun> texts;
-        };
-
         /**
          * @brief Builds and drives a retained UI over an existing ECS world.
          *
@@ -259,6 +230,9 @@ namespace SushiEngine
                             run.length = source.length;
                             run.font_size = source.font_size;
                             run.color = source.color;
+                            // A button's caption is centred in its fill; a free-standing label
+                            // reads from the left edge of its own box.
+                            run.align = element.has_button ? TextAlign::Center : TextAlign::Left;
                             for (std::uint32_t i = 0; i < UI_TEXT_CAPACITY; ++i)
                                 run.text[i] = source.text[i];
                             list.texts.push_back(run);

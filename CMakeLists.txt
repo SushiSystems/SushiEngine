@@ -172,6 +172,9 @@ add_sushi_sycl_executable(retarget_demo examples/retarget_demo.cpp)
 # to a byte-identical blob (save/load + undo/redo), and edit-mode scrub preview posing a
 # blend-tree state off the loop, checked headlessly.
 add_sushi_sycl_executable(authoring_demo examples/authoring_demo.cpp)
+# Header-only JSON for animator_controller_json.hpp's save/load round trip.
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(authoring_demo PRIVATE nlohmann_json::nlohmann_json)
 
 # keyframe_demo exercises the animation authoring model: sparse scalar/quaternion keyframe curves
 # (constant/linear/cubic), the pose recorder that captures a live pose into keys, baking to the

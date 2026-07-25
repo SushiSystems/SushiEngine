@@ -502,10 +502,11 @@ namespace SushiEngine
                             Body& body = rigid_->body(static_cast<Physics::BodyId>(i));
                             Physics::ContactBody<T> entry;
                             entry.position = &body.position;
+                            entry.orientation = &body.orientation;
                             entry.inv_mass = body.inv_mass;
+                            entry.inv_inertia = body.inv_inertia;
                             entry.is_box = rigid_is_box_[i];
                             entry.half_extents = rigid_half_extents_[i];
-                            entry.orientation = body.orientation;
                             entry.radius = rigid_radii_[i];
                             entry.is_cloth = false;
                             contact_bodies_.push_back(entry);

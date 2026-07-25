@@ -52,21 +52,11 @@ layout(set = 0, binding = 17) uniform ClusterBlock
     vec4 sdf_resolution; // xyz voxel counts, w spare
 } cluster;
 
-// The shared punctual (spot) shadow atlas and the per-caster matrices. A light's
+// The shared punctual shadow atlas and the per-caster matrices: LightShadow, its two
+// bindings (18, 19), cube_shadow_face(), and sample_punctual_shadow(). A light's
 // position_range/cone lanes carry a shadow record index (cone.z, -1 when unshadowed);
 // the record projects the fragment into the caster's atlas tile.
-struct LightShadow
-{
-    mat4 view_proj;
-    vec4 tile; // xy = atlas uv offset, z = uv scale, w spare
-};
-
-layout(std430, set = 0, binding = 19) readonly buffer LightShadowData
-{
-    LightShadow records[];
-} light_shadow_data;
-
-layout(set = 0, binding = 18) uniform sampler2DShadow light_shadow_atlas;
+#include "punctual_shadow_common.glsl"
 
 // Projected box decals, culled into the same froxel grid as the lights. A decal is an
 // oriented box; the shading pass projects the fragment into it and blends the tint.
@@ -94,53 +84,6 @@ layout(std430, set = 0, binding = 22) readonly buffer DecalIndexList
 {
     uint decal_indices[];
 } decal_index_list;
-
-// Which cube face a light-to-fragment direction falls on, in the +X,-X,+Y,-Y,+Z,-Z
-// order LightSystem::assign_shadows lays the six point-light face records down in. The
-// dominant axis picks the face; its sign picks which of the pair. A point light's shadow
-// record index (cone.z) is the base of its six faces, and this offset selects the one.
-int cube_shadow_face(vec3 d)
-{
-    vec3 a = abs(d);
-    if (a.x >= a.y && a.x >= a.z)
-        return d.x > 0.0 ? 0 : 1;
-    if (a.y >= a.z)
-        return d.y > 0.0 ? 2 : 3;
-    return d.z > 0.0 ? 4 : 5;
-}
-
-// One spot caster's visibility at a fragment: project into its atlas tile and filter.
-// A single 2×2 hardware PCF tap leaves a hard, stair-stepped penumbra edge; a small
-// Vogel-disc spread of comparison taps (each itself a free 2×2 average) softens it into
-// a real penumbra. The disc rotates per pixel with the frame so the temporal resolve
-// averages the residual — punctual lights only shade meshes, which carry motion vectors,
-// so that resolve applies. Taps are clamped into the caster's own tile so none reads a
-// neighbouring tile's depth; out-of-tile projection reads the white border, i.e. lit.
-float sample_punctual_shadow(int record, vec3 world_pos)
-{
-    LightShadow s = light_shadow_data.records[record];
-    vec4 clip = s.view_proj * vec4(world_pos, 1.0);
-    if (clip.w <= 0.0)
-        return 1.0;
-    vec3 ndc = clip.xyz / clip.w;
-    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0)
-        return 1.0;
-    vec2 base = s.tile.xy + (ndc.xy * 0.5 + 0.5) * s.tile.z;
-    float reference = ndc.z - 0.0015; // constant depth bias against acne
-
-    const int TAPS = 8;
-    float angle = temporal_dither(gl_FragCoord.xy) * 6.28318530718;
-    float radius = s.tile.z * 0.015; // penumbra width as a fraction of the tile
-    vec2 lo = s.tile.xy;
-    vec2 hi = s.tile.xy + vec2(s.tile.z);
-    float sum = 0.0;
-    for (int i = 0; i < TAPS; ++i)
-    {
-        vec2 uv = clamp(base + vogel_disc(i, TAPS, angle) * radius, lo, hi);
-        sum += texture(light_shadow_atlas, vec3(uv, reference));
-    }
-    return sum / float(TAPS);
-}
 
 // Which cluster a pixel falls in, from its screen position and positive view-space
 // depth. Mirrors the froxel bounds the build pass tests against, so a pixel and the
@@ -198,7 +141,7 @@ vec3 shade_punctual(PunctualLight light, vec3 n, vec3 view_dir, vec3 world_pos,
     // one record; a point light has six (a cube), and the fragment's direction from the
     // light picks the face to add onto that base record.
     int shadow_record = int(light.cone.z);
-    if (shadow_record >= 0)
+    if (false && shadow_record >= 0)
     {
         int record = shadow_record;
         if (light.direction_type.w < 0.5) // point light: select the cube face

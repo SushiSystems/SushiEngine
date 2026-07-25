@@ -93,6 +93,7 @@ namespace SushiEngine
                                                        Render::Material* materials,
                                                        std::size_t count) override;
                     std::size_t resident_texture_bytes() const noexcept override;
+                    std::uint32_t morph_target_count(MeshId mesh) const noexcept override;
 
                     /** @brief The shader modules every pipeline is built from. */
                     Resources::ShaderLibrary& shaders() noexcept { return shaders_; }
