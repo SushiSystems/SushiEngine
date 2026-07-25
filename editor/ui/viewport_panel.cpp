@@ -34,6 +34,19 @@ namespace SushiEngine
     {
         namespace
         {
+            /** @brief Transforms a point by an affine matrix (w = 1). */
+            SushiEngine::Vector3 transform_point(const SushiEngine::Mat4& matrix,
+                                                 const SushiEngine::Vector3& p)
+            {
+                const SushiEngine::Scalar* m = matrix.m;
+                return SushiEngine::Vector3{m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12],
+                                            m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13],
+                                            m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14]};
+            }
+        } // namespace
+
+        namespace
+        {
             /** @brief Builds the `UI::RectTransform` equivalent of an authored UI element's params. */
             SushiEngine::UI::RectTransform ui_rect_transform(
                 const SushiEngine::Simulation::UIElementParams& p) noexcept
@@ -302,9 +315,13 @@ namespace SushiEngine
                                  const SushiEngine::Render::Decal* decals,
                                  std::size_t decal_count, UIOverlay* ui, bool show_grid,
                                  const SkeletonPreview* skeleton, bool skeleton_names,
-                                 const EffectPreview* particle_preview,
+                                 EffectPreview* particle_preview,
                                  const SushiEngine::Render::ParticleBillboard* billboards,
-                                 std::size_t billboard_count)
+                                 std::size_t billboard_count,
+                                 AnimatedMeshPreview* animated_mesh,
+                                 const SushiEngine::Render::ParticleEmitterView* emitters_in,
+                                 std::size_t emitter_count_in, bool ik_gizmo,
+                                 bool preview_controls)
         {
             if (!ImGui::Begin(title_, &open))
             {
@@ -396,13 +413,80 @@ namespace SushiEngine
 
             const SushiEngine::Render::CameraView camera_view =
                 camera_.view(static_cast<float>(width) / static_cast<float>(height));
-            const SushiEngine::Render::ParticleEmitterView* emitters =
-                particle_preview != nullptr ? particle_preview->views() : nullptr;
-            const std::size_t emitter_count =
+            // The world's cosmetic emitters, plus the previewed effect's when this surface is
+            // showing one. A preview belongs to no entity, so it is concatenated rather than
+            // given a channel — the renderer cannot tell the two apart and has no reason to.
+            const SushiEngine::Render::ParticleEmitterView* emitters = emitters_in;
+            std::size_t emitter_count = emitter_count_in;
+            std::vector<SushiEngine::Render::ParticleEmitterView> merged_emitters;
+            const std::size_t preview_emitters =
                 particle_preview != nullptr ? particle_preview->view_count() : 0;
+            if (preview_emitters > 0)
+            {
+                merged_emitters.reserve(emitter_count_in + preview_emitters);
+                merged_emitters.insert(merged_emitters.end(), emitters_in,
+                                       emitters_in + emitter_count_in);
+                merged_emitters.insert(merged_emitters.end(), particle_preview->views(),
+                                       particle_preview->views() + preview_emitters);
+                emitters = merged_emitters.data();
+                emitter_count = merged_emitters.size();
+            }
+            const SushiEngine::Render::SkinnedInstance* skinned =
+                animated_mesh != nullptr ? animated_mesh->skinned() : nullptr;
+            const std::size_t skinned_count =
+                animated_mesh != nullptr ? animated_mesh->skinned_count() : 0;
+
+            // The deterministic preview simulates on the CPU and hands over finished particles, the
+            // same channel the sim's own deterministic emitters use, so the two are concatenated
+            // rather than given a channel of their own.
+            const SushiEngine::Render::ParticleBillboard* all_billboards = billboards;
+            std::size_t all_billboard_count = billboard_count;
+            std::vector<SushiEngine::Render::ParticleBillboard> merged_billboards;
+            const std::size_t preview_billboards =
+                particle_preview != nullptr ? particle_preview->billboard_count() : 0;
+            if (preview_billboards > 0)
+            {
+                merged_billboards.reserve(billboard_count + preview_billboards);
+                merged_billboards.insert(merged_billboards.end(), billboards,
+                                         billboards + billboard_count);
+                merged_billboards.insert(merged_billboards.end(), particle_preview->billboards(),
+                                         particle_preview->billboards() + preview_billboards);
+                all_billboards = merged_billboards.data();
+                all_billboard_count = merged_billboards.size();
+            }
+
             view_->render(camera_view, environment, instances, count, selected_id, strands,
-                          strand_count, lights, light_count, decals, decal_count, show_grid, nullptr,
-                          0, emitters, emitter_count, billboards, billboard_count);
+                          strand_count, lights, light_count, decals, decal_count, show_grid,
+                          skinned, skinned_count, emitters, emitter_count, all_billboards,
+                          all_billboard_count);
+
+            // The transport for whatever this surface previews. One row for every kind of subject,
+            // because "the thing being authored, playing or paused" is a property of the surface;
+            // the deeper authoring (an effect's modules, an animator's layers and IK) stays in the
+            // component or panel that owns it.
+            if (preview_controls)
+            {
+                if (particle_preview != nullptr)
+                {
+                    const bool playing = particle_preview->playing();
+                    if (ImGui::Button(playing ? "Pause Effect" : "Play Effect"))
+                        particle_preview->set_playing(!playing);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Restart Effect"))
+                        particle_preview->restart();
+                }
+                if (animated_mesh != nullptr && animated_mesh->loaded())
+                {
+                    if (particle_preview != nullptr)
+                        ImGui::SameLine();
+                    const bool playing = animated_mesh->playing();
+                    if (ImGui::Button(playing ? "Pause Animation" : "Play Animation"))
+                        animated_mesh->set_playing(!playing);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Restart Animation"))
+                        animated_mesh->restart();
+                }
+            }
 
             const ImVec2 image_origin = ImGui::GetCursorScreenPos();
             ImGui::Image(slot_textures_[view_->current_slot()],
@@ -628,6 +712,29 @@ namespace SushiEngine
                 draw_emitter_gizmo(*particle_preview, camera_view, image_origin,
                                    static_cast<float>(width), static_cast<float>(height),
                                    ImGui::GetWindowDrawList());
+
+            // IK target gizmo (design §12.1): a second, independent GizmoController drags
+            // AnimatedMeshPreview's two-bone IK target, converting to/from the character's
+            // object space each frame (the solver's `target` field is object-space; the gizmo
+            // manipulates a world-space EntityTransform, the same type the selection gizmo
+            // edits, so this reuses that math rather than a bespoke drag implementation).
+            // Scene-view only — ik_gizmo is false for the Game view, mirroring the
+            // gizmo_target/pickable split above.
+            if (ik_gizmo && animated_mesh != nullptr && animated_mesh->loaded())
+            {
+                const SushiEngine::Mat4& character_world = animated_mesh->world();
+                SushiEngine::Simulation::EntityTransform ik_transform;
+                ik_transform.position =
+                    transform_point(character_world, animated_mesh->two_bone_ik().target);
+                static const GizmoSnap no_snap;
+                const GizmoController::Result ik_result = ik_gizmo_.manipulate(
+                    GizmoMode::Translate, GizmoSpace::World, ik_transform, camera_view,
+                    image_origin, static_cast<float>(width), static_cast<float>(height),
+                    image_hovered, no_snap);
+                if (ik_result.modified)
+                    animated_mesh->set_ik_target(transform_point(
+                        SushiEngine::affine_inverse(character_world), ik_transform.position));
+            }
 
             // Transform gizmo: the GizmoController owns the handle drawing and drag mapping
             // for the active mode. Handled before picking so grabbing a handle never

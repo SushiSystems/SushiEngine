@@ -201,6 +201,47 @@ namespace SushiEngine
                     VkBuffer skin_buffer(MeshId mesh) const noexcept;
 
                     /**
+                     * @brief Attaches morph-target (blend-shape) vertex deltas to an imported mesh.
+                     *
+                     * Design §6.5/§12.1: one delta per (target, vertex), target-major (all of
+                     * target 0's deltas, then target 1's, ...) so the skinning compute dispatch's
+                     * per-vertex thread reads a strided but coalesced-across-threads stream per
+                     * active target — the same access shape as the joint palette. Position-only,
+                     * matching the CPU reference (`Animation::apply_morph_positions`); normals and
+                     * tangents are not morphed.
+                     *
+                     * Kept opaque-bytes like @ref add_skinned_mesh's skin stream, rather than
+                     * typed on an animation-module vector type, so the geometry layer stays
+                     * decoupled from the animation module.
+                     *
+                     * @param mesh          The id returned by @ref add_mesh or @ref add_skinned_mesh.
+                     * @param position_deltas @p target_count × @p vertex_count tightly-packed
+                     *                      `float[3]`s, target-major.
+                     * @param delta_bytes   Bytes of @p position_deltas (must equal
+                     *                      `target_count * vertex_count * 12`).
+                     * @param vertex_count  Must equal the mesh's own vertex count.
+                     * @param target_count  Morph targets carried (0 clears any previously set).
+                     * @return True if attached; false if @p mesh is unknown or the counts mismatch.
+                     */
+                    bool set_morph_targets(MeshId mesh, const void* position_deltas,
+                                           std::size_t delta_bytes, std::uint32_t vertex_count,
+                                           std::uint32_t target_count);
+
+                    /**
+                     * @brief An imported mesh's per-target morph delta buffer.
+                     * @param mesh The id returned by add_mesh()/add_skinned_mesh().
+                     * @return Its morph buffer, or VK_NULL_HANDLE if the mesh has none.
+                     */
+                    VkBuffer morph_buffer(MeshId mesh) const noexcept;
+
+                    /**
+                     * @brief The number of morph targets attached to an imported mesh.
+                     * @param mesh The id returned by add_mesh()/add_skinned_mesh().
+                     * @return The target count, or 0 if the mesh has none or is unknown.
+                     */
+                    std::uint32_t morph_target_count(MeshId mesh) const noexcept;
+
+                    /**
                      * @brief An imported mesh by id.
                      * @param mesh The id returned by add_mesh().
                      * @return Its buffers and counts, or an empty mesh if the id is unknown.
@@ -230,6 +271,8 @@ namespace SushiEngine
                         Allocation vertices;
                         Allocation indices;
                         Allocation skin; /**< Per-vertex skin stream; unset for non-skinned meshes. */
+                        Allocation morph; /**< Target-major morph deltas; unset if no morph targets. */
+                        std::uint32_t morph_targets = 0; /**< Targets in @c morph, 0 if none. */
                         Mesh mesh;
                         Gi::MeshSdfBrick brick; /**< Signed-distance brick baked at import for GI. */
                     };

@@ -237,5 +237,76 @@ namespace SushiEngine
             out.generic_values = source.generic_values;
             return true;
         }
+
+        /**
+         * @brief Retargets one already-sampled pose frame from a source rig onto a target rig.
+         *
+         * The runtime counterpart to @ref retarget_clip: the same bind-pose-delta transfer
+         * (`target_bind · (source_bind⁻¹ · source_animated)`), applied to a single frame's local
+         * pose (e.g. a @ref ClipEvaluator's output for the current time) instead of a whole
+         * @ref ClipDesc. This is what makes retargeting available *after* import — a clip already
+         * playing against one skeleton can drive a different one bound at runtime (design §12.4's
+         * "same-session retarget onto a different rig" gap, e.g. swapping a character model
+         * mid-game), at the cost of redoing the delta transfer every frame instead of once at cook
+         * time. A caller retargeting the same clip onto the same rig pair every frame should
+         * prefer @ref retarget_clip once, offline, instead — this function is for the case where
+         * the target rig is not known until runtime.
+         *
+         * @param source_translations Per-joint local translation for @p source_skeleton.
+         * @param source_rotations    Per-joint local rotation for @p source_skeleton.
+         * @param source_avatar       The source rig's bone map.
+         * @param source_skeleton     The source rig.
+         * @param target_avatar       The target rig's bone map.
+         * @param target_skeleton     The target rig.
+         * @param out_translations    Receives @c target_skeleton.joint_count translations.
+         * @param out_rotations       Receives @c target_skeleton.joint_count rotations.
+         */
+        inline void retarget_pose_frame(const Vector3f* source_translations,
+                                        const Quaternionf* source_rotations,
+                                        const Avatar& source_avatar, const SkeletonView& source_skeleton,
+                                        const Avatar& target_avatar, const SkeletonView& target_skeleton,
+                                        Vector3f* out_translations, Quaternionf* out_rotations) noexcept
+        {
+            for (std::uint32_t j = 0; j < target_skeleton.joint_count; ++j)
+            {
+                out_translations[j] = target_skeleton.bind_translations[j];
+                out_rotations[j] = target_skeleton.bind_rotations[j];
+            }
+
+            float hip_scale = 1.0f;
+            if (source_avatar.has(HumanBone::Hips) && target_avatar.has(HumanBone::Hips))
+            {
+                const std::uint32_t hs =
+                    static_cast<std::uint32_t>(source_avatar.joint(HumanBone::Hips));
+                const std::uint32_t ht =
+                    static_cast<std::uint32_t>(target_avatar.joint(HumanBone::Hips));
+                const float source_height = length(source_skeleton.bind_translations[hs]);
+                if (source_height > 1e-6f)
+                    hip_scale = length(target_skeleton.bind_translations[ht]) / source_height;
+            }
+
+            for (std::uint32_t b = 0; b < HUMAN_BONE_COUNT; ++b)
+            {
+                const HumanBone bone = static_cast<HumanBone>(b);
+                if (!source_avatar.has(bone) || !target_avatar.has(bone))
+                    continue;
+                const std::uint32_t s = static_cast<std::uint32_t>(source_avatar.joint(bone));
+                const std::uint32_t t = static_cast<std::uint32_t>(target_avatar.joint(bone));
+                if (s >= source_skeleton.joint_count || t >= target_skeleton.joint_count)
+                    continue;
+
+                const Quaternionf source_bind = source_skeleton.bind_rotations[s];
+                const Quaternionf target_bind = target_skeleton.bind_rotations[t];
+                const Quaternionf delta = detail::pose_delta(source_bind, source_rotations[s]);
+                out_rotations[t] = normalize(mul(target_bind, delta));
+
+                if (bone == HumanBone::Hips)
+                {
+                    const Vector3f offset =
+                        (source_translations[s] - source_skeleton.bind_translations[s]) * hip_scale;
+                    out_translations[t] = target_skeleton.bind_translations[t] + offset;
+                }
+            }
+        }
     } // namespace Animation
 } // namespace SushiEngine

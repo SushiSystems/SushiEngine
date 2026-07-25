@@ -162,7 +162,7 @@ namespace SushiEngine
                             1, context.buffer(frame.targets.particle_sort_keys),
                             static_cast<VkDeviceSize>(count) * 2 * sizeof(std::uint32_t));
                         writer.storage_buffer(2, context.buffer(frame.targets.particle_args),
-                                              sizeof(std::uint32_t) * 8);
+                                              sizeof(std::uint32_t) * 12);
                         writer.update(device_.device(), set);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);

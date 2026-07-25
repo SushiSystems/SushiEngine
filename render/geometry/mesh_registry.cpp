@@ -403,6 +403,7 @@ namespace SushiEngine
                     destroy(entry.vertices);
                     destroy(entry.indices);
                     destroy(entry.skin);
+                    destroy(entry.morph);
                 }
                 imported_.clear();
                 for (Allocation& allocation : meshlet_buffers_)
@@ -469,6 +470,46 @@ namespace SushiEngine
                 if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
                     return VK_NULL_HANDLE;
                 return imported_[mesh_id].skin.buffer;
+            }
+
+            bool MeshRegistry::set_morph_targets(MeshId mesh_id, const void* position_deltas,
+                                                 std::size_t delta_bytes,
+                                                 std::uint32_t vertex_count,
+                                                 std::uint32_t target_count)
+            {
+                if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
+                    return false;
+                Imported& entry = imported_[mesh_id];
+                if (vertex_count != entry.mesh.vertex_count)
+                    return false;
+                if (target_count == 0)
+                {
+                    destroy(entry.morph);
+                    entry.morph_targets = 0;
+                    return true;
+                }
+                const std::size_t expected =
+                    static_cast<std::size_t>(target_count) * vertex_count * (3 * sizeof(float));
+                if (position_deltas == nullptr || delta_bytes != expected)
+                    return false;
+                destroy(entry.morph);
+                entry.morph = upload(position_deltas, delta_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                entry.morph_targets = target_count;
+                return true;
+            }
+
+            VkBuffer MeshRegistry::morph_buffer(MeshId mesh_id) const noexcept
+            {
+                if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
+                    return VK_NULL_HANDLE;
+                return imported_[mesh_id].morph.buffer;
+            }
+
+            std::uint32_t MeshRegistry::morph_target_count(MeshId mesh_id) const noexcept
+            {
+                if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
+                    return 0;
+                return imported_[mesh_id].morph_targets;
             }
 
             const Gi::MeshSdfBrick* MeshRegistry::mesh_brick(MeshId mesh_id) const noexcept

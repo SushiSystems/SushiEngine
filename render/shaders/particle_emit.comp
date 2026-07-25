@@ -19,18 +19,26 @@ layout(std430, set = 0, binding = 3) buffer DrawArgs { uint args[]; }; // vertex
 layout(std430, set = 0, binding = 4) readonly buffer CurveLuts { float curve_luts[]; };
 layout(std430, set = 0, binding = 5) readonly buffer GradientLuts { float gradient_luts[]; };
 layout(std430, set = 0, binding = 6) writeonly buffer AlphaDrawList { Particle alpha_draw[]; };
+layout(std430, set = 0, binding = 7) writeonly buffer RibbonDrawList { Particle ribbon_draw[]; };
+layout(std430, set = 0, binding = 8) writeonly buffer Trail { vec4 trail[]; };
+layout(std430, set = 0, binding = 9) writeonly buffer MeshDrawList { Particle mesh_draw[]; };
+layout(std430, set = 0, binding = 10) buffer MeshArgs { uint mesh_args[]; };
 
+// The layout particle_simulate.comp declares, shared so both dispatches take one pipeline layout.
+// Only the emitter index matters here; the camera block belongs to the simulate pass's collision.
 layout(push_constant) uniform Push
 {
-    uint emitter_index; // which emitter in the table this dispatch spawns for
-    uint capacity;      // shared pool capacity (unused here; kept for a common layout)
-    float dt;           // unused here
+    mat4 view_projection;
+    vec4 camera_right;
+    vec4 camera_up;
+    uvec4 counts;       // x = emitter index, y = pool capacity, z = depth pyramid usable
+    vec4 misc;          // x = fixed simulation step this frame
 } pc;
 
 void main()
 {
     uint t = gl_GlobalInvocationID.x;
-    Emitter e = emitters[pc.emitter_index];
+    Emitter e = emitters[pc.counts.x];
     if (t >= e.spawn_count)
         return;
 
@@ -68,14 +76,36 @@ void main()
     p.lifetime = max(lifetime, 0.0001);
     p.angular_velocity = angular;
     p.seed = slot;
-    p.emitter_index = pc.emitter_index;
+    p.emitter_index = pc.counts.x;
     p.flipbook_frame = 0u;
     p.birth_size = size;
 
     pool[slot] = p;
 
-    // Bucket newborns by blend, matching particle_simulate.comp.
-    if (e.blend == BLEND_ALPHA)
+    // A recycled slot still holds the previous occupant's trail, which would draw as a streak
+    // from wherever that particle died to wherever this one was born. Collapsing the whole
+    // history onto the birth point makes the new trail start at zero length and grow.
+    if (e.alignment == ALIGN_RIBBON)
+    {
+        for (uint k = 0u; k < TRAIL_POINTS; ++k)
+            trail[slot * TRAIL_POINTS + k] = vec4(world_position, size);
+    }
+
+    // Bucket newborns the same way particle_simulate.comp does: ribbons draw as strips and so
+    // form their own bucket, everything else splits by blend.
+    if (e.alignment == ALIGN_RIBBON)
+        ribbon_draw[atomicAdd(args[9], 1u)] = p;
+    else if (e.alignment == ALIGN_MESH)
+    {
+        if (e.mesh_slot != NO_MESH_SLOT)
+        {
+            uint slice = e.capacity / MAX_MESH_EMITTERS;
+            uint local = atomicAdd(mesh_args[e.mesh_slot * 5u + 1u], 1u);
+            if (local < slice)
+                mesh_draw[e.mesh_slot * slice + local] = p;
+        }
+    }
+    else if (e.blend == BLEND_ALPHA)
         alpha_draw[atomicAdd(args[5], 1u)] = p;
     else
         draw[atomicAdd(args[1], 1u)] = p;

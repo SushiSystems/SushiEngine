@@ -45,6 +45,7 @@
 #include <cmath>
 
 #include <SushiEngine/audio/dsp/air_absorption.hpp>
+#include <SushiEngine/audio/dsp/filters/biquad.hpp>
 #include <SushiEngine/audio/dsp/filters/one_pole.hpp>
 #include <SushiEngine/audio/dsp/fractional_delay.hpp>
 #include <SushiEngine/audio/dsp/simd.hpp>
@@ -88,6 +89,7 @@ namespace SushiEngine
                 {
                     delay_.reset();
                     air_.reset();
+                    near_field_.reset();
                     initialized_ = false;
                 }
 
@@ -178,6 +180,19 @@ namespace SushiEngine
                                              descriptor.rolloff);
                     Dsp::Simd::apply_gain_ramp(output, frame_count, gain_prev_, gain_now);
                     gain_prev_ = gain_now;
+
+                    // Near-field compensation: a very close source gains a low-frequency
+                    // proximity boost (the bass build-up a source right at the ear has), rising
+                    // from 0 at the near-field radius to +9 dB as it reaches the listener.
+                    if (descriptor.near_field_distance > 0.0f)
+                    {
+                        float proximity =
+                            (descriptor.near_field_distance - distance_meters) / descriptor.near_field_distance;
+                        proximity = proximity < 0.0f ? 0.0f : (proximity > 1.0f ? 1.0f : proximity);
+                        near_field_.set_low_shelf(250.0, 9.0 * proximity, sample_rate_);
+                        for (int i = 0; i < frame_count; ++i)
+                            output[i] = near_field_.process(output[i]);
+                    }
                     return gain_now;
                 }
 
@@ -199,6 +214,7 @@ namespace SushiEngine
 
                 Dsp::FractionalDelayLine delay_;
                 Dsp::OnePole air_;
+                Dsp::Biquad near_field_;
                 SmoothedValue cutoff_;
                 double sample_rate_ = 48000.0;
                 int max_block_ = 0;

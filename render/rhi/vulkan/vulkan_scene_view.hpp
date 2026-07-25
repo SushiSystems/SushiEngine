@@ -80,6 +80,7 @@
 #include "passes/light_cull_pass.hpp"
 #include "passes/light_shadow_pass.hpp"
 #include "passes/opaque_pass.hpp"
+#include "passes/particle_mesh_pass.hpp"
 #include "passes/particle_pass.hpp"
 #include "passes/particle_sim_pass.hpp"
 #include "passes/particle_sort_pass.hpp"
@@ -220,6 +221,7 @@ namespace SushiEngine
                     Passes::CloudCompositePass cloud_composite_pass_;
                     Passes::SsrPass ssr_pass_;
                     Passes::ParticlePass particle_pass_;
+                    Passes::ParticleMeshPass particle_mesh_pass_;
                     Passes::TaaPass taa_pass_;
                     Passes::DofPass dof_pass_;
                     Passes::MotionBlurPass motion_blur_pass_;

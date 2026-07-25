@@ -21,6 +21,508 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   install all of them for the `x64-linux` triplet.
 
 ### Added
+- **VFX — the particle material: sprite textures, flipbooks, soft particles, per-emitter lighting.**
+  Four fields the authoring model has carried since VFX1 were compiled, serialized, and shown in the
+  Inspector but silently ignored by the renderer; they now do what they say. A particle material is
+  deliberately *not* a PBR material — a puff has no roughness or normal map, and a particle that
+  needs a real surface is a `Mesh`-aligned one drawn by the mesh path.
+  - **Sprite textures through the bindless heap.** `ParticlePass`'s pipeline layout gained set 1 —
+    the same slot, layout, and `sampler2D bindless_textures[]` array the scene pipelines use — so a
+    sprite texture is registered once and addressed by the very index a material map is.
+    `ParticleSystem::prepare` resolves the authored texture id to its heap slot (it now takes the
+    `TextureLibrary` alongside the `MeshRegistry`, and for the same reason). A new
+    `RENDER_TEXTURED` flag says whether the slot is real: an untextured particle keeps the built-in
+    radial dot, a textured one hands its falloff to the texture's own alpha, and a texture the heap
+    could not take clears the bit rather than sampling an unallocated slot.
+  - **Flipbook (sub-UV) atlases.** `particle_simulate.comp` has always chosen a cell from the
+    particle's normalised age; nothing read it. The new shared `particle_sprite_uv` maps a quad
+    corner into that cell, and the fragment stage samples the sub-image. Sprites get the plain grid
+    mapping; ribbons get a strip that runs head-to-tail down the trail.
+  - **Soft particles.** The hard depth discard where a billboard cuts into geometry is now followed
+    by a fade over the authored `soft_fade_distance`, linearising the reverse-Z scene depth against
+    the fragment's own view depth.
+  - **Per-emitter lit shading.** Whether a particle receives the sun, its cascade shadow, the
+    clustered punctual lights, and the SH ambient was inferred from the *draw bucket* — so the
+    true-alpha bucket was always lit and additive and ribbon buckets never could be. It now comes
+    from the emitter's authored `lit` flag, carried down as a flat varying, which also removes the
+    documented limitation that a trail could not be lit.
+  - **Authoring and persistence.** The Particle System component gained a **Material** section
+    (texture path with load/clear, flipbook grid, soft-particle fade, lit). An effect asset persists
+    its texture by **path**, not by the session-scoped runtime handle: `.sushieffect` files and
+    `.sushiscene` particle emitters round-trip `texture_path`, and `resolve_effect_textures` derives
+    the handle on load (`load_scene` takes an optional asset library for this).
+  - **Fixed:** the Particle System component called `ImGui::End()` on an effect with no emitters,
+    closing the Inspector window out from under its own `Begin`/`End` pair.
+- **Audio — Vorbis + streaming compressed codecs, MagLS/anthropometric HRTF, ray-traced acoustics, and the authoring DAW (AAA gap-closing, part 5).**
+  Closes the last honest gaps named in part 4's "still open" list. Every dependency-free piece is
+  locked by the `Unit_Audio` suite (now 114 tests, up from 108); the codec/SOFA-gated pieces are
+  verified by their demos.
+  - **Vorbis codec + streaming compressed audio (`vorbis_codec.hpp`, `codec.hpp`, `streaming.hpp`).**
+    `AudioCodecKind::Vorbis` / `VorbisCodec` (behind libvorbis) join Opus behind the `IAudioCodec`
+    seam over the same length-framed packet container (verified ~50× smaller, round-trip correlation
+    1.00). The single external-codec slot became a **registry** (`add_external_codec_factory`) so Opus
+    and Vorbis coexist. Both now **stream from a disk-like `IDataSource`** through the existing
+    `StreamingDecoder` pipeline (`audio_stream_compressed_demo`). This also **fixed a real
+    `StreamingDecoder` bug**: it broke out of a pump whenever a decode consumed input but produced no
+    audio (a compressed codec's setup headers and lapping packets do exactly that), stalling the stream;
+    it now advances past consumed input regardless, and grows its read window when a single packet
+    exceeds one chunk. Plus `decode_ogg_opus` (via opusfile) to ingest external `.opus` files.
+  - **MagLS binaural decode + anthropometric HRTF (`magls.hpp`, `spatializer.hpp`).**
+    `MaglsBinauralDecoder` solves — at configure time, from a measured HRTF set — a per-ambisonic-channel
+    pair of decode FIRs by least squares (complex below a cutoff for exact ITD, **magnitude** LS with
+    phase continuation above it to kill high-frequency coloration), then applies them straight to the
+    bus: `channels × 2` convolutions regardless of measurement count, the highest-fidelity decode.
+    `BinauralSpatializer::set_magls_decoder` selects it above the per-speaker HRIR and analytic paths.
+    `AnthropometricHrtfDatabase` personalizes any HRTF set by warping the impulse-response time axis to
+    the listener's head size (scaling ITD and pinna notches together). Verified against real MIT KEMAR
+    (strong symmetric laterality; head-size warp lengthens the ITD). `audio_magls_demo`.
+  - **Ray-traced room acoustics + edge diffraction (`acoustic_raytracer.hpp`).**
+    `RayTracedAcoustics` Monte-Carlo path-traces the geometry (specular/diffuse bounces by scattering
+    coefficient, per-band absorption), bins arrivals at a receiver sphere, and derives **RT60 per band**
+    by Schroeder integration plus a decaying-noise **impulse response** the convolution reverb can render
+    — measured reverberation instead of a dialed decay (verified RT60 within 4 % of Sabine for a
+    shoebox). `maekawa_diffraction_db` adds geometric edge diffraction: least-detour path over the
+    occluder silhouette → Maekawa insertion loss per band (verified positive, rising with frequency,
+    zero on a clear path). `audio_raytrace_demo`.
+  - **Authoring project — the DAW backend + panel (`authoring.hpp`, `editor/audio/audio_authoring_panel.*`).**
+    `AudioAuthoringProject` is the mutable counterpart to the baked `EventDatabase`: a growable tree of
+    media, containers, and named events that `flatten`s (breadth-first, contiguous child blocks) into the
+    runtime database and `bake`s a complete `Bank` — the author→ship pipeline the engine lacked. The
+    ImGui `draw_audio_authoring_panel` is a thin, self-contained view (browse media, grow/re-weight the
+    graph, audition through the live audio system). Verified headless (`audio_authoring_demo`; container
+    semantics survive the flatten, bake round-trips through a real bank); the panel is compile-verified
+    against the editor's ImGui and ready to wire (kept out of the editor shell's actively-changing panel
+    plumbing to avoid clobbering concurrent work — three-line integration).
+- **Audio — measured SOFA HRTF, the Opus codec, a low-latency backend, and metering/DSP finish (AAA gap-closing, part 4).**
+  Closes the last of the post-roadmap audit gaps (line-item list at "AAA gap-closing pass"): the two
+  dependency-gated items the fidelity ceiling waited on, the native low-latency device, and the small
+  metering/DSP refinements. All verified against real data and the real runtime; the 108-test audio
+  suite is unchanged (the new paths are additive and default-off).
+  - **Measured SOFA/HDF5 HRTF (`hrtf.hpp`, `sofa_hrtf.hpp`, `spatializer.hpp`).** A new dependency-free
+    `IHrtfDatabase` seam and `HrirConvolver` (per-ear direct-form FIR) let `BinauralSpatializer` convolve
+    each virtual speaker through a **measured** head-related impulse response instead of the analytic
+    Woodworth ITD + head-shadow model. `SofaHrtfDatabase` (behind HDF5) loads a real SOFA
+    `SimpleFreeFieldHRIR` file — `Data.IR` / `SourcePosition` / `Data.SamplingRate` — converts each
+    source position to a head-relative unit direction, resamples the taps to the stream rate, and serves
+    the nearest pair; `write_sofa` bakes the same three datasets for round-tripping. `set_hrtf_database`
+    switches the decode; passing `nullptr` restores the analytic path. Verified end to end against the
+    real MIT KEMAR set (710 measurements, 557 taps) — direct HRIR laterality ~12× and the full binaural
+    decode symmetric (left/right sources mirror). `audio_sofa_demo`.
+  - **Opus codec (`opus_codec.hpp`, `codec.hpp`, `bank.hpp`).** `AudioCodecKind::Opus` and `OpusCodec`
+    (behind libopus) add compressed music/dialogue behind the same `IAudioCodec` seam as PCM/ADPCM,
+    over the bank's own length-framed packet container (the bank owns both ends, so no Ogg muxing and the
+    decoder stays chunk-incremental). Because the header-only bank cannot construct a dependency-gated
+    codec, a new `set_external_codec_factory` hook lets an Opus-linked TU register it; `register_opus_codec`
+    wires it in one call and `make_codec` then decodes Opus media transparently. Verified: 31× smaller
+    than float, round-trip correlation 0.94, and the bank path decodes to the same frame count.
+    `audio_opus_demo`.
+  - **miniaudio low-latency backend (`audio/miniaudio/ma_audio_device.{hpp,cpp}`).** `MaAudioDevice`
+    implements `IAudioDevice` over miniaudio's native APIs (WASAPI/CoreAudio/ALSA/PulseAudio/…) as a
+    drop-in alternative to the SDL device — one vendored header, tighter buffer control, the mix path
+    unchanged. Verified opening a real device at 48 kHz / 2 ch / 512-frame period. `audio_miniaudio_demo`.
+  - **True-peak metering, near-field compensation, non-uniform partitioned convolution (metering/DSP finish).**
+    The master profile now reports **true peak** (4× Catmull-Rom oversampling, inter-sample peaks the
+    sample peak misses); `propagation.hpp` applies a **near-field low-shelf** proximity boost (up to
+    +9 dB @ 250 Hz) when a voice's `near_field_distance` is set; and `dsp/convolution.hpp` adds a
+    **`NonUniformConvolver`** (Gardner NUPC — small head partitions for low latency, large tail
+    partitions for throughput), verified bit-exact against direct convolution (err 9e-7).
+- **Audio — layered events, state mixing, HRTF depth cues, and loudness metering (AAA gap-closing, part 3).**
+  - **Blend/Layer containers + weighted random + layered voices (`event.hpp`, `voice.hpp`, `bank.hpp`).**
+    Containers no longer resolve to a single sound: `resolve_all` cross-fades a Blend across the two
+    children its parameter straddles, plays every child of a Layer at once, and weights Random by a
+    per-node weight. The bank factory turns a multi-sound result into a `LayeredVoiceSource` that mixes
+    its children in one voice — previously the system could not layer at all.
+  - **State-based mixing (`mix_state.hpp`).** `MixStateSet`/`MixSnapshot` recall a named set of bus gains
+    with a timed cross-fade (`transition_to`) — the Wwise States / FMOD snapshot mechanism for
+    combat/explore/underwater mixes; previously absent.
+  - **HRTF front/back + elevation cues (`spatializer.hpp`).** Each virtual speaker now applies a
+    direction-dependent spectral shelf (rear sources dulled, elevated ones brightened) before the ITD/
+    shadow, so front/back and up/down are no longer indistinguishable — the binaural cues were driven by
+    the lateral axis alone.
+  - **Loudness metering (`profiler.hpp`, `engine.hpp`).** The profiler snapshot now carries a
+    K-weighted momentary loudness in **LUFS** (ITU-R BS.1770 K-weighting + 400 ms window); there was no
+    loudness-standard metering before.
+- **Audio — concurrency-safe control plane + multi-core voice rendering (AAA gap-closing, part 2).**
+  Closes the two hardest audit gaps: the lock-free control→audio path and single-threaded rendering.
+  - **Generational voice handles + lock-free command ring (`voice_manager.hpp`).** Voice handles now
+    carry a generation, so a handle to a freed/recycled slot is detected as stale (no aliasing). The
+    control thread's `enqueue_play`/`enqueue_stop`/`enqueue_set_*`/`enqueue_set_listener` push intents
+    into an `SpscRing` the audio thread drains at the top of `render()`; a free-slot ring hands recycled
+    slots back for allocation and a `finished` ring reports ended voices (`poll_finished`). This makes
+    starting/stopping/steering voices while the mixer runs data-race-free — previously those calls
+    mutated render-thread state in place and were only safe before the device opened. The direct API
+    remains for single-threaded setup.
+  - **Multi-core voice DSP (`voice_render_pool.hpp` + `voice_manager.hpp`).** `render()` now splits into
+    a parallel phase — each real voice renders its source and per-voice filters (propagation, occlusion)
+    into its *own* scratch, dispatched across a persistent `VoiceRenderPool` (workers + the audio thread
+    as lanes, CV-woken, no idle spin) — and a serial mixdown phase (ambisonic encode / pan / reverb send)
+    that alone touches shared buffers. The output is **bit-identical** to the single-threaded path
+    (verified by test); the heavy DSP simply moves off one core. Enabled via `set_render_pool`.
+- **Audio — AAA gap-closing pass (post-roadmap hardening).** An external audit compared the S0–S10 audio
+  system to Wwise/FMOD/Steam Audio and flagged production gaps; this closes the header-only, testable
+  ones. (Still open, tracked in `slop/audio_system.md`: the lock-free control→audio command ring for
+  live play/stop concurrency, multi-core voice processing, blend/layer containers + event action lists,
+  mix states/snapshots, measured SOFA HRTF + MagLS decode, Opus/Vorbis codecs, an authoring DAW, and
+  low-latency platform backends.)
+  - **Bus dynamics rack (`include/SushiEngine/audio/dynamics.hpp`).** `CompressorBusEffect` (soft-knee,
+    stereo-linked, with an external **sidechain key** for ducking), a lookahead brick-wall
+    `LimiterBusEffect` (the master safety net so the mix never clips), and a `GateBusEffect` — all
+    `IBusEffect` inserts. Previously the mix had *no* dynamics at all.
+  - **Sample-rate conversion + per-voice pitch (`voice.hpp`, `voice_manager.hpp`, `bank.hpp`).**
+    `BufferSource` now resamples with linear interpolation from its authored rate to the device rate
+    (a 44.1 kHz asset no longer plays detuned on a 48 kHz device), and every source honours a
+    `VoiceDescriptor::pitch` / `set_voice_pitch` multiplier (`ToneSource` shifts frequency, sampled
+    sources resample). The bank factory passes each media's sample rate through.
+  - **Voice stealing + HDR loudness culling (`voice_manager.hpp`).** A full pool now evicts the
+    least-important (priority, audibility) voice for a higher-priority newcomer instead of dropping it;
+    and an HDR window (`set_hdr_window`) culls voices a set dB below the loudest so a loud transient
+    frees slots — both previously absent.
+  - **Discrete multichannel surround (`audio/channel_layout.hpp`, `engine.hpp`, `spatializer.hpp`).**
+    Output was hard stereo (extra channels received a copy of the left master). Now Mono/Stereo keep the
+    binaural path, and Quad/5.1/7.1 decode the ambisonic scene bus to each real speaker direction
+    (`BinauralSpatializer::decode_direction`), pan the non-spatial bed across the speakers, and derive a
+    low-passed LFE.
+  - **Real impulse-response loading for the convolution reverb (`convolution_reverb.hpp`).**
+    `load_impulse` installs a measured (mono/stereo, rate-converted) IR so the reverb reproduces an
+    actual space, not only its synthesised-from-I3DL2 noise tail.
+- **Audio — procedural SFX, convolution reverb, and the GPU DSP accelerator (Phase S10). Completes the audio roadmap.**
+  All portable header-only DSP except the SYCL accelerator; no new third-party dependency.
+  - **Procedural SFX (`include/SushiEngine/audio/dsp/modal.hpp` + `audio/procedural.hpp`).** Modal
+    synthesis — `ModalResonatorBank` is a bank of two-pole resonators struck by an impulse (impulse
+    response `rⁿ·sin((n+1)ω)`), with wood/metal/glass/membrane material presets scaled to a base
+    pitch. `ModalImpactSource` (a one-shot that rings until it decays) and `WindSource` (speed-driven
+    band-passed noise + a Strouhal Aeolian tone) are `VoiceSource`s, so they route through the whole
+    pipeline; the noise is a deterministic xorshift (seed-reproducible).
+  - **Convolution reverb (`audio/dsp/fft.hpp` + `dsp/convolution.hpp` + `audio/convolution_reverb.hpp`).**
+    An `IFft` seam with a from-scratch radix-2 FFT; a `PartitionedConvolver` (uniformly-partitioned
+    overlap-save fast convolution — matches a direct convolution to `~1e-4`); and `ConvolutionReverb`,
+    an `IReverb` interchangeable with the FDN on the same aux bus, synthesising a decaying HF-damped
+    decorrelated-noise room impulse response from the I3DL2 parameters (no IR file needed).
+  - **GPU DSP accelerator (`audio/accelerator_sycl.hpp`).** The concrete `IDspAccelerator` (§12.2):
+    `SyclDspAccelerator` offloads batch FIR convolution to the SushiRuntime SYCL device with **k-block
+    lookahead** (async `submit` / deferred `collect` over a USM slot ring), so the RT thread never
+    waits on the device. It confines all (unstable) runtime coupling to this one SYCL-only header —
+    kept off the `audio.hpp` umbrella — and reports `available()` false (CPU fallback) when no device
+    is present. Verified bit-exact against a CPU reference.
+  - Umbrella (`audio.hpp`, `dsp/dsp.hpp`) updated (accelerator excepted). Demos `audio_procedural_demo`,
+    `audio_convolution_demo`, `audio_accelerator_demo`; tests `test_audio_procedural.cpp` and
+    `test_audio_convolution.cpp`.
+- **Animation — the evaluator-to-renderer bridge for live GPU skinning.** Closes the
+  gap identified in `slop/animation_system.md` §12.1: every earlier animation phase
+  (A0–A9) shipped as an isolated, unit-tested component, but nothing ever constructed a
+  `Render::SkinnedInstance`, so no character could actually render skinned in the
+  editor despite the full GPU compute-skinning pipeline (`SkinningSystem`,
+  `SkinningPass`) being built and wired downstream. Unverified on hardware this
+  session — no GPU access — needs a build + visual confirmation before it is trusted.
+  - **glTF skinned-mesh import (`render/material/gltf_importer.*`).** New
+    `Assets::import_gltf_skinned_mesh` / `IAssetLibrary::load_gltf_skinned_mesh` reads
+    `JOINTS_0`/`WEIGHTS_0`, remaps glTF joint indices into the cooked skeleton's
+    topologically-sorted order (via the existing, previously unused
+    `Animation::remap_from_order`), and uploads through `MeshRegistry::add_skinned_mesh`.
+    Skinned primitives skip the node-world-transform bake `import_gltf` does for static
+    meshes — skin vertices stay in the skin's bind space; the per-frame joint palette
+    supplies pose and world placement instead.
+  - **`Editor::AnimatedMeshPreview` (`editor/animation/animated_mesh_preview.*`).** A
+    live skinned-character preview mirroring `EffectPreview`'s shape: imports mesh +
+    skeleton + first clip sharing one skin index, evaluates every frame, and
+    ping-pongs a previous-pose buffer so motion vectors are correct from the first
+    frame. (Superseded later this release by the layered/IK entry below — it now runs
+    the full `AnimatorEvaluator`, not the single-clip `ClipEvaluator`.)
+  - **Viewport wiring.** `ViewportPanel::draw` gained an `animated_mesh` parameter
+    threaded into `ISceneView::render`'s `skinned`/`skinned_count` arguments (previously
+    always `nullptr, 0`); `editor/main.cpp` owns one preview, loads a demo rig at
+    startup, and updates/draws it in both the Scene and Game viewports.
+- **Animation — GPU morph target (blend-shape) blending.** Completes the A7 morph-track
+  asset work (`.sushianim` v2) with the GPU consumer it never had: `MeshRegistry`
+  gained `set_morph_targets`/`morph_buffer`/`morph_target_count` (target-major, tightly
+  packed vertex deltas); `gltf_importer.cpp`'s skinned-mesh import now also reads
+  `primitive.targets[]`'s POSITION deltas; `SkinnedInstance`/`SkinnedRange`/
+  `SkinningSystem` carry a per-instance morph-weight slice; `SkinningPass` and
+  `skinning.comp` blend `Σ weight × delta` into the base position before joint
+  skinning (position-only, matching the existing CPU reference). Not yet clip-driven —
+  glTF `WEIGHTS` animation-channel import doesn't exist yet, so
+  `AnimatedMeshPreview::set_morph_weights` is a manual seam for now. Unverified on
+  hardware this session; needs a morph-target test asset and a GPU build to confirm.
+- **Animation — Statistics panel reporting.** A new "Animation" section in the
+  Statistics panel shows the live preview's source path, joint count, palette
+  bytes/frame, clip format/frame count/sample rate, uncompressed clip-track byte
+  estimate, and active morph-weight count, via `AnimatedMeshPreview::statistics()` and
+  a new `EditorContext::animated_mesh_preview` pointer. Reports the one live preview
+  instance, not a whole-scene aggregate; the clip is always "raw" because the live
+  import path never runs the ACL-shaped compressor (`animation_benchmark`-only today).
+- **Animation — live layered/masked/IK `AnimatorEvaluator` path.** `AnimatedMeshPreview`
+  no longer runs the cut-down single-clip `ClipEvaluator`; `load_gltf` compiles a
+  minimal one-layer `ControllerAsset` around the base clip and drives the real
+  `animator_step` + `AnimatorEvaluator` chain (layers, masks, additive, the
+  pose-modifier stack) — the same evaluator the headless
+  `animator_demo`/`layered_animation_demo`/`ik_demo` examples exercise, now live in the
+  editor for the first time. New `add_layer(clip_name, mask, weight, additive)`
+  compiles in another mask-gated layer looping a different clip from the same source
+  file (superseded later this release — see below — to take an in-memory
+  `MaskDesc*` rather than a file path); new
+  `set_two_bone_ik(upper, mid, tip, target, pole, weight)` attaches the shipped
+  `TwoBoneIk` solver to the pose-modifier stack (off by default — a review pass
+  caught that `TwoBoneIk`'s own default weight is 1.0, which would have run IK against
+  a degenerate all-joint-0 chain from frame one; `clear()` now explicitly zeroes it).
+  Statistics panel gained `Layers` and `Two-bone IK` rows. This is part 1 of the
+  mask-editor/IK-gizmo work (`slop/animation_system.md` §12.1) — no viewport gizmo or
+  mask-authoring UI yet, just the live evaluation path they need to preview against.
+  Unverified on hardware this session.
+- **Animation — mask editor + IK gizmo UI (part 2).** `AnimatedMeshPreview` gained the
+  API part 2 needed: `add_layer` now takes an in-memory `Animation::MaskDesc*` instead
+  of a `.sushimask` file path; `layer_count`/`layer_name`/`layer_additive`/
+  `layer_weight`/`set_layer_weight`/`remove_layer` for a live layer list (weight writes
+  go through a compiled `AnimatorParameterBlock` slot, never a recompile);
+  `skeleton()`/`available_clips()` for joint/clip enumeration; `set_ik_target`/
+  `two_bone_ik()` for the gizmo. New **Animator Preview** window
+  (`editor/animation/animator_preview_panel.*`, Window ▸ Animator Preview): layer list
+  with live weight sliders, an Add Layer form (clip combo, per-joint mask checkboxes +
+  default weight, initial weight, additive toggle), and a two-bone IK section (joint
+  combos, pole field, weight slider, Apply). The IK **target** is dragged directly in
+  the Scene viewport, not typed in the panel: `ViewportPanel` gained a second
+  independent `GizmoController` and an `ik_gizmo` draw parameter (Scene-view-only, like
+  the selection gizmo), reusing the existing translate-gizmo math against a throwaway
+  `EntityTransform` converted to/from the character's world space each frame. Closes
+  `slop/animation_system.md` §12.1's mask-editor/IK-gizmo item in full. Unverified on
+  hardware this session.
+- **Animation — device-batched evaluator (§12.3), actually built and run.** New
+  `include/SushiEngine/animation/device_batch_evaluator.hpp` —
+  `Animation::DeviceBatchEvaluator` — batches single-clip crowd sampling onto a
+  compiled `SushiRuntime::API::Graph`, following `physics/pgs_solver.hpp`'s proven
+  `Graph::add(Extent, In/Out(buffers), lambda)` shape: one thread per instance, each
+  doing the full sequential sample→compose→skin loop (the design's own "parallel
+  across instances, sequential 256-max inner loop"). Deliberately narrower than
+  `AnimatorEvaluator` — one shared skeleton per batch, one clip per instance, no
+  layers/masks/IK, `ClipFormat::Raw` only. Owns its own USM-backed skeleton/clip
+  copies rather than reaching into `AnimationDatabase` (audited to store blobs in
+  plain process heap, not shared-USM as originally assumed — corrected in
+  `slop/animation_system.md`). **Unlike every other animation change this session,
+  this one was actually compiled and executed**: this machine's CPU/OpenCL SYCL
+  backend (auto-detected, no discrete GPU needed) ran
+  `examples/device_batch_evaluator_demo.cpp`, a 37-instance mixed looping/clamped
+  batch cross-checked element-for-element against the host `ClipEvaluator` — zero
+  difference — plus the `compile_count == 1` replay invariant. Closes
+  `slop/animation_system.md` §12.3.
+- **Animation — motion-matching core + ragdoll blending (§12.4), actually built and
+  run.** Two new headers, both plain host C++ (no GPU needed, and both actually
+  executed this session, not "unverified"):
+  - **`animation/motion_matching.hpp`** — `Animation::MotionDatabase`. Samples clips
+    into a searchable pool of (clip, time, feature) candidates via the existing
+    `ClipEvaluator`; `find_best` is a weighted brute-force nearest-neighbor search
+    over root velocity plus two optional foot-height proxies. The
+    searchable-database-and-nearest-neighbor core real motion matching is built on —
+    explicitly not the trajectory-prediction or automatic blend-graph wiring a fuller
+    implementation adds (documented as such in the header, not silently omitted).
+    `examples/motion_matching_demo.cpp` proves exact/near velocity queries resolve to
+    the right clip and that the foot-height weight is an independent, working knob.
+  - **`animation/ragdoll_blend.hpp`** — `Animation::RagdollBlend`, a new
+    `IPoseModifier` (design §5.3/§11's named seam). Blends named joints' local pose
+    toward caller-supplied physics-body object-space transforms by a per-joint
+    weight, converting each to a local delta against its composed parent before
+    blending so `recompose()` correctly cascades to untouched descendants — not a
+    naive direct overwrite. `examples/ragdoll_blend_demo.cpp` proves weight
+    0/0.5/1 blending and, specifically, that a parent-only target still moves an
+    untouched child correctly. Closes `slop/animation_system.md` §12.4's motion
+    matching (core) and ragdoll blending items.
+- **Animation — full-body IK (§12.4), actually built and run.** New
+  `include/SushiEngine/animation/ik_full_body.hpp` — `Animation::FullBodyIk`, a fifth
+  `IPoseModifier`: general-purpose multi-effector Cyclic Coordinate Descent (CCD).
+  Each effector's ancestor chain (tip up to a shared, configurable `root_joint`) is
+  rotated joint-by-joint each pass to reduce that effector's own error, over
+  `iterations` passes. No joint limits and no cross-effector conflict resolution —
+  documented as real limitations, not silent gaps. `examples/full_body_ik_demo.cpp`
+  proves a 3-joint chain converges to an out-of-plane target (error 0.000002) and two
+  independent limbs sharing a never-rotated anchor both reach exact-reach targets with
+  zero interference (error 0.000000 each). A review pass caught the skeleton cook's
+  topological joint reordering breaking the test's index assumptions before it shipped
+  (fixed by resolving joints by name post-cook), not a solver bug. Closes
+  `slop/animation_system.md` §12.4's full-body IK item.
+- **Animation — the rest of §12.4, actually built and run.** Closes every remaining
+  §12.4 item except neural/ML compression (a real, deliberate non-goal — see
+  `slop/animation_system.md`).
+  - **`animation/motion_match_sampler.hpp`** — `Animation::MotionMatchSampler`, the
+    blend-graph wiring `motion_matching.hpp` left as the caller's job: periodic
+    re-search hysteresis plus a crossfade into a newly-selected candidate, using the
+    same two-contribution shape `AnimatorEvaluator::pose_layer` already uses for state
+    transitions. `examples/motion_match_sampler_demo.cpp` proves the search actually
+    triggers, the crossfade starts close to the outgoing pose (not a snap), and the
+    output has clearly moved once the fade completes.
+  - **`animation/runtime_retarget.hpp`** — `Animation::RuntimeRetargeter`, plus a new
+    public `retarget_pose_frame` in `retarget.hpp` (the per-frame counterpart to
+    `retarget_clip`'s bind-pose-delta transfer, shared not duplicated). Retargets a
+    clip already playing against its source skeleton onto a target rig chosen at
+    runtime — the same-session "swap a character model mid-game" case import-time-only
+    retargeting could not cover. `examples/runtime_retarget_demo.cpp` is also the first
+    built-and-run check of the retargeting algebra itself (phase A8 shipped with no
+    demo): identity-retarget onto a bind-identical clone reproduces direct sampling
+    exactly, and retargeting onto a rig with double proportions reproduces the same
+    joint bend while reaching by the target's own bone lengths.
+  - **`animation/jiggle_bone.hpp`** — `Animation::JiggleBone`, a sixth `IPoseModifier`:
+    single-point-mass spring-damper secondary motion (VRM SpringBone / Unity
+    DynamicBone's model), Verlet-integrated and distance-constrained onto the bind bone
+    length every frame. A review pass caught a real conceptual bug before it shipped: the
+    first draft rotated the configured joint's own local rotation, which can never move
+    the joint's own position in a skeletal hierarchy (only its children's) — fixed by
+    rotating the joint's parent instead, the same ancestor-moves-descendant shape
+    `FullBodyIk`'s CCD already uses. `examples/jiggle_bone_demo.cpp` proves settle-to-rest,
+    the distance constraint holding every frame, real measurable lag (1.03 units) one
+    frame after a sudden parent lurch, and re-settling to the new rest 300 frames later.
+  - **`animation/dual_quaternion_skinning.hpp`** — the candy-wrapper fix `SkinningPass`
+    was structured for but never got: `DualQuaternion`, `blend_dual_quaternions` (Kavan
+    et al. 2007's weighted-sum-then-normalize construction), and `skin_position_dqs`,
+    plus `skin_position_lbs` as the linear-blend reference to measure against.
+    `examples/dual_quaternion_skinning_demo.cpp` reproduces the classic bent-elbow
+    candy-wrapper case (LBS pinches a joint-surface vertex toward the pivot by 0.414
+    units on a radius-1 test; DQS holds it at 0.000000) and cross-checks the same
+    computation bit-exact on a SushiRuntime SYCL device kernel. A review pass caught a
+    real sign error in the translation-extraction formula (derived fresh against this
+    codebase's own Hamilton-product convention, not assumed from memory) that had made
+    DQS score *worse* than LBS until fixed. Also wired into the live pipeline: an opt-in
+    `SkinnedInstance::use_dual_quaternion_skinning` flag, a derived dual-quaternion
+    palette `SkinningSystem::prepare` builds alongside the existing linear-blend one, an
+    8th `SkinningPass` descriptor binding, and a `skinning.comp` GLSL port of the same
+    verified blend/skin functions behind a push-constant branch (the existing
+    linear-blend path is unchanged). `render/tools/shader_compiler` (glslang,
+    build-time GLSL→SPIR-V) turned out to be headlessly runnable here too — the shader
+    compiles to SPIR-V cleanly and the C++ plumbing links into `sushi_render.lib`
+    without a GPU display. A "Dual-Quaternion Skinning" checkbox in the Animator
+    Preview window (`AnimatedMeshPreview::set_dual_quaternion_skinning`) and a
+    Statistics-panel line reporting the active blend mode make the flag reachable
+    from the editor, not only from code; `se_editor.exe` links clean with all of it
+    in. An actual visual check is the one thing that still needs a GPU display.
+  - **`animation/facial_blendshapes.hpp`** — the canonical ARKit-52 blendshape name set
+    and `Animation::FacialBlendshapeMap`, the same shape as `humanoid.hpp`'s `Avatar`
+    but for morph targets: which mesh target (if any) plays each of the 52 canonical
+    shapes, resolved by exact name and addressed by index every frame, with
+    `list_missing` reporting every shape a mesh lacks instead of silently no-opping.
+    `examples/facial_blendshapes_demo.cpp` proves table integrity, name-order-independent
+    resolution against a partial mesh, and that an unmapped shape's write is a
+    documented no-op, not a stray write into another slot.
+  - **`animation/sequence_timeline.hpp`** — a minimal cinematics/sequencer timeline
+    core: `Animation::SequenceTimeline` with keyed float tracks driving an
+    `AnimatorParameterBlock` slot (a pure function of time, scrub-safe) and one-shot
+    events dispatched by `advance`, which fires everything crossed in
+    `(previous_time, current_time]`, in order — not just the nearest one.
+    `examples/sequence_timeline_demo.cpp` proves both halves, including the two cases a
+    naive implementation gets wrong: a large step firing several events in order, and a
+    backward scrub firing nothing.
+- **Audio — editor authoring: live in-editor audio, mixer/profiler panels, and component inspectors (Phase S9, part 2).**
+  The editor half of §11: a designer places an Audio Emitter, moves the Scene camera, and *hears* it —
+  no game running. Completes S9.
+  - **Sim seam (`include/SushiEngine/sim/simulation.hpp` + `sim/runtime_simulation.cpp`).** New
+    editor-facing `AudioEmitterParams` / `ReverbZoneParams` / `AudioListenerParams` and the
+    `IWorldEditor` accessors (`has_/…_params/set_…_params/set_has_`) for each, stored as host
+    bookkeeping on the entity record exactly like light/cloth (no ECS migration). No Audio dependency
+    enters the sim layer — the editor builds the audio scene from the seam.
+  - **Live audio system (`editor/audio/audio_editor_system.{hpp,cpp}`).** `AudioEditorSystem` owns a
+    real `Audio::AudioEngine` and an SDL output device with a small mixer (Master/SFX/Music + a reverb
+    aux bus running the FDN). Each frame it projects the world's audio emitters and the reverb zone the
+    listener stands in into the voice pool — the Scene camera is the listener — so authored sound is
+    live. A default factory turns each emitter's `sound` id into a distinct looping tone (the S8 bank
+    plugs in behind the same `IEmitterSourceFactory` seam later).
+  - **Panels & inspectors (`editor/audio/audio_panels.{hpp,cpp}`).** An **Audio Mixer** window
+    (channel-strip faders + live vertical meters + dB readout + an engine on/off toggle), an **Audio
+    Profiler** window (real/virtual/active voice counts, master + per-bus meters, an output scope), and
+    Inspector sections for the **Audio Emitter** (all params + a live attenuation-curve plot + a Play
+    audition), the **Reverb Zone** (I3DL2 params + Room/Hall/Cave/Generic presets + box extents), and
+    the **Audio Listener**. Meters are drawn with `ImDrawList` (green→amber→red + peak hold).
+  - **Integration.** Wired into the editor shell — Add Component menu (Audio Emitter / Reverb Zone /
+    Audio Listener), the Window menu (Audio Mixer / Audio Profiler), the Inspector, and `main`'s frame
+    loop (driven from the Scene camera; profiler polled per frame). Editor now links `sushi_audio`
+    (root CMake enables `SE_BUILD_AUDIO` whenever the editor is on). Audio components round-trip through
+    the `.sushiscene` serializer, so authored audio survives save/load.
+- **Audio — live-profiler telemetry channel and mixer metering (Phase S9, part 1).**
+  The audio→GUI half of the editor authoring surface (§11 of `slop/audio_system.md`): how the
+  editor's live profiler reads the audio thread without ever locking it. Header-only, portable, no SDL
+  or SushiRuntime. (The ImGui editor *panels* — mixer/bus strip, emitter inspector, reverb-zone editor,
+  profiler view — are the remaining half of S9, deferred until they can be built and seen in the editor.)
+  - **Profiler channel (`include/SushiEngine/audio/profiler.hpp`).** `AudioProfileSnapshot` — a
+    fixed-size, trivially-copyable POD carrying the block's telemetry: real/virtual/active voice
+    counts, master peak/RMS, per-bus meters, a downsampled output scope, and a monotonic block index.
+    `AudioProfiler` is a single-latest-value **seqlock**: the audio thread `publish`es once per block
+    (wait-free — it never blocks), and the GUI `latest`-reads whenever it repaints (spinning only if it
+    catches a publish mid-flight). This is §0's one-way telemetry, in its simplest form.
+  - **Mixer metering (`mixer.hpp`).** Each `Bus` now records its post-fader peak and RMS per block,
+    exposed via `bus_peak`/`bus_rms`/`bus_count` — the levels a mixer strip shows.
+  - **Engine gather (`engine.hpp`).** `AudioEngine` publishes an `AudioProfileSnapshot` at the end of
+    every `render` (voice population from the voice manager, master meter from the true device output,
+    per-bus meters from the mixer, a scope of the output); `profiler()` exposes the channel and
+    `set_profiling(false)` skips the gather when nothing is listening.
+  - Added to the `audio/audio.hpp` umbrella. Demo `audio_profiler_demo` (polls the profiler live off a
+    running device); tests `test_audio_profiler.cpp` (the seqlock channel, the engine gather, the
+    real/virtual split, and the profiling toggle).
+- **Audio — asset pipeline: bank, codecs, events, and streaming (Phase S8).**
+  The game posts an event ID, never "play file X" — §10 of `slop/audio_system.md`. All portable
+  header-only (no SDL, no SushiRuntime); compressed streaming formats (Vorbis/Opus) slot in behind
+  the `IAudioCodec` seam later (they need a third-party decoder, a dependency-provisioning decision).
+  - **Codecs (`include/SushiEngine/audio/codec.hpp`).** The `IAudioCodec` seam (a stateful,
+    forward-only sample decoder) with two from-scratch implementations: `PcmCodec` (16-bit or float
+    → interleaved float) and `ImaAdpcmCodec` (a continuous 4-bit IMA-ADPCM stream, ≈4:1, with a
+    matching `encode` so the bank owns both ends). `decode_all` is the one-shot resident path; the
+    stateful `decode` is the chunked streaming path (byte-boundary carry, so odd chunks reconstruct
+    the same stream).
+  - **Events / containers (`include/SushiEngine/audio/event.hpp`).** The sound-designer indirection:
+    an `EventDatabase` of flattened `ContainerNode`s (Sound / Random / Sequence / Blend / Switch),
+    `resolve`d to one media id per a `ResolveContext` (RNG seed, blend parameter, switch value).
+    Random/Sequence draw on a self-contained splitmix64 — reproducible, no global RNG.
+  - **Bank (`include/SushiEngine/audio/bank.hpp`).** A compact, versioned little-endian binary —
+    header + media table + baked event/container defs + one media blob. `BankBuilder` writes it;
+    `Bank` loads a copy (so the source buffer may be freed), resolves media, and decodes. Malformed
+    or unknown data fails cleanly. `BankSourceFactory` implements the S6 `IEmitterSourceFactory`
+    seam: it resolves an emitter's `sound` id (an event) to media, decodes once into a shared cache,
+    and hands back a `BufferSource` — the concrete factory `AudioScene` was built to accept.
+  - **Streaming (`include/SushiEngine/audio/streaming.hpp`).** Long assets stream: an `IDataSource`
+    ("disk" seam; `MemoryDataSource` for tests/in-memory), a `StreamingDecoder` (the single producer —
+    reads chunks, decodes, pushes into the S1 `SpscRing`), a `StreamingSource : VoiceSource` (the
+    single consumer — the audio thread only pops, down-mixing to mono, silence on underrun), and an
+    optional `StreamingWorker` (`std::thread` wrapping `pump`; tests pump synchronously, so the core
+    is deterministic). The audio thread never touches disk, a decoder, or an allocation.
+  - Added to the `audio/audio.hpp` umbrella. Demo `audio_bank_demo` (footstep Random events over a
+    streamed music bed); tests `test_audio_bank.cpp` (codec round-trips + streaming safety, bank
+    round-trip + rejection, container selection, the factory, and the streaming decoder/source).
+- **Audio — occlusion / obstruction, rooms + portals, and early reflections (Phase S7).**
+  The geometry-coupled layer of `slop/audio_system.md` §6–§7: what is blocked, and what that
+  sounds like. All portable header-only `float` DSP (no SDL, no SushiRuntime).
+  - **Acoustic BVH (`include/SushiEngine/audio/acoustic_geometry.hpp`).** A dedicated collision
+    world for sound — coarse triangles tagged with materials, **not** render geometry. Two-level
+    like a ray-tracer: `AcousticBlas` (a bottom-level triangle BVH built once per `AcousticMesh`,
+    with an `add_box` shoebox helper) and `AcousticScene` (a top-level BVH over placed
+    `AcousticInstance` objects; moving a rigid body is a transform + a cheap `refit`, never a BLAS
+    rebuild). Queries: `occluded`/`line_of_sight` (single ray, accumulating three-band
+    transmission through pierced surfaces) and `soft_occlusion` (sample the source as a sphere
+    with a deterministic Fibonacci-lattice ray fan → a smooth 0..1 blocked fraction, no pop).
+  - **Materials (`include/SushiEngine/audio/acoustic_material.hpp`).** `AcousticMaterial` — three
+    frequency bands (≈ 400 Hz / 2.5 kHz / 15 kHz) of absorption, scattering, and transmission,
+    with presets (concrete, wood, glass, curtain, metal, open). Because materials pass lows more
+    readily than highs, through-wall sound is bassy for free.
+  - **Occlusion DSP (`include/SushiEngine/audio/occlusion.hpp`).** `OcclusionFilter` turns the two
+    author/geometry scalars into sound: **obstruction** (a pillar) muffles and attenuates the dry
+    signal only; **occlusion** (a wall) does that *and* pulls the reverb send down. The three-band
+    transmission colours the dry path (two shelves + a mid trim). Every driver is slewed (the
+    design's edge-diffraction coefficient), so cover fades in smoothly.
+  - **Rooms + portals (`include/SushiEngine/audio/portals.hpp`).** `PortalGraph` partitions the
+    world into rooms joined by doorways; a cross-room source is heard *through the openings* — each
+    portal on a shortest path (a small per-doorway Dijkstra) becomes a secondary virtual source at
+    the opening, its level from the total path length. Cheap doorway diffraction and room coupling
+    without a wave solve.
+  - **Early reflections (`include/SushiEngine/audio/early_reflections.hpp`).** `ImageSourceModel`
+    computes first-order shoebox reflections (six wall images → delay/gain/direction taps);
+    `EarlyReflections` renders them from an interpolated multi-tap delay line, to place or to feed
+    the FDN so the tail inherits the room's texture.
+  - **Voice integration.** `VoiceDescriptor` gains a reverb aux-send (`reverb_bus`/`reverb_send`);
+    `VoiceManager` runs a per-voice `OcclusionFilter` after propagation and sends the post-occlusion
+    dry to the reverb bus scaled by the occlusion wet-scale (a wall stops feeding the room).
+    `AudioScene`/`SceneSnapshot` carry the occlusion state and drive it each frame.
+  - **ECS integration (`include/SushiEngine/sim/`).** New trivially-copyable `Room`/`Portal`
+    components; `AudioEmitter` gains reverb-send, `source_radius`, and an `AUDIO_EMITTER_OCCLUDED`
+    flag. The wall-clock extract (`audio_extract.hpp`) optionally soft-occlusion-tests each flagged
+    emitter against an `AcousticScene` and, via a `PortalGraph` built from the components, mutes a
+    cross-room source and injects doorway virtual emitters — still read-only, so a deterministic run
+    stays byte-identical.
+  - Added to the `audio/audio.hpp` umbrella. Demo `audio_occlusion_demo` (a tone sliding behind a
+    concrete wall, occlusion driven live from the scene); tests `test_audio_occlusion.cpp` (BVH ray
+    + TLAS refit, bassy transmission, soft fraction, the occlusion DSP, the portal doorway, image-
+    source taps, the early-reflection renderer).
 - **Audio — ECS integration: emitter/listener/reverb-zone components + wall-clock snapshot extract (Phase S6).**
   The bridge between the ECS world and the audio engine (`slop/audio_system.md` §9), following the
   render/VFX extract pattern: a **read-only** host projection run at wall-clock rate, so a
@@ -131,8 +633,159 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
     GPU each frame (a `particle_sort.comp` seeds `{distance, index}` keys from the camera and sorts
     them over the power-of-two pool capacity; the alpha draw's vertex shader indexes the alpha list
     through the sorted keys), so overlapping transparent particles composite in the right order. The
-    sort's expensive stages run only when an active emitter is true-alpha. Clustered-punctual-light
-    particles (the froxel version) remain the deferred refinement.
+    sort's expensive stages run only when an active emitter is true-alpha.
+  - **Clustered-punctual-light particles (VFX2c).** The lit bucket now also receives the scene's
+    point and spot lights: the sprite maps to a froxel and accumulates that cluster's lights with
+    the same windowed inverse-square and spot-cone falloff the meshes use (minus the BRDF — a puff
+    is a diffuse blob), and the flat ambient became the environment's SH irradiance. The froxel
+    lights are camera-relative while particles are absolute world space, so the vertex stage carries
+    the sprite's `centre − eye` and its view depth down to the fragment. The binding-free froxel
+    primitives were extracted into `clustered_lighting_common.glsl`, now shared with `pbr.frag`.
+  - **Velocity-stretched particles (VFX3a).** `RenderAlignment::VelocityStretched` — declared by the
+    authoring model since VFX1 and silently ignored by the renderer until now — is honoured: the quad
+    aims its long axis down the particle's screen-projected velocity and lengthens it by the speed, so
+    sparks read as streaks instead of dots. A new authored `RenderModule::velocity_stretch` (streak
+    metres per m/s) scales it, exposed in the particle editor next to a new Alignment combo. The quad
+    expansion moved into one shared `particle_quad_offset` in `particle_common.glsl`, so the additive,
+    depth-sorted-alpha, and deterministic-billboard draws all expand billboards through the same code.
+    The alignment lives on the emitter, so the two GPU draws now bind the emitter table to the vertex
+    stage; deterministic billboards, which belong to no GPU emitter, got their own
+    `particle_billboard.vert` and pipeline rather than a flag (they are always camera-facing).
+  - **Particle System is a component, not a panel.** The Particle Editor window is gone. Adding a
+    **Particle System** to an entity is what makes that entity emit, so the whole authoring surface
+    lives in that component's Inspector section — emission, shape, forces, force fields, collision,
+    over-life curves, render alignment, module graph, timeline. The effect is the component's **own
+    data**, on the entity and reachable through `IWorldEditor::particle_effect_source` /
+    `set_particle_effect_source`, not an index into a shared library: editing one emitter can never
+    change another, and the scene file now round-trips the effect with the entity instead of an
+    index whose meaning depends on load order. A freshly added component is seeded with a visible
+    default; scene files written before the effect moved onto the component keep that default.
+    `EffectDatabase` gained `replace`, so the Inspector's write-back is in place and dragging a
+    slider neither grows the database nor leaves dead compiled forms behind. Library entries under
+    `assets/effects` became **templates** — clicking one copies it into the selected emitter — and
+    the library now also offers built-in starting points (Fire, Sparks, Smoke, Trail) so it is
+    useful before anything has been saved. Those live in the editor, because a template is authored
+    data; the simulation keeps only the one default a new emitter is seeded with. With the effect on
+    the component, the shared-library seam it replaced was removed
+    (`register_particle_effect` / `particle_effect_count` / `particle_effect_name`), as was
+    `ParticleEmitterParams::effect` — an index into a library nothing points at any more. Older
+    scene files still load: their `effect` index is ignored and `source` carries the real effect.
+  - **One preview screen.** "Effect Preview" became **Preview**: the single surface anything being
+    authored is shown on, in isolation, now carrying both the previewed effect and the previewed
+    character plus the transport for whichever it shows. Nothing else calls itself a preview window
+    — what was "Animator Preview" is now "Animator", since layers, masks, and IK are authoring, not
+    a preview. A **"Preview in Scene"** toggle additionally draws the previewed effect in the Scene
+    view (off by default; emitter entities are of course always live there).
+  - **Scene emitters are entities; the preview is not.** The Scene view used to draw a previewed
+    effect that belonged to no entity — a stray fire nobody could select, move, or delete. It is
+    gone from that view and has its own **"Effect Preview" viewport** (Window ▸ Effect Preview),
+    which draws the previewed effect and nothing else. What the Scene view shows now is the world's
+    own emitters, which are entities.
+    - **Cosmetic emitters from the scene.** `Simulation::RenderScene` gained a `particle_emitters`
+      channel: an effect whose emitters declare the Cosmetic domain is not stepped on the CPU at
+      all — the sim places it (transform, this frame's spawn count, its compiled record and LUT
+      atlases) and the renderer emits and integrates it on the GPU. So a scene emitter can now be
+      either backend, and the cosmetic one brings ribbons, mesh particles, depth collision, and
+      counts no host pool could hold. The per-emitter runtime state (play head, fractional-spawn
+      carry) moved onto the sim's record, off the authored `ParticleEmitterParams` the scene file
+      round-trips.
+    - **Authored effects reach the world.** `IWorldEditor::register_particle_effect` registers an
+      effect by name, replacing one of the same name — so editing in the panel and pressing "Apply
+      to World" lands on every emitter already playing it, which is what a shared asset should do.
+      The editor registers every `.sushieffect` under `assets/effects` at startup, since the sim
+      owns no asset loader. The panel's "Assign to Selection" points the selected entity's emitter
+      at the authored effect. The built-in Fire/Sparks/Smoke are now just the first three entries of
+      the same library.
+    - The deterministic step also stopped assuming emitter 0: it picks the effect's first
+      *deterministic* emitter, so an effect that mixes domains no longer feeds a cosmetic emitter
+      to the CPU pool.
+  - **Effect assets, library, and timeline (VFX6).** Particle effects are now saveable:
+    `editor/serialization/effect_serializer.{hpp,cpp}` reads and writes `.sushieffect` JSON in the
+    same shape as `.sushiscene`, persisting the **descriptor** tree rather than the compiled record
+    (the compiled form is a build product whose layout changes with every phase) and curves and
+    gradients as their authored key lists rather than baked LUTs. Every missing key falls back to
+    the module's default, and an out-of-range enum falls back too, so a file from an older build
+    loads instead of failing. A "Library" section on the particle panel lists, loads, and saves
+    `assets/effects/*.sushieffect`, re-reading the directory on demand rather than per frame. A
+    timeline bar draws the emitter's cycle with its burst times marked and a draggable play head;
+    dragging calls `EffectPreview::seek`. A new **"CPU (scrubbable)" preview mode** makes that a
+    *true* scrub: `CpuDeterministicBackend` is a pure function of (state, emitter, dt), so seeking
+    resets the pools and replays from zero at a fixed step, reproducing exactly the frame that time
+    would have shown (with a Step button, and a 4096-step replay cap so dragging cannot stall the
+    editor). In GPU mode the same drag seeks the **emission schedule** only — the live particles
+    cannot wind back, because the cosmetic pool lives on the GPU and advances one step per rendered
+    frame. The CPU preview steps every emitter whatever domain it declares, since the domain says
+    which backend ships the effect while the preview's job is to show the same asset through the
+    other one; its particles ride the existing `ParticleBillboard` channel and the viewport
+    concatenates them with the sim's. The panel also gained a **node-graph view** of the module
+    stack — a presentation of the authoring model rather than a second one, since the stack order is
+    the pipeline a particle actually goes through — with click-to-toggle on each stage.
+  - **Fixed: `vfx/deterministic_backend.hpp` did not include `emitter_descriptor.hpp`.** It uses
+    `MAX_DETERMINISTIC_PARTICLES` from there and had only ever compiled because every consumer
+    happened to include the descriptor first.
+  - **Depth collision (VFX5b).** A `CollisionModule` bounces cosmetic particles off whatever the
+    camera can see, tested against the depth the renderer already produced — no collision geometry
+    and no broadphase. The pass-order objection turned out not to be one: `ParticleSimPass` runs
+    before the depth prepass, but `HizPass` owns a **persistent** image rather than a graph
+    transient, so at sim time its level 0 still holds last frame's linearised depth, which is
+    exactly the linear view distance the test needs (the same cross-frame read `cull_pass` already
+    makes of the occlusion pyramid). `HizPass::has_history()` reports when there is nothing to read
+    — before the first build, or while the pass follows a disabled SSR — and the sim pass then binds
+    a 1×1 stand-in and clears the collision bit. The surface normal comes from the depth gradient,
+    falling back to camera-facing across a silhouette where the neighbouring taps are on a different
+    surface; the response keeps `restitution` of the normal velocity, sheds `friction` of the
+    tangential, and lifts the particle out by its penetration. By construction it only knows
+    surfaces on screen, so it is a **cosmetic-path feature**: the deterministic backend has no
+    counterpart and the authoring UI says so.
+  - **Force fields (VFX5a).** A new `ForceFieldModule` places up to four fields per emitter, honoured
+    by **both** backends: `Point` pulls toward or pushes from a centre, `Vortex` swirls about an axis
+    through it, `Drag` damps velocity inside it. Where gravity and turbulence act everywhere alike, a
+    field has a place — centre, radius, falloff — which is what makes it the tool for authored motion
+    (an updraft over a fire, a swirl in a portal, still air behind cover). The weight is
+    `pow(1 - distance/radius, falloff)`: one at the centre, zero at the rim, so a field touches
+    nothing outside its radius and never spikes to infinity at its centre the way a raw
+    inverse-square does. The count is fixed because `CompiledEmitter` is the byte-comparable POD both
+    backends read; the compiler takes the first four enabled entries. Fields are authored in the
+    emitter's frame and placed into world space once per step — baked into `GpuEmitter` by the render
+    system, applied from the emitter pose by the deterministic backend — so neither evaluates a
+    transform per particle. Exposed in the particle editor with add/remove, kind, position, axis,
+    strength, radius, and falloff.
+  - **Mesh particles (VFX4).** `RenderAlignment::Mesh` draws each particle as a solid mesh instance
+    (debris, shells). Because it is the one particle path that is not transparent, it gets a pass of
+    its own — `ParticleMeshPass`, straight after the opaque pass, loading the scene's colour and
+    depth and depth-testing and writing like any other solid surface; in the transparency pass
+    overlapping debris would composite in list order, which no blend mode fixes. One draw binds one
+    mesh, so up to four mesh-aligned emitters each claim a slice of a shared list and one
+    `VkDrawIndexedIndirectCommand` whose index count the sim pass seeds from the host-known mesh
+    (`ParticleSystem::prepare` now takes the `MeshRegistry`) and whose instance count the compaction
+    bumps. The mesh gives the geometry; the particle gives position, scale, a tumble about its
+    direction of travel, and a colour tint. Shaded as a diffuse surface by the sun — through the same
+    cheap cascade sampler the lit sprites use — plus a flat ambient, not `pbr.frag`: a mesh particle
+    carries no material, and one that needs a real material is a mesh instance, not a particle. Not
+    wired onto the GPU-driven instance path as the design first sketched, because `InstanceSystem`
+    builds its records host-side and a GPU-simulated transform never reaches the host. Mesh particles
+    write colour and depth only, so they are not pickable and are absent from motion vectors, SSR,
+    GTAO, and the GPU cull.
+  - **Ribbons and trails (VFX3b).** `RenderAlignment::Ribbon` draws a particle as a tapered strip
+    through its own recent positions. `ParticleSystem` gained a persistent, device-local trail
+    history (eight `vec4` samples per pool slot, zero-cleared with the pool); the simulate step
+    shifts it one place per frame and the emit step collapses it onto the birth point so a recycled
+    slot does not streak from the previous occupant's death. Ribbons form a third indirect draw
+    bucket — keyed on geometry, not blend, because a strip is a different vertex count per instance
+    than a quad — and `particle_ribbon.vert` expands each into `(TRAIL_POINTS - 1) * 6` vertices,
+    oriented perpendicular to both the local trail direction and the eye ray, tapering in width and
+    alpha toward the tail. No ribbon fragment shader was needed: emitting `v = 0.5` turns the shared
+    sprite's radial falloff into a soft-edged band. In this slice ribbons are emissive,
+    "over"-blended, and unsorted regardless of the authored blend.
+  - **Shadowed particles (VFX2c).** The lit bucket's sun term is multiplied by the sun's cascade
+    visibility, so a smoke column standing in the shadow of geometry goes dark instead of staying
+    uniformly sunlit. A particle-specific sampler (`particle_shadow.glsl`): a fixed-radius four-tap
+    Vogel disc, no blocker search and no normal offset — a puff has no surface normal to offset
+    along, and the mesh path's twenty-odd taps would be paid once per overdrawn sprite layer. The
+    cascade block and atlas are bound on the pass's own set at the scene set's own binding numbers,
+    so the shared `shadow_common.glsl` declaration is reused verbatim; the sampler-free cascade
+    arithmetic (cascade select, atlas tiling, the Vogel disc) moved there from
+    `shadow_sampling.glsl`, which keeps only the parts that need samplers.
 - **Audio system — ambisonic scene bus + binaural spatializer (Phase S4).** Head-tracked 3D
   audio: sources are placed in an ambisonic field and decoded to the ears through an analytic
   head model. Verified by 9 new `Unit_Audio` tests and the `audio_spatial_demo` orbit; this

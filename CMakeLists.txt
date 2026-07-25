@@ -83,6 +83,58 @@ add_sushi_sycl_executable(animation_benchmark examples/animation_benchmark.cpp)
 # its determinism + rollback-replay guarantees, checked headlessly.
 add_sushi_sycl_executable(animator_demo examples/animator_demo.cpp)
 
+# device_batch_evaluator_demo exercises the §12.3 device-batched evaluator: a crowd of
+# instances sampled/composed/skinned in one compiled SushiRuntime graph run, cross-checked
+# element-for-element against the host ClipEvaluator and an analytic answer, plus the
+# compile_count == 1 replay-only invariant.
+add_sushi_sycl_executable(device_batch_evaluator_demo examples/device_batch_evaluator_demo.cpp)
+
+# motion_matching_demo exercises the §12.4 motion-matching database/search core: a pool of
+# sampled poses across several analytic-velocity clips, searched by nearest-neighbor against
+# a desired velocity (and, independently, a foot-height proxy term).
+add_sushi_sycl_executable(motion_matching_demo examples/motion_matching_demo.cpp)
+
+# ragdoll_blend_demo exercises the §12.4/§11 ragdoll-blend pose modifier: weight-blending a
+# joint's local pose toward a physics-supplied object-space transform, and the correct
+# parent-to-untouched-child cascade through recompose().
+add_sushi_sycl_executable(ragdoll_blend_demo examples/ragdoll_blend_demo.cpp)
+
+# full_body_ik_demo exercises the §12.4 general-purpose multi-effector CCD solver: a
+# single-chain convergence proof and two independent limbs sharing an unrotated anchor,
+# each reaching its own target without interfering with the other.
+add_sushi_sycl_executable(full_body_ik_demo examples/full_body_ik_demo.cpp)
+
+# motion_match_sampler_demo exercises the §12.4 motion-matching blend-graph wiring left open
+# by motion_matching.hpp: periodic re-search hysteresis and a two-clip crossfade actually
+# changing the output pose over the configured duration.
+add_sushi_sycl_executable(motion_match_sampler_demo examples/motion_match_sampler_demo.cpp)
+
+# runtime_retarget_demo exercises the §12.4 same-session retargeting gap: retargeting onto a
+# bind-identical clone reproduces direct clip sampling exactly, and retargeting onto a
+# differently-proportioned rig reproduces the same joint bend while reaching by the target's
+# own bone lengths.
+add_sushi_sycl_executable(runtime_retarget_demo examples/runtime_retarget_demo.cpp)
+
+# jiggle_bone_demo exercises the §12.4 jiggle-bone / secondary-motion spring-damper pose
+# modifier: settle-to-rest, the distance constraint holding every frame, real lag on a sudden
+# parent lurch, and re-settling once the parent holds still again.
+add_sushi_sycl_executable(jiggle_bone_demo examples/jiggle_bone_demo.cpp)
+
+# dual_quaternion_skinning_demo exercises the §12.4 dual-quaternion skinning blend math: the
+# classic bent-elbow candy-wrapper case (LBS visibly pinches, DQS does not), plus a SushiRuntime
+# SYCL kernel cross-check that the same header functions bit-match on device.
+add_sushi_sycl_executable(dual_quaternion_skinning_demo examples/dual_quaternion_skinning_demo.cpp)
+
+# facial_blendshapes_demo exercises the §12.4 ARKit-52 canonical blendshape mapping: table
+# integrity, name-order-independent resolution against a partial mesh, and missing-shape
+# reporting instead of silent no-ops.
+add_sushi_sycl_executable(facial_blendshapes_demo examples/facial_blendshapes_demo.cpp)
+
+# sequence_timeline_demo exercises the §12.4 minimal cinematics/sequencer timeline core:
+# pure-function float-track evaluation (scrub-safe) and forward-only event dispatch that
+# fires every event crossed in a step, in time order.
+add_sushi_sycl_executable(sequence_timeline_demo examples/sequence_timeline_demo.cpp)
+
 # particle_demo exercises the phase-VFX1 particle system's CPU-verifiable half: the authoring
 # model, the emitter compiler's POD boundary, and the deterministic CPU backend's spawn/lifetime
 # accounting plus its determinism and rollback-replay guarantees, checked headlessly. The GPU
@@ -133,6 +185,7 @@ add_sushi_sycl_executable(keyframe_demo examples/keyframe_demo.cpp)
 if(SE_BUILD_EDITOR)
     set(SE_BUILD_RENDER ON)
     set(SE_BUILD_INPUT ON)
+    set(SE_BUILD_AUDIO ON) # the editor's live audio system links sushi_audio (S9)
 endif()
 
 # The compiled input backend (input/): the SDL event translator behind the header-only
@@ -190,6 +243,119 @@ if(SE_BUILD_AUDIO)
     # played best-effort. The real ECS read is covered by Integration_AudioEcs.
     add_sushi_sycl_executable(audio_scene_demo examples/audio_scene_demo.cpp)
     target_link_libraries(audio_scene_demo PRIVATE sushi_audio)
+
+    # audio_occlusion_demo, the S7 slice: occlusion/obstruction over the acoustic BVH
+    # (BLAS ray + TLAS refit), three-band material transmission, soft multi-ray occlusion,
+    # the room/portal doorway model, and image-source early reflections — self-checked
+    # headless (including the integrated voice-manager path) then played best-effort (a
+    # tone sliding behind a concrete wall).
+    add_sushi_sycl_executable(audio_occlusion_demo examples/audio_occlusion_demo.cpp)
+    target_link_libraries(audio_occlusion_demo PRIVATE sushi_audio)
+
+    # audio_bank_demo, the S8 slice: the asset pipeline — a bank of IMA-ADPCM SFX + a PCM
+    # music track baked to a binary and loaded back, a Random footstep event resolved
+    # through the bank-backed IEmitterSourceFactory, and a streamed music bed fed by a
+    # background worker into the lock-free ring. Self-checked headless then played best-effort.
+    add_sushi_sycl_executable(audio_bank_demo examples/audio_bank_demo.cpp)
+    target_link_libraries(audio_bank_demo PRIVATE sushi_audio)
+
+    # audio_profiler_demo, the S9 slice: the audio→GUI live-profiler telemetry channel —
+    # the seqlock snapshot (voice counts, per-bus + master meters, scope) published by the
+    # audio thread and read lock-free by the "GUI". Self-checked headless then polled live
+    # off a running device.
+    add_sushi_sycl_executable(audio_profiler_demo examples/audio_profiler_demo.cpp)
+    target_link_libraries(audio_profiler_demo PRIVATE sushi_audio)
+
+    # audio_procedural_demo, the S10 slice: procedural SFX — modal-impact synthesis (a
+    # struck-object resonator bank) and wind (speed-driven filtered noise + Aeolian tone) as
+    # plain VoiceSources. Self-checked headless then played best-effort.
+    add_sushi_sycl_executable(audio_procedural_demo examples/audio_procedural_demo.cpp)
+    target_link_libraries(audio_procedural_demo PRIVATE sushi_audio)
+
+    # audio_convolution_demo, the S10 slice: the convolution reverb (radix-2 FFT +
+    # partitioned overlap-save) behind the IReverb seam on a per-zone aux bus, driven by a
+    # synthesised room impulse response. Self-checked headless then played best-effort.
+    add_sushi_sycl_executable(audio_convolution_demo examples/audio_convolution_demo.cpp)
+    target_link_libraries(audio_convolution_demo PRIVATE sushi_audio)
+
+    # audio_authoring_demo: the authoring project (DAW backend) — author a container graph,
+    # flatten it to the runtime event database, and bake a bank. Pure engine headers.
+    add_sushi_sycl_executable(audio_authoring_demo examples/audio_authoring_demo.cpp)
+    target_link_libraries(audio_authoring_demo PRIVATE sushi_audio)
+
+    # audio_raytrace_demo: Monte-Carlo ray-traced room acoustics (measured RT60 + baked IR)
+    # and Maekawa edge diffraction. Pure engine headers, no third-party dep.
+    add_sushi_sycl_executable(audio_raytrace_demo examples/audio_raytrace_demo.cpp)
+    target_link_libraries(audio_raytrace_demo PRIVATE sushi_audio)
+
+    # audio_accelerator_demo, the S10 slice: the SushiRuntime SYCL DSP accelerator — batch
+    # FIR convolution offloaded to the device with k-block lookahead, checked against a CPU
+    # reference. A SYCL translation unit (it includes accelerator_sycl.hpp + the runtime);
+    # it needs no sushi_audio, only the runtime the SYCL executable macro already links.
+    add_sushi_sycl_executable(audio_accelerator_demo examples/audio_accelerator_demo.cpp)
+
+    # audio_miniaudio_demo: the same engine through the miniaudio (native low-latency)
+    # IAudioDevice backend instead of SDL — self-checked headless then played best-effort.
+    add_sushi_sycl_executable(audio_miniaudio_demo examples/audio_miniaudio_demo.cpp)
+    target_link_libraries(audio_miniaudio_demo PRIVATE sushi_audio)
+
+    # audio_opus_demo: the Opus codec (compressed music/dialogue) behind the IAudioCodec
+    # seam — a full encode→decode round-trip self-check. Guarded by the presence of the
+    # vcpkg Opus package; it links core libopus (Opus::opus) and defines SE_AUDIO_OPUS.
+    find_package(Opus CONFIG QUIET)
+    find_package(OpusFile CONFIG QUIET)
+    if(Opus_FOUND AND OpusFile_FOUND)
+        add_sushi_sycl_executable(audio_opus_demo examples/audio_opus_demo.cpp)
+        target_link_libraries(audio_opus_demo PRIVATE sushi_audio Opus::opus OpusFile::opusfile)
+        target_compile_definitions(audio_opus_demo PRIVATE SE_AUDIO_OPUS=1)
+    else()
+        message(STATUS "Opus package not found — audio_opus_demo disabled (declare opusfile via ss)")
+    endif()
+
+    # audio_vorbis_demo: the Vorbis codec behind the IAudioCodec seam — encode→decode round-trip.
+    # Guarded by the vcpkg Vorbis package; links libvorbis (Vorbis::vorbis + Vorbis::vorbisenc).
+    find_package(Vorbis CONFIG QUIET)
+    if(Vorbis_FOUND)
+        add_sushi_sycl_executable(audio_vorbis_demo examples/audio_vorbis_demo.cpp)
+        target_link_libraries(audio_vorbis_demo PRIVATE sushi_audio Vorbis::vorbis Vorbis::vorbisenc)
+        target_compile_definitions(audio_vorbis_demo PRIVATE SE_AUDIO_VORBIS=1)
+    else()
+        message(STATUS "Vorbis package not found — audio_vorbis_demo disabled (declare libvorbis via ss)")
+    endif()
+
+    # audio_stream_compressed_demo: streaming Opus + Vorbis from a disk-like IDataSource through
+    # the StreamingDecoder pipeline. Needs both compressed codecs.
+    if(Opus_FOUND AND OpusFile_FOUND AND Vorbis_FOUND)
+        add_sushi_sycl_executable(audio_stream_compressed_demo examples/audio_stream_compressed_demo.cpp)
+        target_link_libraries(audio_stream_compressed_demo
+            PRIVATE sushi_audio Opus::opus OpusFile::opusfile Vorbis::vorbis Vorbis::vorbisenc)
+        target_compile_definitions(audio_stream_compressed_demo PRIVATE SE_AUDIO_OPUS=1 SE_AUDIO_VORBIS=1)
+    endif()
+
+    # audio_sofa_demo: the SOFA/HDF5 measured-HRTF path — loads a real HRIR set and drives the
+    # binaural spatializer through it. Guarded by the presence of the vcpkg HDF5 package; it
+    # links HDF5 (C API) and defines SE_AUDIO_SOFA.
+    find_package(hdf5 CONFIG QUIET)
+    if(hdf5_FOUND OR TARGET hdf5::hdf5-shared OR TARGET hdf5::hdf5-static)
+        add_sushi_sycl_executable(audio_sofa_demo examples/audio_sofa_demo.cpp)
+        if(TARGET hdf5::hdf5-shared)
+            target_link_libraries(audio_sofa_demo PRIVATE sushi_audio hdf5::hdf5-shared)
+        else()
+            target_link_libraries(audio_sofa_demo PRIVATE sushi_audio hdf5::hdf5-static)
+        endif()
+        target_compile_definitions(audio_sofa_demo PRIVATE SE_AUDIO_SOFA=1)
+        # audio_magls_demo: MagLS ambisonic→binaural decode + anthropometric HRTF, driven from a
+        # real SOFA set. Same HDF5 guard as the SOFA demo.
+        add_sushi_sycl_executable(audio_magls_demo examples/audio_magls_demo.cpp)
+        if(TARGET hdf5::hdf5-shared)
+            target_link_libraries(audio_magls_demo PRIVATE sushi_audio hdf5::hdf5-shared)
+        else()
+            target_link_libraries(audio_magls_demo PRIVATE sushi_audio hdf5::hdf5-static)
+        endif()
+        target_compile_definitions(audio_magls_demo PRIVATE SE_AUDIO_SOFA=1)
+    else()
+        message(STATUS "HDF5 package not found — audio_sofa_demo disabled (declare hdf5 via ss)")
+    endif()
 endif()
 
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target

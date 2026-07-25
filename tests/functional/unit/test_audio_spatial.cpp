@@ -275,3 +275,38 @@ TEST(Unit_Audio, EngineHeadTrackingReaimsSource)
     (void)voice;
     EXPECT_GT(tr, tl * 1.1);
 }
+
+// The direction spectral cue makes a rear source duller than a front one at the same
+// lateral angle — the front/back distinction the ITD alone cannot provide.
+TEST(Unit_Audio, HrtfFrontBackTimbre)
+{
+    const double sr = 48000.0;
+    const int block = 512;
+    auto high_energy = [&](float dx, float dy, float dz) {
+        BinauralSpatializer sp;
+        sp.configure(3, sr, block);
+        double phase = 0.0;
+        std::vector<float> tone(block), l(block), r(block);
+        double energy = 0.0;
+        for (int b = 0; b < 12; ++b)
+        {
+            for (int i = 0; i < block; ++i)
+            {
+                tone[i] = static_cast<float>(std::sin(phase)); // 8 kHz probe
+                phase += 2.0 * 3.14159265358979 * 8000.0 / sr;
+            }
+            sp.begin_block(block);
+            sp.encode(tone.data(), block, dx, dy, dz, 1.0f);
+            std::fill(l.begin(), l.end(), 0.0f);
+            std::fill(r.begin(), r.end(), 0.0f);
+            sp.decode_binaural(l.data(), r.data(), block);
+            if (b >= 8) // settle the shelves
+                for (int i = 0; i < block; ++i)
+                    energy += static_cast<double>(l[i]) * l[i] + static_cast<double>(r[i]) * r[i];
+        }
+        return energy;
+    };
+    const double front = high_energy(1.0f, 0.0f, 0.0f);
+    const double rear = high_energy(-1.0f, 0.0f, 0.0f);
+    EXPECT_GT(front, rear * 1.2); // rear is audibly duller at 8 kHz
+}

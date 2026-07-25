@@ -175,6 +175,39 @@ namespace SushiEngine
                         compiled.turbulence_frequency = descriptor.turbulence.frequency;
                         compiled.turbulence_amplitude = descriptor.turbulence.amplitude;
                     }
+                    compiled.force_field_count = 0;
+                    for (const ForceFieldModule& field : descriptor.force_fields)
+                    {
+                        if (!field.enabled || compiled.force_field_count >= MAX_FORCE_FIELDS)
+                            continue;
+                        CompiledForceField& out = compiled.force_fields[compiled.force_field_count];
+                        out.position[0] = static_cast<float>(field.position.x);
+                        out.position[1] = static_cast<float>(field.position.y);
+                        out.position[2] = static_cast<float>(field.position.z);
+                        out.axis[0] = static_cast<float>(field.axis.x);
+                        out.axis[1] = static_cast<float>(field.axis.y);
+                        out.axis[2] = static_cast<float>(field.axis.z);
+                        out.strength = field.strength;
+                        // A zero radius would reach nothing, which is never what an author means by
+                        // placing a field; it is clamped so a freshly added field does something.
+                        out.radius = std::max(field.radius, 1e-3f);
+                        out.kind = field.kind;
+                        out.falloff = std::max(field.falloff, 0.0f);
+                        ++compiled.force_field_count;
+                    }
+                    if (compiled.force_field_count > 0)
+                        compiled.update_flags |= UPDATE_FORCE_FIELDS;
+
+                    if (descriptor.collision.enabled)
+                    {
+                        compiled.update_flags |= UPDATE_COLLISION;
+                        compiled.collision_restitution =
+                            std::max(descriptor.collision.restitution, 0.0f);
+                        compiled.collision_friction =
+                            std::min(std::max(descriptor.collision.friction, 0.0f), 1.0f);
+                        compiled.collision_thickness = std::max(descriptor.collision.thickness, 1e-3f);
+                    }
+
                     if (descriptor.size_over_life.enabled && !descriptor.size_over_life.curve.empty())
                     {
                         compiled.update_flags |= UPDATE_SIZE_OVER_LIFE;
@@ -194,13 +227,17 @@ namespace SushiEngine
                     compiled.blend = render.blend;
                     compiled.sort = render.sort;
                     compiled.alignment = render.alignment;
+                    compiled.velocity_stretch = std::max(render.velocity_stretch, 0.0f);
                     compiled.render_flags = 0;
                     if (render.soft_particles)
                         compiled.render_flags |= RENDER_SOFT;
                     if (render.lit)
                         compiled.render_flags |= RENDER_LIT;
-                    compiled.soft_fade_distance = render.soft_fade_distance;
+                    if (render.texture != NO_PARTICLE_TEXTURE)
+                        compiled.render_flags |= RENDER_TEXTURED;
+                    compiled.soft_fade_distance = std::max(render.soft_fade_distance, 0.0f);
                     compiled.texture = render.texture;
+                    compiled.mesh = render.mesh;
                     compiled.flipbook_rows = std::max(render.flipbook_rows, 1u);
                     compiled.flipbook_columns = std::max(render.flipbook_columns, 1u);
                 }

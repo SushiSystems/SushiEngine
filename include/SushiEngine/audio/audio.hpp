@@ -38,16 +38,36 @@
  */
 
 #include <SushiEngine/audio/accelerator.hpp>
+#include <SushiEngine/audio/acoustic_geometry.hpp>
+#include <SushiEngine/audio/acoustic_raytracer.hpp>
+#include <SushiEngine/audio/acoustic_material.hpp>
 #include <SushiEngine/audio/audio_scene.hpp>
+#include <SushiEngine/audio/authoring.hpp>
+#include <SushiEngine/audio/bank.hpp>
+#include <SushiEngine/audio/channel_layout.hpp>
+#include <SushiEngine/audio/codec.hpp>
+#include <SushiEngine/audio/convolution_reverb.hpp>
 #include <SushiEngine/audio/device.hpp>
 #include <SushiEngine/audio/dsp/dsp.hpp>
+#include <SushiEngine/audio/dynamics.hpp>
+#include <SushiEngine/audio/early_reflections.hpp>
 #include <SushiEngine/audio/engine.hpp>
+#include <SushiEngine/audio/event.hpp>
+#include <SushiEngine/audio/hrtf.hpp>
+#include <SushiEngine/audio/magls.hpp>
+#include <SushiEngine/audio/mix_state.hpp>
 #include <SushiEngine/audio/mixer.hpp>
+#include <SushiEngine/audio/occlusion.hpp>
 #include <SushiEngine/audio/parameter.hpp>
+#include <SushiEngine/audio/portals.hpp>
+#include <SushiEngine/audio/procedural.hpp>
+#include <SushiEngine/audio/profiler.hpp>
 #include <SushiEngine/audio/propagation.hpp>
 #include <SushiEngine/audio/reverb.hpp>
 #include <SushiEngine/audio/spatializer.hpp>
+#include <SushiEngine/audio/streaming.hpp>
 #include <SushiEngine/audio/voice.hpp>
 #include <SushiEngine/audio/voice_manager.hpp>
+#include <SushiEngine/audio/voice_render_pool.hpp>
 
 #endif

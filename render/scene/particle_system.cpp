@@ -23,6 +23,9 @@
 
 #include <SushiEngine/vfx/compiled_emitter.hpp>
 
+#include "geometry/mesh_registry.hpp"
+#include "material/texture_library.hpp"
+#include "resources/descriptor_heap.hpp"
 #include "rhi/vulkan/vulkan_check.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
 
@@ -47,11 +50,15 @@ namespace SushiEngine
                      pool_bytes,
                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false,
                      false);
+                grow(trails_, trail_range(),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false,
+                     false);
             }
 
             ParticleSystem::~ParticleSystem()
             {
                 destroy(pool_);
+                destroy(trails_);
                 for (Allocation& allocation : emitter_tables_)
                     destroy(allocation);
                 for (Allocation& allocation : curve_luts_)
@@ -63,10 +70,13 @@ namespace SushiEngine
             }
 
             void ParticleSystem::prepare(std::uint32_t slot, std::uint32_t frame_index,
-                                         const ParticleEmitterView* emitters, std::size_t count)
+                                         const ParticleEmitterView* emitters, std::size_t count,
+                                         const Geometry::MeshRegistry& meshes,
+                                         const Assets::TextureLibrary& textures)
             {
                 (void)frame_index;
                 emitters_.clear();
+                mesh_draws_.clear();
                 has_alpha_ = false;
                 if (emitters == nullptr || count == 0)
                     return;
@@ -146,7 +156,7 @@ namespace SushiEngine
                     gpu.rotation_max = compiled->rotation_max;
                     gpu.angular_min = compiled->angular_velocity_min;
                     gpu.angular_max = compiled->angular_velocity_max;
-                    gpu.pad_a = 0.0f;
+                    gpu.velocity_stretch = compiled->velocity_stretch;
                     gpu.pad_b = 0.0f;
                     gpu.size_curve_lut = compiled->size_curve_lut;
                     gpu.color_gradient_lut = compiled->color_gradient_lut;
@@ -158,8 +168,82 @@ namespace SushiEngine
                     gpu.flipbook_columns = compiled->flipbook_columns;
                     gpu.blend = static_cast<std::uint32_t>(compiled->blend);
                     gpu.sort = static_cast<std::uint32_t>(compiled->sort);
-                    gpu.pad0 = 0;
-                    gpu.pad1 = 0;
+                    gpu.alignment = static_cast<std::uint32_t>(compiled->alignment);
+
+                    // The particle material. The authored texture is a library id; the shader
+                    // wants the bindless slot it currently sits in, and only the library can say.
+                    // A texture the heap could not take (no descriptor indexing, or the heap is
+                    // full) drops back to the built-in dot rather than to a wrong sample.
+                    gpu.render_flags = compiled->render_flags;
+                    gpu.soft_fade_distance = compiled->soft_fade_distance;
+                    gpu.texture = 0;
+                    gpu.pad_material = 0.0f;
+                    if ((compiled->render_flags & Vfx::RENDER_TEXTURED) != 0)
+                    {
+                        const std::uint32_t heap_slot = textures.heap_index(
+                            static_cast<TextureId>(compiled->texture),
+                            Assets::DefaultTexture::White);
+                        if (heap_slot == Resources::INVALID_HEAP_INDEX)
+                            gpu.render_flags &= ~Vfx::RENDER_TEXTURED;
+                        else
+                            gpu.texture = heap_slot;
+                    }
+
+                    // A mesh-aligned emitter claims one of the mesh-draw slices, because one draw
+                    // binds one mesh. Past the last slice the emitter simply renders nothing —
+                    // dropping it is better than silently drawing its particles as someone else's
+                    // mesh, which is what sharing a slice would do.
+                    // Force fields, placed into the world here so the shader never touches the
+                    // emitter transform: the model matrix moves the centre, its rotation the axis.
+                    gpu.force_field_count = compiled->force_field_count;
+                    gpu.collision_restitution = compiled->collision_restitution;
+                    gpu.collision_friction = compiled->collision_friction;
+                    gpu.collision_thickness = compiled->collision_thickness;
+                    for (std::uint32_t f = 0; f < Vfx::MAX_FORCE_FIELDS; ++f)
+                    {
+                        float* out = gpu.force_fields[f];
+                        if (f >= compiled->force_field_count)
+                        {
+                            for (int k = 0; k < 12; ++k)
+                                out[k] = 0.0f;
+                            continue;
+                        }
+                        const Vfx::CompiledForceField& field = compiled->force_fields[f];
+                        // Centre: the full transform (rotation, scale, translation).
+                        for (int row = 0; row < 3; ++row)
+                        {
+                            out[row] = gpu.model[row] * field.position[0] +
+                                       gpu.model[4 + row] * field.position[1] +
+                                       gpu.model[8 + row] * field.position[2] + gpu.model[12 + row];
+                        }
+                        out[3] = field.strength;
+                        // Axis: direction only, so the translation column is left out.
+                        for (int row = 0; row < 3; ++row)
+                        {
+                            out[4 + row] = gpu.model[row] * field.axis[0] +
+                                           gpu.model[4 + row] * field.axis[1] +
+                                           gpu.model[8 + row] * field.axis[2];
+                        }
+                        out[7] = field.radius;
+                        out[8] = static_cast<float>(static_cast<std::uint32_t>(field.kind));
+                        out[9] = field.falloff;
+                        out[10] = 0.0f;
+                        out[11] = 0.0f;
+                    }
+
+                    gpu.mesh_slot = NO_MESH_SLOT;
+                    if (compiled->alignment == Vfx::RenderAlignment::Mesh &&
+                        mesh_draws_.size() < MAX_MESH_EMITTERS)
+                    {
+                        const MeshId mesh_id = static_cast<MeshId>(compiled->mesh);
+                        const Geometry::Mesh& mesh = meshes.mesh(mesh_id);
+                        if (mesh.index_count > 0)
+                        {
+                            gpu.mesh_slot = static_cast<std::uint32_t>(mesh_draws_.size());
+                            mesh_draws_.push_back(
+                                MeshDraw{mesh_id, gpu.mesh_slot, mesh.index_count});
+                        }
+                    }
                     if (compiled->blend == Vfx::BlendMode::Alpha)
                         has_alpha_ = true;
                     emitters_.push_back(gpu);
@@ -208,6 +292,13 @@ namespace SushiEngine
             }
 
             VkBuffer ParticleSystem::pool() const noexcept { return pool_.buffer; }
+
+            VkBuffer ParticleSystem::trail_buffer() const noexcept { return trails_.buffer; }
+
+            VkDeviceSize ParticleSystem::trail_range() const noexcept
+            {
+                return static_cast<VkDeviceSize>(capacity_) * TRAIL_POINTS * 4 * sizeof(float);
+            }
 
             VkBuffer ParticleSystem::billboard_buffer(std::uint32_t slot) const noexcept
             {

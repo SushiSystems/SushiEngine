@@ -2,11 +2,13 @@
 
 // Compute pre-skinning (design §6.2): skin each skinned character once per frame into a
 // transient vertex buffer, so every consumer (opaque, depth, shadows) binds the result as
-// a static mesh and pays the skin cost once, not per pass. Linear-blend skinning; the
-// output is one interleaved SkinnedVertex per base vertex — the 60-byte MeshVertex layout
-// plus a 12-byte previous-frame skinned position, so a single vertex binding (stride 72)
-// feeds both the shaded draw and the motion-vector's previous position. The SkinningPass
-// (render/passes/skinning_pass.*) owns this descriptor set; the bindings are its contract.
+// a static mesh and pays the skin cost once, not per pass. Linear-blend skinning by default;
+// an instance may opt into dual-quaternion skinning instead (design §12.4, the candy-wrapper
+// fix — see pc.use_dual_quaternion below). The output is one interleaved SkinnedVertex per
+// base vertex — the 60-byte MeshVertex layout plus a 12-byte previous-frame skinned position,
+// so a single vertex binding (stride 72) feeds both the shaded draw and the motion-vector's
+// previous position. The SkinningPass (render/passes/skinning_pass.*) owns this descriptor
+// set; the bindings are its contract.
 
 layout(local_size_x = 64) in;
 
@@ -46,14 +48,105 @@ layout(std430, set = 0, binding = 1) readonly buffer SkinVertices { SkinVertex s
 layout(std430, set = 0, binding = 2) readonly buffer Palette { mat4 palette[]; };
 layout(std430, set = 0, binding = 3) readonly buffer PrevPalette { mat4 prev_palette[]; };
 layout(std430, set = 0, binding = 4) writeonly buffer OutVertices { SkinnedVertex out_vertex[]; };
+// Morph target deltas (design §6.5/§12.1): target-major, tightly-packed float[3] per
+// (target, vertex) — read as a flat float array, not vec3[], because std430 pads a vec3
+// array element to 16 bytes (vec4 alignment) while the host packs these at 12 bytes
+// (MeshRegistry::set_morph_targets); a vec3[] binding here would misalign every read past
+// the first. Target t's vertex i starts at morph_delta[(t * vertex_count + i) * 3]. Only
+// read when pc.morph_target_count > 0; otherwise this binding may alias an unrelated buffer.
+layout(std430, set = 0, binding = 5) readonly buffer MorphDeltas { float morph_delta[]; };
+// This instance's slice of the frame's morph-weight pool, one float per active target.
+layout(std430, set = 0, binding = 6) readonly buffer MorphWeights { float morph_weight[]; };
+// The dual-quaternion palette (design §12.4): one entry per joint, real.xyzw then dual.xyzw
+// (two vec4 = 32 bytes, naturally aligned — unlike MorphDeltas' vec3 case, no std430 padding
+// trap here). Only read when pc.use_dual_quaternion != 0; otherwise this binding may alias
+// an unrelated buffer, the same contract MorphDeltas/MorphWeights already use.
+struct DualQuaternion
+{
+    vec4 real;
+    vec4 dual;
+};
+layout(std430, set = 0, binding = 7) readonly buffer DualQuaternionPalette { DualQuaternion dq_palette[]; };
 
 layout(push_constant) uniform Push
 {
-    uint vertex_count; // vertices in this skinned mesh
-    uint palette_base; // first joint slot of this instance in the palette pool
-    uint out_base;     // first output vertex of this instance in the output buffer
-    uint prev_valid;   // 1 if prev_palette holds last frame's pose, else 0 (reuse current)
+    uint vertex_count;        // vertices in this skinned mesh
+    uint palette_base;        // first joint slot of this instance in the palette pool
+    uint out_base;            // first output vertex of this instance in the output buffer
+    uint prev_valid;          // 1 if prev_palette holds last frame's pose, else 0 (reuse current)
+    uint morph_target_count;  // active morph targets for this instance (0 = none)
+    uint morph_weight_base;   // first slot of this instance's weights in the weight pool
+    uint use_dual_quaternion; // 1 selects dual-quaternion (DQS) blending over linear-blend
 } pc;
+
+// Kavan-Collins-Zara-O'Sullivan (2007) dual-quaternion blend: weighted sum of the real and
+// dual parts (each hemisphere-corrected against the first nonzero-weight influence, since a
+// quaternion and its negation represent the same rotation but would otherwise partially
+// cancel in a naive sum), then renormalized onto the unit dual-quaternion manifold. Exactly
+// `Animation::blend_dual_quaternions` (dual_quaternion_skinning.hpp) — ported here, not
+// reinvented, and verified there against a SushiRuntime SYCL kernel before this port.
+DualQuaternion blend_dual_quaternions(uint base, uint joints[4], float weights[4])
+{
+    vec4 reference = vec4(0.0, 0.0, 0.0, 1.0);
+    bool have_reference = false;
+    for (int k = 0; k < 4; ++k)
+    {
+        if (weights[k] <= 0.0)
+            continue;
+        if (!have_reference)
+        {
+            reference = dq_palette[base + joints[k]].real;
+            have_reference = true;
+        }
+    }
+
+    vec4 real_sum = vec4(0.0);
+    vec4 dual_sum = vec4(0.0);
+    for (int k = 0; k < 4; ++k)
+    {
+        if (weights[k] <= 0.0)
+            continue;
+        DualQuaternion dq = dq_palette[base + joints[k]];
+        float sign = dot(reference, dq.real) < 0.0 ? -1.0 : 1.0;
+        float w = weights[k] * sign;
+        real_sum += dq.real * w;
+        dual_sum += dq.dual * w;
+    }
+
+    DualQuaternion result;
+    float norm = length(real_sum);
+    if (norm <= 1e-8)
+    {
+        result.real = vec4(0.0, 0.0, 0.0, 1.0);
+        result.dual = vec4(0.0);
+        return result;
+    }
+    vec4 real_n = real_sum / norm;
+    float projection = dot(real_n, dual_sum) / norm;
+    result.real = real_n;
+    result.dual = dual_sum / norm - real_n * projection;
+    return result;
+}
+
+// Rotates a vector by a unit quaternion (real.xyzw) — used for both skin_position_dqs' own
+// rotation term and for rotating normals/tangents by the blended rotation alone.
+vec3 rotate_by_quaternion(vec4 q, vec3 v)
+{
+    vec3 qv = q.xyz;
+    return v + 2.0 * cross(qv, cross(qv, v) + q.w * v);
+}
+
+// Kavan et al. eq. 15-16: transforms a position directly, without extracting a separate
+// rotation+translation pair first. `dq` must be unit (normalized) — the output of
+// blend_dual_quaternions above always is.
+vec3 skin_position_dqs(DualQuaternion dq, vec3 position)
+{
+    vec3 real_v = dq.real.xyz;
+    vec3 dual_v = dq.dual.xyz;
+    vec3 rotated = rotate_by_quaternion(dq.real, position);
+    vec3 translation = 2.0 * (dual_v * dq.real.w - real_v * dq.dual.w + cross(real_v, dual_v));
+    return rotated + translation;
+}
 
 void main()
 {
@@ -80,6 +173,18 @@ void main()
     vec3 normal = vec3(v.nx, v.ny, v.nz);
     vec3 tangent = vec3(v.tx, v.ty, v.tz);
 
+    // Morph blend (position-only, matching the CPU reference in animation/morph.hpp) runs
+    // before joint skinning: the blended base position is what the palette then deforms.
+    for (uint t = 0; t < pc.morph_target_count; ++t)
+    {
+        float w = morph_weight[pc.morph_weight_base + t];
+        if (w != 0.0)
+        {
+            uint d = (t * pc.vertex_count + i) * 3u;
+            position.xyz += vec3(morph_delta[d], morph_delta[d + 1u], morph_delta[d + 2u]) * w;
+        }
+    }
+
     float total = weights[0] + weights[1] + weights[2] + weights[3];
     vec3 skinned = position.xyz;
     vec3 skinned_prev = position.xyz;
@@ -87,7 +192,10 @@ void main()
     vec3 skinned_tangent = tangent;
     if (total > 0.0)
     {
-        mat4 m = mat4(0.0);
+        // Previous-frame position always uses linear-blend skinning regardless of
+        // pc.use_dual_quaternion — motion vectors don't need DQS's rigidity guarantee at
+        // their precision, and it avoids a second, previous-frame dual-quaternion palette
+        // (design §12.4's dual_quaternion_skinning.hpp header comment on this tradeoff).
         mat4 mp = mat4(0.0);
         for (int k = 0; k < 4; ++k)
         {
@@ -95,14 +203,37 @@ void main()
             if (w <= 0.0)
                 continue;
             uint j = pc.palette_base + joints[k];
-            m += palette[j] * w;
             mp += (pc.prev_valid != 0u ? prev_palette[j] : palette[j]) * w;
         }
-        skinned = (m * position).xyz;
         skinned_prev = (mp * position).xyz;
-        mat3 rotation = mat3(m);
-        skinned_normal = normalize(rotation * normal);
-        skinned_tangent = normalize(rotation * tangent);
+
+        if (pc.use_dual_quaternion != 0u)
+        {
+            // Dual-quaternion blend (design §12.4): fixes the candy-wrapper pinch a large
+            // bend shows under the linear-blend path below. Ported from, and verified
+            // against, animation/dual_quaternion_skinning.hpp — see this file's blend/skin
+            // helper functions above.
+            DualQuaternion blended = blend_dual_quaternions(pc.palette_base, joints, weights);
+            skinned = skin_position_dqs(blended, position.xyz);
+            skinned_normal = normalize(rotate_by_quaternion(blended.real, normal));
+            skinned_tangent = normalize(rotate_by_quaternion(blended.real, tangent));
+        }
+        else
+        {
+            mat4 m = mat4(0.0);
+            for (int k = 0; k < 4; ++k)
+            {
+                float w = weights[k];
+                if (w <= 0.0)
+                    continue;
+                uint j = pc.palette_base + joints[k];
+                m += palette[j] * w;
+            }
+            skinned = (m * position).xyz;
+            mat3 rotation = mat3(m);
+            skinned_normal = normalize(rotation * normal);
+            skinned_tangent = normalize(rotation * tangent);
+        }
     }
 
     out_vertex[out_index].px = skinned.x;

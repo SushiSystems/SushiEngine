@@ -33,6 +33,7 @@
 
 #include <cstdint>
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include "passes/render_pass.hpp"
@@ -59,6 +60,8 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class HizPass;
+
             /** @brief Emits and integrates the frame's cosmetic particles on the GPU. */
             class ParticleSimPass : public IRenderPass
             {
@@ -69,10 +72,12 @@ namespace SushiEngine
                      * @param shaders   The catalogue the particle compute shaders come from.
                      * @param pipelines The factory owning the compute pipelines.
                      * @param particles The shared pool, emitter table, and LUT atlases to drive.
+                     * @param hiz       The depth pyramid the collision test reads (last frame's,
+                     *                  since this pass runs before the depth prepass).
                      */
                     ParticleSimPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                     Resources::GraphicsPipelineFactory& pipelines,
-                                    Scene::ParticleSystem& particles);
+                                    Scene::ParticleSystem& particles, HizPass& hiz);
                     ~ParticleSimPass() override;
 
                     ParticleSimPass(const ParticleSimPass&) = delete;
@@ -83,25 +88,52 @@ namespace SushiEngine
                     void rebuild_pipelines() override;
 
                 private:
+                    /** @brief Binding of last frame's depth pyramid, read by the collision test. */
+                    static constexpr std::uint32_t DEPTH_PYRAMID_BINDING = 11;
+
+                    /**
+                     * @brief 128-byte compute constants, shared by the emit and simulate dispatches.
+                     *
+                     * The camera block is here for the depth collision alone, which projects each
+                     * particle into the pyramid; the emit dispatch reads only the emitter index.
+                     */
                     struct Push
                     {
-                        std::uint32_t emitter_index;
-                        std::uint32_t capacity;
-                        float dt;
+                        float view_projection[16];
+                        float camera_right[4];       /**< xyz right; w = tan(half horizontal fov). */
+                        float camera_up[4];          /**< xyz up; w = tan(half vertical fov). */
+                        std::uint32_t counts[4];     /**< x emitter index, y capacity, z pyramid usable. */
+                        float misc[4];               /**< x = simulation step. */
                     };
 
                     void create_pipelines();
                     void destroy_pipelines();
+                    void create_fallback_depth();
+                    void destroy_fallback_depth();
 
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::ParticleSystem& particles_;
+                    HizPass& hiz_;
 
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
                     VkPipeline emit_pipeline_ = VK_NULL_HANDLE;
                     VkPipeline simulate_pipeline_ = VK_NULL_HANDLE;
+
+                    /**
+                     * @brief A 1x1 stand-in bound when the depth pyramid holds no usable frame.
+                     *
+                     * A combined-image-sampler binding needs a real view even on a frame where the
+                     * shader will not read it (the collision is switched off through the push
+                     * constant), and the pyramid does not exist before its first build or while
+                     * screen-space reflections are off.
+                     */
+                    VkImage fallback_image_ = VK_NULL_HANDLE;
+                    VmaAllocation fallback_allocation_ = VK_NULL_HANDLE;
+                    VkImageView fallback_view_ = VK_NULL_HANDLE;
+                    bool fallback_ready_ = false;
             };
         } // namespace Passes
     } // namespace Render

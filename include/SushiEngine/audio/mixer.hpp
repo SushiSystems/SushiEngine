@@ -43,6 +43,7 @@
  * by that.
  */
 
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -264,6 +265,24 @@ namespace SushiEngine
                         Dsp::Simd::apply_gain_ramp(left, frame_count, g0, g1);
                         Dsp::Simd::apply_gain_ramp(right, frame_count, g0, g1);
 
+                        // Post-fader meters (what a mixer strip shows): the block's peak and
+                        // RMS across both channels, for the editor's live profiler.
+                        float peak = 0.0f;
+                        double sum_sq = 0.0;
+                        for (int i = 0; i < frame_count; ++i)
+                        {
+                            const float al = std::fabs(left[i]);
+                            const float ar = std::fabs(right[i]);
+                            if (al > peak) peak = al;
+                            if (ar > peak) peak = ar;
+                            sum_sq += static_cast<double>(left[i]) * left[i] +
+                                      static_cast<double>(right[i]) * right[i];
+                        }
+                        bus.meter_peak = peak;
+                        bus.meter_rms = frame_count > 0
+                                            ? static_cast<float>(std::sqrt(sum_sq / (2.0 * frame_count)))
+                                            : 0.0f;
+
                         if (bus.output != NO_BUS && bus.output != id)
                         {
                             Bus& parent = *buses_[static_cast<std::size_t>(bus.output)];
@@ -294,6 +313,28 @@ namespace SushiEngine
                     return buses_[static_cast<std::size_t>(master_)]->right.data();
                 }
 
+                /**
+                 * @brief The post-fader absolute peak of a bus from the last @ref process.
+                 * @param bus_id The bus id (0 for an out-of-range id).
+                 */
+                float bus_peak(int bus_id) const noexcept
+                {
+                    if (bus_id < 0 || bus_id >= bus_count())
+                        return 0.0f;
+                    return buses_[static_cast<std::size_t>(bus_id)]->meter_peak;
+                }
+
+                /**
+                 * @brief The post-fader RMS of a bus from the last @ref process.
+                 * @param bus_id The bus id (0 for an out-of-range id).
+                 */
+                float bus_rms(int bus_id) const noexcept
+                {
+                    if (bus_id < 0 || bus_id >= bus_count())
+                        return 0.0f;
+                    return buses_[static_cast<std::size_t>(bus_id)]->meter_rms;
+                }
+
                 /** @brief The evaluation order computed by @ref prepare (for diagnostics/tests). */
                 const std::vector<int>& order() const noexcept { return order_; }
 
@@ -312,6 +353,8 @@ namespace SushiEngine
                     std::vector<Send> sends;
                     std::vector<float> left;
                     std::vector<float> right;
+                    float meter_peak = 0.0f; /**< Post-fader absolute peak of the last block. */
+                    float meter_rms = 0.0f;  /**< Post-fader RMS of the last block. */
                 };
 
                 void compute_order()

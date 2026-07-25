@@ -66,6 +66,37 @@ namespace SushiEngine
             std::size_t import_gltf(const char* path, Geometry::MeshRegistry& meshes,
                                     TextureLibrary& textures, MeshId* out_meshes,
                                     Render::Material* out_materials, std::size_t capacity);
+
+            /**
+             * @brief Imports every triangle primitive bound to one glTF skin as a skinned mesh.
+             *
+             * Mirrors @ref import_gltf's attribute reading (position/normal/tangent/uv0/uv1/
+             * color, missing tangents generated) but skips the node-world-transform bake: a
+             * skinned primitive's vertices are authored in the skin's bind space, and the
+             * per-frame joint palette (design §5.2) supplies both the character's pose and its
+             * placement in the world, so baking the node transform here would double it. Reads
+             * `JOINTS_0`/`WEIGHTS_0`, remaps the joint indices from the glTF skin's authored
+             * order into the cooked skeleton's topologically-sorted order (the same remap
+             * `Animation::import_gltf_skeleton`/`import_gltf_animated` produce for this file and
+             * skin — @ref Animation::remap_from_order), and uploads the result through
+             * @ref Geometry::MeshRegistry::add_skinned_mesh.
+             *
+             * @param path       Path to a .gltf or .glb file.
+             * @param skin_index Which skin's primitives to import (must match the index passed
+             *                   to the skeleton/animation import for the same file).
+             * @param meshes     Registry the geometry is uploaded into.
+             * @param textures   Library the referenced images are loaded into.
+             * @param out_meshes    Receives one mesh id per imported primitive.
+             * @param out_materials Receives the material for each entry in @p out_meshes.
+             * @param capacity      Capacity of @p out_meshes and @p out_materials.
+             * @return Number of primitives written, or 0 if the file, skin, or skinning
+             *         attributes could not be read.
+             */
+            std::size_t import_gltf_skinned_mesh(const char* path, std::size_t skin_index,
+                                                 Geometry::MeshRegistry& meshes,
+                                                 TextureLibrary& textures, MeshId* out_meshes,
+                                                 Render::Material* out_materials,
+                                                 std::size_t capacity);
         } // namespace Assets
     } // namespace Render
 } // namespace SushiEngine

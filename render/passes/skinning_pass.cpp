@@ -76,10 +76,15 @@ namespace SushiEngine
                 : device_(device), shaders_(shaders), pipelines_(pipelines), skinning_(skinning),
                   meshes_(meshes)
             {
-                // Five storage buffers: base vertices, skin stream, current palette, previous
-                // palette (read), and the skinned output (written).
-                VkDescriptorSetLayoutBinding bindings[5]{};
-                for (std::uint32_t i = 0; i < 5; ++i)
+                // Eight storage buffers: base vertices, skin stream, current palette, previous
+                // palette (read), the skinned output (written), the mesh's per-target morph
+                // deltas and this instance's slice of the frame's morph weight buffer (both
+                // read; unused when the instance carries no morph targets, but a valid buffer
+                // is always bound — see the dispatch loop's fallback), and — new for §12.4 —
+                // this instance's dual-quaternion palette (read; unused unless the instance
+                // opted into DQS, same always-bind-something-valid fallback).
+                VkDescriptorSetLayoutBinding bindings[8]{};
+                for (std::uint32_t i = 0; i < 8; ++i)
                 {
                     bindings[i].binding = i;
                     bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -89,7 +94,7 @@ namespace SushiEngine
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 5;
+                layout_info.bindingCount = 8;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -172,6 +177,24 @@ namespace SushiEngine
                             if (mesh.vertices == VK_NULL_HANDLE || skin == VK_NULL_HANDLE)
                                 continue;
 
+                            // Morph deltas/weights: bind the real buffers when the instance has
+                            // active targets, else a harmless already-valid fallback (skin/palette)
+                            // — the shader never reads binding 5/6 when push.morph_target_count is
+                            // 0, but the descriptor set still needs a live buffer handle bound.
+                            const VkBuffer morph_deltas = meshes_.morph_buffer(range.mesh);
+                            const VkBuffer morph_weights = skinning_.morph_weight_buffer(slot);
+                            const bool has_morph =
+                                range.morph_target_count > 0 && morph_deltas != VK_NULL_HANDLE &&
+                                morph_weights != VK_NULL_HANDLE;
+
+                            // Same always-bind-something-valid contract as the morph buffers: the
+                            // shader never reads binding 7 when push.use_dual_quaternion is 0, but
+                            // the descriptor set still needs a live buffer handle.
+                            const VkBuffer dual_quaternion_palette =
+                                skinning_.dual_quaternion_palette_buffer(slot);
+                            const bool use_dqs = range.use_dual_quaternion != 0 &&
+                                                 dual_quaternion_palette != VK_NULL_HANDLE;
+
                             const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
                             Resources::DescriptorWriter writer;
                             writer.storage_buffer(0, mesh.vertices,
@@ -185,6 +208,15 @@ namespace SushiEngine
                             writer.storage_buffer(3, skinning_.previous_palette_buffer(slot),
                                                   skinning_.palette_range());
                             writer.storage_buffer(4, output, skinning_.output_range());
+                            writer.storage_buffer(5, has_morph ? morph_deltas : skin,
+                                                  VK_WHOLE_SIZE);
+                            writer.storage_buffer(
+                                6, has_morph ? morph_weights : skinning_.palette_buffer(slot),
+                                VK_WHOLE_SIZE);
+                            writer.storage_buffer(7,
+                                                  use_dqs ? dual_quaternion_palette
+                                                          : skinning_.palette_buffer(slot),
+                                                  VK_WHOLE_SIZE);
                             writer.update(device_.device(), set);
                             Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            pipeline_layout_, 0, set);
@@ -194,6 +226,9 @@ namespace SushiEngine
                             push.palette_base = range.palette_base;
                             push.out_base = range.base_vertex;
                             push.prev_valid = range.prev_valid;
+                            push.morph_target_count = has_morph ? range.morph_target_count : 0;
+                            push.morph_weight_base = range.morph_weight_base;
+                            push.use_dual_quaternion = use_dqs ? 1u : 0u;
                             vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                                sizeof(Push), &push);
                             vkCmdDispatch(cmd, groups(range.vertex_count), 1, 1);

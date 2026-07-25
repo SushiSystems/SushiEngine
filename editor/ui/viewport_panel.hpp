@@ -34,6 +34,7 @@
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
+#include "../animation/animated_mesh_preview.hpp"
 #include "../animation/skeleton_debug_draw.hpp"
 #include "../vfx/effect_preview.hpp"
 #include "../gizmo/gizmo_controller.hpp"
@@ -153,6 +154,17 @@ namespace SushiEngine
                  * @param strand_count  Number of entries in @p strands.
                  * @param lights        Punctual lights to shade with this frame, or nullptr.
                  * @param light_count   Number of entries in @p lights.
+                 * @param animated_mesh A previewed skinned character to GPU-skin and draw this
+                 *                    frame, or nullptr for none.
+                 * @param preview_controls Whether to draw the playback row for whatever this
+                 *     surface is previewing. Set on the Preview panel, which is the one surface
+                 *     anything being authored is shown on, so its transport belongs with it
+                 *     rather than in a window per kind of subject.
+                 * @param ik_gizmo    Whether to draw and let the user drag @p animated_mesh's
+                 *                    two-bone IK target in this viewport (design §12.1's IK
+                 *                    gizmo). The Scene view passes true; the Game view passes
+                 *                    false — the same "authored here, played there" split as
+                 *                    @p gizmo_target/@p pickable.
                  * @return Whether the gizmo edited @p gizmo_target this frame.
                  */
                 bool draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
@@ -171,9 +183,13 @@ namespace SushiEngine
                           std::size_t decal_count = 0, UIOverlay* ui = nullptr,
                           bool show_grid = false, const SkeletonPreview* skeleton = nullptr,
                           bool skeleton_names = true,
-                          const EffectPreview* particle_preview = nullptr,
+                          EffectPreview* particle_preview = nullptr,
                           const SushiEngine::Render::ParticleBillboard* billboards = nullptr,
-                          std::size_t billboard_count = 0);
+                          std::size_t billboard_count = 0,
+                          AnimatedMeshPreview* animated_mesh = nullptr,
+                          const SushiEngine::Render::ParticleEmitterView* emitters = nullptr,
+                          std::size_t emitter_count = 0, bool ik_gizmo = false,
+                          bool preview_controls = false);
 
                 /**
                  * @brief Applies the host's fidelity/performance settings to this view.
@@ -250,6 +266,10 @@ namespace SushiEngine
                 int ui_drag_index_ = -1;
                 int ui_drag_handle_ = -1;
                 GizmoController gizmo_;
+                // A second, independent GizmoController for the animated-mesh IK target (design
+                // §12.1) — its own drag state, separate from the selection gizmo above, since
+                // the two can be manipulated in the same frame by different UI elements.
+                GizmoController ik_gizmo_;
         };
     } // namespace Editor
 } // namespace SushiEngine

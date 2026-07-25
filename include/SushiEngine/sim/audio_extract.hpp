@@ -47,7 +47,9 @@
 #include <climits>
 #include <cstdint>
 
+#include <SushiEngine/audio/acoustic_geometry.hpp>
 #include <SushiEngine/audio/audio_scene.hpp>
+#include <SushiEngine/audio/portals.hpp>
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/world.hpp>
@@ -84,7 +86,74 @@ namespace SushiEngine
                                        static_cast<float>(world.y - eye.y),
                                        static_cast<float>(world.z - eye.z)};
             }
+
+            /** @brief The listener-local key marker bit for an injected doorway virtual emitter. */
+            constexpr std::uint64_t DOORWAY_KEY_BIT = 1ull << 63;
         } // namespace Detail
+
+        /** @brief Tuning for the optional acoustic occlusion/portal pass in the extract. */
+        struct AcousticQueryConfig
+        {
+            int ray_count = 8;             /**< Soft-occlusion rays per emitter (sphere sampling). */
+            int max_surfaces = 4;          /**< Transmission surfaces folded per blocked ray. */
+            int max_doorways = 2;          /**< Doorway virtual sources spawned per cross-room emitter. */
+            float reference_distance = 3.0f; /**< Distance at which a doorway is at unit gain. */
+        };
+
+        /**
+         * @brief Builds a room/portal graph from the world's @ref Room and @ref Portal
+         *        components (listener-local, so it matches the snapshot frame).
+         *
+         * A read-only host walk, run when the topology changes (rooms are static). Room
+         * boxes are placed relative to @p eye so the graph shares the snapshot's frame.
+         *
+         * @param world The ECS world to read.
+         * @param eye   The listener world position the local frame is centred on.
+         * @param graph The graph to fill (cleared first).
+         */
+        inline void build_portal_graph(World& world, const WorldVector3& eye, Audio::PortalGraph& graph)
+        {
+            graph.clear();
+            const Signature room_sig = make_signature<Transform, Room>();
+            for (Archetype* a : world.query(room_sig))
+            {
+                for (const std::unique_ptr<Chunk>& chunk : a->chunks())
+                {
+                    for (std::size_t row = 0; row < chunk->count(); ++row)
+                    {
+                        const Entity e = chunk->entity_at(row);
+                        const Room& r = world.get<Room>(e);
+                        const Audio::AudioVec3 c = Detail::to_local(world.get<Transform>(e).position, eye);
+                        Audio::AcousticAabb box;
+                        box.min = Audio::AudioVec3{c.x - static_cast<float>(r.half_extents.x),
+                                                   c.y - static_cast<float>(r.half_extents.y),
+                                                   c.z - static_cast<float>(r.half_extents.z)};
+                        box.max = Audio::AudioVec3{c.x + static_cast<float>(r.half_extents.x),
+                                                   c.y + static_cast<float>(r.half_extents.y),
+                                                   c.z + static_cast<float>(r.half_extents.z)};
+                        graph.add_room(r.id, box);
+                    }
+                }
+            }
+            const Signature portal_sig = make_signature<Transform, Portal>();
+            for (Archetype* a : world.query(portal_sig))
+            {
+                for (const std::unique_ptr<Chunk>& chunk : a->chunks())
+                {
+                    for (std::size_t row = 0; row < chunk->count(); ++row)
+                    {
+                        const Entity e = chunk->entity_at(row);
+                        const Portal& p = world.get<Portal>(e);
+                        const Audio::AudioVec3 c = Detail::to_local(world.get<Transform>(e).position, eye);
+                        graph.add_portal(p.room_a, p.room_b, c,
+                                         Audio::AudioVec3{static_cast<float>(p.half_extents.x),
+                                                          static_cast<float>(p.half_extents.y),
+                                                          static_cast<float>(p.half_extents.z)});
+                    }
+                }
+            }
+            graph.build();
+        }
 
         /**
          * @brief Builds the audio snapshot from the world's audio components.
@@ -94,10 +163,23 @@ namespace SushiEngine
          * and the highest-priority @ref ReverbZone that contains the listener as the
          * active environment. The world is only read, never written.
          *
-         * @param world The ECS world to read.
-         * @param out   The snapshot to fill (cleared first).
+         * When an @p acoustics scene (and optionally a @p portals graph) is supplied, every
+         * @ref AudioEmitter flagged @ref AUDIO_EMITTER_OCCLUDED is soft-occlusion tested
+         * against the geometry (in the listener-local frame the snapshot uses), and a
+         * cross-room source is muted and replaced by doorway virtual emitters through the
+         * portal graph. Passing null for both leaves the run exactly as before (and the
+         * whole walk is read-only either way, so a deterministic run stays byte-identical).
+         *
+         * @param world     The ECS world to read.
+         * @param out       The snapshot to fill (cleared first).
+         * @param acoustics Optional acoustic BVH (listener-local frame) for occlusion.
+         * @param portals   Optional room/portal graph (listener-local) for doorway sources.
+         * @param cfg       Occlusion/portal query tuning.
          */
-        inline void build_audio_snapshot(World& world, Audio::SceneSnapshot& out)
+        inline void build_audio_snapshot(World& world, Audio::SceneSnapshot& out,
+                                         const Audio::AcousticScene* acoustics = nullptr,
+                                         const Audio::PortalGraph* portals = nullptr,
+                                         const AcousticQueryConfig& cfg = AcousticQueryConfig{})
         {
             out.emitters.clear();
             out.has_reverb = false;
@@ -163,7 +245,66 @@ namespace SushiEngine
                         es.model = Detail::distance_model(em.distance_model);
                         es.rolloff = em.rolloff;
                         es.doppler_scale = em.doppler_scale;
-                        out.emitters.push_back(es);
+                        es.reverb_bus = em.reverb_bus;
+                        es.reverb_send = em.reverb_send;
+
+                        // Occlusion / portal propagation (listener at the local origin).
+                        const bool occluded_flag = (em.flags & AUDIO_EMITTER_OCCLUDED) != 0;
+                        Audio::OcclusionResult occ;
+                        if (acoustics != nullptr && occluded_flag && es.spatial)
+                        {
+                            occ = acoustics->soft_occlusion(es.position, Audio::AudioVec3{0, 0, 0},
+                                                            em.source_radius, cfg.ray_count,
+                                                            cfg.max_surfaces);
+                            for (int b = 0; b < 3; ++b)
+                                es.transmission[b] = occ.transmission[b];
+                        }
+
+                        if (portals != nullptr && es.spatial)
+                        {
+                            const Audio::PortalResolution pr = portals->resolve(
+                                Audio::AudioVec3{0, 0, 0}, es.position, cfg.reference_distance,
+                                cfg.max_doorways);
+                            if (pr.same_room)
+                            {
+                                es.obstruction = occ.fraction;
+                                es.occlusion = 0.0f;
+                                out.emitters.push_back(es);
+                            }
+                            else if (pr.source_reachable && !pr.doorways.empty())
+                            {
+                                // The wall occludes the direct path; the sound arrives through
+                                // the doorways as secondary virtual sources.
+                                std::uint64_t door = 0;
+                                for (const Audio::PortalSource& ps : pr.doorways)
+                                {
+                                    Audio::EmitterSnapshot d = es;
+                                    d.key = Detail::DOORWAY_KEY_BIT | (door << 48) |
+                                            (es.key & 0xffffffffffffull);
+                                    d.position = ps.position;
+                                    d.gain = es.gain * ps.gain;
+                                    d.priority = es.priority - 0.001f;
+                                    d.obstruction = 0.0f;
+                                    d.occlusion = 0.0f;
+                                    d.transmission[0] = d.transmission[1] = d.transmission[2] = 1.0f;
+                                    out.emitters.push_back(d);
+                                    ++door;
+                                }
+                            }
+                            else
+                            {
+                                // Isolated room, no open path: only the through-wall leak.
+                                es.obstruction = 0.0f;
+                                es.occlusion = occ.fraction;
+                                out.emitters.push_back(es);
+                            }
+                        }
+                        else
+                        {
+                            es.obstruction = 0.0f;
+                            es.occlusion = occ.fraction;
+                            out.emitters.push_back(es);
+                        }
                     }
                 }
             }
@@ -205,14 +346,20 @@ namespace SushiEngine
          * @ref build_audio_snapshot + @ref Audio::AudioScene::apply that reuses a
          * caller-owned snapshot to avoid per-frame allocation.
          *
-         * @param world    The ECS world to read.
-         * @param scene    The audio scene bridge to drive.
-         * @param scratch  A caller-owned snapshot reused across frames.
+         * @param world     The ECS world to read.
+         * @param scene     The audio scene bridge to drive.
+         * @param scratch   A caller-owned snapshot reused across frames.
+         * @param acoustics Optional acoustic BVH (listener-local) for occlusion.
+         * @param portals   Optional room/portal graph (listener-local) for doorway sources.
+         * @param cfg       Occlusion/portal query tuning.
          */
         inline void extract_audio_scene(World& world, Audio::AudioScene& scene,
-                                        Audio::SceneSnapshot& scratch)
+                                        Audio::SceneSnapshot& scratch,
+                                        const Audio::AcousticScene* acoustics = nullptr,
+                                        const Audio::PortalGraph* portals = nullptr,
+                                        const AcousticQueryConfig& cfg = AcousticQueryConfig{})
         {
-            build_audio_snapshot(world, scratch);
+            build_audio_snapshot(world, scratch, acoustics, portals, cfg);
             scene.apply(scratch);
         }
     } // namespace Simulation

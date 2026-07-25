@@ -69,6 +69,9 @@ namespace SushiEngine
             /** @brief Bytes of one joint palette matrix (16 column-major floats). */
             constexpr VkDeviceSize JOINT_MATRIX_SIZE = 64;
 
+            /** @brief Bytes of one dual-quaternion palette entry (real.xyzw + dual.xyzw). */
+            constexpr VkDeviceSize DUAL_QUATERNION_SIZE = 32;
+
             /** @brief Bytes of one skin vertex (four uint16 joints + four unorm8 weights). */
             constexpr VkDeviceSize SKIN_VERTEX_SIZE = 12;
 
@@ -95,6 +98,9 @@ namespace SushiEngine
                 std::uint32_t id = 0;            /**< Picking id. */
                 Mat4 model{};                    /**< Absolute object-to-world transform. */
                 Material material{};             /**< Surface to shade with. */
+                std::uint32_t morph_weight_base = 0;  /**< First slot of this instance's weights. */
+                std::uint32_t morph_target_count = 0; /**< Active morph targets (0 = mesh unmorphed). */
+                std::uint32_t use_dual_quaternion = 0; /**< 1 selects the DQS blend path (design §12.4). */
             };
 
             /**
@@ -153,6 +159,36 @@ namespace SushiEngine
                     /** @brief Bytes of the output buffer this frame. */
                     VkDeviceSize output_range() const noexcept;
 
+                    /**
+                     * @brief This slot's host-visible morph-weight buffer.
+                     *
+                     * Packed by @ref prepare from every instance's @c SkinnedInstance::morph_weights,
+                     * back to back — a flat `float[]` the SkinningPass indexes by each
+                     * @ref SkinnedRange::morph_weight_base. Never null once any instance in the
+                     * frame carries morph weights; @ref morph_weight_range is 0 when none do, and
+                     * the pass then binds a harmless filler buffer instead (weights are never read
+                     * when a range's morph_target_count is 0).
+                     */
+                    VkBuffer morph_weight_buffer(std::uint32_t slot) const noexcept;
+
+                    /** @brief Bytes of the morph-weight buffer this frame (0 if none active). */
+                    VkDeviceSize morph_weight_range() const noexcept;
+
+                    /**
+                     * @brief This slot's current-frame dual-quaternion palette buffer.
+                     *
+                     * Packed by @ref prepare from every instance's linear-blend palette,
+                     * converted joint-by-joint (design §12.4's `dual_quaternion_from_rigid`
+                     * algebra, inlined here to keep this render-side class independent of the
+                     * `Animation` namespace) — derived, not a second source of truth. Indexed by
+                     * the same `palette_base` a `SkinnedRange` already carries; only read by
+                     * the shader when that range's `use_dual_quaternion` is set.
+                     */
+                    VkBuffer dual_quaternion_palette_buffer(std::uint32_t slot) const noexcept;
+
+                    /** @brief Bytes of the dual-quaternion palette buffer this frame. */
+                    VkDeviceSize dual_quaternion_palette_range() const noexcept;
+
                 private:
                     /** @brief A VMA-backed buffer and the capacity it was allocated at. */
                     struct Allocation
@@ -171,11 +207,16 @@ namespace SushiEngine
                     std::vector<Allocation> palettes_;      /**< Host-visible current palettes, per slot. */
                     std::vector<Allocation> prev_palettes_; /**< Host-visible previous palettes, per slot. */
                     std::vector<Allocation> outputs_;       /**< Device-local skinned vertices, per slot. */
+                    std::vector<Allocation> morph_weights_; /**< Host-visible morph weights, per slot. */
+                    std::vector<Allocation> dual_quaternion_palettes_; /**< Host-visible DQ palettes, per slot. */
                     std::vector<SkinnedRange> ranges_;
                     std::vector<std::byte> palette_scratch_;
+                    std::vector<std::byte> morph_weight_scratch_;
                     std::vector<std::byte> prev_scratch_;
+                    std::vector<std::byte> dual_quaternion_scratch_;
                     std::uint32_t total_joints_ = 0;
                     std::uint32_t total_vertices_ = 0;
+                    std::uint32_t total_morph_weights_ = 0;
             };
         } // namespace Scene
     } // namespace Render

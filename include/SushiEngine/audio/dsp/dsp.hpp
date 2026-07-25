@@ -38,14 +38,17 @@
  */
 
 #include <SushiEngine/audio/dsp/air_absorption.hpp>
+#include <SushiEngine/audio/dsp/convolution.hpp>
 #include <SushiEngine/audio/dsp/denormals.hpp>
 #include <SushiEngine/audio/dsp/fdn_reverb.hpp>
 #include <SushiEngine/audio/dsp/feedback_matrix.hpp>
+#include <SushiEngine/audio/dsp/fft.hpp>
 #include <SushiEngine/audio/dsp/filters/biquad.hpp>
 #include <SushiEngine/audio/dsp/filters/one_pole.hpp>
 #include <SushiEngine/audio/dsp/filters/state_variable.hpp>
 #include <SushiEngine/audio/dsp/fractional_delay.hpp>
 #include <SushiEngine/audio/dsp/graph.hpp>
+#include <SushiEngine/audio/dsp/modal.hpp>
 #include <SushiEngine/audio/dsp/nodes.hpp>
 #include <SushiEngine/audio/dsp/simd.hpp>
 #include <SushiEngine/audio/dsp/spherical_harmonics.hpp>

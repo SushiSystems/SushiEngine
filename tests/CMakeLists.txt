@@ -95,6 +95,52 @@ add_executable(se_functional_tests
     # on silence or removal) and reverb-zone steering, driven by a hand-built snapshot.
     functional/unit/test_audio_scene.cpp
 
+    # Audio S7: occlusion/obstruction — the acoustic BVH (BLAS ray hit/miss, TLAS placement
+    # + refit), three-band material transmission (through-wall is bassy), soft multi-ray
+    # occlusion, the occlusion DSP (obstruction muffles dry, occlusion also cuts the reverb
+    # send), the room/portal graph (cross-room → doorway source), and image-source early
+    # reflections.
+    functional/unit/test_audio_occlusion.cpp
+
+    # Audio S8: the asset pipeline — the codecs (PCM round-trip, IMA-ADPCM fidelity + 4:1
+    # density + chunked==one-shot streaming safety), the bank binary (build/load round-trip,
+    # media lookup/decode, malformed-data rejection), the event/container model
+    # (Sound/Random/Sequence/Switch/Blend), the bank-backed IEmitterSourceFactory, and the
+    # streaming decoder/source (memory source pumped into the ring, rendered, drained).
+    functional/unit/test_audio_bank.cpp
+
+    # Audio S9: the live-profiler telemetry channel — the seqlock audio→GUI snapshot
+    # (publish/latest, empty before first publish), the mixer's per-bus meters, and the
+    # AudioEngine gather (real/virtual/active voice counts, master peak/RMS tracking the
+    # signal, per-bus meters, downsampled scope; profiling toggle).
+    functional/unit/test_audio_profiler.cpp
+
+    # Audio S10: procedural sources — modal impact synthesis (ring/decay/energy scaling)
+    # and wind (speed-driven level + seed determinism).
+    functional/unit/test_audio_procedural.cpp
+
+    # Audio S10: fast convolution — the radix-2 FFT round-trip, the partitioned overlap-save
+    # convolver vs a direct time-domain convolution, and the convolution reverb (bounded
+    # decaying tail whose length tracks the requested decay).
+    functional/unit/test_audio_convolution.cpp
+
+    # Audio S11 (AAA gap-closing): the bus dynamics rack — compressor (+ sidechain ducking),
+    # lookahead brick-wall limiter, and noise gate.
+    functional/unit/test_audio_dynamics.cpp
+
+    # Audio S11 (AAA gap-closing): voice-layer additions — sample-rate conversion, per-voice
+    # pitch, voice stealing, HDR culling, the lock-free command ring, and multi-core rendering.
+    functional/unit/test_audio_voice.cpp
+
+    # Audio S11 (AAA gap-closing): state-based mixing — snapshot snap + timed cross-fade.
+    functional/unit/test_audio_mix_state.cpp
+
+    # Audio S12 (AAA gap-closing, dependency-free): the authoring project → runtime flatten
+    # (contiguous-child layout, container semantics survive the bake), the MagLS binaural
+    # decoder + anthropometric HRTF warp (laterality, head-size ITD scaling) over a synthetic
+    # HRTF, and ray-traced room acoustics (RT60 vs Sabine, Maekawa edge diffraction).
+    functional/unit/test_audio_advanced.cpp
+
     # VFX: the particle authoring model and the deterministic CPU backend, in isolation.
     # Curve/gradient evaluation + bake, the emitter compiler's POD boundary, and spawn
     # accounting — pure header-only maths, the shared foundation of both simulation domains.

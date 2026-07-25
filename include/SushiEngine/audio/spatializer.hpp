@@ -55,6 +55,8 @@
 #include <SushiEngine/audio/dsp/fractional_delay.hpp>
 #include <SushiEngine/audio/dsp/simd.hpp>
 #include <SushiEngine/audio/dsp/spherical_harmonics.hpp>
+#include <SushiEngine/audio/hrtf.hpp>
+#include <SushiEngine/audio/magls.hpp>
 
 namespace SushiEngine
 {
@@ -119,10 +121,46 @@ namespace SushiEngine
 
                     build_speakers(head_radius_m);
                     calibrate();
+                    load_hrir_into_speakers();
                 }
 
                 /** @brief The number of ambisonic channels. */
                 int channel_count() const noexcept { return channels_; }
+
+                /**
+                 * @brief Selects a measured-HRTF database for the binaural decode.
+                 *
+                 * With a database set, @ref decode_binaural convolves each virtual speaker's
+                 * signal through that direction's measured HRIR pair instead of the analytic
+                 * ITD/shadow/timbre model — the pinna and torso cues of a real head. Pass
+                 * `nullptr` to fall back to the analytic model. Safe to call after @ref configure;
+                 * the per-speaker impulse responses are (re)loaded immediately.
+                 *
+                 * @param database The HRIR provider, or `nullptr` for the analytic path.
+                 */
+                void set_hrtf_database(const IHrtfDatabase* database)
+                {
+                    hrtf_ = database;
+                    load_hrir_into_speakers();
+                }
+
+                /** @brief Whether a measured-HRTF database is active. */
+                bool uses_measured_hrtf() const noexcept { return hrtf_ != nullptr; }
+
+                /**
+                 * @brief Selects a Magnitude-Least-Squares decoder for the binaural output.
+                 *
+                 * When set (and valid), @ref decode_binaural applies the decoder's per-channel
+                 * FIRs directly to the ambisonic bus — the highest-fidelity path, taking priority
+                 * over both the per-speaker measured HRIR and the analytic model. Pass `nullptr` to
+                 * fall back. The decoder is borrowed and must outlive the spatializer.
+                 *
+                 * @param decoder The MagLS decoder, or `nullptr`.
+                 */
+                void set_magls_decoder(MaglsBinauralDecoder* decoder) noexcept { magls_ = decoder; }
+
+                /** @brief Whether a MagLS decoder is active. */
+                bool uses_magls() const noexcept { return magls_ != nullptr && magls_->valid(); }
 
                 /** @brief Zeroes the ambisonic bus for a fresh block. */
                 void begin_block(int frame_count) noexcept
@@ -173,6 +211,19 @@ namespace SushiEngine
                         frame_count = max_block_;
                     if (!encoded_)
                         return; // nothing spatial this block: leave the ear buffers as-is
+
+                    if (magls_ != nullptr && magls_->valid())
+                    {
+                        // Highest-fidelity path: decode the bus straight to the ears with the
+                        // per-channel MagLS FIRs, bypassing the virtual-speaker layout entirely.
+                        bus_ptrs_.resize(static_cast<std::size_t>(channels_));
+                        for (int ch = 0; ch < channels_; ++ch)
+                            bus_ptrs_[static_cast<std::size_t>(ch)] =
+                                bus_[static_cast<std::size_t>(ch)].data();
+                        magls_->process(bus_ptrs_.data(), channels_, frame_count, left, right);
+                        return;
+                    }
+
                     for (Speaker& speaker : speakers_)
                     {
                         // Speaker signal = projection of the bus onto the speaker direction.
@@ -181,6 +232,23 @@ namespace SushiEngine
                             Dsp::Simd::mix_accumulate(speaker_scratch_.data(),
                                                       bus_[static_cast<std::size_t>(ch)].data(),
                                                       frame_count, decode_scale_ * speaker.gains[static_cast<std::size_t>(ch)]);
+
+                        if (hrtf_ != nullptr)
+                        {
+                            // Measured path: the HRIR pair carries the full ITD, shadow, and
+                            // pinna/torso spectrum, so it replaces the analytic ear model.
+                            speaker.left_hrir.process_block(speaker_scratch_.data(), left,
+                                                            frame_count);
+                            speaker.right_hrir.process_block(speaker_scratch_.data(), right,
+                                                             frame_count);
+                            continue;
+                        }
+
+                        // Apply the direction spectral cue (front/back + elevation) before the
+                        // per-ear ITD/shadow, so rear/elevated sources are timbrally distinct.
+                        for (int i = 0; i < frame_count; ++i)
+                            speaker_scratch_[static_cast<std::size_t>(i)] =
+                                speaker.timbre.process(speaker_scratch_[static_cast<std::size_t>(i)]);
 
                         accumulate_ear(speaker.left_delay, speaker.left_shadow, speaker.left_is_far,
                                        speaker.left_itd, speaker.left_gain, speaker.left_cutoff,
@@ -191,10 +259,42 @@ namespace SushiEngine
                     }
                 }
 
+                /**
+                 * @brief Decodes the ambisonic bus to one real loudspeaker direction (surround).
+                 *
+                 * The discrete-speaker counterpart of @ref decode_binaural: projects the
+                 * scene bus onto @p (ux,uy,uz) and **adds** the result into @p out — used to
+                 * render true multichannel surround (one call per output speaker) instead of
+                 * folding everything to the two ears. Head-relative directions, so a head
+                 * turn rotates the surround field just like the binaural path.
+                 *
+                 * @param ux,uy,uz    The speaker's unit direction (x front, y left, z up).
+                 * @param out         The speaker's mono output, accumulated into.
+                 * @param frame_count Number of samples.
+                 */
+                void decode_direction(float ux, float uy, float uz, float* out, int frame_count) noexcept
+                {
+                    if (frame_count > max_block_)
+                        frame_count = max_block_;
+                    if (!encoded_)
+                        return;
+                    float gains[Dsp::MAX_AMBISONIC_CHANNELS];
+                    Dsp::ambisonic_encode_gains(order_, ux, uy, uz, gains);
+                    for (int ch = 0; ch < channels_; ++ch)
+                        Dsp::Simd::mix_accumulate(out, bus_[static_cast<std::size_t>(ch)].data(),
+                                                  frame_count, decode_scale_ * gains[ch]);
+                }
+
             private:
                 struct Speaker
                 {
                     std::vector<float> gains; // encode gains at this speaker's direction (ACN)
+                    float dir_x = 0.0f;       // unit direction (front) for the HRIR lookup
+                    float dir_y = 0.0f;       // unit direction (left)
+                    float dir_z = 0.0f;       // unit direction (up)
+                    HrirConvolver left_hrir;  // measured-HRTF path (when a database is set)
+                    HrirConvolver right_hrir;
+                    Dsp::Biquad timbre;       // direction spectral cue: front/back + elevation
                     Dsp::FractionalDelayLine left_delay;
                     Dsp::FractionalDelayLine right_delay;
                     Dsp::OnePole left_shadow;
@@ -250,8 +350,21 @@ namespace SushiEngine
                         const float uy = directions[s][1] / len; // left component = lateral
                         const float uz = directions[s][2] / len;
 
+                        speaker.dir_x = ux;
+                        speaker.dir_y = uy;
+                        speaker.dir_z = uz;
                         speaker.gains.assign(static_cast<std::size_t>(channels_), 0.0f);
                         Dsp::ambisonic_encode_gains(order_, ux, uy, uz, speaker.gains.data());
+
+                        // Direction spectral cue (breaks the front/back and up/down cone of
+                        // confusion the ITD alone cannot): the pinna dulls rear sources and
+                        // brightens elevated ones. A high-shelf whose gain follows front/back
+                        // (ux) and elevation (uz).
+                        const float fb_db = ux >= 0.0f ? 2.0f * ux : 8.0f * ux;
+                        const float el_db = 3.0f * uz;
+                        speaker.timbre.set_high_shelf(5000.0, static_cast<double>(fb_db + el_db),
+                                                      sample_rate_);
+                        speaker.timbre.reset();
 
                         speaker.left_delay.prepare(itd_headroom);
                         speaker.right_delay.prepare(itd_headroom);
@@ -293,6 +406,25 @@ namespace SushiEngine
                     }
                 }
 
+                // (Re)load each virtual speaker's measured HRIR pair from the active database.
+                void load_hrir_into_speakers()
+                {
+                    if (hrtf_ == nullptr || speakers_.empty())
+                        return;
+                    const int n = hrtf_->ir_length();
+                    if (n <= 0)
+                        return;
+                    std::vector<float> left_ir(static_cast<std::size_t>(n), 0.0f);
+                    std::vector<float> right_ir(static_cast<std::size_t>(n), 0.0f);
+                    for (Speaker& speaker : speakers_)
+                    {
+                        hrtf_->get_hrir(speaker.dir_x, speaker.dir_y, speaker.dir_z, left_ir.data(),
+                                        right_ir.data());
+                        speaker.left_hrir.prepare(left_ir.data(), n);
+                        speaker.right_hrir.prepare(right_ir.data(), n);
+                    }
+                }
+
                 // Normalise so a unit source straight ahead reaches ~unit level at each ear.
                 void calibrate()
                 {
@@ -315,6 +447,9 @@ namespace SushiEngine
                 int max_block_ = 0;
                 float decode_scale_ = 1.0f;
                 bool encoded_ = false;
+                const IHrtfDatabase* hrtf_ = nullptr;
+                MaglsBinauralDecoder* magls_ = nullptr;
+                std::vector<const float*> bus_ptrs_;
                 std::vector<std::vector<float>> bus_;
                 std::vector<float> speaker_scratch_;
                 std::vector<float> ear_scratch_;

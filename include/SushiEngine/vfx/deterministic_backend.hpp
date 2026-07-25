@@ -46,6 +46,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/vfx/compiled_emitter.hpp>
+#include <SushiEngine/vfx/emitter_descriptor.hpp>
 #include <SushiEngine/vfx/random.hpp>
 
 namespace SushiEngine
@@ -119,7 +120,7 @@ namespace SushiEngine
                     state.time += dt;
 
                     emit(state, emitter, dt, previous_time, emitter_position, emitter_rotation);
-                    integrate(state, emitter, effect, dt);
+                    integrate(state, emitter, effect, dt, emitter_position, emitter_rotation);
                 }
 
             private:
@@ -237,9 +238,17 @@ namespace SushiEngine
                     ++state.spawn_serial;
                 }
 
-                /** @brief Integrates every live particle one step, retiring the dead. */
+                /**
+                 * @brief Integrates every live particle one step, retiring the dead.
+                 *
+                 * Takes the emitter pose because force fields are authored in the emitter's local
+                 * frame while these particles live in world space, so each field's centre and axis
+                 * are placed once per step rather than per particle.
+                 */
                 static void integrate(DeterministicEmitterState& state, const CompiledEmitter& emitter,
-                                      const CompiledEffect& effect, float dt) noexcept
+                                      const CompiledEffect& effect, float dt,
+                                      const Vector3& emitter_position,
+                                      const Quaternion& emitter_rotation) noexcept
                 {
                     const float* size_row = effect.curve_row(emitter.size_curve_lut);
                     const float* color_row = effect.gradient_row(emitter.color_gradient_lut);
@@ -248,7 +257,30 @@ namespace SushiEngine
                     const bool has_turbulence = (emitter.update_flags & UPDATE_TURBULENCE) != 0;
                     const bool has_size = (emitter.update_flags & UPDATE_SIZE_OVER_LIFE) != 0;
                     const bool has_color = (emitter.update_flags & UPDATE_COLOR_OVER_LIFE) != 0;
+                    const bool has_fields = (emitter.update_flags & UPDATE_FORCE_FIELDS) != 0;
                     const std::uint32_t flip_cells = emitter.flipbook_rows * emitter.flipbook_columns;
+
+                    // The fields, placed into the world once for the whole step.
+                    Vector3T<float> field_position[MAX_FORCE_FIELDS];
+                    Vector3T<float> field_axis[MAX_FORCE_FIELDS];
+                    const std::uint32_t field_count =
+                        has_fields ? emitter.force_field_count : 0u;
+                    for (std::uint32_t f = 0; f < field_count; ++f)
+                    {
+                        const CompiledForceField& field = emitter.force_fields[f];
+                        const Vector3 centre =
+                            emitter_position +
+                            rotate(emitter_rotation, Vector3{field.position[0], field.position[1],
+                                                             field.position[2]});
+                        const Vector3 axis = rotate(
+                            emitter_rotation, Vector3{field.axis[0], field.axis[1], field.axis[2]});
+                        field_position[f] = Vector3T<float>{static_cast<float>(centre.x),
+                                                            static_cast<float>(centre.y),
+                                                            static_cast<float>(centre.z)};
+                        field_axis[f] = Vector3T<float>{static_cast<float>(axis.x),
+                                                        static_cast<float>(axis.y),
+                                                        static_cast<float>(axis.z)};
+                    }
 
                     std::uint32_t i = 0;
                     while (i < state.alive_count)
@@ -273,9 +305,66 @@ namespace SushiEngine
                             az += cz * emitter.turbulence_amplitude;
                         }
 
+                        // Placed fields. A field's weight is 1 at its centre and 0 at its rim,
+                        // raised to the authored falloff, so a field never pulls on a particle
+                        // outside it and never spikes to infinity at the centre the way a raw
+                        // inverse-square would. Drag fields do not accelerate; they accumulate a
+                        // damping factor applied with the emitter's own drag below.
+                        float field_damp = 1.0f;
+                        for (std::uint32_t f = 0; f < field_count; ++f)
+                        {
+                            const CompiledForceField& field = emitter.force_fields[f];
+                            const float dx = field_position[f].x - p.position[0];
+                            const float dy = field_position[f].y - p.position[1];
+                            const float dz = field_position[f].z - p.position[2];
+                            const float distance_squared = dx * dx + dy * dy + dz * dz;
+                            if (distance_squared > field.radius * field.radius)
+                                continue;
+                            const float distance = std::sqrt(distance_squared);
+                            const float weight =
+                                std::pow(1.0f - distance / field.radius, field.falloff);
+                            if (field.kind == ForceFieldKind::Drag)
+                            {
+                                field_damp -= field.strength * weight * dt;
+                                continue;
+                            }
+                            if (distance < 1e-4f)
+                                continue; // at the exact centre there is no direction to push along
+                            const float inverse = 1.0f / distance;
+                            if (field.kind == ForceFieldKind::Point)
+                            {
+                                const float scale = field.strength * weight * inverse;
+                                ax += dx * scale;
+                                ay += dy * scale;
+                                az += dz * scale;
+                            }
+                            else // Vortex: push along axis x (particle - centre)
+                            {
+                                const float rx = -dx, ry = -dy, rz = -dz;
+                                const float tx = field_axis[f].y * rz - field_axis[f].z * ry;
+                                const float ty = field_axis[f].z * rx - field_axis[f].x * rz;
+                                const float tz = field_axis[f].x * ry - field_axis[f].y * rx;
+                                const float length = std::sqrt(tx * tx + ty * ty + tz * tz);
+                                if (length < 1e-6f)
+                                    continue; // on the axis itself, where there is nothing to swirl
+                                const float scale = field.strength * weight / length;
+                                ax += tx * scale;
+                                ay += ty * scale;
+                                az += tz * scale;
+                            }
+                        }
+
                         p.velocity[0] += ax * dt;
                         p.velocity[1] += ay * dt;
                         p.velocity[2] += az * dt;
+                        if (field_damp < 1.0f)
+                        {
+                            if (field_damp < 0.0f)
+                                field_damp = 0.0f;
+                            p.velocity[0] *= field_damp;
+                            p.velocity[1] *= field_damp;
+                            p.velocity[2] *= field_damp;
+                        }
                         if (has_drag)
                         {
                             float damp = 1.0f - emitter.drag_coefficient * dt;

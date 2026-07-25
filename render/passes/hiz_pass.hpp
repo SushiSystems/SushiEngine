@@ -88,6 +88,17 @@ namespace SushiEngine
                     /** @brief Whether a pyramid has been built and is safe to sample. */
                     bool valid() const noexcept { return image_ != VK_NULL_HANDLE; }
 
+                    /**
+                     * @brief Whether the pyramid holds a frame's depth that may be sampled.
+                     *
+                     * The pyramid is pass-owned and survives the frame, so a pass registered
+                     * *before* this one samples the previous frame's depth — which is what makes it
+                     * useful to the particle simulation, and what makes this flag necessary: before
+                     * the first build the image has never been written or transitioned out of
+                     * UNDEFINED, and when the pass is switched off its contents go stale.
+                     */
+                    bool has_history() const noexcept { return has_history_; }
+
                     /** @brief Levels in the current pyramid. */
                     std::uint32_t mip_count() const noexcept { return mips_; }
 
@@ -119,6 +130,7 @@ namespace SushiEngine
                     std::uint32_t width_ = 0;
                     std::uint32_t height_ = 0;
                     std::uint32_t mips_ = 0;
+                    bool has_history_ = false;
             };
         } // namespace Passes
     } // namespace Render

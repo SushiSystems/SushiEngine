@@ -64,6 +64,15 @@
 #include <SushiEngine/animation/ik_look_at.hpp>
 #include <SushiEngine/animation/ik_chain.hpp>
 #include <SushiEngine/animation/ik_foot_placement.hpp>
+#include <SushiEngine/animation/ik_full_body.hpp>
+#include <SushiEngine/animation/jiggle_bone.hpp>
+#include <SushiEngine/animation/dual_quaternion_skinning.hpp>
+#include <SushiEngine/animation/facial_blendshapes.hpp>
+#include <SushiEngine/animation/sequence_timeline.hpp>
+#include <SushiEngine/animation/motion_matching.hpp>
+#include <SushiEngine/animation/motion_match_sampler.hpp>
+#include <SushiEngine/animation/ragdoll_blend.hpp>
 #include <SushiEngine/animation/humanoid.hpp>
 #include <SushiEngine/animation/retarget.hpp>
+#include <SushiEngine/animation/runtime_retarget.hpp>
 #include <SushiEngine/animation/edit_preview.hpp>

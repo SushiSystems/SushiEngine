@@ -24,8 +24,10 @@
  * @brief Compute pre-skinning: skins every skinned character once per frame (design §6.2).
  *
  * Runs before the depth prepass. For each skinned instance the host laid out (see
- * `SkinningSystem`), it dispatches one thread per vertex to linear-blend-skin the base
- * vertex by its instance's joint palette (current and previous frame) and write an
+ * `SkinningSystem`), it dispatches one thread per vertex: first blends `Σ weight × delta`
+ * from the mesh's morph-target buffer into the base position when the instance has active
+ * morph weights (design §6.5/§12.1, position-only), then linear-blend-skins the (possibly
+ * morphed) vertex by its instance's joint palette (current and previous frame) and writes an
  * interleaved SkinnedVertex into the frame's output buffer. The opaque pass then draws each
  * instance's slice as a static mesh. Like `ClothPass`, the output buffer is
  * SkinningSystem-owned rather than a graph resource, so the write is hand-barriered from the
@@ -96,6 +98,9 @@ namespace SushiEngine
                         std::uint32_t palette_base;
                         std::uint32_t out_base;
                         std::uint32_t prev_valid;
+                        std::uint32_t morph_target_count;
+                        std::uint32_t morph_weight_base;
+                        std::uint32_t use_dual_quaternion; /**< 1 selects the DQS blend (§12.4). */
                     };
 
                     void create_pipeline();

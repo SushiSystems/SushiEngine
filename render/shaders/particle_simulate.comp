@@ -18,12 +18,23 @@ layout(std430, set = 0, binding = 3) buffer DrawArgs { uint args[]; };
 layout(std430, set = 0, binding = 4) readonly buffer CurveLuts { float curve_luts[]; };
 layout(std430, set = 0, binding = 5) readonly buffer GradientLuts { float gradient_luts[]; };
 layout(std430, set = 0, binding = 6) writeonly buffer AlphaDrawList { Particle alpha_draw[]; };
+layout(std430, set = 0, binding = 7) writeonly buffer RibbonDrawList { Particle ribbon_draw[]; };
+layout(std430, set = 0, binding = 8) buffer Trail { vec4 trail[]; };
+layout(std430, set = 0, binding = 9) writeonly buffer MeshDrawList { Particle mesh_draw[]; };
+layout(std430, set = 0, binding = 10) buffer MeshArgs { uint mesh_args[]; };
+// Last frame's linearised depth pyramid, level 0 — the collision surface. Pass-owned by HizPass and
+// so still holding the previous frame when this pass runs, which is before the depth prepass.
+layout(set = 0, binding = 11) uniform sampler2D depth_pyramid;
 
+// Exactly 128 bytes, the house budget, shared with particle_emit.comp. The camera block is here
+// only for the depth collision, which projects each particle into last frame's depth pyramid.
 layout(push_constant) uniform Push
 {
-    uint emitter_index; // unused here
-    uint capacity;      // pool slots to sweep
-    float dt;           // fixed simulation step this frame
+    mat4 view_projection;
+    vec4 camera_right;  // xyz world camera right; w = tan(half horizontal fov)
+    vec4 camera_up;     // xyz world camera up;    w = tan(half vertical fov)
+    uvec4 counts;       // x = emitter index (emit only), y = pool capacity, z = depth pyramid usable
+    vec4 misc;          // x = fixed simulation step this frame
 } pc;
 
 float sample_curve(int lut, float t)
@@ -56,7 +67,7 @@ vec4 sample_gradient(int lut, float t)
 void main()
 {
     uint i = gl_GlobalInvocationID.x;
-    if (i >= pc.capacity)
+    if (i >= pc.counts.y)
         return;
 
     Particle p = pool[i];
@@ -73,12 +84,24 @@ void main()
     if ((e.update_flags & UPDATE_TURBULENCE) != 0u)
         accel += curl_noise(pos * e.turbulence_frequency) * e.turbulence_amplitude;
 
-    vel += accel * pc.dt;
+    float field_damp = 1.0;
+    if ((e.update_flags & UPDATE_FORCE_FIELDS) != 0u)
+        accel += particle_force_fields(e, pos, pc.misc.x, field_damp);
+
+    vel += accel * pc.misc.x;
+    if (field_damp < 1.0)
+        vel *= max(0.0, field_damp);
     if ((e.update_flags & UPDATE_DRAG) != 0u)
-        vel *= max(0.0, 1.0 - e.drag_coefficient * pc.dt);
-    pos += vel * pc.dt;
-    p.rotation += p.angular_velocity * pc.dt;
-    p.age += pc.dt;
+        vel *= max(0.0, 1.0 - e.drag_coefficient * pc.misc.x);
+    pos += vel * pc.misc.x;
+    // Collide after the move, so the test sees where the particle actually got to this step.
+    if ((e.update_flags & UPDATE_COLLISION) != 0u && pc.counts.z != 0u)
+    {
+        particle_depth_collide(depth_pyramid, e, pc.view_projection, pc.camera_right.xyz,
+                               pc.camera_up.xyz, pc.camera_right.w, pc.camera_up.w, pos, vel);
+    }
+    p.rotation += p.angular_velocity * pc.misc.x;
+    p.age += pc.misc.x;
 
     if (p.age >= p.lifetime)
     {
@@ -111,9 +134,39 @@ void main()
 
     pool[i] = p;
 
-    // Bucket by blend: true-alpha into the alpha list (draw arg [4..7]), additive and
-    // premultiplied into the order-independent additive list (draw arg [0..3]).
-    if (e.blend == BLEND_ALPHA)
+    // The trail is shifted rather than kept as a ring: with the newest sample always at index 0
+    // the vertex stage needs no head index, which would otherwise have to reach it through a
+    // push constant the 128-byte draw block has no room for. Seven vec4 moves against a curl-noise
+    // evaluation is not a cost worth that complication.
+    if (e.alignment == ALIGN_RIBBON)
+    {
+        uint base = i * TRAIL_POINTS;
+        for (uint k = TRAIL_POINTS - 1u; k > 0u; --k)
+            trail[base + k] = trail[base + k - 1u];
+        trail[base] = vec4(pos, p.size);
+    }
+
+    // Bucket the survivors. Geometry decides first: ribbons draw as strips (draw arg [8..11]) and
+    // mesh particles as indexed instances in their emitter's own slice, both of which are a
+    // different draw rather than a different shader path. Everything left is a sprite and splits by
+    // blend — true-alpha into the alpha list (draw arg [4..7]), additive and premultiplied into the
+    // order-independent additive list (draw arg [0..3]).
+    if (e.alignment == ALIGN_RIBBON)
+        ribbon_draw[atomicAdd(args[9], 1u)] = p;
+    else if (e.alignment == ALIGN_MESH)
+    {
+        // An emitter past the last mesh slice draws nothing: sharing a slice would render its
+        // particles as another emitter's mesh, which is worse than dropping them. The slice bound
+        // is checked here because the indirect instance count is a GPU value the host cannot clamp.
+        if (e.mesh_slot != NO_MESH_SLOT)
+        {
+            uint slice = e.capacity / MAX_MESH_EMITTERS;
+            uint local = atomicAdd(mesh_args[e.mesh_slot * 5u + 1u], 1u);
+            if (local < slice)
+                mesh_draw[e.mesh_slot * slice + local] = p;
+        }
+    }
+    else if (e.blend == BLEND_ALPHA)
         alpha_draw[atomicAdd(args[5], 1u)] = p;
     else
         draw[atomicAdd(args[1], 1u)] = p;

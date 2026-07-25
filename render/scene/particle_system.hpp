@@ -50,6 +50,7 @@
 #include <vk_mem_alloc.h>
 
 #include <SushiEngine/render/scene_view.hpp>
+#include <SushiEngine/vfx/compiled_emitter.hpp>
 
 namespace SushiEngine
 {
@@ -58,6 +59,16 @@ namespace SushiEngine
         namespace Vulkan
         {
             class VulkanDevice;
+        }
+
+        namespace Geometry
+        {
+            class MeshRegistry;
+        }
+
+        namespace Assets
+        {
+            class TextureLibrary;
         }
 
         namespace Scene
@@ -94,7 +105,7 @@ namespace SushiEngine
 
                 float lifetime_min, lifetime_max, speed_min, speed_max;
                 float size_min, size_max, rotation_min, rotation_max;
-                float angular_min, angular_max, pad_a, pad_b;
+                float angular_min, angular_max, velocity_stretch, pad_b;
 
                 std::int32_t size_curve_lut;     /**< Curve-atlas row, or -1. */
                 std::int32_t color_gradient_lut; /**< Gradient-atlas row, or -1. */
@@ -106,10 +117,38 @@ namespace SushiEngine
                 std::uint32_t flipbook_rows;
                 std::uint32_t flipbook_columns;
 
-                std::uint32_t blend;   /**< Vfx::BlendMode: buckets the particle (additive vs alpha). */
-                std::uint32_t sort;    /**< Vfx::SortMode: whether the alpha segment is depth-sorted. */
-                std::uint32_t pad0;
-                std::uint32_t pad1;
+                std::uint32_t blend;     /**< Vfx::BlendMode: buckets the particle (additive vs alpha). */
+                std::uint32_t sort;      /**< Vfx::SortMode: whether the alpha segment is depth-sorted. */
+                std::uint32_t alignment; /**< Vfx::RenderAlignment: how the vertex stage orients the quad. */
+                std::uint32_t mesh_slot; /**< Mesh-draw slice this emitter fills, or NO_MESH_SLOT. */
+
+                std::uint32_t force_field_count; /**< Active entries in @ref force_fields. */
+                float collision_restitution;     /**< Normal velocity kept on a depth bounce. */
+                float collision_friction;        /**< Tangential velocity shed on a depth bounce. */
+                float collision_thickness;       /**< Depth behind a surface still counted as contact. */
+
+                /**
+                 * @brief The particle material: @ref Vfx::RenderFlags bits.
+                 *
+                 * Carried per emitter rather than per draw because a bucket mixes emitters — the
+                 * additive list holds every non-alpha sprite whatever its author asked for — so
+                 * the draw is the wrong granularity for "is this lit", "is this soft", "is this
+                 * textured".
+                 */
+                std::uint32_t render_flags;
+                std::uint32_t texture;      /**< Bindless heap slot; meaningful with RENDER_TEXTURED. */
+                float soft_fade_distance;   /**< Metres the soft-particle fade ramps over. */
+                float pad_material;
+
+                /**
+                 * @brief The emitter's placed force fields, baked to world space.
+                 *
+                 * Three `vec4`s each: (centre.xyz, strength), (axis.xyz, radius),
+                 * (kind, falloff, pad, pad). The compiled record keeps them emitter-local; the
+                 * transform is applied here, once per frame, so the shader evaluates them in the
+                 * absolute space its particles live in.
+                 */
+                float force_fields[Vfx::MAX_FORCE_FIELDS][12];
             };
 
             /**
@@ -120,6 +159,37 @@ namespace SushiEngine
             class ParticleSystem
             {
                 public:
+                    /**
+                     * @brief Trail samples kept per particle for the ribbon path.
+                     *
+                     * Mirrored by `TRAIL_POINTS` in particle_common.glsl. The strip a ribbon draws
+                     * is one quad shorter than this.
+                     */
+                    static constexpr std::uint32_t TRAIL_POINTS = 8;
+
+                    /** @brief Vertices one ribbon instance draws: six per segment. */
+                    static constexpr std::uint32_t RIBBON_VERTICES = (TRAIL_POINTS - 1) * 6;
+
+                    /**
+                     * @brief Distinct meshes that can be drawn as mesh particles in one frame.
+                     *
+                     * Each claims an equal slice of the mesh draw list and one indexed indirect
+                     * command, because one draw can bind only one mesh. Mirrored by
+                     * `MAX_MESH_EMITTERS` in particle_common.glsl.
+                     */
+                    static constexpr std::uint32_t MAX_MESH_EMITTERS = 4;
+
+                    /** @brief Marks an emitter that owns no mesh-draw slice. */
+                    static constexpr std::uint32_t NO_MESH_SLOT = 0xFFFFFFFFu;
+
+                    /** @brief One frame's mesh-particle draw: which mesh, and which slice it fills. */
+                    struct MeshDraw
+                    {
+                        MeshId mesh;                 /**< Mesh the slice's particles are drawn as. */
+                        std::uint32_t slot;          /**< Slice index, and so the indirect command's. */
+                        std::uint32_t index_count;   /**< Indices the mesh draws. */
+                    };
+
                     /**
                      * @brief Allocates the shared pool and the per-slot upload buffers.
                      * @param device      The live Vulkan device.
@@ -141,13 +211,28 @@ namespace SushiEngine
                      * this slot's host buffers, and advances each emitter's ring cursor by its
                      * spawn count. Records nothing on the GPU.
                      *
+                     * Mesh-aligned emitters additionally claim one of the @ref MAX_MESH_EMITTERS
+                     * mesh-draw slices here, which is why the mesh registry is needed: the slice's
+                     * indirect command has to carry its mesh's index count, and only the host knows
+                     * it.
+                     *
+                     * Sprite textures resolve here too, for the same reason: the authored record
+                     * names a texture-library id, and only the library knows which bindless heap
+                     * slot that id currently occupies. An emitter whose texture cannot be resolved
+                     * loses its `RENDER_TEXTURED` bit and draws as the built-in dot, so the
+                     * fragment stage never indexes the heap with an unallocated slot.
+                     *
                      * @param slot        The frame slot being recorded.
                      * @param frame_index Monotonic frame counter (selects the ping-pong copy).
                      * @param emitters    The frame's cosmetic emitters.
                      * @param count       Number of entries in @p emitters.
+                     * @param meshes      Registry the mesh-aligned emitters resolve their mesh in.
+                     * @param textures    Library the sprite textures resolve their heap slot in.
                      */
                     void prepare(std::uint32_t slot, std::uint32_t frame_index,
-                                 const ParticleEmitterView* emitters, std::size_t count);
+                                 const ParticleEmitterView* emitters, std::size_t count,
+                                 const Geometry::MeshRegistry& meshes,
+                                 const Assets::TextureLibrary& textures);
 
                     /**
                      * @brief Uploads the frame's already-simulated deterministic billboards.
@@ -181,6 +266,20 @@ namespace SushiEngine
                     /** @brief Bytes of this frame's billboard buffer. */
                     VkDeviceSize billboard_range() const noexcept;
 
+                    /**
+                     * @brief This frame's mesh-particle draws, at most @ref MAX_MESH_EMITTERS.
+                     *
+                     * One per distinct mesh-aligned emitter; the mesh pass issues one indexed
+                     * indirect draw from each, and the sim pass seeds each command's index count.
+                     */
+                    const std::vector<MeshDraw>& mesh_draws() const noexcept { return mesh_draws_; }
+
+                    /** @brief Particles one mesh-draw slice holds. */
+                    std::uint32_t mesh_slice() const noexcept
+                    {
+                        return capacity_ / MAX_MESH_EMITTERS;
+                    }
+
                     /** @brief The active emitters flattened for the GPU this frame. */
                     const std::vector<GpuEmitter>& emitters() const noexcept { return emitters_; }
 
@@ -192,6 +291,19 @@ namespace SushiEngine
 
                     /** @brief Bytes of the pool. */
                     VkDeviceSize pool_range() const noexcept;
+
+                    /**
+                     * @brief Recent positions kept per pool slot for the ribbon path.
+                     *
+                     * Persistent and device-local like the pool, and for the same reason: a trail
+                     * is state that has to survive the frame that recorded it. Each slot holds
+                     * @ref TRAIL_POINTS `vec4`s — xyz the sample's world position, w its size —
+                     * newest first, shifted one place by every simulate step.
+                     */
+                    VkBuffer trail_buffer() const noexcept;
+
+                    /** @brief Bytes of the trail history. */
+                    VkDeviceSize trail_range() const noexcept;
 
                     /** @brief Whether the device-local pool still needs its one-time zero clear. */
                     bool needs_clear() const noexcept { return needs_clear_; }
@@ -233,12 +345,14 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     std::uint32_t capacity_ = 0;
                     Allocation pool_;                         /**< Shared persistent particle pool. */
+                    Allocation trails_;                       /**< Persistent per-slot trail history. */
                     std::vector<Allocation> emitter_tables_;  /**< Host-visible GpuEmitter[], per slot. */
                     std::vector<Allocation> curve_luts_;      /**< Host-visible curve atlas, per slot. */
                     std::vector<Allocation> gradient_luts_;   /**< Host-visible gradient atlas, per slot. */
                     std::vector<Allocation> billboards_;      /**< Host-visible GpuParticle[], per slot. */
                     std::uint32_t billboard_count_ = 0;       /**< This frame's deterministic billboards. */
                     std::vector<GpuEmitter> emitters_;        /**< This frame's flattened emitters. */
+                    std::vector<MeshDraw> mesh_draws_;        /**< This frame's mesh-particle draws. */
                     std::uint32_t ring_cursor_ = 0;           /**< Shared pool ring write cursor. */
                     bool needs_clear_ = true;                 /**< Pool awaits its one-time zero clear. */
                     bool has_alpha_ = false;                  /**< Any active emitter uses true-alpha blending. */

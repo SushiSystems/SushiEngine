@@ -239,6 +239,7 @@ namespace SushiEngine
                 allocation_ = VK_NULL_HANDLE;
                 width_ = 0;
                 height_ = 0;
+                has_history_ = false;
                 mips_ = 0;
             }
 
@@ -247,7 +248,12 @@ namespace SushiEngine
             {
                 if (!frame.settings.ssr.enabled || frame.camera == nullptr ||
                     !frame.targets.depth.valid())
+                {
+                    // Nothing will be built this frame, so whatever the pyramid holds is stale for
+                    // anyone reading it as history.
+                    has_history_ = false;
                     return;
+                }
 
                 if (width_ != frame.width || height_ != frame.height)
                 {
@@ -335,6 +341,10 @@ namespace SushiEngine
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                        // From here the pyramid holds a real frame, so passes registered before
+                        // this one may sample it next frame as history.
+                        has_history_ = true;
                     });
             }
         } // namespace Passes

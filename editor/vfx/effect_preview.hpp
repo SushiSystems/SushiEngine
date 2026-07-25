@@ -38,6 +38,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/scene_view.hpp>
+#include <SushiEngine/vfx/deterministic_backend.hpp>
 #include <SushiEngine/vfx/effect_database.hpp>
 #include <SushiEngine/vfx/particle_effect.hpp>
 
@@ -45,6 +46,35 @@ namespace SushiEngine
 {
     namespace Editor
     {
+        /**
+         * @brief The effect a freshly added Particle Emitter starts from.
+         *
+         * A small fire. An emitter that starts empty shows nothing, which reads as a broken
+         * component rather than as an invitation to author, so a new one begins somewhere visible.
+         *
+         * @return The default authored effect.
+         */
+        Vfx::ParticleEffect default_emitter_effect();
+
+        /** @brief One starting point offered in the effect library. */
+        struct EffectTemplate
+        {
+            const char* name;         /**< Label shown in the library list. */
+            Vfx::ParticleEffect (*build)(); /**< Builds a fresh copy. */
+        };
+
+        /**
+         * @brief The effects an author can start from without having saved anything yet.
+         *
+         * Authored data, so it belongs to the editor rather than to the simulation: the sim knows
+         * only the one default a new emitter is seeded with. Each entry is *copied* into the
+         * selected emitter, never referenced.
+         *
+         * @param count Receives the number of entries.
+         * @return The template table.
+         */
+        const EffectTemplate* built_in_effect_templates(std::size_t& count);
+
         /**
          * @brief A live, authorable particle effect previewed in the Scene viewport.
          *
@@ -70,6 +100,18 @@ namespace SushiEngine
                 /** @brief The authored effect (const). */
                 const Vfx::ParticleEffect& effect() const noexcept;
 
+                /**
+                 * @brief Mirrors @p effect onto the preview surface.
+                 *
+                 * The preview does not own what it shows: the Particle Editor edits an emitter
+                 * *component's* own effect, and this is how that reaches the isolated view. Nothing
+                 * is restarted — an author dragging a slider wants the running effect to change,
+                 * not to jump back to its first frame.
+                 *
+                 * @param effect The effect to show; copied.
+                 */
+                void set_effect(const Vfx::ParticleEffect& effect);
+
                 /** @brief Whether the preview is emitting. */
                 bool playing() const noexcept { return playing_; }
 
@@ -78,6 +120,64 @@ namespace SushiEngine
 
                 /** @brief Clears the play clock and spawn accumulators. */
                 void restart() noexcept;
+
+                /** @brief Seconds since the effect started, the timeline's play head. */
+                float time() const noexcept { return time_; }
+
+                /**
+                 * @brief Moves the play head to @p time seconds.
+                 *
+                 * In the GPU preview this seeks the **emission schedule** only: the rate and burst
+                 * evaluation jump to the new time, but the particles already alive are not
+                 * re-simulated, because the cosmetic pool lives on the GPU and advances one step
+                 * per rendered frame — there is no host copy to wind back.
+                 *
+                 * In the @ref deterministic preview it is a **true scrub**. That backend is a pure
+                 * function of (state, emitter, dt), so the state is reset and replayed from zero to
+                 * @p time at the fixed step, reproducing exactly the frame the author would have
+                 * seen at that moment.
+                 *
+                 * @param time Seconds from the effect's start; negative values clamp to zero.
+                 */
+                void seek(float time);
+
+                /**
+                 * @brief Whether the preview simulates on the CPU rather than on the GPU.
+                 *
+                 * Both backends read the same authored effect, so either way this previews the same
+                 * asset. The deterministic one is pool-capped and CPU-bound but can be scrubbed and
+                 * stepped exactly; the cosmetic one scales to millions but only moves forward, one
+                 * step per rendered frame.
+                 */
+                bool deterministic() const noexcept { return deterministic_; }
+
+                /** @brief Switches backend and restarts, since the two states do not translate. */
+                void set_deterministic(bool deterministic);
+
+                /** @brief The fixed step the deterministic preview simulates and replays at. */
+                static constexpr float DETERMINISTIC_STEP = 1.0f / 60.0f;
+
+                /** @brief This frame's CPU-simulated particles, or nullptr when none. */
+                const Render::ParticleBillboard* billboards() const noexcept
+                {
+                    return billboards_.empty() ? nullptr : billboards_.data();
+                }
+
+                /** @brief Number of entries in @ref billboards. */
+                std::size_t billboard_count() const noexcept { return billboards_.size(); }
+
+                /**
+                 * @brief Whether the previewed effect is also drawn in the Scene view.
+                 *
+                 * Off by default, and deliberately opt-in: the Scene view shows the world, and a
+                 * previewed effect belongs to no entity, so leaving it on permanently is what made
+                 * the old preview read as a stray object nobody could select. Turned on, it is a
+                 * second look at what is being authored, in the scene's own lighting.
+                 */
+                bool scene_preview() const noexcept { return scene_preview_; }
+
+                /** @brief Shows or hides the previewed effect in the Scene view. */
+                void set_scene_preview(bool value) noexcept { scene_preview_ = value; }
 
                 /** @brief The emitter's world position. */
                 Vector3 position() const noexcept { return position_; }
@@ -101,13 +201,29 @@ namespace SushiEngine
                 std::size_t view_count() const noexcept { return views_.size(); }
 
             private:
+                /**
+                 * @brief Replays the deterministic pools from zero up to @ref time_.
+                 *
+                 * The whole point of the deterministic backend: replay is the only way to reach an
+                 * arbitrary time, and it is exact because the step is a pure function.
+                 */
+                void replay_deterministic();
+
+                /** @brief Rebuilds @ref billboards_ from the deterministic pools. */
+                void collect_billboards();
+
                 Vfx::EffectDatabase database_;
                 Vfx::AssetId effect_id_ = Vfx::INVALID_EFFECT;
                 Vector3 position_{Vector3{0, 1, 0}};
                 bool playing_ = true;
+                bool deterministic_ = false;
+                bool scene_preview_ = false;
                 float time_ = 0.0f;
+                float step_carry_ = 0.0f;
                 std::vector<float> accumulators_;
                 std::vector<Render::ParticleEmitterView> views_;
+                std::vector<Vfx::DeterministicEmitterState> states_;
+                std::vector<Render::ParticleBillboard> billboards_;
         };
 
         /**

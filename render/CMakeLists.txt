@@ -65,7 +65,8 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_common.glsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_common.glsl")
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_shadow.glsl")
 
 # sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
@@ -104,6 +105,14 @@ sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.frag"
     particle_frag_spv PARTICLE_FRAG_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_sorted.vert"
     particle_sorted_vert_spv PARTICLE_SORTED_VERT_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_billboard.vert"
+    particle_billboard_vert_spv PARTICLE_BILLBOARD_VERT_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_ribbon.vert"
+    particle_ribbon_vert_spv PARTICLE_RIBBON_VERT_HEADER)
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_mesh.vert"
+    particle_mesh_vert_spv PARTICLE_MESH_VERT_HEADER)
+sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_mesh.frag"
+    particle_mesh_frag_spv PARTICLE_MESH_FRAG_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_sort.comp"
     particle_sort_comp_spv PARTICLE_SORT_COMP_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/pbr.frag"
@@ -256,6 +265,7 @@ add_library(sushi_render STATIC
     passes/particle_sim_pass.cpp
     passes/particle_sort_pass.cpp
     passes/particle_pass.cpp
+    passes/particle_mesh_pass.cpp
     passes/ssr_pass.cpp
     passes/light_cull_pass.cpp
     passes/light_shadow_pass.cpp
@@ -297,6 +307,10 @@ add_library(sushi_render STATIC
     "${PARTICLE_VERT_HEADER}"
     "${PARTICLE_FRAG_HEADER}"
     "${PARTICLE_SORTED_VERT_HEADER}"
+    "${PARTICLE_BILLBOARD_VERT_HEADER}"
+    "${PARTICLE_RIBBON_VERT_HEADER}"
+    "${PARTICLE_MESH_VERT_HEADER}"
+    "${PARTICLE_MESH_FRAG_HEADER}"
     "${PARTICLE_SORT_COMP_HEADER}"
     "${PBR_FRAG_HEADER}"
     "${OUTLINE_FRAG_HEADER}"

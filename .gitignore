@@ -22,3 +22,6 @@ CLAUDE.md
 
 # Animation clip files
 *.sushianim
+
+# Downloaded HRTF datasets (large binaries; the SOFA demo bakes a synthetic fallback)
+assets/hrtf/*.sofa

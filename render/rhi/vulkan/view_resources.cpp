@@ -28,6 +28,7 @@
 #include <SushiEngine/vfx/compiled_emitter.hpp>
 
 #include "lighting/cluster_config.hpp"
+#include "scene/particle_system.hpp"
 #include "vulkan_check.hpp"
 
 namespace SushiEngine
@@ -804,6 +805,24 @@ namespace SushiEngine
                     alpha_desc.name = "particle alpha list";
                     targets.particle_alpha = graph.create_buffer(alpha_desc);
 
+                    Graph::BufferDesc ribbon_desc = draw_desc;
+                    ribbon_desc.name = "particle ribbon list";
+                    targets.particle_ribbon = graph.create_buffer(ribbon_desc);
+
+                    Graph::BufferDesc mesh_desc = draw_desc;
+                    mesh_desc.name = "particle mesh list";
+                    targets.particle_mesh = graph.create_buffer(mesh_desc);
+
+                    Graph::BufferDesc mesh_args_desc;
+                    // One VkDrawIndexedIndirectCommand (five uints) per mesh-draw slice.
+                    mesh_args_desc.size = sizeof(std::uint32_t) * 5 *
+                                          Scene::ParticleSystem::MAX_MESH_EMITTERS;
+                    mesh_args_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                    mesh_args_desc.name = "particle mesh draw args";
+                    targets.particle_mesh_args = graph.create_buffer(mesh_args_desc);
+
                     Graph::BufferDesc sort_desc;
                     // One {float distance, uint index} entry per pool slot (8 bytes).
                     sort_desc.size =
@@ -813,8 +832,8 @@ namespace SushiEngine
                     targets.particle_sort_keys = graph.create_buffer(sort_desc);
 
                     Graph::BufferDesc args_desc;
-                    // Two VkDrawIndirectCommand: additive at offset 0, alpha at offset 16.
-                    args_desc.size = sizeof(std::uint32_t) * 8;
+                    // Three VkDrawIndirectCommand: additive at 0, alpha at 16, ribbons at 32.
+                    args_desc.size = sizeof(std::uint32_t) * 12;
                     args_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                       VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT;

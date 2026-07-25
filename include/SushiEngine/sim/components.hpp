@@ -165,6 +165,8 @@ namespace SushiEngine
         constexpr std::uint32_t AUDIO_EMITTER_PLAYING = 1u << 0;
         /** @brief @ref AudioEmitter::flags bit: distance/Doppler apply (else a 2D sound). */
         constexpr std::uint32_t AUDIO_EMITTER_SPATIAL = 1u << 1;
+        /** @brief @ref AudioEmitter::flags bit: the emitter is occluded by acoustic geometry. */
+        constexpr std::uint32_t AUDIO_EMITTER_OCCLUDED = 1u << 2;
 
         /**
          * @brief The "Audio Emitter" component: an entity that plays a sound.
@@ -188,7 +190,40 @@ namespace SushiEngine
             std::uint32_t distance_model = 0; /**< 0 Linear, 1 Inverse, 2 Exponent (@ref Audio::DistanceModel). */
             float rolloff = 1.0f;        /**< Rolloff factor for the inverse/exponent models. */
             float doppler_scale = 1.0f;  /**< Doppler exaggeration (0 off, 1 physical, >1 more). */
+            std::int32_t reverb_bus = -1; /**< Reverb aux-send target bus (−1 = no send). */
+            float reverb_send = 0.0f;    /**< Reverb aux-send level in [0, 1]. */
+            float source_radius = 0.5f;  /**< Sphere radius for soft-occlusion ray sampling (metres). */
             std::uint32_t flags = AUDIO_EMITTER_PLAYING | AUDIO_EMITTER_SPATIAL;
+        };
+
+        /**
+         * @brief The "Room" component: an acoustic room volume for portal propagation.
+         *
+         * A box centred on the entity's Transform position with @ref half_extents that the
+         * audio extract reads (with any @ref Portal entities) to build the room/portal graph
+         * (`audio/portals.hpp`). A source in a different room from the listener is heard
+         * through the doorways joining them, not through the wall. The @ref id is the handle
+         * @ref Portal entities reference. Trivially copyable, like every component here.
+         */
+        struct Room
+        {
+            std::uint32_t id = 0;                     /**< Room handle referenced by @ref Portal. */
+            Vector3 half_extents{Vector3{10, 10, 10}}; /**< Box half-size around the Transform. */
+        };
+
+        /**
+         * @brief The "Portal" component: a doorway joining two @ref Room volumes.
+         *
+         * Centred on the entity's Transform position (the opening the sound passes through),
+         * joining rooms @ref room_a and @ref room_b. When the listener and a source are in
+         * the two rooms, this opening becomes a secondary virtual source at the doorway.
+         * Trivially copyable.
+         */
+        struct Portal
+        {
+            std::uint32_t room_a = 0;                  /**< One joined room's @ref Room::id. */
+            std::uint32_t room_b = 0;                  /**< The other joined room's @ref Room::id. */
+            Vector3 half_extents{Vector3{1, 1, 1}};    /**< Opening half-size around the Transform. */
         };
 
         /**

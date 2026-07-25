@@ -32,6 +32,9 @@
 
 #include <cgltf.h>
 
+#include <SushiEngine/animation/skeleton_blob.hpp>
+#include <SushiEngine/animation/skin_vertex.hpp>
+
 #include "geometry/mesh_registry.hpp"
 #include "material/texture_library.hpp"
 
@@ -390,6 +393,268 @@ namespace SushiEngine
 
                         out_meshes[written] =
                             mesh;
+                        out_materials[written] =
+                            convert_material(primitive.material, textures, directory);
+                        ++written;
+                    }
+                }
+
+                cgltf_free(data);
+                return written;
+            }
+
+            namespace
+            {
+                /** @brief The index of @p node within @p skin's joint array, or -1 if absent. */
+                int skin_joint_index_of(const cgltf_skin& skin, const cgltf_node* node) noexcept
+                {
+                    if (node == nullptr)
+                        return -1;
+                    for (cgltf_size i = 0; i < skin.joints_count; ++i)
+                        if (skin.joints[i] == node)
+                            return static_cast<int>(i);
+                    return -1;
+                }
+
+                /**
+                 * @brief Recomputes the joint remap @c Animation::import_gltf_skeleton would
+                 * produce for this skin, without writing a skeleton blob.
+                 *
+                 * Only the parent links affect the cook's stable topological sort (§ design
+                 * skeleton_blob.hpp), so a throwaway @c SkeletonDesc with just @c parent set is
+                 * enough to reproduce the same @c order the real skeleton/clip import computed
+                 * for the same file and skin index.
+                 */
+                bool skin_joint_remap(const cgltf_skin& skin,
+                                      std::vector<std::uint16_t>& out_remap)
+                {
+                    Animation::SkeletonDesc desc;
+                    desc.joints.resize(skin.joints_count);
+                    for (cgltf_size j = 0; j < skin.joints_count; ++j)
+                        desc.joints[j].parent = skin_joint_index_of(skin, skin.joints[j]->parent);
+
+                    std::vector<std::byte> scratch_blob;
+                    std::vector<int> order;
+                    if (!Animation::build_skeleton_blob(desc, scratch_blob, &order))
+                        return false;
+                    out_remap = Animation::remap_from_order(order);
+                    return true;
+                }
+            } // namespace
+
+            std::size_t import_gltf_skinned_mesh(const char* path, std::size_t skin_index,
+                                                 Geometry::MeshRegistry& meshes,
+                                                 TextureLibrary& textures, MeshId* out_meshes,
+                                                 Render::Material* out_materials,
+                                                 std::size_t capacity)
+            {
+                if (path == nullptr || out_meshes == nullptr || out_materials == nullptr ||
+                    capacity == 0)
+                    return 0;
+
+                cgltf_options options{};
+                cgltf_data* data = nullptr;
+                if (cgltf_parse_file(&options, path, &data) != cgltf_result_success)
+                    return 0;
+                if (cgltf_load_buffers(&options, data, path) != cgltf_result_success)
+                {
+                    cgltf_free(data);
+                    return 0;
+                }
+                if (skin_index >= data->skins_count ||
+                    data->skins[skin_index].joints_count == 0)
+                {
+                    cgltf_free(data);
+                    return 0;
+                }
+
+                const cgltf_skin& skin = data->skins[skin_index];
+                std::vector<std::uint16_t> remap;
+                if (!skin_joint_remap(skin, remap))
+                {
+                    cgltf_free(data);
+                    return 0;
+                }
+
+                const std::filesystem::path directory =
+                    std::filesystem::path(path).parent_path();
+                std::size_t written = 0;
+
+                for (cgltf_size node_index = 0; node_index < data->nodes_count && written < capacity;
+                     ++node_index)
+                {
+                    const cgltf_node& node = data->nodes[node_index];
+                    if (node.mesh == nullptr || node.skin != &skin)
+                        continue;
+
+                    for (cgltf_size primitive_index = 0;
+                         primitive_index < node.mesh->primitives_count && written < capacity;
+                         ++primitive_index)
+                    {
+                        const cgltf_primitive& primitive = node.mesh->primitives[primitive_index];
+                        if (primitive.type != cgltf_primitive_type_triangles ||
+                            primitive.indices == nullptr)
+                            continue;
+
+                        const cgltf_accessor* position_accessor = nullptr;
+                        const cgltf_accessor* normal_accessor = nullptr;
+                        const cgltf_accessor* tangent_accessor = nullptr;
+                        const cgltf_accessor* uv0_accessor = nullptr;
+                        const cgltf_accessor* uv1_accessor = nullptr;
+                        const cgltf_accessor* color_accessor = nullptr;
+                        const cgltf_accessor* joints_accessor = nullptr;
+                        const cgltf_accessor* weights_accessor = nullptr;
+                        for (cgltf_size a = 0; a < primitive.attributes_count; ++a)
+                        {
+                            const cgltf_attribute& attribute = primitive.attributes[a];
+                            switch (attribute.type)
+                            {
+                                case cgltf_attribute_type_position:
+                                    position_accessor = attribute.data;
+                                    break;
+                                case cgltf_attribute_type_normal:
+                                    normal_accessor = attribute.data;
+                                    break;
+                                case cgltf_attribute_type_tangent:
+                                    tangent_accessor = attribute.data;
+                                    break;
+                                case cgltf_attribute_type_texcoord:
+                                    if (attribute.index == 0)
+                                        uv0_accessor = attribute.data;
+                                    else if (attribute.index == 1)
+                                        uv1_accessor = attribute.data;
+                                    break;
+                                case cgltf_attribute_type_color:
+                                    if (attribute.index == 0)
+                                        color_accessor = attribute.data;
+                                    break;
+                                case cgltf_attribute_type_joints:
+                                    if (attribute.index == 0)
+                                        joints_accessor = attribute.data;
+                                    break;
+                                case cgltf_attribute_type_weights:
+                                    if (attribute.index == 0)
+                                        weights_accessor = attribute.data;
+                                    break;
+                                default:
+                                    break;
+                            }
+                        }
+                        // Not skinned by this primitive despite the node's skin binding (e.g.
+                        // a rigid accessory on a skinned node) — nothing to remap, skip it.
+                        if (position_accessor == nullptr || joints_accessor == nullptr ||
+                            weights_accessor == nullptr)
+                            continue;
+
+                        const std::size_t vertex_count = position_accessor->count;
+                        std::vector<Geometry::MeshVertex> vertices(vertex_count);
+                        for (Geometry::MeshVertex& vertex : vertices)
+                            for (int i = 0; i < 4; ++i)
+                                vertex.color[i] = 255;
+
+                        constexpr std::size_t STRIDE =
+                            sizeof(Geometry::MeshVertex) / sizeof(float);
+                        float* base = reinterpret_cast<float*>(vertices.data());
+                        read_attribute(position_accessor, 3, base, STRIDE, vertex_count);
+                        read_attribute(normal_accessor, 3, base + 3, STRIDE, vertex_count);
+                        read_attribute(tangent_accessor, 4, base + 6, STRIDE, vertex_count);
+                        read_attribute(uv0_accessor, 2, base + 10, STRIDE, vertex_count);
+                        read_attribute(uv1_accessor, 2, base + 12, STRIDE, vertex_count);
+
+                        if (color_accessor != nullptr)
+                            for (std::size_t i = 0; i < vertex_count; ++i)
+                            {
+                                float rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+                                cgltf_accessor_read_float(color_accessor, i, rgba, 4);
+                                for (int c = 0; c < 4; ++c)
+                                    vertices[i].color[c] = static_cast<std::uint8_t>(
+                                        std::min(std::max(rgba[c], 0.0f), 1.0f) * 255.0f + 0.5f);
+                            }
+
+                        // No node-world-transform bake here (see the function's doc comment):
+                        // skinned vertices stay in the skin's bind space.
+
+                        const std::size_t index_count = primitive.indices->count;
+                        std::vector<std::uint32_t> indices(index_count);
+                        for (std::size_t i = 0; i < index_count; ++i)
+                            indices[i] = static_cast<std::uint32_t>(
+                                cgltf_accessor_read_index(primitive.indices, i));
+
+                        if (tangent_accessor == nullptr)
+                            Geometry::generate_tangents(vertices.data(), vertices.size(),
+                                                        indices.data(), indices.size());
+
+                        // JOINTS_0 is an integer accessor (ubyte or ushort); WEIGHTS_0 is
+                        // float or a normalized ubyte/ushort — cgltf_accessor_read_uint/_float
+                        // both dequantize whatever the source component type is.
+                        std::vector<Animation::SkinVertex> skin_stream(vertex_count);
+                        bool skin_ok = true;
+                        for (std::size_t i = 0; i < vertex_count && skin_ok; ++i)
+                        {
+                            cgltf_uint joints4[4] = {0, 0, 0, 0};
+                            float weights4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                            if (!cgltf_accessor_read_uint(joints_accessor, i, joints4, 4) ||
+                                !cgltf_accessor_read_float(weights_accessor, i, weights4, 4))
+                            {
+                                skin_ok = false;
+                                break;
+                            }
+                            Animation::SkinVertex& sv = skin_stream[i];
+                            float total = weights4[0] + weights4[1] + weights4[2] + weights4[3];
+                            for (int k = 0; k < 4; ++k)
+                            {
+                                if (joints4[k] >= remap.size())
+                                {
+                                    skin_ok = false;
+                                    break;
+                                }
+                                sv.joints[k] = remap[joints4[k]];
+                                const float w = total > 0.0f ? weights4[k] / total : 0.0f;
+                                sv.weights[k] = static_cast<std::uint8_t>(
+                                    std::min(std::max(w, 0.0f), 1.0f) * 255.0f + 0.5f);
+                            }
+                        }
+                        if (!skin_ok)
+                            continue;
+
+                        const MeshId mesh = meshes.add_skinned_mesh(
+                            vertices.data(), vertices.size(), indices.data(), indices.size(),
+                            skin_stream.data(), skin_stream.size() * sizeof(Animation::SkinVertex));
+                        if (mesh == INVALID_MESH)
+                            continue;
+
+                        // Morph targets (blend shapes), position-only (design §6.5): each of
+                        // primitive.targets[] carries a POSITION accessor of per-vertex deltas
+                        // already relative to the base mesh — glTF's morph-target convention, no
+                        // subtraction needed. Packed target-major to match the skinning compute
+                        // dispatch's per-vertex read shape (mesh_registry.hpp's set_morph_targets).
+                        if (primitive.targets_count > 0)
+                        {
+                            const std::size_t target_count = primitive.targets_count;
+                            std::vector<float> morph_deltas(target_count * vertex_count * 3, 0.0f);
+                            for (std::size_t t = 0; t < target_count; ++t)
+                            {
+                                const cgltf_morph_target& target = primitive.targets[t];
+                                const cgltf_accessor* delta_position = nullptr;
+                                for (cgltf_size a = 0; a < target.attributes_count; ++a)
+                                    if (target.attributes[a].type == cgltf_attribute_type_position)
+                                    {
+                                        delta_position = target.attributes[a].data;
+                                        break;
+                                    }
+                                if (delta_position == nullptr)
+                                    continue;
+                                float* out = morph_deltas.data() + t * vertex_count * 3;
+                                read_attribute(delta_position, 3, out, 3, vertex_count);
+                            }
+                            meshes.set_morph_targets(
+                                mesh, morph_deltas.data(),
+                                morph_deltas.size() * sizeof(float),
+                                static_cast<std::uint32_t>(vertex_count),
+                                static_cast<std::uint32_t>(target_count));
+                        }
+
+                        out_meshes[written] = mesh;
                         out_materials[written] =
                             convert_material(primitive.material, textures, directory);
                         ++written;

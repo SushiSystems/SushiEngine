@@ -63,13 +63,18 @@ add_executable(se_editor
     animation/skeleton_debug_draw.cpp
     animation/animation_panel.cpp
     animation/animator_graph_panel.cpp
+    animation/animated_mesh_preview.cpp
+    animation/animator_preview_panel.cpp
     vfx/effect_preview.cpp
+    audio/audio_editor_system.cpp
+    audio/audio_panels.cpp
     gizmo/gizmo_controller.cpp
     core/preferences.cpp
     serialization/scene_serializer.cpp
+    serialization/effect_serializer.cpp
     core/command_history.cpp)
 target_link_libraries(se_editor PRIVATE
-    sushi_imgui sushi_render sushi_sim sushi_input nlohmann_json::nlohmann_json)
+    sushi_imgui sushi_render sushi_sim sushi_input sushi_audio nlohmann_json::nlohmann_json)
 # ShellExecuteW (Project panel's "open with default app") needs Shell32.
 if(WIN32)
     target_link_libraries(se_editor PRIVATE Shell32)

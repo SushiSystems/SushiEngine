@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <optional>
@@ -74,16 +75,33 @@ namespace SushiEngine
             bool toolbar = true;
             bool animation = false;
             bool animator_graph = false;
+            bool animator_preview = false;
             bool environment = true;
             bool rendering = false;
             bool lighting = false;
             bool post_process = false;
             bool gpu_culling = false;
-            bool particle_editor = false;
+            /**
+             * @brief The Preview viewport: the one surface anything being authored is shown on.
+             *
+             * One screen, not one per subject: a previewed effect, a previewed character, and
+             * whatever is previewed next are all "the thing being authored, in isolation", and that
+             * is a property of the surface rather than of the subject. Nothing previewed belongs to
+             * an entity, which is exactly why none of it belongs in the Scene view.
+             */
+            bool preview = false;
+            bool audio_mixer = false;
+            bool audio_profiler = false;
         };
 
         /** @brief The live particle-effect preview, owned by main() (see effect_preview.hpp). */
         class EffectPreview;
+
+        /** @brief The live GPU-skinned character preview, owned by main() (see animated_mesh_preview.hpp). */
+        class AnimatedMeshPreview;
+
+        /** @brief The live editor audio system, owned by main() (see audio/audio_editor_system.hpp). */
+        class AudioEditorSystem;
 
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.
@@ -196,6 +214,15 @@ namespace SushiEngine
             // Particle Editor panel authors it and the Scene viewport renders + gizmos it.
             EffectPreview* particle_preview = nullptr;
 
+            // The live GPU-skinned character preview, owned by main() and injected here so
+            // the Statistics panel can report its pose-pool/palette footprint (design
+            // `slop/animation_system.md` §12.1). Null in a headless editor.
+            AnimatedMeshPreview* animated_mesh_preview = nullptr;
+
+            // The live editor audio system, owned by main() and injected here so the audio
+            // panels and the Inspector's audio sections drive and hear the same engine.
+            AudioEditorSystem* audio = nullptr;
+
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
             // toggles membership, Shift extends a range from `selection_anchor`); a plain
@@ -278,6 +305,31 @@ namespace SushiEngine
 
             // Snapshot of the last Copy/Cut, replayed by Paste (see `ClipboardEntity`).
             // Cut fills this exactly like Copy, then additionally deletes the originals.
+            /**
+             * @brief Each emitter entity's own authored effect, keyed by entity.
+             *
+             * A particle emitter is a **component**: putting one on an entity is what makes that
+             * entity a particle system, and the Particle Editor is that component's editing
+             * surface. So the effect is authored per entity rather than shared — an entry appears
+             * the first time an emitter is edited and is pushed into the world under a name derived
+             * from the entity, which keeps one emitter's edits off every other emitter.
+             *
+             * Effects loaded from `assets/effects` are templates: loading one copies it into the
+             * selected entity rather than binding the entity to a shared asset.
+             *
+             * This is only the panel's scratch copy of the selected entity's effect — the effect
+             * itself lives on the component, in the world, which is what lets the scene file
+             * round-trip it.
+             */
+            SushiEngine::Vfx::ParticleEffect particle_effect_scratch;
+
+            /** @brief The entity @ref particle_effect_scratch was read from. */
+            SushiEngine::Simulation::EntityId particle_effect_entity =
+                SushiEngine::Simulation::NULL_ENTITY;
+
+            /** @brief Set when the scratch changed outside a widget edit (a library load). */
+            bool particle_effect_dirty = false;
+
             std::vector<ClipboardEntity> clipboard;
 
             std::vector<std::string> console_lines;

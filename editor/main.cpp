@@ -54,14 +54,19 @@
 #include <memory>
 
 #include "core/editor_context.hpp"
+#include "core/game_view_render_policy.hpp"
 #include "ui/editor_panels.hpp"
 #include "ui/imgui_backend.hpp"
 #include "core/preferences.hpp"
+#include "serialization/effect_serializer.hpp"
 #include "serialization/scene_serializer.hpp"
 #include "window/sdl_window.hpp"
 #include "ui/viewport_panel.hpp"
 #include "animation/animation_panel.hpp"
 #include "animation/animator_graph_panel.hpp"
+#include "animation/animator_preview_panel.hpp"
+#include "audio/audio_editor_system.hpp"
+#include "audio/audio_panels.hpp"
 
 namespace
 {
@@ -184,6 +189,15 @@ int main(int argc, char** argv)
         SushiEngine::Editor::WorldCameraSource game_camera;
         SushiEngine::Editor::ViewportPanel scene_view(*renderer, imgui, "Scene", scene_camera);
         SushiEngine::Editor::ViewportPanel game_view(*renderer, imgui, "Game", game_camera);
+        // The one place that decides whether the Game view has anything to play the
+        // scene through and onto, kept separate from both the frame loop and the panel.
+        SushiEngine::Editor::GameViewRenderPolicy game_view_render_policy;
+        // A third surface for the previewed effect. It shows no world geometry on purpose: an
+        // effect being authored is not in the scene yet, and mixing it into the Scene view is what
+        // made the old preview look like a stray entity nobody could select or delete.
+        SushiEngine::Editor::FlyCameraSource preview_camera;
+        SushiEngine::Editor::ViewportPanel preview_view(*renderer, imgui, "Preview",
+                                                        preview_camera);
 
         // The world is the single source of truth for entities; the panels read and
         // edit it through the injected simulation. There is no editor-side scene model.
@@ -230,10 +244,27 @@ int main(int argc, char** argv)
         context.particle_preview = &particle_preview;
         context.world_entity_count = simulation->entity_count();
 
+        // The live editor audio system (S9): owns an AudioEngine + SDL device and each
+        // frame projects the world's audio emitters / reverb zones into the voice pool with
+        // the Scene camera as the listener, so authored sound is heard in-editor.
+        SushiEngine::Editor::AudioEditorSystem audio_system;
+        context.audio = &audio_system;
+
+        // The live GPU-skinned character preview: the A1 "load a rigged, animated glTF and see
+        // it looping, skinned on the GPU" surface (design `slop/animation_system.md` §12.1) —
+        // every earlier animation phase shipped as an isolated, headless-tested component, but
+        // nothing built a live SkinnedInstance for the viewport until this. Loading a demo asset
+        // fails silently (no rig at that path just leaves the preview empty) rather than
+        // blocking editor startup; a proper Animator-driven scene entity is future work.
+        SushiEngine::Editor::AnimatedMeshPreview animated_mesh_preview;
+        animated_mesh_preview.load_gltf("examples/assets/rigged_arm_anim.gltf", *context.assets);
+        context.animated_mesh_preview = &animated_mesh_preview;
+
         // The Environment/Lighting panels edit a host setting (see Preferences::environment),
         // not scene data, so it is applied here from preferences rather than read from
         // whatever scene ends up open.
         simulation->world().set_environment(context.preferences.environment);
+
 
         // The Project panel's root: the last one the user browsed to, or a
         // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
@@ -278,6 +309,8 @@ int main(int argc, char** argv)
             // Advance the VFX preview and rebuild this frame's emitter views, clamped so a
             // long stall (a resize, a breakpoint) does not spawn a burst of catch-up particles.
             particle_preview.update(
+                static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
+            animated_mesh_preview.update(
                 static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
 
             // A close request (the window's X, or File > Exit) is not obeyed directly;
@@ -361,6 +394,12 @@ int main(int argc, char** argv)
                 billboard.rotation = particle.rotation;
                 particle_billboards.push_back(billboard);
             }
+
+            // Cosmetic emitters come across already in render shape — the sim only placed them —
+            // so this channel is passed straight through to the viewport.
+            const SushiEngine::Render::ParticleEmitterView* scene_emitters =
+                scene.particle_emitters.empty() ? nullptr : scene.particle_emitters.data();
+            const std::size_t scene_emitter_count = scene.particle_emitters.size();
 
             // Resolve which display the Game view shows: the selected display's camera
             // if present, else the default. Also gather the display options for the
@@ -684,8 +723,17 @@ int main(int argc, char** argv)
                                                scene.lights.data(), scene.lights.size(),
                                                scene.decals.data(), scene.decals.size(),
                                                &scene_ui, context.preferences.grid_visible, nullptr,
-                                               false, &particle_preview, particle_billboards.data(),
-                                               particle_billboards.size());
+                                               // The Scene view shows the world's own emitters,
+                                               // which are entities. The previewed effect is drawn
+                                               // here only when the author asks for it, since it
+                                               // belongs to nothing and cannot be selected.
+                                               false,
+                                               particle_preview.scene_preview() ? &particle_preview
+                                                                                : nullptr,
+                                               particle_billboards.data(),
+                                               particle_billboards.size(), &animated_mesh_preview,
+                                               scene_emitters, scene_emitter_count,
+                                               /*ik_gizmo=*/true);
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
@@ -693,7 +741,11 @@ int main(int argc, char** argv)
                 scene_view.render_resolution(context.scene_render_width,
                                              context.scene_render_height);
             }
-            if (context.panels.game_view)
+            SushiEngine::Editor::GameViewRenderInputs game_view_render_inputs;
+            game_view_render_inputs.has_active_camera = scene.has_camera;
+            game_view_render_inputs.has_display = !displays.empty();
+            if (context.panels.game_view &&
+                game_view_render_policy.should_render(game_view_render_inputs))
             {
                 // The Game view is played, not authored: no picking, no gizmo. It offers
                 // a display selector so multiple cameras can target different displays.
@@ -704,20 +756,33 @@ int main(int argc, char** argv)
                 // Pass no selection so the Scene view's pick never highlights in the
                 // Game view; it is not pickable here so nothing writes this back.
                 std::uint32_t no_selection = 0;
-                // With no active camera there is nothing to play the scene through, so
-                // the Game view draws zero instances (clears to black) rather than
-                // falling back to a synthetic default camera and rendering anyway.
-                const std::size_t game_instance_count =
-                    scene.has_camera ? instances.size() : 0;
                 game_view.set_render_settings(context.render_settings);
-                game_view.draw(context.panels.game_view, instances.data(), game_instance_count,
+                game_view.draw(context.panels.game_view, instances.data(), instances.size(),
                                environment, no_selection, false, nullptr,
                                SushiEngine::Editor::GizmoMode::Translate,
                                SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
                                strands.data(), strands.size(), scene.lights.data(),
                                scene.lights.size(), scene.decals.data(), scene.decals.size(),
                                &game_ui, false, nullptr, true, nullptr,
-                               particle_billboards.data(), particle_billboards.size());
+                               particle_billboards.data(), particle_billboards.size(),
+                               &animated_mesh_preview, scene_emitters, scene_emitter_count);
+            }
+
+            if (context.panels.preview)
+            {
+                // The one preview surface: whatever is being authored, in isolation. No world
+                // instances, no world lights, no world emitters — the previewed effect and the
+                // previewed character both show here, because "the thing being authored" is a
+                // property of this surface rather than a separate window per kind of thing.
+                std::uint32_t no_selection = 0;
+                preview_view.set_render_settings(context.render_settings);
+                preview_view.draw(context.panels.preview, nullptr, 0, environment, no_selection,
+                                  false, nullptr, SushiEngine::Editor::GizmoMode::Translate,
+                                  SushiEngine::Editor::GizmoSpace::World, nullptr, nullptr, nullptr,
+                                  0, nullptr, 0, nullptr, 0, nullptr,
+                                  context.preferences.grid_visible, nullptr, false,
+                                  &particle_preview, nullptr, 0, &animated_mesh_preview, nullptr, 0,
+                                  /*ik_gizmo=*/true, /*preview_controls=*/true);
             }
 
             // Copy each visible viewport's per-pass GPU times out for the Statistics
@@ -851,6 +916,14 @@ int main(int argc, char** argv)
             context.frame_selected_requested = false;
             context.align_with_view_requested = false;
             context.move_to_view_requested = false;
+            // Drive the live audio from the world with the Scene camera as the listener,
+            // then refresh the profiler telemetry the audio panels display.
+            {
+                SushiEngine::Editor::FlyCamera& listener_cam = scene_camera.camera();
+                audio_system.update(simulation->world(), listener_cam.position,
+                                    listener_cam.forward(), listener_cam.up());
+                audio_system.poll_profile();
+            }
             SushiEngine::Editor::draw_hierarchy_panel(context);
             SushiEngine::Editor::draw_inspector_panel(context);
             SushiEngine::Editor::draw_environment_panel(context);
@@ -858,13 +931,15 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_lighting_panel(context);
             SushiEngine::Editor::draw_post_process_panel(context);
             SushiEngine::Editor::draw_gpu_culling_panel(context);
-            SushiEngine::Editor::draw_particle_editor_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);
             SushiEngine::Editor::draw_statistics_panel(context);
             SushiEngine::Editor::draw_animation_panel(context);
             SushiEngine::Editor::draw_animator_graph_panel(context);
+            SushiEngine::Editor::draw_animator_preview_panel(context);
+            SushiEngine::Editor::draw_audio_mixer_panel(context, audio_system);
+            SushiEngine::Editor::draw_audio_profiler_panel(context, audio_system);
             SushiEngine::Editor::draw_preferences_window(context);
             SushiEngine::Editor::draw_input_manager_window(context);
             SushiEngine::Editor::draw_save_scene_as_modal(context, running);

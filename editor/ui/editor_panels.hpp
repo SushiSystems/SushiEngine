@@ -174,18 +174,6 @@ namespace SushiEngine
         void draw_gpu_culling_panel(EditorContext& context);
 
         /**
-         * @brief Draws the Particle Editor panel: authors the previewed VFX effect.
-         *
-         * Edits the live `EffectPreview` (`context.particle_preview`) — its emission, shape,
-         * forces, lifetime, and colour — plus playback (play/pause/restart) and the emitter's
-         * world position; the Scene viewport renders the result and paints the emitter gizmo.
-         * A no-op when no preview is injected.
-         *
-         * @param context Shared editor state; reads/writes @ref EditorContext::particle_preview.
-         */
-        void draw_particle_editor_panel(EditorContext& context);
-
-        /**
          * @brief Draw the Project panel: a filesystem browser rooted at the project.
          *
          * Double-clicking a directory descends into it; double-clicking a file opens it

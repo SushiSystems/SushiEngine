@@ -85,3 +85,17 @@ description   = "cgltf — header-only glTF 2.0 parser backing the renderer's me
 required      = false
 linux_apt     = []
 windows_vcpkg = ["cgltf"]
+
+[opusfile]
+description   = "libopus + libopusfile (+libogg) — compressed audio codec for the audio subsystem's bank/streaming (music & dialogue). Decoded behind the IAudioCodec seam. Audio is OFF by default, so this is optional for a plain library build."
+required      = false
+linux_apt     = ["libopusfile-dev"]
+windows_vcpkg = ["opusfile"]
+check_cmd     = ["pkg-config", "--exists", "opusfile"]
+
+[hdf5]
+description   = "HDF5 — the container format SOFA HRIR files use, for measured-HRTF binaural spatialization. Built without the szip feature (its libaec source mirror rate-limits and SOFA needs no szip). Audio is OFF by default and HDF5 is only needed for measured HRTF, so this is optional."
+required      = false
+linux_apt     = ["libhdf5-dev"]
+windows_vcpkg = ["hdf5[core,zlib]"]
+check_cmd     = ["pkg-config", "--exists", "hdf5"]

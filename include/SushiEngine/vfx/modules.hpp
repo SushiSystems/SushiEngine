@@ -39,6 +39,7 @@
  */
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
@@ -94,7 +95,9 @@ namespace SushiEngine
         enum class RenderAlignment : std::uint32_t
         {
             FaceCamera = 0,        /**< Camera-facing quad. */
-            VelocityStretched = 1, /**< Stretched along the velocity vector (VFX2+). */
+            VelocityStretched = 1, /**< Stretched along the velocity vector. */
+            Ribbon = 2,            /**< A trail strip through the particle's recent positions. */
+            Mesh = 3,              /**< A solid mesh instance per particle (debris, shells). */
         };
 
         /** @brief One scheduled burst of particles at a point in the emitter's life. */
@@ -173,6 +176,61 @@ namespace SushiEngine
             float amplitude = 1.0f;  /**< Push strength, m/s^2. */
         };
 
+        /** @brief What a force field does to the particles inside it. */
+        enum class ForceFieldKind : std::uint32_t
+        {
+            Point = 0,  /**< Pulls toward (or, negative, pushes from) a point. */
+            Vortex = 1, /**< Swirls around an axis through a point. */
+            Drag = 2,   /**< Damps velocity inside the radius, a still-air pocket. */
+        };
+
+        /**
+         * @brief Update stage: one placed field that bends particles as they pass through it.
+         *
+         * Where gravity and turbulence act everywhere alike, a force field has a *place*: a
+         * position, a radius it reaches, and a falloff over that reach. That is what makes it the
+         * tool for authored motion — an updraft over a fire, a vortex in a portal, a pocket of
+         * still air behind cover — rather than for a global condition.
+         *
+         * The position and axis are in the emitter's local frame, so the field travels with its
+         * emitter; the compiler bakes them to world space per frame.
+         */
+        struct ForceFieldModule
+        {
+            bool enabled = false;                     /**< Whether this field is applied. */
+            ForceFieldKind kind = ForceFieldKind::Point; /**< What the field does. */
+            Vector3 position{};                       /**< Field centre, emitter-local. */
+            Vector3 axis{Vector3{0, 1, 0}};           /**< Swirl axis, Vortex only, emitter-local. */
+            float strength = 10.0f;                   /**< m/s^2, or velocity shed per second for Drag. */
+            float radius = 5.0f;                      /**< Reach in metres; nothing outside it is touched. */
+            float falloff = 1.0f;                     /**< Strength exponent over the normalised distance. */
+        };
+
+        /**
+         * @brief Update stage: bounce the cosmetic particles off whatever is on screen.
+         *
+         * A screen-space test against the depth the renderer already has, so it costs no collision
+         * geometry and no broadphase, and it is honest about what that buys: it can only know about
+         * surfaces the camera can see. Particles behind the viewer, off the sides, or hidden behind
+         * something nearer pass straight through. That is the right trade for sparks skittering off
+         * a floor in view; it is the wrong tool for gameplay collision, which is why the
+         * deterministic backend ignores this module entirely.
+         */
+        struct CollisionModule
+        {
+            bool enabled = false;      /**< Whether depth collision is applied. */
+            float restitution = 0.35f; /**< Fraction of the normal velocity kept on bounce. */
+            float friction = 0.2f;     /**< Fraction of the tangential velocity shed on bounce. */
+            /**
+             * @brief How far behind a surface still counts as touching it, metres.
+             *
+             * The depth buffer records a surface, not a solid: past this depth a particle is taken
+             * to be behind the object rather than resting on it, and is let through. Too small and
+             * fast particles tunnel; too large and they bounce off the far side of thin geometry.
+             */
+            float thickness = 0.5f;
+        };
+
         /** @brief Update stage: multiplies each particle's size by a curve of its age. */
         struct SizeOverLifeModule
         {
@@ -187,24 +245,37 @@ namespace SushiEngine
             ColorGradient gradient;  /**< Colour and alpha vs normalized age. */
         };
 
+        /** @brief The @ref RenderModule::texture value meaning "no sprite texture". */
+        constexpr std::uint32_t NO_PARTICLE_TEXTURE = 0xFFFFFFFFu;
+
         /**
-         * @brief Render stage: how alive particles are drawn.
+         * @brief Render stage: how alive particles are drawn — the particle *material*.
          *
-         * Blend mode, sort mode, billboard alignment, the soft-particle depth fade, an
-         * optional flipbook (sub-UV) atlas, and (later) lit shading. The texture is a handle
-         * into the renderer's texture library; 0 = the built-in soft dot.
+         * Blend mode, sort mode, billboard alignment, the soft-particle depth fade, the sprite
+         * texture and its optional flipbook (sub-UV) atlas, and whether the particle receives
+         * scene lighting. Deliberately not a PBR material: a puff has no roughness or normal
+         * map, and a particle that needs a real surface is a @c Mesh-aligned one drawn by the
+         * mesh path. Untextured particles draw as the built-in soft dot.
+         *
+         * The texture appears twice because the two forms serve different lifetimes:
+         * @ref texture is the renderer's runtime handle, valid only for the session that
+         * loaded it, while @ref texture_path is what an effect asset persists. Whatever
+         * deserialises an effect resolves the path into the handle.
          */
         struct RenderModule
         {
             BlendMode blend = BlendMode::Additive;          /**< Compositing mode. */
             SortMode sort = SortMode::None;                 /**< Draw ordering. */
             RenderAlignment alignment = RenderAlignment::FaceCamera; /**< Billboard orientation. */
+            float velocity_stretch = 0.05f;                 /**< Streak metres per m/s, VelocityStretched only. */
             bool soft_particles = true;                     /**< Fade where the billboard meets geometry. */
             float soft_fade_distance = 0.5f;                /**< World distance over which the soft fade ramps. */
-            std::uint32_t texture = 0;                      /**< Texture-library handle; 0 = built-in dot. */
+            std::uint32_t texture = NO_PARTICLE_TEXTURE;    /**< Texture-library handle, or @ref NO_PARTICLE_TEXTURE. */
+            std::string texture_path;                       /**< Source of @ref texture, for persistence. */
+            std::uint32_t mesh = 0;                         /**< Mesh-registry handle, Mesh alignment only. */
             std::uint32_t flipbook_rows = 1;                /**< Sub-UV atlas rows (1 = no flipbook). */
             std::uint32_t flipbook_columns = 1;             /**< Sub-UV atlas columns (1 = no flipbook). */
-            bool lit = false;                               /**< Receive scene lighting (VFX2+). */
+            bool lit = false;                               /**< Receive the sun, clustered lights, and SH ambient. */
         };
     } // namespace Vfx
 } // namespace SushiEngine

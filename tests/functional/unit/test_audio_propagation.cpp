@@ -301,3 +301,31 @@ TEST(Unit_Audio, PropagationTeleportSnapsWithoutSweep)
     const double settled = crossing_frequency(tail, 0, static_cast<int>(tail.size()), sr);
     EXPECT_NEAR(settled, freq, 20.0); // pitch normal again: the delay snapped
 }
+
+// Near-field compensation boosts a very close source's low frequencies.
+TEST(Unit_Audio, NearFieldProximityBoost)
+{
+    const double sr = 48000.0;
+    const int n = 256;
+    Dsp::Atmosphere atmo;
+    VoiceDescriptor d = spatial_descriptor();
+    d.propagation_delay = false; // isolate the near-field shelf from Doppler
+    d.min_distance = 0.1f;       // ~unity distance gain up close
+
+    auto low_rms = [&](float near_field) {
+        SourcePropagation prop;
+        prop.prepare(sr, n, static_cast<int>(sr));
+        VoiceDescriptor voice = d;
+        voice.near_field_distance = near_field;
+        // Same close distance both runs, so only the near-field shelf differs.
+        const std::vector<float> out = run_propagation(prop, voice, atmo, 120.0, sr, n, 24, 0.2f, 0.2f);
+        double e = 0.0;
+        for (std::size_t i = out.size() / 2; i < out.size(); ++i)
+            e += static_cast<double>(out[i]) * out[i];
+        return std::sqrt(e / (out.size() / 2));
+    };
+
+    const double off = low_rms(0.0f); // near-field disabled
+    const double on = low_rms(1.0f);  // 0.2 m inside a 1 m near field → strong boost
+    EXPECT_GT(on, off * 1.3);
+}

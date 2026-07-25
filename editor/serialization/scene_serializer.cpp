@@ -32,6 +32,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "effect_serializer.hpp"
+
 namespace SushiEngine
 {
     namespace Editor
@@ -432,9 +434,60 @@ namespace SushiEngine
                 if (has_particle_emitter)
                 {
                     const auto params = world.particle_emitter_params(id);
-                    entry["particle_emitter"] = json{{"effect", params.effect},
-                                                     {"seed", params.seed},
-                                                     {"playing", params.playing}};
+                    // The effect goes with the entity, not as an index into a library: it is the
+                    // component's own data, so a scene that reloads without it would come back
+                    // with emitters that emit nothing.
+                    entry["particle_emitter"] =
+                        json{{"seed", params.seed},
+                             {"playing", params.playing},
+                             {"source", capture_effect(world.particle_effect_source(id))}};
+                }
+
+                const bool has_audio_emitter = world.has_audio_emitter(id);
+                entry["has_audio_emitter"] = has_audio_emitter;
+                if (has_audio_emitter)
+                {
+                    const auto p = world.audio_emitter_params(id);
+                    entry["audio_emitter"] = json{{"sound", p.sound},
+                                                  {"gain", p.gain},
+                                                  {"priority", p.priority},
+                                                  {"bus", p.bus},
+                                                  {"min_distance", p.min_distance},
+                                                  {"max_distance", p.max_distance},
+                                                  {"distance_model", p.distance_model},
+                                                  {"rolloff", p.rolloff},
+                                                  {"doppler_scale", p.doppler_scale},
+                                                  {"reverb_send", p.reverb_send},
+                                                  {"spatial", p.spatial},
+                                                  {"playing", p.playing},
+                                                  {"looping", p.looping}};
+                }
+
+                const bool has_reverb_zone = world.has_reverb_zone(id);
+                entry["has_reverb_zone"] = has_reverb_zone;
+                if (has_reverb_zone)
+                {
+                    const auto p = world.reverb_zone_params(id);
+                    entry["reverb_zone"] = json{{"half_extents", vec3_to_json(p.half_extents)},
+                                                {"room", p.room},
+                                                {"room_hf", p.room_hf},
+                                                {"decay_time", p.decay_time},
+                                                {"decay_hf_ratio", p.decay_hf_ratio},
+                                                {"reflections", p.reflections},
+                                                {"reverb", p.reverb},
+                                                {"diffusion", p.diffusion},
+                                                {"density", p.density},
+                                                {"wet_dry_mix", p.wet_dry_mix},
+                                                {"send", p.send},
+                                                {"priority", p.priority}};
+                }
+
+                const bool has_audio_listener = world.has_audio_listener(id);
+                entry["has_audio_listener"] = has_audio_listener;
+                if (has_audio_listener)
+                {
+                    const auto p = world.audio_listener_params(id);
+                    entry["audio_listener"] = json{{"gain", p.gain}, {"active", p.active}};
                 }
 
                 // Not mutually exclusive with any of the above, so it is its own field
@@ -579,10 +632,80 @@ namespace SushiEngine
                     {
                         const json& p = entry["particle_emitter"];
                         SushiEngine::Simulation::ParticleEmitterParams params;
-                        params.effect = p.value("effect", params.effect);
+                        // An older file's "effect" index is ignored: the effect it named was a
+                        // library entry that no longer exists, and "source" carries the real thing.
                         params.seed = p.value("seed", params.seed);
                         params.playing = p.value("playing", params.playing);
                         world.set_particle_emitter_params(id, params);
+                        // Absent in files written before the effect moved onto the component; the
+                        // emitter then keeps the default it was seeded with rather than failing.
+                        if (p.contains("source"))
+                        {
+                            SushiEngine::Vfx::ParticleEffect source;
+                            if (apply_effect(p["source"], source))
+                                world.set_particle_effect_source(id, source);
+                        }
+                    }
+                }
+
+                if (entry.value("has_audio_emitter", false))
+                {
+                    world.set_has_audio_emitter(id, true);
+                    if (entry.contains("audio_emitter"))
+                    {
+                        const json& a = entry["audio_emitter"];
+                        SushiEngine::Simulation::AudioEmitterParams p;
+                        p.sound = a.value("sound", p.sound);
+                        p.gain = a.value("gain", p.gain);
+                        p.priority = a.value("priority", p.priority);
+                        p.bus = a.value("bus", p.bus);
+                        p.min_distance = a.value("min_distance", p.min_distance);
+                        p.max_distance = a.value("max_distance", p.max_distance);
+                        p.distance_model = a.value("distance_model", p.distance_model);
+                        p.rolloff = a.value("rolloff", p.rolloff);
+                        p.doppler_scale = a.value("doppler_scale", p.doppler_scale);
+                        p.reverb_send = a.value("reverb_send", p.reverb_send);
+                        p.spatial = a.value("spatial", p.spatial);
+                        p.playing = a.value("playing", p.playing);
+                        p.looping = a.value("looping", p.looping);
+                        world.set_audio_emitter_params(id, p);
+                    }
+                }
+
+                if (entry.value("has_reverb_zone", false))
+                {
+                    world.set_has_reverb_zone(id, true);
+                    if (entry.contains("reverb_zone"))
+                    {
+                        const json& z = entry["reverb_zone"];
+                        SushiEngine::Simulation::ReverbZoneParams p;
+                        if (z.contains("half_extents"))
+                            p.half_extents = vec3_from_json(z["half_extents"]);
+                        p.room = z.value("room", p.room);
+                        p.room_hf = z.value("room_hf", p.room_hf);
+                        p.decay_time = z.value("decay_time", p.decay_time);
+                        p.decay_hf_ratio = z.value("decay_hf_ratio", p.decay_hf_ratio);
+                        p.reflections = z.value("reflections", p.reflections);
+                        p.reverb = z.value("reverb", p.reverb);
+                        p.diffusion = z.value("diffusion", p.diffusion);
+                        p.density = z.value("density", p.density);
+                        p.wet_dry_mix = z.value("wet_dry_mix", p.wet_dry_mix);
+                        p.send = z.value("send", p.send);
+                        p.priority = z.value("priority", p.priority);
+                        world.set_reverb_zone_params(id, p);
+                    }
+                }
+
+                if (entry.value("has_audio_listener", false))
+                {
+                    world.set_has_audio_listener(id, true);
+                    if (entry.contains("audio_listener"))
+                    {
+                        const json& l = entry["audio_listener"];
+                        SushiEngine::Simulation::AudioListenerParams p;
+                        p.gain = l.value("gain", p.gain);
+                        p.active = l.value("active", p.active);
+                        world.set_audio_listener_params(id, p);
                     }
                 }
 
@@ -684,7 +807,33 @@ namespace SushiEngine
             return static_cast<bool>(file);
         }
 
-        bool load_scene(IWorldEditor& world, const std::string& path, SceneSkyState* sky)
+        namespace
+        {
+            /**
+             * @brief Re-resolves every emitter's sprite textures after a load from disk.
+             *
+             * The capture carries both a path and the handle it had when written; only the path
+             * survives a session, so the handles a file was written with are re-derived here. A
+             * post-pass rather than a hook inside `apply_scene` because the in-memory snapshots
+             * that share that function are same-session, where the captured handles are still the
+             * right ones.
+             */
+            void resolve_scene_effect_textures(IWorldEditor& world,
+                                               SushiEngine::Render::IAssetLibrary& assets)
+            {
+                for (const EntityId id : world.entities())
+                {
+                    if (!world.has_particle_emitter(id))
+                        continue;
+                    SushiEngine::Vfx::ParticleEffect effect = world.particle_effect_source(id);
+                    resolve_effect_textures(effect, assets);
+                    world.set_particle_effect_source(id, effect);
+                }
+            }
+        } // namespace
+
+        bool load_scene(IWorldEditor& world, const std::string& path, SceneSkyState* sky,
+                        SushiEngine::Render::IAssetLibrary* assets)
         {
             std::ifstream file(path);
             if (!file)
@@ -705,6 +854,8 @@ namespace SushiEngine
             if (root.is_array())
             {
                 apply_scene(world, root);
+                if (assets != nullptr)
+                    resolve_scene_effect_textures(world, *assets);
                 return true;
             }
 
@@ -712,6 +863,8 @@ namespace SushiEngine
                 return false;
 
             apply_scene(world, root["entities"]);
+            if (assets != nullptr)
+                resolve_scene_effect_textures(world, *assets);
             if (root.contains("environment"))
                 world.set_environment(environment_from_json(root["environment"], world.environment()));
             if (sky != nullptr && root.contains("sky"))

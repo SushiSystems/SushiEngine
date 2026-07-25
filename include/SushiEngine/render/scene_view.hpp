@@ -140,6 +140,29 @@ namespace SushiEngine
             std::uint32_t id = 0;                     /**< Picking id (0 = none). */
             MeshId mesh = INVALID_MESH;               /**< A skinned mesh (carries a skin stream). */
             Material material{};                      /**< Surface to shade with. */
+            /**
+             * @brief Per-target morph weights, in the mesh's target order, or null for none.
+             *
+             * Design §6.5/§12.1: the SkinningPass blends `Σ weight × delta` into the base
+             * position before joint skinning. Length is @c morph_target_count, which must not
+             * exceed the mesh's own target count (extras are ignored, a short array pads with
+             * zero weight for the remaining targets).
+             */
+            const float* morph_weights = nullptr;
+            std::uint32_t morph_target_count = 0;     /**< Entries in @c morph_weights. */
+            /**
+             * @brief Opt into dual-quaternion skinning instead of linear-blend (design §12.4).
+             *
+             * `SkinningSystem` always derives a dual-quaternion palette alongside the linear
+             * one (cheap, and correct for any rigid — no non-uniform-scale — joint palette), so
+             * this is a pure per-instance switch, not a cost an instance pays only when set.
+             * Fixes the "candy wrapper" pinch a large bend shows under linear-blend skinning;
+             * see `animation/dual_quaternion_skinning.hpp` for the verified blend math this
+             * flips on. Previous-frame motion vectors always sample the linear-blend previous
+             * palette regardless of this flag — the sub-pixel difference is not worth a second
+             * previous-frame dual-quaternion palette.
+             */
+            bool use_dual_quaternion_skinning = false;
         };
 
         /**

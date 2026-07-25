@@ -99,6 +99,12 @@ namespace SushiEngine
             float rolloff = 1.0f;        /**< Rolloff factor. */
             float doppler_scale = 1.0f;  /**< Doppler exaggeration. */
             bool playing = true;         /**< False stops the voice. */
+
+            int reverb_bus = -1;         /**< Reverb aux-send target bus (−1 = no send). */
+            float reverb_send = 0.0f;    /**< Reverb aux-send level in [0, 1]. */
+            float obstruction = 0.0f;    /**< Direct-path blockage in [0, 1] (dry only). */
+            float occlusion = 0.0f;      /**< Direct+reverb blockage in [0, 1] (dry and wet). */
+            float transmission[3] = {1.0f, 1.0f, 1.0f}; /**< Three-band leak of the blocked path. */
         };
 
         /**
@@ -187,6 +193,8 @@ namespace SushiEngine
 
                         voices_.set_voice_position(it->second, e.position);
                         voices_.set_voice_gain(it->second, e.gain);
+                        voices_.set_voice_occlusion(it->second, e.obstruction, e.occlusion,
+                                                    e.transmission);
                     }
 
                     // Any mapped emitter absent from this snapshot was destroyed — stop it.
@@ -255,10 +263,15 @@ namespace SushiEngine
                     d.model = e.model;
                     d.rolloff = e.rolloff;
                     d.doppler_scale = e.doppler_scale;
+                    d.reverb_bus = e.reverb_bus;
+                    d.reverb_send = e.reverb_send;
 
                     const int handle = voices_.play(d, std::move(source));
                     if (handle != INVALID_VOICE)
+                    {
                         voice_of_.emplace(e.key, handle);
+                        voices_.set_voice_occlusion(handle, e.obstruction, e.occlusion, e.transmission);
+                    }
                     // else the pool was full; retried next frame.
                 }
 

@@ -37,12 +37,14 @@
  * with k-block lookahead, so the RT thread never waits on the GPU.
  *
  * This interface is defined from the start so the architecture stays clean and the
- * CPU mix is written against a seam rather than a concrete runtime call. Through
- * roadmap phase S9 the CPU path is the only implementation and the sole meaningful
- * query is @ref available (always false when nothing is wired). The batch-submit
- * surface lands with the SushiRuntime implementation in phase S10; it is left off
- * this header on purpose — the runtime's fluent API is unstable, so the seam is
- * kept intentionally thin until there is a real implementation to shape it.
+ * CPU mix is written against a seam rather than a concrete runtime call. The seam itself
+ * stays intentionally thin — the sole query is @ref available — because the runtime's
+ * fluent API is unstable and must not leak into the SDL/SYCL-free header tree. The concrete
+ * S10 implementation, @ref SyclDspAccelerator in `accelerator_sycl.hpp` (a SYCL-only header),
+ * carries the batch-submit surface (upload/submit/collect) and confines all SushiRuntime
+ * coupling to that one file; it reports @ref available true once its device queue is usable
+ * and offloads batch FIR convolution with k-block lookahead. The CPU path remains the
+ * default everywhere no accelerator is wired.
  *
  * See `docs/slop/audio_system.md` §2, §12.2, §13.
  */

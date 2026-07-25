@@ -71,6 +71,14 @@ namespace SushiEngine
             GravityModule gravity;                            /**< Constant acceleration. */
             DragModule drag;                                  /**< Velocity damping. */
             TurbulenceModule turbulence;                      /**< Curl-noise wind. */
+            /**
+             * @brief Placed fields bending the particles that pass through them.
+             *
+             * Only the first @c MAX_FORCE_FIELDS enabled entries are compiled; the rest are
+             * dropped, because the compiled record both backends read is a fixed-size POD.
+             */
+            std::vector<ForceFieldModule> force_fields;
+            CollisionModule collision;                        /**< Screen-space depth bounce. */
             SizeOverLifeModule size_over_life;                /**< Size multiplier vs age. */
             ColorOverLifeModule color_over_life;              /**< Colour/alpha vs age. */
             RenderModule render;                              /**< Draw settings. */

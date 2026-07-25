@@ -90,6 +90,16 @@ namespace SushiEngine
                 return import_gltf(path, meshes_, textures_, meshes, materials, count);
             }
 
+            std::size_t AssetLibrary::load_gltf_skinned_mesh(const char* path,
+                                                             std::size_t skin_index,
+                                                             MeshId* meshes,
+                                                             Render::Material* materials,
+                                                             std::size_t count)
+            {
+                return import_gltf_skinned_mesh(path, skin_index, meshes_, textures_, meshes,
+                                                materials, count);
+            }
+
             std::size_t AssetLibrary::resident_texture_bytes() const noexcept
             {
                 return textures_.resident_bytes();

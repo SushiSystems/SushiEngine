@@ -24,7 +24,10 @@
 #include "editor_panels.hpp"
 #include "material_inspector.hpp"
 
+#include "../audio/audio_panels.hpp"
+#include "../serialization/effect_serializer.hpp"
 #include "../serialization/scene_serializer.hpp"
+#include "../animation/animated_mesh_preview.hpp"
 #include "../vfx/effect_preview.hpp"
 
 #include <algorithm>
@@ -409,12 +412,12 @@ namespace SushiEngine
                         select_only(context, world->create_cloth("Cloth"));
                         editor_log(context, "Created object 'Cloth'.");
                     }
-                    if (ImGui::MenuItem("Particle Emitter"))
+                    if (ImGui::MenuItem("Particle System"))
                     {
                         context.history.record(*world);
                         select_only(context,
-                                    world->create_particle_emitter("Particle Emitter"));
-                        editor_log(context, "Created object 'Particle Emitter'.");
+                                    world->create_particle_emitter("Particle System"));
+                        editor_log(context, "Created object 'Particle System'.");
                     }
                     if (ImGui::MenuItem("Light"))
                     {
@@ -708,7 +711,7 @@ namespace SushiEngine
                 if (world == nullptr)
                     return;
                 SceneSkyState sky = capture_sky_state(context);
-                if (load_scene(*world, path, &sky))
+                if (load_scene(*world, path, &sky, context.assets))
                 {
                     apply_sky_state(context, sky);
                     // Environment/Lighting are an editor (host) setting, not scene data, so
@@ -855,7 +858,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
                 ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
                 ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
-                ImGui::MenuItem("Particle Editor", nullptr, &context.panels.particle_editor);
+                ImGui::MenuItem("Preview", nullptr, &context.panels.preview);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                 ImGui::MenuItem("Console", nullptr, &context.panels.console);
@@ -863,6 +866,9 @@ namespace SushiEngine
                 ImGui::MenuItem("Toolbar", nullptr, &context.panels.toolbar);
                 ImGui::MenuItem("Animation", nullptr, &context.panels.animation);
                 ImGui::MenuItem("Animator", nullptr, &context.panels.animator_graph);
+                ImGui::MenuItem("Animator", nullptr, &context.panels.animator_preview);
+                ImGui::MenuItem("Audio Mixer", nullptr, &context.panels.audio_mixer);
+                ImGui::MenuItem("Audio Profiler", nullptr, &context.panels.audio_profiler);
                 ImGui::Separator();
                 ImGui::MenuItem("ImGui Demo", nullptr, &context.show_imgui_demo);
                 ImGui::EndMenu();
@@ -1468,6 +1474,15 @@ namespace SushiEngine
             }
         } // namespace
 
+        /**
+         * @brief Draws the Particle System component's authoring body for @p entity.
+         *
+         * Defined further down, beside the effect helpers it uses; declared here because the
+         * Inspector, which draws every component section, comes first in the file.
+         */
+        void draw_particle_system_component(EditorContext& context, IWorldEditor& world,
+                                            SushiEngine::Simulation::EntityId entity);
+
         void draw_inspector_panel(EditorContext& context)
         {
             draw_new_script_modal(context);
@@ -2053,7 +2068,7 @@ namespace SushiEngine
             {
                 bool keep_emitter = true;
                 const bool emitter_open = ImGui::CollapsingHeader(
-                    "Particle Emitter", &keep_emitter, ImGuiTreeNodeFlags_DefaultOpen);
+                    "Particle System", &keep_emitter, ImGuiTreeNodeFlags_DefaultOpen);
                 if (!keep_emitter)
                 {
                     context.history.record(*world);
@@ -2065,27 +2080,7 @@ namespace SushiEngine
                         world->particle_emitter_params(id);
                     bool changed = false;
 
-                    const std::uint32_t effect_count = world->particle_effect_count();
-                    const std::uint32_t current =
-                        params.effect < effect_count ? params.effect : 0;
-                    const char* preview =
-                        effect_count > 0 ? world->particle_effect_name(current) : "None";
-                    if (ImGui::BeginCombo("Effect", preview))
-                    {
-                        for (std::uint32_t e = 0; e < effect_count; ++e)
-                        {
-                            if (ImGui::Selectable(world->particle_effect_name(e),
-                                                  params.effect == e))
-                            {
-                                context.history.begin_change(*world);
-                                params.effect = e;
-                                changed = true;
-                                context.history.end_change();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-
+                    // No effect picker: the effect belongs to this entity and is authored below.
                     int seed = static_cast<int>(params.seed);
                     if (ImGui::DragInt("Seed", &seed, 1.0f, 0, 1000000))
                     {
@@ -2106,6 +2101,10 @@ namespace SushiEngine
 
                     if (changed)
                         world->set_particle_emitter_params(id, params);
+
+                    // The whole authoring surface lives in the component that owns it: a particle
+                    // system is not a mode the editor is in, it is something an entity has.
+                    draw_particle_system_component(context, *world, id);
                 }
             }
 
@@ -2458,6 +2457,14 @@ namespace SushiEngine
                 ImGui::PopID();
             }
 
+            // Audio authoring sections (S9): emitter, reverb zone, and listener, each drawn
+            // only when the entity carries that component. The emitter section auditions
+            // through the live editor audio system.
+            if (context.audio != nullptr)
+                draw_audio_emitter_inspector(context, *world, id, *context.audio);
+            draw_reverb_zone_inspector(context, *world, id);
+            draw_audio_listener_inspector(context, *world, id);
+
             ImGui::Separator();
             if (ImGui::Button("Add Component"))
                 ImGui::OpenPopup("AddComponentPopup");
@@ -2486,7 +2493,7 @@ namespace SushiEngine
                     context.history.record(*world);
                     world->set_has_cloth(id, true);
                 }
-                if (!world->has_particle_emitter(id) && ImGui::MenuItem("Particle Emitter"))
+                if (!world->has_particle_emitter(id) && ImGui::MenuItem("Particle System"))
                 {
                     context.history.record(*world);
                     world->set_has_particle_emitter(id, true);
@@ -2495,6 +2502,21 @@ namespace SushiEngine
                 {
                     context.history.record(*world);
                     world->set_has_light(id, true);
+                }
+                if (!world->has_audio_emitter(id) && ImGui::MenuItem("Audio Emitter"))
+                {
+                    context.history.record(*world);
+                    world->set_has_audio_emitter(id, true);
+                }
+                if (!world->has_reverb_zone(id) && ImGui::MenuItem("Reverb Zone"))
+                {
+                    context.history.record(*world);
+                    world->set_has_reverb_zone(id, true);
+                }
+                if (!world->has_audio_listener(id) && ImGui::MenuItem("Audio Listener"))
+                {
+                    context.history.record(*world);
+                    world->set_has_audio_listener(id, true);
                 }
                 if (!world->has_decal(id) && ImGui::MenuItem("Decal"))
                 {
@@ -3972,30 +3994,407 @@ namespace SushiEngine
             ImGui::End();
         }
 
-        void draw_particle_editor_panel(EditorContext& context)
+        namespace
         {
-            if (!context.panels.particle_editor)
-                return;
-            if (!ImGui::Begin("Particle Editor", &context.panels.particle_editor))
+            /** @brief Where `.sushieffect` assets live, relative to the project the editor ran in. */
+            const char* const EFFECT_LIBRARY_DIRECTORY = "assets/effects";
+
+            /**
+             * @brief The selected emitter's own effect, created on first use.
+             *
+             * A new emitter starts from the same default the preview does, so an author who adds
+             * the component sees particles immediately and edits from there rather than from an
+             * empty effect. The name is derived from the entity, which is what keeps the world
+             * registration one-per-emitter.
+             */
+            Vfx::ParticleEffect& particle_effect_for(EditorContext& context,
+                                                     SushiEngine::Simulation::EntityId entity,
+                                                     IWorldEditor& world)
             {
-                ImGui::End();
-                return;
+                // A scratch copy of the component's own effect: the widgets need a mutable
+                // reference to bind to, and the world is written back once per changed frame
+                // rather than through a setter per widget. Re-read whenever the selection moves,
+                // so switching entities never carries the previous one's effect across.
+                if (context.particle_effect_entity != entity)
+                {
+                    context.particle_effect_entity = entity;
+                    context.particle_effect_scratch = world.particle_effect_source(entity);
+                }
+                return context.particle_effect_scratch;
             }
 
+            /**
+             * @brief The effect library: what is on disk, and the load/save that moves between it
+             *        and the effect being edited.
+             *
+             * The listing is re-read on demand rather than watched — an author saves far less often
+             * than the panel redraws, and a filesystem scan every frame would be the panel's
+             * dominant cost for information that almost never changes.
+             */
+            /**
+             * @brief The sprite-texture slot: an editable path, a load, and a clear.
+             *
+             * Unlike the material inspector's equivalent this needs no side table for the text
+             * the author typed — a particle material stores its own path, because an effect
+             * asset has to persist one, and the handle is derived from it rather than the other
+             * way round.
+             *
+             * @param render The render module edited in place.
+             * @param assets Library the path is loaded through; null disables loading.
+             * @return true when the slot changed.
+             */
+            bool draw_particle_texture(Vfx::RenderModule& render,
+                                       SushiEngine::Render::IAssetLibrary* assets)
+            {
+                bool changed = false;
+                char buffer[512];
+                std::snprintf(buffer, sizeof(buffer), "%s", render.texture_path.c_str());
+
+                ImGui::SetNextItemWidth(-150.0f);
+                const bool entered = ImGui::InputText("Texture", buffer, sizeof(buffer),
+                                                      ImGuiInputTextFlags_EnterReturnsTrue);
+                render.texture_path = buffer;
+                ImGui::SameLine();
+                const bool load = ImGui::SmallButton("Load");
+                ImGui::SameLine();
+                const bool clear = ImGui::SmallButton("Clear");
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", render.texture != Vfx::NO_PARTICLE_TEXTURE ? "set"
+                                                                                     : "dot");
+
+                if (clear)
+                {
+                    if (render.texture != Vfx::NO_PARTICLE_TEXTURE && assets != nullptr)
+                        assets->release_texture(
+                            static_cast<SushiEngine::Render::TextureId>(render.texture));
+                    render.texture = Vfx::NO_PARTICLE_TEXTURE;
+                    render.texture_path.clear();
+                    return true;
+                }
+                if ((entered || load) && assets != nullptr)
+                {
+                    // Sprite sheets are authored in sRGB like any other colour map, so they decode
+                    // the same way an albedo map does.
+                    const SushiEngine::Render::TextureId loaded =
+                        render.texture_path.empty()
+                            ? SushiEngine::Render::INVALID_TEXTURE
+                            : assets->load_texture(render.texture_path.c_str(),
+                                                   SushiEngine::Render::TextureColorSpace::Srgb);
+                    if (render.texture != Vfx::NO_PARTICLE_TEXTURE)
+                        assets->release_texture(
+                            static_cast<SushiEngine::Render::TextureId>(render.texture));
+                    render.texture = loaded == SushiEngine::Render::INVALID_TEXTURE
+                                         ? Vfx::NO_PARTICLE_TEXTURE
+                                         : static_cast<std::uint32_t>(loaded);
+                    changed = true;
+                }
+                return changed;
+            }
+
+            bool draw_effect_library(Vfx::ParticleEffect& target,
+                                     SushiEngine::Render::IAssetLibrary* assets)
+            {
+                bool loaded_one = false;
+                static std::vector<std::string> files;
+                static bool scanned = false;
+                static std::string status;
+                static char name_buffer[64] = "Effect";
+
+                if (!scanned)
+                {
+                    files = list_effect_files(EFFECT_LIBRARY_DIRECTORY);
+                    scanned = true;
+                }
+
+                if (!ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen))
+                    return false;
+
+                ImGui::SetNextItemWidth(160.0f);
+                ImGui::InputText("Name", name_buffer, IM_ARRAYSIZE(name_buffer));
+                ImGui::SameLine();
+                if (ImGui::Button("Save"))
+                {
+                    const std::string path = std::string(EFFECT_LIBRARY_DIRECTORY) + "/" +
+                                             name_buffer + EFFECT_FILE_EXTENSION;
+                    // The file keeps the asset's name; the emitter's own effect keeps the name the
+                    // world knows it by, so saving a template never renames the live emitter.
+                    Vfx::ParticleEffect asset = target;
+                    asset.name = name_buffer;
+                    status = save_effect(asset, path) ? "Saved " + path
+                                                      : "Could not write " + path;
+                    files = list_effect_files(EFFECT_LIBRARY_DIRECTORY);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Refresh"))
+                {
+                    files = list_effect_files(EFFECT_LIBRARY_DIRECTORY);
+                    status.clear();
+                }
+
+                // Built-in starting points, so the library is useful before anything is saved.
+                // Like a file, a template is copied in rather than referenced.
+                std::size_t template_count = 0;
+                const EffectTemplate* templates = built_in_effect_templates(template_count);
+                for (std::size_t t = 0; t < template_count; ++t)
+                {
+                    if (t > 0)
+                        ImGui::SameLine();
+                    if (ImGui::SmallButton(templates[t].name))
+                    {
+                        const std::string keep = target.name;
+                        target = templates[t].build();
+                        target.name = keep;
+                        std::snprintf(name_buffer, sizeof(name_buffer), "%s", templates[t].name);
+                        loaded_one = true;
+                        status = std::string("Started from ") + templates[t].name;
+                    }
+                }
+
+                if (files.empty())
+                {
+                    ImGui::TextDisabled("No saved effects in %s yet.", EFFECT_LIBRARY_DIRECTORY);
+                }
+                else if (ImGui::BeginListBox("##effects", ImVec2(-FLT_MIN, 100.0f)))
+                {
+                    for (const std::string& file : files)
+                    {
+                        const std::string label =
+                            std::filesystem::path(file).stem().string();
+                        if (ImGui::Selectable(label.c_str()))
+                        {
+                            // A library entry is a **template**: it is copied into this emitter,
+                            // not bound to it, so editing one emitter never changes another that
+                            // started from the same file.
+                            Vfx::ParticleEffect loaded;
+                            if (load_effect(file, loaded))
+                            {
+                                // The file names its sprite textures by path; the handles it was
+                                // written with belong to whichever session wrote it.
+                                if (assets != nullptr)
+                                    resolve_effect_textures(loaded, *assets);
+                                const std::string keep = target.name;
+                                std::snprintf(name_buffer, sizeof(name_buffer), "%s",
+                                              loaded.name.c_str());
+                                target = std::move(loaded);
+                                target.name = keep;
+                                loaded_one = true;
+                                status = "Loaded " + file;
+                            }
+                            else
+                            {
+                                status = "Could not read " + file;
+                            }
+                        }
+                    }
+                    ImGui::EndListBox();
+                }
+
+                if (!status.empty())
+                    ImGui::TextDisabled("%s", status.c_str());
+                return loaded_one;
+            }
+
+            /**
+             * @brief The emitter cycle as a bar: its duration, its bursts, and a draggable head.
+             *
+             * Dragging seeks the emission schedule — see @ref EffectPreview::seek for why the live
+             * particles do not wind back with it.
+             */
+            void draw_effect_timeline(EffectPreview& preview)
+            {
+                // Read through the const overload: the mutable one marks the compiled effect stale,
+                // and drawing a timeline is not an edit.
+                const Vfx::ParticleEffect& effect =
+                    static_cast<const EffectPreview&>(preview).effect();
+                if (effect.emitters.empty())
+                    return;
+                const Vfx::EmitterDescriptor& emitter = effect.emitters[0];
+                const float duration = emitter.duration > 0.0f ? emitter.duration : 1.0f;
+                const float head = emitter.looping ? std::fmod(preview.time(), duration)
+                                                   : std::min(preview.time(), duration);
+
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                const float width = ImGui::GetContentRegionAvail().x;
+                const float height = 24.0f;
+                ImGui::InvisibleButton("##timeline", ImVec2(width, height));
+                const bool active = ImGui::IsItemActive();
+
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                draw_list->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + height),
+                                         IM_COL32(38, 38, 44, 255), 3.0f);
+
+                // Burst markers, so the schedule is visible rather than only listed.
+                for (const Vfx::ParticleBurst& burst : emitter.spawn.bursts)
+                {
+                    const float t = duration > 0.0f ? burst.time / duration : 0.0f;
+                    if (t < 0.0f || t > 1.0f)
+                        continue;
+                    const float x = origin.x + t * width;
+                    draw_list->AddLine(ImVec2(x, origin.y + 2.0f),
+                                       ImVec2(x, origin.y + height - 2.0f),
+                                       IM_COL32(230, 180, 90, 255), 2.0f);
+                }
+
+                const float head_x = origin.x + (head / duration) * width;
+                draw_list->AddLine(ImVec2(head_x, origin.y), ImVec2(head_x, origin.y + height),
+                                   IM_COL32(240, 240, 240, 255), 2.0f);
+
+                if (active && width > 0.0f)
+                {
+                    const float fraction =
+                        (ImGui::GetIO().MousePos.x - origin.x) / width;
+                    preview.seek(std::min(std::max(fraction, 0.0f), 1.0f) * duration);
+                }
+
+                ImGui::Text("t = %.2f s / %.2f s%s", static_cast<double>(head),
+                            static_cast<double>(duration), emitter.looping ? " (loop)" : "");
+            }
+            /**
+             * @brief The emitter's module stack drawn as a left-to-right node graph.
+             *
+             * A **presentation** of the authoring model, not a second one: the stack order
+             * (spawn → shape → init → update → render) is the pipeline a particle actually goes
+             * through, so the graph is that pipeline laid out rather than a free-form canvas whose
+             * edges would have to be validated back into the same fixed order. Clicking a node
+             * toggles the module it stands for; the parameters stay in the sections below, which is
+             * where an author edits numbers.
+             */
+            void draw_effect_graph(Vfx::EmitterDescriptor& emitter)
+            {
+                if (!ImGui::CollapsingHeader("Graph"))
+                    return;
+
+                struct Node
+                {
+                    const char* label;
+                    bool* enabled; // null for the stages that are always present
+                };
+                const Node nodes[] = {
+                    {"Spawn", &emitter.spawn.enabled},
+                    {"Shape", nullptr},
+                    {"Init", nullptr},
+                    {"Gravity", &emitter.gravity.enabled},
+                    {"Drag", &emitter.drag.enabled},
+                    {"Turbulence", &emitter.turbulence.enabled},
+                    {"Collision", &emitter.collision.enabled},
+                    {"Size/Life", &emitter.size_over_life.enabled},
+                    {"Colour/Life", &emitter.color_over_life.enabled},
+                    {"Render", nullptr},
+                };
+                constexpr int NODE_COUNT = IM_ARRAYSIZE(nodes);
+
+                const float node_width = 92.0f;
+                const float node_height = 30.0f;
+                const float gap = 18.0f;
+                const int per_row = 4;
+                const int rows = (NODE_COUNT + per_row - 1) / per_row;
+
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                const float height = rows * node_height + (rows - 1) * gap;
+                ImGui::InvisibleButton("##graph", ImVec2(per_row * (node_width + gap), height));
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                const ImVec2 mouse = ImGui::GetIO().MousePos;
+                const bool clicked = ImGui::IsItemHovered() && ImGui::IsMouseClicked(0);
+
+                ImVec2 centres[NODE_COUNT];
+                for (int i = 0; i < NODE_COUNT; ++i)
+                {
+                    const int row = i / per_row;
+                    const int column = i % per_row;
+                    const ImVec2 top_left(origin.x + column * (node_width + gap),
+                                          origin.y + row * (node_height + gap));
+                    const ImVec2 bottom_right(top_left.x + node_width, top_left.y + node_height);
+                    centres[i] = ImVec2((top_left.x + bottom_right.x) * 0.5f,
+                                        (top_left.y + bottom_right.y) * 0.5f);
+
+                    const bool on = nodes[i].enabled == nullptr || *nodes[i].enabled;
+                    const ImU32 fill = on ? IM_COL32(52, 74, 96, 255) : IM_COL32(40, 40, 46, 255);
+                    const ImU32 border = on ? IM_COL32(120, 180, 230, 255) : IM_COL32(78, 78, 86, 255);
+                    draw_list->AddRectFilled(top_left, bottom_right, fill, 4.0f);
+                    draw_list->AddRect(top_left, bottom_right, border, 4.0f);
+                    const ImVec2 text = ImGui::CalcTextSize(nodes[i].label);
+                    draw_list->AddText(ImVec2(centres[i].x - text.x * 0.5f,
+                                              centres[i].y - text.y * 0.5f),
+                                       on ? IM_COL32(235, 240, 245, 255) : IM_COL32(140, 140, 148, 255),
+                                       nodes[i].label);
+
+                    if (clicked && nodes[i].enabled != nullptr && mouse.x >= top_left.x &&
+                        mouse.x <= bottom_right.x && mouse.y >= top_left.y &&
+                        mouse.y <= bottom_right.y)
+                    {
+                        *nodes[i].enabled = !*nodes[i].enabled;
+                    }
+                }
+
+                // The links: consecutive stages, wrapping at the end of a row.
+                for (int i = 0; i + 1 < NODE_COUNT; ++i)
+                {
+                    const bool wraps = (i % per_row) == per_row - 1;
+                    const ImU32 colour = IM_COL32(96, 104, 118, 255);
+                    if (!wraps)
+                    {
+                        draw_list->AddLine(ImVec2(centres[i].x + node_width * 0.5f, centres[i].y),
+                                           ImVec2(centres[i + 1].x - node_width * 0.5f,
+                                                  centres[i + 1].y),
+                                           colour, 1.5f);
+                    }
+                    else
+                    {
+                        // Round the corner out past the row's right edge and back, so a wrapped
+                        // link reads as continuing rather than as an unrelated stub.
+                        const float turn = centres[i].x + node_width * 0.5f + gap * 0.5f;
+                        draw_list->AddLine(ImVec2(centres[i].x + node_width * 0.5f, centres[i].y),
+                                           ImVec2(turn, centres[i].y), colour, 1.5f);
+                        draw_list->AddLine(ImVec2(turn, centres[i].y),
+                                           ImVec2(turn, centres[i + 1].y), colour, 1.5f);
+                        draw_list->AddLine(ImVec2(turn, centres[i + 1].y),
+                                           ImVec2(centres[i + 1].x - node_width * 0.5f,
+                                                  centres[i + 1].y),
+                                           colour, 1.5f);
+                    }
+                }
+
+                ImGui::TextDisabled("Click a stage to toggle it; edit its values below.");
+            }
+        } // namespace
+
+        void draw_particle_system_component(EditorContext& context, IWorldEditor& world_ref,
+                                            SushiEngine::Simulation::EntityId entity)
+        {
             EffectPreview* preview = context.particle_preview;
+            IWorldEditor* world = &world_ref;
             if (preview == nullptr)
             {
                 ImGui::TextDisabled("No particle preview is available.");
-                ImGui::End();
                 return;
             }
 
-            const bool playing = preview->playing();
-            if (ImGui::Button(playing ? "Pause" : "Play"))
-                preview->set_playing(!playing);
+            Vfx::ParticleEffect& target = particle_effect_for(context, entity, *world);
+            if (draw_effect_library(target, context.assets))
+                context.particle_effect_dirty = true;
+
+            // The preview shows the emitter where it actually is, so the isolated surface and the
+            // Scene view do not disagree about position.
+            preview->set_position(world->world_transform(entity).position);
+
+            // No play/pause here: the transport belongs to the Preview surface. What stays is what
+            // is specific to authoring — the scrubbable backend, the step, and the timeline.
+            bool deterministic = preview->deterministic();
+            if (ImGui::Checkbox("CPU (scrubbable)", &deterministic))
+                preview->set_deterministic(deterministic);
+            if (deterministic)
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Step"))
+                    preview->seek(preview->time() + EffectPreview::DETERMINISTIC_STEP);
+            }
+            bool scene_preview = preview->scene_preview();
+            if (ImGui::Checkbox("Preview in Scene", &scene_preview))
+                preview->set_scene_preview(scene_preview);
             ImGui::SameLine();
-            if (ImGui::Button("Restart"))
-                preview->restart();
+            ImGui::TextDisabled("(the emitter entity itself is always live in the Scene)");
+
+            draw_effect_timeline(*preview);
 
             Vector3 position = preview->position();
             float position_values[3] = {static_cast<float>(position.x),
@@ -4005,13 +4404,11 @@ namespace SushiEngine
                 preview->set_position(Vector3{position_values[0], position_values[1],
                                               position_values[2]});
 
-            Vfx::ParticleEffect& effect = preview->effect();
-            if (effect.emitters.empty())
-            {
-                ImGui::End();
+            if (target.emitters.empty())
                 return;
-            }
-            Vfx::EmitterDescriptor& emitter = effect.emitters[0];
+            Vfx::EmitterDescriptor& emitter = target.emitters[0];
+
+            draw_effect_graph(emitter);
 
             ImGui::SeparatorText("Emission");
             ImGui::DragFloat("Rate /s", &emitter.spawn.rate_per_second, 1.0f, 0.0f, 5000.0f);
@@ -4060,6 +4457,64 @@ namespace SushiEngine
                 ImGui::DragFloat("Amplitude", &emitter.turbulence.amplitude, 0.05f, 0.0f, 50.0f);
             }
 
+            ImGui::Checkbox("Depth collision", &emitter.collision.enabled);
+            if (emitter.collision.enabled)
+            {
+                ImGui::DragFloat("Restitution", &emitter.collision.restitution, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Friction", &emitter.collision.friction, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Thickness", &emitter.collision.thickness, 0.02f, 0.001f, 10.0f);
+                ImGui::TextDisabled("Screen-space: only surfaces the camera can see.");
+            }
+
+            ImGui::SeparatorText("Force Fields");
+            if (ImGui::Button("Add Field") &&
+                emitter.force_fields.size() < Vfx::MAX_FORCE_FIELDS)
+            {
+                Vfx::ForceFieldModule field;
+                field.enabled = true;
+                emitter.force_fields.push_back(field);
+            }
+            for (std::size_t f = 0; f < emitter.force_fields.size(); ++f)
+            {
+                Vfx::ForceFieldModule& field = emitter.force_fields[f];
+                ImGui::PushID(static_cast<int>(f));
+                ImGui::Checkbox("##enabled", &field.enabled);
+                ImGui::SameLine();
+                const char* kind_names[] = {"Point", "Vortex", "Drag"};
+                int kind = static_cast<int>(field.kind);
+                ImGui::SetNextItemWidth(120.0f);
+                if (ImGui::Combo("##kind", &kind, kind_names, IM_ARRAYSIZE(kind_names)))
+                    field.kind = static_cast<Vfx::ForceFieldKind>(kind);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove"))
+                {
+                    emitter.force_fields.erase(emitter.force_fields.begin() +
+                                               static_cast<std::ptrdiff_t>(f));
+                    ImGui::PopID();
+                    break;
+                }
+                if (field.enabled)
+                {
+                    float position[3] = {static_cast<float>(field.position.x),
+                                         static_cast<float>(field.position.y),
+                                         static_cast<float>(field.position.z)};
+                    if (ImGui::DragFloat3("Position", position, 0.05f))
+                        field.position = Vector3{position[0], position[1], position[2]};
+                    if (field.kind == Vfx::ForceFieldKind::Vortex)
+                    {
+                        float axis[3] = {static_cast<float>(field.axis.x),
+                                         static_cast<float>(field.axis.y),
+                                         static_cast<float>(field.axis.z)};
+                        if (ImGui::DragFloat3("Axis", axis, 0.02f, -1.0f, 1.0f))
+                            field.axis = Vector3{axis[0], axis[1], axis[2]};
+                    }
+                    ImGui::DragFloat("Strength", &field.strength, 0.1f, -100.0f, 100.0f);
+                    ImGui::DragFloat("Radius", &field.radius, 0.05f, 0.001f, 100.0f);
+                    ImGui::DragFloat("Falloff", &field.falloff, 0.05f, 0.0f, 8.0f);
+                }
+                ImGui::PopID();
+            }
+
             ImGui::SeparatorText("Over Life");
             ImGui::Checkbox("Size over life", &emitter.size_over_life.enabled);
             ImGui::Checkbox("Colour over life", &emitter.color_over_life.enabled);
@@ -4084,9 +4539,73 @@ namespace SushiEngine
             int blend = static_cast<int>(emitter.render.blend);
             if (ImGui::Combo("Blend", &blend, blend_names, IM_ARRAYSIZE(blend_names)))
                 emitter.render.blend = static_cast<Vfx::BlendMode>(blend);
-            ImGui::TextDisabled("Alpha sorting and lit particles arrive in VFX2.");
+            const char* alignment_names[] = {"Face Camera", "Velocity Stretched", "Ribbon", "Mesh"};
+            int alignment = static_cast<int>(emitter.render.alignment);
+            if (ImGui::Combo("Alignment", &alignment, alignment_names,
+                             IM_ARRAYSIZE(alignment_names)))
+                emitter.render.alignment = static_cast<Vfx::RenderAlignment>(alignment);
+            if (emitter.render.alignment == Vfx::RenderAlignment::VelocityStretched)
+                ImGui::DragFloat("Stretch", &emitter.render.velocity_stretch, 0.005f, 0.0f, 1.0f,
+                                 "%.3f m per m/s");
+            if (emitter.render.alignment == Vfx::RenderAlignment::Ribbon)
+                ImGui::TextDisabled("Ribbons trail the last 8 simulated positions.");
+            if (emitter.render.alignment == Vfx::RenderAlignment::Mesh)
+            {
+                int mesh = static_cast<int>(emitter.render.mesh);
+                if (ImGui::InputInt("Mesh", &mesh))
+                    emitter.render.mesh = static_cast<std::uint32_t>(mesh < 0 ? 0 : mesh);
+                ImGui::TextDisabled("Mesh particles draw solid, with the opaque geometry.");
+            }
 
-            ImGui::End();
+            // The particle material. Sprite-only by design: a puff has no roughness or normal
+            // map, and a particle that needs a real surface is a Mesh-aligned one.
+            ImGui::SeparatorText("Material");
+            if (context.assets == nullptr)
+                ImGui::TextDisabled("No asset library; textures cannot be loaded.");
+            if (draw_particle_texture(emitter.render, context.assets))
+                context.particle_effect_dirty = true;
+            if (emitter.render.alignment == Vfx::RenderAlignment::Mesh)
+                ImGui::TextDisabled("Mesh particles take their look from the mesh, not this.");
+
+            int flipbook[2] = {static_cast<int>(emitter.render.flipbook_columns),
+                               static_cast<int>(emitter.render.flipbook_rows)};
+            if (ImGui::DragInt2("Flipbook (cols, rows)", flipbook, 0.1f, 1, 32))
+            {
+                emitter.render.flipbook_columns =
+                    static_cast<std::uint32_t>(flipbook[0] < 1 ? 1 : flipbook[0]);
+                emitter.render.flipbook_rows =
+                    static_cast<std::uint32_t>(flipbook[1] < 1 ? 1 : flipbook[1]);
+            }
+            if (emitter.render.flipbook_rows * emitter.render.flipbook_columns > 1)
+                ImGui::TextDisabled("The cell advances with the particle's normalised age.");
+
+            ImGui::Checkbox("Soft Particles", &emitter.render.soft_particles);
+            if (emitter.render.soft_particles)
+            {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(120.0f);
+                ImGui::DragFloat("Fade (m)", &emitter.render.soft_fade_distance, 0.01f, 0.0f, 10.0f,
+                                 "%.2f");
+            }
+            ImGui::Checkbox("Lit", &emitter.render.lit);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(sun + shadow, clustered lights, SH ambient)");
+
+            // Push the edit into the world only when something actually changed, and in place, so
+            // dragging a slider does not register a new effect once per frame. The emitter's index
+            // is set every time because it is cheap and covers the first edit after a reload.
+            // While a widget is active its value has already changed, so registering on those
+            // frames covers a drag; the dirty flag covers the changes no widget reports (a library
+            // load, an emitter's first appearance).
+            if (ImGui::IsAnyItemActive() || context.particle_effect_dirty)
+            {
+                context.particle_effect_dirty = false;
+                world->set_particle_effect_source(entity, target);
+            }
+
+            // The Preview surface mirrors whatever is being edited, so the isolated view and the
+            // scene show the same thing without this section owning a second effect.
+            preview->set_effect(target);
         }
 
         void draw_console_panel(EditorContext& context)
@@ -4152,6 +4671,47 @@ namespace SushiEngine
                 for (const GpuPassStatistic& pass : statistics.passes)
                     ImGui::TextDisabled("  %-18s %6.3f", pass.pass.c_str(),
                                         pass.milliseconds);
+            }
+
+            // The animation preview's pose-pool/palette/clip footprint (design
+            // `slop/animation_system.md` §12.1/§0.7) — the numbers `animation_benchmark`
+            // already computes headlessly for a crowd, shown here for the one live instance.
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Animation", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (context.animated_mesh_preview == nullptr)
+                {
+                    ImGui::TextDisabled("No preview attached");
+                }
+                else
+                {
+                    const SushiEngine::Editor::AnimatedMeshPreview::Statistics stats =
+                        context.animated_mesh_preview->statistics();
+                    if (!stats.loaded)
+                    {
+                        ImGui::TextDisabled("No character loaded");
+                    }
+                    else
+                    {
+                        ImGui::Text("Source:  %s", stats.source_path.c_str());
+                        ImGui::Text("Joints:  %u", stats.joint_count);
+                        ImGui::Text("Layers:  %u", stats.layer_count);
+                        ImGui::Text("Palette: %zu bytes/frame (x2 with previous-pose)",
+                                   stats.palette_bytes);
+                        ImGui::Text("Clip:    %s, %u frames @ %.1f fps",
+                                   stats.clip_compressed ? "compressed" : "raw",
+                                   stats.clip_frame_count, stats.clip_sample_rate);
+                        ImGui::Text("Clip tracks: %zu bytes (uncompressed)",
+                                   stats.clip_raw_track_bytes);
+                        if (stats.active_morph_weights > 0)
+                            ImGui::Text("Morph weights: %u active", stats.active_morph_weights);
+                        ImGui::Text("Two-bone IK: %s", stats.ik_active ? "active" : "off");
+                        ImGui::Text("Skinning: %s", stats.dual_quaternion_skinning
+                                                        ? "dual-quaternion"
+                                                        : "linear-blend");
+                    }
+                }
+                ImGui::TreePop();
             }
 
             ImGui::End();

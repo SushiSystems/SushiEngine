@@ -46,15 +46,19 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 #include <SushiEngine/audio/dsp/air_absorption.hpp>
 #include <SushiEngine/audio/dsp/simd.hpp>
+#include <SushiEngine/audio/dsp/spsc_ring.hpp>
 #include <SushiEngine/audio/mixer.hpp>
+#include <SushiEngine/audio/occlusion.hpp>
 #include <SushiEngine/audio/propagation.hpp>
 #include <SushiEngine/audio/spatializer.hpp>
 #include <SushiEngine/audio/voice.hpp>
+#include <SushiEngine/audio/voice_render_pool.hpp>
 
 namespace SushiEngine
 {
@@ -69,6 +73,39 @@ namespace SushiEngine
             AudioVec3 position;
             AudioVec3 forward{1.0f, 0.0f, 0.0f}; /**< Facing direction (head frame front). */
             AudioVec3 up{0.0f, 0.0f, 1.0f};      /**< Up direction (head frame up). */
+        };
+
+        /** @brief What a @ref VoiceCommand carried across the control→audio ring does. */
+        enum class VoiceCommandKind : std::uint32_t
+        {
+            Play,
+            Stop,
+            SetPosition,
+            SetGain,
+            SetPitch,
+            SetOcclusion,
+            SetListener
+        };
+
+        /**
+         * @brief One control-thread intent, drained and applied by the audio thread.
+         *
+         * A trivially-copyable POD so it crosses the lock-free @ref Dsp::SpscRing by value.
+         * `source` is a raw owning pointer for @ref VoiceCommandKind::Play — ownership is
+         * transferred to the audio thread, which wraps it back in a `unique_ptr`.
+         */
+        struct VoiceCommand
+        {
+            VoiceCommandKind kind = VoiceCommandKind::Stop;
+            int handle = INVALID_VOICE;      /**< Target voice (Play: the pre-allocated handle). */
+            VoiceDescriptor descriptor;      /**< Play parameters. */
+            VoiceSource* source = nullptr;   /**< Play source (ownership → audio thread). */
+            AudioVec3 v0;                    /**< Position, or listener position. */
+            AudioVec3 v1;                    /**< Listener forward. */
+            AudioVec3 v2;                    /**< Listener up. */
+            float f0 = 0.0f;                 /**< Gain / pitch / obstruction. */
+            float f1 = 0.0f;                 /**< Occlusion. */
+            float transmission[3] = {1.0f, 1.0f, 1.0f};
         };
 
         /**
@@ -87,12 +124,20 @@ namespace SushiEngine
                  * @param max_real_voices Maximum voices rendered (the rest are virtualized).
                  */
                 VoiceManager(int pool_capacity, int max_real_voices)
-                    : max_real_(max_real_voices)
+                    : max_real_(max_real_voices),
+                      commands_(static_cast<std::size_t>(pool_capacity) * 4),
+                      free_indices_(static_cast<std::size_t>(pool_capacity) * 2),
+                      finished_(static_cast<std::size_t>(pool_capacity) * 2),
+                      control_gen_(static_cast<std::size_t>(pool_capacity), 1u)
                 {
                     slots_.reserve(static_cast<std::size_t>(pool_capacity));
                     for (int i = 0; i < pool_capacity; ++i)
                         slots_.push_back(std::unique_ptr<Slot>(new Slot()));
                     ranking_.reserve(static_cast<std::size_t>(pool_capacity));
+                    // Pre-fill the free-slot list for the command-ring path (single-threaded
+                    // here, before any audio thread exists).
+                    for (int i = 0; i < pool_capacity; ++i)
+                        free_indices_.push(i);
                 }
 
                 /**
@@ -137,6 +182,7 @@ namespace SushiEngine
                     {
                         slot->scratch.assign(static_cast<std::size_t>(max_block_), 0.0f);
                         slot->propagation.prepare(sample_rate_, max_block_, max_delay_samples);
+                        slot->occlusion.prepare(sample_rate_, max_block_);
                     }
                 }
 
@@ -150,20 +196,23 @@ namespace SushiEngine
                 {
                     for (std::size_t i = 0; i < slots_.size(); ++i)
                     {
-                        Slot& slot = *slots_[i];
-                        if (slot.used)
-                            continue;
-                        slot.used = true;
-                        slot.state = VoiceState::Virtual;
-                        slot.descriptor = descriptor;
-                        slot.source = std::move(source);
-                        slot.audibility = 0.0f;
-                        slot.gain.configure(0.005, sample_rate_); // ~5 ms de-zipper
-                        slot.gain.snap(descriptor.base_gain);
-                        slot.propagation.reset();
-                        if (slot.source)
-                            slot.source->prepare(sample_rate_, max_block_);
-                        return static_cast<int>(i);
+                        if (!slots_[i]->used)
+                            return install(i, descriptor, std::move(source));
+                    }
+
+                    // Pool full: steal the least-important voice if the newcomer outranks it
+                    // (higher priority, or equal priority and louder). Otherwise drop it.
+                    const int victim = least_important_voice();
+                    if (victim >= 0)
+                    {
+                        const Slot& v = *slots_[static_cast<std::size_t>(victim)];
+                        const bool outranks =
+                            descriptor.priority > v.descriptor.priority ||
+                            (descriptor.priority == v.descriptor.priority &&
+                             descriptor.base_gain > v.audibility);
+                        if (outranks)
+                            return install(static_cast<std::size_t>(victim), descriptor,
+                                           std::move(source));
                     }
                     return INVALID_VOICE;
                 }
@@ -174,9 +223,8 @@ namespace SushiEngine
                  */
                 void stop(int handle) noexcept
                 {
-                    if (!valid(handle))
-                        return;
-                    free_slot(*slots_[static_cast<std::size_t>(handle)]);
+                    if (Slot* slot = resolve(handle))
+                        free_slot(*slot);
                 }
 
                 /** @brief Sets the listener used for distance attenuation. */
@@ -195,8 +243,8 @@ namespace SushiEngine
                  */
                 void set_voice_position(int handle, const AudioVec3& position) noexcept
                 {
-                    if (valid(handle))
-                        slots_[static_cast<std::size_t>(handle)]->descriptor.position = position;
+                    if (Slot* slot = resolve(handle))
+                        slot->descriptor.position = position;
                 }
 
                 /**
@@ -206,12 +254,184 @@ namespace SushiEngine
                  */
                 void set_voice_gain(int handle, float gain) noexcept
                 {
-                    if (valid(handle))
-                        slots_[static_cast<std::size_t>(handle)]->gain.set_target(gain);
+                    if (Slot* slot = resolve(handle))
+                        slot->gain.set_target(gain);
                 }
+
+                /**
+                 * @brief Sets a voice's pitch/rate multiplier (1 = natural).
+                 * @param handle The voice handle.
+                 * @param pitch  The pitch multiplier.
+                 */
+                void set_voice_pitch(int handle, float pitch) noexcept
+                {
+                    if (Slot* slot = resolve(handle))
+                        if (slot->source)
+                            slot->source->set_pitch(pitch);
+                }
+
+                /**
+                 * @brief Publishes a spatial voice's occlusion state (per wall-clock frame).
+                 *
+                 * The geometry layer (`acoustic_geometry.hpp`) measures what is blocked; this
+                 * hands the result to the voice's @ref OcclusionFilter, which muffles and
+                 * attenuates the dry signal and (for occlusion, not obstruction) pulls the
+                 * reverb send down. A no-op for an invalid handle.
+                 *
+                 * @param handle       The voice handle from @ref play.
+                 * @param obstruction  Direct-path blockage in [0, 1] (dry only).
+                 * @param occlusion    Direct+reverb blockage in [0, 1] (dry and wet).
+                 * @param transmission Three-band leak of the blocked path (1 = fully open).
+                 */
+                void set_voice_occlusion(int handle, float obstruction, float occlusion,
+                                         const float transmission[3]) noexcept
+                {
+                    if (Slot* slot = resolve(handle))
+                        slot->occlusion.set_targets(obstruction, occlusion, transmission);
+                }
+
+                // --- Concurrency-safe control→audio command API (§0) ----------------------
+                //
+                // These are the thread-safe counterparts of play/stop/set_voice_*: the
+                // control (game/ECS) thread calls them at any time while the audio thread
+                // renders, and the audio thread applies them at the top of the next block.
+                // Use *either* this API or the direct one on a given manager, not both.
+
+                /**
+                 * @brief Enqueues a voice to start (control thread; wait-free).
+                 *
+                 * Allocates a slot, prepares the source off the audio thread, and posts a Play
+                 * command; the audio thread installs it at the next block. Returns the handle
+                 * immediately (generational, so it stays valid until the voice ends).
+                 *
+                 * @param descriptor The voice parameters.
+                 * @param source     The mono source (ownership transferred).
+                 * @return A handle, or @ref INVALID_VOICE if the pool or ring is full.
+                 */
+                int enqueue_play(const VoiceDescriptor& descriptor, std::unique_ptr<VoiceSource> source)
+                {
+                    int index = 0;
+                    if (!free_indices_.pop(index))
+                        return INVALID_VOICE; // pool exhausted / all voices in flight
+                    const std::uint32_t generation =
+                        next_generation(control_gen_[static_cast<std::size_t>(index)]);
+                    control_gen_[static_cast<std::size_t>(index)] = generation;
+                    const int handle = pack_handle(generation, static_cast<std::size_t>(index));
+                    if (source)
+                        source->prepare(sample_rate_, max_block_); // allocate off the audio thread
+                    VoiceCommand command;
+                    command.kind = VoiceCommandKind::Play;
+                    command.handle = handle;
+                    command.descriptor = descriptor;
+                    command.source = source.release();
+                    if (!commands_.push(command))
+                    {
+                        delete command.source; // ring full (pathological with 4× sizing)
+                        return INVALID_VOICE;
+                    }
+                    return handle;
+                }
+
+                /** @brief Enqueues a voice stop (control thread; wait-free). */
+                void enqueue_stop(int handle)
+                {
+                    VoiceCommand c;
+                    c.kind = VoiceCommandKind::Stop;
+                    c.handle = handle;
+                    commands_.push(c);
+                }
+
+                /** @brief Enqueues a spatial voice's new position (control thread). */
+                void enqueue_set_position(int handle, const AudioVec3& position)
+                {
+                    VoiceCommand c;
+                    c.kind = VoiceCommandKind::SetPosition;
+                    c.handle = handle;
+                    c.v0 = position;
+                    commands_.push(c);
+                }
+
+                /** @brief Enqueues a voice gain target (control thread). */
+                void enqueue_set_gain(int handle, float gain)
+                {
+                    VoiceCommand c;
+                    c.kind = VoiceCommandKind::SetGain;
+                    c.handle = handle;
+                    c.f0 = gain;
+                    commands_.push(c);
+                }
+
+                /** @brief Enqueues a voice pitch multiplier (control thread). */
+                void enqueue_set_pitch(int handle, float pitch)
+                {
+                    VoiceCommand c;
+                    c.kind = VoiceCommandKind::SetPitch;
+                    c.handle = handle;
+                    c.f0 = pitch;
+                    commands_.push(c);
+                }
+
+                /** @brief Enqueues a voice's occlusion state (control thread). */
+                void enqueue_set_occlusion(int handle, float obstruction, float occlusion,
+                                           const float transmission[3])
+                {
+                    VoiceCommand c;
+                    c.kind = VoiceCommandKind::SetOcclusion;
+                    c.handle = handle;
+                    c.f0 = obstruction;
+                    c.f1 = occlusion;
+                    c.transmission[0] = transmission[0];
+                    c.transmission[1] = transmission[1];
+                    c.transmission[2] = transmission[2];
+                    commands_.push(c);
+                }
+
+                /** @brief Enqueues the listener pose (control thread). */
+                void enqueue_set_listener(const AudioVec3& position, const AudioVec3& forward,
+                                          const AudioVec3& up)
+                {
+                    VoiceCommand c;
+                    c.kind = VoiceCommandKind::SetListener;
+                    c.v0 = position;
+                    c.v1 = forward;
+                    c.v2 = up;
+                    commands_.push(c);
+                }
+
+                /**
+                 * @brief Drains one ended-voice report (control thread).
+                 *
+                 * The audio thread reports every voice that finished (a one-shot ran out, was
+                 * stolen, or was stopped); the control thread polls these to drop its own
+                 * handle bookkeeping. Call in a loop until it returns false.
+                 *
+                 * @param handle Set to the ended voice's handle on success.
+                 * @return True if a report was dequeued.
+                 */
+                bool poll_finished(int& handle) { return finished_.pop(handle); }
+
+                /**
+                 * @brief Installs a worker pool to render voices across CPU cores.
+                 *
+                 * When set (and enough real voices are active), the per-voice DSP phase of
+                 * @ref render runs in parallel; the mixdown stays serial, so the output is
+                 * identical to the single-threaded path. Pass nullptr to render on one core.
+                 * The pool must outlive the manager's use of it and belong to no other
+                 * manager concurrently.
+                 *
+                 * @param pool The pool, or nullptr for single-threaded rendering.
+                 */
+                void set_render_pool(VoiceRenderPool* pool) noexcept { pool_ = pool; }
 
                 /** @brief Sets the maximum number of voices rendered per block. */
                 void set_max_real_voices(int count) noexcept { max_real_ = count; }
+
+                /**
+                 * @brief Sets the HDR loudness window in dB (voices this far below the
+                 *        loudest are culled). A large value effectively disables HDR.
+                 * @param db The window depth in decibels.
+                 */
+                void set_hdr_window(double db) noexcept { hdr_window_db_ = db; }
 
                 /**
                  * @brief Installs the binaural spatializer spatial voices encode into.
@@ -235,7 +455,9 @@ namespace SushiEngine
                  */
                 void render(MixerGraph& mixer, int frame_count) noexcept
                 {
+                    drain_commands(); // apply queued control intents before ranking/rendering
                     ranking_.clear();
+                    float max_audibility = 0.0f;
                     for (std::size_t i = 0; i < slots_.size(); ++i)
                     {
                         Slot& slot = *slots_[i];
@@ -243,8 +465,16 @@ namespace SushiEngine
                             continue;
                         slot.audibility =
                             slot.descriptor.base_gain * slot.descriptor.attenuation(listener_.position);
+                        if (slot.audibility > max_audibility)
+                            max_audibility = slot.audibility;
                         ranking_.push_back(static_cast<int>(i));
                     }
+
+                    // HDR window: a voice more than `hdr_window_db_` below the loudest one is
+                    // masked — culled to virtual even under the real cap — so a loud transient
+                    // frees slots from sounds it would drown out (Wwise-HDR style).
+                    const float hdr_floor =
+                        max_audibility * static_cast<float>(std::pow(10.0, -hdr_window_db_ / 20.0));
 
                     // Primary key: priority; secondary: audibility. Highest first.
                     std::sort(ranking_.begin(), ranking_.end(), [this](int a, int b) {
@@ -259,7 +489,7 @@ namespace SushiEngine
                     for (int rank = 0; rank < static_cast<int>(ranking_.size()); ++rank)
                     {
                         Slot& slot = *slots_[static_cast<std::size_t>(ranking_[static_cast<std::size_t>(rank)])];
-                        const bool audible = slot.audibility > 1.0e-6f;
+                        const bool audible = slot.audibility > 1.0e-6f && slot.audibility >= hdr_floor;
                         if (real_count_ < max_real_ && audible)
                         {
                             slot.state = VoiceState::Real;
@@ -271,68 +501,92 @@ namespace SushiEngine
                         }
                     }
 
-                    for (std::unique_ptr<Slot>& slot_ptr : slots_)
+                    // The list of real voices to render this block.
+                    real_indices_.clear();
+                    for (std::size_t si = 0; si < slots_.size(); ++si)
+                        if (slots_[si]->used && slots_[si]->state == VoiceState::Real)
+                            real_indices_.push_back(static_cast<int>(si));
+                    const int real_voices = static_cast<int>(real_indices_.size());
+
+                    // Phase 1 — per-voice DSP into each voice's own scratch (no shared state):
+                    // source render, fader, and for a spatial voice the propagation and
+                    // occlusion. This is the heavy, embarrassingly-parallel work; a render pool
+                    // spreads it across cores, otherwise it runs inline. The result is
+                    // identical either way — only the serial mixdown in phase 2 touches shared
+                    // buffers.
+                    auto render_voice = [this, frame_count](int k) noexcept {
+                        Slot& slot = *slots_[static_cast<std::size_t>(real_indices_[static_cast<std::size_t>(k)])];
+                        float* scratch = slot.scratch.data();
+                        slot.render_alive = slot.source && slot.source->render(scratch, frame_count);
+                        if (!slot.render_alive)
+                            return;
+                        float g0 = 0.0f, g1 = 0.0f;
+                        slot.gain.advance_block(frame_count, g0, g1);
+                        Dsp::Simd::apply_gain_ramp(scratch, frame_count, g0, g1);
+                        slot.wet_scale = 1.0f;
+                        if (slot.descriptor.spatial)
+                        {
+                            const float dist = distance(slot.descriptor.position, listener_.position);
+                            slot.propagation.process(scratch, scratch, frame_count, dist, atmosphere_,
+                                                     slot.descriptor);
+                            slot.wet_scale = slot.occlusion.process(scratch, frame_count);
+                        }
+                    };
+                    if (pool_ != nullptr && real_voices >= kParallelVoiceThreshold)
+                        pool_->dispatch(real_voices, render_voice);
+                    else
+                        for (int k = 0; k < real_voices; ++k)
+                            render_voice(k);
+
+                    // Phase 2 — serial mixdown: place each rendered voice (ambisonic encode or
+                    // stereo pan) and post its reverb send; retire any that finished.
+                    for (int k = 0; k < real_voices; ++k)
                     {
-                        Slot& slot = *slot_ptr;
-                        if (!slot.used)
+                        const std::size_t si = static_cast<std::size_t>(real_indices_[static_cast<std::size_t>(k)]);
+                        Slot& slot = *slots_[si];
+                        if (!slot.render_alive)
+                        {
+                            retire_slot(si);
                             continue;
-
-                        if (slot.state == VoiceState::Real)
-                        {
-                            float* scratch = slot.scratch.data();
-                            const bool alive = slot.source && slot.source->render(scratch, frame_count);
-                            if (!alive)
-                            {
-                                free_slot(slot);
-                                continue;
-                            }
-
-                            // Per-voice base gain first (the fader), then, for a spatial
-                            // voice, propagation (delay/Doppler, air absorption, and the
-                            // distance-attenuation gain) before it is placed.
-                            float g0 = 0.0f, g1 = 0.0f;
-                            slot.gain.advance_block(frame_count, g0, g1);
-                            Dsp::Simd::apply_gain_ramp(scratch, frame_count, g0, g1);
-
-                            bool placed = false;
-                            if (slot.descriptor.spatial)
-                            {
-                                const float dist =
-                                    distance(slot.descriptor.position, listener_.position);
-                                slot.propagation.process(scratch, scratch, frame_count, dist,
-                                                         atmosphere_, slot.descriptor);
-
-                                if (spatializer_ != nullptr)
-                                {
-                                    // Encode into the ambisonic scene bus in head-relative
-                                    // coordinates, so a head turn re-aims the source.
-                                    const float rel_x = slot.descriptor.position.x - listener_.position.x;
-                                    const float rel_y = slot.descriptor.position.y - listener_.position.y;
-                                    const float rel_z = slot.descriptor.position.z - listener_.position.z;
-                                    float hx = 0.0f, hy = 0.0f, hz = 0.0f;
-                                    head_relative_direction(rel_x, rel_y, rel_z,
-                                                            listener_.forward.x, listener_.forward.y,
-                                                            listener_.forward.z, listener_.up.x,
-                                                            listener_.up.y, listener_.up.z, hx, hy, hz);
-                                    spatializer_->encode(scratch, frame_count, hx, hy, hz, 1.0f);
-                                    placed = true;
-                                }
-                            }
-
-                            if (!placed)
-                            {
-                                float gain_left = 0.0f, gain_right = 0.0f;
-                                Dsp::Simd::equal_power_pan(slot.descriptor.pan, gain_left, gain_right);
-                                mixer.accumulate(slot.descriptor.bus, scratch, frame_count,
-                                                 gain_left, gain_right);
-                            }
                         }
-                        else
+                        float* scratch = slot.scratch.data();
+                        bool placed = false;
+                        if (slot.descriptor.spatial && spatializer_ != nullptr)
                         {
-                            const bool alive = !slot.source || slot.source->advance(frame_count);
-                            if (!alive)
-                                free_slot(slot);
+                            const float rel_x = slot.descriptor.position.x - listener_.position.x;
+                            const float rel_y = slot.descriptor.position.y - listener_.position.y;
+                            const float rel_z = slot.descriptor.position.z - listener_.position.z;
+                            float hx = 0.0f, hy = 0.0f, hz = 0.0f;
+                            head_relative_direction(rel_x, rel_y, rel_z, listener_.forward.x,
+                                                    listener_.forward.y, listener_.forward.z,
+                                                    listener_.up.x, listener_.up.y, listener_.up.z, hx,
+                                                    hy, hz);
+                            spatializer_->encode(scratch, frame_count, hx, hy, hz, 1.0f);
+                            placed = true;
                         }
+                        if (!placed)
+                        {
+                            float gain_left = 0.0f, gain_right = 0.0f;
+                            Dsp::Simd::equal_power_pan(slot.descriptor.pan, gain_left, gain_right);
+                            mixer.accumulate(slot.descriptor.bus, scratch, frame_count, gain_left,
+                                             gain_right);
+                        }
+                        if (slot.descriptor.reverb_bus >= 0 && slot.descriptor.reverb_send > 0.0f)
+                        {
+                            const float s = 0.70710678f * slot.descriptor.reverb_send * slot.wet_scale;
+                            mixer.accumulate(slot.descriptor.reverb_bus, scratch, frame_count, s, s);
+                        }
+                    }
+
+                    // Virtual voices just advance their play position (serial, cheap).
+                    for (std::size_t si = 0; si < slots_.size(); ++si)
+                    {
+                        Slot& slot = *slots_[si];
+                        if (!slot.used || slot.state != VoiceState::Virtual)
+                            continue;
+                        const bool alive = !slot.source || slot.source->advance(frame_count);
+                        if (!alive)
+                            retire_slot(si);
                     }
                 }
 
@@ -359,9 +613,8 @@ namespace SushiEngine
                  */
                 VoiceState state_of(int handle) const noexcept
                 {
-                    if (!valid(handle))
-                        return VoiceState::Free;
-                    return slots_[static_cast<std::size_t>(handle)]->state;
+                    const Slot* slot = resolve(handle);
+                    return slot != nullptr ? slot->state : VoiceState::Free;
                 }
 
             private:
@@ -369,19 +622,51 @@ namespace SushiEngine
                 {
                     bool used = false;
                     VoiceState state = VoiceState::Free;
+                    std::uint32_t generation = 1; /**< Bumped on each install; makes handles stale-safe. */
                     VoiceDescriptor descriptor;
                     std::unique_ptr<VoiceSource> source;
                     SmoothedValue gain;
                     SourcePropagation propagation;
+                    OcclusionFilter occlusion;
                     float audibility = 0.0f;
+                    float wet_scale = 1.0f;    /**< Reverb-send scale from occlusion (phase 1 → phase 2). */
+                    bool render_alive = true;  /**< Whether the source still had output this block. */
                     std::vector<float> scratch;
                 };
 
-                bool valid(int handle) const noexcept
+                static constexpr int SLOT_BITS = 16;
+                static constexpr int SLOT_MASK = (1 << SLOT_BITS) - 1;
+
+                /** @brief Packs a generation + slot index into an opaque voice handle. */
+                static int pack_handle(std::uint32_t generation, std::size_t index) noexcept
                 {
-                    return handle >= 0 && static_cast<std::size_t>(handle) < slots_.size() &&
-                           slots_[static_cast<std::size_t>(handle)]->used;
+                    return static_cast<int>((generation << SLOT_BITS) |
+                                            (static_cast<std::uint32_t>(index) & SLOT_MASK));
                 }
+
+                /** @brief The next non-zero generation (wraps within 15 bits). */
+                static std::uint32_t next_generation(std::uint32_t g) noexcept
+                {
+                    g = (g + 1) & 0x7fffu;
+                    return g == 0 ? 1u : g;
+                }
+
+                /** @brief Resolves a handle to its live slot, or nullptr if stale/invalid. */
+                Slot* resolve(int handle) const noexcept
+                {
+                    if (handle < 0)
+                        return nullptr;
+                    const std::size_t index = static_cast<std::size_t>(handle & SLOT_MASK);
+                    const std::uint32_t generation = static_cast<std::uint32_t>(handle) >> SLOT_BITS;
+                    if (index >= slots_.size())
+                        return nullptr;
+                    Slot& slot = *slots_[index];
+                    if (!slot.used || slot.generation != generation)
+                        return nullptr;
+                    return &slot;
+                }
+
+                bool valid(int handle) const noexcept { return resolve(handle) != nullptr; }
 
                 static void free_slot(Slot& slot) noexcept
                 {
@@ -390,16 +675,165 @@ namespace SushiEngine
                     slot.source.reset();
                 }
 
+                /** @brief Frees a slot and reports it back to the control thread (audio side). */
+                void retire_slot(std::size_t index) noexcept
+                {
+                    const int handle = pack_handle(slots_[index]->generation, index);
+                    free_slot(*slots_[index]);
+                    free_indices_.push(static_cast<int>(index)); // hand the slot back for reuse
+                    finished_.push(handle);                       // report the voice ended
+                }
+
+                /** @brief Applies every queued control command (audio thread, top of render). */
+                void drain_commands()
+                {
+                    VoiceCommand c;
+                    while (commands_.pop(c))
+                    {
+                        switch (c.kind)
+                        {
+                            case VoiceCommandKind::Play:
+                            {
+                                const std::size_t idx = static_cast<std::size_t>(c.handle & SLOT_MASK);
+                                const std::uint32_t gen =
+                                    static_cast<std::uint32_t>(c.handle) >> SLOT_BITS;
+                                if (idx < slots_.size())
+                                    install_at(idx, gen, c.descriptor,
+                                               std::unique_ptr<VoiceSource>(c.source));
+                                else
+                                    delete c.source;
+                                break;
+                            }
+                            case VoiceCommandKind::Stop:
+                                if (resolve(c.handle) != nullptr)
+                                    retire_slot(static_cast<std::size_t>(c.handle & SLOT_MASK));
+                                break;
+                            case VoiceCommandKind::SetPosition:
+                                if (Slot* s = resolve(c.handle))
+                                    s->descriptor.position = c.v0;
+                                break;
+                            case VoiceCommandKind::SetGain:
+                                if (Slot* s = resolve(c.handle))
+                                    s->gain.set_target(c.f0);
+                                break;
+                            case VoiceCommandKind::SetPitch:
+                                if (Slot* s = resolve(c.handle))
+                                    if (s->source)
+                                        s->source->set_pitch(c.f0);
+                                break;
+                            case VoiceCommandKind::SetOcclusion:
+                                if (Slot* s = resolve(c.handle))
+                                    s->occlusion.set_targets(c.f0, c.f1, c.transmission);
+                                break;
+                            case VoiceCommandKind::SetListener:
+                                listener_.position = c.v0;
+                                listener_.forward = c.v1;
+                                listener_.up = c.v2;
+                                break;
+                        }
+                    }
+                }
+
+                /**
+                 * @brief Installs a fresh voice into a slot (also used when stealing).
+                 * @return The generational handle for the installed voice.
+                 */
+                /** @brief Fills a slot's play state (shared by both install paths). */
+                void setup_slot(Slot& slot, const VoiceDescriptor& descriptor,
+                                std::unique_ptr<VoiceSource> source, bool prepared)
+                {
+                    slot.used = true;
+                    slot.state = VoiceState::Virtual;
+                    slot.descriptor = descriptor;
+                    slot.source = std::move(source);
+                    slot.audibility = descriptor.base_gain;
+                    slot.gain.configure(0.005, sample_rate_); // ~5 ms de-zipper
+                    slot.gain.snap(descriptor.base_gain);
+                    slot.propagation.reset();
+                    slot.occlusion.reset();
+                    if (slot.source)
+                    {
+                        if (!prepared) // the enqueue path prepares off the audio thread
+                            slot.source->prepare(sample_rate_, max_block_);
+                        slot.source->set_pitch(descriptor.pitch);
+                    }
+                }
+
+                /** @brief Installs a voice (direct API): bumps the generation, returns the handle. */
+                int install(std::size_t index, const VoiceDescriptor& descriptor,
+                            std::unique_ptr<VoiceSource> source)
+                {
+                    Slot& slot = *slots_[index];
+                    slot.generation = next_generation(slot.generation);
+                    setup_slot(slot, descriptor, std::move(source), /*prepared=*/false);
+                    return pack_handle(slot.generation, index);
+                }
+
+                /** @brief Installs a voice at a control-chosen generation (command-ring path). */
+                void install_at(std::size_t index, std::uint32_t generation,
+                                const VoiceDescriptor& descriptor, std::unique_ptr<VoiceSource> source)
+                {
+                    Slot& slot = *slots_[index];
+                    slot.generation = generation;
+                    setup_slot(slot, descriptor, std::move(source), /*prepared=*/true);
+                }
+
+                /**
+                 * @brief The used slot with the lowest (priority, audibility), or −1 if none.
+                 *
+                 * The voice-stealing victim: the least-important active voice. Uses the
+                 * audibility from the last @ref render (base gain for a just-started voice).
+                 */
+                int least_important_voice() const noexcept
+                {
+                    int victim = -1;
+                    for (std::size_t i = 0; i < slots_.size(); ++i)
+                    {
+                        const Slot& s = *slots_[i];
+                        if (!s.used)
+                            continue;
+                        if (victim < 0)
+                        {
+                            victim = static_cast<int>(i);
+                            continue;
+                        }
+                        const Slot& v = *slots_[static_cast<std::size_t>(victim)];
+                        if (s.descriptor.priority < v.descriptor.priority ||
+                            (s.descriptor.priority == v.descriptor.priority &&
+                             s.audibility < v.audibility))
+                            victim = static_cast<int>(i);
+                    }
+                    return victim;
+                }
+
+                /** @brief Below this many real voices, parallel dispatch is not worth its overhead. */
+                static constexpr int kParallelVoiceThreshold = 8;
+
                 std::vector<std::unique_ptr<Slot>> slots_;
                 std::vector<int> ranking_;
+                std::vector<int> real_indices_; /**< Real-voice slot indices for the two-phase render. */
+                VoiceRenderPool* pool_ = nullptr;
                 ListenerState listener_;
                 BinauralSpatializer* spatializer_ = nullptr;
                 Dsp::Atmosphere atmosphere_;
                 float max_propagation_distance_ = 200.0f;
                 int max_real_ = 32;
+                double hdr_window_db_ = 60.0;
                 int real_count_ = 0;
                 double sample_rate_ = 48000.0;
                 int max_block_ = 0;
+
+                // The concurrency-safe control→audio path (§0): the control thread pushes
+                // intents into `commands_`, the audio thread drains them at the top of
+                // `render()`. `free_indices_` hands freed slots back to the control thread
+                // (which allocates them for Play), and `finished_` reports voices that ended
+                // so the control side can reconcile. `control_gen_` is the control thread's
+                // per-slot generation, so the handle it returns from `enqueue_play` matches
+                // the one the audio thread installs.
+                Dsp::SpscRing<VoiceCommand> commands_;
+                Dsp::SpscRing<int> free_indices_;
+                Dsp::SpscRing<int> finished_;
+                std::vector<std::uint32_t> control_gen_;
             };
     } // namespace Audio
 } // namespace SushiEngine

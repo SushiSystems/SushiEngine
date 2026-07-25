@@ -61,6 +61,10 @@
 #include "particle_simulate.comp.h"
 #include "particle.vert.h"
 #include "particle.frag.h"
+#include "particle_billboard.vert.h"
+#include "particle_mesh.frag.h"
+#include "particle_mesh.vert.h"
+#include "particle_ribbon.vert.h"
 #include "particle_sorted.vert.h"
 #include "particle_sort.comp.h"
 #include "cull.comp.h"
@@ -108,6 +112,15 @@ namespace SushiEngine
                  Shaders::particle_simulate_comp_spv_word_count, "particle_simulate.comp"},
                 {"particle_sorted.vert", ShaderStage::Vertex, Shaders::particle_sorted_vert_spv,
                  Shaders::particle_sorted_vert_spv_word_count, "particle_sorted.vert"},
+                {"particle_billboard.vert", ShaderStage::Vertex,
+                 Shaders::particle_billboard_vert_spv,
+                 Shaders::particle_billboard_vert_spv_word_count, "particle_billboard.vert"},
+                {"particle_ribbon.vert", ShaderStage::Vertex, Shaders::particle_ribbon_vert_spv,
+                 Shaders::particle_ribbon_vert_spv_word_count, "particle_ribbon.vert"},
+                {"particle_mesh.vert", ShaderStage::Vertex, Shaders::particle_mesh_vert_spv,
+                 Shaders::particle_mesh_vert_spv_word_count, "particle_mesh.vert"},
+                {"particle_mesh.frag", ShaderStage::Fragment, Shaders::particle_mesh_frag_spv,
+                 Shaders::particle_mesh_frag_spv_word_count, "particle_mesh.frag"},
                 {"particle_sort.comp", ShaderStage::Compute, Shaders::particle_sort_comp_spv,
                  Shaders::particle_sort_comp_spv_word_count, "particle_sort.comp"},
                 {"pbr.frag", ShaderStage::Fragment, Shaders::pbr_frag_spv,

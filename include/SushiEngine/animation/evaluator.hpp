@@ -132,6 +132,21 @@ namespace SushiEngine
                 /** @brief The model-space matrix per joint (bind space, post-compose). */
                 const std::vector<Mat4>& model() const noexcept { return model_; }
 
+                /** @brief The local-space translation per joint, valid after @ref evaluate. */
+                const std::vector<Vector3f>& local_translations() const noexcept
+                {
+                    return local_translations_;
+                }
+
+                /** @brief The local-space rotation per joint, valid after @ref evaluate. */
+                const std::vector<Quaternionf>& local_rotations() const noexcept
+                {
+                    return local_rotations_;
+                }
+
+                /** @brief The local-space scale per joint, valid after @ref evaluate. */
+                const std::vector<Vector3f>& local_scales() const noexcept { return local_scales_; }
+
             private:
                 /** @brief Forward-scan model space, then build the object-space skin palette. */
                 void compose_and_skin(const SkeletonView& skeleton)

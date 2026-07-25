@@ -114,7 +114,6 @@ namespace SushiEngine
                         world_.reserve<Transform, Orientation, Tint>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Camera>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Tint, Camera>(CHUNK_CAPACITY);
-                        register_built_in_effects();
                         register_systems();
                         extract(); // a valid (empty) snapshot before the first tick
                     }
@@ -633,6 +632,93 @@ namespace SushiEngine
                         extract();
                     }
 
+                    // Audio authoring: plain host bookkeeping read live by the editor's audio
+                    // system, so the setters do not re-extract the render snapshot (audio is
+                    // not part of RenderScene).
+                    bool has_audio_emitter(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_audio_emitter;
+                    }
+
+                    AudioEmitterParams audio_emitter_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->audio_emitter_params : AudioEmitterParams{};
+                    }
+
+                    void set_audio_emitter_params(EntityId id, const AudioEmitterParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_audio_emitter)
+                            return;
+                        record->audio_emitter_params = params;
+                    }
+
+                    void set_has_audio_emitter(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_audio_emitter == value)
+                            return;
+                        record->has_audio_emitter = value;
+                    }
+
+                    bool has_reverb_zone(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_reverb_zone;
+                    }
+
+                    ReverbZoneParams reverb_zone_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->reverb_zone_params : ReverbZoneParams{};
+                    }
+
+                    void set_reverb_zone_params(EntityId id, const ReverbZoneParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_reverb_zone)
+                            return;
+                        record->reverb_zone_params = params;
+                    }
+
+                    void set_has_reverb_zone(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_reverb_zone == value)
+                            return;
+                        record->has_reverb_zone = value;
+                    }
+
+                    bool has_audio_listener(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_audio_listener;
+                    }
+
+                    AudioListenerParams audio_listener_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->audio_listener_params : AudioListenerParams{};
+                    }
+
+                    void set_audio_listener_params(EntityId id, const AudioListenerParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_audio_listener)
+                            return;
+                        record->audio_listener_params = params;
+                    }
+
+                    void set_has_audio_listener(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_audio_listener == value)
+                            return;
+                        record->has_audio_listener = value;
+                    }
+
                     EntityId create_light(const std::string& display_name) override
                     {
                         // A bare entity carrying a light record: no Renderer/Shape, since a
@@ -1060,6 +1146,7 @@ namespace SushiEngine
                         record.has_particle_emitter = true;
                         Vfx::CpuDeterministicBackend::reset(record.particle_pool,
                                                             record.emitter_params.seed);
+                        seed_emitter_effect(record);
                         records_.emplace(id, std::move(record));
                         extract();
                         return id;
@@ -1085,10 +1172,9 @@ namespace SushiEngine
                         Record* record = find(id);
                         if (record == nullptr || !record->has_particle_emitter)
                             return;
-                        // A seed or effect change restarts the deterministic stream so the
-                        // preview reflects the new choice from a clean pool.
-                        const bool restart = record->emitter_params.seed != params.seed ||
-                                             record->emitter_params.effect != params.effect;
+                        // A seed change restarts the deterministic stream, so the emitter reflects
+                        // the new choice from a clean pool.
+                        const bool restart = record->emitter_params.seed != params.seed;
                         record->emitter_params = params;
                         if (restart)
                             Vfx::CpuDeterministicBackend::reset(record->particle_pool, params.seed);
@@ -1102,21 +1188,34 @@ namespace SushiEngine
                             return;
                         record->has_particle_emitter = value;
                         if (value)
+                        {
                             Vfx::CpuDeterministicBackend::reset(record->particle_pool,
                                                                 record->emitter_params.seed);
+                            seed_emitter_effect(*record);
+                        }
                         extract();
                     }
 
-                    std::uint32_t particle_effect_count() const noexcept override
+                    const Vfx::ParticleEffect& particle_effect_source(EntityId id) const override
                     {
-                        return static_cast<std::uint32_t>(built_in_effects_.size());
+                        static const Vfx::ParticleEffect EMPTY{};
+                        const Record* record = find(id);
+                        return (record != nullptr && record->has_particle_emitter)
+                                   ? record->effect_source
+                                   : EMPTY;
                     }
 
-                    const char* particle_effect_name(std::uint32_t index) const noexcept override
+                    void set_particle_effect_source(EntityId id,
+                                                    const Vfx::ParticleEffect& effect) override
                     {
-                        return index < built_in_effect_names_.size()
-                                   ? built_in_effect_names_[index].c_str()
-                                   : "";
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_particle_emitter)
+                            return;
+                        record->effect_source = effect;
+                        if (record->effect_asset == Vfx::INVALID_EFFECT)
+                            record->effect_asset = effect_db_.add(effect);
+                        else
+                            effect_db_.replace(record->effect_asset, effect);
                     }
 
                     void set_visible(EntityId id, bool value) override
@@ -1226,6 +1325,17 @@ namespace SushiEngine
                         // the entity's transform supplying the light's position and aim.
                         bool has_light = false;
                         LightParams light_params{};
+                        // Audio authoring, same plain host bookkeeping as light/cloth (no ECS
+                        // migration): an emitter plays a sound at the entity's transform, a
+                        // reverb zone imposes its I3DL2 reverb on a listener inside its box, and
+                        // the listener marks the ears. Read live by the editor's audio system
+                        // through the IWorldEditor accessors each wall-clock frame.
+                        bool has_audio_emitter = false;
+                        AudioEmitterParams audio_emitter_params{};
+                        bool has_reverb_zone = false;
+                        ReverbZoneParams reverb_zone_params{};
+                        bool has_audio_listener = false;
+                        AudioListenerParams audio_listener_params{};
                         // A projected decal on this entity, same host bookkeeping as the
                         // light, extracted into RenderScene::decals each frame.
                         bool has_decal = false;
@@ -1237,6 +1347,25 @@ namespace SushiEngine
                         bool has_particle_emitter = false;
                         ParticleEmitterParams emitter_params{};
                         Vfx::DeterministicEmitterState particle_pool{};
+                        /**
+                         * @brief Runtime emitter state, kept off @ref emitter_params.
+                         *
+                         * Those are the *authored* parameters the editor round-trips through the
+                         * scene file; a play head and a fractional-spawn carry are neither authored
+                         * nor persisted, so they live here with the pool they belong to.
+                         */
+                        float emitter_time = 0.0f;
+                        float emitter_spawn_carry = 0.0f;
+                        /**
+                         * @brief The effect this emitter owns, and its slot in the database.
+                         *
+                         * Per entity, not a reference into a shared library: the component is what
+                         * makes the entity a particle system, so the effect is its own data. The
+                         * asset id is allocated on the first assignment and then reused, so
+                         * repeated edits replace in place instead of growing the database.
+                         */
+                        Vfx::ParticleEffect effect_source{};
+                        Vfx::AssetId effect_asset = Vfx::INVALID_EFFECT;
                         // Neither read nor written by any Schedule system, so — like
                         // has_physics_body/has_cloth — these are plain host bookkeeping
                         // rather than ECS components; no archetype migration needed.
@@ -2395,6 +2524,65 @@ namespace SushiEngine
                             }
                         }
 
+                        // Cosmetic emitters: not simulated here at all. The sim places them —
+                        // transform, this frame's spawn count, the compiled record and its LUT
+                        // atlases — and the renderer emits and integrates them on the GPU.
+                        scene_.particle_emitters.clear();
+                        const float emitter_dt = static_cast<float>(clock_.fixed_dt());
+                        for (const EntityId id : order_)
+                        {
+                            Record* record = find(id);
+                            if (record == nullptr || !record->has_particle_emitter ||
+                                !record->visible || !world_.alive(record->entity))
+                                continue;
+                            const Vfx::CompiledEffect* compiled = effect_for(*record);
+                            if (compiled == nullptr)
+                                continue;
+
+                            const Mat4 model = world_matrix(id);
+                            const float* curve_luts =
+                                compiled->curve_luts.empty() ? nullptr : compiled->curve_luts.data();
+                            const float* gradient_luts = compiled->gradient_luts.empty()
+                                                             ? nullptr
+                                                             : compiled->gradient_luts.data();
+                            for (const Vfx::CompiledEmitter& emitter : compiled->emitters)
+                            {
+                                if (emitter.domain != Vfx::SimulationDomain::Cosmetic)
+                                    continue;
+
+                                // The spawn count is the host's to compute — the emit shader is a
+                                // pure allocator — so the fractional carry lives on the record and
+                                // survives the frame that could not afford a whole particle.
+                                std::uint32_t spawn_count = 0;
+                                if (record->emitter_params.playing && emitter.spawn_rate > 0.0f)
+                                {
+                                    record->emitter_spawn_carry +=
+                                        emitter.spawn_rate * emitter_dt;
+                                    spawn_count = static_cast<std::uint32_t>(
+                                        record->emitter_spawn_carry);
+                                    record->emitter_spawn_carry -=
+                                        static_cast<float>(spawn_count);
+                                    if (spawn_count > emitter.capacity)
+                                        spawn_count = emitter.capacity;
+                                }
+
+                                Render::ParticleEmitterView view;
+                                view.model = model;
+                                view.compiled = &emitter;
+                                view.curve_luts = curve_luts;
+                                view.gradient_luts = gradient_luts;
+                                view.curve_lut_floats =
+                                    static_cast<std::uint32_t>(compiled->curve_luts.size());
+                                view.gradient_lut_floats =
+                                    static_cast<std::uint32_t>(compiled->gradient_luts.size());
+                                view.spawn_count = spawn_count;
+                                view.seed = record->emitter_params.seed;
+                                view.dt = emitter_dt;
+                                view.id = static_cast<std::uint32_t>(id);
+                                scene_.particle_emitters.push_back(view);
+                            }
+                        }
+
                         // Punctual lights: a light is a record on the entity, so its world
                         // position and (spot) aim come straight from the entity's transform,
                         // exactly as a mesh instance's model does. The renderer culls the
@@ -2466,26 +2654,53 @@ namespace SushiEngine
                                                           : default_camera();
                     }
 
-                    /** @brief Builds the built-in deterministic effect library. */
-                    void register_built_in_effects()
+                    /**
+                     * @brief The compiled effect a record's emitter references, or null.
+                     *
+                     * Out-of-range indices fall back to the first effect rather than dropping the
+                     * emitter: an index can go stale when the library shrinks, and an emitter that
+                     * silently stops is harder to diagnose than one playing the wrong effect.
+                     */
+                    const Vfx::CompiledEffect* effect_for(const Record& record)
                     {
-                        built_in_effects_.clear();
-                        built_in_effect_names_.clear();
-                        auto add = [this](const char* name, Vfx::ParticleEffect effect)
+                        if (record.effect_asset == Vfx::INVALID_EFFECT)
+                            return nullptr;
+                        const Vfx::CompiledEffect& compiled =
+                            effect_db_.compiled(record.effect_asset);
+                        return compiled.emitters.empty() ? nullptr : &compiled;
+                    }
+
+                    /** @brief Gives a freshly added emitter the effect it starts from. */
+                    void seed_emitter_effect(Record& record)
+                    {
+                        if (record.effect_asset != Vfx::INVALID_EFFECT)
+                            return;
+                        // A component that shows nothing reads as broken rather than as an
+                        // invitation to author, so a new emitter starts somewhere visible.
+                        record.effect_source = make_fire_effect();
+                        record.effect_asset = effect_db_.add(record.effect_source);
+                    }
+
+                    /**
+                     * @brief The effect's first deterministic emitter, or null when it has none.
+                     *
+                     * One host pool per entity, so a multi-emitter effect's deterministic half is
+                     * represented by its first emitter; the rest is a per-emitter-pool refactor.
+                     */
+                    static const Vfx::CompiledEmitter* first_deterministic(
+                        const Vfx::CompiledEffect& compiled) noexcept
+                    {
+                        for (const Vfx::CompiledEmitter& emitter : compiled.emitters)
                         {
-                            built_in_effects_.push_back(effect_db_.add(std::move(effect)));
-                            built_in_effect_names_.emplace_back(name);
-                        };
-                        add("Fire", make_fire_effect());
-                        add("Sparks", make_spark_effect());
-                        add("Smoke", make_smoke_effect());
+                            if (emitter.domain == Vfx::SimulationDomain::Deterministic)
+                                return &emitter;
+                        }
+                        return nullptr;
                     }
 
                     /** @brief Advances every playing emitter's deterministic pool by one tick. */
                     void step_particle_emitters()
                     {
-                        if (built_in_effects_.empty())
-                            return;
                         const float dt = static_cast<float>(clock_.fixed_dt());
                         for (const EntityId id : order_)
                         {
@@ -2493,20 +2708,21 @@ namespace SushiEngine
                             if (record == nullptr || !record->has_particle_emitter ||
                                 !record->emitter_params.playing || !world_.alive(record->entity))
                                 continue;
-                            const std::uint32_t effect_index =
-                                record->emitter_params.effect < built_in_effects_.size()
-                                    ? record->emitter_params.effect
-                                    : 0;
-                            const Vfx::CompiledEffect& compiled =
-                                effect_db_.compiled(built_in_effects_[effect_index]);
-                            if (compiled.emitters.empty())
+                            const Vfx::CompiledEffect* compiled = effect_for(*record);
+                            if (compiled == nullptr)
+                                continue;
+                            record->emitter_time += dt;
+
+                            // Only the deterministic emitters are stepped here; a cosmetic one is
+                            // simulated by the renderer, and the extract merely places it.
+                            const Vfx::CompiledEmitter* emitter = first_deterministic(*compiled);
+                            if (emitter == nullptr)
                                 continue;
                             const Vector3 position = world_.get<Transform>(record->entity).position;
                             const Quaternion rotation =
                                 world_.get<Orientation>(record->entity).rotation;
-                            Vfx::CpuDeterministicBackend::step(record->particle_pool,
-                                                               compiled.emitters[0], compiled, dt,
-                                                               position, rotation);
+                            Vfx::CpuDeterministicBackend::step(record->particle_pool, *emitter,
+                                                               *compiled, dt, position, rotation);
                         }
                     }
 
@@ -2551,75 +2767,6 @@ namespace SushiEngine
                         return effect;
                     }
 
-                    /** @brief A deterministic spark burst: fast, gravity-pulled, short-lived. */
-                    static Vfx::ParticleEffect make_spark_effect()
-                    {
-                        Vfx::EmitterDescriptor e;
-                        e.name = "Sparks";
-                        e.domain = Vfx::SimulationDomain::Deterministic;
-                        e.capacity = 256;
-                        e.spawn.rate_per_second = 60.0f;
-                        e.shape.shape = Vfx::EmitterShape::Sphere;
-                        e.shape.radius = 0.05f;
-                        e.init.lifetime_min = 0.5f;
-                        e.init.lifetime_max = 1.1f;
-                        e.init.speed_min = 3.0f;
-                        e.init.speed_max = 6.0f;
-                        e.init.size_min = 0.02f;
-                        e.init.size_max = 0.05f;
-                        e.gravity.enabled = true;
-                        e.gravity.acceleration = Vector3{0, -9.0, 0};
-                        e.drag.enabled = true;
-                        e.drag.coefficient = 0.2f;
-                        e.color_over_life.enabled = true;
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{1.0, 0.95, 0.7}});
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{1.0, 0.4, 0.1}});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 1.0f});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
-                        Vfx::ParticleEffect effect;
-                        effect.name = "Sparks";
-                        effect.emitters.push_back(e);
-                        return effect;
-                    }
-
-                    /** @brief A deterministic smoke column: slow, swelling, alpha-fading. */
-                    static Vfx::ParticleEffect make_smoke_effect()
-                    {
-                        Vfx::EmitterDescriptor e;
-                        e.name = "Smoke";
-                        e.domain = Vfx::SimulationDomain::Deterministic;
-                        e.capacity = 384;
-                        e.spawn.rate_per_second = 40.0f;
-                        e.shape.shape = Vfx::EmitterShape::Cone;
-                        e.shape.radius = 0.15f;
-                        e.shape.cone_angle_radians = 0.25f;
-                        e.init.lifetime_min = 2.0f;
-                        e.init.lifetime_max = 3.5f;
-                        e.init.speed_min = 0.6f;
-                        e.init.speed_max = 1.4f;
-                        e.init.size_min = 0.15f;
-                        e.init.size_max = 0.3f;
-                        e.gravity.enabled = true;
-                        e.gravity.acceleration = Vector3{0, 1.2, 0};
-                        e.drag.enabled = true;
-                        e.drag.coefficient = 0.6f;
-                        e.turbulence.enabled = true;
-                        e.turbulence.frequency = 0.5f;
-                        e.turbulence.amplitude = 0.8f;
-                        e.size_over_life.enabled = true;
-                        e.size_over_life.curve.add_key(Vfx::CurveKey{0.0f, 0.4f, 0.0f, 1.0f});
-                        e.size_over_life.curve.add_key(Vfx::CurveKey{1.0f, 1.6f, 0.0f, 0.0f});
-                        e.color_over_life.enabled = true;
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{0.35, 0.35, 0.38}});
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.12, 0.12, 0.13}});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 0.0f});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.15f, 0.55f});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
-                        Vfx::ParticleEffect effect;
-                        effect.name = "Smoke";
-                        effect.emitters.push_back(e);
-                        return effect;
-                    }
 
                     SushiRuntime::API::Runtime runtime_;
                     World world_;
@@ -2649,8 +2796,6 @@ namespace SushiEngine
                     // (Deterministic domain) an emitter entity references by index, and their
                     // display names for the inspector's picker. Compiled lazily on first step.
                     Vfx::EffectDatabase effect_db_;
-                    std::vector<Vfx::AssetId> built_in_effects_;
-                    std::vector<std::string> built_in_effect_names_;
 
                     // The master simulation epoch: the single "now" that both the orbital
                     // dynamics and the scene-frame placement of astro bodies read, so a

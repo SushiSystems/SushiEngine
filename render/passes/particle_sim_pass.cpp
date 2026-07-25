@@ -21,11 +21,15 @@
 
 #include <vector>
 
+#include <SushiEngine/core/types.hpp>
+
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "passes/hiz_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
+#include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
 #include "rhi/vulkan/vulkan_check.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
@@ -68,23 +72,28 @@ namespace SushiEngine
             ParticleSimPass::ParticleSimPass(Vulkan::VulkanDevice& device,
                                              Resources::ShaderLibrary& shaders,
                                              Resources::GraphicsPipelineFactory& pipelines,
-                                             Scene::ParticleSystem& particles)
-                : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles)
+                                             Scene::ParticleSystem& particles, HizPass& hiz)
+                : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles),
+                  hiz_(hiz)
             {
-                // Seven storage buffers: pool, emitter table, additive draw list, indirect args,
-                // curve LUTs, gradient LUTs, alpha draw list. Shared by emit and simulate.
-                VkDescriptorSetLayoutBinding bindings[7]{};
-                for (std::uint32_t i = 0; i < 7; ++i)
+                // Eleven storage buffers: pool, emitter table, additive draw list, indirect args,
+                // curve LUTs, gradient LUTs, alpha draw list, ribbon draw list, trail history,
+                // mesh draw list, mesh indirect args. Shared by emit and simulate.
+                // Plus binding 11: last frame's depth pyramid, the collision surface.
+                VkDescriptorSetLayoutBinding bindings[12]{};
+                for (std::uint32_t i = 0; i < 12; ++i)
                 {
                     bindings[i].binding = i;
-                    bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    bindings[i].descriptorType = i == DEPTH_PYRAMID_BINDING
+                                                     ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                                                     : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                     bindings[i].descriptorCount = 1;
                     bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 }
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 7;
+                layout_info.bindingCount = 12;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -104,16 +113,60 @@ namespace SushiEngine
                                                      &pipeline_layout_),
                               "vkCreatePipelineLayout(particle sim)");
 
+                create_fallback_depth();
                 create_pipelines();
             }
 
             ParticleSimPass::~ParticleSimPass()
             {
+                destroy_fallback_depth();
                 destroy_pipelines();
                 if (pipeline_layout_ != VK_NULL_HANDLE)
                     vkDestroyPipelineLayout(device_.device(), pipeline_layout_, nullptr);
                 if (set_layout_ != VK_NULL_HANDLE)
                     vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
+            }
+
+            void ParticleSimPass::create_fallback_depth()
+            {
+                VkImageCreateInfo image_info{};
+                image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                image_info.imageType = VK_IMAGE_TYPE_2D;
+                image_info.format = VK_FORMAT_R32_SFLOAT;
+                image_info.extent = {1, 1, 1};
+                image_info.mipLevels = 1;
+                image_info.arrayLayers = 1;
+                image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+                image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                VmaAllocationCreateInfo allocation_info{};
+                allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
+                Vulkan::check(vmaCreateImage(device_.allocator(), &image_info, &allocation_info,
+                                             &fallback_image_, &fallback_allocation_, nullptr),
+                              "vmaCreateImage(particle sim fallback depth)");
+
+                VkImageViewCreateInfo view_info{};
+                view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                view_info.image = fallback_image_;
+                view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                view_info.format = VK_FORMAT_R32_SFLOAT;
+                view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                Vulkan::check(
+                    vkCreateImageView(device_.device(), &view_info, nullptr, &fallback_view_),
+                    "vkCreateImageView(particle sim fallback depth)");
+            }
+
+            void ParticleSimPass::destroy_fallback_depth()
+            {
+                if (fallback_view_ != VK_NULL_HANDLE)
+                    vkDestroyImageView(device_.device(), fallback_view_, nullptr);
+                if (fallback_image_ != VK_NULL_HANDLE)
+                    vmaDestroyImage(device_.allocator(), fallback_image_, fallback_allocation_);
+                fallback_view_ = VK_NULL_HANDLE;
+                fallback_image_ = VK_NULL_HANDLE;
+                fallback_allocation_ = VK_NULL_HANDLE;
             }
 
             void ParticleSimPass::create_pipelines()
@@ -157,6 +210,10 @@ namespace SushiEngine
                     {
                         builder.write(frame.targets.particle_draw, Graph::BufferAccess::StorageWrite);
                         builder.write(frame.targets.particle_alpha, Graph::BufferAccess::StorageWrite);
+                        builder.write(frame.targets.particle_ribbon, Graph::BufferAccess::StorageWrite);
+                        builder.write(frame.targets.particle_mesh, Graph::BufferAccess::StorageWrite);
+                        builder.write(frame.targets.particle_mesh_args,
+                                      Graph::BufferAccess::StorageWrite);
                         builder.write(frame.targets.particle_args, Graph::BufferAccess::StorageWrite);
                     },
                     [this, &frame, slot, capacity, dt](VkCommandBuffer cmd,
@@ -164,12 +221,39 @@ namespace SushiEngine
                     {
                         const VkBuffer draw_buffer = context.buffer(frame.targets.particle_draw);
                         const VkBuffer alpha_buffer = context.buffer(frame.targets.particle_alpha);
+                        const VkBuffer ribbon_buffer = context.buffer(frame.targets.particle_ribbon);
+                        const VkBuffer mesh_buffer = context.buffer(frame.targets.particle_mesh);
+                        const VkBuffer mesh_args_buffer =
+                            context.buffer(frame.targets.particle_mesh_args);
                         const VkBuffer args_buffer = context.buffer(frame.targets.particle_args);
 
-                        // Zero the device-local pool exactly once, so every slot starts dead.
+                        // The 1x1 stand-in has to be in a samplable layout before it is bound, even
+                        // though the shader never reads it — the descriptor is written regardless.
+                        if (!fallback_ready_)
+                        {
+                            VkImageMemoryBarrier2 barrier{};
+                            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                            barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                            barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+                            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                            barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+                            barrier.image = fallback_image_;
+                            barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                            VkDependencyInfo dependency{};
+                            dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                            dependency.imageMemoryBarrierCount = 1;
+                            dependency.pImageMemoryBarriers = &barrier;
+                            vkCmdPipelineBarrier2(cmd, &dependency);
+                            fallback_ready_ = true;
+                        }
+
+                        // Zero the device-local pool and trail history exactly once, so every slot
+                        // starts dead and no ribbon reads an uninitialised sample.
                         if (particles_.needs_clear())
                         {
                             vkCmdFillBuffer(cmd, particles_.pool(), 0, VK_WHOLE_SIZE, 0);
+                            vkCmdFillBuffer(cmd, particles_.trail_buffer(), 0, VK_WHOLE_SIZE, 0);
                             memory_barrier(cmd, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
                                            VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -178,10 +262,25 @@ namespace SushiEngine
                             particles_.mark_cleared();
                         }
 
-                        // Reset both indirect draws (additive at [0..3], alpha at [4..7]) to
-                        // 6 vertices, zero instances, then make the reset visible to the atomics.
-                        const std::uint32_t initial_args[8] = {6u, 0u, 0u, 0u, 6u, 0u, 0u, 0u};
+                        // Reset the three indirect draws (additive at [0..3], alpha at [4..7],
+                        // ribbons at [8..11]) to their vertex counts and zero instances, then make
+                        // the reset visible to the atomics. A sprite is one quad; a ribbon is a
+                        // whole strip, which is why it needs a draw of its own.
+                        const std::uint32_t initial_args[12] = {
+                            6u, 0u, 0u, 0u,
+                            6u, 0u, 0u, 0u,
+                            Scene::ParticleSystem::RIBBON_VERTICES, 0u, 0u, 0u};
                         vkCmdUpdateBuffer(cmd, args_buffer, 0, sizeof(initial_args), initial_args);
+
+                        // The mesh slices' indexed commands. Their index count is a host fact (the
+                        // mesh the emitter authored), which is why the sim pass seeds the whole
+                        // command and the compaction only bumps the instance count. Unclaimed
+                        // slices are zeroed, so their draw is a no-op.
+                        std::uint32_t mesh_args[5 * Scene::ParticleSystem::MAX_MESH_EMITTERS] = {};
+                        for (const Scene::ParticleSystem::MeshDraw& draw : particles_.mesh_draws())
+                            mesh_args[draw.slot * 5] = draw.index_count;
+                        vkCmdUpdateBuffer(cmd, mesh_args_buffer, 0, sizeof(mesh_args), mesh_args);
+
                         memory_barrier(cmd, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
                                        VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -200,16 +299,58 @@ namespace SushiEngine
                         writer.storage_buffer(5, particles_.gradient_lut_buffer(slot),
                                               particles_.gradient_lut_range());
                         writer.storage_buffer(6, alpha_buffer, particles_.pool_range());
+                        writer.storage_buffer(7, ribbon_buffer, particles_.pool_range());
+                        writer.storage_buffer(8, particles_.trail_buffer(),
+                                              particles_.trail_range());
+                        writer.storage_buffer(9, mesh_buffer, particles_.pool_range());
+                        writer.storage_buffer(10, mesh_args_buffer, sizeof(mesh_args));
+                        // Last frame's depth, or the stand-in when there is none to read.
+                        const bool depth_usable = hiz_.valid() && hiz_.has_history();
+                        writer.sampled_image(
+                            DEPTH_PYRAMID_BINDING,
+                            depth_usable ? hiz_.pyramid_view() : fallback_view_,
+                            frame.samplers->get(Resources::SamplerDesc{}));
                         writer.update(device_.device(), set);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
 
+                        // The camera block the collision projects through. The half-fov tangents come
+                        // straight out of the projection's diagonal, which is what turns a pixel and
+                        // a linear depth back into a camera-relative position.
+                        Push push{};
+                        push.counts[1] = capacity;
+                        push.counts[2] = depth_usable ? 1u : 0u;
+                        push.misc[0] = dt;
+                        if (frame.camera != nullptr)
+                        {
+                            const Mat4 view_projection =
+                                mul(frame.camera->projection, frame.camera->view);
+                            for (int i = 0; i < 16; ++i)
+                                push.view_projection[i] = static_cast<float>(view_projection.m[i]);
+                            const Mat4& view = frame.camera->view;
+                            push.camera_right[0] = static_cast<float>(view.m[0]);
+                            push.camera_right[1] = static_cast<float>(view.m[4]);
+                            push.camera_right[2] = static_cast<float>(view.m[8]);
+                            push.camera_up[0] = static_cast<float>(view.m[1]);
+                            push.camera_up[1] = static_cast<float>(view.m[5]);
+                            push.camera_up[2] = static_cast<float>(view.m[9]);
+                            const double focal_x = frame.camera->projection.m[0];
+                            const double focal_y = frame.camera->projection.m[5];
+                            push.camera_right[3] =
+                                focal_x != 0.0 ? static_cast<float>(1.0 / focal_x) : 1.0f;
+                            push.camera_up[3] =
+                                focal_y != 0.0 ? static_cast<float>(1.0 / (focal_y < 0.0 ? -focal_y
+                                                                                         : focal_y))
+                                               : 1.0f;
+                        }
+                        else
+                        {
+                            push.counts[2] = 0u; // no camera, so nothing to project into
+                        }
+
                         // Advance the existing particles first, over the whole pool.
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, simulate_pipeline_);
-                        Push simulate_push{};
-                        simulate_push.emitter_index = 0;
-                        simulate_push.capacity = capacity;
-                        simulate_push.dt = dt;
+                        Push simulate_push = push;
                         vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                            sizeof(Push), &simulate_push);
                         vkCmdDispatch(cmd, groups(capacity), 1, 1);
@@ -228,10 +369,8 @@ namespace SushiEngine
                         {
                             if (emitters[e].spawn_count == 0)
                                 continue;
-                            Push emit_push{};
-                            emit_push.emitter_index = e;
-                            emit_push.capacity = capacity;
-                            emit_push.dt = dt;
+                            Push emit_push = push;
+                            emit_push.counts[0] = e;
                             vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                                sizeof(Push), &emit_push);
                             vkCmdDispatch(cmd, groups(emitters[e].spawn_count), 1, 1);

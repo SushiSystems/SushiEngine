@@ -83,6 +83,34 @@ namespace SushiEngine
             UPDATE_TURBULENCE = 1u << 2,
             UPDATE_SIZE_OVER_LIFE = 1u << 3,
             UPDATE_COLOR_OVER_LIFE = 1u << 4,
+            UPDATE_FORCE_FIELDS = 1u << 5,
+            UPDATE_COLLISION = 1u << 6,
+        };
+
+        /**
+         * @brief Force fields one emitter can carry.
+         *
+         * Fixed because the compiled record is a POD both backends and the GPU read as bytes.
+         * Mirrored by `MAX_FORCE_FIELDS` in particle_common.glsl.
+         */
+        constexpr std::uint32_t MAX_FORCE_FIELDS = 4;
+
+        /**
+         * @brief One compiled force field: where it is, how far it reaches, what it does.
+         *
+         * @c position and @c axis are emitter-local as authored; the render system bakes them to
+         * world space when it flattens the emitter, so the shader evaluates in the same absolute
+         * space the particles live in.
+         */
+        struct CompiledForceField
+        {
+            float position[3] = {0.0f, 0.0f, 0.0f}; /**< Field centre. */
+            float strength = 0.0f;                  /**< m/s^2, or per-second damping for Drag. */
+            float axis[3] = {0.0f, 1.0f, 0.0f};     /**< Swirl axis, Vortex only. */
+            float radius = 0.0f;                    /**< Reach in metres. */
+            ForceFieldKind kind = ForceFieldKind::Point; /**< What the field does. */
+            float falloff = 1.0f;                   /**< Exponent over the normalised distance. */
+            float pad[2] = {0.0f, 0.0f};            /**< Keeps the record three vec4s wide. */
         };
 
         /** @brief @ref CompiledEmitter::render_flags bits. */
@@ -90,6 +118,16 @@ namespace SushiEngine
         {
             RENDER_SOFT = 1u << 0,
             RENDER_LIT = 1u << 1,
+            /**
+             * @brief The emitter carries a sprite texture, so @ref CompiledEmitter::texture is real.
+             *
+             * A flag rather than a sentinel test in the shader because the two cases differ in
+             * more than the sample: an untextured particle is the built-in radial dot, whose
+             * falloff a texture's own alpha replaces. It is also the bit the renderer clears when
+             * a texture cannot be resolved, which is what keeps the fragment stage from indexing
+             * the bindless heap with a slot that was never allocated.
+             */
+            RENDER_TEXTURED = 1u << 2,
         };
 
         /**
@@ -136,15 +174,22 @@ namespace SushiEngine
             float drag_coefficient = 0.0f;                    /**< Velocity shed per second. */
             float turbulence_frequency = 0.0f;                /**< Curl-noise spatial frequency. */
             float turbulence_amplitude = 0.0f;                /**< Curl-noise push strength, m/s^2. */
+            float collision_restitution = 0.0f;               /**< Normal velocity kept on bounce. */
+            float collision_friction = 0.0f;                  /**< Tangential velocity shed on bounce. */
+            float collision_thickness = 0.5f;                 /**< Depth behind a surface still counted. */
+            std::uint32_t force_field_count = 0;              /**< Active entries in @ref force_fields. */
+            CompiledForceField force_fields[MAX_FORCE_FIELDS] = {}; /**< Placed fields, emitter-local. */
             std::int32_t size_curve_lut = NO_LUT;             /**< Curve-atlas row, or NO_LUT. */
             std::int32_t color_gradient_lut = NO_LUT;         /**< Gradient-atlas row, or NO_LUT. */
 
             BlendMode blend = BlendMode::Additive;            /**< Compositing mode. */
             SortMode sort = SortMode::None;                   /**< Draw ordering. */
             RenderAlignment alignment = RenderAlignment::FaceCamera; /**< Billboard orientation. */
+            float velocity_stretch = 0.05f;                   /**< Streak metres per m/s. */
             std::uint32_t render_flags = RENDER_SOFT;         /**< @ref RenderFlags bits. */
             float soft_fade_distance = 0.5f;                  /**< Soft-particle ramp distance. */
-            std::uint32_t texture = 0;                        /**< Texture-library handle. */
+            std::uint32_t texture = NO_PARTICLE_TEXTURE;      /**< Texture-library handle, or none. */
+            std::uint32_t mesh = 0;                           /**< Mesh-registry handle, Mesh alignment only. */
             std::uint32_t flipbook_rows = 1;                  /**< Sub-UV atlas rows. */
             std::uint32_t flipbook_columns = 1;               /**< Sub-UV atlas columns. */
         };

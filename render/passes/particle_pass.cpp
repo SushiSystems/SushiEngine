@@ -26,7 +26,9 @@
 #include "lighting/cluster_config.hpp"
 #include "lighting/light_system.hpp"
 #include "passes/ibl_pass.hpp"
+#include "passes/shadow_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
+#include "resources/descriptor_heap.hpp"
 #include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
@@ -34,6 +36,7 @@
 #include "rhi/vulkan/vulkan_check.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
 #include "scene/particle_system.hpp"
+#include "scene/shadow_uniforms.hpp"
 
 namespace SushiEngine
 {
@@ -45,9 +48,10 @@ namespace SushiEngine
                                        Resources::ShaderLibrary& shaders,
                                        Resources::GraphicsPipelineFactory& pipelines,
                                        Scene::ParticleSystem& particles,
-                                       Lighting::LightSystem& lights, IblPass& ibl)
+                                       Lighting::LightSystem& lights, IblPass& ibl,
+                                       Resources::DescriptorHeap& heap)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles),
-                  lights_(lights), ibl_(ibl)
+                  lights_(lights), ibl_(ibl), heap_(heap)
             {
                 // Binding 0: the draw list the vertex stage reads to place each billboard.
                 // Binding 1: the scene depth, sampled by the fragment stage for the occlusion test.
@@ -56,7 +60,12 @@ namespace SushiEngine
                 // Bindings 3-7: the clustered-lighting inputs the lit bucket's fragment shades from —
                 // the light array, the per-cluster count grid + index list the light-cull pass wrote,
                 // the froxel config block, and the environment SH for ambient (unread by unlit draws).
-                VkDescriptorSetLayoutBinding bindings[8]{};
+                // Bindings 10-11: the sun's cascade block and atlas, at the scene set's own numbers
+                // (free on this set), so the shared shadow_common.glsl declaration is reused as-is.
+                // Binding 12: this frame's emitter table, which is where the authored render
+                // alignment lives (per-emitter, while the draw list is per-particle).
+                // Binding 13: the persistent trail history the ribbon draw walks.
+                VkDescriptorSetLayoutBinding bindings[12]{};
                 bindings[0].binding = 0;
                 bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 bindings[0].descriptorCount = 1;
@@ -77,10 +86,26 @@ namespace SushiEngine
                     bindings[b].descriptorCount = 1;
                     bindings[b].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
                 }
+                bindings[8].binding = SHADOW_BLOCK_BINDING;
+                bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                bindings[8].descriptorCount = 1;
+                bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                bindings[9].binding = SHADOW_ATLAS_BINDING;
+                bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[9].descriptorCount = 1;
+                bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                bindings[10].binding = EMITTER_TABLE_BINDING;
+                bindings[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[10].descriptorCount = 1;
+                bindings[10].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                bindings[11].binding = TRAIL_BINDING;
+                bindings[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                bindings[11].descriptorCount = 1;
+                bindings[11].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 8;
+                layout_info.bindingCount = 12;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -90,10 +115,17 @@ namespace SushiEngine
                 range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
                 range.size = sizeof(Push);
 
+                // Set 1 is the bindless texture heap, the same slot and the same layout the scene
+                // pipelines use, so a sprite material addresses a texture by the very index a
+                // mesh material would. Dropped on a device without descriptor indexing, where the
+                // emitter table's RENDER_TEXTURED bit is cleared too and nothing samples it —
+                // the same bargain SceneLayout strikes for the mesh path.
+                VkDescriptorSetLayout sets[2] = {set_layout_, heap_.layout()};
+
                 VkPipelineLayoutCreateInfo pipeline_info{};
                 pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-                pipeline_info.setLayoutCount = 1;
-                pipeline_info.pSetLayouts = &set_layout_;
+                pipeline_info.setLayoutCount = heap_.available() ? 2 : 1;
+                pipeline_info.pSetLayouts = sets;
                 pipeline_info.pushConstantRangeCount = 1;
                 pipeline_info.pPushConstantRanges = &range;
                 Vulkan::check(vkCreatePipelineLayout(device_.device(), &pipeline_info, nullptr,
@@ -144,6 +176,23 @@ namespace SushiEngine
                 desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
                 desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
                 alpha_pipeline_ = pipelines_.create(desc);
+
+                // The deterministic billboards: additive like the first pipeline, but through a
+                // vertex shader that reads no emitter table — they belong to a host-side pool, not
+                // to a GPU emitter, so there is no authored alignment for them to index.
+                desc.vertex_shader = shaders_.module("particle_billboard.vert");
+                desc.blend.dst_color = VK_BLEND_FACTOR_ONE;
+                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE;
+                billboard_pipeline_ = pipelines_.create(desc);
+
+                // Ribbons composite with the premultiplied "over" regardless of the emitter's
+                // authored blend: a trail's tail is nearly transparent, where "over" and additive
+                // agree, and its head should occlude rather than glow. A second additive ribbon
+                // bucket is a later increment if a purely emissive trail ever needs one.
+                desc.vertex_shader = shaders_.module("particle_ribbon.vert");
+                desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                ribbon_pipeline_ = pipelines_.create(desc);
             }
 
             void ParticlePass::destroy_pipeline()
@@ -151,6 +200,8 @@ namespace SushiEngine
                 // The factory owns the pipelines; the pass drops only its handles.
                 pipeline_ = Resources::PipelineHandle{};
                 alpha_pipeline_ = Resources::PipelineHandle{};
+                billboard_pipeline_ = Resources::PipelineHandle{};
+                ribbon_pipeline_ = Resources::PipelineHandle{};
             }
 
             void ParticlePass::rebuild_pipelines()
@@ -183,11 +234,18 @@ namespace SushiEngine
                         // bucket loops them (the same declaration opaque_pass makes).
                         builder.read(frame.targets.cluster_grid, Graph::BufferAccess::StorageRead);
                         builder.read(frame.targets.light_index, Graph::BufferAccess::StorageRead);
+                        // The sun's cascades: the lit bucket shadows its sun term against them,
+                        // so the atlas has to have finished rendering before this pass samples it.
+                        builder.read(frame.targets.shadow, Graph::BufferAccess::UniformRead);
+                        builder.read(frame.targets.shadow_atlas,
+                                     Graph::TextureAccess::SampledFragment);
                         if (draw_emitters)
                         {
                             builder.read(frame.targets.particle_draw,
                                          Graph::BufferAccess::StorageRead);
                             builder.read(frame.targets.particle_alpha,
+                                         Graph::BufferAccess::StorageRead);
+                            builder.read(frame.targets.particle_ribbon,
                                          Graph::BufferAccess::StorageRead);
                             builder.read(frame.targets.particle_sort_keys,
                                          Graph::BufferAccess::StorageRead);
@@ -234,24 +292,22 @@ namespace SushiEngine
                         push.sun_radiance[2] =
                             static_cast<float>(environment.sun.color.z) * environment.sun.intensity;
 
-                        // The ambient scale the lit (true-alpha) bucket applies to the environment
-                        // SH: the IBL intensity, or 0 when image-based lighting is off (then lit
-                        // particles get only the sun + punctual lights, like a mesh would).
-                        const float lit_ambient =
+                        // The ambient scale a lit particle applies to the environment SH: the IBL
+                        // intensity, or 0 when image-based lighting is off (then lit particles get
+                        // only the sun + punctual lights, like a mesh would). Which particles are
+                        // lit is the emitter's business, not the draw's — a bucket mixes emitters,
+                        // so the flag rides the emitter table and this stays a plain scale.
+                        push.sun_radiance[3] =
                             environment.image_based_lighting ? environment.ibl_intensity : 0.0f;
 
-                        // Draws one bucket: sets the lit/ambient flag (negative = unlit/emissive,
-                        // >=0 = lit with that SH-ambient scale), pushes, binds its source + pipeline,
-                        // then issues the caller's draw. Additive/billboards are emissive; the
-                        // true-alpha bucket (smoke/dust) receives the sun + clustered lights.
+                        // Draws one bucket: pushes, binds its source + pipeline, then issues the
+                        // caller's draw.
                         const VkDeviceSize keys_range =
                             static_cast<VkDeviceSize>(particles_.capacity()) * 2 *
                             sizeof(std::uint32_t);
                         auto draw_bucket = [&](Resources::PipelineHandle& pipeline, VkBuffer source,
-                                               VkDeviceSize range, float lit_flag, VkBuffer keys,
-                                               auto&& issue)
+                                               VkDeviceSize range, VkBuffer keys, auto&& issue)
                         {
-                            push.sun_radiance[3] = lit_flag;
                             vkCmdPushConstants(cmd, pipeline_layout_,
                                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                                0, sizeof(Push), &push);
@@ -277,10 +333,39 @@ namespace SushiEngine
                             writer.uniform_buffer(6, lights_.config_buffer(),
                                                   lights_.config_buffer_range());
                             writer.storage_buffer(7, ibl_.sh_buffer(), IblPass::sh_buffer_bytes());
+                            // The sun's cascades. Bound on every bucket for the same reason: only
+                            // the lit fragment path samples them.
+                            writer.uniform_buffer(SHADOW_BLOCK_BINDING,
+                                                  context.buffer(frame.targets.shadow),
+                                                  sizeof(Scene::ShadowUniforms));
+                            writer.sampled_image(SHADOW_ATLAS_BINDING,
+                                                 context.sampled_view(frame.targets.shadow_atlas),
+                                                 ShadowPass::atlas_sampler(*frame.samplers));
+                            // The emitter table carries the authored alignment. On a frame with
+                            // only deterministic billboards there is no table at all; that draw's
+                            // shader declares no emitter buffer, so the source stands in as an
+                            // inert binding (the same idiom as the sort keys above).
+                            const VkDeviceSize table_range = particles_.emitter_range();
+                            writer.storage_buffer(EMITTER_TABLE_BINDING,
+                                                  table_range > 0
+                                                      ? particles_.emitter_buffer(slot)
+                                                      : source,
+                                                  table_range > 0 ? table_range : range);
+                            // The ribbon draw's trail history: persistent, so always valid.
+                            writer.storage_buffer(TRAIL_BINDING, particles_.trail_buffer(),
+                                                  particles_.trail_range());
                             writer.update(device_.device(), set);
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.get());
                             Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                            pipeline_layout_, 0, set);
+                            // The sprite materials' textures. Bound per bucket rather than once
+                            // per pass because the set is bound against this pass's own pipeline
+                            // layout, which only exists here.
+                            if (heap_.available())
+                                Resources::bind_descriptor_set(cmd,
+                                                               VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                               pipeline_layout_, HEAP_SET,
+                                                               heap_.set());
                             issue();
                         };
 
@@ -288,21 +373,30 @@ namespace SushiEngine
                         {
                             const VkBuffer args = context.buffer(frame.targets.particle_args);
                             draw_bucket(pipeline_, context.buffer(frame.targets.particle_draw),
-                                        particles_.pool_range(), -1.0f, VK_NULL_HANDLE, [&]() {
+                                        particles_.pool_range(), VK_NULL_HANDLE, [&]() {
                                             vkCmdDrawIndirect(cmd, args, 0, 1,
                                                               sizeof(VkDrawIndirectCommand));
                                         });
                             draw_bucket(alpha_pipeline_, context.buffer(frame.targets.particle_alpha),
-                                        particles_.pool_range(), lit_ambient,
+                                        particles_.pool_range(),
                                         context.buffer(frame.targets.particle_sort_keys), [&]() {
                                             vkCmdDrawIndirect(cmd, args, sizeof(VkDrawIndirectCommand),
                                                               1, sizeof(VkDrawIndirectCommand));
                                         });
+                            // Ribbons last of the emitter buckets: they are the most opaque of the
+                            // three, so drawing them over the glow reads correctly without a sort.
+                            draw_bucket(ribbon_pipeline_,
+                                        context.buffer(frame.targets.particle_ribbon),
+                                        particles_.pool_range(), VK_NULL_HANDLE, [&]() {
+                                            vkCmdDrawIndirect(cmd, args,
+                                                              2 * sizeof(VkDrawIndirectCommand), 1,
+                                                              sizeof(VkDrawIndirectCommand));
+                                        });
                         }
                         if (draw_billboards)
                         {
-                            draw_bucket(pipeline_, particles_.billboard_buffer(slot),
-                                        particles_.billboard_range(), -1.0f, VK_NULL_HANDLE,
+                            draw_bucket(billboard_pipeline_, particles_.billboard_buffer(slot),
+                                        particles_.billboard_range(), VK_NULL_HANDLE,
                                         [&]() { vkCmdDraw(cmd, 6, particles_.billboard_count(), 0, 0); });
                         }
                     });

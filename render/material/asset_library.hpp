@@ -88,6 +88,10 @@ namespace SushiEngine
                     std::size_t load_gltf(const char* path, MeshId* meshes,
                                           Render::Material* materials,
                                           std::size_t count) override;
+                    std::size_t load_gltf_skinned_mesh(const char* path, std::size_t skin_index,
+                                                       MeshId* meshes,
+                                                       Render::Material* materials,
+                                                       std::size_t count) override;
                     std::size_t resident_texture_bytes() const noexcept override;
 
                     /** @brief The shader modules every pipeline is built from. */

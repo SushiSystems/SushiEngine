@@ -241,10 +241,28 @@ namespace SushiEngine
                  *
                  * The simulate/emit passes bucket each particle by its emitter's blend mode:
                  * additive/premultiplied into @c particle_draw, true-alpha into @c particle_alpha,
-                 * so the two are drawn with different blend pipelines. @c particle_args carries two
-                 * `VkDrawIndirectCommand`s — additive at offset 0, alpha at offset 16.
+                 * so the two are drawn with different blend pipelines. @c particle_args carries three
+                 * `VkDrawIndirectCommand`s — additive at offset 0, alpha at 16, ribbons at 32.
                  */
                 Graph::BufferHandle particle_alpha;
+                /**
+                 * @brief The ribbon segment: particles whose emitter authored a trail.
+                 *
+                 * A third bucket rather than a mode inside the other two, because a ribbon expands
+                 * into a whole strip of quads while a sprite expands into one — a different vertex
+                 * count per instance, which is a property of the draw, not of the shader.
+                 */
+                Graph::BufferHandle particle_ribbon;
+                /**
+                 * @brief Mesh particles, sliced one contiguous range per mesh-aligned emitter.
+                 *
+                 * One draw binds one mesh, so mesh particles cannot share a single indirect
+                 * command the way sprites do. @c particle_mesh_args holds one
+                 * `VkDrawIndexedIndirectCommand` per slice, whose index count the sim pass seeds
+                 * from the host-known mesh and whose instance count the compaction bumps.
+                 */
+                Graph::BufferHandle particle_mesh;
+                Graph::BufferHandle particle_mesh_args;
                 /**
                  * @brief Sort keys for the alpha bucket: one {distance, index} per pool slot.
                  *

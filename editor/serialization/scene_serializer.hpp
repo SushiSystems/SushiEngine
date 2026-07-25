@@ -33,6 +33,11 @@
 
 namespace SushiEngine
 {
+    namespace Render
+    {
+        class IAssetLibrary;
+    }
+
     namespace Editor
     {
         /**
@@ -115,11 +120,15 @@ namespace SushiEngine
          * @param path Source file path.
          * @param sky Filled with the persisted astronomical-sky state, if present in the
          *     file; left untouched otherwise. Null to skip.
+         * @param assets Library the particle effects' sprite textures are loaded through. An
+         *     effect persists its textures by path, so without this its particles come back
+         *     untextured; everything else about them is restored either way.
          * @return True on success; false if the file could not be read or parsed, in
          *     which case the world is left cleared rather than partially restored.
          */
         bool load_scene(SushiEngine::Simulation::IWorldEditor& world, const std::string& path,
-                         SceneSkyState* sky = nullptr);
+                         SceneSkyState* sky = nullptr,
+                         SushiEngine::Render::IAssetLibrary* assets = nullptr);
     } // namespace Editor
 } // namespace SushiEngine
 

@@ -76,6 +76,22 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Replaces the effect a handle names, in place.
+                 *
+                 * The handle stays valid, so everything already referencing it picks the new effect
+                 * up. This is what an editor needs while an author drags a slider: re-adding would
+                 * grow the database once per edited frame and leave the old compiled forms behind.
+                 *
+                 * @param id     A valid handle.
+                 * @param effect The effect to put there (moved in).
+                 */
+                void replace(AssetId id, ParticleEffect effect)
+                {
+                    entries_[id].source = std::move(effect);
+                    entries_[id].compiled_valid = false;
+                }
+
+                /**
                  * @brief Whether a handle names a registered effect.
                  * @param id The handle to test.
                  * @return True when @p id is in range.

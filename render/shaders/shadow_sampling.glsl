@@ -8,55 +8,12 @@
 // filter over exactly that width.
 //
 // Fragment stages only: it samples, and it reads the fragment position to decorrelate the
-// filter. The block itself is in shadow_common.glsl, which every stage can include.
-// Requires temporal_common.glsl to have been included first: the filter's per-pixel
-// rotation advances with the frame jitter so the temporal resolve can average it.
+// filter. The block and the sampler-free arithmetic every stage can do (cascade select,
+// atlas tiling, the Vogel disc) are in shadow_common.glsl. Requires temporal_common.glsl
+// to have been included first: the filter's per-pixel rotation advances with the frame
+// jitter so the temporal resolve can average it.
 
 #include "shadow_common.glsl"
-
-// A Vogel disc: tap i of count, spread by the golden angle so every prefix of the
-// sequence already tiles the disc evenly. That even coverage is what makes a low tap
-// count read smooth instead of grainy — the fixed Poisson set it replaces printed a
-// visible speckle whenever a tier dropped the tap count, and it needs no lookup table.
-// `rotation` (radians) turns the whole disc per pixel: on meshes it advances each frame
-// so the temporal resolve averages the residual, and on the analytic ground it is a
-// stable screen-space value so the pattern holds still instead of shimmering unresolved.
-vec2 vogel_disc(int i, int count, float rotation)
-{
-    float radius = sqrt((float(i) + 0.5) / float(count));
-    float theta = float(i) * 2.399963229728653 + rotation; // golden angle
-    return vec2(radius * cos(theta), radius * sin(theta));
-}
-
-// Which cascade covers a point this far down the view axis. Linear search over at most
-// four entries, which is cheaper than any cleverness at this length and, unlike a
-// depth-derived index, stays correct when the splits are retuned at runtime.
-int select_shadow_cascade(float view_depth)
-{
-    int count = int(shadows.params.x);
-    for (int i = 0; i < count - 1; ++i)
-    {
-        if (view_depth < shadows.splits[i])
-            return i;
-    }
-    return count - 1;
-}
-
-// The atlas is a two-by-two grid of tiles, so a cascade's tile is its index read as two
-// bits. One image means one descriptor and one pass.
-vec2 shadow_tile_origin(int cascade)
-{
-    return vec2(float(cascade & 1), float(cascade >> 1)) * shadows.params.y;
-}
-
-// Keeps a filter tap inside its own tile. A tap reaching past the edge would read a
-// completely unrelated cascade's depth, which is the one way a two-by-two atlas can go
-// wrong that four separate images cannot.
-vec2 shadow_tile_clamp(vec2 tile_uv, vec2 texel)
-{
-    float scale = shadows.params.y;
-    return clamp(tile_uv, texel * 0.5, vec2(scale) - texel * 0.5);
-}
 
 // How far above the receiver the things blocking it stand, averaged, in stored-depth
 // units. Returns a negative value when nothing blocks — the caller then skips the filter
@@ -133,7 +90,7 @@ float sample_shadow_cascade(sampler2DShadow atlas, sampler2D depth_atlas, int ca
     // the constant bias is scaled by how steeply it leans away.
     float reference = light.z - shadows.bias.x * (1.0 + slope * 2.0);
 
-    vec2 texel = vec2(1.0 / (shadows.flags.w * 2.0));
+    vec2 texel = shadow_atlas_texel();
     float min_radius = shadows.filter_size.x;
     float max_radius = shadows.filter_size.y;
 

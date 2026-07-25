@@ -86,7 +86,8 @@ namespace SushiEngine
                   cloth_pass_(device, assets.shaders(), assets.pipelines(), cloth_),
                   skinning_pass_(device, assets.shaders(), assets.pipelines(), skinning_,
                                  assets.meshes()),
-                  particle_sim_pass_(device, assets.shaders(), assets.pipelines(), particles_),
+                  particle_sim_pass_(device, assets.shaders(), assets.pipelines(), particles_,
+                                     hiz_pass_),
                   particle_sort_pass_(device, assets.shaders(), assets.pipelines(), particles_),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes(), cloth_, materials_, motion_,
@@ -107,7 +108,9 @@ namespace SushiEngine
                   ssr_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                             hiz_pass_),
                   particle_pass_(device, assets.shaders(), assets.pipelines(), particles_, lights_,
-                                 ibl_pass_),
+                                 ibl_pass_, assets.heap()),
+                  particle_mesh_pass_(device, assets.shaders(), assets.pipelines(), particles_,
+                                      assets.meshes()),
                   taa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   dof_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   motion_blur_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
@@ -146,6 +149,9 @@ namespace SushiEngine
                            &hiz_pass_,
                            &cloth_pass_,
                            &opaque_pass_,
+                           // Mesh particles are solid geometry, so they belong with the opaque
+                           // surfaces and before anything that reads a finished depth buffer.
+                           &particle_mesh_pass_,
                            &shading_rate_pass_,
                            &sky_pass_,
                            &ground_shadow_resolve_pass_,
@@ -615,7 +621,8 @@ namespace SushiEngine
                 // Flatten this frame's cosmetic emitters and upload their table and LUT atlases;
                 // the particle sim pass emits and integrates into the shared pool and the
                 // particle pass billboards the result.
-                particles_.prepare(index, frame_counter_, emitters, emitter_count);
+                particles_.prepare(index, frame_counter_, emitters, emitter_count,
+                                   assets_.meshes(), assets_.textures());
                 particles_.prepare_billboards(index, billboards, billboard_count);
 
                 graph_.begin_frame(resources_.textures(index), resources_.buffers(index));

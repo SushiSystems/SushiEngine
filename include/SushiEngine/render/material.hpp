@@ -241,6 +241,28 @@ namespace SushiEngine
                                               Material* materials, std::size_t count) = 0;
 
                 /**
+                 * @brief Imports one glTF skin's triangle primitives as skinned meshes.
+                 *
+                 * Like @ref load_gltf, but for a rigged primitive: vertices stay in the skin's
+                 * bind space (no node-transform bake — the animation evaluator's per-frame
+                 * joint palette supplies both pose and world placement), and each mesh carries
+                 * a parallel skin stream (joint indices remapped into the cooked skeleton's
+                 * order, weights) that the compute skinning pass reads.
+                 *
+                 * @param path       Filesystem path to a .gltf or .glb file.
+                 * @param skin_index Which skin to import (must match the index used to import
+                 *                   the matching @c SkeletonAsset/@c ClipAsset for this file).
+                 * @param meshes     Receives one id per imported primitive.
+                 * @param materials  Receives the material for each entry in @p meshes.
+                 * @param count      Capacity of @p meshes and @p materials.
+                 * @return Number of primitives imported, or 0 on failure.
+                 */
+                virtual std::size_t load_gltf_skinned_mesh(const char* path,
+                                                           std::size_t skin_index, MeshId* meshes,
+                                                           Material* materials,
+                                                           std::size_t count) = 0;
+
+                /**
                  * @brief Bytes of texture memory currently resident on the device.
                  *
                  * The streaming budget is enforced against this; the editor surfaces it.

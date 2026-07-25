@@ -46,7 +46,9 @@
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
+#include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/sim/components.hpp>
+#include <SushiEngine/vfx/particle_effect.hpp>
 
 namespace SushiEngine
 {
@@ -169,9 +171,73 @@ namespace SushiEngine
          */
         struct ParticleEmitterParams
         {
-            std::uint32_t effect = 0;  /**< Index of the built-in effect this emitter plays. */
+            // No effect handle: the effect is the component's own data, not something it points
+            // at. See IWorldEditor::particle_effect_source.
             std::uint32_t seed = 1;    /**< Per-instance RNG seed (drives the deterministic stream). */
             bool playing = true;       /**< Whether the emitter is currently emitting. */
+        };
+
+        /**
+         * @brief The authorable parameters of an "Audio Emitter" entity.
+         *
+         * An emitter entity plays a sound, positioned by the entity's transform. These
+         * mirror the fields the audio engine's `VoiceDescriptor`/`AudioEmitter` carry, in
+         * editor-facing form (plain scalars + a distance-model code), so the editor's audio
+         * system can spawn and steer a live voice from them. Host bookkeeping on the sim,
+         * like light/cloth — no ECS migration.
+         */
+        struct AudioEmitterParams
+        {
+            std::uint32_t sound = 0;      /**< Sound/event id the host factory resolves to a source. */
+            float gain = 1.0f;            /**< Linear base gain before attenuation. */
+            float priority = 0.0f;        /**< Voice-manager real-slot priority (higher wins). */
+            std::uint32_t bus = 0;        /**< Target mixer bus id. */
+            float min_distance = 1.0f;    /**< Full gain within this radius (metres). */
+            float max_distance = 25.0f;   /**< Silent and cullable beyond this radius (metres). */
+            std::uint32_t distance_model = 0; /**< 0 Linear, 1 Inverse, 2 Exponent. */
+            float rolloff = 1.0f;         /**< Rolloff factor for inverse/exponent models. */
+            float doppler_scale = 1.0f;   /**< Doppler exaggeration (0 off, 1 physical, >1 more). */
+            float reverb_send = 0.0f;     /**< Reverb aux-send level in [0, 1]. */
+            bool spatial = true;          /**< Whether distance/Doppler apply (else a 2D sound). */
+            bool playing = true;          /**< Whether the emitter is currently sounding. */
+            bool looping = true;          /**< Whether the source loops (music/ambience vs one-shot). */
+        };
+
+        /**
+         * @brief The authorable parameters of a "Reverb Zone" entity.
+         *
+         * A box around the entity's transform that imposes an I3DL2 reverb on the listener
+         * inside it. The fields mirror the I3DL2 parameter set (levels in dB, times in
+         * seconds, diffusion/density/wet in percent) plus the box half-extents and an
+         * overlap priority — editor-facing plain scalars, mapped to the audio engine's
+         * `I3DL2Reverb` by the editor's audio system.
+         */
+        struct ReverbZoneParams
+        {
+            Vector3 half_extents{Vector3{10, 10, 10}}; /**< Box half-size around the transform. */
+            float room = -6.0f;           /**< Overall reverb level (dB, <= 0). */
+            float room_hf = -3.0f;        /**< HF reverb level relative to @ref room (dB, <= 0). */
+            float decay_time = 1.5f;      /**< Broadband RT60 in seconds (0.1 .. 20). */
+            float decay_hf_ratio = 0.5f;  /**< RT60_hf / RT60_dc (0.1 .. 2); < 1 -> darker tail. */
+            float reflections = -12.0f;   /**< Early-reflection level (dB). */
+            float reverb = 0.0f;          /**< Late-reverb level (dB, <= 0). */
+            float diffusion = 100.0f;     /**< Echo-buildup density in percent [0, 100]. */
+            float density = 100.0f;       /**< Modal density in percent [0, 100]. */
+            float wet_dry_mix = 100.0f;   /**< Wet percent [0, 100] (aux-bus use: 100). */
+            float send = 1.0f;            /**< Aux-send scale for emitters in the zone. */
+            std::int32_t priority = 0;    /**< Overlapping zones: higher wins. */
+        };
+
+        /**
+         * @brief The authorable parameters of an "Audio Listener" entity (the ears).
+         *
+         * Marks an entity as the point the mix is heard from; its pose comes from the
+         * transform. Only the master gain and an active flag are authored.
+         */
+        struct AudioListenerParams
+        {
+            float gain = 1.0f;  /**< Master linear gain for the whole mix at this listener. */
+            bool active = true; /**< Only an active listener is chosen as the ears. */
         };
 
         /**
@@ -421,6 +487,19 @@ namespace SushiEngine
             std::vector<Render::PunctualLight> lights;   /**< Every punctual light this frame, placed by its entity's transform. */
             std::vector<Render::Decal> decals;           /**< Every projected decal this frame, placed by its entity's transform. */
             std::vector<ParticleBillboard> particle_billboards; /**< Every live deterministic-emitter particle this frame. */
+            /**
+             * @brief The frame's cosmetic emitters, for the GPU simulation path.
+             *
+             * The other half of what a scene emitter can be. An effect whose emitters declare the
+             * Cosmetic domain is not stepped on the CPU at all: the sim only places it (transform,
+             * this frame's spawn count, its compiled record and LUT atlases) and the renderer emits
+             * and integrates it on the GPU, which is what buys ribbons, mesh particles, depth
+             * collision, and counts a host pool could not hold.
+             *
+             * The `compiled` and LUT pointers are into the sim's own effect database, which
+             * outlives the frame; they are re-emitted every frame rather than cached.
+             */
+            std::vector<Render::ParticleEmitterView> particle_emitters;
             Render::Environment environment;             /**< The sun, WGS84 planet, atmosphere, clouds, and stars lighting this frame. */
         };
 
@@ -689,15 +768,29 @@ namespace SushiEngine
                 virtual void set_has_particle_emitter(EntityId id, bool value) = 0;
 
                 /**
-                 * @brief The number of built-in particle effects an emitter may reference.
+                 * @brief The effect an emitter entity owns.
                  *
-                 * The editor's effect picker enumerates @c [0, particle_effect_count()); each
-                 * index names one built-in effect (see @ref particle_effect_name).
+                 * A particle system is a *component*: putting one on an entity is what makes that
+                 * entity emit, and the effect it plays is that component's own data, not a shared
+                 * asset it points at. So it lives here with the rest of the entity's state, which
+                 * is also what lets the scene file round-trip it.
+                 *
+                 * @param id An emitter entity.
+                 * @return Its authored effect; a default-constructed one when @p id has no emitter.
                  */
-                virtual std::uint32_t particle_effect_count() const noexcept = 0;
+                virtual const Vfx::ParticleEffect& particle_effect_source(EntityId id) const = 0;
 
-                /** @brief The display name of built-in particle effect @p index. */
-                virtual const char* particle_effect_name(std::uint32_t index) const noexcept = 0;
+                /**
+                 * @brief Replaces the effect an emitter entity owns.
+                 *
+                 * Recompiles in place, so the emitter picks the change up on its next tick without
+                 * restarting — an author dragging a slider wants the running effect to change.
+                 *
+                 * @param id     An emitter entity; ignored when it has no emitter.
+                 * @param effect The effect it should play.
+                 */
+                virtual void set_particle_effect_source(EntityId id,
+                                                        const Vfx::ParticleEffect& effect) = 0;
 
                 /**
                  * @brief Whether @p id is driven by the physics world (a "Rigid Body").
@@ -809,6 +902,42 @@ namespace SushiEngine
                  * @param value Whether it should carry a light after this call.
                  */
                 virtual void set_has_light(EntityId id, bool value) = 0;
+
+                /** @brief Whether @p id carries an audio emitter. */
+                virtual bool has_audio_emitter(EntityId id) const noexcept = 0;
+
+                /** @brief The audio-emitter parameters of @p id, or defaults if it carries none. */
+                virtual AudioEmitterParams audio_emitter_params(EntityId id) const = 0;
+
+                /** @brief Writes an emitter's parameters; a no-op for non-emitters. */
+                virtual void set_audio_emitter_params(EntityId id, const AudioEmitterParams& params) = 0;
+
+                /** @brief Attaches or detaches an audio emitter on an existing entity (host bookkeeping). */
+                virtual void set_has_audio_emitter(EntityId id, bool value) = 0;
+
+                /** @brief Whether @p id carries a reverb zone. */
+                virtual bool has_reverb_zone(EntityId id) const noexcept = 0;
+
+                /** @brief The reverb-zone parameters of @p id, or defaults if it carries none. */
+                virtual ReverbZoneParams reverb_zone_params(EntityId id) const = 0;
+
+                /** @brief Writes a reverb zone's parameters; a no-op for non-zones. */
+                virtual void set_reverb_zone_params(EntityId id, const ReverbZoneParams& params) = 0;
+
+                /** @brief Attaches or detaches a reverb zone on an existing entity (host bookkeeping). */
+                virtual void set_has_reverb_zone(EntityId id, bool value) = 0;
+
+                /** @brief Whether @p id is an audio listener (the ears). */
+                virtual bool has_audio_listener(EntityId id) const noexcept = 0;
+
+                /** @brief The audio-listener parameters of @p id, or defaults if it carries none. */
+                virtual AudioListenerParams audio_listener_params(EntityId id) const = 0;
+
+                /** @brief Writes a listener's parameters; a no-op for non-listeners. */
+                virtual void set_audio_listener_params(EntityId id, const AudioListenerParams& params) = 0;
+
+                /** @brief Attaches or detaches the audio listener on an existing entity (host bookkeeping). */
+                virtual void set_has_audio_listener(EntityId id, bool value) = 0;
 
                 /**
                  * @brief Creates a bare entity carrying a punctual light.

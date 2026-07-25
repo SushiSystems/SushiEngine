@@ -43,6 +43,8 @@
 
 #include <cmath>
 #include <cstddef>
+#include <memory>
+#include <vector>
 
 #include <SushiEngine/audio/parameter.hpp>
 
@@ -160,6 +162,17 @@ namespace SushiEngine
                     (void)frame_count;
                     return true;
                 }
+
+                /**
+                 * @brief Sets a pitch/rate multiplier (1 = natural; 2 = an octave up).
+                 *
+                 * A sampled source resamples by this factor (combined with any sample-rate
+                 * conversion it already applies); a synthesised source scales its frequency.
+                 * The default is a no-op for sources without a meaningful pitch.
+                 *
+                 * @param pitch The multiplier; clamped by the source to a sane range.
+                 */
+                virtual void set_pitch(float pitch) noexcept { (void)pitch; }
             };
 
         /**
@@ -184,10 +197,15 @@ namespace SushiEngine
 
                 void reset() noexcept override { phase_ = 0.0; }
 
+                void set_pitch(float pitch) noexcept override
+                {
+                    pitch_ = pitch > 0.0f ? pitch : 0.0001f;
+                }
+
                 bool render(float* out, int frame_count) noexcept override
                 {
                     const double two_pi = 6.28318530717958647692;
-                    const double increment = two_pi * frequency_ / sample_rate_;
+                    const double increment = two_pi * frequency_ * pitch_ / sample_rate_;
                     double phase = phase_;
                     for (int i = 0; i < frame_count; ++i)
                     {
@@ -203,7 +221,7 @@ namespace SushiEngine
                 bool advance(int frame_count) noexcept override
                 {
                     const double two_pi = 6.28318530717958647692;
-                    const double increment = two_pi * frequency_ / sample_rate_;
+                    const double increment = two_pi * frequency_ * pitch_ / sample_rate_;
                     phase_ += increment * frame_count;
                     phase_ = std::fmod(phase_, two_pi);
                     return true;
@@ -214,6 +232,7 @@ namespace SushiEngine
                 double amplitude_ = 1.0;
                 double sample_rate_ = 48000.0;
                 double phase_ = 0.0;
+                double pitch_ = 1.0;
             };
 
         /**
@@ -228,34 +247,56 @@ namespace SushiEngine
             public:
                 /**
                  * @brief Constructs a buffer source.
-                 * @param data  Pointer to @p size mono samples (borrowed).
-                 * @param size  Number of samples.
-                 * @param loop  Whether to wrap at the end.
+                 * @param data                Pointer to @p size mono samples (borrowed).
+                 * @param size                Number of samples.
+                 * @param loop                Whether to wrap at the end.
+                 * @param source_sample_rate  The rate @p data was recorded at (0 = the device
+                 *                            rate, i.e. no sample-rate conversion). When it
+                 *                            differs from the device rate the source resamples
+                 *                            so pitch is preserved.
                  */
-                BufferSource(const float* data, int size, bool loop) noexcept
-                    : data_(data), size_(size), loop_(loop)
+                BufferSource(const float* data, int size, bool loop, double source_sample_rate = 0.0) noexcept
+                    : data_(data), size_(size), loop_(loop), source_rate_(source_sample_rate)
                 {
                 }
 
-                void reset() noexcept override { position_ = 0; }
+                void prepare(double sample_rate, int max_block_frames) override
+                {
+                    (void)max_block_frames;
+                    device_rate_ = sample_rate;
+                    update_increment();
+                }
+
+                void reset() noexcept override { position_ = 0.0; }
+
+                void set_pitch(float pitch) noexcept override
+                {
+                    pitch_ = pitch > 0.0f ? pitch : 0.0001f;
+                    update_increment();
+                }
 
                 bool render(float* out, int frame_count) noexcept override
                 {
+                    if (size_ <= 0)
+                    {
+                        for (int i = 0; i < frame_count; ++i)
+                            out[i] = 0.0f;
+                        return false;
+                    }
                     for (int i = 0; i < frame_count; ++i)
                     {
-                        if (position_ >= size_)
+                        if (!loop_ && position_ >= static_cast<double>(size_ - 1))
                         {
-                            if (loop_ && size_ > 0)
-                                position_ = 0;
-                            else
-                            {
-                                for (int j = i; j < frame_count; ++j)
-                                    out[j] = 0.0f;
-                                return false;
-                            }
+                            for (int j = i; j < frame_count; ++j)
+                                out[j] = 0.0f;
+                            position_ = size_;
+                            return false;
                         }
-                        out[i] = data_[position_];
-                        ++position_;
+                        out[i] = sample_at(position_);
+                        position_ += increment_;
+                        if (loop_)
+                            while (position_ >= static_cast<double>(size_))
+                                position_ -= static_cast<double>(size_);
                     }
                     return true;
                 }
@@ -264,13 +305,14 @@ namespace SushiEngine
                 {
                     if (size_ <= 0)
                         return false;
+                    position_ += increment_ * frame_count;
                     if (loop_)
                     {
-                        position_ = (position_ + frame_count) % size_;
+                        while (position_ >= static_cast<double>(size_))
+                            position_ -= static_cast<double>(size_);
                         return true;
                     }
-                    position_ += frame_count;
-                    if (position_ >= size_)
+                    if (position_ >= static_cast<double>(size_ - 1))
                     {
                         position_ = size_;
                         return false;
@@ -279,10 +321,123 @@ namespace SushiEngine
                 }
 
             private:
+                void update_increment() noexcept
+                {
+                    const double base = (source_rate_ > 0.0 && device_rate_ > 0.0)
+                                            ? source_rate_ / device_rate_
+                                            : 1.0;
+                    increment_ = base * pitch_;
+                }
+
+                float sample_at(double pos) const noexcept
+                {
+                    int i0 = static_cast<int>(pos);
+                    if (i0 < 0)
+                        i0 = 0;
+                    if (i0 >= size_)
+                        i0 = size_ - 1;
+                    int i1 = i0 + 1;
+                    if (i1 >= size_)
+                        i1 = loop_ ? 0 : size_ - 1;
+                    const float frac = static_cast<float>(pos - static_cast<double>(i0));
+                    const float a = data_[i0];
+                    const float b = data_[i1];
+                    return a + frac * (b - a);
+                }
+
                 const float* data_ = nullptr;
                 int size_ = 0;
                 bool loop_ = false;
-                int position_ = 0;
+                double source_rate_ = 0.0;
+                double device_rate_ = 48000.0;
+                double pitch_ = 1.0;
+                double increment_ = 1.0;
+                double position_ = 0.0;
+            };
+
+        /**
+         * @brief A voice source that mixes several child sources at per-child gains.
+         *
+         * The runtime form of a Blend/Layer container (`event.hpp`): one event that resolves
+         * to several overlapping sounds becomes one @ref LayeredVoiceSource, so it occupies a
+         * single voice yet plays them together. Ends when its last child ends (or never, if
+         * any child loops).
+         */
+        class LayeredVoiceSource final : public VoiceSource
+        {
+            public:
+                /** @brief Adds a child source at a mix gain (ownership transferred). */
+                void add(std::unique_ptr<VoiceSource> source, float gain)
+                {
+                    layers_.push_back(Layer{std::move(source), gain});
+                }
+
+                /** @brief The number of layers. */
+                std::size_t layer_count() const noexcept { return layers_.size(); }
+
+                void prepare(double sample_rate, int max_block_frames) override
+                {
+                    temp_.assign(static_cast<std::size_t>(max_block_frames), 0.0f);
+                    for (Layer& l : layers_)
+                        if (l.source)
+                            l.source->prepare(sample_rate, max_block_frames);
+                }
+
+                void reset() noexcept override
+                {
+                    for (Layer& l : layers_)
+                        if (l.source)
+                            l.source->reset();
+                }
+
+                void set_pitch(float pitch) noexcept override
+                {
+                    for (Layer& l : layers_)
+                        if (l.source)
+                            l.source->set_pitch(pitch);
+                }
+
+                bool render(float* out, int frame_count) noexcept override
+                {
+                    for (int i = 0; i < frame_count; ++i)
+                        out[i] = 0.0f;
+                    bool any_alive = false;
+                    const int cap = static_cast<int>(temp_.size());
+                    const int n = frame_count < cap ? frame_count : cap;
+                    for (Layer& l : layers_)
+                    {
+                        if (!l.source || !l.alive)
+                            continue;
+                        l.alive = l.source->render(temp_.data(), n);
+                        for (int i = 0; i < n; ++i)
+                            out[i] += temp_[static_cast<std::size_t>(i)] * l.gain;
+                        any_alive = any_alive || l.alive;
+                    }
+                    return any_alive;
+                }
+
+                bool advance(int frame_count) noexcept override
+                {
+                    bool any_alive = false;
+                    for (Layer& l : layers_)
+                    {
+                        if (!l.source || !l.alive)
+                            continue;
+                        l.alive = l.source->advance(frame_count);
+                        any_alive = any_alive || l.alive;
+                    }
+                    return any_alive;
+                }
+
+            private:
+                struct Layer
+                {
+                    std::unique_ptr<VoiceSource> source;
+                    float gain = 1.0f;
+                    bool alive = true;
+                };
+                std::vector<Layer> layers_;
+                std::vector<float> temp_;
             };
 
         /** @brief Whether a voice slot is unused, tracked-but-silent, or fully rendered. */
@@ -307,6 +462,7 @@ namespace SushiEngine
             float priority = 0.0f;         /**< Sort priority; higher keeps a real slot. */
             int bus = 0;                   /**< Target mixer bus id. */
             float pan = 0.0f;              /**< Stereo pan in [-1, 1] (2D placement). */
+            float pitch = 1.0f;            /**< Pitch/rate multiplier (1 = natural; applied on play). */
             bool spatial = false;          /**< Whether distance/propagation applies. */
             AudioVec3 position;            /**< World position (when spatial). */
             float min_distance = 1.0f;     /**< Full gain within this radius. */
@@ -316,6 +472,10 @@ namespace SushiEngine
             float rolloff = 1.0f;          /**< Rolloff factor for inverse/exponent models. */
             float doppler_scale = 1.0f;    /**< Doppler exaggeration (0 = off, 1 = physical, >1 = more). */
             bool propagation_delay = true; /**< Whether the propagation delay (and thus Doppler) applies. */
+
+            int reverb_bus = -1;           /**< Aux-send target bus for the reverb send (−1 = no send). */
+            float reverb_send = 0.0f;      /**< Reverb aux-send level in [0, 1]; occlusion scales it down. */
+            float near_field_distance = 0.0f; /**< Below this range a proximity bass boost kicks in (0 = off). */
 
             /**
              * @brief The distance attenuation for a listener at @p listener.
