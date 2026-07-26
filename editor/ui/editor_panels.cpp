@@ -2176,7 +2176,9 @@ namespace SushiEngine
                             context.history.begin_change(*world);
                         if (ImGui::IsItemDeactivatedAfterEdit())
                             context.history.end_change();
+                    }
 
+                    {
                         bool casts = params.casts_shadows;
                         if (ImGui::Checkbox("Casts Shadows", &casts))
                         {
@@ -3249,9 +3251,9 @@ namespace SushiEngine
                         if (ImGui::DragFloat("Outer Angle", &params.outer_degrees, 0.2f, 0.0f,
                                              89.0f, "%.1f deg"))
                             changed = true;
-                        if (ImGui::Checkbox("Casts Shadows", &params.casts_shadows))
-                            changed = true;
                     }
+                    if (ImGui::Checkbox("Casts Shadows", &params.casts_shadows))
+                        changed = true;
                     if (changed)
                     {
                         context.history.record(*world);

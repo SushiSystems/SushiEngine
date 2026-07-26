@@ -141,7 +141,7 @@ vec3 shade_punctual(PunctualLight light, vec3 n, vec3 view_dir, vec3 world_pos,
     // one record; a point light has six (a cube), and the fragment's direction from the
     // light picks the face to add onto that base record.
     int shadow_record = int(light.cone.z);
-    if (false && shadow_record >= 0)
+    if (shadow_record >= 0)
     {
         int record = shadow_record;
         if (light.direction_type.w < 0.5) // point light: select the cube face

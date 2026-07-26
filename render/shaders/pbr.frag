@@ -523,7 +523,7 @@ void main()
             // atlas the spot/point casters share, filtered by the same function they use.
             float shadow_index = light_index < 4 ? scene.light_shadow_a[light_index]
                                                   : scene.light_shadow_b.x;
-            if (false && shadow_index >= 0.0)
+            if (shadow_index >= 0.0)
                 visibility *= sample_punctual_shadow(int(shadow_index), v_world_position);
         }
         // The deck overhead shades this surface exactly as it shades the analytic

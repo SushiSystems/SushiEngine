@@ -967,7 +967,7 @@ void main()
             // LightSystem::assign_directional_shadows) darkens the ground under it
             // exactly as it does a mesh.
             float shadow_index = i < 4 ? scene.light_shadow_a[i] : scene.light_shadow_b.x;
-            if (false && shadow_index >= 0.0)
+            if (shadow_index >= 0.0)
                 shadow *= sample_punctual_shadow(int(shadow_index), hit);
             vec3 lobe = albedo / PI + vec3(ground_specular(normal, ground_view, light_dir,
                                                            ground_roughness, ground_f0));
@@ -999,7 +999,7 @@ void main()
                 if (cos_incident <= 0.0)
                     continue;
                 int record = int(light.cone.z);
-                if (false && record >= 0)
+                if (record >= 0)
                 {
                     if (light.direction_type.w < 0.5) // point light: select the cube face
                         record += cube_shadow_face(hit - light.position_range.xyz);
