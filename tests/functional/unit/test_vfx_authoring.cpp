@@ -138,7 +138,10 @@ TEST(Unit_EmitterCompiler, DomainCapacityClampAndFlags)
 
     const CompiledEffect compiled = EmitterCompiler::compile(effect);
     ASSERT_EQ(compiled.emitters.size(), 2u);
-    EXPECT_EQ(compiled.emitters[0].capacity, MAX_EMITTER_CAPACITY);
+    // 100000 sits well under the cosmetic budget (MAX_EMITTER_CAPACITY), so it passes
+    // through unclamped; only the deterministic emitter below is over its (much smaller)
+    // budget and actually clamps.
+    EXPECT_EQ(compiled.emitters[0].capacity, cosmetic.capacity);
     EXPECT_EQ(compiled.emitters[1].capacity, MAX_DETERMINISTIC_PARTICLES);
 
     const CompiledEmitter& det = compiled.emitters[1];

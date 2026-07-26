@@ -56,9 +56,11 @@ TEST(Unit_Gravity, GravitationalParametersArePositiveWithSunDominant)
 
     EXPECT_NEAR(standard_gravitational_parameter(BodyId::Sun), 1.32712440018e20, 1e10);
     EXPECT_NEAR(standard_gravitational_parameter(BodyId::Earth), 3.986004418e14, 1e6);
-    // The Sun's mu dominates every planet by orders of magnitude.
+    // The Sun's mu dominates every planet by orders of magnitude — Jupiter, the largest
+    // planet, still trails by a factor of ~1047 (the real Sun/Jupiter mass ratio), so the
+    // bound has to stay well under that rather than the 1e5 an earlier version asserted.
     EXPECT_GT(standard_gravitational_parameter(BodyId::Sun),
-              1e5 * standard_gravitational_parameter(BodyId::Jupiter));
+              1e2 * standard_gravitational_parameter(BodyId::Jupiter));
 }
 
 TEST(Unit_Gravity, GravitationalParentHierarchy)
