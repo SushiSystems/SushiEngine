@@ -19,18 +19,15 @@ jobs:
     # observed to fail to create the IntelSYCL::SYCL_CXX target on newer oneAPI
     # releases. Plain ubuntu-latest, no container needed.
     env:
-      # Pinned back from 2026-06-12: every kernel-dispatching test (physics solvers,
-      # Integration_Schedule) failed with "opencl backend failed with error: 7
-      # (UR_RESULT_ERROR_INVALID_BINARY)" against pocl-opencl-icd (Ubuntu 24.04's
-      # distro POCL 5.0, whose bundled LLVM-SPIRV consumer lags recent intel/llvm
-      # codegen — likely an opaque-pointer or SPIR-V version bump the nightly
-      # started emitting by default with no -fsycl-targets override pinning it back).
-      # Host-only tests (Unit_World, Unit_CommandBuffer — no SYCL kernel submitted)
-      # passed regardless, which is what narrowed this to a binary-format mismatch
-      # rather than a POCL/device capability gap. If this date still fails the same
-      # way, bisect further back before reaching for -fsycl-targets flags or building
-      # POCL from source instead of the distro package.
-      INTEL_LLVM_DATE: 2025-11-01
+      # Rolling this back (tried 2025-11-01) did not fix the functional job's
+      # UR_RESULT_ERROR_INVALID_BINARY failures — see the CPU OpenCL runtime step
+      # below for the actual root cause and fix. Back to the primary, tested date.
+      INTEL_LLVM_DATE: 2026-06-12
+      # Intel's own SYCL CI validates every nightly against this exact CPU OpenCL
+      # runtime tag regardless of compiler date (see devops/dependencies.json on the
+      # intel/llvm "sycl" branch) — it is not expected to need to track
+      # INTEL_LLVM_DATE.
+      CPU_TAG: 2026-WW28
     steps:
       # Engine into sushiengine/, runtime sibling into sushiruntime/, so the
       # engine's default SUSHIRUNTIME_DIR (../sushiruntime) resolves to it.
@@ -51,7 +48,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config git libhwloc-dev libgtest-dev \
-            wget ocl-icd-opencl-dev ocl-icd-libopencl1 pocl-opencl-icd nlohmann-json3-dev
+            wget jq ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev
 
       - name: Install the intel/llvm nightly SYCL bundle
         run: |
@@ -63,6 +60,34 @@ jobs:
           sudo tar -xzf /tmp/sycl_linux.tar.gz -C /opt/llvm-sycl --strip-components=1
           echo "/opt/llvm-sycl/bin" >> "$GITHUB_PATH"
           echo "LD_LIBRARY_PATH=/opt/llvm-sycl/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: Install the Intel CPU OpenCL runtime (oclcpuexp)
+        run: |
+          set -e
+          # Every kernel-dispatching test (physics solvers, Integration_Schedule) was
+          # failing with "opencl backend failed with error: 7
+          # (UR_RESULT_ERROR_INVALID_BINARY)" against pocl-opencl-icd — Ubuntu 24.04's
+          # distro POCL 5.0, a generic (non-Intel) OpenCL implementation. Host-only
+          # tests (Unit_World, Unit_CommandBuffer — no SYCL kernel submitted) passed
+          # regardless, and rolling INTEL_LLVM_DATE back months made no difference,
+          # which rules out a SPIR-V/toolchain version skew: every dispatched kernel
+          # in this architecture is USM-based (SushiRuntime's whole allocator is USM),
+          # and POCL is not known to implement cl_intel_unified_shared_memory, the
+          # Intel-specific extension the SYCL runtime's USM path depends on. Intel
+          # publishes its own reference CPU OpenCL runtime (oclcpuexp) for exactly
+          # this validation use case — intel/llvm's own CI pairs it with every nightly
+          # regardless of compiler date (devops/scripts/install_drivers.sh,
+          # devops/dependencies.json on the "sycl" branch) — so install that instead.
+          mkdir -p /tmp/oclcpu
+          url=$(curl -s -L "https://api.github.com/repos/intel/llvm/releases/tags/${CPU_TAG}" \
+            | jq -r '.assets[].browser_download_url' | grep -E "oclcpuexp.*tar\.gz$")
+          wget -q "$url" -O /tmp/oclcpuexp.tar.gz
+          tar -xf /tmp/oclcpuexp.tar.gz -C /tmp/oclcpu
+          if [ -e /tmp/oclcpu/install.sh ]; then
+            sudo bash -x /tmp/oclcpu/install.sh
+          else
+            echo /tmp/oclcpu/x64/libintelocl.so | sudo tee /etc/OpenCL/vendors/intel_oclcpu.icd
+          fi
 
       - name: Configure, build, and run the functional suite
         shell: bash
@@ -93,18 +118,10 @@ jobs:
     # both), so this job provisions all of them from a throwaway vcpkg checkout
     # rather than mixing apt and vcpkg per-package.
     env:
-      # Pinned back from 2026-06-12: every kernel-dispatching test (physics solvers,
-      # Integration_Schedule) failed with "opencl backend failed with error: 7
-      # (UR_RESULT_ERROR_INVALID_BINARY)" against pocl-opencl-icd (Ubuntu 24.04's
-      # distro POCL 5.0, whose bundled LLVM-SPIRV consumer lags recent intel/llvm
-      # codegen — likely an opaque-pointer or SPIR-V version bump the nightly
-      # started emitting by default with no -fsycl-targets override pinning it back).
-      # Host-only tests (Unit_World, Unit_CommandBuffer — no SYCL kernel submitted)
-      # passed regardless, which is what narrowed this to a binary-format mismatch
-      # rather than a POCL/device capability gap. If this date still fails the same
-      # way, bisect further back before reaching for -fsycl-targets flags or building
-      # POCL from source instead of the distro package.
-      INTEL_LLVM_DATE: 2025-11-01
+      # Same toolchain date as the functional job. This job never executes a kernel
+      # (configure + build se_editor only, no ctest), so it was never affected by the
+      # functional job's OpenCL runtime issue — see that job's comments for the story.
+      INTEL_LLVM_DATE: 2026-06-12
     steps:
       - name: Check out SushiEngine
         uses: actions/checkout@v4
