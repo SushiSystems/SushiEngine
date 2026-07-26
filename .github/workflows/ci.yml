@@ -12,23 +12,30 @@ jobs:
   functional:
     name: Functional tests
     runs-on: ubuntu-latest
-    # Intel oneAPI base image + icpx, matching SushiRuntime's own CI exactly
-    # (sushiruntime/.github/workflows/ci.yml) rather than reassembling a working
-    # CPU OpenCL device by hand from an intel/llvm nightly + POCL/oclcpuexp/TBB.
-    # That manual path (kept for the record in git history) needed three
-    # increasingly specific fixes to get a real device detected at all — the ICD
-    # vendors directory, Intel's own oclcpuexp instead of distro POCL (which does
-    # not implement the cl_intel_unified_shared_memory extension this
-    # USM-everywhere architecture depends on for every dispatched kernel), and
-    # finally the exact oneTBB release oclcpuexp validates against (a same-name,
-    # different-ABI libtbb.so.12 loaded successfully but failed an internal check
-    # silently) — fragile in a way a pre-integrated, Intel-maintained container
-    # image just isn't. SushiRuntime's cmake/Sycl.cmake fully supports this
-    # "oneapi" toolchain already (find_package(IntelSYCL), inferred from the icpx
-    # compiler name); an earlier version of this file avoided it over an observed
-    # IntelSYCL::SYCL_CXX creation failure on some oneAPI release, which either
-    # never applied to this exact base image or has since been fixed upstream —
-    # SushiRuntime's own CI runs this same path clean.
+    # Intel oneAPI base image for its pre-integrated, working CPU OpenCL device —
+    # avoids reassembling one by hand from an intel/llvm nightly + POCL/oclcpuexp/
+    # TBB (kept for the record in git history: needed three increasingly specific
+    # fixes — the ICD vendors directory, Intel's own oclcpuexp instead of distro
+    # POCL which doesn't implement the cl_intel_unified_shared_memory extension
+    # this USM-everywhere architecture depends on for every dispatched kernel, then
+    # the exact oneTBB release oclcpuexp validates against after a same-name
+    # different-ABI one loaded but silently failed — fragile in a way a
+    # pre-integrated image just isn't).
+    #
+    # The compiler is still icpx (its clang lineage understands -fsycl the same
+    # way), but the configure step below invokes it through a clang++-named
+    # symlink rather than as "icpx" directly: cmake/Sycl.cmake infers
+    # SR_SYCL_TOOLCHAIN from the compiler executable's name, and forces it to
+    # "oneapi" — real find_package(IntelSYCL) — whenever that name matches
+    # icpx/icx-cl/icx. On this image's oneAPI 2025.3.3, that path never creates
+    # the IntelSYCL::SYCL_CXX imported target add_sycl_to_target() needs
+    # (confirmed directly — every add_sushi_sycl_executable() configure step
+    # failed with "non-existent target"), which is exactly the failure the very
+    # first version of this file was written to avoid. Renaming the invocation to
+    # match Sycl.cmake's "clang++" pattern instead selects its intel-llvm branch,
+    # which sidesteps find_package(IntelSYCL) entirely (bare -fsycl compile/link
+    # flags, a stub add_sycl_to_target()) — a plain -D flag can't do this, since
+    # Sycl.cmake's own inference uses CACHE ... FORCE and would just overwrite it.
     container:
       image: intel/oneapi-basekit:latest
     steps:
@@ -58,9 +65,19 @@ jobs:
         run: |
           set -e
           source /opt/intel/oneapi/setvars.sh --force
+          # cmake/Sycl.cmake infers SR_SYCL_TOOLCHAIN from the compiler executable
+          # name with `set(... CACHE STRING "" FORCE)`, which overwrites a
+          # command-line -DSR_SYCL_TOOLCHAIN=intel-llvm unconditionally whenever the
+          # name matches its "icpx|icx-cl|icx" pattern — a flag alone can't select
+          # the intel-llvm branch while still invoking icpx. A symlinked name that
+          # matches the "clang++" pattern instead routes it there for real: the
+          # compiler identifies as IntelLLVM either way (that's --version output,
+          # not the invoked name), so this changes nothing about what actually runs.
+          mkdir -p /tmp/sycl-cxx
+          ln -sf "$(command -v icpx)" /tmp/sycl-cxx/clang++
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=/tmp/sycl-cxx/clang++ \
             -DCMAKE_CXX_FLAGS=-fsycl \
             -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
             -DSE_BUILD_TESTS=ON \
