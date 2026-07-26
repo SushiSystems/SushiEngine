@@ -19,7 +19,18 @@ jobs:
     # observed to fail to create the IntelSYCL::SYCL_CXX target on newer oneAPI
     # releases. Plain ubuntu-latest, no container needed.
     env:
-      INTEL_LLVM_DATE: 2026-06-12
+      # Pinned back from 2026-06-12: every kernel-dispatching test (physics solvers,
+      # Integration_Schedule) failed with "opencl backend failed with error: 7
+      # (UR_RESULT_ERROR_INVALID_BINARY)" against pocl-opencl-icd (Ubuntu 24.04's
+      # distro POCL 5.0, whose bundled LLVM-SPIRV consumer lags recent intel/llvm
+      # codegen — likely an opaque-pointer or SPIR-V version bump the nightly
+      # started emitting by default with no -fsycl-targets override pinning it back).
+      # Host-only tests (Unit_World, Unit_CommandBuffer — no SYCL kernel submitted)
+      # passed regardless, which is what narrowed this to a binary-format mismatch
+      # rather than a POCL/device capability gap. If this date still fails the same
+      # way, bisect further back before reaching for -fsycl-targets flags or building
+      # POCL from source instead of the distro package.
+      INTEL_LLVM_DATE: 2025-11-01
     steps:
       # Engine into sushiengine/, runtime sibling into sushiruntime/, so the
       # engine's default SUSHIRUNTIME_DIR (../sushiruntime) resolves to it.
@@ -82,7 +93,18 @@ jobs:
     # both), so this job provisions all of them from a throwaway vcpkg checkout
     # rather than mixing apt and vcpkg per-package.
     env:
-      INTEL_LLVM_DATE: 2026-06-12
+      # Pinned back from 2026-06-12: every kernel-dispatching test (physics solvers,
+      # Integration_Schedule) failed with "opencl backend failed with error: 7
+      # (UR_RESULT_ERROR_INVALID_BINARY)" against pocl-opencl-icd (Ubuntu 24.04's
+      # distro POCL 5.0, whose bundled LLVM-SPIRV consumer lags recent intel/llvm
+      # codegen — likely an opaque-pointer or SPIR-V version bump the nightly
+      # started emitting by default with no -fsycl-targets override pinning it back).
+      # Host-only tests (Unit_World, Unit_CommandBuffer — no SYCL kernel submitted)
+      # passed regardless, which is what narrowed this to a binary-format mismatch
+      # rather than a POCL/device capability gap. If this date still fails the same
+      # way, bisect further back before reaching for -fsycl-targets flags or building
+      # POCL from source instead of the distro package.
+      INTEL_LLVM_DATE: 2025-11-01
     steps:
       - name: Check out SushiEngine
         uses: actions/checkout@v4

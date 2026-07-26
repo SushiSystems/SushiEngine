@@ -215,6 +215,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
     (the frame's own temporal/shadow uniform buffers, the cluster grid/light index storage
     buffers, and the pass's existing 2D dummy view for the atlas samplers).
 
+- **Tests: two stale assertions failing independently of the CI infra fixes above.**
+  `Unit_Gravity` asserted the Sun's GM exceeds Jupiter's by more than 1e5x, but the real
+  Sun/Jupiter mass ratio is ~1047 (Jupiter is the solar system's largest planet) — the
+  tabulated GM values were always correct, the bound was just wrong. `Unit_EmitterCompiler`
+  asserted a 100000-capacity cosmetic emitter compiles to `MAX_EMITTER_CAPACITY`
+  (4194304), but 100000 is already under that budget, so `EmitterCompiler::compile_emitter`
+  correctly leaves it unclamped — the expectation had the clamped/unclamped cases backwards.
+
+- **CI: every kernel-dispatching functional test (physics solvers, `Integration_Schedule`)
+  failing with "opencl backend failed with error: 7 (UR_RESULT_ERROR_INVALID_BINARY)."**
+  Host-only tests (`Unit_World`, `Unit_CommandBuffer` — no SYCL kernel submitted) passed
+  regardless, narrowing this to a binary-format mismatch between the intel/llvm nightly's
+  default codegen and `pocl-opencl-icd` (Ubuntu 24.04's distro POCL 5.0), whose bundled
+  LLVM-SPIRV consumer lags recent nightly output with no `-fsycl-targets` override pinning
+  it back. `INTEL_LLVM_DATE` rolled back from `2026-06-12` to `2025-11-01` as the first,
+  least invasive thing to try; if the same date still fails this way in CI, the next steps
+  are bisecting further back, forcing an older SPIR-V/pointer shape via
+  `-fsycl-targets`/`-Xsycl-target-backend`, or building POCL from source instead of the
+  distro package.
+
 ### Added
 - **VFX — the particle material: sprite textures, flipbooks, soft particles, per-emitter lighting.**
   Four fields the authoring model has carried since VFX1 were compiled, serialized, and shown in the
