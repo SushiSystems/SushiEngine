@@ -12,22 +12,25 @@ jobs:
   functional:
     name: Functional tests
     runs-on: ubuntu-latest
-    # intel/llvm nightly clang++ -fsycl — the same primary, tested SYCL toolchain
-    # the dev Dockerfile provisions (see INTEL_LLVM_DATE below), not the Intel
-    # oneAPI commercial icpx path: that path's IntelSYCLConfig.cmake is not the one
-    # this project is built/tested against and its add_sycl_to_target() has been
-    # observed to fail to create the IntelSYCL::SYCL_CXX target on newer oneAPI
-    # releases. Plain ubuntu-latest, no container needed.
-    env:
-      # Rolling this back (tried 2025-11-01) did not fix the functional job's
-      # UR_RESULT_ERROR_INVALID_BINARY failures — see the CPU OpenCL runtime step
-      # below for the actual root cause and fix. Back to the primary, tested date.
-      INTEL_LLVM_DATE: 2026-06-12
-      # Intel's own SYCL CI validates every nightly against this exact CPU OpenCL
-      # runtime tag regardless of compiler date (see devops/dependencies.json on the
-      # intel/llvm "sycl" branch) — it is not expected to need to track
-      # INTEL_LLVM_DATE.
-      CPU_TAG: 2026-WW28
+    # Intel oneAPI base image + icpx, matching SushiRuntime's own CI exactly
+    # (sushiruntime/.github/workflows/ci.yml) rather than reassembling a working
+    # CPU OpenCL device by hand from an intel/llvm nightly + POCL/oclcpuexp/TBB.
+    # That manual path (kept for the record in git history) needed three
+    # increasingly specific fixes to get a real device detected at all — the ICD
+    # vendors directory, Intel's own oclcpuexp instead of distro POCL (which does
+    # not implement the cl_intel_unified_shared_memory extension this
+    # USM-everywhere architecture depends on for every dispatched kernel), and
+    # finally the exact oneTBB release oclcpuexp validates against (a same-name,
+    # different-ABI libtbb.so.12 loaded successfully but failed an internal check
+    # silently) — fragile in a way a pre-integrated, Intel-maintained container
+    # image just isn't. SushiRuntime's cmake/Sycl.cmake fully supports this
+    # "oneapi" toolchain already (find_package(IntelSYCL), inferred from the icpx
+    # compiler name); an earlier version of this file avoided it over an observed
+    # IntelSYCL::SYCL_CXX creation failure on some oneAPI release, which either
+    # never applied to this exact base image or has since been fixed upstream —
+    # SushiRuntime's own CI runs this same path clean.
+    container:
+      image: intel/oneapi-basekit:latest
     steps:
       # Engine into sushiengine/, runtime sibling into sushiruntime/, so the
       # engine's default SUSHIRUNTIME_DIR (../sushiruntime) resolves to it.
@@ -45,80 +48,20 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config git libhwloc-dev libgtest-dev \
-            wget jq ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev
-
-      - name: Install the intel/llvm nightly SYCL bundle
-        run: |
-          set -e
-          wget -q \
-            "https://github.com/intel/llvm/releases/download/nightly-${INTEL_LLVM_DATE}/sycl_linux.tar.gz" \
-            -O /tmp/sycl_linux.tar.gz
-          sudo mkdir -p /opt/llvm-sycl
-          sudo tar -xzf /tmp/sycl_linux.tar.gz -C /opt/llvm-sycl --strip-components=1
-          echo "/opt/llvm-sycl/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=/opt/llvm-sycl/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-
-      - name: Install the Intel CPU OpenCL runtime (oclcpuexp)
-        run: |
-          set -e
-          # Every kernel-dispatching test (physics solvers, Integration_Schedule) was
-          # failing with "opencl backend failed with error: 7
-          # (UR_RESULT_ERROR_INVALID_BINARY)" against pocl-opencl-icd — Ubuntu 24.04's
-          # distro POCL 5.0, a generic (non-Intel) OpenCL implementation. Host-only
-          # tests (Unit_World, Unit_CommandBuffer — no SYCL kernel submitted) passed
-          # regardless, and rolling INTEL_LLVM_DATE back months made no difference,
-          # which rules out a SPIR-V/toolchain version skew: every dispatched kernel
-          # in this architecture is USM-based (SushiRuntime's whole allocator is USM),
-          # and POCL is not known to implement cl_intel_unified_shared_memory, the
-          # Intel-specific extension the SYCL runtime's USM path depends on. Intel
-          # publishes its own reference CPU OpenCL runtime (oclcpuexp) for exactly
-          # this validation use case — intel/llvm's own CI pairs it with every nightly
-          # regardless of compiler date (devops/scripts/install_drivers.sh,
-          # devops/dependencies.json on the "sycl" branch) — so install that instead.
-          mkdir -p /tmp/oclcpu
-          url=$(curl -s -L "https://api.github.com/repos/intel/llvm/releases/tags/${CPU_TAG}" \
-            | jq -r '.assets[].browser_download_url' | grep -E "oclcpuexp.*tar\.gz$")
-          wget -q "$url" -O /tmp/oclcpuexp.tar.gz
-          tar -xf /tmp/oclcpuexp.tar.gz -C /tmp/oclcpu
-          if [ -e /tmp/oclcpu/install.sh ]; then
-            sudo bash -x /tmp/oclcpu/install.sh
-          else
-            # pocl-opencl-icd used to create this directory as a side effect of its own
-            # postinst; with no ICD package installed at all, nothing else does.
-            sudo mkdir -p /etc/OpenCL/vendors
-            echo /tmp/oclcpu/x64/libintelocl.so | sudo tee /etc/OpenCL/vendors/intel_oclcpu.icd
-          fi
-
-          # ICD registration alone still left "0 nodes found" — ldd showed every
-          # dependency resolving, including apt's libtbb12, so the .so *loads*, but
-          # oclcpuexp is validated upstream against one exact pinned oneTBB release
-          # (devops/dependencies.json's "tbb" entry, paired with this same CPU_TAG),
-          # not whatever TBB happens to be in Ubuntu's repos — a same-name,
-          # different-ABI libtbb.so.12 loading successfully but failing some internal
-          # check silently would look exactly like this. Installing that exact
-          # release instead of the apt package, and put its lib dir first so it
-          # shadows anything else named libtbb.so.12 on the search path.
-          tbb_url=$(curl -s -L "https://api.github.com/repos/uxlfoundation/oneTBB/releases/tags/v2023.1.0" \
-            | jq -r '.assets[].browser_download_url' | grep -E "\-lin\.tgz$")
-          wget -q "$tbb_url" -O /tmp/tbb.tgz
-          mkdir -p /tmp/tbb
-          tar -xf /tmp/tbb.tgz -C /tmp/tbb --strip-components=1
-          tbb_lib_dir=$(dirname "$(find /tmp/tbb -name 'libtbb.so.12' | head -n1)")
-
-          ldd /tmp/oclcpu/x64/libintelocl.so || true
-          echo "LD_LIBRARY_PATH=${tbb_lib_dir}:/tmp/oclcpu/x64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config git libhwloc-dev libgtest-dev nlohmann-json3-dev
 
       - name: Configure, build, and run the functional suite
         shell: bash
         working-directory: sushiengine
         run: |
           set -e
+          source /opt/intel/oneapi/setvars.sh --force
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_CXX_FLAGS=-fsycl \
             -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
             -DSE_BUILD_TESTS=ON \
             -DSR_BUILD_BENCHMARKS=OFF        # the engine pulls the runtime in; skip its heavy benchmarks
