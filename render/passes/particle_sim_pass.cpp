@@ -396,20 +396,28 @@ namespace SushiEngine
                         writer.storage_buffer(10, mesh_args_buffer, sizeof(mesh_args));
                         // Last frame's depth, or the stand-in when there is none to read.
                         const bool depth_usable = hiz_.valid() && hiz_.has_history();
+                        // The pyramid stays in GENERAL across its own build (see hiz_pass.cpp);
+                        // the fallback stand-in is the normal SHADER_READ_ONLY_OPTIMAL image.
                         writer.sampled_image(
                             DEPTH_PYRAMID_BINDING,
                             depth_usable ? hiz_.pyramid_view() : fallback_view_,
-                            frame.samplers->get(Resources::SamplerDesc{}));
+                            frame.samplers->get(Resources::SamplerDesc{}),
+                            depth_usable ? VK_IMAGE_LAYOUT_GENERAL
+                                         : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
                         // The GI distance field, or the stand-in when the GI tier is off. Its
                         // config comes from the same record, so the field and the parameterization
                         // locating it can never come from different frames.
                         const Gi::VisibilityField field = volumes_.visibility_field(frame.index);
                         const bool field_usable = field.valid();
+                        // The clipmap stays in GENERAL across its own build (see
+                        // sdf_probe_tracer.cpp); the fallback stand-in is SHADER_READ_ONLY_OPTIMAL.
                         writer.sampled_image(SDF_CLIPMAP_BINDING,
                                              field_usable ? field.distance_field
                                                           : fallback_field_view_,
-                                             frame.samplers->get(Resources::SamplerDesc{}));
+                                             frame.samplers->get(Resources::SamplerDesc{}),
+                                             field_usable ? VK_IMAGE_LAYOUT_GENERAL
+                                                          : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                         writer.uniform_buffer(SDF_CONFIG_BINDING,
                                               field_usable ? field.config : fallback_config_,
                                               field_usable ? field.config_bytes

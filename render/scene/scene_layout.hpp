@@ -446,6 +446,25 @@ namespace SushiEngine
                     }
 
                     /**
+                     * @brief Queues a combined image sampler write in an explicit layout.
+                     *
+                     * For a pass sampling an image a producer keeps in @c GENERAL across its own
+                     * read/write sequence (a compute-built pyramid such as Hi-Z), where the plain
+                     * overload's assumed @c SHADER_READ_ONLY_OPTIMAL would mismatch the image's
+                     * actual layout at draw time.
+                     *
+                     * @param binding Binding number in the set.
+                     * @param view    The image view to sample.
+                     * @param sampler The sampler to pair with it.
+                     * @param layout  The layout the image is actually in when sampled.
+                     */
+                    void image(std::uint32_t binding, VkImageView view, VkSampler sampler,
+                               VkImageLayout layout)
+                    {
+                        writer_.sampled_image(binding, view, sampler, layout);
+                    }
+
+                    /**
                      * @brief Queues a storage buffer write.
                      * @param binding Binding number in the set.
                      * @param buffer  The buffer to bind.

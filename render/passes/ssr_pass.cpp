@@ -103,7 +103,11 @@ namespace SushiEngine
                         writer.image(1, context.sampled_view(frame.targets.scene), linear);
                         writer.image(2, context.sampled_view(frame.targets.depth), linear);
                         writer.image(3, context.sampled_view(frame.targets.gbuffer), linear);
-                        writer.image(4, hiz_view, hiz_sampler);
+                        // The pyramid stays in GENERAL across its own build (see hiz_pass.cpp);
+                        // the scene fallback is the normal SHADER_READ_ONLY_OPTIMAL color target.
+                        writer.image(4, hiz_view, hiz_sampler,
+                                    trace ? VK_IMAGE_LAYOUT_GENERAL
+                                          : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
                         frame.layout->bind_heap(cmd);

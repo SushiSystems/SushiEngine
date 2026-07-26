@@ -167,6 +167,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   have no Linux apt package); it now bootstraps a throwaway vcpkg checkout to
   install all of them for the `x64-linux` triplet.
 
+- **CI: every functional test failing with "No SYCL queues are available in the runtime
+  context."** The functional job's apt install only pulled `ocl-icd-opencl-dev`/
+  `ocl-icd-libopencl1` — the OpenCL ICD *loader* — never an actual OpenCL platform. On
+  `ubuntu-latest` (no GPU) that left zero devices registered, so every test threw during
+  `RuntimeContext` setup before running any assertions. Added `pocl-opencl-icd` (POCL's
+  CPU OpenCL driver) so the CPU SYCL device the tests target actually exists.
+
+- **Renderer: `vkQueueSubmit` device loss (`VkResult -4`) on editor launch, surfaced via
+  Vulkan validation layers as two independent spec violations.** (1) `CloudPass` pushed
+  its march-budget constants with `VK_SHADER_STAGE_FRAGMENT_BIT` alone at offset 0, but
+  that range overlaps the shared `SceneLayout` push-constant range, which is declared
+  `VERTEX|FRAGMENT` — a push touching those bytes must cover both stages
+  (`VUID-vkCmdPushConstants-offset-01796`). (2) `SsrPass` and `ParticleSimPass` sampled
+  the Hi-Z pyramid and the SDF visibility clipmap — both kept in `VK_IMAGE_LAYOUT_GENERAL`
+  across their own compute build/read sequence — through `Scene::SceneSetWriter::image()`,
+  which only ever wrote descriptors as `SHADER_READ_ONLY_OPTIMAL`, mismatching the image's
+  real layout at draw time (`VUID-vkCmdDraw-None-09600`). `SceneSetWriter::image()` gained
+  an explicit-layout overload (mirroring `DescriptorWriter::sampled_image`'s existing one)
+  and the three call sites now pass the layout the sampled resource is actually in.
+
 ### Added
 - **VFX — the particle material: sprite textures, flipbooks, soft particles, per-emitter lighting.**
   Four fields the authoring model has carried since VFX1 were compiled, serialized, and shown in the

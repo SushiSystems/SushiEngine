@@ -40,7 +40,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config git libhwloc-dev libgtest-dev \
-            wget ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev
+            wget ocl-icd-opencl-dev ocl-icd-libopencl1 pocl-opencl-icd nlohmann-json3-dev
 
       - name: Install the intel/llvm nightly SYCL bundle
         run: |

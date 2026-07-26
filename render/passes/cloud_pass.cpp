@@ -111,9 +111,12 @@ namespace SushiEngine
                             frame.quality.cloud_primary_steps_near,
                             frame.quality.cloud_primary_steps_far,
                             frame.quality.cloud_light_steps};
+                        // The shared push-constant range is declared VERTEX|FRAGMENT (see
+                        // SceneLayout::MeshPushConstants), so a push touching any of its bytes
+                        // must cover both stages even though only the fragment shader reads these.
                         vkCmdPushConstants(cmd, layout_.pipeline_layout(),
-                                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(budget),
-                                           budget);
+                                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                           0, sizeof(budget), budget);
                         vkCmdDraw(cmd, 3, 1, 0, 0);
                     });
             }
