@@ -48,7 +48,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config git libhwloc-dev libgtest-dev \
-            wget jq ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev
+            wget jq ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev libtbb12
 
       - name: Install the intel/llvm nightly SYCL bundle
         run: |
@@ -91,8 +91,16 @@ jobs:
             sudo mkdir -p /etc/OpenCL/vendors
             echo /tmp/oclcpu/x64/libintelocl.so | sudo tee /etc/OpenCL/vendors/intel_oclcpu.icd
           fi
-          # libintelocl.so's own directory, in case it ships sibling libraries (e.g. TBB)
-          # it expects to find next to itself rather than on the system's search path.
+          # libintelocl.so's own directory, in case it ships sibling libraries it expects
+          # to find next to itself rather than on the system's search path. libtbb12 (apt,
+          # above) covers the separate TBB dependency devops/dependencies.json pairs with
+          # oclcpu — the OpenCL ICD loader dlopens the .so named in the .icd file and, on
+          # failure, just silently registers zero platforms instead of erroring, which is
+          # indistinguishable from "no device" without checking by hand — hence the ldd
+          # dump: "not found" here means a missing dependency to add the same way libtbb12
+          # was; all resolved rules out a missing-library cause for whatever's still
+          # failing next.
+          ldd /tmp/oclcpu/x64/libintelocl.so || true
           echo "LD_LIBRARY_PATH=/tmp/oclcpu/x64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure, build, and run the functional suite
