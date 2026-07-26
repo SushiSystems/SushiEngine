@@ -86,8 +86,14 @@ jobs:
           if [ -e /tmp/oclcpu/install.sh ]; then
             sudo bash -x /tmp/oclcpu/install.sh
           else
+            # pocl-opencl-icd used to create this directory as a side effect of its own
+            # postinst; with no ICD package installed at all, nothing else does.
+            sudo mkdir -p /etc/OpenCL/vendors
             echo /tmp/oclcpu/x64/libintelocl.so | sudo tee /etc/OpenCL/vendors/intel_oclcpu.icd
           fi
+          # libintelocl.so's own directory, in case it ships sibling libraries (e.g. TBB)
+          # it expects to find next to itself rather than on the system's search path.
+          echo "LD_LIBRARY_PATH=/tmp/oclcpu/x64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure, build, and run the functional suite
         shell: bash
