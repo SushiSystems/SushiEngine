@@ -48,7 +48,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config git libhwloc-dev libgtest-dev \
-            wget jq ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev libtbb12
+            wget jq ocl-icd-opencl-dev ocl-icd-libopencl1 nlohmann-json3-dev
 
       - name: Install the intel/llvm nightly SYCL bundle
         run: |
@@ -91,17 +91,25 @@ jobs:
             sudo mkdir -p /etc/OpenCL/vendors
             echo /tmp/oclcpu/x64/libintelocl.so | sudo tee /etc/OpenCL/vendors/intel_oclcpu.icd
           fi
-          # libintelocl.so's own directory, in case it ships sibling libraries it expects
-          # to find next to itself rather than on the system's search path. libtbb12 (apt,
-          # above) covers the separate TBB dependency devops/dependencies.json pairs with
-          # oclcpu — the OpenCL ICD loader dlopens the .so named in the .icd file and, on
-          # failure, just silently registers zero platforms instead of erroring, which is
-          # indistinguishable from "no device" without checking by hand — hence the ldd
-          # dump: "not found" here means a missing dependency to add the same way libtbb12
-          # was; all resolved rules out a missing-library cause for whatever's still
-          # failing next.
+
+          # ICD registration alone still left "0 nodes found" — ldd showed every
+          # dependency resolving, including apt's libtbb12, so the .so *loads*, but
+          # oclcpuexp is validated upstream against one exact pinned oneTBB release
+          # (devops/dependencies.json's "tbb" entry, paired with this same CPU_TAG),
+          # not whatever TBB happens to be in Ubuntu's repos — a same-name,
+          # different-ABI libtbb.so.12 loading successfully but failing some internal
+          # check silently would look exactly like this. Installing that exact
+          # release instead of the apt package, and put its lib dir first so it
+          # shadows anything else named libtbb.so.12 on the search path.
+          tbb_url=$(curl -s -L "https://api.github.com/repos/uxlfoundation/oneTBB/releases/tags/v2023.1.0" \
+            | jq -r '.assets[].browser_download_url' | grep -E "\-lin\.tgz$")
+          wget -q "$tbb_url" -O /tmp/tbb.tgz
+          mkdir -p /tmp/tbb
+          tar -xf /tmp/tbb.tgz -C /tmp/tbb --strip-components=1
+          tbb_lib_dir=$(dirname "$(find /tmp/tbb -name 'libtbb.so.12' | head -n1)")
+
           ldd /tmp/oclcpu/x64/libintelocl.so || true
-          echo "LD_LIBRARY_PATH=/tmp/oclcpu/x64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=${tbb_lib_dir}:/tmp/oclcpu/x64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure, build, and run the functional suite
         shell: bash
