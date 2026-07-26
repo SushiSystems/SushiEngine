@@ -763,24 +763,68 @@ namespace SushiEngine
                     writer.image(4, noise_.detail(), noise_.sampler());
                     writer.image(5, noise_.weather(), noise_.sampler());
                     writer.image(6, noise_.cirrus(), noise_.sampler());
+                    // Bound for valid descriptors only: this capture has no shadow/light/
+                    // cluster context of its own (sky.frag's shadow and lighting terms are
+                    // never reached — the capture has no geometry and no punctual lights to
+                    // shade), but the shared SceneLayout set still requires every binding the
+                    // pipeline declares to have been written at least once. Stand-ins reuse
+                    // whatever this frame already made valid (buffers don't need "layout"
+                    // agreement the way images do, so any buffer of adequate usage/size works).
+                    const VkBuffer scene_uniforms_buffer = context.buffer(frame.targets.uniforms);
+                    writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
+                                   context.buffer(frame.targets.temporal),
+                                   sizeof(std::uint32_t));
+                    writer.uniform(Scene::SceneLayout::SHADOW_BINDING,
+                                   context.buffer(frame.targets.shadow), sizeof(std::uint32_t));
+                    writer.image(Scene::SceneLayout::SHADOW_ATLAS_BINDING, dummy_depth_view_,
+                                 sampler_);
+                    writer.image(Scene::SceneLayout::SHADOW_DEPTH_BINDING, dummy_depth_view_,
+                                 sampler_);
+                    writer.storage(Scene::SceneLayout::LIGHT_BINDING,
+                                   context.buffer(frame.targets.cluster_grid),
+                                   sizeof(std::uint32_t));
+                    writer.storage(Scene::SceneLayout::CLUSTER_GRID_BINDING,
+                                   context.buffer(frame.targets.cluster_grid),
+                                   sizeof(std::uint32_t));
+                    writer.storage(Scene::SceneLayout::LIGHT_INDEX_BINDING,
+                                   context.buffer(frame.targets.light_index),
+                                   sizeof(std::uint32_t));
+                    writer.uniform(Scene::SceneLayout::CLUSTER_CONFIG_BINDING,
+                                   scene_uniforms_buffer, sizeof(std::uint32_t));
+                    writer.image(Scene::SceneLayout::LIGHT_SHADOW_ATLAS_BINDING, dummy_depth_view_,
+                                 sampler_);
+                    writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
+                                   context.buffer(frame.targets.cluster_grid),
+                                   sizeof(std::uint32_t));
                     // The captured sky shader reads the atmosphere LUTs like the real sky
                     // pass does, so the prefiltered environment tracks the same scattering.
                     writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
-                                 atmosphere_.transmittance_view(), sampler_);
+                                 atmosphere_.transmittance_view(), sampler_,
+                                 VK_IMAGE_LAYOUT_GENERAL);
                     writer.image(Scene::SceneLayout::MULTISCATTER_LUT_BINDING,
-                                 atmosphere_.multiscatter_view(), sampler_);
+                                 atmosphere_.multiscatter_view(), sampler_,
+                                 VK_IMAGE_LAYOUT_GENERAL);
                     // Bound so the descriptor is valid, but the capture keeps the per-pixel
                     // march (ibl_params.w is cleared in the face uniforms below): the
                     // sky-view LUT is built for the main camera, not these cube viewpoints.
                     writer.image(Scene::SceneLayout::SKY_VIEW_LUT_BINDING,
-                                 atmosphere_.sky_view_view(), sampler_);
+                                 atmosphere_.sky_view_view(), sampler_,
+                                 VK_IMAGE_LAYOUT_GENERAL);
                     // Bound for a valid descriptor; the capture has no geometry, so the
                     // aerial volume (a geometry-only term) is never sampled.
                     writer.image(Scene::SceneLayout::AERIAL_LUT_BINDING,
-                                 atmosphere_.aerial_view(), sampler_);
+                                 atmosphere_.aerial_view(), sampler_,
+                                 VK_IMAGE_LAYOUT_GENERAL);
                     // Bound for a valid descriptor; the fog composite is gated off in the
-                    // capture (ibl_params.w cleared below), so the volume is never sampled.
-                    writer.image(Scene::SceneLayout::FOG_LUT_BINDING, fog_.fog_view(), sampler_);
+                    // capture (ibl_params.w cleared below), so the volume is never sampled. The
+                    // real fog volume is pass-owned and only reaches GENERAL once
+                    // VolumetricFogPass has run at least once, which registers after this
+                    // capture in the pass list. dummy_depth_view_ is 2D and this binding is
+                    // sampler3D, so it can't stand in; the aerial LUT is already a valid,
+                    // GENERAL-layout 3D texture by this point (AtmosphereLutPass registers
+                    // before this capture), so it does instead.
+                    writer.image(Scene::SceneLayout::FOG_LUT_BINDING, atmosphere_.aerial_view(),
+                                 sampler_, VK_IMAGE_LAYOUT_GENERAL);
 
                     vkCmdBeginRendering(cmd, &rendering);
                     vkCmdSetViewport(cmd, 0, 1, &viewport);

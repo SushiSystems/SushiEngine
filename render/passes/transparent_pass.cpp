@@ -145,6 +145,11 @@ namespace SushiEngine
                     desc.depth_format = Frame::DEPTH_FORMAT;
                     desc.stencil_format = Frame::DEPTH_FORMAT;
                     desc.blend.enable = VK_TRUE;
+                    // Only the HDR colour attachment blends; entity-ID, velocity, and G-buffer
+                    // carry raw values (an alpha-weighted ID or velocity is meaningless) and
+                    // ID_FORMAT in particular is an integer format the blend feature bit does
+                    // not even cover.
+                    desc.blend_mask = 0x1u;
                     desc.blend.src_color = VK_BLEND_FACTOR_SRC_ALPHA;
                     desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
                     desc.blend.color_op = VK_BLEND_OP_ADD;

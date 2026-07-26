@@ -153,7 +153,8 @@ namespace SushiEngine
                         attachment.colorWriteMask =
                             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-                        attachment.blendEnable = desc.blend.enable;
+                        attachment.blendEnable =
+                            desc.blend.enable && ((desc.blend_mask >> i) & 1u) != 0;
                         attachment.srcColorBlendFactor = desc.blend.src_color;
                         attachment.dstColorBlendFactor = desc.blend.dst_color;
                         attachment.colorBlendOp = desc.blend.color_op;
@@ -269,6 +270,7 @@ namespace SushiEngine
                     // Blend state belongs to the fragment-output subset: two pipelines that
                     // differ only in how they blend must not share one cached output library.
                     key.blend = desc.blend;
+                    key.blend_mask = desc.blend_mask;
                     return key;
                 }
             } // namespace

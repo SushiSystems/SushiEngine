@@ -180,6 +180,18 @@ namespace SushiEngine
                  */
                 ColorBlend blend{};
 
+                /**
+                 * @brief Bit @c i gates whether @c blend applies to colour attachment @c i.
+                 *
+                 * All bits set (the default) reproduces the single-attachment case every
+                 * existing blended pass uses. A multi-attachment blended pass (transparent
+                 * geometry writing HDR colour alongside entity-ID/velocity/G-buffer) must clear
+                 * the bits for its non-colour attachments: those carry integer IDs or raw vectors
+                 * that a blend factor would corrupt, and some of their formats do not even
+                 * support the blend feature bit, which the graphics pipeline library validates.
+                 */
+                std::uint32_t blend_mask = 0xFFFFFFFFu;
+
                 VkBool32 dynamic_stencil_reference = VK_FALSE;
 
                 /**

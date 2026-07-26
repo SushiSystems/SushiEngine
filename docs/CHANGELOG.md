@@ -186,6 +186,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   real layout at draw time (`VUID-vkCmdDraw-None-09600`). `SceneSetWriter::image()` gained
   an explicit-layout overload (mirroring `DescriptorWriter::sampled_image`'s existing one)
   and the three call sites now pass the layout the sampled resource is actually in.
+  Follow-up validation runs surfaced the same device loss was still reachable through four
+  further, independent bugs of the same two families, closed in the same pass:
+  - The Hillaire LUT stack (`AtmosphereLutPass`'s transmittance/multiscatter/sky-view/aerial
+    volumes) and the volumetric fog volume are all `GENERAL`-layout compute-built resources
+    with the identical `SceneSetWriter::image()` default-layout mismatch — in the LUTs'
+    own inter-stage compute reads, in `SkyPass`, and in `IblPass`'s environment-cube capture.
+    All now pass `VK_IMAGE_LAYOUT_GENERAL` explicitly.
+  - `TransparentPass` builds a 4-attachment pipeline (HDR colour, entity-ID, velocity,
+    G-buffer) but `blend.enable = true` applied to every attachment uniformly — entity-ID is
+    an integer format the blend feature bit doesn't even cover
+    (`VUID-VkGraphicsPipelineCreateInfo-renderPass-06062`). `GraphicsPipelineDesc` gained a
+    `blend_mask` bitfield so a pass can blend a subset of its attachments;
+    `TransparentPass` now blends only its HDR attachment. Enabling per-attachment blend
+    state also needs the `independentBlend` device feature, which `VulkanDevice` now
+    requests (previously unset, so the mixed-attachment pipeline was itself invalid
+    — `VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605`).
+  - Foliage/dissolve shaders declare `OpTerminateInvocation` (`GL_EXT_demote_to_helper_invocation`)
+    but the device never requested `shaderDemoteToHelperInvocation`
+    (`VUID-VkShaderModuleCreateInfo-pCode-08740`); now requested in `VkPhysicalDeviceVulkan13Features`
+    alongside the already-required `dynamicRendering`/`synchronization2`.
+  - `IblPass`'s environment-cube capture shares `SceneLayout`'s descriptor set but has no
+    shadow/light/cluster context of its own; nine bindings (`temporal`, `shadows`,
+    `shadow_atlas`, `shadow_atlas_depth`, `light_buffer`, `cluster_grid`, `light_index_list`,
+    `cluster_config`, `light_shadow_atlas`, `light_shadow_data`) were never written, which is
+    a validity error independent of whether the capture shader ever branches into reading
+    them (`VUID-vkCmdDraw-None-08114`). Bound to whatever this frame already made valid
+    (the frame's own temporal/shadow uniform buffers, the cluster grid/light index storage
+    buffers, and the pass's existing 2D dummy view for the atlas samplers).
 
 ### Added
 - **VFX — the particle material: sprite textures, flipbooks, soft particles, per-emitter lighting.**

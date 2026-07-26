@@ -101,6 +101,11 @@ namespace SushiEngine
                 features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
                 features_13.dynamicRendering = VK_TRUE;
                 features_13.synchronization2 = VK_TRUE;
+                // The alpha-tested/dissolve shaders (foliage, Fade material) declare
+                // OpTerminateInvocation via GL_EXT_demote_to_helper_invocation so a discarded
+                // fragment still contributes to derivatives/subgroup ops; every 1.3 device this
+                // renderer already requires dynamic rendering and sync2 from also has this.
+                features_13.shaderDemoteToHelperInvocation = VK_TRUE;
 
                 // Vulkan 1.4 features the renderer relies on unconditionally: all three
                 // are mandatory in a conformant 1.4 implementation, so requiring them
@@ -148,6 +153,10 @@ namespace SushiEngine
                 core_features.samplerAnisotropy = VK_TRUE;
                 core_features.fillModeNonSolid = VK_TRUE;
                 core_features.wideLines = VK_TRUE;
+                // A blended MRT pass (TransparentPass) enables blending on its HDR colour
+                // attachment only, leaving entity-ID/velocity/G-buffer raw; without this the
+                // loader requires every pColorBlendState->pAttachments entry to be identical.
+                core_features.independentBlend = VK_TRUE;
                 physical.enable_features_if_present(core_features);
 
                 VkPhysicalDeviceVulkan12Features features_12{};

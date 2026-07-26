@@ -348,7 +348,8 @@ namespace SushiEngine
                         Resources::DescriptorWriter writer;
                         writer.storage_image(0, volume_.view);
                         writer.uniform_buffer(1, scene_buffer, sizeof(Scene::SceneUniforms));
-                        writer.sampled_image(2, atmosphere_.transmittance_view(), sampler);
+                        writer.sampled_image(2, atmosphere_.transmittance_view(), sampler,
+                                             VK_IMAGE_LAYOUT_GENERAL);
                         writer.uniform_buffer(3, volume_buffer, sizeof(VolumesBlock));
                         writer.storage_buffer(4, lights_.light_buffer(), lights_.light_buffer_range());
                         writer.storage_buffer(5, context.buffer(frame.targets.cluster_grid),

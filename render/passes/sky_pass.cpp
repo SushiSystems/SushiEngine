@@ -153,17 +153,24 @@ namespace SushiEngine
                                      ShadowPass::atlas_depth_sampler(*frame.samplers));
                         // The Hillaire LUT stack: the atmosphere march reads the sun's
                         // transmittance and the multiple-scattering term from these instead
-                        // of integrating a light ray per sample.
+                        // of integrating a light ray per sample. All four stay in GENERAL
+                        // across their own compute build (see atmosphere_lut_pass.cpp).
                         writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
-                                     atmosphere_.transmittance_view(), sampler);
+                                     atmosphere_.transmittance_view(), sampler,
+                                     VK_IMAGE_LAYOUT_GENERAL);
                         writer.image(Scene::SceneLayout::MULTISCATTER_LUT_BINDING,
-                                     atmosphere_.multiscatter_view(), sampler);
+                                     atmosphere_.multiscatter_view(), sampler,
+                                     VK_IMAGE_LAYOUT_GENERAL);
                         writer.image(Scene::SceneLayout::SKY_VIEW_LUT_BINDING,
-                                     atmosphere_.sky_view_view(), sampler);
+                                     atmosphere_.sky_view_view(), sampler,
+                                     VK_IMAGE_LAYOUT_GENERAL);
                         writer.image(Scene::SceneLayout::AERIAL_LUT_BINDING,
-                                     atmosphere_.aerial_view(), sampler);
+                                     atmosphere_.aerial_view(), sampler,
+                                     VK_IMAGE_LAYOUT_GENERAL);
+                        // The fog volume stays in GENERAL across its own compute build too
+                        // (see volumetric_fog_pass.cpp).
                         writer.image(Scene::SceneLayout::FOG_LUT_BINDING, fog_.fog_view(),
-                                     sampler);
+                                     sampler, VK_IMAGE_LAYOUT_GENERAL);
                         // The clustered light engine, so the analytic ground picks up
                         // point/spot lights and their shadows the same way a mesh does.
                         writer.storage(Scene::SceneLayout::LIGHT_BINDING, lights_.light_buffer(),

@@ -497,7 +497,8 @@ namespace SushiEngine
                                     frame.descriptors->allocate(multiscatter_layout_);
                                 Resources::DescriptorWriter writer;
                                 writer.storage_image(0, multiscatter_.view);
-                                writer.sampled_image(1, transmittance_.view, sampler);
+                                writer.sampled_image(1, transmittance_.view, sampler,
+                                                     VK_IMAGE_LAYOUT_GENERAL);
                                 writer.update(device_.device(), set);
                                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                   multiscatter_pipeline_);
@@ -530,8 +531,10 @@ namespace SushiEngine
                                 frame.descriptors->allocate(sky_view_layout_);
                             Resources::DescriptorWriter writer;
                             writer.storage_image(0, sky_view_.view);
-                            writer.sampled_image(1, transmittance_.view, sampler);
-                            writer.sampled_image(2, multiscatter_.view, sampler);
+                            writer.sampled_image(1, transmittance_.view, sampler,
+                                                 VK_IMAGE_LAYOUT_GENERAL);
+                            writer.sampled_image(2, multiscatter_.view, sampler,
+                                                 VK_IMAGE_LAYOUT_GENERAL);
                             writer.update(device_.device(), set);
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                               sky_view_pipeline_);
@@ -564,8 +567,10 @@ namespace SushiEngine
                             writer.storage_image(0, aerial_.view);
                             writer.uniform_buffer(1, scene_buffer,
                                                   sizeof(Scene::SceneUniforms));
-                            writer.sampled_image(2, transmittance_.view, sampler);
-                            writer.sampled_image(3, multiscatter_.view, sampler);
+                            writer.sampled_image(2, transmittance_.view, sampler,
+                                                 VK_IMAGE_LAYOUT_GENERAL);
+                            writer.sampled_image(3, multiscatter_.view, sampler,
+                                                 VK_IMAGE_LAYOUT_GENERAL);
                             writer.update(device_.device(), set);
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                               aerial_pipeline_);
