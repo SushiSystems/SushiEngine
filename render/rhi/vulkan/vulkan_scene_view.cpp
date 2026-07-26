@@ -67,6 +67,16 @@ namespace SushiEngine
                   atmosphere_lut_pass_(device, assets.shaders(), assets.pipelines()),
                   volumetric_fog_pass_(device, assets.shaders(), assets.pipelines(),
                                        atmosphere_lut_pass_, lights_),
+                  weather_field_pass_(device, assets.samplers()),
+                  cloudscape_compile_pass_(device, assets.shaders(), assets.pipelines(),
+                                           assets.samplers(), assets.cloud_noise()),
+                  cloud_light_volume_pass_(device, assets.shaders(), assets.pipelines(),
+                                           assets.samplers(), cloudscape_compile_pass_),
+                  cloud_shadow_map_pass_(device, assets.shaders(), assets.pipelines(),
+                                        assets.samplers(), cloudscape_compile_pass_),
+                  cloud_panorama_pass_(device, assets.shaders(), assets.pipelines(),
+                                      assets.samplers(), cloudscape_compile_pass_,
+                                      cloud_light_volume_pass_, weather_field_pass_),
                   ibl_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
                             assets.layout(), assets.cloud_noise(), atmosphere_lut_pass_,
                             volumetric_fog_pass_),
@@ -92,25 +102,33 @@ namespace SushiEngine
                   particle_sort_pass_(device, assets.shaders(), assets.pipelines(), particles_),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                assets.meshes(), cloth_, materials_, motion_,
-                               assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_, lights_,
+                               cloud_shadow_map_pass_, ibl_pass_, irradiance_volume_pass_, lights_,
                                instance_system_, skinning_),
                   transparent_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                     assets.meshes(), materials_, motion_, skinning_,
-                                    assets.cloud_noise(), ibl_pass_, irradiance_volume_pass_,
+                                    cloud_shadow_map_pass_, ibl_pass_, irradiance_volume_pass_,
                                     lights_),
                   light_cull_pass_(device, assets.shaders(), assets.pipelines(), lights_),
                   light_shadow_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                      assets.meshes(), lights_),
                   shading_rate_pass_(device, assets.shaders(), assets.pipelines()),
                   sky_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
-                            assets.cloud_noise(), atmosphere_lut_pass_, volumetric_fog_pass_,
+                            cloud_shadow_map_pass_, atmosphere_lut_pass_, volumetric_fog_pass_,
                             lights_),
                   ground_shadow_resolve_pass_(device, assets.shaders(), assets.pipelines(),
                                               assets.layout()),
                   cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
-                              assets.cloud_noise()),
+                              cloudscape_compile_pass_, cloud_light_volume_pass_,
+                              assets.cloud_noise(), weather_field_pass_),
+                  // 16u, 16u: the same construction-time placeholder resources_ below
+                  // uses — width_/height_ are declared later in the class and are not
+                  // yet initialized this early in the member-init list, so the real
+                  // output extent reaches this pass through its resize(), called
+                  // alongside resources_.resize() from VulkanSceneView::resize().
+                  cloud_taa_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
+                                 16u, 16u),
                   cloud_composite_pass_(device, assets.shaders(), assets.pipelines(),
-                                        assets.layout()),
+                                        assets.layout(), cloud_taa_pass_, atmosphere_lut_pass_),
                   ssr_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                             hiz_pass_),
                   particle_pass_(device, assets.shaders(), assets.pipelines(), particles_, lights_,
@@ -145,6 +163,20 @@ namespace SushiEngine
                 // so it follows the cloud composite; and the display transform is last
                 // except for the spatial filter and the picking readback.
                 passes_ = {&atmosphere_lut_pass_,
+                           // The cloud bake trio runs this early so every consumer this
+                           // frame — opaque/transparent mesh shading, the sky pass, and
+                           // CloudPass's own march later on — reads this frame's bake
+                           // rather than lagging a frame behind it. Each is itself
+                           // change-gated or amortized, so running early costs nothing on
+                           // the (common) frame where there is nothing new to bake.
+                           // Before the bakes that read it: the field upload is the one
+                           // thing this frame's cloud tier depends on that comes from
+                           // outside the renderer.
+                           &weather_field_pass_,
+                           &cloudscape_compile_pass_,
+                           &cloud_light_volume_pass_,
+                           &cloud_shadow_map_pass_,
+                           &cloud_panorama_pass_,
                            &ibl_pass_,
                            &irradiance_volume_pass_,
                            &cull_pass_,
@@ -178,6 +210,7 @@ namespace SushiEngine
                            &sky_pass_,
                            &ground_shadow_resolve_pass_,
                            &cloud_pass_,
+                           &cloud_taa_pass_,
                            &cloud_composite_pass_,
                            &ssr_pass_,
                            &particle_pass_,
@@ -211,6 +244,11 @@ namespace SushiEngine
                 width_ = new_width;
                 height_ = new_height;
                 resources_.resize(new_width, new_height);
+                // The cloud buffer's own dedicated history is sized off the output
+                // extent too (see CloudTaaPass's header comment for why it stays fixed
+                // across dynamic resolution and tier changes otherwise); resize() is a
+                // no-op when the derived half-extent hasn't actually changed.
+                cloud_taa_pass_.resize(new_width, new_height);
                 // Nothing accumulated into the new images yet, and the dynamic-resolution
                 // governor hasn't rescaled for the new extent — report the full output size
                 // until update_render_extent() runs at the top of the next render().
@@ -330,24 +368,6 @@ namespace SushiEngine
                 const ResolvedQuality resolved = resolve_quality(settings_);
                 const RenderSettings& effective = resolved.settings;
 
-                // TEMPORARY DIAGNOSTIC — remove once the light/decal regression is closed.
-#ifdef _WIN32
-                char* light_debug_env = nullptr;
-                std::size_t light_debug_env_length = 0;
-                const bool light_debug_enabled =
-                    _dupenv_s(&light_debug_env, &light_debug_env_length, "SE_LIGHT_DEBUG") == 0 &&
-                    light_debug_env != nullptr;
-                std::free(light_debug_env);
-#else
-                const bool light_debug_enabled = std::getenv("SE_LIGHT_DEBUG") != nullptr;
-#endif
-                if (light_debug_enabled && frame_counter_ % 60 == 0)
-                    std::fprintf(stderr,
-                                 "[light-debug] lights=%zu decals=%zu max_lights=%u "
-                                 "max_decals=%u cluster_far=%.1f\n",
-                                 light_count, decal_count, effective.lights.max_lights,
-                                 effective.lights.max_decals,
-                                 effective.lights.cluster_far_distance);
                 update_frame_slots(effective.delivery.frames_in_flight);
 
                 const std::uint32_t index = frame_counter_ % frame_slots_;
@@ -434,7 +454,9 @@ namespace SushiEngine
                     uniforms.light_shadow_a[i] =
                         static_cast<float>(lights_.directional_shadow_index(static_cast<std::uint32_t>(i)));
                 uniforms.light_shadow_b[0] = static_cast<float>(lights_.directional_shadow_index(4));
-                uniforms.light_shadow_b[1] = 0.0f;
+                // Weather-driven ground wetness (design doc §5.3, W5); see scene_uniforms.hpp's
+                // field doc for why this lane and not a new UBO member.
+                uniforms.light_shadow_b[1] = environment.weather.ground_wetness;
                 uniforms.light_shadow_b[2] = 0.0f;
                 uniforms.light_shadow_b[3] = 0.0f;
                 // The image-based lighting chain is this view's, so its parameters are

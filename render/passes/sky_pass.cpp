@@ -26,6 +26,7 @@
 #include "lighting/light_system.hpp"
 #include "lighting/cluster_config.hpp"
 #include "passes/atmosphere_lut_pass.hpp"
+#include "passes/cloud_shadow_map_pass.hpp"
 #include "passes/volumetric_fog_pass.hpp"
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
@@ -39,7 +40,6 @@
 #include "passes/shadow_pass.hpp"
 #include "scene/shadow_uniforms.hpp"
 #include "scene/temporal_uniforms.hpp"
-#include "textures/cloud_noise.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
 
 namespace SushiEngine
@@ -50,11 +50,11 @@ namespace SushiEngine
         {
             SkyPass::SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
-                             Scene::SceneLayout& layout, Textures::CloudNoise& noise,
+                             Scene::SceneLayout& layout, CloudShadowMapPass& cloud_shadow,
                              AtmosphereLutPass& atmosphere, VolumetricFogPass& fog,
                              Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  noise_(noise), atmosphere_(atmosphere), fog_(fog), lights_(lights)
+                  cloud_shadow_(cloud_shadow), atmosphere_(atmosphere), fog_(fog), lights_(lights)
             {
                 create_pipeline();
             }
@@ -135,10 +135,11 @@ namespace SushiEngine
                                        sizeof(Scene::SceneUniforms));
                         writer.image(1, context.sampled_view(frame.targets.depth), sampler);
                         writer.image(2, context.sampled_view(frame.targets.hdr), sampler);
-                        writer.image(3, noise_.shape(), noise_.sampler());
-                        writer.image(4, noise_.detail(), noise_.sampler());
-                        writer.image(5, noise_.weather(), noise_.sampler());
-                        writer.image(6, noise_.cirrus(), noise_.sampler());
+                        // Kept in GENERAL across CloudShadowMapPass's own compute build,
+                        // like the T3 field and light volume this same descriptor set
+                        // samples elsewhere in the frame.
+                        writer.image(3, cloud_shadow_.view(), cloud_shadow_.sampler(),
+                                     VK_IMAGE_LAYOUT_GENERAL);
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),
                                        sizeof(Scene::TemporalUniforms));

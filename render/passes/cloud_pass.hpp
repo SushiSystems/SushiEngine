@@ -25,13 +25,15 @@
 
 /**
  * @file cloud_pass.hpp
- * @brief The volumetric cloud march, at half resolution.
+ * @brief The volumetric cloud march, at the tier's dedicated cloud buffer resolution.
  *
- * Writes (scattered.rgb, transmittance) into a half-resolution target the tonemap
- * pass upsamples and composites over the sky. Running at a quarter of the pixels is
- * the standing performance trade for a 32–96 step march; the graph derives the
- * reduced viewport from the target's own extent, so the pass declares nothing about
- * resolution beyond the size it asked for.
+ * Writes two MRT attachments at `QualityParams::cloud_buffer_scale` of the render
+ * extent: (scattered.rgb, transmittance) and, since W3, the transmittance-weighted
+ * mean march depth (`frame.targets.cloud_depth`) `CloudCompositePass` samples the
+ * aerial-perspective volume at. `CloudTaaPass` resolves this target's own dedicated
+ * temporal history before `CloudCompositePass` composites it over the sky; the graph
+ * derives the reduced viewport from the target's own extent, so this pass declares
+ * nothing about resolution beyond the size it asked for.
  */
 
 #include "passes/render_pass.hpp"
@@ -66,8 +68,12 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class CloudscapeCompilePass;
+            class CloudLightVolumePass;
+            class WeatherFieldPass;
+
             /**
-             * @brief Marches the cloud decks into the half-resolution cloud target.
+             * @brief Marches the baked cloudscape field into the tier-scaled cloud target.
              *
              * Non-copyable: it owns a Vulkan pipeline.
              */
@@ -76,15 +82,23 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Builds the cloud pipeline.
-                     * @param device    The live Vulkan device.
-                     * @param shaders   Library the shader modules come from.
-                     * @param pipelines Factory the pipeline is built through.
-                     * @param layout    The shared scene descriptor and pipeline layout.
-                     * @param noise     The cloud noise volumes the march samples.
+                     * @param device     The live Vulkan device.
+                     * @param shaders    Library the shader modules come from.
+                     * @param pipelines  Factory the pipeline is built through.
+                     * @param layout     The shared scene descriptor and pipeline layout.
+                     * @param cloudscape The pass that owns the baked density field/skip field.
+                     * @param light_volume The pass that owns the baked light volume.
+                     * @param noise      The cloud noise volumes; only the detail volume is
+                     *                   read here, for the near-camera-only 811 m erosion
+                     *                   and curl warp the T3 bake cannot carry.
+                     * @param weather    The pass that owns the simulation's uploaded weather
+                     *                   field — the march's coverage authority.
                      */
                     CloudPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                               Resources::GraphicsPipelineFactory& pipelines,
-                              Scene::SceneLayout& layout, Textures::CloudNoise& noise);
+                              Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
+                              CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
+                              WeatherFieldPass& weather);
                     ~CloudPass() override;
 
                     CloudPass(const CloudPass&) = delete;
@@ -102,7 +116,10 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
+                    CloudscapeCompilePass& cloudscape_;
+                    CloudLightVolumePass& light_volume_;
                     Textures::CloudNoise& noise_;
+                    WeatherFieldPass& weather_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

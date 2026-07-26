@@ -200,6 +200,17 @@ namespace SushiEngine
 
             float anisotropic_filtering = 8.0f;          /**< Sampler anisotropy, 1 = off. */
             TextureWrap wrap_mode = TextureWrap::Repeat; /**< Sampler address mode for every map. */
+
+            /**
+             * @brief Opt into weather-driven wetness (design doc §5.3, W5): albedo darken / roughness drop.
+             *
+             * A material-flag path, no shader fork: `pbr.frag` blends toward a thin water film
+             * only where this is set, scaled by the frame's global `Environment::weather.ground_wetness`
+             * (the same `Simulation::WeatherColumn` sample driving precipitation VFX and fog). Off
+             * by default, like `parallax_shadows`/`emissive_enabled` — an author opts a ground/
+             * exterior surface in rather than every material reacting uniformly.
+             */
+            bool weather_wettable = false;
         };
 
         /** @brief How a texture's values are interpreted when it is uploaded. */

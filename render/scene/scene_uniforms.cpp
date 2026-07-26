@@ -212,6 +212,34 @@ namespace SushiEngine
                     uniforms.light_counts[3] = 0.0f;
                 }
 
+                // The weather field is published against scene-absolute metres; every march
+                // works camera-relative, so the eye is folded into the offset here in double —
+                // the same treatment planet_center gets above, and for the same reason: the
+                // absolute term is large enough that reducing it to float before the
+                // subtraction would throw away the bits that matter.
+                {
+                    const WeatherField& field = environment.weather_field;
+                    const bool enabled = field.valid();
+                    uniforms.weather_field_map[0] = enabled ? field.uv_scale_x : 0.0f;
+                    uniforms.weather_field_map[1] = enabled ? field.uv_scale_z : 0.0f;
+                    uniforms.weather_field_map[2] =
+                        enabled ? static_cast<float>(double(field.uv_offset_x) +
+                                                     double(field.uv_scale_x) * eye[0])
+                                : 0.0f;
+                    uniforms.weather_field_map[3] =
+                        enabled ? static_cast<float>(double(field.uv_offset_z) +
+                                                     double(field.uv_scale_z) * eye[2])
+                                : 0.0f;
+                    uniforms.weather_field_levels[0] = field.level_altitudes[0];
+                    uniforms.weather_field_levels[1] = field.level_altitudes[1];
+                    uniforms.weather_field_levels[2] = field.level_altitudes[2];
+                    uniforms.weather_field_levels[3] = enabled ? 1.0f : 0.0f;
+                    uniforms.weather_field_reference[0] = field.reference_coverage[0];
+                    uniforms.weather_field_reference[1] = field.reference_coverage[1];
+                    uniforms.weather_field_reference[2] = field.reference_coverage[2];
+                    uniforms.weather_field_reference[3] = 0.0f;
+                }
+
                 uniforms.ambient[0] = static_cast<float>(environment.ambient.x);
                 uniforms.ambient[1] = static_cast<float>(environment.ambient.y);
                 uniforms.ambient[2] = static_cast<float>(environment.ambient.z);

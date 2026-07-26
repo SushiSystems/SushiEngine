@@ -101,7 +101,8 @@ layout(set = 0, binding = 11) uniform sampler2DShadow shadow_atlas;
 layout(set = 0, binding = 12) uniform sampler2D shadow_atlas_depth;
 layout(set = 0, binding = 4) uniform sampler2D ray_shadow_texture;
 layout(set = 0, binding = 5) uniform sampler2D contact_shadow_texture;
-layout(set = 0, binding = 6) uniform sampler2D cloud_weather_texture;
+// CloudShadowMapPass's baked optical-depth-toward-the-sun map (W2's unified authority).
+layout(set = 0, binding = 6) uniform sampler2D cloud_shadow_map;
 // The frame's resolved ambient occlusion: world-space bent normal (rgb), visibility (a).
 layout(set = 0, binding = 23) uniform sampler2D ao_texture;
 
@@ -227,6 +228,7 @@ layout(location = 3) out vec2 out_gbuffer; // r = roughness, g = F0, for screen-
 #define MATERIAL_SHEEN             (1u << 9)
 #define MATERIAL_TRANSMISSION      (1u << 10)
 #define MATERIAL_FADE_SPECULAR     (1u << 11)
+#define MATERIAL_WEATHER_WET       (1u << 12)
 
 vec4 sample_map(uint index, vec2 uv)
 {
@@ -375,6 +377,17 @@ void main()
                           ? packed.r
                           : sample_map(material.maps_b.x, uv).r;
     occlusion = mix(1.0, occlusion, material.surface.z);
+
+    // Weather-driven wetness (design doc §5.3, W5): a material-flag path, no shader fork.
+    // scene.light_shadow_b.y is otherwise-spare UBO space (see scene_uniforms.hpp) carrying
+    // Environment::weather.ground_wetness, the same weather sample driving precipitation VFX
+    // and fog, so a wet material only reacts while the cause that wets it is actually active.
+    if ((flags & MATERIAL_WEATHER_WET) != 0u)
+    {
+        float wetness = clamp(scene.light_shadow_b.y, 0.0, 1.0);
+        albedo *= mix(1.0, 0.35, wetness);
+        roughness = mix(roughness, 0.05, wetness);
+    }
 
     vec3 tangent_normal = decode_normal(material.maps_a.z, uv, material.emissive.w);
 
@@ -529,8 +542,7 @@ void main()
         // The deck overhead shades this surface exactly as it shades the analytic
         // ground, so a mesh standing on that ground darkens with it rather than staying
         // lit inside a cloud shadow. Clouds hide a moon exactly as they hide the sun.
-        visibility *= cloud_sun_transmittance(cloud_weather_texture, v_world_position,
-                                              light_dir);
+        visibility *= cloud_sun_transmittance(cloud_shadow_map, v_world_position);
 
         vec3 f = f_schlick(v_dot_h, f0);
         float distribution;

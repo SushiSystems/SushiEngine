@@ -25,6 +25,8 @@
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "passes/atmosphere_lut_pass.hpp"
+#include "passes/cloud_taa_pass.hpp"
 #include "passes/fullscreen.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/pipeline_cache.hpp"
@@ -43,8 +45,10 @@ namespace SushiEngine
             CloudCompositePass::CloudCompositePass(Vulkan::VulkanDevice& device,
                                                    Resources::ShaderLibrary& shaders,
                                                    Resources::GraphicsPipelineFactory& pipelines,
-                                                   Scene::SceneLayout& layout)
-                : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout)
+                                                   Scene::SceneLayout& layout, CloudTaaPass& cloud_taa,
+                                                   AtmosphereLutPass& atmosphere)
+                : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
+                  cloud_taa_(cloud_taa), atmosphere_(atmosphere)
             {
                 create_pipeline();
             }
@@ -82,22 +86,49 @@ namespace SushiEngine
                                                  Graph::AttachmentLoad::Discard);
                         builder.read(frame.targets.composite,
                                      Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.cloud, Graph::TextureAccess::SampledFragment);
+                        // frame.targets.cloud itself is not read here any more —
+                        // CloudTaaPass already resolved it into its own pass-owned
+                        // history, which this pass samples directly below — but its
+                        // W3 depth sibling still is, for the aerial-perspective lookup.
+                        builder.read(frame.targets.cloud_depth,
+                                     Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.ground_shadow_resolved,
                                      Graph::TextureAccess::SampledFragment);
+                        builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                     },
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        // Point, not linear: the shader reconstructs the tier-scaled
+                        // cloud target itself from four explicit texel taps weighted by
+                        // depth agreement (nearest-depth upsample), and needs its own and
+                        // the full-resolution scene depth read back exactly, unblended.
+                        Resources::SamplerDesc point{};
+                        point.filter = VK_FILTER_NEAREST;
+                        point.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                        const VkSampler point_sampler = frame.samplers->get(point);
                         Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
                         writer.image(1, context.sampled_view(frame.targets.composite), sampler);
-                        writer.image(2, context.sampled_view(frame.targets.cloud), sampler);
+                        // CloudTaaPass's own resolved history, kept in GENERAL across its
+                        // compute resolve like the other pass-owned bakes this same
+                        // descriptor set samples elsewhere in the frame.
+                        writer.image(2, cloud_taa_.color_view(), point_sampler,
+                                    VK_IMAGE_LAYOUT_GENERAL);
                         writer.image(3, context.sampled_view(frame.targets.ground_shadow_resolved),
                                     sampler);
+                        writer.image(4, context.sampled_view(frame.targets.depth), point_sampler);
+                        writer.image(5, context.sampled_view(frame.targets.cloud_depth),
+                                    point_sampler);
+                        // The Hillaire aerial-perspective froxel volume: sampled once per
+                        // pixel at the cloud march's own weighted-mean depth (binding 5,
+                        // reconstructed the same nearest-depth way as the colour) rather
+                        // than per march sample — see AERIAL_LUT_BINDING's own doc comment.
+                        writer.image(Scene::SceneLayout::AERIAL_LUT_BINDING,
+                                    atmosphere_.aerial_view(), sampler, VK_IMAGE_LAYOUT_GENERAL);
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
                         frame.layout->bind_heap(cmd);

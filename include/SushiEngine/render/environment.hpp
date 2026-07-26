@@ -44,6 +44,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/material.hpp>
+#include <SushiEngine/render/weather_field.hpp>
 
 namespace SushiEngine
 {
@@ -130,6 +131,37 @@ namespace SushiEngine
 
         /** @brief Maximum local fog volumes the environment carries to the renderer. */
         constexpr int MAX_FOG_VOLUMES = 8;
+
+        /**
+         * @brief Weather-driven modulation layered onto the authored atmosphere/fog/material state.
+         *
+         * `docs/slop/weather_and_clouds.md` §5.3 (W5, "coupling weather -> world"): the same
+         * `Simulation::WeatherColumn` sample that drives the compiled `Cloudscape` also derives
+         * this struct (`Simulation::WeatherWorldCoupling`), so every consumer below reacts to
+         * the identical cause — the design doc's "one cause, every symptom" acceptance bar,
+         * rather than four independently tuned systems that happen to agree by coincidence.
+         *
+         * Deliberately additive/multiplicative rather than a replacement: `VolumetricFogPass`
+         * and `AtmosphereLutPass` add @ref fog_density_bias / @ref turbidity_bias on top of the
+         * author's own @ref FogParams::density / @ref AtmosphereParams::mie_coefficient at push-
+         * constant build time, and `pbr.frag` blends @ref ground_wetness in only where a
+         * material opts in (`MaterialFlags::MATERIAL_WEATHER_WET`). Unlike @ref Environment::clouds
+         * (which the compiled `Cloudscape` fully replaces in Procedural mode), the author's
+         * fog/atmosphere sliders are never overwritten in place — which is what keeps this field
+         * safe to recompute from scratch every `extract()` without the read-modify-write hazard a
+         * full overwrite would create through the editor's `environment()` -> edit -> `set_environment()`
+         * round trip. All-zero (the default) when procedural weather is off, so a scene with no
+         * dynamic weather renders exactly as it did before this phase.
+         */
+        struct WeatherCoupling
+        {
+            float fog_density_bias = 0.0f;        /**< Extra sea-level froxel-fog extinction, per metre. */
+            float turbidity_bias = 0.0f;          /**< Extra atmosphere Mie scattering coefficient, per metre. */
+            float ground_wetness = 0.0f;          /**< [0, 1]; drives albedo darken / roughness drop on wettable materials. */
+            float precipitation_intensity = 0.0f; /**< [0, 1]; echoes `WeatherColumn::precipitation`, gates rain/snow VFX. */
+            float wind_east_mps = 0.0f;           /**< Near-surface eastward wind at the sampled column, metres/second. */
+            float wind_north_mps = 0.0f;          /**< Near-surface northward wind at the sampled column, metres/second. */
+        };
 
         /**
          * @brief Probe-volume global illumination controls.
@@ -376,10 +408,22 @@ namespace SushiEngine
          */
         enum class WeatherPreset : std::uint32_t
         {
-            Clear,       /**< Cloudless blue sky. */
-            FairWeather, /**< Scattered fair-weather cumulus under a little cirrus. */
-            Overcast,    /**< A grey stratocumulus/altostratus sheet. */
-            Storm,       /**< Towering cumulonimbus over a low broken deck. */
+            Clear,        /**< Cloudless blue sky. */
+            FairWeather,  /**< Scattered fair-weather cumulus under a little cirrus. */
+            Overcast,     /**< A grey stratocumulus/altostratus sheet. */
+            Storm,        /**< Towering cumulonimbus over a low broken deck. */
+            /**
+             * @brief A stratus sheet with cumulus breaking through — a front mid-passage.
+             *
+             * Weather panel v2 (`docs/slop/weather_and_clouds.md` §6/§7 W4) expands this into
+             * a synoptic system placed upstream of the observer and heading toward it
+             * (`Simulation::ProceduralWeather::apply_preset`), rather than a static deck mix —
+             * the whole point of the panel's procedural presets is that the sky then evolves
+             * on its own. Appended after `Storm` rather than in the design doc's listed order
+             * (Clear/Fair/Overcast/Front Passage/Storm) so no existing preset's enum value
+             * shifts; the editor's button row still labels them in the doc's order.
+             */
+            FrontPassage,
             Count
         };
 
@@ -395,11 +439,12 @@ namespace SushiEngine
         {
             switch (preset)
             {
-            case WeatherPreset::Clear:       return "Clear";
-            case WeatherPreset::FairWeather: return "Fair Weather";
-            case WeatherPreset::Overcast:    return "Overcast";
-            case WeatherPreset::Storm:       return "Storm";
-            default:                         return "";
+            case WeatherPreset::Clear:        return "Clear";
+            case WeatherPreset::FairWeather:  return "Fair Weather";
+            case WeatherPreset::Overcast:     return "Overcast";
+            case WeatherPreset::Storm:        return "Storm";
+            case WeatherPreset::FrontPassage: return "Front Passage";
+            default:                          return "";
             }
         }
 
@@ -439,6 +484,12 @@ namespace SushiEngine
                 clouds.decks[2] = CloudDeck{true, CloudGenus::Nimbostratus, 0.1f, 1.0f};
                 clouds.light_absorption = 1.1f;
                 clouds.ambient_strength = 0.35f;
+                break;
+            case WeatherPreset::FrontPassage:
+                clouds.decks[0] = CloudDeck{true, CloudGenus::Stratus, 0.1f, 1.0f};
+                clouds.decks[1] = CloudDeck{true, CloudGenus::Cumulus, -0.2f, 0.9f};
+                clouds.decks[2] = CloudDeck{true, CloudGenus::Cirrostratus, -0.3f, 0.8f};
+                clouds.ambient_strength = 0.6f;
                 break;
             default:
                 break;
@@ -676,6 +727,18 @@ namespace SushiEngine
             GiParams gi;                 /**< Probe-volume global illumination. */
             PlanetParams surface;        /**< How the planet's ground shades. */
             Cloudscape clouds;           /**< The ray-marched, layered cloudscape. */
+            WeatherCoupling weather;     /**< Weather-driven fog/turbidity/wetness/wind at the observer. */
+            /**
+             * @brief The spatial weather field the cloud march reads coverage from.
+             *
+             * Where @ref weather is the one column under the observer — the right shape for
+             * a scalar the whole frame shares, like exposure — this is the same simulation's
+             * horizontal grid, and it is what makes a front visible as a front rather than
+             * as a global number ramping (`docs/slop/atmosphere_system.md` §1.1/§7.3).
+             * Invalid by default: a scene with no dynamic weather renders exactly as it did
+             * before, from the authored deck stack alone.
+             */
+            WeatherField weather_field;
             StarParams stars;            /**< The space-background star field. */
             NightLighting night;         /**< How the Moon and stars light a sunless sky. */
             Vector3 ambient{Vector3{0.03, 0.04, 0.06}}; /**< Ambient floor so shadowed faces are not black; the ephemeris drives this dynamically when @ref NightLighting::enabled. */

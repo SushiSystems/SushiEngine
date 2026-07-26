@@ -1,0 +1,210 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Bakes the cloudscape density field (T3): the same six-deck genus loop cloud.frag used
+// to run per march sample, evaluated once per field texel instead. The view march then
+// spends ~2 fetches where it used to spend ~48 (8 texture reads x up to 6 decks). Runs
+// only when CloudscapeCompilePass finds the authored deck stack changed, so this cost is
+// amortized over however many frames the sky holds still.
+//
+// The field is a flat, wind-neutral, periodic tile: X/Z wrap a fixed metre-square region
+// (CLOUD_FIELD_TILE_METERS, matched on the C++ side) and Y is the fraction across the
+// union altitude band (scene.cloud_global.y..z), not a true planet-relative radius. Over
+// a tile this small the planet's curvature is invisible (sub-centimetre sagitta), so the
+// bake skips the ellipsoid math entirely and reconstructs each deck's own local height
+// fraction from plain altitude. "Wind-neutral" means no deck's wind is added to the bake
+// position — translating the pattern over time is deferred to the view march, which
+// shifts its field UV lookup by the accumulated wind offset instead, so the field stays
+// valid (and cacheable) while the wind keeps blowing.
+//
+// Three output channels, split by the same noise-kind flag the march already reads: R
+// sums every cumuliform deck, G sums every cirriform (true Cirrus-genus) deck. The view
+// march samples both independently with their own anti-repetition offset. B carries the
+// contributing deck's own vertical density profile (cloud_height_gradient's 0-at-edge,
+// 1-at-middle shape) for the W2 profile-gradient ambient term (Nubis3's `pow(1-profile,
+// 0.5)`) — free, since it rides the same texel the density channels already occupy.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image3D cloudscape_field;
+
+layout(set = 0, binding = 1) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_global;
+    vec4 star_params;
+    vec4 misc;
+    vec4 sky_counts;
+    vec4 planet_frame;
+    vec4 cloud_light;
+    vec4 ibl_params;
+    vec4 cloud_deck_a[6];
+    vec4 cloud_deck_b[6];
+    vec4 cloud_deck_c[6];
+    vec4 cloud_deck_d[6];
+    vec4 bodies[80];
+    vec4 sky_stars[128];
+} scene;
+
+layout(set = 0, binding = 2) uniform sampler3D cloud_shape_texture;
+layout(set = 0, binding = 3) uniform sampler3D cloud_detail_texture;
+layout(set = 0, binding = 4) uniform sampler2D cloud_weather_texture;
+layout(set = 0, binding = 5) uniform sampler3D cloud_cirrus_texture;
+
+layout(push_constant) uniform Params
+{
+    float tile_meters;
+} params;
+
+#define CLOUD_MAX_DECKS 6
+
+float remap(float v, float a, float b, float c, float d)
+{
+    return c + (v - a) / (b - a) * (d - c);
+}
+
+float cloud_height_gradient(float height01, float stratiform, float anvil)
+{
+    float cumuliform = clamp(remap(height01, 0.0, 0.15, 0.0, 1.0), 0.0, 1.0) *
+                       clamp(remap(height01, 0.55, 1.0, 1.0, 0.0), 0.0, 1.0);
+    float sheet = clamp(remap(height01, 0.0, 0.08, 0.0, 1.0), 0.0, 1.0) *
+                  clamp(remap(height01, 0.80, 1.0, 1.0, 0.0), 0.0, 1.0);
+    float tower = clamp(remap(height01, 0.0, 0.10, 0.0, 1.0), 0.0, 1.0) *
+                  clamp(remap(height01, 0.90, 1.0, 1.0, 0.0), 0.0, 1.0);
+    float g = mix(cumuliform, sheet, stratiform);
+    return mix(g, tower, anvil);
+}
+
+// One deck's density at a flat bake position, faithfully mirroring cloud.frag's original
+// cloud_deck_density (the full, non-cheap path — the bake is amortized, so it always
+// affords the best-quality evaluation). `xz` and `world_altitude` are wind-neutral: the
+// caller has not added any deck's wind offset. `height_gradient` is this deck's vertical
+// density profile at world_altitude (0 at the top/bottom edges of measurable evaluation,
+// 1 in the middle), left at 0 whenever the deck contributes nothing here.
+float deck_density(int i, vec2 xz, float world_altitude, out float height_gradient)
+{
+    height_gradient = 0.0;
+    vec4 la = scene.cloud_deck_a[i];
+    float density_scale = la.w;
+    if (density_scale <= 0.0)
+        return 0.0;
+    if (world_altitude < la.x || world_altitude > la.y)
+        return 0.0;
+    float height01 = (world_altitude - la.x) / max(la.y - la.x, 1.0);
+
+    vec4 lb = scene.cloud_deck_b[i];
+    vec4 lc = scene.cloud_deck_c[i];
+    vec4 ld = scene.cloud_deck_d[i];
+    float stratiform = lb.x;
+    float shape_scale = lb.z;
+    float detail_scale = lb.w;
+    bool cirrus = lc.w > 0.5;
+    float anvil = ld.x;
+    float weather_scale = max(ld.y, 1.0);
+
+    // Fixed up = +Y, so the tangent basis is just the flat XZ axes — no cross/normalize
+    // needed, unlike the per-sample march which derives it from the point's own radial
+    // direction on the curved planet.
+    vec3 deck_offset = vec3(float(i) * 6130.0, float(i) * 2710.0, float(i) * 9770.0);
+    vec3 sp = vec3(xz.x, world_altitude, xz.y) + deck_offset;
+
+    vec2 wpln = sp.xz;
+    vec2 wuv = wpln / weather_scale;
+    vec2 wwarp = texture(cloud_weather_texture, wuv * 0.15 + vec2(0.37)).rg - 0.5;
+    wuv += wwarp * 0.9;
+    float weather = texture(cloud_weather_texture, wuv).r;
+
+    vec2 wind_dir = vec2(lc.x, lc.z);
+    float wlen = length(wind_dir);
+    vec2 along = wlen > 1e-3 ? wind_dir / wlen : vec2(1.0, 0.0);
+    vec2 across = vec2(-along.y, along.x);
+    vec2 street_uv = vec2(dot(wpln, along) * 0.25, dot(wpln, across)) / (weather_scale * 0.22);
+    float weather_small = texture(cloud_weather_texture, street_uv + vec2(0.13)).r;
+    weather = weather * 0.7 + weather_small * 0.3;
+
+    float coverage = clamp(la.z + (weather - 0.5) * 1.35, 0.0, 1.0);
+    coverage = clamp(coverage + anvil * smoothstep(0.55, 1.0, height01) * 0.55, 0.0, 1.0);
+
+    vec3 warp_broad = texture(cloud_shape_texture, sp / (shape_scale * 8.0) + vec3(0.19)).rgb - 0.5;
+    vec3 warp_med = texture(cloud_detail_texture, sp / (shape_scale * 2.7)).rgb - 0.5;
+    vec3 wp = sp + warp_broad * shape_scale * 0.9 + warp_med * shape_scale * 0.35;
+
+    float hg = cloud_height_gradient(height01, stratiform, anvil);
+
+    vec4 base;
+    if (cirrus)
+    {
+        base = texture(cloud_cirrus_texture, wp / shape_scale);
+    }
+    else
+    {
+        vec4 base0 = texture(cloud_shape_texture, wp / shape_scale);
+        vec4 base1 = texture(cloud_shape_texture, wp / (shape_scale * 2.17) + vec3(0.37));
+        base = mix(base0, base1, 0.4);
+    }
+    float low_freq = base.g * 0.625 + base.b * 0.25 + base.a * 0.125;
+    float base_shape = clamp(remap(base.r, low_freq - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+    base_shape *= hg;
+
+    float d = clamp(remap(base_shape, 1.0 - coverage, 1.0, 0.0, 1.0), 0.0, 1.0) * coverage;
+    if (d <= 0.0)
+        return 0.0;
+
+    vec4 det = texture(cloud_detail_texture, sp / detail_scale);
+    float detail_fbm = det.r * 0.625 + det.g * 0.25 + det.b * 0.125;
+    float erosion = mix(detail_fbm, 1.0 - detail_fbm, clamp(height01 * 3.0, 0.0, 1.0));
+    d = clamp(remap(d, erosion * lb.y * (1.0 - stratiform * 0.6), 1.0, 0.0, 1.0), 0.0, 1.0);
+    if (d <= 0.0)
+        return 0.0;
+
+    height_gradient = hg;
+    return d * density_scale;
+}
+
+void main()
+{
+    ivec3 size = imageSize(cloudscape_field);
+    uvec3 texel = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(texel, uvec3(size))))
+        return;
+
+    vec2 uv01 = (vec2(texel.xz) + 0.5) / vec2(size.xz);
+    float height01 = (float(texel.y) + 0.5) / float(max(size.y, 1));
+    vec2 xz = uv01 * params.tile_meters;
+    float world_altitude = mix(scene.cloud_global.y, scene.cloud_global.z, height01);
+
+    float layer0 = 0.0; // cumuliform decks
+    float layer1 = 0.0; // cirriform (Cirrus-genus) decks
+    // The tallest/thickest local contributor's own vertical profile stands in for "this
+    // texel's" profile — a deck barely reaching this altitude reads near its own edge
+    // (hg -> 0) and should not flatten a thicker deck's mid-band glow (hg -> 1) sharing
+    // the same texel, so the loop keeps the max rather than an average.
+    float profile = 0.0;
+    for (int i = 0; i < CLOUD_MAX_DECKS; ++i)
+    {
+        float hg;
+        float d = deck_density(i, xz, world_altitude, hg);
+        if (scene.cloud_deck_c[i].w > 0.5)
+            layer1 += d;
+        else
+            layer0 += d;
+        if (d > 0.001)
+            profile = max(profile, hg);
+    }
+
+    imageStore(cloudscape_field, ivec3(texel),
+              vec4(clamp(layer0, 0.0, 1.0), clamp(layer1, 0.0, 1.0), clamp(profile, 0.0, 1.0), 1.0));
+}

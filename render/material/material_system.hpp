@@ -80,6 +80,8 @@ namespace SushiEngine
                 MATERIAL_SHEEN = 1u << 9,
                 MATERIAL_TRANSMISSION = 1u << 10,
                 MATERIAL_FADE_SPECULAR = 1u << 11,
+                /** @brief Opts into the frame's weather-driven wetness term (design doc §5.3, W5). */
+                MATERIAL_WEATHER_WET = 1u << 12,
             };
 
             /**

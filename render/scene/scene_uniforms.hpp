@@ -95,7 +95,46 @@ namespace SushiEngine
                  * reading only earlier fields keep their offsets.
                  */
                 float light_shadow_a[4]; /**< Lights 0-3's shadow record index (lane 0 always -1). */
-                float light_shadow_b[4]; /**< Light 4's shadow record index in lane 0; yzw spare. */
+                /**
+                 * @brief Light 4's shadow record index in lane 0, plus weather/spare lanes.
+                 *
+                 * Lane 1 carries `Environment::weather.ground_wetness` (design doc §5.3, W5) —
+                 * `pbr.frag` reads it directly rather than growing this block, since it was
+                 * already the nearest otherwise-unused float and every shader that declares
+                 * this member already declares the whole block. Lanes 2-3 remain spare.
+                 */
+                float light_shadow_b[4];
+                /**
+                 * @brief Scene-XZ -> weather-field UV, with the camera position folded in.
+                 *
+                 * `xy` = scale, `zw` = offset, so a shader recovers the field UV of a
+                 * camera-relative march sample as `p.xz * map.xy + map.zw`. The producer
+                 * publishes the transform against **scene-absolute** metres
+                 * (`Render::WeatherField`); the eye is added here in double before the float
+                 * cast, the same discipline every other planet-scale term in this block
+                 * follows. Appended after light_shadow_b so shaders reading only earlier
+                 * fields keep their offsets.
+                 */
+                float weather_field_map[4];
+                /**
+                 * @brief The field's vertical band centres, and whether to consult it at all.
+                 *
+                 * `xyz` = the altitudes (metres above the surface) the three bands are centred
+                 * on, ascending, which is what lets a march sample climbing between two bands
+                 * read a blend rather than snap at a bucket edge. `w` is 1 when a valid field
+                 * was published this frame and 0 otherwise — at 0 every consumer skips the
+                 * fetch entirely and the cloudscape renders from its authored deck stack alone,
+                 * exactly as it did before the field existed.
+                 */
+                float weather_field_levels[4];
+                /**
+                 * @brief The coverage the deck stack was compiled from, per band; w spare.
+                 *
+                 * The denominator that turns the field's absolute coverage into a scale about
+                 * the reference column (`Render::WeatherField::reference_coverage`). Appended
+                 * last for the same offset reason as the two above.
+                 */
+                float weather_field_reference[4];
             };
 
             /**

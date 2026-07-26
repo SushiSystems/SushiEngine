@@ -1,0 +1,104 @@
+#version 450
+
+// CloudLightVolumePass (W2): bakes the summed cloud density toward the sun into a volume
+// sharing the T3 field's flat, wind-neutral tile and (u, v, height01) addressing — the
+// amortized replacement for evaluating a multi-tap cone march on every lit view-march
+// sample. Only a Y-slice group is rebaked per dispatch (see the C++ side's
+// AMORTIZE_FRAMES), so the sun can drift every frame without ever forcing a full-volume
+// stall; the resulting up-to-8-frame lag is invisible at the sun's own angular rate.
+//
+// The march happens entirely in the flat-tile approximation the whole T3 tier already
+// accepts (regional-tile scale, planet curvature invisible): `planet_frame.xyz` stands in
+// for local "up" so a world-space step along the sun direction becomes a height01 step
+// (vertical) plus a UV step (horizontal), both linear in the step's world length.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, r32f) uniform writeonly image3D light_volume;
+layout(set = 0, binding = 1) uniform sampler3D cloudscape_field;
+
+layout(set = 0, binding = 2) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_global;
+    vec4 star_params;
+    vec4 misc;
+    vec4 sky_counts;
+    vec4 planet_frame;
+    vec4 cloud_light;
+    vec4 ibl_params;
+    vec4 cloud_deck_a[6];
+    vec4 cloud_deck_b[6];
+    vec4 cloud_deck_c[6];
+    vec4 cloud_deck_d[6];
+    vec4 bodies[80];
+    vec4 sky_stars[128];
+} scene;
+
+layout(push_constant) uniform Params
+{
+    float tile_meters;
+    uint y_slice_start; // first Y layer this dispatch covers
+    uint y_slice_count; // how many Y layers this dispatch covers
+} params;
+
+const int LIGHT_VOLUME_STEPS = 8;
+
+void main()
+{
+    ivec3 size = imageSize(light_volume);
+    uvec3 local = gl_GlobalInvocationID;
+    if (local.x >= uint(size.x) || local.z >= uint(size.z) || local.y >= params.y_slice_count)
+        return;
+    uint y = params.y_slice_start + local.y;
+    if (y >= uint(size.y))
+        return;
+
+    vec2 uv = (vec2(local.xz) + 0.5) / vec2(size.xz);
+    float height01 = (float(y) + 0.5) / float(max(size.y, 1));
+
+    vec3 up = normalize(scene.planet_frame.xyz);
+    vec3 sun = normalize(scene.sun_dir.xyz);
+    float sun_up = dot(sun, up);
+    vec3 sun_horizontal = sun - up * sun_up;
+
+    // Grazing suns would otherwise send the march's world-space path length toward
+    // infinity for a fixed vertical distance to cover; clamp the vertical component the
+    // same way a directional shadow map clamps its light-space frustum near the horizon.
+    float safe_sun_up = (sun_up >= 0.0 ? 1.0 : -1.0) * max(abs(sun_up), 0.12);
+
+    float band_meters = max(scene.cloud_global.z - scene.cloud_global.y, 1.0);
+    // Total distance along the sun ray to cross the whole union band vertically from
+    // this voxel's own height, so every voxel integrates up to the shell's own top
+    // (or bottom, for a sun below the horizon) regardless of how obliquely it looks.
+    float total_distance = band_meters / abs(safe_sun_up);
+    float step_meters = total_distance / float(LIGHT_VOLUME_STEPS);
+
+    float depth = 0.0;
+    for (int i = 0; i < LIGHT_VOLUME_STEPS; ++i)
+    {
+        if (height01 < 0.0 || height01 > 1.0)
+            break;
+        vec2 layers = texture(cloudscape_field, vec3(uv, clamp(height01, 0.0, 1.0))).rg;
+        depth += (layers.x + layers.y) * step_meters;
+        // The field's sampler wraps REPEAT, so the UV is left to drift rather than
+        // fract()'d here — identical result, one fewer op per step.
+        uv += (sun_horizontal.xz * step_meters) / params.tile_meters;
+        height01 += (safe_sun_up * step_meters) / band_meters;
+    }
+
+    imageStore(light_volume, ivec3(local.x, int(y), local.z), vec4(depth, 0.0, 0.0, 0.0));
+}

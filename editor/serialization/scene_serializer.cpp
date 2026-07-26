@@ -265,6 +265,111 @@ namespace SushiEngine
                 return sky;
             }
 
+            // W4's procedural weather state (docs/slop/weather_and_clouds.md §5): only T1
+            // (the synoptic system list, its RNG, and its clock) is captured. T2's regional
+            // grid is deliberately not serialized cell-by-cell -- it reseeds deterministically
+            // from the restored synoptic state and the current observer on the next tick, which
+            // resumes a visually consistent sky rather than the exact bit-pattern of transient
+            // grid cells. The acceptance bar this phase must meet is tick-to-tick replay
+            // determinism (see test_weather_determinism.cpp), not save/load byte-fidelity of
+            // internal simulation state, so this is a scoped, named simplification rather than
+            // a silent gap.
+            json weather_to_json(IWorldEditor& world)
+            {
+                json j;
+                j["procedural_enabled"] = world.procedural_weather_enabled();
+                SushiEngine::Simulation::IWeatherAuthoring* weather = world.weather_authoring();
+                if (weather == nullptr)
+                    return j;
+
+                const SushiEngine::Simulation::SynopticState& state = weather->synoptic().state();
+                j["rng_s0"] = state.rng.s0;
+                j["rng_s1"] = state.rng.s1;
+                j["next_system_id"] = state.next_system_id;
+                j["elapsed_seconds"] = state.elapsed_seconds;
+                j["seconds_to_next_genesis"] = state.seconds_to_next_genesis;
+
+                json systems = json::array();
+                for (int i = 0; i < state.system_count; ++i)
+                {
+                    const SushiEngine::Simulation::PressureSystem& s = state.systems[i];
+                    systems.push_back(json{
+                        {"id", s.id},
+                        {"is_low", s.is_low},
+                        {"phase", static_cast<std::uint32_t>(s.phase)},
+                        {"age_seconds", s.age_seconds},
+                        {"deepen_seconds", s.deepen_seconds},
+                        {"mature_seconds", s.mature_seconds},
+                        {"fill_seconds", s.fill_seconds},
+                        {"center_latitude_radians", s.center_latitude_radians},
+                        {"center_longitude_radians", s.center_longitude_radians},
+                        {"heading_radians", s.heading_radians},
+                        {"curvature_radians_per_second", s.curvature_radians_per_second},
+                        {"speed_mps", s.speed_mps},
+                        {"central_anomaly_hpa", s.central_anomaly_hpa},
+                        {"radius_major_m", s.radius_major_m},
+                        {"radius_minor_m", s.radius_minor_m},
+                        {"orientation_radians", s.orientation_radians}});
+                }
+                j["systems"] = systems;
+                return j;
+            }
+
+            void weather_from_json(const json& j, IWorldEditor& world)
+            {
+                if (!j.is_object())
+                    return;
+                const bool enabled = j.value("procedural_enabled", false);
+                world.set_procedural_weather_enabled(enabled);
+                if (!enabled)
+                    return;
+                SushiEngine::Simulation::IWeatherAuthoring* weather = world.weather_authoring();
+                if (weather == nullptr)
+                    return;
+
+                SushiEngine::Simulation::SynopticState state;
+                state.rng.s0 = j.value("rng_s0", state.rng.s0);
+                state.rng.s1 = j.value("rng_s1", state.rng.s1);
+                state.next_system_id = j.value("next_system_id", state.next_system_id);
+                state.elapsed_seconds = j.value("elapsed_seconds", state.elapsed_seconds);
+                state.seconds_to_next_genesis =
+                    j.value("seconds_to_next_genesis", state.seconds_to_next_genesis);
+
+                if (j.contains("systems") && j["systems"].is_array())
+                {
+                    for (const json& sj : j["systems"])
+                    {
+                        if (state.system_count >= SushiEngine::Simulation::MAX_SYNOPTIC_SYSTEMS)
+                            break;
+                        SushiEngine::Simulation::PressureSystem system;
+                        system.id = sj.value("id", system.id);
+                        system.is_low = sj.value("is_low", system.is_low);
+                        system.phase = static_cast<SushiEngine::Simulation::PressureSystemPhase>(
+                            sj.value("phase", static_cast<std::uint32_t>(system.phase)));
+                        system.age_seconds = sj.value("age_seconds", system.age_seconds);
+                        system.deepen_seconds = sj.value("deepen_seconds", system.deepen_seconds);
+                        system.mature_seconds = sj.value("mature_seconds", system.mature_seconds);
+                        system.fill_seconds = sj.value("fill_seconds", system.fill_seconds);
+                        system.center_latitude_radians =
+                            sj.value("center_latitude_radians", system.center_latitude_radians);
+                        system.center_longitude_radians =
+                            sj.value("center_longitude_radians", system.center_longitude_radians);
+                        system.heading_radians = sj.value("heading_radians", system.heading_radians);
+                        system.curvature_radians_per_second = sj.value(
+                            "curvature_radians_per_second", system.curvature_radians_per_second);
+                        system.speed_mps = sj.value("speed_mps", system.speed_mps);
+                        system.central_anomaly_hpa =
+                            sj.value("central_anomaly_hpa", system.central_anomaly_hpa);
+                        system.radius_major_m = sj.value("radius_major_m", system.radius_major_m);
+                        system.radius_minor_m = sj.value("radius_minor_m", system.radius_minor_m);
+                        system.orientation_radians =
+                            sj.value("orientation_radians", system.orientation_radians);
+                        state.systems[state.system_count++] = system;
+                    }
+                }
+                weather->synoptic().set_state(state, world.environment().planet.mean_radius());
+            }
+
             SushiEngine::Quaternion quaternion_from_json(const json& j)
             {
                 SushiEngine::Quaternion q;
@@ -800,6 +905,7 @@ namespace SushiEngine
             json root;
             root["entities"] = capture_scene(world);
             root["environment"] = environment_to_json(world.environment());
+            root["weather"] = weather_to_json(world);
             if (sky != nullptr)
                 root["sky"] = sky_to_json(*sky);
 
@@ -867,6 +973,8 @@ namespace SushiEngine
                 resolve_scene_effect_textures(world, *assets);
             if (root.contains("environment"))
                 world.set_environment(environment_from_json(root["environment"], world.environment()));
+            if (root.contains("weather"))
+                weather_from_json(root["weather"], world);
             if (sky != nullptr && root.contains("sky"))
                 *sky = sky_from_json(root["sky"], *sky);
             return true;

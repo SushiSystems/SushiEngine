@@ -1,0 +1,45 @@
+#version 450
+
+// Max-pools the fine cloudscape field (cloudscape_field.comp) into a coarser volume the
+// march's cheap/coarse probe reads instead of the fine field. A coarse fetch is both
+// cheaper (a smaller volume stays resident in cache across neighbouring march samples)
+// and conservative: taking the max over each downsampled block means a skip block never
+// reads "empty" where the fine field actually holds cloud, so empty-space skipping never
+// jumps over a real sample.
+//
+// The downsample factor is a fixed engine constant, not tiered — it has no author-facing
+// knob and matching CLOUDSCAPE_SKIP_DOWNSAMPLE on the C++ side is what sizes this image,
+// so there is nothing to push per dispatch.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image3D cloudscape_skip;
+layout(set = 0, binding = 1) uniform sampler3D cloudscape_field;
+
+const ivec3 DOWNSAMPLE = ivec3(4, 2, 4);
+
+void main()
+{
+    ivec3 size = imageSize(cloudscape_skip);
+    ivec3 texel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(texel, size)))
+        return;
+
+    ivec3 fine_size = textureSize(cloudscape_field, 0);
+    ivec3 base = texel * DOWNSAMPLE;
+
+    vec2 max_density = vec2(0.0);
+    for (int z = 0; z < DOWNSAMPLE.z; ++z)
+    {
+        for (int y = 0; y < DOWNSAMPLE.y; ++y)
+        {
+            for (int x = 0; x < DOWNSAMPLE.x; ++x)
+            {
+                ivec3 c = min(base + ivec3(x, y, z), fine_size - 1);
+                max_density = max(max_density, texelFetch(cloudscape_field, c, 0).rg);
+            }
+        }
+    }
+
+    imageStore(cloudscape_skip, texel, vec4(max_density, 0.0, 1.0));
+}

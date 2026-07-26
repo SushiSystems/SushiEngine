@@ -70,8 +70,9 @@ AAA-complete phases. The guiding constraint is unchanged: the *red line between
 maximum realism and performance* — where the two conflict, **performance wins**.
 Every technique carries a quality tier so the expensive half is opt-in per platform.
 
-Companion document: **[weather_and_clouds.md](weather_and_clouds.md)** — the
-volumetric cloud + planetary weather simulation plan (Phase 8 here defers to it).
+Companion document: **[atmosphere_system.md](atmosphere_system.md)** — the volumetric
+cloud + GPU meteorology plan (Phase 8 here defers to it). It supersedes the retired
+`weather_and_clouds.md` (removed; in git history).
 
 ---
 
@@ -717,16 +718,17 @@ at once. The performance-first mandate's flagship. **Shipped:** the full LUT sta
 handles; the ephemeris keeps driving inputs through `Environment` unchanged (OCP over the
 existing seam), and fog volumes are records, not objects.
 
-### Phase 8 — Volumetric clouds & planetary weather → companion document
+### Phase 8 — Volumetric clouds & planetary atmosphere → companion document
 
-The full engineering plan — Nubis³-class voxel/SDF-accelerated clouds,
-anti-repetition modeling, altitude-stable quality, temporal accumulation, and the
-dynamic meteorology simulation (wind fields, fronts, humidity/precipitation cycle,
-diurnal heating) that drives coverage instead of static authored maps — lives in
-**[weather_and_clouds.md](weather_and_clouds.md)**. It consumes: Phase 7's
-transmittance/sky-radiance seam, Phase 5's blue-noise, the temporal core, and the
-SDF assets of Phase 6. Its acceptance criteria (flight-sim-grade: no visible
-repetition, crisp from ground to 20 km, flyable-through) are contractual there.
+The full engineering plan — Nubis³-class voxel/SDF-accelerated clouds (shipped),
+anti-repetition modeling, altitude-stable quality, temporal accumulation, and the GPU
+meteorology (global quasi-geostrophic core, non-hydrostatic regional nest, real
+microphysics) whose simulated condensate drives cloud density instead of tiled noise —
+lives in **[atmosphere_system.md](atmosphere_system.md)**. It consumes: Phase 7's
+transmittance/sky-radiance seam, Phase 5's blue-noise, the temporal core, the SDF assets
+of Phase 6, and Phase 11's async compute for its simulation tiers. Its acceptance
+criteria (flight-sim-grade: no visible repetition, crisp from ground to 20 km,
+flyable-through, and weather that is spatially real) are contractual there.
 
 ### Phase 9 — Post-processing stack & display-out — **shipped (core)**
 

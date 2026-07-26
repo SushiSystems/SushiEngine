@@ -59,6 +59,8 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_sampling.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_weather_field.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_weather_tail.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl"
@@ -153,6 +155,18 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_volum
     cloud_noise_volume_comp_spv CLOUD_NOISE_VOLUME_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_weather.comp"
     cloud_noise_weather_comp_spv CLOUD_NOISE_WEATHER_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloudscape_field.comp"
+    cloudscape_field_comp_spv CLOUDSCAPE_FIELD_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloudscape_skip.comp"
+    cloudscape_skip_comp_spv CLOUDSCAPE_SKIP_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_light_volume.comp"
+    cloud_light_volume_comp_spv CLOUD_LIGHT_VOLUME_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_map.comp"
+    cloud_shadow_map_comp_spv CLOUD_SHADOW_MAP_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_taa.comp"
+    cloud_taa_comp_spv CLOUD_TAA_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_panorama.comp"
+    cloud_panorama_comp_spv CLOUD_PANORAMA_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl_prefilter.comp"
     ibl_prefilter_comp_spv IBL_PREFILTER_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl_irradiance.comp"
@@ -278,7 +292,13 @@ add_library(sushi_render STATIC
     passes/light_shadow_pass.cpp
     passes/sky_pass.cpp
     passes/ground_shadow_resolve_pass.cpp
+    passes/weather_field_pass.cpp
+    passes/cloudscape_compile_pass.cpp
+    passes/cloud_light_volume_pass.cpp
+    passes/cloud_shadow_map_pass.cpp
+    passes/cloud_panorama_pass.cpp
     passes/cloud_pass.cpp
+    passes/cloud_taa_pass.cpp
     passes/depth_only.cpp
     passes/depth_prepass.cpp
     passes/shadow_pass.cpp
@@ -339,6 +359,12 @@ add_library(sushi_render STATIC
     "${RAY_SHADOW_FRAG_HEADER}"
     "${CLOUD_NOISE_VOLUME_HEADER}"
     "${CLOUD_NOISE_WEATHER_HEADER}"
+    "${CLOUDSCAPE_FIELD_HEADER}"
+    "${CLOUDSCAPE_SKIP_HEADER}"
+    "${CLOUD_LIGHT_VOLUME_HEADER}"
+    "${CLOUD_SHADOW_MAP_HEADER}"
+    "${CLOUD_TAA_HEADER}"
+    "${CLOUD_PANORAMA_HEADER}"
     "${IBL_PREFILTER_HEADER}"
     "${IBL_IRRADIANCE_HEADER}"
     "${BRDF_LUT_HEADER}"

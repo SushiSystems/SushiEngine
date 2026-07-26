@@ -189,6 +189,16 @@ namespace SushiEngine
                 Graph::TextureHandle ground_shadow; /**< Raw analytic-ground direct term + noisy sun visibility. */
                 Graph::TextureHandle ground_shadow_resolved; /**< Bilateral-blurred ground_shadow. */
                 Graph::TextureHandle cloud;     /**< Half-resolution volumetric clouds. */
+                /**
+                 * @brief The cloud march's transmittance-weighted mean depth, same grid as @c cloud.
+                 *
+                 * `CloudPass`'s second MRT attachment (W3): accumulated the same way
+                 * `scattered` is, weighted by `(1 - sample_transmit) * transmittance` per
+                 * step and normalized by the total in-scatter weight. `CloudCompositePass`
+                 * reads it to sample the aerial-perspective froxel volume once per pixel
+                 * instead of per march sample.
+                 */
+                Graph::TextureHandle cloud_depth;
                 Graph::TextureHandle scene;     /**< HDR scene with the clouds composited in. */
                 Graph::TextureHandle scene_reflected; /**< Scene with SSR folded in, or invalid. */
                 Graph::TextureHandle scene_final; /**< The scene the resolve reads: reflected if SSR ran, else scene. */

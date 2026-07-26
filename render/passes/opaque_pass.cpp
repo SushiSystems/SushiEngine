@@ -36,6 +36,7 @@
 #include "scene/gpu_instance.hpp"
 #include "scene/instance_system.hpp"
 #include "scene/motion_system.hpp"
+#include "passes/cloud_shadow_map_pass.hpp"
 #include "passes/ibl_pass.hpp"
 #include "passes/irradiance_volume_pass.hpp"
 #include "graph/render_graph.hpp"
@@ -49,7 +50,6 @@
 #include "passes/shadow_pass.hpp"
 #include "scene/shadow_uniforms.hpp"
 #include "scene/temporal_uniforms.hpp"
-#include "textures/cloud_noise.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
 
 namespace SushiEngine
@@ -188,13 +188,13 @@ namespace SushiEngine
                                    Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
                                    Geometry::ClothBuffers& cloth,
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
-                               Textures::CloudNoise& noise, IblPass& ibl,
+                               CloudShadowMapPass& cloud_shadow, IblPass& ibl,
                                IrradianceVolumePass& gi, Lighting::LightSystem& lights,
                                Scene::InstanceSystem& instances, Scene::SkinningSystem& skinning)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   meshes_(meshes), cloth_(cloth), materials_(materials), motion_(motion),
-                  noise_(noise), ibl_(ibl), gi_(gi), lights_(lights), instances_(instances),
-                  skinning_(skinning)
+                  cloud_shadow_(cloud_shadow), ibl_(ibl), gi_(gi), lights_(lights),
+                  instances_(instances), skinning_(skinning)
             {
                 create_pipelines();
             }
@@ -468,7 +468,9 @@ namespace SushiEngine
                                      frame.samplers->get(Resources::SamplerDesc{}));
                         writer.image(5, context.sampled_view(frame.targets.contact_shadow),
                                      frame.samplers->get(Resources::SamplerDesc{}));
-                        writer.image(6, noise_.weather(), noise_.sampler());
+                        // Kept in GENERAL across CloudShadowMapPass's own compute build.
+                        writer.image(6, cloud_shadow_.view(), cloud_shadow_.sampler(),
+                                    VK_IMAGE_LAYOUT_GENERAL);
                         writer.storage(Scene::SceneLayout::MATERIAL_BINDING, materials_.buffer(),
                                        materials_.buffer_range());
                         writer.storage(Scene::SceneLayout::MOTION_BINDING, motion_.buffer(),

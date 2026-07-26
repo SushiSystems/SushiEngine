@@ -53,11 +53,6 @@ namespace SushiEngine
             class SceneLayout;
         }
 
-        namespace Textures
-        {
-            class CloudNoise;
-        }
-
         namespace Lighting
         {
             class LightSystem;
@@ -71,6 +66,7 @@ namespace SushiEngine
         namespace Passes
         {
             class AtmosphereLutPass;
+            class CloudShadowMapPass;
             class VolumetricFogPass;
 
             /**
@@ -87,7 +83,9 @@ namespace SushiEngine
                      * @param shaders    Library the shader modules come from.
                      * @param pipelines  Factory the pipeline is built through.
                      * @param layout     The shared scene descriptor and pipeline layout.
-                     * @param noise      The cloud noise volumes the sky pass samples.
+                     * @param cloud_shadow The pass owning the baked cloud shadow map the
+                     *                     ground shadow reads instead of marching its own
+                     *                     six-deck density loop.
                      * @param atmosphere The pass that owns the transmittance/multi-scatter LUTs.
                      * @param fog        The pass that owns the volumetric-fog froxel volume.
                      * @param lights     The clustered light engine; the ground reads its
@@ -96,7 +94,7 @@ namespace SushiEngine
                      */
                     SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout,
-                            Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
+                            CloudShadowMapPass& cloud_shadow, AtmosphereLutPass& atmosphere,
                             VolumetricFogPass& fog, Lighting::LightSystem& lights);
                     ~SkyPass() override;
 
@@ -115,7 +113,7 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
-                    Textures::CloudNoise& noise_;
+                    CloudShadowMapPass& cloud_shadow_;
                     AtmosphereLutPass& atmosphere_;
                     VolumetricFogPass& fog_;
                     Lighting::LightSystem& lights_;

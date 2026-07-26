@@ -25,12 +25,15 @@
 
 /**
  * @file cloud_composite_pass.hpp
- * @brief Resolves the half-resolution cloud march over the sky into one HDR image.
+ * @brief Resolves the cloud buffer's own TAA'd result over the sky into one HDR image.
  *
  * The frame's last purely-spatial step. It exists as its own pass because everything
  * after it — the temporal resolve, and in time the whole post-processing stack — needs
  * a complete linear HDR scene to work on, and everything before it produces only part
- * of one.
+ * of one. Since W3 it also folds in the cloud's own aerial perspective (haze/desaturate/
+ * sink toward the horizon with distance, exactly like a mesh already does) sampled once
+ * per pixel from the cloud march's own weighted mean depth, and reads the resolved cloud
+ * colour from `CloudTaaPass` rather than the raw march target.
  */
 
 #include "passes/render_pass.hpp"
@@ -60,6 +63,9 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class AtmosphereLutPass;
+            class CloudTaaPass;
+
             /**
              * @brief Composites the cloud target over the sky target.
              *
@@ -70,15 +76,18 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Builds the composite pipeline.
-                     * @param device    The live Vulkan device.
-                     * @param shaders   Library the shader modules come from.
-                     * @param pipelines Factory the pipeline is built through.
-                     * @param layout    The shared scene descriptor and pipeline layout.
+                     * @param device     The live Vulkan device.
+                     * @param shaders    Library the shader modules come from.
+                     * @param pipelines  Factory the pipeline is built through.
+                     * @param layout     The shared scene descriptor and pipeline layout.
+                     * @param cloud_taa  The pass owning the cloud buffer's own resolved history.
+                     * @param atmosphere The pass owning the aerial-perspective froxel volume.
                      */
                     CloudCompositePass(Vulkan::VulkanDevice& device,
                                        Resources::ShaderLibrary& shaders,
                                        Resources::GraphicsPipelineFactory& pipelines,
-                                       Scene::SceneLayout& layout);
+                                       Scene::SceneLayout& layout, CloudTaaPass& cloud_taa,
+                                       AtmosphereLutPass& atmosphere);
                     ~CloudCompositePass() override;
 
                     CloudCompositePass(const CloudCompositePass&) = delete;
@@ -96,6 +105,8 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
+                    CloudTaaPass& cloud_taa_;
+                    AtmosphereLutPass& atmosphere_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

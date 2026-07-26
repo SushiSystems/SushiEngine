@@ -44,6 +44,12 @@
 #include "motion_blur.frag.h"
 #include "cloud_noise_volume.comp.h"
 #include "cloud_noise_weather.comp.h"
+#include "cloudscape_field.comp.h"
+#include "cloudscape_skip.comp.h"
+#include "cloud_light_volume.comp.h"
+#include "cloud_shadow_map.comp.h"
+#include "cloud_taa.comp.h"
+#include "cloud_panorama.comp.h"
 #include "fullscreen.vert.h"
 #include "fxaa.frag.h"
 #include "ui.frag.h"
@@ -163,6 +169,19 @@ namespace SushiEngine
                 {"cloud_noise_weather.comp", ShaderStage::Compute,
                  Shaders::cloud_noise_weather_comp_spv,
                  Shaders::cloud_noise_weather_comp_spv_word_count, "cloud_noise_weather.comp"},
+                {"cloudscape_field.comp", ShaderStage::Compute, Shaders::cloudscape_field_comp_spv,
+                 Shaders::cloudscape_field_comp_spv_word_count, "cloudscape_field.comp"},
+                {"cloudscape_skip.comp", ShaderStage::Compute, Shaders::cloudscape_skip_comp_spv,
+                 Shaders::cloudscape_skip_comp_spv_word_count, "cloudscape_skip.comp"},
+                {"cloud_light_volume.comp", ShaderStage::Compute,
+                 Shaders::cloud_light_volume_comp_spv,
+                 Shaders::cloud_light_volume_comp_spv_word_count, "cloud_light_volume.comp"},
+                {"cloud_shadow_map.comp", ShaderStage::Compute, Shaders::cloud_shadow_map_comp_spv,
+                 Shaders::cloud_shadow_map_comp_spv_word_count, "cloud_shadow_map.comp"},
+                {"cloud_taa.comp", ShaderStage::Compute, Shaders::cloud_taa_comp_spv,
+                 Shaders::cloud_taa_comp_spv_word_count, "cloud_taa.comp"},
+                {"cloud_panorama.comp", ShaderStage::Compute, Shaders::cloud_panorama_comp_spv,
+                 Shaders::cloud_panorama_comp_spv_word_count, "cloud_panorama.comp"},
                 {"ibl_prefilter.comp", ShaderStage::Compute, Shaders::ibl_prefilter_comp_spv,
                  Shaders::ibl_prefilter_comp_spv_word_count, "ibl_prefilter.comp"},
                 {"ibl_irradiance.comp", ShaderStage::Compute, Shaders::ibl_irradiance_comp_spv,

@@ -148,6 +148,26 @@ add_executable(se_functional_tests
     # accounting — pure header-only maths, the shared foundation of both simulation domains.
     functional/unit/test_vfx_authoring.cpp
 
+    # Weather W5 (world coupling): WeatherWorldCoupling's WeatherColumn -> WeatherCoupling
+    # bridge, weather_wind()'s analytic-plus-perturbation sampling, and the cloud-base
+    # darkening WeatherCloudscapeCompiler applies under precipitation -- pure host maths,
+    # isolated from T1/T2's own tick (see test_weather_determinism.cpp for that).
+    functional/unit/test_weather_world_coupling.cpp
+
+    # Weather W6 (flight-sim polish & data ingestion): icing_risk()/turbulence_intensity()'s
+    # narrow query API, the real METAR text parser + its WeatherColumn translation, and
+    # IngestedWeather's three-stage GRIB-background/METAR-station blend plus the LSP
+    # substitutability proof the phase's own task brief asks for.
+    functional/unit/test_weather_flight_hazards.cpp
+    functional/unit/test_metar_parser.cpp
+    functional/unit/test_ingested_weather.cpp
+
+    # Atmosphere phase A (spatial coupling): the weather field the renderer reads coverage
+    # from -- that it is non-uniform when the simulation is, where its cells land in the
+    # world, that every provider can publish one, and that the reference column the shader
+    # divides by is the column the deck stack was compiled from.
+    functional/unit/test_weather_field.cpp
+
     # Astro: the solar-system model behind the WGS84/atmosphere/orbital-mechanics regime.
     # Pure double-precision maths, verified against astronomical reference landmarks and
     # structural invariants (round-trips, orthonormality, energy conservation).
@@ -176,6 +196,7 @@ add_executable(se_functional_tests
     functional/integration/test_app.cpp
     functional/integration/test_input_determinism.cpp
     functional/integration/test_particle_determinism.cpp
+    functional/integration/test_weather_determinism.cpp
 
     # Audio S6: the wall-clock audio snapshot extract against the real ECS world — the
     # listener-local conversion (facing from the Orientation quaternion, eye-subtracted

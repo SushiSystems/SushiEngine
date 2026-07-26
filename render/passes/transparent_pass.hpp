@@ -57,11 +57,6 @@ namespace SushiEngine
             class MaterialSystem;
         }
 
-        namespace Textures
-        {
-            class CloudNoise;
-        }
-
         namespace Resources
         {
             class GraphicsPipelineFactory;
@@ -87,6 +82,7 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class CloudShadowMapPass;
             class IblPass;
             class IrradianceVolumePass;
 
@@ -110,8 +106,8 @@ namespace SushiEngine
                      * @param motion    System packing this frame's previous transforms.
                      * @param skinning  System holding this frame's skinned instance slices
                      *                  and their deformed vertex output buffer.
-                     * @param noise     The cloud volumes; only the weather map is read here,
-                     *                  to shadow a surface with the deck standing over it.
+                     * @param cloud_shadow The pass owning the baked cloud shadow map, to
+                     *                     shadow a surface with the deck standing over it.
                      * @param ibl       The image-based lighting chain surfaces sample.
                      * @param gi        The probe-volume GI the shading pass gathers ambient from.
                      * @param lights    The clustered light engine's per-frame buffers.
@@ -120,7 +116,7 @@ namespace SushiEngine
                                     Resources::GraphicsPipelineFactory& pipelines,
                                     Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
                                     Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
-                                    Scene::SkinningSystem& skinning, Textures::CloudNoise& noise,
+                                    Scene::SkinningSystem& skinning, CloudShadowMapPass& cloud_shadow,
                                     IblPass& ibl, IrradianceVolumePass& gi,
                                     Lighting::LightSystem& lights);
                     ~TransparentPass() override;
@@ -144,7 +140,7 @@ namespace SushiEngine
                     Assets::MaterialSystem& materials_;
                     Scene::MotionSystem& motion_;
                     Scene::SkinningSystem& skinning_;
-                    Textures::CloudNoise& noise_;
+                    CloudShadowMapPass& cloud_shadow_;
                     IblPass& ibl_;
                     IrradianceVolumePass& gi_;
                     Lighting::LightSystem& lights_;

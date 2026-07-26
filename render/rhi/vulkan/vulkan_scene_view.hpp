@@ -63,7 +63,13 @@
 #include "passes/auto_exposure_pass.hpp"
 #include "passes/bloom_pass.hpp"
 #include "passes/cloud_composite_pass.hpp"
+#include "passes/cloud_light_volume_pass.hpp"
+#include "passes/cloud_panorama_pass.hpp"
 #include "passes/cloud_pass.hpp"
+#include "passes/cloud_shadow_map_pass.hpp"
+#include "passes/cloud_taa_pass.hpp"
+#include "passes/cloudscape_compile_pass.hpp"
+#include "passes/weather_field_pass.hpp"
 #include "passes/cloth_pass.hpp"
 #include "passes/contact_shadow_pass.hpp"
 #include "passes/cull_pass.hpp"
@@ -218,6 +224,25 @@ namespace SushiEngine
                     Graph::RenderGraph graph_;
                     Passes::AtmosphereLutPass atmosphere_lut_pass_;
                     Passes::VolumetricFogPass volumetric_fog_pass_;
+                    /**
+                     * @brief The W2/W1 cloud bake trio: field, light volume, shadow map.
+                     *
+                     * Declared (and registered) before every consumer — opaque/transparent
+                     * mesh shading, the sky pass, and CloudPass's own march — exactly like
+                     * the atmosphere LUTs above them, so every consumer reads this frame's
+                     * bake rather than lagging one frame behind it.
+                     */
+                    Passes::WeatherFieldPass weather_field_pass_;
+                    Passes::CloudscapeCompilePass cloudscape_compile_pass_;
+                    Passes::CloudLightVolumePass cloud_light_volume_pass_;
+                    Passes::CloudShadowMapPass cloud_shadow_map_pass_;
+                    /**
+                     * @brief W3's far-field impostor bake; shares the trio's amortized
+                     * cadence and, like them, is declared ahead of every future consumer
+                     * (a reflection-probe capture is the scoped-out one — see the pass's
+                     * own header comment).
+                     */
+                    Passes::CloudPanoramaPass cloud_panorama_pass_;
                     Passes::IblPass ibl_pass_;
                     Passes::IrradianceVolumePass irradiance_volume_pass_;
                     Passes::DepthPrepass depth_prepass_;
@@ -240,6 +265,12 @@ namespace SushiEngine
                     Passes::SkyPass sky_pass_;
                     Passes::GroundShadowResolvePass ground_shadow_resolve_pass_;
                     Passes::CloudPass cloud_pass_;
+                    /**
+                     * @brief W3's dedicated cloud TAA; resolves CloudPass's own march
+                     * before CloudCompositePass reads it, so it is declared (and must
+                     * construct) between the two.
+                     */
+                    Passes::CloudTaaPass cloud_taa_pass_;
                     Passes::CloudCompositePass cloud_composite_pass_;
                     Passes::SsrPass ssr_pass_;
                     Passes::ParticlePass particle_pass_;

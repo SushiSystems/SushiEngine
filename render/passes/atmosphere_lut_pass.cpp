@@ -388,6 +388,16 @@ namespace SushiEngine
                     return;
                 const Environment& environment = *frame.environment;
 
+                // Weather-driven turbidity (design doc §5.3, W5): "runtime-dynamic in the
+                // Hillaire model" -- precipitation/low-cloud saturation adds Mie scattering on
+                // top of the author's own coefficient. Zero whenever procedural weather is off,
+                // so a scene with no dynamic weather is byte-for-byte unaffected. Folding it in
+                // here rather than at the Environment level means AtmosphereLutPass's existing
+                // medium_changed() memcmp gate already rebuilds the static LUTs exactly when the
+                // weather-adjusted value actually changes tick to tick, with no extra plumbing.
+                const float mie_coefficient =
+                    environment.atmosphere.mie_coefficient + environment.weather.turbidity_bias;
+
                 Push push{};
                 push.rayleigh[0] =
                     static_cast<float>(environment.atmosphere.rayleigh_coefficient.x);
@@ -395,7 +405,7 @@ namespace SushiEngine
                     static_cast<float>(environment.atmosphere.rayleigh_coefficient.y);
                 push.rayleigh[2] =
                     static_cast<float>(environment.atmosphere.rayleigh_coefficient.z);
-                push.rayleigh[3] = environment.atmosphere.mie_coefficient;
+                push.rayleigh[3] = mie_coefficient;
                 push.heights[0] = environment.atmosphere.rayleigh_scale_height;
                 push.heights[1] = environment.atmosphere.mie_scale_height;
                 const float bottom =
@@ -404,7 +414,7 @@ namespace SushiEngine
                 push.heights[3] = bottom + environment.atmosphere.height;
                 // Mie extinction is the Mie scattering plus its absorption, the same 1.1
                 // factor sky.frag applies in its own view-ray optical depth.
-                push.extra[0] = environment.atmosphere.mie_coefficient * 1.1f;
+                push.extra[0] = mie_coefficient * 1.1f;
 
                 // The sky-view LUT additionally needs the sun and the planet centre in
                 // camera-relative space, and the Mie anisotropy for its phase function.

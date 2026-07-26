@@ -73,18 +73,69 @@ namespace SushiEngine
             std::uint32_t shadow_blocker_taps = 8;
 
             /**
-             * @brief The volumetric cloud march's step envelope near the ground.
+             * @brief The volumetric cloud march's charged sample budget.
              *
-             * The altitude term interpolates the real step count between @c near and
-             * @c far, so this is the ceiling the tier caps ground-level cloud cost at.
+             * The march's step size grows with distance from the camera rather than
+             * with the ray's altitude, so this is the ceiling on real density
+             * evaluations the tier permits — effectively the near-camera resolution.
              */
             std::uint32_t cloud_primary_steps_near = 96;
 
-            /** @brief The cloud march's step floor at the top of the shell / from space. */
+            /**
+             * @brief The minimum step count the cloud march guarantees across its
+             * full length, floors how coarse a step may get far from the camera.
+             */
             std::uint32_t cloud_primary_steps_far = 32;
 
             /** @brief Steps the cloud march takes toward the sun to self-shadow the deck. */
             std::uint32_t cloud_light_steps = 5;
+
+            /**
+             * @brief The W3 dedicated cloud buffer's resolution scale, relative to the
+             * output extent (design doc §4.7's "Cloud buffer" row).
+             *
+             * Not a raw pixel size — `CloudPass`'s march target and `CloudTaaPass`'s
+             * fixed half-output history reconstruct across whatever this resolves to,
+             * the same render/output-extent split `taa.frag` already handles for the
+             * main resolve. Low shades a third of the axis, Medium/High hold the
+             * historical half, Ultra pushes partway toward "full" without doubling the
+             * cost the table's "½–full" upper bound would imply.
+             */
+            float cloud_buffer_scale = 0.5f;
+
+            /**
+             * @brief Whether the march applies W3's near/far behavioural split, design
+             * doc §4.7's "+near split" table cell (High/Ultra only).
+             *
+             * The literal dual-viewport near/far resolution split (§4.4) is deferred —
+             * see the W3 CHANGELOG entry — so this instead gates the in-shader
+             * simplification: the near band (<200 m) keeps full march quality already,
+             * and this additionally freezes the march's temporal dither beyond 250 m
+             * (Nubis3's "jitter animated only <250m, static hash beyond"), which is what
+             * keeps the cloud TAA's distant silhouettes from ever re-jittering.
+             */
+            bool cloud_near_far_split = false;
+
+            /**
+             * @brief Whether the cloud TAA resolve runs its full YCoCg variance clip.
+             *
+             * Design doc §4.7's TAA row: Low keeps a plain exponential blend toward the
+             * history (cheap, more prone to ghosting), Medium and above run the full
+             * neighbourhood-clip resolve `taa.frag`'s own scheme is modelled on.
+             */
+            bool cloud_variance_clip = true;
+
+            /**
+             * @brief Cadence of the cloud march's inline light-march correction, 0-3.
+             *
+             * The amortized light volume (@c CloudLightVolumePass) lights every lit
+             * sample for one texture fetch regardless of tier; this is how often the
+             * view march may still afford to layer the costlier inline cone march on
+             * top for near-field shadow detail the volume's 8-frame-lagged bake cannot
+             * carry. 0 = volume only, 3 = every lit sample and the silver-lining phase
+             * boost (design doc §4.7's Low..Ultra light row).
+             */
+            std::uint32_t cloud_light_taps = 2;
 
             /**
              * @brief The coarsest per-axis rate the variable-rate mask may emit.

@@ -271,7 +271,12 @@ namespace SushiEngine
                 push.color_density[0] = static_cast<float>(fog.scattering_color.x);
                 push.color_density[1] = static_cast<float>(fog.scattering_color.y);
                 push.color_density[2] = static_cast<float>(fog.scattering_color.z);
-                push.color_density[3] = fog.density;
+                // Weather-driven visibility (design doc §5.3, W5): precipitation/low-cloud
+                // saturation adds extinction on top of the author's own density rather than
+                // replacing it, so a clear-weather scene is byte-for-byte unaffected (the bias
+                // is zero whenever procedural weather is off or nothing is raining). Harmless
+                // when fog is disabled below -- the shader zeroes base_density itself.
+                push.color_density[3] = fog.density + frame.environment->weather.fog_density_bias;
                 push.params[0] = fog.height_falloff;
                 push.params[1] = fog.ambient;
                 push.params[2] = fog.phase_anisotropy;

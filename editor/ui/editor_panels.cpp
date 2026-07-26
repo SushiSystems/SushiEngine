@@ -3481,8 +3481,35 @@ namespace SushiEngine
                     changed = true;
                 ImGui::BeginDisabled(!environment.clouds.enabled);
 
-                // Presets: one click sets the whole sky (which decks, which genera, medium
-                // tuning). Everything below is optional fine-tuning, tucked into Advanced.
+                // Weather panel v2 (docs/slop/weather_and_clouds.md §6/§7 W4): Manual keeps
+                // today's static deck authoring; Procedural hands Environment::clouds to T1+T2
+                // (RuntimeSimulation compiles it fresh every tick) so the sky evolves on its own.
+                bool procedural = world->procedural_weather_enabled();
+                ImGui::SeparatorText("Weather Mode");
+                if (ImGui::RadioButton("Manual", !procedural))
+                {
+                    world->set_procedural_weather_enabled(false);
+                    procedural = false;
+                }
+                ImGui::SameLine();
+                if (ImGui::RadioButton("Procedural (T1+T2)", procedural))
+                {
+                    world->set_procedural_weather_enabled(true);
+                    procedural = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Procedural: moving synoptic pressure systems and a regional grid "
+                        "drive the sky; presets seed a starting scenario rather than setting "
+                        "deck parameters directly, and the sky then evolves on its own.");
+
+                const SushiEngine::Simulation::GeodeticPosition weather_observer{
+                    environment.observer.latitude_radians, environment.observer.longitude_radians};
+
+                // Presets: in Manual mode, one click sets the whole sky (which decks, which
+                // genera, medium tuning) as before. In Procedural mode the same buttons instead
+                // seed T1's synoptic systems (design doc §6) -- the sky is not snapped to a
+                // fixed look, it evolves from the seeded scenario over the following minutes.
                 ImGui::SeparatorText("Preset");
                 for (int p = 0; p < SushiEngine::Render::WEATHER_PRESET_COUNT; ++p)
                 {
@@ -3492,73 +3519,224 @@ namespace SushiEngine
                         ImGui::SameLine();
                     if (ImGui::Button(SushiEngine::Render::weather_preset_name(preset)))
                     {
-                        const bool was_enabled = environment.clouds.enabled;
-                        environment.clouds = SushiEngine::Render::cloud_weather_preset(preset);
-                        environment.clouds.enabled = was_enabled;
+                        if (procedural && world->weather_authoring() != nullptr)
+                        {
+                            world->weather_authoring()->apply_preset(preset, weather_observer);
+                        }
+                        else
+                        {
+                            const bool was_enabled = environment.clouds.enabled;
+                            environment.clouds = SushiEngine::Render::cloud_weather_preset(preset);
+                            environment.clouds.enabled = was_enabled;
+                            changed = true;
+                        }
+                    }
+                }
+
+                if (procedural && world->weather_authoring() != nullptr)
+                {
+                    SushiEngine::Simulation::SynopticLayer& synoptic =
+                        world->weather_authoring()->synoptic();
+
+                    // Time-scrub coupled to the ephemeris clock (design doc §6): only the
+                    // time-of-day fraction of the master epoch, not the calendar date -- the
+                    // scoped-down half of "time-scrub", named rather than silent (a full date
+                    // picker is out of this phase's reach).
+                    ImGui::SeparatorText("Time of Day");
+                    double day_integer = 0.0;
+                    const double day_fraction = std::modf(environment.observer.julian_date + 0.5, &day_integer);
+                    float hours = static_cast<float>(day_fraction * 24.0);
+                    if (ImGui::SliderFloat("Time of Day", &hours, 0.0f, 24.0f, "%.1f h"))
+                    {
+                        environment.observer.julian_date = day_integer - 0.5 + double(hours) / 24.0;
                         changed = true;
                     }
+
+                    // Synoptic map overlay (design doc §6): pressure systems drawn from live T1
+                    // state, the observer at the map's centre, blue = low / orange = high, the
+                    // short tick is each system's heading. Scoped down from the doc's literal
+                    // "place/drag a low" to click-to-select + slider editing below -- an
+                    // in-viewport drag manipulator is real interaction-model work judged too
+                    // risky to add on top of everything else this phase already touches.
+                    ImGui::SeparatorText("Synoptic Map");
+                    constexpr float MAP_SIZE_PX = 220.0f;
+                    constexpr double MAP_SPAN_DEGREES = 20.0;
+                    constexpr double DEG = 3.14159265358979323846 / 180.0;
+                    ImGui::InvisibleButton("##synoptic_map", ImVec2(MAP_SIZE_PX, MAP_SIZE_PX));
+                    ImDrawList* map_draw_list = ImGui::GetWindowDrawList();
+                    const ImVec2 map_origin = ImGui::GetItemRectMin();
+                    const ImVec2 map_center(map_origin.x + MAP_SIZE_PX * 0.5f,
+                                            map_origin.y + MAP_SIZE_PX * 0.5f);
+                    map_draw_list->AddRectFilled(
+                        map_origin, ImVec2(map_origin.x + MAP_SIZE_PX, map_origin.y + MAP_SIZE_PX),
+                        IM_COL32(20, 26, 36, 255));
+                    map_draw_list->AddRect(
+                        map_origin, ImVec2(map_origin.x + MAP_SIZE_PX, map_origin.y + MAP_SIZE_PX),
+                        IM_COL32(90, 100, 120, 255));
+                    map_draw_list->AddCircleFilled(map_center, 3.0f, IM_COL32(255, 255, 255, 255));
+                    const double map_cos_lat = std::cos(weather_observer.latitude_radians);
+                    const double px_per_degree = (double(MAP_SIZE_PX) * 0.5) / MAP_SPAN_DEGREES;
+                    const SushiEngine::Simulation::SynopticState& synoptic_state = synoptic.state();
+                    for (int i = 0; i < synoptic_state.system_count; ++i)
+                    {
+                        const SushiEngine::Simulation::PressureSystem& system = synoptic_state.systems[i];
+                        const double dlat_deg =
+                            (system.center_latitude_radians - weather_observer.latitude_radians) / DEG;
+                        const double dlon_deg =
+                            (system.center_longitude_radians - weather_observer.longitude_radians) / DEG;
+                        const float x =
+                            map_center.x + static_cast<float>(dlon_deg * map_cos_lat * px_per_degree);
+                        const float y = map_center.y - static_cast<float>(dlat_deg * px_per_degree);
+                        float radius_px = static_cast<float>(system.radius_major_m / 60000.0);
+                        radius_px = radius_px < 4.0f ? 4.0f : (radius_px > MAP_SIZE_PX * 0.4f
+                                                                    ? MAP_SIZE_PX * 0.4f
+                                                                    : radius_px);
+                        const ImU32 color = system.is_low ? IM_COL32(90, 160, 255, 220)
+                                                           : IM_COL32(255, 170, 90, 220);
+                        map_draw_list->AddCircle(ImVec2(x, y), radius_px, color, 24, 2.0f);
+                        const float dir_x = static_cast<float>(std::sin(system.heading_radians));
+                        const float dir_y = static_cast<float>(std::cos(system.heading_radians));
+                        map_draw_list->AddLine(ImVec2(x, y), ImVec2(x + dir_x * 14.0f, y - dir_y * 14.0f),
+                                               color, 2.0f);
+                    }
+                    ImGui::TextDisabled("Blue = low, orange = high; the tick shows heading.");
+
+                    ImGui::SeparatorText("Pressure Systems");
+                    if (ImGui::Button("Add Low Upstream"))
+                    {
+                        SushiEngine::Simulation::PressureSystem system;
+                        system.is_low = true;
+                        system.center_latitude_radians = weather_observer.latitude_radians;
+                        system.center_longitude_radians = weather_observer.longitude_radians - 6.0 * DEG;
+                        system.heading_radians = 1.5707963267948966;
+                        system.speed_mps = 12.0;
+                        system.central_anomaly_hpa = 20.0;
+                        system.radius_major_m = 700000.0;
+                        system.radius_minor_m = 525000.0;
+                        system.mature_seconds = 48.0 * 3600.0;
+                        system.fill_seconds = 24.0 * 3600.0;
+                        synoptic.add_system(system);
+                    }
+
+                    int remove_system_index = -1;
+                    for (int i = 0; i < synoptic_state.system_count; ++i)
+                    {
+                        SushiEngine::Simulation::PressureSystem system = synoptic_state.systems[i];
+                        ImGui::PushID(i);
+                        char system_header[48];
+                        std::snprintf(system_header, sizeof(system_header), "System %d (%s)",
+                                     static_cast<int>(system.id), system.is_low ? "Low" : "High");
+                        bool system_edited = false;
+                        if (ImGui::TreeNode(system_header))
+                        {
+                            float depth_hpa = static_cast<float>(system.central_anomaly_hpa);
+                            if (ImGui::SliderFloat("Depth (hPa)", &depth_hpa, 2.0f, 50.0f))
+                            {
+                                system.central_anomaly_hpa = double(depth_hpa);
+                                system_edited = true;
+                            }
+                            float radius_km = static_cast<float>(system.radius_major_m / 1000.0);
+                            if (ImGui::SliderFloat("Radius (km)", &radius_km, 100.0f, 2000.0f))
+                            {
+                                system.radius_major_m = double(radius_km) * 1000.0;
+                                system.radius_minor_m = system.radius_major_m * 0.75;
+                                system_edited = true;
+                            }
+                            float speed_mps = static_cast<float>(system.speed_mps);
+                            if (ImGui::SliderFloat("Speed (m/s)", &speed_mps, 0.0f, 30.0f))
+                            {
+                                system.speed_mps = double(speed_mps);
+                                system_edited = true;
+                            }
+                            float heading_deg = static_cast<float>(system.heading_radians / DEG);
+                            if (ImGui::SliderFloat("Heading (deg)", &heading_deg, -180.0f, 180.0f))
+                            {
+                                system.heading_radians = double(heading_deg) * DEG;
+                                system_edited = true;
+                            }
+                            if (ImGui::Button("Remove"))
+                                remove_system_index = i;
+                            ImGui::TreePop();
+                        }
+                        if (system_edited)
+                            synoptic.set_system(i, system);
+                        ImGui::PopID();
+                    }
+                    if (remove_system_index >= 0)
+                        synoptic.remove_system(remove_system_index);
                 }
 
                 if (ImGui::TreeNode("Advanced"))
                 {
+                    if (procedural)
+                        ImGui::TextDisabled(
+                            "Manual deck editing is overwritten every tick while Procedural "
+                            "weather is active -- switch to Manual to hand-author decks.");
 
-                // Shared medium: every deck is one physical volume, so the scattering
-                // knobs, ground shadow, and weather evolution apply to the whole stack.
-                ImGui::SeparatorText("Medium (all decks)");
-                if (ImGui::SliderFloat("Light Absorption", &environment.clouds.light_absorption,
-                                       0.0f, 2.0f))
-                    changed = true;
-                if (ImGui::SliderFloat("Forward Scatter", &environment.clouds.forward_scattering,
-                                       0.0f, 0.99f))
-                    changed = true;
-                if (ImGui::SliderFloat("Powder", &environment.clouds.powder_strength, 0.0f, 1.0f))
-                    changed = true;
-                if (ImGui::SliderFloat("Ambient Fill", &environment.clouds.ambient_strength,
-                                       0.0f, 2.0f))
-                    changed = true;
-                if (ImGui::SliderFloat("Ground Shadow", &environment.clouds.ground_shadow_strength,
-                                       0.0f, 1.0f))
-                    changed = true;
-                if (ImGui::SliderFloat("Weather Scale", &environment.clouds.weather_scale,
-                                       10000.0f, 200000.0f, "%.0f m"))
-                    changed = true;
-                if (ImGui::SliderFloat("Evolution Rate", &environment.clouds.evolution_rate,
-                                       0.0f, 1.0f))
-                    changed = true;
+                    // Overwritten every tick by WeatherCloudscapeCompiler while Procedural
+                    // weather drives the sky, so editing here would silently do nothing —
+                    // matches the warning above instead of contradicting it.
+                    ImGui::BeginDisabled(procedural);
 
-                // One deck per row: pick any of the ten WMO genera and nudge its coverage
-                // and density. Each deck inherits its genus's physical altitude band and
-                // morphology from the catalogue, so the sky is a few coexisting genera.
-                const char* genus_items[SushiEngine::Render::CLOUD_GENUS_COUNT];
-                for (int g = 0; g < SushiEngine::Render::CLOUD_GENUS_COUNT; ++g)
-                    genus_items[g] = SushiEngine::Render::cloud_genus_name(
-                        static_cast<SushiEngine::Render::CloudGenus>(g));
-
-                for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
-                {
-                    SushiEngine::Render::CloudDeck& deck = environment.clouds.decks[i];
-                    ImGui::PushID(i);
-                    char header[32];
-                    std::snprintf(header, sizeof(header), "Deck %d", i + 1);
-                    ImGui::SeparatorText(header);
-                    if (ImGui::Checkbox("Enabled", &deck.enabled))
+                    // Shared medium: every deck is one physical volume, so the scattering
+                    // knobs, ground shadow, and weather evolution apply to the whole stack.
+                    ImGui::SeparatorText("Medium (all decks)");
+                    if (ImGui::SliderFloat("Light Absorption", &environment.clouds.light_absorption,
+                                           0.0f, 2.0f))
                         changed = true;
-                    ImGui::BeginDisabled(!deck.enabled);
+                    if (ImGui::SliderFloat("Forward Scatter", &environment.clouds.forward_scattering,
+                                           0.0f, 0.99f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Powder", &environment.clouds.powder_strength, 0.0f, 1.0f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Ambient Fill", &environment.clouds.ambient_strength,
+                                           0.0f, 2.0f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Ground Shadow", &environment.clouds.ground_shadow_strength,
+                                           0.0f, 1.0f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Weather Scale", &environment.clouds.weather_scale,
+                                           10000.0f, 200000.0f, "%.0f m"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Evolution Rate", &environment.clouds.evolution_rate,
+                                           0.0f, 1.0f))
+                        changed = true;
 
-                    int genus = static_cast<int>(deck.genus);
-                    if (ImGui::Combo("Genus", &genus, genus_items,
-                                     SushiEngine::Render::CLOUD_GENUS_COUNT))
+                    // One deck per row: pick any of the ten WMO genera and nudge its coverage
+                    // and density. Each deck inherits its genus's physical altitude band and
+                    // morphology from the catalogue, so the sky is a few coexisting genera.
+                    const char* genus_items[SushiEngine::Render::CLOUD_GENUS_COUNT];
+                    for (int g = 0; g < SushiEngine::Render::CLOUD_GENUS_COUNT; ++g)
+                        genus_items[g] = SushiEngine::Render::cloud_genus_name(
+                            static_cast<SushiEngine::Render::CloudGenus>(g));
+
+                    for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
                     {
-                        deck.genus = static_cast<SushiEngine::Render::CloudGenus>(genus);
-                        changed = true;
+                        SushiEngine::Render::CloudDeck& deck = environment.clouds.decks[i];
+                        ImGui::PushID(i);
+                        char header[32];
+                        std::snprintf(header, sizeof(header), "Deck %d", i + 1);
+                        ImGui::SeparatorText(header);
+                        if (ImGui::Checkbox("Enabled", &deck.enabled))
+                            changed = true;
+                        ImGui::BeginDisabled(!deck.enabled);
+
+                        int genus = static_cast<int>(deck.genus);
+                        if (ImGui::Combo("Genus", &genus, genus_items,
+                                         SushiEngine::Render::CLOUD_GENUS_COUNT))
+                        {
+                            deck.genus = static_cast<SushiEngine::Render::CloudGenus>(genus);
+                            changed = true;
+                        }
+                        if (ImGui::SliderFloat("Coverage Bias", &deck.coverage_bias, -1.0f, 1.0f))
+                            changed = true;
+                        if (ImGui::SliderFloat("Density Scale", &deck.density_scale, 0.0f, 2.0f))
+                            changed = true;
+                        ImGui::EndDisabled();
+                        ImGui::PopID();
                     }
-                    if (ImGui::SliderFloat("Coverage Bias", &deck.coverage_bias, -1.0f, 1.0f))
-                        changed = true;
-                    if (ImGui::SliderFloat("Density Scale", &deck.density_scale, 0.0f, 2.0f))
-                        changed = true;
+
                     ImGui::EndDisabled();
-                    ImGui::PopID();
-                }
                     ImGui::TreePop();
                 }
                 ImGui::EndDisabled();

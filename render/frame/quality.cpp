@@ -89,6 +89,10 @@ namespace SushiEngine
                     q.cloud_primary_steps_near = 48;
                     q.cloud_primary_steps_far = 16;
                     q.cloud_light_steps = 3;
+                    q.cloud_light_taps = 0;
+                    q.cloud_buffer_scale = 1.0f / 3.0f;
+                    q.cloud_near_far_split = false;
+                    q.cloud_variance_clip = false;
                     q.vrs_max_coarse_axis = 4;
                     q.lobe_anisotropy = false;
                     q.lobe_clearcoat = false;
@@ -136,6 +140,10 @@ namespace SushiEngine
                     q.cloud_primary_steps_near = 72;
                     q.cloud_primary_steps_far = 24;
                     q.cloud_light_steps = 4;
+                    q.cloud_light_taps = 1;
+                    q.cloud_buffer_scale = 0.5f;
+                    q.cloud_near_far_split = false;
+                    q.cloud_variance_clip = true;
                     q.vrs_max_coarse_axis = 2;
                     q.lobe_anisotropy = false;
                     q.lobe_clearcoat = true;
@@ -159,6 +167,10 @@ namespace SushiEngine
                     q.cloud_primary_steps_near = 96;
                     q.cloud_primary_steps_far = 32;
                     q.cloud_light_steps = 5;
+                    q.cloud_light_taps = 2;
+                    q.cloud_buffer_scale = 0.5f;
+                    q.cloud_near_far_split = true;
+                    q.cloud_variance_clip = true;
                     q.vrs_max_coarse_axis = 2;
                     q.lobe_anisotropy = true;
                     q.lobe_clearcoat = true;
@@ -205,6 +217,14 @@ namespace SushiEngine
                     q.cloud_primary_steps_near = 128;
                     q.cloud_primary_steps_far = 48;
                     q.cloud_light_steps = 6;
+                    q.cloud_light_taps = 3;
+                    // Partway toward the table's "full" upper bound, not all the way:
+                    // doubling the fixed half-res baseline would roughly double the
+                    // march's fill cost for a silhouette gain past what a flyable-through
+                    // frame budget (§8) can absorb on the reference GPU.
+                    q.cloud_buffer_scale = 0.75f;
+                    q.cloud_near_far_split = true;
+                    q.cloud_variance_clip = true;
                     q.vrs_max_coarse_axis = 1;
                     q.lobe_anisotropy = true;
                     q.lobe_clearcoat = true;

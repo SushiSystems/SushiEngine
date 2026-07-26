@@ -23,6 +23,7 @@
 
 #include "view_resources.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 #include <SushiEngine/vfx/compiled_emitter.hpp>
@@ -582,10 +583,25 @@ namespace SushiEngine
                     (frame.width + 1) / 2, (frame.height + 1) / 2, Frame::HDR_FORMAT, "gtao"));
                 targets.ao = graph.create_texture(
                     color_target(frame.width, frame.height, Frame::HDR_FORMAT, "ao"));
-                // The cloud march runs at half resolution; the graph derives the reduced
-                // viewport from this extent, so no pass carries a resolution of its own.
-                targets.cloud = graph.create_texture(color_target(
-                    (frame.width + 1) / 2, (frame.height + 1) / 2, Frame::HDR_FORMAT, "clouds"));
+                // The cloud march runs at the tier's own resolution scale (design doc
+                // §4.7's "Cloud buffer" row, QualityParams::cloud_buffer_scale) rather
+                // than a hard-coded half; the graph derives the reduced viewport from
+                // this extent, so no pass carries a resolution of its own.
+                const float cloud_scale =
+                    frame.quality.cloud_buffer_scale <= 0.0f ? 0.5f : frame.quality.cloud_buffer_scale;
+                const std::uint32_t cloud_width = std::max<std::uint32_t>(
+                    1u, static_cast<std::uint32_t>(static_cast<float>(frame.width) * cloud_scale + 0.5f));
+                const std::uint32_t cloud_height = std::max<std::uint32_t>(
+                    1u,
+                    static_cast<std::uint32_t>(static_cast<float>(frame.height) * cloud_scale + 0.5f));
+                targets.cloud = graph.create_texture(
+                    color_target(cloud_width, cloud_height, Frame::HDR_FORMAT, "clouds"));
+                // The W3 transmittance-weighted mean march depth, same grid as `cloud`;
+                // R32_SFLOAT matches this codebase's precedent for a linear single-channel
+                // distance target (HizPass, CloudLightVolumePass, CloudShadowMapPass all
+                // bake into the same format).
+                targets.cloud_depth = graph.create_texture(
+                    color_target(cloud_width, cloud_height, VK_FORMAT_R32_SFLOAT, "cloud depth"));
 
                 if (shading_rate_enabled)
                 {

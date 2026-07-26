@@ -48,6 +48,7 @@
 #include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/sim/components.hpp>
+#include <SushiEngine/sim/weather_provider.hpp>
 #include <SushiEngine/vfx/particle_effect.hpp>
 
 namespace SushiEngine
@@ -695,6 +696,46 @@ namespace SushiEngine
 
                 /** @brief Writes the scene-global lighting environment. */
                 virtual void set_environment(const Render::Environment& environment) = 0;
+
+                /**
+                 * @brief Whether `Environment::clouds` is currently driven by procedural weather.
+                 *
+                 * The W4 seam (`docs/slop/weather_and_clouds.md` §3): `IWeatherProvider`'s
+                 * `ProceduralWeather` implementation (T1+T2) compiles into `Cloudscape` every
+                 * tick when enabled, exactly where manual deck authoring already writes it, so
+                 * `CloudscapeCompilePass` (T3) sees no difference either way. Disabled by
+                 * default — a fresh scene keeps today's static manual-authoring behavior.
+                 */
+                virtual bool procedural_weather_enabled() const noexcept = 0;
+
+                /**
+                 * @brief Enables or disables procedural weather.
+                 *
+                 * Enabling starts (or resumes) T1/T2 ticking and overwriting
+                 * `Environment::clouds` every tick; disabling leaves whatever `Cloudscape` was
+                 * last compiled in place as a plain, further hand-editable manual deck stack —
+                 * the Advanced section's existing controls keep working unmodified either way.
+                 *
+                 * @param value Whether procedural weather should drive the sky after this call.
+                 */
+                virtual void set_procedural_weather_enabled(bool value) = 0;
+
+                /**
+                 * @brief The installed weather provider's authoring surface, or null.
+                 *
+                 * Null whenever no provider is installed, or when the installed one cannot be
+                 * authored (an ingested provider fed by real observations has no meaningful
+                 * response to "place a low here"). The Weather panel reads and edits through
+                 * this rather than through a long run of `IWorldEditor` pass-through methods —
+                 * the same reasoning that already keeps cloth grids and audio zones as host-side
+                 * objects the editor reaches into.
+                 *
+                 * Returning the capability rather than the concrete provider is deliberate: this
+                 * interface previously named `ProceduralWeather` directly, which meant the host
+                 * had to store that exact type and no other implementation of the provider seam
+                 * could be installed at all.
+                 */
+                virtual IWeatherAuthoring* weather_authoring() noexcept = 0;
 
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;

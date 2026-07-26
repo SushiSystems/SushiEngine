@@ -1,0 +1,174 @@
+#version 450
+
+// CloudTaaPass (W3): the cloud buffer's own dedicated temporal resolve, War Thunder's
+// shipped scheme per the design doc — YCoCg neighbourhood variance clip (gamma ~= 1.2),
+// motion vectors sourced from the existing velocity target where opaque geometry is
+// visible and a view-ray reprojection fallback where it is not (the common case: most
+// of a cloud pixel's neighbourhood is sky), and history acceptance boosted under
+// sub-pixel motion. Runs entirely before CloudCompositePass folds the resolved cloud
+// over the sky, and long before the frame's own taa_pass_, which only ever sees the
+// already-composited result as an ordinary shaded pixel.
+//
+// Simplifications versus the main resolve (taa.frag), named rather than silent: bilinear
+// reconstruction instead of a bicubic Catmull-Rom tap (the cloud buffer's own content is
+// already soft/volumetric, so the sharpening a bicubic tap buys the crisp main scene
+// resolve matters far less here), and a single point-sampled velocity/depth read instead
+// of a 3x3 dilation neighbourhood (this target is already coarser than the full-res
+// velocity/depth buffers it reads, so one tap already covers roughly the footprint a
+// full-res dilation would).
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_weight;
+layout(set = 0, binding = 2) uniform sampler2D history_color;
+layout(set = 0, binding = 3) uniform sampler2D history_weight;
+layout(set = 0, binding = 4) uniform sampler2D cloud_color;
+layout(set = 0, binding = 5) uniform sampler2D velocity_texture;
+layout(set = 0, binding = 6) uniform sampler2D depth_texture;
+
+// Truncated prefix of the shared scene block (see temporal_common.glsl's header comment
+// for the convention): this pass only needs the camera basis for the sky/cloud
+// reprojection fallback, so it stops there rather than mirroring the whole struct the
+// way a pass with a shared push-descriptor set binding is forced to.
+layout(set = 0, binding = 7) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+} scene;
+
+// Truncated prefix of the shared temporal block, for the same reason.
+layout(set = 0, binding = 8) uniform TemporalBlock
+{
+    mat4 previous_view_projection;
+    vec4 jitter; // xy = this frame's NDC jitter, zw = the previous frame's
+} temporal;
+
+layout(push_constant) uniform Push
+{
+    uint history_valid;  // 0 on the first bake or right after clouds were re-enabled
+    uint variance_clip;  // QualityParams::cloud_variance_clip: 0 on Low (plain EMA)
+} push;
+
+// Standing in for design doc's gamma ~= 1.2 alongside the ordinary sigma-width clip: a
+// slightly wider box than taa.frag's own CLIP_SIGMA, since this resolve has only one
+// point-sampled current-frame tap per neighbour rather than a bicubic reconstruction and
+// so needs a little more slack before it starts rejecting legitimate variation.
+const float CLIP_SIGMA = 1.25;
+const float CLIP_GAMMA = 1.2;
+// Frames of accepted history before the feedback curve reaches its ceiling.
+const float WEIGHT_RAMP_FRAMES = 16.0;
+const float WEIGHT_MAX = 32.0;
+
+vec3 rgb_to_ycocg(vec3 c)
+{
+    return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b,
+               -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
+}
+
+vec3 ycocg_to_rgb(vec3 c)
+{
+    float t = c.x - c.z;
+    return vec3(t + c.y, c.x + c.z, t - c.y);
+}
+
+vec2 clip_to_uv(vec4 clip)
+{
+    return clip.xy / clip.w * 0.5 + 0.5;
+}
+
+void main()
+{
+    ivec2 size = imageSize(out_color);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= size.x || pixel.y >= size.y)
+        return;
+
+    vec2 texel = 1.0 / vec2(size);
+    vec2 uv = (vec2(pixel) + 0.5) * texel;
+
+    vec4 current = max(texture(cloud_color, uv), vec4(0.0));
+
+    // Reverse-Z: zero means nothing opaque was drawn here, the common case for a cloud
+    // pixel sitting over open sky. There the surface velocity buffer carries nothing
+    // meaningful, so the view ray itself is reprojected instead — exact for a direction
+    // at infinity, and close enough for a volumetric deck at planetary range.
+    float depth_here = texture(depth_texture, uv).r;
+    vec2 velocity;
+    if (depth_here > 0.0)
+    {
+        velocity = texture(velocity_texture, uv).rg;
+    }
+    else
+    {
+        vec2 ndc = uv * 2.0 - 1.0;
+        vec3 ray = normalize(scene.cam_forward.xyz + ndc.x * scene.cam_right.xyz +
+                             ndc.y * scene.cam_up.xyz);
+        vec4 previous_clip = temporal.previous_view_projection * vec4(ray, 0.0);
+        velocity = previous_clip.w > 0.0 ? uv - clip_to_uv(previous_clip) : vec2(0.0);
+    }
+
+    vec2 history_uv = uv - velocity;
+    bool history_inside = all(greaterThanEqual(history_uv, vec2(0.0))) &&
+                          all(lessThanEqual(history_uv, vec2(1.0)));
+
+    if (push.history_valid == 0u || !history_inside)
+    {
+        imageStore(out_color, pixel, current);
+        imageStore(out_weight, pixel, vec4(1.0));
+        return;
+    }
+
+    vec4 history = max(texture(history_color, history_uv), vec4(0.0));
+    float weight = texture(history_weight, history_uv).r;
+
+    vec3 current_ycocg = rgb_to_ycocg(current.rgb);
+    vec3 history_ycocg = rgb_to_ycocg(history.rgb);
+
+    if (push.variance_clip != 0u)
+    {
+        vec3 moment1 = vec3(0.0);
+        vec3 moment2 = vec3(0.0);
+        for (int y = -1; y <= 1; ++y)
+        {
+            for (int x = -1; x <= 1; ++x)
+            {
+                vec2 tap_uv = clamp(uv + vec2(x, y) * texel, vec2(0.0), vec2(1.0));
+                vec3 tap = rgb_to_ycocg(max(texture(cloud_color, tap_uv).rgb, vec3(0.0)));
+                moment1 += tap;
+                moment2 += tap * tap;
+            }
+        }
+        const float SAMPLE_COUNT = 9.0;
+        vec3 mean = moment1 / SAMPLE_COUNT;
+        vec3 variance = max(moment2 / SAMPLE_COUNT - mean * mean, vec3(0.0));
+        vec3 extent = sqrt(variance) * CLIP_SIGMA * CLIP_GAMMA;
+
+        vec3 offset = history_ycocg - mean;
+        vec3 unit = offset / max(extent, vec3(1e-5));
+        vec3 magnitude = abs(unit);
+        float largest = max(magnitude.x, max(magnitude.y, magnitude.z));
+        history_ycocg = largest > 1.0 ? mean + offset / largest : history_ycocg;
+    }
+
+    // History acceptance boosted under sub-pixel motion: a reprojection displacing less
+    // than a texel is close to exact, which the ramp below (built for the ordinary
+    // disocclusion-recovery case) would otherwise still discount the same as any other
+    // accepted sample.
+    float speed_px = length(velocity * vec2(size));
+    float sub_pixel_boost = speed_px < 1.0 ? 0.15 : 0.0;
+
+    float new_weight = min(weight + 1.0, WEIGHT_MAX);
+    float ramp = clamp(new_weight / WEIGHT_RAMP_FRAMES, 0.0, 1.0);
+    float feedback = clamp(mix(0.1, 0.94, ramp) + sub_pixel_boost, 0.0, 0.97);
+
+    vec3 resolved_ycocg = mix(current_ycocg, history_ycocg, feedback);
+    vec3 resolved = max(ycocg_to_rgb(resolved_ycocg), vec3(0.0));
+    float resolved_alpha = mix(current.a, history.a, feedback);
+
+    imageStore(out_color, pixel, vec4(resolved, resolved_alpha));
+    imageStore(out_weight, pixel, vec4(new_weight));
+}

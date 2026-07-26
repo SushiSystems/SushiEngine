@@ -1,0 +1,101 @@
+#version 450
+
+// CloudShadowMapPass (W2): bakes the whole cloud stack's optical depth toward the sun,
+// projected along the sun direction over the T3 field's own flat, wind-neutral tile —
+// the single shadow authority replacing both `cloud_ground_shadow`'s per-pixel march in
+// sky.frag (its own private six-deck loop) and `cloud_shadow_common.glsl`'s weather-map
+// approximation for meshes. Raw optical depth is stored, not a transmittance, so both
+// consumers still apply their own live extinction_scale and authored shadow strength
+// without waiting on a rebake to see those sliders move. Amortized by row group across 8
+// frames — the same cadence CloudLightVolumePass refreshes at, since both exist to track
+// the same slowly drifting sun.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, r32f) uniform writeonly image2D shadow_map;
+layout(set = 0, binding = 1) uniform sampler3D cloudscape_field;
+
+layout(set = 0, binding = 2) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_global;
+    vec4 star_params;
+    vec4 misc;
+    vec4 sky_counts;
+    vec4 planet_frame;
+    vec4 cloud_light;
+    vec4 ibl_params;
+    vec4 cloud_deck_a[6];
+    vec4 cloud_deck_b[6];
+    vec4 cloud_deck_c[6];
+    vec4 cloud_deck_d[6];
+    vec4 bodies[80];
+    vec4 sky_stars[128];
+} scene;
+
+layout(push_constant) uniform Params
+{
+    float tile_meters;
+    uint row_start; // first image row this dispatch covers
+    uint row_count; // how many rows this dispatch covers
+} params;
+
+const int SHADOW_MAP_STEPS = 8;
+
+void main()
+{
+    ivec2 size = imageSize(shadow_map);
+    uvec2 local = gl_GlobalInvocationID.xy;
+    if (local.x >= uint(size.x) || local.y >= params.row_count)
+        return;
+    uint y = params.row_start + local.y;
+    if (y >= uint(size.y))
+        return;
+
+    vec2 uv = (vec2(local.x, float(y)) + 0.5) / vec2(size);
+
+    vec3 up = normalize(scene.planet_frame.xyz);
+    vec3 sun = normalize(scene.sun_dir.xyz);
+    float sun_up = dot(sun, up);
+    vec3 sun_horizontal = sun - up * sun_up;
+    // Grazing suns would otherwise send the march's world-space path length toward
+    // infinity for a fixed vertical distance to cover; clamp the same way a directional
+    // shadow map clamps its light-space frustum near the horizon.
+    float safe_sun_up = (sun_up >= 0.0 ? 1.0 : -1.0) * max(abs(sun_up), 0.12);
+
+    float band_meters = max(scene.cloud_global.z - scene.cloud_global.y, 1.0);
+    float total_distance = band_meters / abs(safe_sun_up);
+    float step_meters = total_distance / float(SHADOW_MAP_STEPS);
+
+    // Starts at the shell's own base (height01 = 0): the ground beneath it is clear air
+    // in this flat-tile approximation, so the extra path from an actual ground point up
+    // to the base contributes no density and can be skipped.
+    float height01 = 0.0;
+    float depth = 0.0;
+    for (int i = 0; i < SHADOW_MAP_STEPS; ++i)
+    {
+        if (height01 > 1.0)
+            break;
+        vec2 layers = texture(cloudscape_field, vec3(uv, clamp(height01, 0.0, 1.0))).rg;
+        depth += (layers.x + layers.y) * step_meters;
+        // The field's sampler wraps REPEAT, so the UV is left to drift rather than
+        // fract()'d here — identical result, one fewer op per step.
+        uv += (sun_horizontal.xz * step_meters) / params.tile_meters;
+        height01 += (safe_sun_up * step_meters) / band_meters;
+    }
+
+    imageStore(shadow_map, ivec2(local.x, int(y)), vec4(depth, 0.0, 0.0, 0.0));
+}

@@ -57,6 +57,11 @@
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/sim/weather_cloudscape_compiler.hpp>
+#include <SushiEngine/sim/weather_field_buffer.hpp>
+#include <SushiEngine/sim/weather_wind.hpp>
+#include <SushiEngine/sim/weather_world_coupling.hpp>
+#include <SushiEngine/vfx/compiled_emitter.hpp>
 #include <SushiEngine/vfx/deterministic_backend.hpp>
 #include <SushiEngine/vfx/effect_database.hpp>
 #include <SushiEngine/vfx/particle_effect.hpp>
@@ -509,6 +514,90 @@ namespace SushiEngine
                         extract();
                     }
 
+                    /**
+                     * @brief Installs (or clears) the weather provider and caches its capability.
+                     *
+                     * The one place a concrete provider type is named. Everything after this
+                     * point — the tick, the column sample, the field publish, the editor's
+                     * authoring surface — goes through an interface, which is what makes any
+                     * implementation of the seam installable rather than just the one the host
+                     * happened to be written against.
+                     *
+                     * @param provider The provider to take ownership of, or null to clear.
+                     */
+                    void install_weather_provider(std::unique_ptr<IWeatherProvider> provider)
+                    {
+                        weather_provider_ = std::move(provider);
+                        weather_authoring_ =
+                            dynamic_cast<IWeatherAuthoring*>(weather_provider_.get());
+                    }
+
+                    /**
+                     * @brief The geodetic position of a scene-space XZ point.
+                     *
+                     * The scene is a flat tangent patch anchored at the sky observer's geodetic
+                     * position, with **+X east and +Z north** — the same convention
+                     * `weather_field_buffer.hpp` states for the published field and the rain
+                     * emitter's wind drift already assumes. Sharing one mapping is what keeps
+                     * the column sampled here and the field sampled in the shader describing the
+                     * same point.
+                     *
+                     * @param x Scene X, metres.
+                     * @param z Scene Z, metres.
+                     * @return The geodetic position of that point.
+                     */
+                    GeodeticPosition geodetic_at_scene(double x, double z) const
+                    {
+                        constexpr double MIN_COS_LATITUDE = 0.05;
+                        const double radius = std::max(double(scene_.environment.planet.mean_radius()), 1.0);
+                        const double latitude = scene_.environment.observer.latitude_radians;
+                        const double cos_latitude = std::max(std::cos(latitude), MIN_COS_LATITUDE);
+                        return GeodeticPosition{latitude + z / radius,
+                                                scene_.environment.observer.longitude_radians +
+                                                    x / (radius * cos_latitude)};
+                    }
+
+                    bool procedural_weather_enabled() const noexcept override
+                    {
+                        return static_cast<bool>(weather_provider_);
+                    }
+
+                    void set_procedural_weather_enabled(bool value) override
+                    {
+                        if (value == static_cast<bool>(weather_provider_))
+                            return;
+                        if (value)
+                        {
+                            // A fixed default seed for this phase's wiring: the editor's Weather
+                            // panel v2 owns exposing a reseed control on top of this seam later.
+                            // The scene planet's mean radius anchors T1/T2's tangent-plane math to
+                            // whichever body is dominant, matching Environment::planet already.
+                            constexpr std::uint64_t DEFAULT_WEATHER_SEED = 1;
+                            install_weather_provider(std::make_unique<ProceduralWeather>(
+                                DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius()));
+                            // W5's acceptance bar wants reduced visibility to actually show up
+                            // under rain; froxel fog stays author-off by default (FogParams::enabled
+                            // = false) since most scenes never touch weather. A one-shot default
+                            // nudge here, not a continuous override: it only fires the instant
+                            // procedural weather turns on, and the author's own choice afterward
+                            // (including turning it back off) is never re-applied on top of it --
+                            // the same "fixed default, not a running override" shape as this
+                            // function's seed above.
+                            if (!scene_.environment.fog.enabled)
+                                scene_.environment.fog.enabled = true;
+                        }
+                        else
+                        {
+                            install_weather_provider(nullptr);
+                        }
+                        extract();
+                    }
+
+                    IWeatherAuthoring* weather_authoring() noexcept override
+                    {
+                        return weather_authoring_;
+                    }
+
                     bool has_renderer(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -888,8 +977,16 @@ namespace SushiEngine
                                                              half_extents, &terrain_collider);
                         Record* record = find(id);
                         if (record != nullptr)
+                        {
                             world_.get<Tint>(record->entity).color =
                                 Vector3{Scalar(0.35), Scalar(0.55), Scalar(0.3)};
+                            // The ground is the acceptance bar's own "wet ground" symptom (design
+                            // doc §7, W5); opt it in by default so the demo scenario shows it
+                            // without extra authoring, matching the material-flag-gated pattern
+                            // (MaterialFlags::MATERIAL_WEATHER_WET) every other material still
+                            // opts into explicitly.
+                            record->material.weather_wettable = true;
+                        }
                         return id;
                     }
 
@@ -2196,6 +2293,12 @@ namespace SushiEngine
                             double(clock_.fixed_dt()) * time_scale_days_per_second_;
                         julian_date_ += step_days;
 
+                        if (weather_provider_)
+                            weather_provider_->tick(double(clock_.fixed_dt()),
+                                GeodeticPosition{scene_.environment.observer.latitude_radians,
+                                                 scene_.environment.observer.longitude_radians},
+                                julian_date_);
+
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
@@ -2506,6 +2609,52 @@ namespace SushiEngine
                         // it back) sees the sim's authoritative "now" for the sky.
                         scene_.environment.observer.julian_date = julian_date_;
 
+                        // W4: when procedural weather is active, its compiled column state
+                        // replaces the manually authored Cloudscape every extract — the same
+                        // Environment::clouds write path manual authoring already uses, so
+                        // CloudscapeCompilePass (T3) needs no changes to consume either source.
+                        if (weather_provider_)
+                        {
+                            const GeodeticPosition observer{scene_.environment.observer.latitude_radians,
+                                                            scene_.environment.observer.longitude_radians};
+                            // Sampled where the camera stands, not at the scene's geodetic anchor.
+                            // Those were the same point while the weather was uniform; with a
+                            // spatial field they are not, and every symptom below -- the deck
+                            // stack, the fog, the wetness, the rain -- describes what is happening
+                            // *here*. It is also what makes the field's coverage scale exactly 1
+                            // at the camera, so the bake is never stretched where it is seen most
+                            // closely.
+                            const GeodeticPosition local =
+                                scene_.has_camera
+                                    ? geodetic_at_scene(double(scene_.camera.position.x),
+                                                        double(scene_.camera.position.z))
+                                    : observer;
+                            // One sampled column drives both the compiled Cloudscape and the
+                            // world-coupling signal (fog/turbidity/wetness/precipitation) -- one
+                            // cause, every symptom, not two independently sampled systems that
+                            // happen to agree.
+                            const WeatherColumn column = weather_provider_->sample_column(local);
+                            scene_.environment.clouds = weather_compiler_.compile(column);
+                            scene_.environment.weather = weather_world_compiler_.compile(column);
+
+                            // The spatial half (docs/slop/atmosphere_system.md §7): the same
+                            // provider's horizontal structure, published as a field the cloud
+                            // march reads per sample. The column above is what the deck stack was
+                            // compiled from, so it is also the field's reference -- record it here,
+                            // from the same sample, rather than letting the two drift apart.
+                            weather_field_buffer_.set_reference_column(column);
+                            weather_provider_->publish_field(observer, weather_field_buffer_);
+                            scene_.environment.weather_field = weather_field_buffer_.view();
+                        }
+                        else
+                        {
+                            // No dynamic weather: leave the render tier exactly as it behaved
+                            // before the field existed (every WeatherCoupling field defaults to
+                            // zero/no-op, and an invalid field is ignored outright).
+                            scene_.environment.weather = Render::WeatherCoupling{};
+                            scene_.environment.weather_field = Render::WeatherField{};
+                        }
+
                         // Anchor ground-relative orientations and keep everything above the
                         // planet surface, before reading poses into the render snapshot — so
                         // both play (post-step) and edit (post-edit) reflect them.
@@ -2688,6 +2837,214 @@ namespace SushiEngine
                                 view.id = static_cast<std::uint32_t>(id);
                                 scene_.particle_emitters.push_back(view);
                             }
+                        }
+
+                        // W5 precipitation VFX: a synthetic, sim-owned cosmetic rain emitter that
+                        // follows the camera, sourced from the same weather column that darkened
+                        // the cloud base and thickened the fog above -- one cause, every symptom
+                        // (design doc §7's acceptance bar). Not an authored ECS entity: that would
+                        // clutter the Hierarchy/Outliner and the scene file with a system-generated
+                        // object, so it is appended straight into the render scene's own
+                        // particle-emitter list instead, the same seam the entity loop above
+                        // already writes through -- using the GPU cosmetic path per
+                        // QualityParams::gpu_particles's own doc ("the deterministic CPU particle
+                        // path is unaffected; it is gameplay, not a quality knob"), since ambient
+                        // weather rain is squarely cosmetic.
+                        //
+                        // Rain only: WeatherColumn carries no temperature signal (see
+                        // weather_types.hpp), so there is no honest basis to pick snow over rain --
+                        // a named scope-down rather than a fabricated phase test.
+                        //
+                        // The intensity now comes from the column above the *camera* (see
+                        // extract()'s sample site), so flying into a shower starts the rain and
+                        // flying out of it stops it -- "rain falls from the cell that is raining",
+                        // which a single observer-anchored sample could never express.
+                        const float precipitation = scene_.environment.weather.precipitation_intensity;
+                        constexpr float PRECIPITATION_VFX_THRESHOLD = 0.05f;
+                        if (weather_provider_ && scene_.has_camera &&
+                            precipitation > PRECIPITATION_VFX_THRESHOLD)
+                        {
+                            const GeodeticPosition local =
+                                geodetic_at_scene(double(scene_.camera.position.x),
+                                                  double(scene_.camera.position.z));
+                            // weather_wind(): the synoptic field plus a local perturbation, near
+                            // the surface; lateral drift only, scaled down below. Only an
+                            // authorable provider carries a synoptic layer to sample -- an
+                            // ingested one has no such field, and its rain simply falls straight.
+                            WindSample wind{};
+                            if (weather_authoring_ != nullptr)
+                                wind = weather_wind(weather_authoring_->synoptic(), local,
+                                                    /*altitude_meters=*/50.0,
+                                                    julian_date_ * 86400.0);
+
+                            Vfx::CompiledEmitter& rain = weather_rain_emitter_;
+                            rain = Vfx::CompiledEmitter{};
+                            rain.capacity = 4096;
+                            rain.domain = Vfx::SimulationDomain::Cosmetic;
+                            rain.duration = 5.0f;
+                            rain.flags = Vfx::EMITTER_LOOPING;
+                            rain.spawn_rate = 900.0f * precipitation;
+                            rain.shape = Vfx::EmitterShape::Box;
+                            rain.shape_box_half_extents[0] = 35.0f;
+                            rain.shape_box_half_extents[1] = 15.0f;
+                            rain.shape_box_half_extents[2] = 35.0f;
+                            rain.lifetime_min = 1.6f;
+                            rain.lifetime_max = 2.2f;
+                            // Box shape emits along local +Y (particle_common.glsl's sample_shape);
+                            // a negative speed range is what turns that into a downward fall.
+                            rain.speed_min = -22.0f;
+                            rain.speed_max = -15.0f;
+                            rain.size_min = 0.03f;
+                            rain.size_max = 0.06f;
+                            rain.color[0] = 0.55f;
+                            rain.color[1] = 0.62f;
+                            rain.color[2] = 0.70f;
+                            rain.update_flags = Vfx::UPDATE_GRAVITY;
+                            // weather_wind()'s lateral drift, scaled well down: rain falls in ~2 s,
+                            // so even a brisk wind should nudge the streak, not fling it sideways.
+                            constexpr float WIND_DRIFT_SCALE = 0.2f;
+                            rain.gravity[0] = static_cast<float>(wind.eastward_mps) * WIND_DRIFT_SCALE;
+                            rain.gravity[1] = -3.0f;
+                            rain.gravity[2] = static_cast<float>(wind.northward_mps) * WIND_DRIFT_SCALE;
+                            rain.blend = Vfx::BlendMode::Alpha;
+                            rain.alignment = Vfx::RenderAlignment::VelocityStretched;
+                            rain.velocity_stretch = 0.04f;
+                            rain.render_flags = Vfx::RENDER_SOFT;
+                            rain.soft_fade_distance = 0.3f;
+
+                            weather_rain_spawn_carry_ +=
+                                rain.spawn_rate * static_cast<float>(clock_.fixed_dt());
+                            std::uint32_t spawn_count =
+                                static_cast<std::uint32_t>(weather_rain_spawn_carry_);
+                            weather_rain_spawn_carry_ -= static_cast<float>(spawn_count);
+                            if (spawn_count > rain.capacity)
+                                spawn_count = rain.capacity;
+
+                            const Vector3 rain_center =
+                                scene_.camera.position + Vector3{0, Scalar(25.0), 0};
+                            Render::ParticleEmitterView view;
+                            view.model = compose_transform(rain_center, Quaternion{}, Vector3{1, 1, 1});
+                            view.compiled = &weather_rain_emitter_;
+                            view.spawn_count = spawn_count;
+                            view.seed = 0x57454154u; // 'WEAT' -- a fixed synthetic seed, not an entity.
+                            view.dt = static_cast<float>(clock_.fixed_dt());
+                            view.id = Render::NO_PICK;
+                            scene_.particle_emitters.push_back(view);
+                        }
+                        else
+                        {
+                            weather_rain_spawn_carry_ = 0.0f;
+                        }
+
+                        // W6 canopy wisp VFX (design doc §7): small wispy cosmetic particles
+                        // hugging a cloud deck's own base or top boundary, for close flythroughs.
+                        // Gated by camera altitude alone -- not weather-specific like the rain
+                        // emitter above -- since a hand-authored Manual-mode sky's deck boundary
+                        // is exactly as real a thing to fly through as a procedurally compiled
+                        // one, and scene_.environment.clouds already holds whichever is live.
+                        // Reuses cloud_genus_profile's own base_altitude/top_altitude per enabled
+                        // deck (the same étage data WeatherCloudscapeCompiler and
+                        // StaticWeather::decompose already read), so no new authoring surface is
+                        // needed to know where a deck's edge sits.
+                        constexpr float WISP_BAND_METERS = 60.0f;
+                        constexpr float WISP_COVERAGE_THRESHOLD = 0.25f;
+                        bool wisp_active = false;
+                        float wisp_boundary_altitude = 0.0f;
+                        if (scene_.has_camera && scene_.environment.clouds.enabled)
+                        {
+                            const Vector3 camera_offset =
+                                scene_.camera.position - planet_center_scene();
+                            const float camera_altitude = float(
+                                length(camera_offset) -
+                                Scalar(scene_.environment.planet_surface_reference_metres));
+
+                            float best_distance = WISP_BAND_METERS;
+                            for (int i = 0; i < Render::CLOUD_MAX_DECKS; ++i)
+                            {
+                                const Render::CloudDeck& deck = scene_.environment.clouds.decks[i];
+                                if (!deck.enabled)
+                                    continue;
+                                const Render::CloudGenusProfile profile =
+                                    Render::cloud_genus_profile(deck.genus);
+                                const float coverage =
+                                    std::clamp(profile.coverage + deck.coverage_bias, 0.0f, 1.0f);
+                                if (coverage < WISP_COVERAGE_THRESHOLD)
+                                    continue;
+                                const float base_distance =
+                                    std::fabs(camera_altitude - profile.base_altitude);
+                                if (base_distance < best_distance)
+                                {
+                                    best_distance = base_distance;
+                                    wisp_boundary_altitude = profile.base_altitude;
+                                    wisp_active = true;
+                                }
+                                const float top_distance =
+                                    std::fabs(camera_altitude - profile.top_altitude);
+                                if (top_distance < best_distance)
+                                {
+                                    best_distance = top_distance;
+                                    wisp_boundary_altitude = profile.top_altitude;
+                                    wisp_active = true;
+                                }
+                            }
+                        }
+
+                        if (wisp_active)
+                        {
+                            Vfx::CompiledEmitter& wisp = weather_wisp_emitter_;
+                            wisp = Vfx::CompiledEmitter{};
+                            wisp.capacity = 1024;
+                            wisp.domain = Vfx::SimulationDomain::Cosmetic;
+                            wisp.duration = 6.0f;
+                            wisp.flags = Vfx::EMITTER_LOOPING;
+                            wisp.spawn_rate = 40.0f; // sparse and wispy, not a dense fog sheet.
+                            wisp.shape = Vfx::EmitterShape::Box;
+                            wisp.shape_box_half_extents[0] = 40.0f;
+                            wisp.shape_box_half_extents[1] = 8.0f; // thin slab hugging the boundary.
+                            wisp.shape_box_half_extents[2] = 40.0f;
+                            wisp.lifetime_min = 4.0f;
+                            wisp.lifetime_max = 7.0f;
+                            wisp.speed_min = 0.1f;
+                            wisp.speed_max = 0.6f; // barely drifting; wisps loiter, they don't fall.
+                            wisp.size_min = 2.5f;
+                            wisp.size_max = 5.5f;
+                            wisp.color[0] = 0.92f;
+                            wisp.color[1] = 0.94f;
+                            wisp.color[2] = 0.97f;
+                            wisp.update_flags = Vfx::UPDATE_TURBULENCE;
+                            wisp.turbulence_frequency = 0.05f;
+                            wisp.turbulence_amplitude = 1.2f;
+                            wisp.blend = Vfx::BlendMode::Alpha;
+                            wisp.alignment = Vfx::RenderAlignment::FaceCamera;
+                            wisp.render_flags = Vfx::RENDER_SOFT;
+                            wisp.soft_fade_distance = 1.5f;
+
+                            weather_wisp_spawn_carry_ +=
+                                wisp.spawn_rate * static_cast<float>(clock_.fixed_dt());
+                            std::uint32_t spawn_count =
+                                static_cast<std::uint32_t>(weather_wisp_spawn_carry_);
+                            weather_wisp_spawn_carry_ -= static_cast<float>(spawn_count);
+                            if (spawn_count > wisp.capacity)
+                                spawn_count = wisp.capacity;
+
+                            const Vector3 up = normalize(scene_.camera.position - planet_center_scene());
+                            const Vector3 wisp_center =
+                                planet_center_scene() +
+                                up * Scalar(double(scene_.environment.planet_surface_reference_metres) +
+                                           double(wisp_boundary_altitude));
+
+                            Render::ParticleEmitterView view;
+                            view.model = compose_transform(wisp_center, Quaternion{}, Vector3{1, 1, 1});
+                            view.compiled = &weather_wisp_emitter_;
+                            view.spawn_count = spawn_count;
+                            view.seed = 0x57495350u; // 'WISP' -- a fixed synthetic seed, not an entity.
+                            view.dt = static_cast<float>(clock_.fixed_dt());
+                            view.id = Render::NO_PICK;
+                            scene_.particle_emitters.push_back(view);
+                        }
+                        else
+                        {
+                            weather_wisp_spawn_carry_ = 0.0f;
                         }
 
                         // Punctual lights: a light is a record on the entity, so its world
@@ -3012,6 +3369,34 @@ namespace SushiEngine
                     std::unique_ptr<IPhysicsSimulation> physics_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
+
+                    // The weather seam: ticked from step_once() and compiled into
+                    // scene_.environment.clouds from extract() whenever set. Null (the default)
+                    // leaves clouds exactly as manual authoring already sets them. Held as the
+                    // *interface*, not a concrete provider — see install_weather_provider.
+                    std::unique_ptr<IWeatherProvider> weather_provider_;
+                    // The installed provider's authoring capability, resolved once at install
+                    // rather than re-queried per call; null when it has none.
+                    IWeatherAuthoring* weather_authoring_ = nullptr;
+                    // Storage behind Environment::weather_field, which borrows it (see
+                    // Render::WeatherField). Owned here because this object outlives every frame
+                    // whose environment can still be read.
+                    WeatherFieldBuffer weather_field_buffer_;
+                    WeatherCloudscapeCompiler weather_compiler_;
+                    WeatherWorldCoupling weather_world_compiler_;
+
+                    // W5 precipitation VFX (see extract()'s particle-emitter section): a single,
+                    // sim-owned cosmetic rain emitter reused frame to frame rather than an
+                    // authored ECS entity. ParticleEmitterView::compiled is a non-owning pointer
+                    // that must outlive the frame's render, so this has to be a persistent member,
+                    // not a stack local built inside extract().
+                    Vfx::CompiledEmitter weather_rain_emitter_;
+                    float weather_rain_spawn_carry_ = 0.0f;
+
+                    // W6 canopy wisp VFX (see extract()'s particle-emitter section): the same
+                    // persistent-member reasoning as weather_rain_emitter_ above.
+                    Vfx::CompiledEmitter weather_wisp_emitter_;
+                    float weather_wisp_spawn_carry_ = 0.0f;
 
                     // The deterministic particle path: a small library of built-in effects
                     // (Deterministic domain) an emitter entity references by index, and their

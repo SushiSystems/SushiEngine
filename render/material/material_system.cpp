@@ -200,6 +200,8 @@ namespace SushiEngine
                     flags |= MATERIAL_SHEEN;
                 if (material.transmission > 0.0f)
                     flags |= MATERIAL_TRANSMISSION;
+                if (material.weather_wettable)
+                    flags |= MATERIAL_WEATHER_WET;
                 // Strip whichever advanced lobes the current tier withholds; the base PBR
                 // flags pass through untouched because set_allowed_lobes forces their bits on.
                 flags &= allowed_lobes_;

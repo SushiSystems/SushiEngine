@@ -84,6 +84,8 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 light_shadow_b; // light 4 in x, yzw spare
 } scene;
 
+#include "cloud_shadow_common.glsl"
+
 // The clustered light engine's punctual buffer and froxel grid, the same subset of the
 // shared scene set the opaque pass binds (see SceneLayout) — so the analytic ground
 // picks up point/spot lights exactly as a mesh does, without pulling in the decal or
@@ -120,10 +122,10 @@ layout(set = 0, binding = 17) uniform ClusterBlock
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
 layout(set = 0, binding = 2) uniform sampler2D hdr_color_texture;
-layout(set = 0, binding = 3) uniform sampler3D cloud_shape_texture;   // R = Perlin-Worley, GBA = Worley octaves
-layout(set = 0, binding = 4) uniform sampler3D cloud_detail_texture;  // RGB = high-frequency Worley octaves
-layout(set = 0, binding = 5) uniform sampler2D cloud_weather_texture; // R = coverage, G = cloud type
-layout(set = 0, binding = 6) uniform sampler3D cloud_cirrus_texture;  // R = anisotropic filament base, GBA = Worley octaves
+// CloudShadowMapPass's baked optical-depth-toward-the-sun map (W2's unified authority) —
+// replaces this file's own six-deck density march for the ground shadow, and is the same
+// map pbr.frag's mesh shading reads through cloud_shadow_common.glsl.
+layout(set = 0, binding = 3) uniform sampler2D cloud_shadow_map;
 // The sun's cascades. The analytic ground is the surface most of this scene actually
 // stands on, so it has to receive the same shadows the meshes standing on it do —
 // otherwise an object casts onto nothing and reads as floating over its own terrain.
@@ -144,8 +146,6 @@ layout(set = 0, binding = 27) uniform sampler3D aerial_volume;
 // transmittance, folded over every pixel in the composite. Same addressing as the aerial
 // volume, so sample_aerial reads it too.
 layout(set = 0, binding = 28) uniform sampler3D fog_volume;
-
-#define CLOUD_MAX_DECKS 6
 
 layout(location = 0) in vec2 v_ndc;
 
@@ -460,256 +460,6 @@ float phase_mie(float mu, float g)
     return 1.0 / (4.0 * PI) * (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * mu, 1.5);
 }
 
-// Linear remap of v from [a,b] to [c,d].
-float remap(float v, float a, float b, float c, float d)
-{
-    return c + (v - a) / (b - a) * (d - c);
-}
-
-// Vertical density profile across a deck, chosen by its morphology. `stratiform` morphs
-// from a rounded cumuliform mound (0) to a flat continuous sheet (1); `anvil` blends in a
-// tall convective column that fills nearly the whole étage (cumulonimbus). height01 is 0
-// at the deck base, 1 at its top.
-float cloud_height_gradient(float height01, float stratiform, float anvil)
-{
-    float cumuliform = clamp(remap(height01, 0.0, 0.15, 0.0, 1.0), 0.0, 1.0) *
-                       clamp(remap(height01, 0.55, 1.0, 1.0, 0.0), 0.0, 1.0);
-    float sheet = clamp(remap(height01, 0.0, 0.08, 0.0, 1.0), 0.0, 1.0) *
-                  clamp(remap(height01, 0.80, 1.0, 1.0, 0.0), 0.0, 1.0);
-    float tower = clamp(remap(height01, 0.0, 0.10, 0.0, 1.0), 0.0, 1.0) *
-                  clamp(remap(height01, 0.90, 1.0, 1.0, 0.0), 0.0, 1.0);
-    float g = mix(cumuliform, sheet, stratiform);
-    return mix(g, tower, anvil);
-}
-
-// Modelled density of a single genus deck at a camera-relative world point. Returns 0
-// outside the deck's altitude band or where coverage does not reach; height01 is the
-// normalized altitude within the deck. The deck index selects its parameters; its noise
-// kind picks the isotropic cumuliform base volume or the wind-stretched anisotropic cirrus
-// volume; its stratiform axis flattens cellular billows into a sheet; and its anvil term
-// both tows the column up to the tropopause and flares the top outward (cumulonimbus).
-float cloud_deck_density(int i, vec3 p, bool cheap, out float height01)
-{
-    height01 = 0.0;
-    vec4 la = scene.cloud_deck_a[i];
-    float density_scale = la.w;
-    if (density_scale <= 0.0) // disabled deck (density packed to zero)
-        return 0.0;
-
-    float surface_r = scene.planet_center.w;
-    float base_r = surface_r + la.x;
-    float top_r = surface_r + la.y;
-    vec3 to_p = p - scene.planet_center.xyz;
-    float r = length(to_p);
-    if (r < base_r || r > top_r)
-        return 0.0;
-    height01 = (r - base_r) / (top_r - base_r);
-    vec3 up = to_p / max(r, 1.0);
-
-    vec4 lb = scene.cloud_deck_b[i];
-    vec4 lc = scene.cloud_deck_c[i];
-    vec4 ld = scene.cloud_deck_d[i];
-    float stratiform = lb.x;
-    float shape_scale = lb.z;
-    float detail_scale = lb.w;
-    bool cirrus = lc.w > 0.5;
-    float anvil = ld.x;
-    float weather_scale = max(ld.y, 1.0);
-
-    // Advect this deck's field with its own wind over time, and shift each deck into a
-    // different region of the finite noise volumes so decks never repeat the same lumps
-    // in lockstep with one another.
-    vec3 wind = lc.xyz * scene.misc.z;
-    vec3 deck_offset = vec3(float(i) * 6130.0, float(i) * 2710.0, float(i) * 9770.0);
-    vec3 sp = p + wind + deck_offset;
-
-    // Coverage from a weather map with realistic clustering. A broad field sets where the
-    // weather systems sit (large clear vs cloudy regions, tens of km); a finer field adds the
-    // clumping within them (clusters and gaps, a few km), sampled stretched along this deck's
-    // wind so the clumps line up into wind-parallel cloud streets. A broad self-warp at a
-    // wavelength far larger than the map tile hides the tile period. The fine scale and the
-    // streets are skipped on the cheap path (light march / probe) — coverage there needs only
-    // the broad field, which keeps the shadow march cheap.
-    vec3 t1 = normalize(cross(up, vec3(0.1, 0.0, 1.0)));
-    vec3 t2 = cross(up, t1);
-    vec2 wpln = vec2(dot(sp, t1), dot(sp, t2));
-    vec2 wuv = wpln / weather_scale;
-    vec2 wwarp = texture(cloud_weather_texture, wuv * 0.15 + vec2(0.37)).rg - 0.5;
-    wuv += wwarp * 0.9;
-    float weather = texture(cloud_weather_texture, wuv).r;
-    if (!cheap)
-    {
-        vec2 wind_dir = vec2(dot(lc.xyz, t1), dot(lc.xyz, t2));
-        float wlen = length(wind_dir);
-        vec2 along = wlen > 1e-3 ? wind_dir / wlen : vec2(1.0, 0.0);
-        vec2 across = vec2(-along.y, along.x);
-        vec2 street_uv =
-            vec2(dot(wpln, along) * 0.25, dot(wpln, across)) / (weather_scale * 0.22);
-        float weather_small = texture(cloud_weather_texture, street_uv + vec2(0.13)).r;
-        weather = weather * 0.7 + weather_small * 0.3;
-    }
-    // Center the field on the deck's authored coverage but let it swing to zero, so the sky
-    // breaks into distinct clouds with clear gaps rather than an even, uniform carpet.
-    float coverage = clamp(la.z + (weather - 0.5) * 1.35, 0.0, 1.0);
-    // Anvil: the deep-convective top spreads horizontally, so raise the effective coverage
-    // toward the tropopause — the tower blooms into a broad cap instead of a thin spike.
-    coverage = clamp(coverage + anvil * smoothstep(0.55, 1.0, height01) * 0.55, 0.0, 1.0);
-
-    // Domain warp is the single biggest cure for visible repetition. Two octaves at
-    // incommensurate wavelengths, each much larger than the shape tile so the warp itself
-    // never reads as a pattern: a broad, high-amplitude fold bends the whole lattice off
-    // its grid, and a medium fold breaks the fold's own regularity. Together they scatter
-    // the noise's period so no two lumps land at the tile spacing the eye latches onto.
-    vec3 warp_broad = texture(cloud_shape_texture, sp / (shape_scale * 8.0) + vec3(0.19)).rgb - 0.5;
-    vec3 warp_med = texture(cloud_detail_texture, sp / (shape_scale * 2.7)).rgb - 0.5;
-    vec3 wp = sp + warp_broad * shape_scale * 0.9 + warp_med * shape_scale * 0.35;
-
-    // Dual-scale base sample at a non-integer ratio: the two tile periods beat against each
-    // other, so the combined field only repeats over an enormous distance. The `cheap` path
-    // (light march, shadow, empty-space probing) takes a single fetch — the second scale and
-    // the detail erosion below only shape the silhouette the eye sees along the view ray, not
-    // the optical depth toward the sun — which is the main lever on the volumetric cost.
-    vec4 base;
-    if (cirrus || cheap)
-    {
-        base = cirrus ? texture(cloud_cirrus_texture, wp / shape_scale)
-                      : texture(cloud_shape_texture, wp / shape_scale);
-    }
-    else
-    {
-        vec4 base0 = texture(cloud_shape_texture, wp / shape_scale);
-        vec4 base1 = texture(cloud_shape_texture, wp / (shape_scale * 2.17) + vec3(0.37));
-        base = mix(base0, base1, 0.4);
-    }
-    float low_freq = base.g * 0.625 + base.b * 0.25 + base.a * 0.125;
-    float base_shape = clamp(remap(base.r, low_freq - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
-    base_shape *= cloud_height_gradient(height01, stratiform, anvil);
-
-    // Coverage: push the shape below the coverage threshold to zero, renormalize the rest.
-    float d = clamp(remap(base_shape, 1.0 - coverage, 1.0, 0.0, 1.0), 0.0, 1.0) * coverage;
-    if (d <= 0.0)
-        return 0.0;
-
-    if (!cheap)
-    {
-        // Erode the edges with high-frequency detail — wispy at the top, billowy at the base.
-        // A sheet-like deck keeps smoother edges (less erosion) than a cellular one.
-        vec4 det = texture(cloud_detail_texture, (sp + wind * 0.3) / detail_scale);
-        float detail_fbm = det.r * 0.625 + det.g * 0.25 + det.b * 0.125;
-        float erosion = mix(detail_fbm, 1.0 - detail_fbm, clamp(height01 * 3.0, 0.0, 1.0));
-        d = clamp(remap(d, erosion * lb.y * (1.0 - stratiform * 0.6), 1.0, 0.0, 1.0), 0.0, 1.0);
-    }
-
-    return d * density_scale;
-}
-
-// Total cloud density at p, summed over every deck. Because the decks are one physical
-// medium, the sum is what the view and light marches integrate — so a light ray from a
-// low cumulus sample crosses the mid and high decks above it and is shadowed by them
-// with no extra machinery. ambient_h is the normalized altitude across the whole cloud
-// shell, used for the height-graded ambient fill in the lighting.
-float cloud_density(vec3 p, bool cheap, out float ambient_h)
-{
-    float total = 0.0;
-    for (int i = 0; i < CLOUD_MAX_DECKS; ++i)
-    {
-        float h;
-        total += cloud_deck_density(i, p, cheap, h);
-    }
-    float surface_r = scene.planet_center.w;
-    float base_min = surface_r + scene.cloud_global.y;
-    float top_max = surface_r + scene.cloud_global.z;
-    float r = length(p - scene.planet_center.xyz);
-    ambient_h = clamp((r - base_min) / max(top_max - base_min, 1.0), 0.0, 1.0);
-    return total;
-}
-
-// Cone-sampled optical depth from p toward the sun across the whole cloud shell. Six
-// samples with exponentially growing steps — short near p for crisp local self-shadow,
-// coarse far out — each pushed sideways on a widening cone so the depth stands for a
-// bundle of directions rather than a single ray. That softens the shadow and lets light
-// bleed through thin edges the way real cloud does, and spanning the full shell is what
-// lets an upper layer shadow a lower one. Takes the cheap density (no detail erosion /
-// dual-scale) since it feeds a single scalar depth.
-float cloud_light_march(vec3 p, vec3 sun)
-{
-    const int LIGHT_STEPS = 5;
-    vec3 b1 = normalize(cross(sun, vec3(0.31, 0.86, 0.41)));
-    vec3 b2 = cross(sun, b1);
-    float shell = max(scene.cloud_global.z - scene.cloud_global.y, 1.0);
-    float cone_radius = shell * 0.08;
-    float step_len = shell * 0.04; // short first step; grows each iteration
-    float depth = 0.0;
-    float t = 0.0;
-    for (int i = 0; i < LIGHT_STEPS; ++i)
-    {
-        float cone = float(i) / float(LIGHT_STEPS);
-        float a = float(i) * 2.4;
-        vec3 offset = (b1 * cos(a) + b2 * sin(a)) * cone * cone_radius;
-        float h;
-        depth += cloud_density(p + sun * (t + step_len * 0.5) + offset, true, h) * step_len;
-        t += step_len;
-        step_len *= 2.1;
-    }
-    return depth;
-}
-
-// Sunlight energy reaching a sample, modelled as multiple scattering: three octaves of
-// Beer extinction with halving optical depth, scatter weight and phase eccentricity
-// (Wrenninge/Hillaire). The first octave is the direct single-scatter term; the dimmer,
-// broader octaves fill the deep interior the single term leaves black, so dense cores read
-// luminous and self-shadowed instead of flat — the main cue that a cloud has volume.
-float cloud_sun_energy(float light_depth, float mu, float g, float extinction_scale)
-{
-    float energy = 0.0;
-    float attenuation = 1.0;
-    float scatter = 1.0;
-    float eccentricity = g;
-    for (int o = 0; o < 4; ++o)
-    {
-        float beer = exp(-light_depth * extinction_scale * attenuation);
-        float lobe = mix(phase_mie(mu, eccentricity), phase_mie(mu, -0.15 * eccentricity), 0.5);
-        // Deeper octaves are multiply scattered — their light has lost its direction, so blend
-        // the lobe toward isotropic as octaves deepen. This is why a cloud reads white from
-        // every angle instead of only a bright rim when you look toward the sun. The 4*PI
-        // factor rescales the small raw phase value so a fully-lit sample approaches the sun's
-        // radiance (white); the light march's Beer term then greys down the self-shadowed side.
-        float ph = mix(lobe, 1.0 / (4.0 * PI), float(o) / 3.0);
-        energy += scatter * beer * ph * 4.0 * PI;
-        attenuation *= 0.5;
-        scatter *= 0.65;
-        eccentricity *= 0.5;
-    }
-    return energy;
-}
-
-// Transmittance of direct sunlight down to a ground point through the whole cloud stack,
-// so the clouds cast their combined shadow onto the analytic ground. Marches from the
-// shell base straight up the sun direction; scaled by the author's shadow strength.
-float cloud_ground_shadow(vec3 ground_p, vec3 sun)
-{
-    if (scene.misc.w <= 0.5 || scene.cloud_global.x <= 0.0)
-        return 1.0;
-    float surface_r = scene.planet_center.w;
-    vec2 hit = ray_sphere(ground_p, sun, scene.planet_center.xyz,
-                          surface_r + scene.cloud_global.z);
-    if (hit.y <= 0.0)
-        return 1.0;
-    float t0 = max(hit.x, 0.0);
-    float t1 = hit.y;
-    const int STEPS = 8;
-    float seg = (t1 - t0) / float(STEPS);
-    float depth = 0.0;
-    for (int i = 0; i < STEPS; ++i)
-    {
-        float h;
-        depth += cloud_density(ground_p + sun * (t0 + seg * (float(i) + 0.5)), true, h) * seg;
-    }
-    float extinction_scale = scene.cloud_light.x * 0.006;
-    float shadow = exp(-depth * extinction_scale);
-    return mix(1.0, shadow, clamp(scene.cloud_global.x, 0.0, 1.0));
-}
-
 void main()
 {
     vec3 ro = vec3(0.0); // camera at origin in camera-relative space
@@ -962,7 +712,7 @@ void main()
             if (cos_incident <= 0.0)
                 continue;
             vec3 radiance = scene.lights[i * 2 + 1].xyz * irradiance;
-            float shadow = cloud_ground_shadow(hit, light_dir);
+            float shadow = cloud_sun_transmittance(cloud_shadow_map, hit);
             // A secondary body that claimed a tile in the punctual atlas (see
             // LightSystem::assign_directional_shadows) darkens the ground under it
             // exactly as it does a mesh.
@@ -1013,7 +763,7 @@ void main()
         // Cloud shadow: attenuate only the direct term by the cloud stack overhead —
         // the sky-dome skylight and flat ambient still reach the shadowed ground, so it
         // darkens under clouds without going black, the way an overcast ground reads.
-        float cloud_shadow = cloud_ground_shadow(hit, key_light);
+        float cloud_shadow = cloud_sun_transmittance(cloud_shadow_map, hit);
         // The cascades are fitted in the same camera-relative frame this march works in,
         // so the hit point goes straight in.
         float cascade_shadow = sample_sun_shadow(shadow_atlas, shadow_atlas_depth, hit,
@@ -1265,8 +1015,8 @@ void main()
     // Clouds are drawn in a separate half-resolution pass (cloud.frag) and composited over
     // this sky in the tonemap pass, so the expensive volumetric march runs at a quarter of
     // the pixels while everything above (sun disk, stars, planet relief) stays sharp. The
-    // cloud density helpers remain in this file only for cloud_ground_shadow, which the
-    // ground branch above still calls to cast the deck stack's shadow onto the terrain.
+    // ground branch above shadows the analytic ground with one fetch of the same baked
+    // cloud shadow map (cloud_shadow_common.glsl) a mesh standing on that ground reads.
 
     // Composite: over background the sky is the whole pixel; over geometry the opaque
     // colour is attenuated by the air in front of it and the in-scatter is added

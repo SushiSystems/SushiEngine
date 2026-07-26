@@ -1,0 +1,192 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// CloudPanoramaPass (W3): the design doc's far-field impostor — the same T3 field and
+// amortized light volume CloudPass's view march reads, integrated into a compressed
+// equirectangular panorama instead of per screen pixel. Reflection probes and (once a
+// consumer wires it up) content beyond the primary view's own march distance read one
+// texture fetch by direction from this instead of paying the march cost again — the
+// acceptance bar's "reflections cost ~0". Amortized a row group at a time across
+// AMORTIZE_FRAMES frames, the same cadence CloudShadowMapPass refreshes its own 2D bake
+// at, since both are driven by the sun/camera drifting continuously rather than by a
+// discrete author edit.
+//
+// Deliberately coarser than the primary march: this is War Thunder's own low-end mode,
+// the design doc's explicit precedent for a far-field/reflection source, so a fixed,
+// modest step count and a flat isotropic-leaning phase (no dual-lobe HG, no near-camera
+// erosion, no per-sample light-march correction) stand in for CloudPass's full march.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D panorama;
+layout(set = 0, binding = 1) uniform sampler3D cloudscape_field;
+layout(set = 0, binding = 2) uniform sampler3D cloud_light_volume;
+
+layout(set = 0, binding = 4) uniform sampler3D weather_field;
+
+layout(set = 0, binding = 3) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_global;
+    vec4 star_params;
+    vec4 misc;
+    vec4 sky_counts;
+    vec4 planet_frame;
+    vec4 cloud_light;
+    // Declared through to the weather members: std140 offsets are positional, so reaching
+    // the block's tail means naming everything before it.
+    vec4 ibl_params;
+    vec4 cloud_deck_a[6];
+    vec4 cloud_deck_b[6];
+    vec4 cloud_deck_c[6];
+    vec4 cloud_deck_d[6];
+    vec4 bodies[80];
+    vec4 sky_stars[128];
+#include "scene_weather_tail.glsl"
+} scene;
+
+#include "cloud_weather_field.glsl"
+
+layout(push_constant) uniform Params
+{
+    float tile_meters;
+    uint row_start;
+    uint row_count;
+} params;
+
+const float PI = 3.14159265359;
+const int PANORAMA_STEPS = 20;
+
+vec2 ray_sphere(vec3 ro, vec3 rd, vec3 c, float r)
+{
+    vec3 oc = ro - c;
+    float b = dot(oc, rd);
+    float cc = dot(oc, oc) - r * r;
+    float h = b * b - cc;
+    if (h < 0.0)
+        return vec2(-1.0, -1.0);
+    h = sqrt(h);
+    return vec2(-b - h, -b + h);
+}
+
+void main()
+{
+    ivec2 size = imageSize(panorama);
+    uvec2 local = gl_GlobalInvocationID.xy;
+    if (local.x >= uint(size.x) || local.y >= params.row_count)
+        return;
+    uint y = params.row_start + local.y;
+    if (y >= uint(size.y))
+        return;
+
+    // The bake's own azimuth-zero/up frame, rebuilt from this dispatch's camera basis —
+    // it drifts with the camera the same slow amount the amortized light volume already
+    // tolerates the sun drifting by, the flat-tile approximation's usual bargain (see
+    // CloudscapeCompilePass's own doc comment).
+    vec3 up = normalize(scene.planet_frame.xyz);
+    vec3 reference = scene.cam_right.xyz - up * dot(scene.cam_right.xyz, up);
+    if (dot(reference, reference) < 1e-6)
+        reference = scene.cam_forward.xyz - up * dot(scene.cam_forward.xyz, up);
+    vec3 right = normalize(reference);
+    vec3 forward = cross(up, right);
+
+    float u = (float(local.x) + 0.5) / float(size.x);
+    float v = (float(y) + 0.5) / float(size.y);
+    float azimuth = (u - 0.5) * 2.0 * PI;
+    float polar = v * PI;
+    vec3 dir = up * cos(polar) +
+              (right * cos(azimuth) + forward * sin(azimuth)) * sin(polar);
+
+    vec3 ro = vec3(0.0);
+    vec3 center = scene.planet_center.xyz;
+    float surface_radius = scene.planet_center.w;
+    float base_r = surface_radius + scene.cloud_global.y;
+    float top_r = surface_radius + scene.cloud_global.z;
+
+    vec3 scattered = vec3(0.0);
+    float transmittance = 1.0;
+
+    if (top_r > base_r)
+    {
+        vec2 outer = ray_sphere(ro, dir, center, top_r);
+        if (outer.y > 0.0)
+        {
+            float t0 = max(outer.x, 0.0);
+            float t1 = outer.y;
+            float r_cam = length(center);
+            if (r_cam < base_r)
+            {
+                vec2 inner = ray_sphere(ro, dir, center, base_r);
+                if (inner.y > 0.0)
+                    t0 = max(t0, inner.y);
+            }
+            float march_len = min(t1 - t0, (top_r - base_r) * 14.0);
+            if (march_len > 0.0)
+            {
+                float step_len = march_len / float(PANORAMA_STEPS);
+                float extinction_scale = scene.cloud_light.x * 0.006;
+                vec3 sun = normalize(scene.sun_dir.xyz);
+                vec3 sun_radiance = scene.sun_color.xyz * scene.sun_dir.w;
+                float mu = dot(dir, sun);
+                // A single, cheap Henyey-Greenstein lobe stands in for the primary
+                // march's dual-lobe integration — this bake is the acknowledged
+                // low-fidelity far-field/reflection source, not a screen-space stand-in.
+                float g = scene.cloud_light.y * 0.6;
+                float g2 = g * g;
+                float phase = (1.0 - g2) / (4.0 * PI * pow(1.0 + g2 - 2.0 * g * mu, 1.5));
+
+                float t = t0 + step_len * 0.5;
+                for (int i = 0; i < PANORAMA_STEPS; ++i)
+                {
+                    vec3 p = ro + dir * t;
+                    float altitude = length(p - center) - surface_radius;
+                    float height01 =
+                        clamp((altitude - scene.cloud_global.y) /
+                                 max(scene.cloud_global.z - scene.cloud_global.y, 1.0),
+                             0.0, 1.0);
+                    vec2 uv = fract(p.xz / params.tile_meters);
+                    vec2 layers = texture(cloudscape_field, vec3(uv, height01)).rg;
+                    // The same coverage authority the primary march applies, so the far
+                    // field and the near field agree about where the weather is -- without
+                    // it the panorama handoff distance would read as a ring where a front
+                    // stops and a uniform sky starts.
+                    float density = weather_apply_coverage(
+                        layers.x + layers.y,
+                        weather_coverage_scale(weather_field, scene.weather_field_map,
+                                               scene.weather_field_levels,
+                                               scene.weather_field_reference, p, altitude));
+                    if (density > 0.001)
+                    {
+                        float sigma = density * extinction_scale;
+                        float light_depth = texture(cloud_light_volume, vec3(uv, height01)).r;
+                        float sun_energy = exp(-light_depth * extinction_scale) * phase * 4.0 * PI;
+                        vec3 ambient = scene.ambient.xyz + sun_radiance * 0.02;
+                        vec3 luminance = sun_radiance * sun_energy + ambient;
+
+                        float sample_transmit = exp(-sigma * step_len);
+                        scattered += transmittance * luminance * (1.0 - sample_transmit);
+                        transmittance *= sample_transmit;
+                        if (transmittance < 0.02)
+                            break;
+                    }
+                    t += step_len;
+                }
+            }
+        }
+    }
+
+    imageStore(panorama, ivec2(local.x, int(y)), vec4(scattered, transmittance));
+}

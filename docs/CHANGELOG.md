@@ -9,6 +9,873 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Atmosphere phase A: the weather simulation now reaches the sky spatially.** The cloud
+  march reads coverage from the simulation's own horizontal grid per sample, so a front is
+  drawn as a front — `docs/slop/atmosphere_system.md` §1.1 named this the root defect of the
+  shipped weather tier, and this closes it.
+  - **What was wrong.** `RuntimeSimulation::extract()` sampled exactly one column, under the
+    observer, and compiled it into a globally uniform six-deck `Cloudscape`; everything
+    visible came from a static tiled fBm texture, with the simulation's entire contribution
+    being the global bias term in `cloudscape_field.comp`'s
+    `coverage = deck.coverage_bias + (noise - 0.5) * 1.35`. Rain here and sun 40 km away was
+    not representable, which is why W5's own acceptance bar was met with a camera-attached
+    emitter.
+  - **`Render::WeatherField`** (new: `include/SushiEngine/render/weather_field.hpp`), a
+    borrowed view of the producer's grid plus a scale-and-offset from scene-absolute world XZ
+    to field UV, carried on `Environment`. Borrowed rather than copied — `Environment` is
+    copied per frame and the payload changes on a multi-second cadence — following the same
+    arrangement `ParticleView::compiled` already uses for sim-owned emitters;
+    `WeatherField::revision` is how a consumer notices a change without comparing contents.
+  - **`Simulation::WeatherFieldBuffer`** (new:
+    `include/SushiEngine/sim/weather_field_buffer.hpp`) owns the samples and fills them three
+    ways: from a `RegionalWeatherGrid`, by sampling a point query onto a lattice, or as one
+    column repeated. It also states the scene mapping in one place — **scene +X is east and
+    +Z is north** at the observer's geodetic position, which is not a new convention but the
+    one the rain emitter's wind drift already assumed.
+  - **`IWeatherProvider` grows `publish_field` and `tick`.** Both are answerable honestly by
+    every implementation: a provider with no horizontal structure publishes a uniform field
+    (a true statement about it, not a stub), and one with nothing to advance implements
+    `tick` as a no-op. `IngestedWeather` publishes a *real* field — its station blend
+    genuinely varies horizontally — by sampling its own query onto a lattice.
+  - **`WeatherFieldPass`** (new: `render/passes/weather_field_pass.{hpp,cpp}`) uploads the
+    field into a 64×64×3 `R8G8B8A8_UNORM` **3-D** image. 3-D rather than a 2-D array
+    deliberately: the three vertical bands must blend as a march sample climbs through them,
+    and hardware trilinear does that in the same single fetch the horizontal interpolation
+    already costs. The image is always the full square and coarser producers are resampled up
+    on the host, so the image, view, and descriptor are fixed for the renderer's lifetime.
+    Staging is a three-buffer ring indexed by the frame's own slot; the image is cleared once
+    so a scene that never publishes weather still binds a defined resource.
+  - **The coverage authority** (`render/shaders/cloud_weather_field.glsl`) is applied as a
+    **re-threshold**, `remap(d, 1 − c, 1, 0, 1) · c`, against the column the deck stack was
+    compiled from (`WeatherField::reference_coverage`) — not as a density multiply. A
+    multiply fades a whole cloud toward transparency; a re-threshold erodes its low-density
+    fringe first, so edges retreat and holes open the way falling coverage actually works.
+    `c == 1` is exactly the identity, so a uniform sky renders bit-identically to one with no
+    field. Applied in `cloud.frag` (both the fine and the cheap/light-march path) and in
+    `cloud_panorama.comp`, so the far field cannot disagree with the near field about where
+    the weather is. Tiled noise is thereby demoted from *signal* to sub-cell *detail*.
+  - **The driving column is now sampled at the camera**, not at the scene's geodetic anchor.
+    Those were the same point while the weather was uniform; with a field they are not, and
+    the deck stack, the fog, the wetness, and the rain all describe what is happening where
+    the player stands. It also makes the coverage scale exactly 1 at the camera, so the bake
+    is never stretched where it is seen most closely. Flying into a shower now starts the
+    rain and flying out of it stops it.
+  - **New scene-uniform tail**: `weather_field_map`, `weather_field_levels`,
+    `weather_field_reference`, appended after `light_shadow_b` so shaders reading only earlier
+    fields keep their offsets. `render/shaders/scene_weather_tail.glsl` holds the block's tail
+    from `planet_ring` onward, included by every shader that needs to reach it, so the four
+    cloud shaders cannot mis-copy nine intervening members. The camera position is folded into
+    the map's offset in double, the same discipline `planet_center` already follows.
+  - **Tests**: `tests/functional/unit/test_weather_field.cpp` adds `Unit_WeatherField` — the
+    load-bearing case being that a published field is *non-uniform when the simulation is*,
+    which the previous single-column bridge could not have passed by construction — plus the
+    addressing (observer at the grid's centre, easting faster than northing by 1/cos φ), that
+    every provider publishes a usable field, and that the reference column is the one the
+    renderer divides by. 400/400 tests pass.
+  - **Named scope-downs**, all one deferred change rather than three (see the design doc's
+    Phase A): the cloud field **stays a wrapping 65 km tile**; the **light volume and cloud
+    shadow map do not consult the field**, because both are addressed in tile space and hold
+    no recoverable world position — so sun energy through cloud and cloud shadows on the
+    ground still reflect the reference column's coverage everywhere, and a cleared region can
+    still receive some cloud shadow; and **genus stays an input** rather than a derived label.
+    All three need the field to become camera-centred, which is Phase B's job.
+  - **Verified**: editor and renderer build clean with shaders recompiled, `se test` 400/400,
+    `render_probe` `RESULT: OK`. **Not verified**: the acceptance bar has not been confirmed
+    by eye in a live editor session.
+
+### Changed
+- **Atmosphere phase A: the weather provider seam is now actually substitutable.** The DIP
+  break `docs/slop/atmosphere_system.md` §1.6 documented is repaired.
+  - `ISimulation` returned a concrete `ProceduralWeather*` and the host stored that type, so
+    `IngestedWeather` — written and unit-tested in W6 — could not be installed at all, as that
+    phase's own CHANGELOG entry admitted. The host now stores
+    `std::unique_ptr<IWeatherProvider>`, installed through a single
+    `install_weather_provider` that is the one place a concrete provider type is named.
+  - **`IWeatherAuthoring`** (new, `weather_provider.hpp`) is the editor's surface — synoptic
+    access and preset seeding — offered as an optional capability resolved once at install
+    rather than widening the interface every provider must satisfy. `ISimulation::weather_authoring()`
+    replaces `procedural_weather()`; a provider that cannot be authored returns null instead of
+    being unrepresentable. `editor_panels.cpp` and `scene_serializer.cpp` go through it.
+  - `IngestedWeather` now shares one `EARTH_RADIUS_METERS` between its station distances and
+    its published field's projection, rather than the two carrying separate constants.
+- **Atmosphere: the weather design is replaced.** `docs/slop/weather_and_clouds.md` is
+  **removed** (it remains in git history) and superseded by
+  **`docs/slop/atmosphere_system.md`** — a plan for real GPU meteorology rather than the
+  analytic/heuristic CPU tier W4-W6 shipped. Documentation-only; no code changes in this
+  entry. The shipped behaviour is unchanged until Phase A lands.
+  - **Why.** §1 of the new document is a line-level audit. The decisive finding is that
+    the simulation never reaches the sky *spatially*: `RuntimeSimulation::extract()`
+    samples exactly one column — the one under the observer — and compiles it into a
+    globally uniform six-deck `Cloudscape`, while everything actually visible comes from
+    `cloud_noise_weather.comp`'s tiled fBm (`cloudscape_field.comp:138`:
+    `coverage = deck.coverage_bias + (noise - 0.5) * 1.35`). A front "crossing the
+    region" is a global number ramping; rain here and sun 40 km away is not
+    representable, which is why W5's own acceptance bar ("rain falls from the cell that
+    is raining") was met with a camera-attached emitter. Supporting findings: the 15-float
+    `WeatherColumn` cannot express cloud base/top, visibility, temperature, a wind
+    profile, or precipitation type, so it caps everything downstream regardless of the
+    physics behind it; `tick_grid` has no vertical advection at all (three independent
+    2-D layers, so convection cannot transport anything), no saturation physics
+    (`if (humidity > 0.85)`), and a `WIND_SCALE = 6.0e4` tuning constant standing in for
+    geostrophic balance; semi-Lagrangian advection at Courant ≈ 0.02 is in its maximally
+    diffusive regime, so any front smears out within simulated hours; and the whole tick
+    is a scalar single-threaded CPU loop while every other simulation system in the engine
+    already uses the GPU.
+  - **SOLID findings.** `ISimulation` returns a concrete `ProceduralWeather*`
+    (`simulation.hpp:733`) and the host stores that type, not `IWeatherProvider` — which
+    is why `IngestedWeather`, written and unit-tested in W6, is impossible to install (the
+    W6 entry below says so itself). `IWeatherProvider` exposes a *point* query only, which
+    is the interface-level cause of the spatial disconnect above.
+  - **What the new plan is.** A GPU `Atmosphere` module in four tiers: T0 climatology
+    data; T1 a two-layer moist quasi-geostrophic global core (512×256) where cyclogenesis
+    and frontogenesis are *emergent* rather than placed; T2 an anelastic non-hydrostatic
+    regional nest (256×256×48 over ~512 km) with explicit convection and Kessler+ice
+    microphysics; T3 a cloudscape compile that turns simulated condensate into the
+    extinction field the shipped march already consumes, with tiled noise demoted from
+    signal to sub-cell detail. Two consumer-side seams (`IAtmosphereField` for the
+    renderer, `IAtmosphereQuery` for gameplay via an async readback mirror) replace the
+    single point query.
+  - **Three decisions recorded up front** (§0): weather **leaves the determinism domain**
+    — and with it `test_weather_determinism.cpp`'s bit-exact replay guarantee, replaced by
+    a versioned gameplay summary distributed as a timestamped input; ground level and
+    every flight altitude are both first-class, so the full tier hierarchy is in scope; and
+    spatial coupling ships *before* better physics, because it is worth more visually than
+    every later phase combined.
+  - **Costs are budgeted at ≤2.6 ms/frame total** (§12) — the simulation tiers amortize to
+    ~0.08 ms because they step in game time at stability-limited intervals of seconds to
+    minutes, not per frame.
+  - **The render tier survives.** W0-W3 (prebaked field, Nubis3 step rule, light volume,
+    768² shadow map, cloud TAA, near/far split, depth-aware composite, panorama, tiers) is
+    kept; §8 enumerates the small set of changes, of which the structural one is that the
+    cloud field stops being a wrapping 65 km tile and becomes camera-centred.
+  - **Named limits and blockers** are recorded rather than left to be discovered (§14/§15):
+    2 km resolution means storm cells but not tornado funnels; no Hadley cell or emergent
+    tropical cyclogenesis from a QG core; one-way nesting; single-moment microphysics; no
+    forecast skill claimed. The hard blocker is unchanged from W4's own note — **the engine
+    still has no queryable terrain height field**, so orography, valley fog, föhn, and rain
+    shadows cannot be simulated until the terrain system provides one.
+  - **Cross-references updated**: `docs/slop/render_pipeline_refactor.md`'s Phase 8 and its
+    companion-document line now point at `atmosphere_system.md`; `docs/ARCHITECTURE.md` §16
+    carries a superseded banner naming what replaces it, and its four other references to
+    the removed file are rewritten to stand on their own. Nineteen source files still cite
+    the removed document by section number in their file comments; those are corrected as
+    each file is rewritten by the phases that own it (new doc §15), rather than swept into
+    section numbers that no longer exist.
+- **Weather & clouds (W6: flight-sim polish & data ingestion, the final phase) — in-cloud
+  whiteout tuning, a camera-proximity-gated canopy wisp emitter, a narrow icing/turbulence
+  query API, and a real `IngestedWeather` provider with a working METAR parser.**
+  `docs/slop/weather_and_clouds.md` §7's W6 phase is marked "tier/optional" and names five
+  items; this phase lands four with real engineering value and scopes the fifth (hero
+  envelope assets) out entirely rather than fabricate placeholder content that would not
+  honestly earn the "hero" name, per the phase's own instructions to be conservative.
+  - **In-cloud whiteout tuning** (`render/shaders/cloud.frag`): deep inside a thick deck the
+    march's `transmittance` bottoms out near the loop's own 0.02 break threshold while
+    `scattered` keeps accumulating ambient-dominated luminance sample after sample, because
+    `cloud_sun_energy`'s Beer term has already collapsed the direct-sun contribution at that
+    optical depth — the interior reads as flat, direction-blind fog rather than a real
+    whiteout. A new post-loop `whiteout` term (`1 - smoothstep(0.02, 0.25, transmittance)`)
+    blends the accumulated colour toward a glow keyed on `mu` (the view/sun angle) — brighter
+    looking toward the sun, dimmer looking away, the residual forward bias real multiple
+    scattering keeps even as it isotropizes with depth — and deepens `transmittance` itself
+    toward fully opaque as the whiteout takes over, so a dense-enough deck reads as a wall of
+    cloud with a directional cue instead of merely thick haze. Self-contained in `cloud.frag`;
+    no push-constant, MRT, or other pass changed.
+  - **Canopy wisp particles** (`sim/runtime_simulation.cpp`'s `extract()`): a new synthetic,
+    sim-owned cosmetic emitter (`weather_wisp_emitter_`), following the exact precedent W5's
+    `weather_rain_emitter_` set (a `Vfx::CompiledEmitter` built fresh each frame and appended
+    as a `Render::ParticleEmitterView` straight into `RenderScene::particle_emitters`, not an
+    authored ECS entity). Gated by camera altitude sitting within 60 m of an enabled cloud
+    deck's own base or top altitude (`Render::cloud_genus_profile`'s `base_altitude`/
+    `top_altitude`, the same étage data `WeatherCloudscapeCompiler` and
+    `StaticWeather::decompose` already read) and that deck covering at least 25% of the sky —
+    not always-on, per the task's own instruction to gate by camera proximity rather than run
+    continuously. Deliberately **not** weather-specific like the rain emitter: it reads
+    whichever `Cloudscape` is live in `scene_.environment.clouds`, Manual or Procedural, since
+    a hand-authored sky's deck boundary is exactly as real a thing to fly through as a
+    procedurally compiled one. A sparse (40/s), slow-drifting (`Vfx::UPDATE_TURBULENCE`), pale
+    alpha-blended sprite population, not a dense fog sheet.
+  - **Icing/turbulence exposure to gameplay** (new: `include/SushiEngine/sim/weather_flight_hazards.hpp`,
+    `icing_risk(column, altitude)` / `turbulence_intensity(synoptic, position, altitude, time)`)
+    — a narrow query API, explicitly **not** a flight model, following W4/W5's own established
+    discipline for this exact ask ("the extension point a future flight model would call").
+    Confirmed by inspection (the same audit W4/W5 ran): no flight/aircraft/vehicle system
+    exists anywhere in `include/SushiEngine/` or `examples/`.
+    - `icing_risk` needed a temperature signal `WeatherColumn` never carried. Rather than
+      fabricate one, this phase surfaces state T2 has tracked internally since W4 but never
+      exposed: a new `WeatherLevelState::temperature_offset_c` field (`weather_types.hpp`) is
+      now populated in `RegionalWeatherGrid::sample_column` from the already-computed
+      `WeatherCell::temperature_offset_c` — a one-line bridge addition, not new simulation.
+      `icing_risk` combines it with a standard-atmosphere (ISA) lapse rate at the query
+      altitude to estimate an absolute temperature, and weights a trapezoidal risk curve
+      peaking in the classic supercooled-liquid band (roughly -2 to -12 C, tapering to zero by
+      +1 C and by -20 C) by the same liquid-water-content proxy `weather_world_coupling.hpp`
+      already uses (`coverage * density_scale`). `StaticWeather` leaves the new field at its
+      default 0 (ISA-neutral) — a manually authored sky has no thermometer to report a real
+      deviation from.
+    - `turbulence_intensity` is a thin wrapper over a new `wind_gust()` (`weather_wind.hpp`,
+      refactored out of `weather_wind()` itself, which is now exactly `wind_at() + wind_gust()`)
+      — the magnitude of the identical front-proximity-scaled perturbation `weather_wind()`
+      already computes, normalized by its own amplitude ceiling (`WIND_GUST_CEILING_MPS`) into
+      a bounded `[0, 1]` scalar. No new physics, per the task's own instruction to build on the
+      gust magnitude W5 already computes.
+    - New shared constants (`weather_types.hpp`): `CLOUD_LEVEL_LOW_CEILING_METERS`/
+      `CLOUD_LEVEL_MID_CEILING_METERS`/`cloud_level_for_altitude()`, the altitude-to-`CloudLevel`
+      bucketing both `icing_risk` and the METAR cloud-layer translation below need — centralized
+      once rather than re-guessed at each call site.
+  - **`IngestedWeather`** (new: `include/SushiEngine/sim/ingested_weather.hpp`), a genuine
+    `IWeatherProvider` per design doc §5.4's "GRIB winds/temperature/humidity blended toward
+    METARs near airfields — the X-Plane 12 three-stage blend": a caller-supplied background
+    column (the GRIB stub — see below) blended toward the nearest of zero or more
+    caller-added METAR stations, pure background beyond `FAR_BACKGROUND_RADIUS_METERS`
+    (60 km), pure station inside `NEAR_STATION_RADIUS_METERS` (15 km), linearly blended
+    level-by-level between the two.
+    - **A real, working METAR text parser** (new: `include/SushiEngine/sim/metar_parser.hpp`,
+      `parse_metar()` / `metar_to_weather_column()`), per the task brief's own call-out that
+      METAR "is genuinely achievable in this phase and has real value" unlike GRIB. A tolerant
+      whitespace-token scanner (not a strict grammar, since real METARs omit groups freely —
+      CAVOK reports skip cloud groups entirely) that decodes wind (calm/variable/gust, KT/MPS/KMH),
+      cloud layers (FEW/SCT/BKN/OVC/VV, bucketed into a `CloudLevel` by
+      `cloud_level_for_altitude`), temperature/dewpoint (including negative `M`-prefixed
+      values), and present-weather groups (intensity `-`/`+`/vicinity `VC`, the full
+      descriptor/precipitation/obscuration code set) into `precipitation_intensity` and a
+      `thunderstorm` flag — deliberately *not* a general METAR decoder (no visibility, RVR, or
+      remarks decoding), narrowed to exactly what `WeatherColumn` can use, the same discipline
+      `StaticWeather::decompose` already follows for its own bridge.
+    - **GRIB2 binary decoding is named as future work, not fabricated here** — exactly the
+      "clearly-named stub/interface point" the task brief asked for when a part is genuinely
+      out of scope. `IngestedWeather::set_background(WeatherColumn)` is that point: it accepts
+      whatever a real GFS/WAFS decoder would eventually produce, already expressed in the
+      bridge's own contract; decoding the binary format and fetching it from a real feed this
+      engine has no fetcher for are both left undone, honestly, rather than stubbed with fake
+      binary parsing that would only look complete.
+    - **The seam itself is proven**, the phase's key deliverable regardless of how much real
+      decoding it contains: `IngestedWeather` is a genuine, LSP-substitutable
+      `IWeatherProvider` — `WeatherCloudscapeCompiler` and `WeatherWorldCoupling` accept it with
+      zero changes, exactly as they accept `ProceduralWeather`/`StaticWeather` today.
+  - **Scoped down, named rather than silent:**
+    - **Hero envelope assets near airfields (Ultra tier) are not implemented, and no
+      infrastructure for them was added either.** The design doc frames this as hand-placed
+      NVDF-style hero cloud volumes at a small number of showcase airfields — real
+      art-directed content, not a data structure. This engine has no airfield/POI placement
+      system and no art pipeline to author such a volume from; a genuine implementation would
+      need a new T3 bake target, an LOD/blend seam into the existing field, and real
+      hand-authored data none of which exists. Landing a placement-only data structure with no
+      renderer consumer would not honestly earn the "hero" name the design doc uses and risks
+      reading as more done than it is — the task brief's own explicit warning against
+      fabricating placeholder hero content. Scoped out entirely, not partially stubbed.
+    - **Icing/turbulence has no flight-model consumer**, for the same reason `weather_wind()`
+      itself had none at W5: nothing to wire into. `icing_risk`/`turbulence_intensity` are the
+      extension points a future flight/vehicle system would call.
+    - **METAR station elevation is not modelled.** A report's temperature only ever informs
+      the `Low` `CloudLevel` bucket (see `metar_to_weather_column`'s own comment) rather than
+      being placed at a real station altitude via an airport-elevation database this engine
+      does not have — an honest, conservative simplification, not a silent one.
+    - **`IngestedWeather` owns no clock and ticks nothing**, unlike `ProceduralWeather`: a
+      real-data provider is a snapshot refreshed by the caller re-calling
+      `set_background`/`add_station` as new reports arrive, not a fixed-step simulation: it is
+      not wired into `RuntimeSimulation`'s `procedural_weather_` slot or the editor this phase
+      — there is no real data source to feed it from yet, and wiring an unused seam into the
+      live sim/editor would be surface area with nothing behind it.
+  - **Tests.** `tests/functional/unit/test_weather_flight_hazards.cpp` adds
+    `Unit_WeatherFlightHazards` (icing risk zero on clear sky, high inside the classic
+    supercooled band, zero when too warm, reduced far below it, scaling with liquid-water
+    content, confined to the queried altitude's own `CloudLevel` bucket; turbulence intensity
+    equal to the gust magnitude normalized and bounded in `[0, 1]`; `weather_wind() ==
+    wind_at() + wind_gust()` exactly). `tests/functional/unit/test_metar_parser.cpp` adds
+    `Unit_MetarParser` against realistic report strings (fair weather, calm wind, negative
+    temperatures, variable wind, vertical visibility, thunderstorm-vs-drizzle intensity
+    ordering, vicinity weighing less than overhead, an empty/garbage string parsing as
+    invalid, and the `WeatherColumn` translation's altitude bucketing/wind-vector/temperature-
+    scoping). `tests/functional/unit/test_ingested_weather.cpp` adds `Unit_IngestedWeather`
+    (pure background far from every station, pure station right at one, a monotonic blend
+    walked step by step between the two radii, nearest-station selection among several, and
+    the phase's key substitutability proof — `IngestedWeather` run through
+    `WeatherCloudscapeCompiler`/`WeatherWorldCoupling` exactly as any other provider, both near
+    a filled station and far away at the clear background). All 395 functional tests pass
+    (`se test -s functional`, 369 baseline + 26 new), and `se editor --no-run` builds clean,
+    compiling `cloud.frag`'s shader change and `runtime_simulation.cpp`'s new emitter.
+  - **This closes the W0-W6 roadmap.** Every phase's own "not part of this phase" notes name
+    exactly what the next phase picked up; W6 is the last, and its own scope-downs above (hero
+    envelopes, GRIB decoding, a flight model) are the roadmap's final honest list of what
+    remains real, unbuilt follow-up rather than something this phase silently claimed.
+
+- **Weather & clouds (W5: world coupling) — the same `WeatherColumn` sample now drives
+  fog/turbidity, cloud-base darkening, wet ground, and precipitation VFX together.**
+  `docs/slop/weather_and_clouds.md` §5.3/§7's W5 phase asked for "rain falls from the cell
+  that is raining, under a dark base, with wet ground and reduced visibility — one cause,
+  every symptom." This phase's whole shape follows from that one sentence: every symptom
+  below is derived from one column `RuntimeSimulation::extract()` already samples for the
+  compiled `Cloudscape` (W4), not four independently tuned systems that happen to agree.
+  - **`Simulation::WeatherWorldCoupling`** (new: `include/SushiEngine/sim/weather_world_coupling.hpp`)
+    is `WeatherCloudscapeCompiler`'s sibling: a separate, stateless, pure function of a
+    `WeatherColumn` that compiles it into a new `Render::WeatherCoupling`
+    (`render/environment.hpp`) — extra froxel-fog density, extra atmosphere Mie turbidity,
+    ground wetness, a precipitation-intensity echo, and a near-surface wind passthrough.
+    `extract()` now samples one column and hands it to both compilers, writing the results
+    into `Environment::clouds` and the new `Environment::weather` respectively.
+    `WeatherCoupling` is additive/multiplicative, never a replacement: `VolumetricFogPass`
+    and `AtmosphereLutPass` add its bias fields onto the author's own `FogParams::density`/
+    `AtmosphereParams::mie_coefficient` at push-constant build time, so a scene with weather
+    off renders exactly as before this phase (every field defaults to zero) and the author's
+    own fog/atmosphere sliders are never overwritten in place the way `Environment::clouds`
+    is — the design choice that avoids the read-modify-write hazard a full overwrite would
+    create through the editor's `environment()` -> edit -> `set_environment()` round trip.
+    `AtmosphereLutPass`'s existing `medium_changed()` memcmp gate already rebuilds the static
+    transmittance/multi-scatter LUTs exactly when the weather-adjusted Mie coefficient
+    changes tick to tick — "they are runtime-dynamic in the Hillaire model" (§5.3) needed no
+    new plumbing at all.
+  - **Cloud-base darkening**, the design doc's literal `density += density * weather.a`
+    recipe, lands inside `WeatherCloudscapeCompiler::compile()` itself — on the low deck
+    only, the band T2's moisture closure actually rains from — before
+    `CloudscapeCompilePass`'s bake ever sees the deck, so the bake's own contract stays
+    untouched exactly as the process requirements asked.
+  - **Wet surfaces**: a new `Render::Material::weather_wettable` flag (off by default, like
+    `parallax_shadows`) packs to a new `Assets::MATERIAL_WEATHER_WET` (`MaterialFlags`) bit in
+    `material_system.cpp`, following that exact existing flag pattern. `pbr.frag` darkens
+    albedo and drops roughness toward a thin water film only where the bit is set, scaled by
+    a global wetness value read from `scene.light_shadow_b.y` — an otherwise-spare `SceneBlock`
+    lane (see `scene_uniforms.hpp`'s updated field doc) rather than a new UBO member, since
+    every shader that already declares `light_shadow_b` needed no binding changes this way.
+    `IWorldEditor::create_terrain()` opts its own material in by default so the acceptance
+    scenario shows wet ground with no extra authoring; every other material opts in by hand.
+  - **Precipitation VFX**: `RuntimeSimulation::extract()` builds one synthetic, sim-owned
+    `Vfx::CompiledEmitter` (`weather_rain_emitter_`) whenever precipitation is active and
+    appends a `Render::ParticleEmitterView` for it straight into `RenderScene::particle_emitters`
+    — the same seam an authored particle-emitter entity's Cosmetic sub-emitters already
+    write through, just sourced from weather instead of an ECS record, so it never clutters
+    the Hierarchy/Outliner or the scene file with a system-generated entity. Uses the GPU
+    cosmetic path per `QualityParams::gpu_particles`'s own doc comment ("the deterministic
+    CPU particle path is unaffected; it is gameplay, not a quality knob") — ambient weather
+    rain is squarely cosmetic. Rain only, not rain-or-snow: `WeatherColumn` carries no
+    temperature signal to honestly pick a phase from.
+  - **`Simulation::weather_wind(synoptic, position, altitude, time)`** (new:
+    `include/SushiEngine/sim/weather_wind.hpp`) is the design doc's "one sampling API...
+    GoT pattern: analytic + perturbation, no dense volume". The analytic half is exactly
+    T1's existing `SynopticLayer::wind_at` (already altitude-parameterized via
+    `level_fraction`); this file adds only the altitude -> level_fraction mapping and a
+    deterministic, stateless pseudo-noise perturbation scaled by
+    `SynopticLayer::front_proximity` ("turbulence intensity from front proximity"). A free
+    function over `const SynopticLayer&` rather than a new `IWeatherProvider` virtual:
+    `StaticWeather` has no synoptic layer to honestly serve an altitude-continuous field
+    from, so widening the seam for every provider would trade a narrow interface for a
+    partially-fake one — checked against `WeatherColumn`'s existing `wind_u_mps`/
+    `wind_v_mps` first, per the process requirements, and found insufficient only because
+    those are a single fixed near-surface sample, not altitude-continuous. The concrete W5
+    consumer is the rain emitter's lateral drift, fed through the emitter's gravity module
+    and scaled well down (rain falls in under 2 s).
+  - **Scoped down, named rather than silent:**
+    - **Dew-point spread**, the design doc's literal fog driver, is approximated by the low
+      band's cloud coverage/density (itself derived from condensed water past T2's
+      relative-humidity threshold) rather than widening `WeatherColumn`'s contract with a
+      humidity field only this one consumer would use.
+    - **Valley/orographic fog is not implemented.** W4 already left orographic lift wired
+      but inert (no terrain-height field exists anywhere in the engine); with no real
+      per-position lift signal, a valley-fog term would have to fabricate one, which the
+      process requirements explicitly warned against doing.
+    - **CAPE and terrain roughness are not part of `weather_wind()`'s turbulence term.**
+      CAPE is an internal, per-tick intermediate inside `RegionalWeatherGrid::tick_grid`,
+      not part of `WeatherColumn`'s stable sampled contract; terrain roughness has no
+      source anywhere in the engine, the same gap the orographic-lift note documents.
+    - **Cloth and the CPU-deterministic particle path do not consume `weather_wind()`.**
+      The physics solver's only per-body external-acceleration channel today is
+      `GravitySampler` (`make_gravity_sampler()`), applied uniformly to every rigid body
+      for orbital gravity summation; repurposing it for wind would apply wind-strength
+      acceleration to rigid boxes as readily as cloth, which is not physically sound, and a
+      distinct cloth-specific force channel is real physics-solver surgery, not an additive
+      extension. A named deferral, not a silent drop.
+    - **No flight model exists in the engine yet**, so `weather_wind()`'s flight-sim payoff
+      has no consumer to wire into today; the function itself is the extension point one
+      would call later.
+    - **Lightning is not implemented this phase.** It is the one §5.3 sub-bullet outside the
+      §7 acceptance bar's four required symptoms (rain, dark base, wet ground, reduced
+      visibility); safely wiring a transient flash into `CloudLightVolumePass`'s amortized,
+      slowly-refreshing bake (or its own named simpler alternative, a direct additive term
+      in `cloud.frag`'s lighting) is real, standalone render-tier work better done as its
+      own follow-up than rushed in alongside everything above.
+    - **Ground wetness has no soak-in/dry-out lag.** `WeatherWorldCoupling::compile` is a
+      pure function of the current column, so wetness tracks precipitation instantaneously;
+      puddle persistence is real, unbuilt follow-up scope.
+  - **Tests.** `tests/functional/unit/test_weather_world_coupling.cpp` adds
+    `Unit_WeatherWorldCoupling`, `Unit_WeatherCloudscapeCompiler`, and `Unit_WeatherWind`
+    suites exercising these pure functions in isolation from T1/T2's own tick: a clear
+    column compiles to an all-zero `WeatherCoupling`; a rained-out column raises fog,
+    turbidity, and wetness together and monotonically with more rain; `ground_wetness`
+    stays clamped to `[0, 1]`; precipitation darkens only the low cloud deck, never mid or
+    high; and `weather_wind()` reduces to the bare analytic field far from any front and
+    gusts measurably more near one (a front-relative test point solved analytically from
+    `front_proximity`'s own formula, not guessed). All 369 functional tests pass
+    (`se test -s functional`), including the unchanged W4 determinism suites.
+  - **Not part of this phase**, and untouched by it: `IngestedWeather`/GRIB/METAR real-data
+    ingestion and any flight-sim-specific tuning (design doc §5.4/W6).
+
+- **Weather & clouds (W4: meteorology) — a deterministic synoptic layer (T1) and
+  regional grid (T2), compiled into `Environment::clouds` behind a new
+  `Sim::IWeatherProvider` seam, plus Weather panel v2.** `docs/slop/weather_and_clouds.md`
+  §7's W4 phase ("Meteorology (T1+T2)") asked for synoptic systems + fronts + geostrophic
+  wind, a regional grid with advection/orographic/diurnal/moisture closure, deterministic
+  tick + serialization, and Weather panel v2, with presets seeding synoptic states. All
+  of it lands this phase, with the scope decisions below named rather than silent — this
+  is the riskiest phase yet (it is the first sim-domain system built to
+  `docs/slop/SUSHILOOP.md`'s determinism discipline outside physics), so correctness and
+  a real bit-exact replay proof took priority over full design-doc fidelity everywhere.
+  - **T1 — the synoptic layer** (new: `include/SushiEngine/sim/synoptic_weather.hpp`,
+    `SynopticLayer`): up to `MAX_SYNOPTIC_SYSTEMS` (8) moving elliptical Gaussian pressure
+    systems on the body (the DCS dynamic-weather pattern), each with a life cycle
+    (Deepening -> Mature -> Filling), genesis weighted toward the mid-latitude
+    westerlies in whichever hemisphere is closer to its winter solstice (a coarse
+    latitude/season climate prior, not a real climatology), geostrophic wind
+    (`k_hat x grad(p)`, hemisphere-signed via a floored Coriolis parameter, with a
+    surface-friction inward turn that relaxes with altitude and a mid-latitude jet-band
+    speed boost aloft), and warm/cold front proximity fields (a stylized fixed-angle ray
+    pair from each low's center along its heading, a distance field feeding T2, not a
+    frontogenesis model). Pure analytic `double` math, evaluated anywhere in
+    microseconds; ticked every fixed step on the caller-supplied `dt`/`julian_date`
+    (never wall-clock). Every stochastic decision (genesis timing/location/parameters)
+    draws from a `Loop::RngState` carried in the trivially-copyable `SynopticState` — the
+    same determinism guard rail `docs/slop/SUSHILOOP.md` and the existing
+    `PhysicsSimulation` already use (`include/SushiEngine/loop/rng.hpp`).
+  - **T2 — the regional grid** (new: `include/SushiEngine/sim/regional_weather_grid.hpp`,
+    `RegionalWeatherGrid`): a camera(observer)-centered grid of `WeatherCell`s (wind,
+    temperature offset, humidity, cloud water, convective fraction, precipitation),
+    ticked on its own nested `Loop::FixedTimestepClock` (15 s default, inside the design
+    doc's 10-30 s window) by `ProceduralWeather`. Each tick: semi-Lagrangian advection of
+    humidity/temperature/cloud-water by T1's wind (unconditionally stable at any `dt` —
+    backtraces each cell to its departure point and bilinearly samples the prior tick's
+    field, rather than a naive forward-difference advection, which is *not*
+    unconditionally stable); orographic lift (`w ~= u . grad(terrain)`, wired but inert —
+    see below); diurnal convection (a standalone solar-position estimate feeding a CAPE
+    proxy that grows low-level cloud water and a convective-fraction signal); and
+    moisture closure (condensation above a relative-humidity threshold -> cloud water ->
+    a precipitation threshold -> evaporation when unsaturated), plus a slow relaxation
+    toward a background humidity climatology so the field stays bounded over long runs.
+    Output samples are linearly blended between the last two ticks by the nested clock's
+    own interpolation fraction, so a consumer sampling every frame sees continuous
+    motion even though the grid itself only advances every 15 s (design doc: "nothing
+    steps visibly").
+  - **Floating-origin rebase, CSM-texel-snap discipline.** The grid addresses cells by
+    integer indices into an *absolute* equirectangular tangent-plane lattice (anchored at
+    lat 0/lon 0), snapped the same way `shadow_uniforms.cpp`'s cascade fit snaps its
+    world-space centre before re-expressing it camera-relative: floor to an
+    origin-independent lattice coordinate, not one already offset by a moving reference
+    point. A rebase only moves the grid once the observer has drifted a whole cell width
+    from center; cells scrolled in from off the previous grid are filled from a
+    deterministic background-climatology function of position (never left at zero, never
+    drawn from the RNG), so a rebase introduces neither a visible seam nor a
+    replay-breaking nondeterminism source.
+  - **The bridge to the renderer** (new: `include/SushiEngine/sim/weather_types.hpp`'s
+    `WeatherColumn`/`WeatherLevelState`, `include/SushiEngine/sim/weather_provider.hpp`'s
+    `IWeatherProvider`/`ProceduralWeather`/`StaticWeather`, and
+    `include/SushiEngine/sim/weather_cloudscape_compiler.hpp`'s
+    `WeatherCloudscapeCompiler`). `IWeatherProvider` is the DIP seam the design doc's §3/§9
+    call for: "the layered-column meteorology at a point," and nothing about how it got
+    there. `ProceduralWeather` wraps T1+T2 behind it; `StaticWeather` formalizes the
+    existing manual deck-authoring mode as an equally legitimate, LSP-interchangeable
+    provider (decomposing a fixed `Cloudscape`'s enabled decks into the same column shape
+    by bucketing each deck's genus into its WMO étage). `WeatherCloudscapeCompiler` is the
+    small, focused, stateless class that compiles any provider's `WeatherColumn` into a
+    ready-to-render `Cloudscape` — picking a genus per level from its coverage/convective
+    mix (mirroring the choices a human author already makes in the Advanced deck editor),
+    with a fourth deck reserved for towering convection (Cumulonimbus) when the low level
+    is both filled and strongly convective, the acceptance bar's "cumulus line" at a cold
+    front. `RuntimeSimulation` (`sim/runtime_simulation.cpp`) wires it in: `step_once()`
+    ticks `ProceduralWeather` when active, and `extract()` writes the compiled
+    `Cloudscape` into `scene_.environment.clouds` — **the exact path manual authoring
+    already writes through**, so `CloudscapeCompilePass` (T3) and everything after it in
+    the render tier needed zero changes to consume procedurally-driven weather, closing
+    the loop the design doc's architecture diagram promises.
+  - **`Cloudscape::evolution_rate`'s dual meaning, resolved.** W0 wired this previously-dead
+    field to scroll the shader's erosion-noise sample every frame as a stopgap so the sky
+    was not static; that shader-side consumption is **unchanged**. What changes in
+    Procedural mode is only the *source* of the value: `WeatherCloudscapeCompiler` now
+    derives it from T1/T2's own activity (wind speed + front/convective intensity) instead
+    of an author-set constant, so a calm clear sky churns slowly and a windy, convective,
+    frontal sky churns visibly faster — T1 "becomes the synoptic advance multiplier" the
+    design doc asks for, without touching `cloud.frag` or `CloudscapeCompilePass`. Manual
+    mode is untouched: the field is still a plain author-set slider there.
+  - **`Render::WeatherPreset` gained a fifth value, `FrontPassage`** (`environment.hpp`),
+    appended after `Storm` rather than inserted in the design doc's listed display order
+    (Clear/Fair/Overcast/Front Passage/Storm) so no existing preset's enum value
+    renumbers; the editor's button row still labels/orders them per the doc. In Manual
+    mode it expands to a static breaking-overcast deck mix (`cloud_weather_preset`,
+    unchanged mechanism); in Procedural mode the same button instead calls
+    `ProceduralWeather::apply_preset`, which seeds a real `PressureSystem` placed upstream
+    of the observer and heading toward it — the phase's own acceptance-bar demo scenario.
+    Every preset (Clear/Fair Weather/Overcast/Front Passage/Storm) is reinterpreted this
+    way in Procedural mode: it seeds a synoptic scenario that then evolves on its own
+    tick over tick, exactly as design doc §6 asks, rather than snapping to a fixed deck
+    mix.
+  - **Weather panel v2** (`editor/ui/editor_panels.cpp`'s Clouds section): a Manual/
+    Procedural mode radio (`IWorldEditor::set_procedural_weather_enabled`); a synoptic map
+    overlay drawn from live T1 state (an `ImDrawList` canvas centered on the observer,
+    pressure systems as circles sized by radius and colored by low/high, a heading tick
+    per system); a per-system authoring list (add/remove, depth/radius/speed/heading
+    sliders, backed by `SynopticLayer::add_system`/`remove_system`/`set_system`); and a
+    time-of-day scrub coupled to the master epoch (`Environment::observer.julian_date`'s
+    fractional-day component). The existing Advanced deck-authoring section is unchanged
+    and still works in Manual mode (disabled, with an explanatory note, in Procedural mode
+    since T1/T2 overwrite it every tick).
+  - **Scoped down, named rather than silent:**
+    - **T2's vertical resolution is 3 levels (`Sim::CloudLevel::Low/Mid/High`), not the
+      design doc's 8-16.** `Render::CloudGenus`'s WMO étage catalogue is itself only
+      three wide bins (high / middle / low+vertical), and the only consumer of T2's
+      vertical structure — `WeatherCloudscapeCompiler` — has no continuous altitude
+      profile to feed even if T2 tracked one (`CloudDeck` is discrete per-genus). A finer
+      column would be internal detail with no render-visible effect today.
+    - **T2's default horizontal grid** (`DEFAULT_REGIONAL_GRID_CELLS = 64`) is smaller
+      than the doc's 256x256, for tick cost and test/CI runtime; `RegionalWeatherGrid`'s
+      constructor takes `nx`/`nz` directly, so raising it is a one-line change once the
+      cost is worth paying, not a rewrite.
+    - **Orographic lift is wired but inert.** No terrain height field exists anywhere in
+      the engine today — confirmed by inspection: `Render::PlanetParams` carries no
+      height data, and `sky.frag`'s `relief_normal()` is explicitly a shading-only fbm
+      normal perturbation with no displaced position behind it ("cheap terrain relief
+      before any mesh exists"; Earth does not even use it). `RegionalWeatherGrid::set_terrain_height_source`
+      accepts a real sampler when one exists; until then the default returns 0
+      everywhere, so `w ~= u . grad(terrain)` is always exactly 0 — a documented no-op,
+      not fabricated data.
+    - **T2's tick amortization across frames is not implemented.** The design doc's
+      budget ("<=0.1 ms amortized") implies spreading one tick's work over several
+      frames the way `CloudLightVolumePass`/`CloudShadowMapPass` already amortize their
+      GPU bakes; T2's CPU tick instead runs synchronously in one `RuntimeSimulation::step_once()`
+      call when its nested clock comes due. At the scoped-down 64x64x3 default this is
+      still comfortably sub-frame in practice, so it is not a measured performance
+      problem today, but the literal frame-spreading technique is deferred, not
+      abandoned.
+    - **Weather panel v2's map is read/select/edit, not drag-to-place.** The design
+      doc's literal "place/drag a low" would need an in-viewport drag manipulator — real
+      interaction-model work judged too risky to add on top of everything else this
+      phase already touches. Landed instead: click-free authoring via an Add button plus
+      per-system sliders, and a read-only map that visualizes the live state those
+      sliders edit.
+    - **Scene serialization captures T1, not T2.** `scene_serializer.cpp`'s new
+      `weather_to_json`/`weather_from_json` round-trip the procedural mode flag and the
+      full synoptic system list (with its `Loop::RngState`, clock, and genesis timer) —
+      enough to resume an equivalent evolving sky. T2's regional grid is not serialized
+      cell-by-cell (potentially tens of thousands of floats per save for a resolution
+      that is itself a scoped-down placeholder); it reseeds deterministically from the
+      restored T1 state and the current observer on the next tick instead. The
+      acceptance bar this phase must clear is tick-to-tick *replay* determinism (proven
+      by `test_weather_determinism.cpp`), not save/load byte-fidelity of transient
+      internal grid state, so this is judged a reasonable, honestly-scoped reduction.
+    - **The editor's default procedural seed is fixed** (`RuntimeSimulation::set_procedural_weather_enabled`
+      always seeds `1` when first enabling); a reseed control is deferred to a follow-up
+      pass on top of this seam, not exposed yet.
+  - **Determinism proof.** `tests/functional/integration/test_weather_determinism.cpp`
+    adds two suites: `Integration_WeatherDeterminism` runs two independently constructed
+    `ProceduralWeather` instances through 500 identical fixed-step/julian-date ticks from
+    the same seed and asserts every field of the resulting `SynopticState` (RNG, clock,
+    every live system) and four sampled `WeatherColumn`s/compiled `Cloudscape`s are
+    bit-identical — the weather-domain analogue of `test_deterministic_replay.cpp` and
+    `test_particle_determinism.cpp`. `Integration_WeatherFrontCrossing` proves the
+    acceptance bar's visible half: a hand-placed low's cold front measurably sweeps past
+    a fixed observation point over 24 simulated hours (front proximity rises above 0.5
+    mid-run, from near-zero at both ends) and the compiled `Cloudscape`'s low-level deck
+    is enabled with materially higher coverage right at the front's closest approach than
+    at the run's start. Both pass.
+  - **Not part of this phase** (design doc §5.3/W5/W6, out of scope here and untouched):
+    fog/turbidity coupling, precipitation particles, wet surfaces, lightning, the
+    `weather_wind()` gameplay API, and real-data ingestion (`IngestedWeather`). The seam
+    this phase introduces (`IWeatherProvider`) is exactly what lets those land later
+    without revisiting T1/T2/the bridge.
+
+- **Volumetric cloud march (W3: temporal & optical integration) — a dedicated cloud
+  buffer + its own YCoCg-variance-clip TAA, aerial perspective on clouds, a near/far
+  behavioural split, and a far-field panorama impostor.** Builds on W0-W2 below.
+  `docs/slop/weather_and_clouds.md` §7's W3 phase ("Temporal & optical integration")
+  called for all five of these; this lands all five, with the scope decisions below.
+  - **`CloudPass` now writes a second MRT attachment** (`frame.targets.cloud_depth`,
+    `R32_SFLOAT`): the transmittance-weighted mean march depth, accumulated in
+    `cloud.frag` the same way `scattered` already is (`(1 - sample_transmit) *
+    transmittance`, normalized by the total in-scatter weight) — the aerial-perspective
+    coupling's input, and also what the design doc calls the dedicated cloud buffer
+    set's "L16 cloud depth" channel. Both MRT targets now size off
+    `QualityParams::cloud_buffer_scale` (a new tiered field: ⅓ on Low, ½ on Medium/High,
+    ¾ on Ultra — design doc §4.7's "Cloud buffer" row) instead of a hard-coded half,
+    resolved in `ViewResources::declare_targets`.
+  - **`CloudTaaPass`** (new: `cloud_taa_pass.{hpp,cpp}`, `cloud_taa.comp`) resolves the
+    cloud buffer's own dedicated temporal history — War Thunder's shipped scheme —
+    before `CloudCompositePass` folds the result over the sky: a YCoCg neighbourhood
+    variance clip (gamma ≈ 1.2, `QualityParams::cloud_variance_clip` — Low instead takes
+    a plain exponential blend toward history, design doc §4.7's TAA row), motion vectors
+    from the existing velocity target where opaque geometry is visible and a view-ray
+    reprojection fallback where it is not (most of a cloud pixel's neighbourhood is
+    sky), and a per-pixel history-acceptance weight that ramps up over accepted frames
+    and gets a further boost under sub-pixel motion. It owns two ping-ponged (by frame
+    parity, exactly like `ViewResources`'s own main history) pairs of pass-owned images
+    — resolved colour and history weight — barriered by hand like the T3 field/light
+    volume/shadow map. Sized at a **fixed** half of the view's *output* extent rather
+    than the dynamic render extent, so tier changes and dynamic resolution reach it the
+    same render/output-extent reconciliation `taa.frag` already does for the main
+    resolve, without forcing a history resize on every dynamic-resolution step;
+    `VulkanSceneView::resize()` (already idling the device for `ViewResources::resize`)
+    calls its `resize()` too. This resolve runs entirely before, and is independent of,
+    the frame's own `taa_pass_`, which only ever sees the already-composited cloud
+    contribution as an ordinary shaded pixel.
+  - **Aerial perspective on clouds**: `CloudCompositePass` now also depends on
+    `AtmosphereLutPass` and samples the Hillaire aerial-perspective froxel volume once
+    per pixel — not per march sample — at the cloud's own weighted-mean depth
+    (reconstructed by the same four nearest-depth-weighted texel taps the colour
+    upsample already computes, extended to the new depth MRT). The cloud's own
+    in-scattered light is attenuated by the air in front of it (`aerial.a`) and that
+    air's own in-scatter is added back (`aerial.rgb`), weighted by how much cloud is
+    actually visible (`1 - cloud.a`) so a clear-sky pixel's otherwise-meaningless
+    reconstructed depth never paints a phantom haze layer — a distant deck now hazes,
+    desaturates, and sinks toward the horizon exactly like a mesh already does.
+  - **Near/far split — scoped simplification, named rather than silent.** The design
+    doc's literal dual-viewport split (a coarser-tiled ¼-area near target at full march
+    quality alongside the existing ½-res far target) would have meant a second cloud
+    render target, a second march dispatch, and reworking the composite/TAA to blend
+    two sources by distance — real architecture work judged too invasive to land safely
+    within this phase alongside everything else above. Landed instead, gated by a new
+    `QualityParams::cloud_near_far_split` (High/Ultra only, matching the table's "+near
+    split" cells): the near-band radius is renamed from W2's ad hoc 150 m to the design
+    doc's literal 200 m, and — the genuine behavioural contribution — the march's
+    per-pixel temporal dither now freezes at a fixed phase beyond 250 m instead of
+    animating every frame (Nubis3's "jitter animated only < 250 m, static hash
+    beyond"), which is what actually delivers the acceptance bar's "no shimmer under
+    motion" at distance: a static dither pattern is what the new cloud TAA's history
+    converges on and stays converged on, rather than perpetually re-chasing a moving
+    one. The pixel-count saving itself is deferred; near-field content already got full
+    march quality from W2's existing `<200 m` erosion gate, so this phase's real gap is
+    the resolution-split *cost saving*, not the near-field *quality*.
+  - **`CloudPanoramaPass`** (new: `cloud_panorama_pass.{hpp,cpp}`, `cloud_panorama.comp`)
+    bakes the T3 field and the amortized light volume into a 512×256 equirectangular
+    panorama — the design doc's far-field/reflection-probe impostor — refreshing a row
+    group at a time across 8 frames, the same cadence `CloudLightVolumePass`/
+    `CloudShadowMapPass` already refresh at (all three track something continuously
+    drifting — the sun, or here the camera's position on the sphere the bake's
+    azimuth/up frame is built from — rather than a discrete author edit). Deliberately
+    coarser than the primary march (a fixed 20-step integration, a single HG lobe, no
+    near-camera erosion): War Thunder's own low-end mode is the design doc's explicit
+    precedent for exactly this kind of far-field source. **Landed as a verified,
+    standalone bake this phase; wiring a consumer is scoped out.** `IblPass`'s
+    reflection-probe capture is the natural consumer — it already renders `sky.frag` six
+    times per environment-cube rebuild with no cloud content at all today — and a safe
+    hook exists (`scene.ibl_params.w < 0.5` already, and only, marks an IBL-capture
+    draw; `sky.frag`'s own comment at its `escapes_to_space`/`use_aerial` gates already
+    relies on this). Wiring it fully means adding a new sampler binding to `sky.frag`
+    that every caller of that shader — including the *primary* `sky_pass_`, which has no
+    `CloudPanoramaPass` reference today — must supply a valid descriptor for, which
+    widens the change beyond this pass and its two direct dependencies
+    (`CloudscapeCompilePass`, `CloudLightVolumePass`) into two more already-working
+    passes and a 1000-line shared shader. Judged too large a blast radius to land safely
+    alongside everything above; a follow-up threading `IblPass` through as a third
+    dependency and gating the sample on the existing capture flag is the scoped next
+    step, not abandoned scope.
+  - **Format deviations from the design doc's literal asks, both following this
+    codebase's own established precedent rather than introducing a new one:** the cloud
+    depth MRT and the cloud TAA's history-weight image use `R32_SFLOAT` where the design
+    doc says "L16"/"R8" — `R8_UNORM` is not on Vulkan's mandatory storage-image format
+    list (both images are written by a compute/fragment target that needs storage-image
+    usage), so this follows the same choice `HizPass`, `CloudLightVolumePass`, and
+    `CloudShadowMapPass` already made for an identical single-channel-bake constraint,
+    the same way W2's shadow map already deviated from its own doc-implied format for
+    the same reason.
+  - **Known simplifications in `CloudTaaPass`'s resolve, named rather than silent:**
+    bilinear reconstruction instead of `taa.frag`'s bicubic Catmull-Rom tap (the cloud
+    buffer's own content is already soft/volumetric, so the sharpening a bicubic tap
+    buys the crisp main-scene resolve matters far less here), and a single point-sampled
+    velocity/depth read instead of a 3×3 dilation neighbourhood (this target is already
+    coarser than the full-res velocity/depth buffers it reads, so one tap already covers
+    roughly the footprint a full-res dilation would).
+  - Still deferred to W4+ (meteorology simulation, world coupling, flight-sim polish):
+    unchanged by this pass.
+
+- **Volumetric cloud march (W2: march & lighting upgrade) — a Nubis3-style skip-driven
+  step rule, near-camera erosion/curl, an amortized light volume, dual-lobe scattering,
+  profile-gradient ambient, and one unified 768² cloud shadow map.** Builds on W0/W1
+  below. `docs/slop/weather_and_clouds.md` §7's W2 phase ("March & lighting upgrade")
+  called for all six of these; this lands all six, with the scope decisions below.
+  - **The empty-space skip now advances by the skip field's own cell size**
+    (`CloudscapeCompilePass::skip_cell_meters()`, 512 m at the current resolutions)
+    instead of a fixed 3x multiplier on the distance-driven step — the Nubis3 rule
+    `step = max(skip_distance, 0.08*sqrt(dist), min_step)` in full, not the W0
+    approximation of it.
+  - **Near-camera (<150 m) erosion at the 811 m incommensurate scale, with a curl-noise
+    warp folded in near cloud bases** (`cloud.frag`'s `near_field_erosion`/
+    `curl_from_scalar`) — a fixed-frequency detail tap the T3 bake cannot carry (it has
+    no notion of camera distance), gated tight so its cost never reaches the far field.
+    Re-admits one noise binding (`cloud_detail_texture`) to `CloudPass`/`cloud.frag` that
+    W1 had dropped; `CloudPass` now also depends on `Textures::CloudNoise` again for it.
+    The curl warp is a cheap central-difference approximation from the existing detail
+    volume, not a dedicated curl-noise asset — no consumer justified a new bake for it.
+  - **`CloudLightVolumePass`** (new: `cloud_light_volume_pass.{hpp,cpp}`,
+    `cloud_light_volume.comp`) bakes a 256x256x32 volume of summed density toward the sun
+    from the T3 field, sharing its flat, wind-neutral tile and `(u, v, height01)`
+    addressing. Not change-gated like the field — the sun moves every frame the clock
+    advances, so there is no "settled" state — instead a fixed Y-slice group (1/8 of the
+    volume) refreshes every frame regardless, cycling the whole volume across 8 frames.
+    `cloud.frag` samples it as the base lighting signal for every lit march sample (one
+    fetch), replacing the old scheme where the costlier inline cone march
+    (`cloud_light_march`) ran on every other lit sample unconditionally.
+  - **Tiered inline light-march correction** (`QualityParams::cloud_light_taps`, 0-3,
+    Low..Ultra per §4.7's table) layers `cloud_light_march`'s costlier cone-sampled
+    result on top of the light volume at a cadence the tier controls — 0 (Low) never
+    calls it, 3 (Ultra) calls it every lit sample and unlocks the dual-lobe phase's
+    silver-lining boost.
+  - **Dual-lobe Henyey-Greenstein scattering** (`cloud_sun_energy`, rewritten): a fixed
+    back-lobe fraction (`-0.25 * forward_scattering`) of the author's own forward g
+    lands at Nubis3's reference g ≈ 0.8/-0.2 at the `Cloudscape` default, mixed across a
+    3-octave Wrenninge-style ladder (down from 4) with the analytic in-step scattering
+    integration `(1 - exp(-sigma*ds))` this codebase already had since W0 — the single
+    biggest sample-count reducer, already load-bearing before this phase.
+  - **Profile-gradient ambient** (`pow(1 - profile, 0.5)`): the T3 field's bake
+    (`cloudscape_field.comp`) now writes a third channel carrying the contributing
+    deck's own vertical density-gradient value (`cloud_height_gradient`'s 0-at-edge,
+    1-at-middle shape) — free, since it rides the same texel fetch the density channels
+    already occupy. Dark edges and inner glow fall out of data already in flight instead
+    of the old flat `mix(0.35, 1.0, height01)` term.
+  - **`CloudShadowMapPass`** (new: `cloud_shadow_map_pass.{hpp,cpp}`,
+    `cloud_shadow_map.comp`) bakes a 768x768 map of optical depth toward the sun,
+    projected over the T3 field's own flat tile — the single shadow authority replacing
+    both `sky.frag`'s `cloud_ground_shadow` (its own private six-deck density march,
+    independent of the T3 field since W1) and `cloud_shadow_common.glsl`'s weather-map
+    approximation for meshes. `sky.frag` loses ~190 lines of now-dead duplicate cloud
+    density code (`cloud_deck_density`, `cloud_density`, `cloud_height_gradient`,
+    `remap`, `cloud_ground_shadow`) and the four noise bindings that fed it; `SkyPass`
+    drops its `CloudNoise` dependency entirely. `OpaquePass`/`TransparentPass` swap their
+    `CloudNoise` dependency for `CloudShadowMapPass` at the same binding slot. Amortized
+    the same way as the light volume (1/8 of the map's rows per frame), not baked along
+    each caller's own light direction — the one simplification worth naming: a secondary
+    body (the Moon) lit surface now reuses the primary sun's overhead reading rather than
+    its own ray, which the codebase already tolerates elsewhere (secondary-caster
+    mesh/ground shadowing is its own disabled path today, see `pbr.frag`'s `false &&`
+    guard).
+  - **The cloud bake trio (`CloudscapeCompilePass`, `CloudLightVolumePass`,
+    `CloudShadowMapPass`) now registers first in the frame**, ahead of opaque/transparent
+    mesh shading and the sky pass — previously only `CloudPass` consumed the T3 field, and
+    it already ran after those passes, so the field/light-volume/shadow-map bakes could
+    stay late too. Now that mesh shading and the sky pass also read the shadow map, they
+    need this frame's bake, not last frame's; each bake is itself change-gated or
+    amortized, so running first costs nothing extra on the common frame where there is
+    nothing new to compute.
+  - **Known trade-off:** the shadow map's march assumes local "up" is the dominant body's
+    pole vector (`planet_frame.xyz`) rather than each texel's true radial direction — the
+    same flat-tile, curvature-free approximation W1 already accepted for the field itself,
+    extended here to the bakes built from it (the light volume makes the identical
+    approximation). Valid at the T3 tier's regional scale; would need revisiting only if
+    the tile size grows enough for curvature to matter.
+  - Still deferred to W3+ (cloud TAA, near/far res split, aerial perspective coupling,
+    panorama far field): unchanged by this pass.
+
+- **Volumetric cloud march (W1: the cloudscape field) — the six-deck loop moves off the
+  per-pixel march and into a baked, change-gated compute pass.** Builds on the W0 triage
+  below. `docs/slop/weather_and_clouds.md` §7's W1 phase ("Cloudscape compile (T3): the
+  prebaked field") called for a weather texture, a 3D cloud field with a downsampled skip
+  field and occupied-altitude readback, and a genus type/height LUT, replacing the
+  per-sample six-deck loop with ~3 fetches. This lands the field and its skip field — the
+  actual fetch-count reduction the acceptance criterion measures — with three scoped
+  deferrals, explained below rather than left silent.
+  - **`CloudscapeCompilePass`** (new: `cloudscape_compile_pass.{hpp,cpp}`,
+    `cloudscape_field.comp`, `cloudscape_skip.comp`) bakes a 3D density field from the
+    authored deck stack — the exact math `cloud_deck_density`/`cloud_density` used to run
+    per march sample, now run once per field texel. Change-gated like
+    `AtmosphereLutPass`'s static LUTs: a POD snapshot of the deck stack (enabled, genus,
+    coverage bias, density scale, weather scale) is memcmp'd every frame, and the bake
+    (and its downstream max-pooled skip field, for the march's coarse probe) only
+    redispatches when an author actually touched something.
+  - **The field is a flat, wind-neutral, periodic tile**, not a camera-relative volume:
+    X/Z wrap a fixed 32 768 m region and Y is the fraction across the union altitude band,
+    with no deck's wind baked in. Over a tile this size the planet's curvature is
+    sub-centimetre and invisible, so the bake skips the ellipsoid math the per-sample loop
+    used entirely. Wind is applied at sample time in `cloud.frag` instead, as a UV offset
+    into the field — which is what keeps the bake cacheable across frames despite the
+    wind blowing every one of them; baking wind's per-frame offset into the field itself
+    would have forced a rebake every frame, defeating the point.
+  - **`cloud.frag`'s `cloud_density()`** now samples the field (plus a second,
+    incommensurate-scale mirrored tap for anti-repetition on its full-quality path) where
+    it used to run the six-deck loop — `cloud_deck_density` and its per-sample
+    domain-warp/street-streak/erosion fetches are deleted from this file. The now-unused
+    shape/detail/weather/cirrus noise bindings go with it; `CloudPass` no longer depends
+    on `CloudNoise` at all (that dependency moves to `CloudscapeCompilePass`, the one
+    place that still needs it). The cheap/coarse probe and `cloud_light_march`'s many
+    samples read the coarser skip field instead of the fine one.
+  - **Scoped out of this pass, deliberately:** a standalone 2D weather texture (RGBA
+    L1/L2/type/CN) has no consumer yet — nothing downstream of the bake needs coverage
+    data separately from the density it already produces, so materializing one now would
+    be speculative; it becomes load-bearing once precipitation/fog/wet-surfaces (§5.3)
+    exist. A literal genus type/height LUT texture is redundant on top of the field: the
+    height-gradient shaping it would hold is already baked into the field's density, not
+    looked up separately, so a texture standing in for it would add an indirection with
+    nothing behind it. The occupied-altitude readback is implemented GPU-side only (no
+    CPU roundtrip) rather than as a literal readback buffer — simpler, and the CPU has no
+    current consumer for the range; W0's ray/sphere march-bound fix already covers the
+    dominant case (camera below the deck). All three are straightforward follow-ups, not
+    abandoned scope.
+  - **Known trade-off:** the field's two channels (non-cirrus decks summed into one, the
+    Cirrus genus specifically into the other) are stored `UNORM` and clamped to [0, 1]
+    each at bake time. A scene with several thick, heavily overlapping same-layer decks at
+    a high authored `density_scale` can therefore read thinner than the unclamped original
+    math would have produced — a real, visible-in-principle change worth knowing about,
+    not a silent one.
+  - Still deferred to the design doc's W2+ (per-deck independent wind/motion once genus
+    layers decouple further, the amortized light volume, cloud TAA, the unified cloud
+    shadow map): unchanged by this pass.
+
+- **Volumetric cloud march (W0 triage): distance-driven steps, VRS, depth-aware
+  composite, and a dead-code cleanup — the profiled ceiling on mid-range GPUs.** The
+  atmosphere itself already runs off the Hillaire LUT stack, but the cloud march in
+  `cloud.frag` (its own half-resolution pass, split out of `sky.frag`) had no LUT and no
+  temporal reuse, so it stayed the frame's dominant cost. See
+  `docs/slop/weather_and_clouds.md` §1/§7 (W0) for the full audit and roadmap; this is
+  its first phase, sized and merged without the field-compile rewrite W1+ still owns.
+  - **March steps are now distance-driven, not altitude-driven.** `space_factor` mixed
+    the step count by `scene.scatter.w` (camera altitude) — the wrong variable: a
+    grazing ray at cloud-base height paid the same as one looking straight up. Step
+    length now grows with distance already travelled along the ray (`0.08*sqrt(dist)`),
+    floored by the tier's `steps_near` budget near the camera and capped by `steps_far`
+    spread over the whole march, so near-camera resolution and far-field coverage are
+    controlled independently of where the camera happens to be.
+  - **The march no longer burns budget on the empty air under the cloud base.** A
+    camera below the deck (the common ground-level case) started marching from its own
+    position; it now starts where the view ray first reaches the cloud base altitude,
+    computed from the ray/sphere intersection with the base radius.
+  - **Empty-space skipping no longer eats into the sample budget.** The old loop
+    charged three loop-counter steps per skip (`i += 2` on top of the implicit
+    increment), so a ray with many small clear-sky gaps could exhaust its step budget
+    before reaching a distant, actually-visible cloud. Skips now only consume a
+    separate, generous iteration safety cap; only real density evaluations count
+    against the tier's step budget.
+  - **Variable-rate shading now steers the cloud pass.** It covered the sky pass only;
+    the cloud march — the frame's other heavy per-pixel fill, and the one actually
+    dominating the GPU budget — was exempt. The shading-rate texel size is halved to
+    match the cloud target's half resolution, keeping each tile's physical screen
+    footprint the same as the sky pass's.
+  - **Disabling clouds now skips the march, not just its output.** `CloudPass` used to
+    always run the full pipeline and let the shader's own early-out write the neutral
+    "clear sky" colour; the render-graph node now clears the attachment in hardware
+    instead when `Environment::Clouds::enabled` is false, skipping the descriptor
+    writes, push constants, and draw entirely.
+  - **Nearest-depth-aware composite upsample, replacing plain bilinear.** Compositing
+    the half-resolution cloud target over the full-resolution sky (`cloud_composite.frag`)
+    blended texels across silhouette edges, haloing foreground geometry with background
+    cloud colour. It now reconstructs from the four nearest half-res texels weighted by
+    whether each one's depth roughly matches the output pixel's own (a standard
+    nearest-depth upsample), reading both textures with a point sampler it did not have
+    before. The cloud march's own occlusion read (`cloud_pass.cpp`) is point-sampled
+    too now, for the same reason: a bilinear tap of scene depth across an edge bounded
+    the march against neither surface correctly.
+  - **Two functions the sky/cloud split had already made dead are gone from
+    `sky.frag`.** `cloud_light_march` and `cloud_sun_energy` were left over from before
+    the volumetric march moved into its own half-resolution `cloud.frag` pass; nothing
+    in `sky.frag` still called them (`cloud_ground_shadow`, which remains, only needs
+    the plain density integral). `cloud_deck_density`/`cloud_density` stay — they still
+    cast the cloud stack's shadow onto the analytic ground.
+  - **The dead `evolution_rate` uniform now does something.** Authored per scene
+    (`Environment::Clouds::evolution_rate`) and packed into every deck's uniform slot
+    since it was added, but never read by any shader — the weather map translated with
+    wind but never otherwise changed, so a still camera watched a rigid, unchanging
+    cloud field. It now drives an independent scroll of the erosion/detail noise
+    sample, decoupled from the wind-driven base-shape translation, so cloud edges
+    visibly churn over time at the rate the author sets (0 reproduces the old static
+    behaviour exactly). The full synoptic simulation it becomes an input to is later
+    roadmap (§5 of the design doc), not part of this change.
+  - Not done here (tracked in the design doc's W1+): the prebaked 3D cloud field and
+    skip-distance step rule that cuts the per-sample fetch count from ~48 to ~3, the
+    amortized light volume, and cloud TAA. Those are the rewrite; this is the triage
+    pass ahead of it.
+
+### Added
 - **Editor/feature sync pass — GTAO, SSR, ray-traced shadows, particle bursts, and blend shapes
   gained the editor UI their engine-side implementation already supported.** An audit of the
   editor against the features it's meant to expose found several settings that were fully wired
@@ -226,14 +1093,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - **CI: every kernel-dispatching functional test (physics solvers, `Integration_Schedule`)
   failing with "opencl backend failed with error: 7 (UR_RESULT_ERROR_INVALID_BINARY)."**
   Host-only tests (`Unit_World`, `Unit_CommandBuffer` — no SYCL kernel submitted) passed
-  regardless, narrowing this to a binary-format mismatch between the intel/llvm nightly's
-  default codegen and `pocl-opencl-icd` (Ubuntu 24.04's distro POCL 5.0), whose bundled
-  LLVM-SPIRV consumer lags recent nightly output with no `-fsycl-targets` override pinning
-  it back. `INTEL_LLVM_DATE` rolled back from `2026-06-12` to `2025-11-01` as the first,
-  least invasive thing to try; if the same date still fails this way in CI, the next steps
-  are bisecting further back, forcing an older SPIR-V/pointer shape via
-  `-fsycl-targets`/`-Xsycl-target-backend`, or building POCL from source instead of the
-  distro package.
+  regardless, narrowing it to the OpenCL platform under every dispatched kernel — this
+  architecture's allocator is USM end to end, so every dispatched kernel needs a real
+  device supporting `cl_intel_unified_shared_memory`. `pocl-opencl-icd` (Ubuntu 24.04's
+  distro POCL, a generic non-Intel implementation) doesn't provide it; hand-assembling
+  Intel's own CPU runtime (`oclcpuexp`) plus the exact oneTBB release it validates
+  against did work, but needed three increasingly specific fixes to get there (the ICD
+  vendors directory, oclcpuexp itself, then the precise TBB build after a same-name
+  different-ABI one loaded but silently failed) — fragile in a way worth not keeping.
+  Replaced entirely with the `intel/oneapi-basekit` container + `icpx`, matching
+  SushiRuntime's own CI (`sushiruntime/.github/workflows/ci.yml`), which runs this
+  exact toolchain clean — `cmake/Sycl.cmake`'s `oneapi` path already supports it, an
+  earlier version of this file avoided it over a stale or since-fixed concern about
+  `IntelSYCL::SYCL_CXX` target creation.
 
 ### Added
 - **VFX — the particle material: sprite textures, flipbooks, soft particles, per-emitter lighting.**
