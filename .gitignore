@@ -18,7 +18,6 @@ __pycache__/
 cli/build/
 cli/*.egg-info/
 .sushi_env.json
-CLAUDE.md
 
 # Animation clip files
 *.sushianim
