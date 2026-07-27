@@ -1,0 +1,158 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Kessler (1969) warm-rain microphysics with saturation adjustment and latent heating: the
+// closed cycle vapour -> cloud -> rain -> evaporation that turns a moist updraft into a visible
+// cloud that eventually rains itself out.
+//
+// docs/slop/atmosphere_system.md §6. Every step below replaces something the shipped system
+// did with a threshold (§1.3's table, line for line):
+//
+//   | what meteorology requires            | what the shipped code did      |
+//   | saturation vapour pressure           | `if (humidity > 0.85)`         |
+//   | mixing ratio q_v [kg/kg]             | dimensionless humidity [0,1.3] |
+//   | latent heating on condensation       | none                           |
+//   | warm-rain microphysics               | `if (cloud_water > 0.5)`       |
+//
+// The one that changes the *look* of the sky most is latent heating. Condensation releases
+// 2.5 MJ per kilogram of water, which warms the parcel, which makes it more buoyant, which
+// makes it rise faster and lift more vapour to its condensation level. Without that term a
+// cloud is a passive marker of where moist air happened to be; with it, a cloud is an engine,
+// and that is the difference between a cumulus that sits there and one that grows a tower.
+//
+// Cloud *base* falls out rather than being placed: a parcel rising along its dry adiabat cools
+// until q_s(T) drops to its own q_v, and the altitude where that happens is the lifting
+// condensation level. Nothing in this shader knows what altitude that is.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1, r32f) uniform image3D theta;
+layout(set = 0, binding = 2, rgba16f) uniform image3D moisture;
+// Surface precipitation accumulated out of the bottom of the column, mm/h — what the world
+// coupling, the rain emitter and the readback all ultimately read.
+layout(set = 0, binding = 3, r32f) uniform image2D surface_rain;
+
+// Mixing ratios are carried in g/kg: fp16 holds 1e-3..20 comfortably, where kg/kg would put
+// drizzle-scale rain into the denormal range and flush it to zero.
+const float MOISTURE_UNIT = 1000.0;
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    int levels = nest_level_count();
+    if (cell.x >= nest.cells_x || cell.y >= levels || cell.z >= nest.cells_z)
+        return;
+
+    float altitude = nest_level_altitude(float(cell.y));
+    float thickness = nest_level_thickness(cell.y);
+    float exner = nest_exner(altitude);
+    float pressure = nest_base_pressure(altitude);
+    float density = nest_base_density(altitude);
+    float base_theta = nest_base_theta(altitude);
+    float dt = nest.dt;
+
+    float theta_perturbation = imageLoad(theta, cell).r;
+    vec4 q = imageLoad(moisture, cell) / MOISTURE_UNIT;
+    float vapour = q.x;
+    float cloud = q.y;
+    float rain = q.z;
+
+    // ---- Saturation adjustment -------------------------------------------------------
+    //
+    // Condense (or evaporate) until the parcel sits exactly at saturation, releasing (or
+    // absorbing) latent heat as it goes. Saturation moves *with* the temperature the heating
+    // changes, so this is a fixed point, not a one-shot subtraction: one Newton step on
+    //     f(dq) = (q_v - dq) - q_s(T + L dq / c_p)
+    // is enough at these time steps, and the derivative of q_s is what makes it converge in
+    // one rather than needing an iteration nobody can afford per cell.
+    float temperature = (base_theta + theta_perturbation) * exner;
+    float saturation = nest_saturation_mixing_ratio(temperature, pressure);
+    float latent_over_cp = nest.latent_heat_vaporization / nest.specific_heat_pressure;
+
+    // d(q_s)/dT from the Clausius-Clapeyron form the Magnus expression approximates.
+    float saturation_slope = saturation * nest.latent_heat_vaporization /
+                             (nest.gas_constant_vapour * temperature * temperature);
+    float excess = (vapour - saturation) / (1.0 + latent_over_cp * saturation_slope);
+    // Evaporation cannot take more cloud water than there is.
+    excess = max(excess, -cloud);
+
+    vapour -= excess;
+    cloud += excess;
+    theta_perturbation += latent_over_cp * excess / max(exner, 1e-6);
+
+    // ---- Autoconversion: cloud droplets collide into drizzle --------------------------
+    //
+    // Nothing happens below the threshold, which is what keeps a thin fair-weather cumulus
+    // from raining. Above it the conversion is linear in the excess.
+    float autoconversion = nest.autoconversion_rate *
+                           max(cloud - nest.autoconversion_threshold, 0.0);
+
+    // ---- Accretion: falling rain sweeps up the cloud droplets it passes ---------------
+    //
+    // The dominant rain-production term once any rain exists at all, which is why a shower
+    // intensifies so much faster than it started.
+    float accretion = nest.accretion_rate * cloud * pow(max(rain, 0.0), nest.accretion_exponent);
+
+    float converted = min((autoconversion + accretion) * dt, cloud);
+    cloud -= converted;
+    rain += converted;
+
+    // ---- Rain evaporation below cloud base -------------------------------------------
+    //
+    // Rain falling through unsaturated air evaporates, cooling it. That cooling is what makes
+    // a downdraft: air that is colder than its surroundings sinks, spreads out at the ground
+    // as a cold pool, and lifts the air ahead of it -- which is how one cell triggers the
+    // next. This term is the entire mechanism behind the phase's acceptance bar.
+    float subsaturation = max(saturation - vapour, 0.0);
+    if (rain > 0.0 && subsaturation > 0.0)
+    {
+        float evaporated = min(nest.rain_evaporation_rate * subsaturation *
+                                   sqrt(max(rain, 0.0)) * dt,
+                               min(rain, subsaturation));
+        rain -= evaporated;
+        vapour += evaporated;
+        theta_perturbation -= latent_over_cp * evaporated / max(exner, 1e-6);
+    }
+
+    // ---- Sedimentation: rain falls ----------------------------------------------------
+    //
+    // Terminal fall speed after Kessler, V = a (rho q_r)^b, applied as an upwind flux from the
+    // level above. Explicit and therefore limited to one level per step, which the time step
+    // comfortably satisfies: at 5 m/s and a 2 s step, rain falls 10 m against level thicknesses
+    // of 80 m and up.
+    float fall_here = nest.fall_speed_coefficient *
+                      pow(max(density * rain, 0.0), nest.fall_speed_exponent);
+    float outflow = min(fall_here * dt / thickness, 1.0) * rain;
+
+    float inflow = 0.0;
+    if (cell.y < levels - 1)
+    {
+        ivec3 above = ivec3(cell.x, cell.y + 1, cell.z);
+        float rain_above = imageLoad(moisture, above).z / MOISTURE_UNIT;
+        float thickness_above = nest_level_thickness(cell.y + 1);
+        float density_above = nest_base_density(nest_level_altitude(float(cell.y) + 1.0));
+        float fall_above = nest.fall_speed_coefficient *
+                           pow(max(density_above * rain_above, 0.0), nest.fall_speed_exponent);
+        // Mass, not mixing ratio, is what is conserved across a level boundary, so the flux
+        // carries the ratio of the two levels' air masses with it.
+        float mass_ratio = (density_above * thickness_above) / max(density * thickness, 1e-6);
+        inflow = min(fall_above * dt / thickness_above, 1.0) * rain_above * mass_ratio;
+    }
+    rain = max(rain - outflow + inflow, 0.0);
+
+    // What leaves the lowest level has reached the ground. Converted from a mixing-ratio flux
+    // to the millimetres per hour every consumer downstream speaks in: kg/m^2 of water is a
+    // millimetre of depth by definition, so the mass flux *is* the rate.
+    if (cell.y == 0)
+    {
+        float mass_flux = outflow * density * thickness / max(dt, 1e-4); // kg/(m^2 s)
+        imageStore(surface_rain, ivec2(cell.x, cell.z),
+                   vec4(mass_flux * 3600.0, 0.0, 0.0, 0.0));
+    }
+
+    imageStore(theta, cell, vec4(theta_perturbation, 0.0, 0.0, 0.0));
+    imageStore(moisture, cell,
+               vec4(max(vapour, 0.0), max(cloud, 0.0), max(rain, 0.0), 0.0) * MOISTURE_UNIT);
+}

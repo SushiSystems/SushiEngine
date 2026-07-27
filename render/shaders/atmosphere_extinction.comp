@@ -1,0 +1,69 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Turns the nest's condensate into the optical extinction the cloud march integrates:
+//
+//     LWC    = rho_base * q_c                       [kg/m^3]
+//     sigma  = 3 * LWC / (2 * rho_water * r_eff)    [1/m]
+//
+// docs/slop/atmosphere_system.md §7.1. This is the seam where simulated meteorology becomes a
+// rendered sky, and the reason the design doc puts it in its own tier: what the march
+// integrates is now a *physical quantity* with units, derived from how much water is actually
+// suspended in a cubic metre of air, rather than a remapped noise value. The formula itself is
+// the standard geometric-optics limit -- cloud droplets are far larger than visible
+// wavelengths, so extinction is twice the geometric cross-section of the droplet population,
+// and for a fixed effective radius that is linear in the water content.
+//
+// r_eff is the one free parameter, and it is the number that decides whether a given amount of
+// condensate reads as a crisp white cumulus (~6 um, maritime) or a thin haze (~10 um,
+// continental) -- the same water, differently divided.
+//
+// The output is a compact field the cloudscape bake samples: r = extinction (1/m), g = a
+// vertical profile term standing in for how deep inside its own cloud this sample sits,
+// b = rain content for the shafts under a cell, a = a saturation margin the bake uses to keep
+// cloud edges from terminating in a hard step.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D moisture;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image3D extinction;
+
+const float MOISTURE_UNIT = 1000.0;
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    int levels = nest_level_count();
+    if (cell.x >= nest.cells_x || cell.y >= levels || cell.z >= nest.cells_z)
+        return;
+
+    float altitude = nest_level_altitude(float(cell.y));
+    float density = nest_base_density(altitude);
+    vec4 q = texelFetch(moisture, cell, 0) / MOISTURE_UNIT;
+
+    float liquid_water_content = density * q.y;                       // kg/m^3
+    float sigma = 3.0 * liquid_water_content /
+                  (2.0 * nest.water_density * max(nest.droplet_effective_radius, 1e-7));
+
+    // How far this sample sits from the top and bottom of its own contiguous cloud, as a 0-at-
+    // the-edge, 1-through-the-middle profile. The march's ambient term reads it (Nubis3's
+    // `pow(1 - profile, 0.5)`), and it is cheaper to take it here, where the neighbours are
+    // one fetch away, than to reconstruct it from the baked field later.
+    float above = cell.y < levels - 1
+                      ? texelFetch(moisture, ivec3(cell.x, cell.y + 1, cell.z), 0).y
+                      : 0.0;
+    float below = cell.y > 0 ? texelFetch(moisture, ivec3(cell.x, cell.y - 1, cell.z), 0).y : 0.0;
+    float here = q.y * MOISTURE_UNIT;
+    float profile = here > 0.0 ? min(min(above, below) / max(here, 1e-4), 1.0) : 0.0;
+
+    // The margin to saturation, as a fraction. Where a parcel is only just subsaturated a
+    // cloud edge is about to form, and letting the bake feather across that band is what stops
+    // a cloud from ending in the hard step a zero-condensate threshold would otherwise draw.
+    float temperature = nest_base_temperature(altitude);
+    float saturation = nest_saturation_mixing_ratio(temperature, nest_base_pressure(altitude));
+    float margin = clamp(q.x / max(saturation, 1e-6), 0.0, 1.0);
+
+    imageStore(extinction, cell, vec4(sigma, profile, q.z, margin));
+}

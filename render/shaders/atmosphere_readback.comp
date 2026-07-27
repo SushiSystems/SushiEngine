@@ -1,0 +1,126 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Compiles the nest into the coarse column summary the CPU reads back — the query mirror
+// docs/slop/atmosphere_system.md §9.2 describes, in the minimal form this phase needs.
+//
+// **Why this exists here and not in phase E.** §11 schedules the query mirror for phase E,
+// but the moment the regional grid moves onto the GPU there is nothing left on the CPU for
+// `IWeatherProvider::sample_column` to read, and every consumer of it — the compiled deck
+// stack, the fog and wetness coupling, the rain emitter, the flight hazards — goes dark. So
+// the mirror is pulled forward, deliberately and only as far as it has to be: one coarse
+// lattice of `WeatherColumn`-shaped records, a few frames stale. §9.1's full
+// `AtmosphereProfile` (a real vertical profile, freezing level, icing, turbulence) stays in
+// phase E, where it has consumers written for it.
+//
+// Nothing reads the authoritative GPU state synchronously; this writes into a buffer the host
+// copies at its own pace. That is the whole concurrency story (§3.2), and it is what lets the
+// atmosphere leave the determinism domain without anything downstream noticing.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D extinction;
+layout(set = 0, binding = 2) uniform sampler3D moisture;
+layout(set = 0, binding = 3) uniform sampler3D theta;
+layout(set = 0, binding = 4) uniform sampler3D wind_x;
+layout(set = 0, binding = 5) uniform sampler3D wind_y;
+layout(set = 0, binding = 6) uniform sampler3D wind_z;
+layout(set = 0, binding = 7) uniform sampler2D surface_rain;
+
+// One record per mirror cell, laid out to match Render::AtmosphereMirrorColumn exactly.
+struct MirrorColumn
+{
+    vec4 bands[3]; // per etage: coverage, density scale, convective fraction, temperature offset (C)
+    vec4 surface;  // precipitation (mm/h), wind east (m/s), wind north (m/s), cloud base (m)
+};
+
+layout(std430, set = 0, binding = 8) buffer Mirror
+{
+    MirrorColumn columns[];
+} mirror;
+
+layout(push_constant) uniform Params
+{
+    int mirror_cells; // the mirror lattice's cells per axis
+} push;
+
+// The WMO etage ceilings the rest of the bridge already speaks in (Simulation::CloudLevel).
+const float BAND_LOW_CEILING = 2500.0;
+const float BAND_MID_CEILING = 6000.0;
+
+void main()
+{
+    ivec2 mirror_cell = ivec2(gl_GlobalInvocationID.xy);
+    if (mirror_cell.x >= push.mirror_cells || mirror_cell.y >= push.mirror_cells)
+        return;
+
+    // Point-sample the nest at the mirror cell's centre. The mirror is coarse by design: it
+    // answers "what is the weather here" for gameplay, at a resolution a player cannot walk
+    // across in less time than the readback's own latency.
+    ivec2 nest_cell = ivec2((vec2(mirror_cell) + 0.5) / float(push.mirror_cells) *
+                            vec2(float(nest.cells_x), float(nest.cells_z)));
+    nest_cell = clamp(nest_cell, ivec2(0), ivec2(nest.cells_x - 1, nest.cells_z - 1));
+
+    int levels = nest_level_count();
+
+    // The extinction a cubic metre of a solid cumulus carries, from the authored droplet
+    // radius: 1 g/m^3 of liquid water is the textbook figure for a well-developed convective
+    // cloud, so this is the scale a band's own peak is reported against rather than a
+    // hand-tuned number.
+    float reference_sigma = 3.0 * 0.001 /
+                            (2.0 * nest.water_density * max(nest.droplet_effective_radius, 1e-7));
+
+    float optical_depth[3] = float[3](0.0, 0.0, 0.0);
+    float peak_sigma[3] = float[3](0.0, 0.0, 0.0);
+    float peak_updraft[3] = float[3](0.0, 0.0, 0.0);
+    float temperature_sum[3] = float[3](0.0, 0.0, 0.0);
+    float weight[3] = float[3](0.0, 0.0, 0.0);
+    float cloud_base = 0.0;
+    bool found_base = false;
+
+    for (int k = 0; k < levels; ++k)
+    {
+        ivec3 cell = ivec3(nest_cell.x, k, nest_cell.y);
+        float altitude = nest_level_altitude(float(k));
+        float thickness = nest_level_thickness(k);
+        int band = altitude < BAND_LOW_CEILING ? 0 : (altitude < BAND_MID_CEILING ? 1 : 2);
+
+        float sigma = texelFetch(extinction, cell, 0).r;
+        optical_depth[band] += sigma * thickness;
+        peak_sigma[band] = max(peak_sigma[band], sigma);
+        peak_updraft[band] = max(peak_updraft[band], abs(texelFetch(wind_y, cell, 0).r));
+        // Potential temperature perturbation becomes an actual temperature departure through
+        // the Exner function -- which is the difference between a number and a thermometer.
+        temperature_sum[band] += texelFetch(theta, cell, 0).r * nest_exner(altitude) * thickness;
+        weight[band] += thickness;
+
+        if (!found_base && sigma > reference_sigma * 0.02)
+        {
+            cloud_base = altitude;
+            found_base = true;
+        }
+    }
+
+    MirrorColumn column;
+    for (int band = 0; band < 3; ++band)
+    {
+        // Coverage as the band's own vertical opacity: a column you cannot see through is
+        // covered. Physically meaningful, and it needs no threshold of its own.
+        float coverage = 1.0 - exp(-optical_depth[band]);
+        float density = clamp(peak_sigma[band] / reference_sigma, 0.0, 2.0);
+        float convective = clamp(peak_updraft[band] / max(nest.convective_velocity_scale, 0.1),
+                                 0.0, 1.0);
+        float temperature = weight[band] > 0.0 ? temperature_sum[band] / weight[band] : 0.0;
+        column.bands[band] = vec4(clamp(coverage, 0.0, 1.0), density, convective, temperature);
+    }
+
+    float rain = texelFetch(surface_rain, nest_cell, 0).r;
+    column.surface = vec4(rain,
+                          texelFetch(wind_x, ivec3(nest_cell.x, 0, nest_cell.y), 0).r,
+                          texelFetch(wind_z, ivec3(nest_cell.x, 0, nest_cell.y), 0).r,
+                          found_base ? cloud_base : 0.0);
+
+    mirror.columns[mirror_cell.y * push.mirror_cells + mirror_cell.x] = column;
+}

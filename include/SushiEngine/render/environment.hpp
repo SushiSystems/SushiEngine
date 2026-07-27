@@ -44,6 +44,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/material.hpp>
+#include <SushiEngine/render/atmosphere_nest.hpp>
 #include <SushiEngine/render/weather_field.hpp>
 
 namespace SushiEngine
@@ -848,6 +849,24 @@ namespace SushiEngine
              * before, from the authored deck stack alone.
              */
             WeatherField weather_field;
+            /**
+             * @brief The regional nest's physics, authored and serialized with the scene.
+             *
+             * `docs/slop/atmosphere_system.md` §13's "every physical constant lives in
+             * `AtmosphereParameters`, is serialized with the scene, and is editable". Off-by-
+             * default is not the choice here — the nest is what makes weather weather — but a
+             * scene may switch it off and fall back to the authored or classified sky, which is
+             * also what the lowest quality tier does.
+             */
+            AtmosphereParameters atmosphere_nest;
+            /**
+             * @brief What the simulation feeds the nest: the parent solution and the clock.
+             *
+             * The one channel through which the simulation's own time reaches the render tier.
+             * Invalid by default, in which case the nest never steps and nothing simulates —
+             * a scene with no weather provider costs nothing.
+             */
+            AtmosphereForcing atmosphere_forcing;
             StarParams stars;            /**< The space-background star field. */
             NightLighting night;         /**< How the Moon and stars light a sunless sky. */
             Vector3 ambient{Vector3{0.03, 0.04, 0.06}}; /**< Ambient floor so shadowed faces are not black; the ephemeris drives this dynamically when @ref NightLighting::enabled. */

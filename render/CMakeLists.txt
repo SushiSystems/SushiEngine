@@ -60,6 +60,7 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow_sampling.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_field_window.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_nest_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_weather_tail.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
@@ -161,6 +162,26 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloudscape_skip.c
     cloudscape_skip_comp_spv CLOUDSCAPE_SKIP_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloudscape_far_light.comp"
     cloudscape_far_light_comp_spv CLOUDSCAPE_FAR_LIGHT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_shift.comp"
+    atmosphere_shift_comp_spv ATMOSPHERE_SHIFT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_advect_velocity.comp"
+    atmosphere_advect_velocity_comp_spv ATMOSPHERE_ADVECT_VELOCITY_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_advect_scalars.comp"
+    atmosphere_advect_scalars_comp_spv ATMOSPHERE_ADVECT_SCALARS_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_forces.comp"
+    atmosphere_forces_comp_spv ATMOSPHERE_FORCES_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_divergence.comp"
+    atmosphere_divergence_comp_spv ATMOSPHERE_DIVERGENCE_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_pressure.comp"
+    atmosphere_pressure_comp_spv ATMOSPHERE_PRESSURE_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_project.comp"
+    atmosphere_project_comp_spv ATMOSPHERE_PROJECT_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_microphysics.comp"
+    atmosphere_microphysics_comp_spv ATMOSPHERE_MICROPHYSICS_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_extinction.comp"
+    atmosphere_extinction_comp_spv ATMOSPHERE_EXTINCTION_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_readback.comp"
+    atmosphere_readback_comp_spv ATMOSPHERE_READBACK_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_light_volume.comp"
     cloud_light_volume_comp_spv CLOUD_LIGHT_VOLUME_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_shadow_map.comp"
@@ -296,6 +317,7 @@ add_library(sushi_render STATIC
     passes/ground_shadow_resolve_pass.cpp
     passes/weather_field_pass.cpp
     passes/cloudscape_compile_pass.cpp
+    atmosphere/atmosphere_nest.cpp
     passes/cloud_light_volume_pass.cpp
     passes/cloud_shadow_map_pass.cpp
     passes/cloud_panorama_pass.cpp
@@ -364,6 +386,16 @@ add_library(sushi_render STATIC
     "${CLOUDSCAPE_FIELD_HEADER}"
     "${CLOUDSCAPE_SKIP_HEADER}"
     "${CLOUDSCAPE_FAR_LIGHT_HEADER}"
+    "${ATMOSPHERE_SHIFT_HEADER}"
+    "${ATMOSPHERE_ADVECT_VELOCITY_HEADER}"
+    "${ATMOSPHERE_ADVECT_SCALARS_HEADER}"
+    "${ATMOSPHERE_FORCES_HEADER}"
+    "${ATMOSPHERE_DIVERGENCE_HEADER}"
+    "${ATMOSPHERE_PRESSURE_HEADER}"
+    "${ATMOSPHERE_PROJECT_HEADER}"
+    "${ATMOSPHERE_MICROPHYSICS_HEADER}"
+    "${ATMOSPHERE_EXTINCTION_HEADER}"
+    "${ATMOSPHERE_READBACK_HEADER}"
     "${CLOUD_LIGHT_VOLUME_HEADER}"
     "${CLOUD_SHADOW_MAP_HEADER}"
     "${CLOUD_TAA_HEADER}"

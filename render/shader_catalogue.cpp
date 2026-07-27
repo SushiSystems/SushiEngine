@@ -47,6 +47,16 @@
 #include "cloudscape_field.comp.h"
 #include "cloudscape_skip.comp.h"
 #include "cloudscape_far_light.comp.h"
+#include "atmosphere_shift.comp.h"
+#include "atmosphere_advect_velocity.comp.h"
+#include "atmosphere_advect_scalars.comp.h"
+#include "atmosphere_forces.comp.h"
+#include "atmosphere_divergence.comp.h"
+#include "atmosphere_pressure.comp.h"
+#include "atmosphere_project.comp.h"
+#include "atmosphere_microphysics.comp.h"
+#include "atmosphere_extinction.comp.h"
+#include "atmosphere_readback.comp.h"
 #include "cloud_light_volume.comp.h"
 #include "cloud_shadow_map.comp.h"
 #include "cloud_taa.comp.h"
@@ -177,6 +187,26 @@ namespace SushiEngine
                 {"cloudscape_far_light.comp", ShaderStage::Compute,
                  Shaders::cloudscape_far_light_comp_spv,
                  Shaders::cloudscape_far_light_comp_spv_word_count, "cloudscape_far_light.comp"},
+                {"atmosphere_shift.comp", ShaderStage::Compute, Shaders::atmosphere_shift_comp_spv,
+                 Shaders::atmosphere_shift_comp_spv_word_count, "atmosphere_shift.comp"},
+                {"atmosphere_advect_velocity.comp", ShaderStage::Compute, Shaders::atmosphere_advect_velocity_comp_spv,
+                 Shaders::atmosphere_advect_velocity_comp_spv_word_count, "atmosphere_advect_velocity.comp"},
+                {"atmosphere_advect_scalars.comp", ShaderStage::Compute, Shaders::atmosphere_advect_scalars_comp_spv,
+                 Shaders::atmosphere_advect_scalars_comp_spv_word_count, "atmosphere_advect_scalars.comp"},
+                {"atmosphere_forces.comp", ShaderStage::Compute, Shaders::atmosphere_forces_comp_spv,
+                 Shaders::atmosphere_forces_comp_spv_word_count, "atmosphere_forces.comp"},
+                {"atmosphere_divergence.comp", ShaderStage::Compute, Shaders::atmosphere_divergence_comp_spv,
+                 Shaders::atmosphere_divergence_comp_spv_word_count, "atmosphere_divergence.comp"},
+                {"atmosphere_pressure.comp", ShaderStage::Compute, Shaders::atmosphere_pressure_comp_spv,
+                 Shaders::atmosphere_pressure_comp_spv_word_count, "atmosphere_pressure.comp"},
+                {"atmosphere_project.comp", ShaderStage::Compute, Shaders::atmosphere_project_comp_spv,
+                 Shaders::atmosphere_project_comp_spv_word_count, "atmosphere_project.comp"},
+                {"atmosphere_microphysics.comp", ShaderStage::Compute, Shaders::atmosphere_microphysics_comp_spv,
+                 Shaders::atmosphere_microphysics_comp_spv_word_count, "atmosphere_microphysics.comp"},
+                {"atmosphere_extinction.comp", ShaderStage::Compute, Shaders::atmosphere_extinction_comp_spv,
+                 Shaders::atmosphere_extinction_comp_spv_word_count, "atmosphere_extinction.comp"},
+                {"atmosphere_readback.comp", ShaderStage::Compute, Shaders::atmosphere_readback_comp_spv,
+                 Shaders::atmosphere_readback_comp_spv_word_count, "atmosphere_readback.comp"},
                 {"cloud_light_volume.comp", ShaderStage::Compute,
                  Shaders::cloud_light_volume_comp_spv,
                  Shaders::cloud_light_volume_comp_spv_word_count, "cloud_light_volume.comp"},

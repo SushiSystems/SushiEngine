@@ -1,0 +1,105 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Re-centres the nest on the camera, and seeds it from nothing — the same shader, because they
+// are the same operation with a different shift.
+//
+// The nest is a window on a larger atmosphere, addressed by integer cell indices into an
+// *absolute* lattice, and it follows the player. When the camera has drifted a whole cell the
+// lattice snaps by that many cells: every cell that still has a source reads it, and the strip
+// newly exposed on the leading edge is filled from the base state and the parent solution. A
+// full reset is the degenerate case where nothing has a source, so the whole domain is filled —
+// which is why there is one shader here rather than two that would inevitably disagree about
+// what a fresh cell contains.
+//
+// docs/slop/atmosphere_system.md §6 asks for exactly this ("T2 recentres on the player using
+// the same absolute-lattice snap discipline the shipped grid already uses — but as a GPU shift,
+// with newly exposed cells filled from T1 rather than from a background climatology guess").
+// Snapping against the absolute lattice, rather than against a moving reference point, is what
+// keeps a shift from resampling the whole atmosphere onto a fractional offset every time the
+// camera moves; a cell that survives the shift is copied, not interpolated.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D wind_x_source;
+layout(set = 0, binding = 2) uniform sampler3D wind_y_source;
+layout(set = 0, binding = 3) uniform sampler3D wind_z_source;
+layout(set = 0, binding = 4) uniform sampler3D theta_source;
+layout(set = 0, binding = 5) uniform sampler3D moisture_source;
+layout(set = 0, binding = 6, r32f) uniform writeonly image3D wind_x_target;
+layout(set = 0, binding = 7, r32f) uniform writeonly image3D wind_y_target;
+layout(set = 0, binding = 8, r32f) uniform writeonly image3D wind_z_target;
+layout(set = 0, binding = 9, r32f) uniform writeonly image3D theta_target;
+layout(set = 0, binding = 10, rgba16f) uniform writeonly image3D moisture_target;
+layout(set = 0, binding = 11) uniform sampler2D forcing;
+
+layout(push_constant) uniform Params
+{
+    ivec2 shift;         // cells the lattice moved; the source of cell c is c + shift
+    vec2 origin_rel;     // camera-relative XZ metres of the *new* low corner
+    vec2 forcing_scale;  // world metres -> forcing UV
+    vec2 forcing_offset;
+} push;
+
+const float MOISTURE_UNIT = 1000.0;
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    int levels = nest_level_count();
+    if (cell.x >= nest.cells_x || cell.y >= levels || cell.z >= nest.cells_z)
+        return;
+
+    ivec3 source = ivec3(cell.x + push.shift.x, cell.y, cell.z + push.shift.y);
+    bool have_source = source.x >= 0 && source.x < nest.cells_x &&
+                       source.z >= 0 && source.z < nest.cells_z;
+
+    float u, w, v, theta;
+    vec4 moisture;
+
+    if (have_source)
+    {
+        // A surviving cell is copied, never resampled: the lattice moved by whole cells, so
+        // there is nothing to interpolate and interpolating anyway would diffuse the whole
+        // atmosphere a little every time the player walked a couple of kilometres.
+        u = texelFetch(wind_x_source, source, 0).r;
+        w = texelFetch(wind_y_source, source, 0).r;
+        v = texelFetch(wind_z_source, source, 0).r;
+        theta = texelFetch(theta_source, source, 0).r;
+        moisture = texelFetch(moisture_source, source, 0);
+    }
+    else
+    {
+        // Newly exposed: the base state, plus whatever the parent solution says about this
+        // column. Not a climatology guess -- the wind is the real geostrophic flow around the
+        // real pressure systems, so air entering the domain arrives already moving with the
+        // synoptic flow instead of having to be accelerated from rest by the boundary zone.
+        float altitude = nest_level_altitude(float(cell.y));
+        vec2 world = push.origin_rel + (vec2(cell.x, cell.z) + 0.5) * nest.spacing;
+        vec4 parent = texture(forcing, world * push.forcing_scale + push.forcing_offset);
+        float depth = exp(-altitude / 6000.0);
+
+        u = parent.r;
+        v = parent.g;
+        w = 0.0;
+        theta = parent.b * depth;
+
+        float temperature = (nest_base_theta(altitude) + theta) * nest_exner(altitude);
+        float saturation = nest_saturation_mixing_ratio(temperature, nest_base_pressure(altitude));
+        float vapour = clamp(nest_base_vapour(altitude) + parent.a * depth * saturation,
+                             0.0, saturation);
+        moisture = vec4(vapour, 0.0, 0.0, 0.0) * MOISTURE_UNIT;
+    }
+
+    // The rigid boundaries hold whatever the shift brought in, too.
+    if (cell.y == 0 || cell.y == levels - 1)
+        w = 0.0;
+
+    imageStore(wind_x_target, cell, vec4(u, 0.0, 0.0, 0.0));
+    imageStore(wind_y_target, cell, vec4(w, 0.0, 0.0, 0.0));
+    imageStore(wind_z_target, cell, vec4(v, 0.0, 0.0, 0.0));
+    imageStore(theta_target, cell, vec4(theta, 0.0, 0.0, 0.0));
+    imageStore(moisture_target, cell, moisture);
+}

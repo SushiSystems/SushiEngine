@@ -1,0 +1,99 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Transports the nest's face-staggered momentum, with the same MacCormack-corrected,
+// limited semi-Lagrangian scheme the scalars use (see atmosphere_advect_scalars.comp for why
+// the scheme is what it is).
+//
+// Each invocation owns the three faces on the low side of its own cell — the x-face where u
+// lives, the y-face where the vertical w lives, and the z-face where v lives — so one dispatch
+// covers the whole velocity field with no index bookkeeping beyond the half-cell offsets. Each
+// component traces from its *own* location rather than from the cell centre: a staggered grid
+// that advects its faces as if they were centres reintroduces exactly the averaging error the
+// staggering exists to avoid.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D wind_x;
+layout(set = 0, binding = 2) uniform sampler3D wind_y;
+layout(set = 0, binding = 3) uniform sampler3D wind_z;
+layout(set = 0, binding = 4, r32f) uniform writeonly image3D wind_x_target;
+layout(set = 0, binding = 5, r32f) uniform writeonly image3D wind_y_target;
+layout(set = 0, binding = 6, r32f) uniform writeonly image3D wind_z_target;
+
+vec3 nest_uvw(vec3 cell)
+{
+    return (cell + vec3(0.5)) / vec3(float(nest.cells_x), float(nest_level_count()),
+                                     float(nest.cells_z));
+}
+
+// Velocity in cell units per second at an arbitrary fractional cell coordinate. The three
+// components are read at that same coordinate; because each image is face-indexed, a linear
+// fetch at a centre coordinate returns the average of the two faces, which is the collocated
+// value the trace wants.
+vec3 nest_velocity_cells(vec3 cell)
+{
+    vec3 uvw = nest_uvw(cell);
+    float u = texture(wind_x, uvw).r;
+    float w = texture(wind_y, uvw).r;
+    float v = texture(wind_z, uvw).r;
+    int level = int(clamp(cell.y, 0.0, float(nest_level_count() - 1)));
+    return vec3(u / nest.spacing, w / nest_level_thickness(level), v / nest.spacing);
+}
+
+vec3 trace(vec3 cell, float dt_cells)
+{
+    vec3 half_back = cell - nest_velocity_cells(cell) * (dt_cells * 0.5);
+    return cell - nest_velocity_cells(half_back) * dt_cells;
+}
+
+// One component, advected from `origin` (a fractional cell coordinate naming the face this
+// value lives on), MacCormack-corrected and clamped to its own upstream stencil.
+float advect_component(sampler3D field, vec3 origin)
+{
+    vec3 departure = trace(origin, nest.dt);
+    vec3 arrival = trace(departure, -nest.dt);
+
+    float back = texture(field, nest_uvw(departure)).r;
+    float round_trip = texture(field, nest_uvw(arrival)).r;
+    float here = texture(field, nest_uvw(origin)).r;
+    float corrected = back + 0.5 * (here - round_trip);
+
+    ivec3 base = ivec3(floor(departure));
+    float lo = 1e30;
+    float hi = -1e30;
+    for (int dz = 0; dz <= 1; ++dz)
+        for (int dy = 0; dy <= 1; ++dy)
+            for (int dx = 0; dx <= 1; ++dx)
+            {
+                float s = texelFetch(field, nest_clamp(base + ivec3(dx, dy, dz)), 0).r;
+                lo = min(lo, s);
+                hi = max(hi, s);
+            }
+    return clamp(corrected, lo, hi);
+}
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    if (cell.x >= nest.cells_x || cell.y >= nest_level_count() || cell.z >= nest.cells_z)
+        return;
+
+    vec3 centre = vec3(cell);
+    // The half-cell offsets that place each component on its own face.
+    float u = advect_component(wind_x, centre - vec3(0.5, 0.0, 0.0));
+    float w = advect_component(wind_y, centre - vec3(0.0, 0.5, 0.0));
+    float v = advect_component(wind_z, centre - vec3(0.0, 0.0, 0.5));
+
+    // The rigid lower and upper boundaries: no flow through the ground or the lid. Enforced
+    // here as well as in the projection so an advected value can never smuggle a
+    // through-boundary flux past the pressure solve that was supposed to remove it.
+    if (cell.y == 0 || cell.y == nest_level_count() - 1)
+        w = 0.0;
+
+    imageStore(wind_x_target, cell, vec4(u, 0.0, 0.0, 0.0));
+    imageStore(wind_y_target, cell, vec4(w, 0.0, 0.0, 0.0));
+    imageStore(wind_z_target, cell, vec4(v, 0.0, 0.0, 0.0));
+}

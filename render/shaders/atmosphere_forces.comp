@@ -1,0 +1,190 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Everything that acts on the nest between transport and the pressure projection: buoyancy,
+// Coriolis, subgrid diffusion, the Rayleigh sponge under the lid, the surface fluxes that
+// drive convection, and the Davies relaxation that ties the lateral boundary to the parent
+// solution.
+//
+// docs/slop/atmosphere_system.md §6's momentum and thermodynamic equations, minus the pressure
+// gradient — that is the next two dispatches' job, and separating it is the whole point of a
+// projection method: this shader produces a provisional velocity that is *not*
+// divergence-free, and the pressure solve then removes exactly the part that is not.
+//
+// The buoyancy term is the one to read closely, because it is what the shipped system did not
+// have at all (§1.3: "no vertical advection ... the three levels are independent 2-D fields"):
+//
+//     B = g · (theta_v' / theta_v_base  -  q_c  -  q_r)
+//
+// The first term is thermal buoyancy through the *virtual* potential temperature, so a parcel
+// that is moist is lighter than a dry one at the same temperature; the last two are condensate
+// loading, the weight of the water a cloud is carrying. Latent heat released by condensation
+// raises theta', which raises B, which accelerates the updraft, which lifts more vapour to its
+// condensation level — that closed loop is what makes a cumulus grow rather than merely exist,
+// and it cannot be written down at all without a vertical velocity to feed it.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1, r32f) uniform image3D wind_x;
+layout(set = 0, binding = 2, r32f) uniform image3D wind_y;
+layout(set = 0, binding = 3, r32f) uniform image3D wind_z;
+layout(set = 0, binding = 4, r32f) uniform image3D theta;
+layout(set = 0, binding = 5, rgba16f) uniform image3D moisture;
+// The parent solution the boundary zone relaxes toward: rg = wind, b = theta anomaly,
+// a = relative-humidity anomaly, addressed in world space by the map below.
+layout(set = 0, binding = 6) uniform sampler2D forcing;
+
+layout(push_constant) uniform Params
+{
+    // Camera-relative XZ metres of the nest's low corner, and the metres-to-forcing-UV map,
+    // so a cell can ask the parent solution what it should be relaxing toward.
+    vec2 origin_rel;
+    vec2 forcing_scale;
+    vec2 forcing_offset;
+} push;
+
+// Mixing ratios are carried in g/kg: fp16 holds 1e-3..20 comfortably, where kg/kg would put
+// drizzle-scale rain into the denormal range and flush it to zero.
+const float MOISTURE_UNIT = 1000.0;
+
+vec4 forcing_at(ivec3 cell)
+{
+    vec2 world = push.origin_rel + (vec2(cell.x, cell.z) + 0.5) * nest.spacing;
+    return texture(forcing, world * push.forcing_scale + push.forcing_offset);
+}
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    if (cell.x >= nest.cells_x || cell.y >= nest_level_count() || cell.z >= nest.cells_z)
+        return;
+
+    int levels = nest_level_count();
+    float altitude = nest_level_altitude(float(cell.y));
+    float thickness = nest_level_thickness(cell.y);
+    float base_theta = nest_base_theta(altitude);
+    float base_density = nest_base_density(altitude);
+    float dt = nest.dt;
+
+    float theta_perturbation = imageLoad(theta, cell).r;
+    vec4 q = imageLoad(moisture, cell) / MOISTURE_UNIT;
+
+    // ---- Surface fluxes -------------------------------------------------------------
+    //
+    // Prescribed this phase (a real energy balance is the next one's ISurfaceModel), applied
+    // into the lowest level only and converted from a flux to a tendency by the mass of air
+    // that level actually contains. A seed perturbation rides along, because a uniformly
+    // heated surface has no horizontal structure for convection to organise around and the
+    // whole boundary layer would rise as one slab.
+    if (cell.y == 0)
+    {
+        float mass = max(base_density * thickness, 1.0); // kg/m^2 of air in this level
+        float heating = nest.surface_sensible_flux / (nest.specific_heat_pressure * mass);
+        theta_perturbation += heating * dt / max(nest_exner(altitude), 1e-6);
+        theta_perturbation += nest.thermal_seed_amplitude * nest_thermal_seed(cell);
+
+        float moistening = nest.surface_latent_flux /
+                           (nest.latent_heat_vaporization * mass);
+        q.x += moistening * dt;
+    }
+
+    // ---- Rayleigh sponge -------------------------------------------------------------
+    float sponge = nest_sponge_weight(altitude) * nest.sponge_rate * dt;
+    if (sponge > 0.0)
+        theta_perturbation -= theta_perturbation * min(sponge, 1.0);
+
+    // ---- Davies lateral relaxation ----------------------------------------------------
+    //
+    // The nest is a window onto a larger atmosphere it does not simulate. Nudging the fields
+    // toward the parent across a ramped zone — rather than injecting them at the edge — is
+    // what keeps a front crossing the domain instead of reflecting off its boundary.
+    float boundary = nest_boundary_weight(cell);
+    if (boundary > 0.0)
+    {
+        vec4 parent = forcing_at(cell);
+        float rate = min(nest.boundary_relaxation * boundary * dt, 1.0);
+        // The parent's anomalies decay with height: a synoptic warm sector is a property of
+        // the lower troposphere, not of the stratosphere above it.
+        float depth = exp(-altitude / 6000.0);
+        float target_theta = parent.b * depth;
+        float saturation = nest_saturation_mixing_ratio(
+            (base_theta + theta_perturbation) * nest_exner(altitude), nest_base_pressure(altitude));
+        float target_vapour = clamp(nest_base_vapour(altitude) + parent.a * depth * saturation,
+                                    0.0, saturation);
+        theta_perturbation += (target_theta - theta_perturbation) * rate;
+        q.x += (target_vapour - q.x) * rate;
+    }
+
+    // ---- Buoyancy, Coriolis, diffusion on the momentum --------------------------------
+    //
+    // Buoyancy lands on the vertical face this cell owns, from the average of the two cells
+    // that face separates — the staggered arrangement's own definition of "the buoyancy the
+    // face feels".
+    float u = imageLoad(wind_x, cell).r;
+    float w = imageLoad(wind_y, cell).r;
+    float v = imageLoad(wind_z, cell).r;
+
+    if (cell.y > 0 && cell.y < levels - 1)
+    {
+        ivec3 below = ivec3(cell.x, cell.y - 1, cell.z);
+        float theta_below = imageLoad(theta, below).r;
+        vec4 q_below = imageLoad(moisture, below) / MOISTURE_UNIT;
+        float face_altitude = nest_face_altitude(float(cell.y));
+        float face_base_theta = nest_base_theta(face_altitude);
+
+        float theta_face = 0.5 * (theta_perturbation + theta_below);
+        float vapour_face = 0.5 * (q.x + q_below.x);
+        float condensate_face = 0.5 * (q.y + q.z + q_below.y + q_below.z);
+
+        // Virtual potential temperature: vapour is lighter than dry air by the ratio of their
+        // gas constants, so 0.61 kg of vapour per kg of dry air buoys like a degree of warmth.
+        const float VIRTUAL_COEFFICIENT = 0.61;
+        float theta_virtual = theta_face + face_base_theta * VIRTUAL_COEFFICIENT * vapour_face;
+        float buoyancy = nest.gravity * (theta_virtual / max(face_base_theta, 1.0) -
+                                         condensate_face);
+        w += buoyancy * dt;
+        // The sponge damps momentum too, and this is the term it exists for: without it the
+        // gravity waves an updraft radiates reflect off the lid back into the storm.
+        w -= w * min(nest_sponge_weight(face_altitude) * nest.sponge_rate * dt, 1.0);
+    }
+    else
+    {
+        w = 0.0; // rigid ground and lid
+    }
+
+    // Coriolis, evaluated at the nest centre (the domain is a few hundred kilometres across,
+    // so f's own variation over it is below what this grid resolves). Applied as a rotation
+    // rather than an explicit cross product so it neither gains nor loses kinetic energy at
+    // long time steps, which the explicit form does.
+    float angle = nest.coriolis * dt;
+    float cos_f = cos(angle);
+    float sin_f = sin(angle);
+    float rotated_u = u * cos_f + v * sin_f;
+    float rotated_v = -u * sin_f + v * cos_f;
+    u = rotated_u;
+    v = rotated_v;
+
+    // Subgrid diffusion, explicit and horizontal-only: the vertical spacing is small enough
+    // that an explicit vertical diffusion would set the time step instead of advection doing
+    // it, and the mixing that matters at this resolution is the horizontal exchange between
+    // an updraft and the air it entrains.
+    float diffusion = nest.eddy_viscosity * dt / (nest.spacing * nest.spacing);
+    if (diffusion > 0.0)
+    {
+        diffusion = min(diffusion, 0.2); // explicit stability, whatever the authored viscosity
+        float laplacian_theta =
+            imageLoad(theta, nest_clamp(cell + ivec3(1, 0, 0))).r +
+            imageLoad(theta, nest_clamp(cell - ivec3(1, 0, 0))).r +
+            imageLoad(theta, nest_clamp(cell + ivec3(0, 0, 1))).r +
+            imageLoad(theta, nest_clamp(cell - ivec3(0, 0, 1))).r - 4.0 * theta_perturbation;
+        theta_perturbation += diffusion * laplacian_theta;
+    }
+
+    imageStore(wind_x, cell, vec4(u, 0.0, 0.0, 0.0));
+    imageStore(wind_y, cell, vec4(w, 0.0, 0.0, 0.0));
+    imageStore(wind_z, cell, vec4(v, 0.0, 0.0, 0.0));
+    imageStore(theta, cell, vec4(theta_perturbation, 0.0, 0.0, 0.0));
+    imageStore(moisture, cell, max(q, vec4(0.0)) * MOISTURE_UNIT);
+}

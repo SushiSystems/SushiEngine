@@ -1,0 +1,122 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Transports the nest's cell-centred scalars — potential temperature and the three moisture
+// species — along the flow, with a MacCormack-corrected semi-Lagrangian scheme at Courant ~ 1.
+//
+// docs/slop/atmosphere_system.md §1.4 is why this shader exists in this form. The shipped
+// scheme ran plain bilinear semi-Lagrangian at Courant ~ 0.02 (15.6 km cells, a 15 s tick, 20
+// m/s wind: a departure point moved 0.019 of a cell), which is that interpolation's
+// *maximally diffusive* regime — every tick blended ~98 % of a cell with ~2 % of its
+// neighbour, 240 times per simulated hour, so any sharp gradient, which is to say any front,
+// smeared into gradient-free mush within simulated hours. Two changes fix it, and the design
+// doc names both:
+//
+//   * **Courant ~ 1.** The step is chosen on the CPU from the flow's own speed, so a
+//     departure point lands near a neighbouring cell centre and the interpolation barely
+//     averages at all.
+//   * **MacCormack.** One backward trace, one forward trace from where it landed, and the
+//     round-trip error subtracted off — second-order accurate instead of first, at the cost of
+//     one extra interpolation. The correction is then clamped to the interpolation stencil's
+//     own min/max, which is what keeps it monotone: an overshoot cannot invent condensate that
+//     was never anywhere upstream, and a mixing ratio cannot go negative.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D wind_x;
+layout(set = 0, binding = 2) uniform sampler3D wind_y;
+layout(set = 0, binding = 3) uniform sampler3D wind_z;
+layout(set = 0, binding = 4) uniform sampler3D theta_source;
+layout(set = 0, binding = 5) uniform sampler3D moisture_source;
+layout(set = 0, binding = 6, r32f) uniform writeonly image3D theta_target;
+layout(set = 0, binding = 7, rgba16f) uniform writeonly image3D moisture_target;
+
+// Cell-centre texture coordinate for a cell index, in [0, 1] per axis. The sampler clamps, so
+// a trace that leaves the domain reads the boundary cell — which is where the Davies zone has
+// already nudged the solution toward the parent, so it is the right thing to read.
+vec3 nest_uvw(vec3 cell)
+{
+    return (cell + vec3(0.5)) / vec3(float(nest.cells_x), float(nest_level_count()),
+                                     float(nest.cells_z));
+}
+
+// The face-staggered wind interpolated to a cell centre, in *cell* units per second, so the
+// trace below is a plain subtraction in index space. The vertical divides by the local level
+// thickness because the vertical grid is stretched.
+vec3 nest_velocity_cells(vec3 cell)
+{
+    vec3 uvw = nest_uvw(cell);
+    // Each component's own face offset: u sits half a cell to the low side in x, and so on, so
+    // a centre value is the average of the two faces the cell owns. Sampling at the centre of
+    // a face-indexed image does exactly that average through the hardware filter.
+    float u = texture(wind_x, uvw).r;
+    float w = texture(wind_y, uvw).r;
+    float v = texture(wind_z, uvw).r;
+
+    int level = int(clamp(cell.y, 0.0, float(nest_level_count() - 1)));
+    return vec3(u / nest.spacing, w / nest_level_thickness(level), v / nest.spacing);
+}
+
+vec4 sample_moisture(vec3 cell) { return texture(moisture_source, nest_uvw(cell)); }
+float sample_theta(vec3 cell) { return texture(theta_source, nest_uvw(cell)).r; }
+
+// Traces from `cell` for `dt` cell-seconds, mid-point corrected: the velocity is re-read half
+// a step back, so the path follows the flow's curvature instead of its instantaneous tangent.
+vec3 trace(vec3 cell, float dt_cells)
+{
+    vec3 half_back = cell - nest_velocity_cells(cell) * (dt_cells * 0.5);
+    return cell - nest_velocity_cells(half_back) * dt_cells;
+}
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    if (cell.x >= nest.cells_x || cell.y >= nest_level_count() || cell.z >= nest.cells_z)
+        return;
+
+    vec3 centre = vec3(cell);
+    vec3 departure = trace(centre, nest.dt);
+
+    float theta_back = sample_theta(departure);
+    vec4 moisture_back = sample_moisture(departure);
+
+    // MacCormack: trace *forward* from where the backward trace landed. Where the two agree
+    // the scheme was exact; where they do not, half the round-trip error is this step's own
+    // interpolation error, and subtracting it recovers second order.
+    // `trace` steps backward by construction, so a negative duration is the forward trace.
+    vec3 arrival = trace(departure, -nest.dt);
+    float theta_round = sample_theta(arrival);
+    vec4 moisture_round = sample_moisture(arrival);
+
+    float theta = theta_back + 0.5 * (sample_theta(centre) - theta_round);
+    vec4 moisture = moisture_back + 0.5 * (sample_moisture(centre) - moisture_round);
+
+    // Monotone limiter. The correction is only trusted inside the range the backward trace's
+    // own stencil actually spans: outside it the "correction" would be inventing an extremum
+    // that exists nowhere upstream, which is how an unlimited MacCormack scheme manufactures
+    // negative mixing ratios and spurious cold pools.
+    ivec3 base = ivec3(floor(departure));
+    float theta_lo = 1e30, theta_hi = -1e30;
+    vec4 moist_lo = vec4(1e30), moist_hi = vec4(-1e30);
+    for (int dz = 0; dz <= 1; ++dz)
+        for (int dy = 0; dy <= 1; ++dy)
+            for (int dx = 0; dx <= 1; ++dx)
+            {
+                ivec3 c = nest_clamp(base + ivec3(dx, dy, dz));
+                float t = texelFetch(theta_source, c, 0).r;
+                vec4 m = texelFetch(moisture_source, c, 0);
+                theta_lo = min(theta_lo, t); theta_hi = max(theta_hi, t);
+                moist_lo = min(moist_lo, m); moist_hi = max(moist_hi, m);
+            }
+
+    theta = clamp(theta, theta_lo, theta_hi);
+    moisture = clamp(moisture, moist_lo, moist_hi);
+    // Mixing ratios are non-negative by definition; the clamp above already bounds them by
+    // upstream values, and this is the floor that survives a degenerate stencil.
+    moisture = max(moisture, vec4(0.0));
+
+    imageStore(theta_target, cell, vec4(theta, 0.0, 0.0, 0.0));
+    imageStore(moisture_target, cell, moisture);
+}

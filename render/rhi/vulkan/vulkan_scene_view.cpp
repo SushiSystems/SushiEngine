@@ -448,6 +448,12 @@ namespace SushiEngine
                                                    effective.shadows.max_directional_shadow_casters,
                                                    effective.shadows.distance);
 
+                // The one regional atmosphere, advanced before any of this frame's passes
+                // read it. Device-level and idempotent within a frame (see
+                // AssetLibrary::step_atmosphere), so all three of the editor's scene views may
+                // call it and only the first does work.
+                assets_.step_atmosphere(environment.atmosphere_nest, environment.atmosphere_forcing);
+
                 Scene::SceneUniforms uniforms;
                 Scene::fill_scene_uniforms(camera, environment, frame.eye,
                                            static_cast<float>(frame_counter_) * 0.016f, uniforms);
@@ -762,6 +768,15 @@ namespace SushiEngine
                 const std::uint32_t submissions = graph_.submission_count();
                 std::vector<std::uint64_t> signalled(submissions, 0);
                 bool profiler_started = false;
+                // Resolved once, before the submission loop: the nest may not exist at all (a
+                // scene with weather off never builds one), and only the frame's *first*
+                // submission has to wait on it — every later one is already ordered behind that
+                // one by the graph's own timeline.
+                Atmosphere::AtmosphereNest* nest = assets_.atmosphere();
+                const VkSemaphore atmosphere_timeline =
+                    nest != nullptr && nest->timeline_value() > 0 ? nest->timeline() : VK_NULL_HANDLE;
+                const std::uint64_t atmosphere_value = nest != nullptr ? nest->timeline_value() : 0;
+                bool atmosphere_waited = false;
                 for (std::uint32_t i = 0; i < submissions; ++i)
                 {
                     const Graph::Submission& submission = graph_.submission(i);
@@ -788,10 +803,12 @@ namespace SushiEngine
                     cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
                     cmd_submit.commandBuffer = buffer;
 
-                    VkSemaphoreSubmitInfo wait{};
+                    VkSemaphoreSubmitInfo waits[2]{};
+                    std::uint32_t wait_count = 0;
                     if (submission.wait != Graph::NO_SUBMISSION)
                     {
                         const Graph::Submission& producer = graph_.submission(submission.wait);
+                        VkSemaphoreSubmitInfo& wait = waits[wait_count++];
                         wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                         wait.semaphore = resources_.timeline(producer.queue);
                         wait.value = signalled[submission.wait];
@@ -799,6 +816,22 @@ namespace SushiEngine
                         // has to be held before it begins, and its own barriers narrow the
                         // scope from there.
                         wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                    }
+                    if (!atmosphere_waited && atmosphere_timeline != VK_NULL_HANDLE)
+                    {
+                        // The regional atmosphere is a device-level service shared by every
+                        // scene view, and its step submits on its own command buffer before any
+                        // of them render (see atmosphere/atmosphere_nest.hpp). This is what makes
+                        // reading its fields from a later submission *ordered* rather than
+                        // merely usually-fine: without it, three views sampling a resource one
+                        // earlier submission is writing is a race the validation layers cannot
+                        // see and a driver is free to lose.
+                        VkSemaphoreSubmitInfo& wait = waits[wait_count++];
+                        wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                        wait.semaphore = atmosphere_timeline;
+                        wait.value = atmosphere_value;
+                        wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                        atmosphere_waited = true;
                     }
 
                     signalled[i] = resources_.signal_next(index, submission.queue);
@@ -810,9 +843,8 @@ namespace SushiEngine
 
                     VkSubmitInfo2 submit{};
                     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-                    submit.waitSemaphoreInfoCount =
-                        submission.wait != Graph::NO_SUBMISSION ? 1u : 0u;
-                    submit.pWaitSemaphoreInfos = &wait;
+                    submit.waitSemaphoreInfoCount = wait_count;
+                    submit.pWaitSemaphoreInfos = waits;
                     submit.commandBufferInfoCount = 1;
                     submit.pCommandBufferInfos = &cmd_submit;
                     submit.signalSemaphoreInfoCount = 1;

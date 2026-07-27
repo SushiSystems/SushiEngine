@@ -1,0 +1,59 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// The right-hand side of the anelastic pressure equation: the mass divergence the provisional
+// velocity carries and the projection has to remove.
+//
+// docs/slop/atmosphere_system.md §6's constraint is `div(rho_base * u) = 0`, not `div(u) = 0`.
+// Holding the *reference* density fixed rather than the true one is precisely what filters
+// sound waves out of the system, and that filtering is the reason the nest's time step is set
+// by advection and buoyancy — seconds — instead of by the speed of sound, which at this grid
+// spacing would be a few milliseconds. The design doc calls this out as "the reason a
+// non-hydrostatic model is affordable at all", and it is the single approximation the whole
+// cost argument in §2.2 rests on.
+//
+// On the staggered grid the divergence of a cell is an exact sum of the six face fluxes it
+// owns, which is what makes it the exact adjoint of the pressure gradient the projection
+// applies — so the projection removes the divergence it measures, rather than approximately
+// removing something close to it.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D wind_x;
+layout(set = 0, binding = 2) uniform sampler3D wind_y;
+layout(set = 0, binding = 3) uniform sampler3D wind_z;
+layout(set = 0, binding = 4, r32f) uniform writeonly image3D divergence;
+
+float face_x(ivec3 c) { return texelFetch(wind_x, nest_clamp(c), 0).r; }
+float face_y(ivec3 c) { return texelFetch(wind_y, nest_clamp(c), 0).r; }
+float face_z(ivec3 c) { return texelFetch(wind_z, nest_clamp(c), 0).r; }
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    int levels = nest_level_count();
+    if (cell.x >= nest.cells_x || cell.y >= levels || cell.z >= nest.cells_z)
+        return;
+
+    float thickness = nest_level_thickness(cell.y);
+
+    // Horizontal faces carry the density of this level; vertical faces carry the density at
+    // the face itself, since that is where the mass actually crosses.
+    float density = nest_base_density(nest_level_altitude(float(cell.y)));
+    float density_below = nest_base_density(nest_face_altitude(float(cell.y)));
+    float density_above = nest_base_density(nest_face_altitude(float(cell.y) + 1.0));
+
+    // The face on the high side of this cell is the low-side face of the next one, which is
+    // exactly how the staggering is indexed -- no interpolation enters the divergence at all.
+    float flux_x = density * (face_x(cell + ivec3(1, 0, 0)) - face_x(cell)) / nest.spacing;
+    float flux_z = density * (face_z(cell + ivec3(0, 0, 1)) - face_z(cell)) / nest.spacing;
+
+    // The lid and the ground are rigid: their faces carry no mass, whatever the field holds.
+    float w_below = cell.y == 0 ? 0.0 : face_y(cell);
+    float w_above = cell.y == levels - 1 ? 0.0 : face_y(cell + ivec3(0, 1, 0));
+    float flux_y = (density_above * w_above - density_below * w_below) / thickness;
+
+    imageStore(divergence, cell, vec4(flux_x + flux_y + flux_z, 0.0, 0.0, 0.0));
+}

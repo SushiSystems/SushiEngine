@@ -1,0 +1,65 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Removes the pressure gradient from the provisional velocity, which is what makes the flow
+// satisfy the anelastic mass constraint:
+//
+//     u = u*  -  dt * c_p * theta_base * grad(pi')
+//
+// On the staggered grid the gradient is a plain difference of the two cell-centred pressures
+// the face separates, with no interpolation at all -- which is exactly what makes this
+// operator the adjoint of the divergence that measured the error. A collocated grid would have
+// to average here, and the averaging is what lets the checkerboard mode through.
+//
+// This is the last dispatch of the dynamics. What comes out of it is a wind field that
+// transports mass consistently, which is the precondition for everything the microphysics does
+// next: a cumulus can only concentrate moisture into condensate if the flow carrying that
+// moisture conserves it.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D pressure;
+layout(set = 0, binding = 2, r32f) uniform image3D wind_x;
+layout(set = 0, binding = 3, r32f) uniform image3D wind_y;
+layout(set = 0, binding = 4, r32f) uniform image3D wind_z;
+
+float pressure_at(ivec3 c) { return texelFetch(pressure, nest_clamp(c), 0).r; }
+
+void main()
+{
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    int levels = nest_level_count();
+    if (cell.x >= nest.cells_x || cell.y >= levels || cell.z >= nest.cells_z)
+        return;
+
+    float here = pressure_at(cell);
+    float dt = nest.dt;
+
+    // Each invocation owns the three faces on the low side of its own cell, so each gradient
+    // is taken against the cell below it on that axis.
+    float altitude = nest_level_altitude(float(cell.y));
+    float scale = dt * nest.specific_heat_pressure * nest_base_theta(altitude);
+
+    float u = imageLoad(wind_x, cell).r;
+    float v = imageLoad(wind_z, cell).r;
+    u -= scale * (here - pressure_at(cell - ivec3(1, 0, 0))) / nest.spacing;
+    v -= scale * (here - pressure_at(cell - ivec3(0, 0, 1))) / nest.spacing;
+
+    float w = 0.0;
+    if (cell.y > 0 && cell.y < levels - 1)
+    {
+        // The vertical face's own base state, and the centre-to-centre spacing the stretched
+        // grid puts between the two levels it separates.
+        float face_altitude = nest_face_altitude(float(cell.y));
+        float gap = max(altitude - nest_level_altitude(float(cell.y) - 1), 1.0);
+        float face_scale = dt * nest.specific_heat_pressure * nest_base_theta(face_altitude);
+        w = imageLoad(wind_y, cell).r -
+            face_scale * (here - pressure_at(cell - ivec3(0, 1, 0))) / gap;
+    }
+
+    imageStore(wind_x, cell, vec4(u, 0.0, 0.0, 0.0));
+    imageStore(wind_y, cell, vec4(w, 0.0, 0.0, 0.0));
+    imageStore(wind_z, cell, vec4(v, 0.0, 0.0, 0.0));
+}

@@ -49,6 +49,7 @@
 #include "resources/sampler_cache.hpp"
 #include "resources/shader_library.hpp"
 #include "scene/scene_layout.hpp"
+#include "atmosphere/atmosphere_nest.hpp"
 #include "textures/cloud_noise.hpp"
 
 namespace SushiEngine
@@ -120,6 +121,34 @@ namespace SushiEngine
                     Textures::CloudNoise& cloud_noise() noexcept { return noise_; }
 
                     /**
+                     * @brief Advances the one regional atmosphere, if the scene runs one.
+                     *
+                     * Device-level rather than per-view because the editor renders three scene
+                     * views and there is one atmosphere; see `atmosphere/atmosphere_nest.hpp`.
+                     * Idempotent within a frame — the nest takes the difference against the
+                     * clock it last saw — so every view may call it and only the first does
+                     * work. Brings the nest up on the first call that asks for it, so a scene
+                     * that never enables weather never pays its hundred-odd megabytes.
+                     *
+                     * @param parameters The authored physics.
+                     * @param forcing    The parent solution, the observer, and the clock.
+                     */
+                    void step_atmosphere(const AtmosphereParameters& parameters,
+                                         const AtmosphereForcing& forcing);
+
+                    /**
+                     * @brief The nest's asynchronous query mirror, for the simulation.
+                     *
+                     * Invalid until a step has been read back, and invalid forever in a scene
+                     * that never runs the nest — which the simulation reads as "answer from the
+                     * base state", not as an error.
+                     */
+                    AtmosphereMirror atmosphere_mirror() const noexcept;
+
+                    /** @brief The live nest, or null when the scene has never enabled one. */
+                    Atmosphere::AtmosphereNest* atmosphere() noexcept { return atmosphere_.get(); }
+
+                    /**
                      * @brief Advances per-frame asset work: texture streaming, shader reload.
                      * @return true when shaders were reloaded and pipelines must be rebuilt.
                      */
@@ -136,6 +165,10 @@ namespace SushiEngine
                     Geometry::MeshRegistry meshes_;
                     TextureLibrary textures_;
                     Textures::CloudNoise noise_;
+                    // Constructed on first use, not with the library: at High the nest's fields
+                    // are ~110 MB of VRAM, and a scene that never turns weather on should not
+                    // pay for an atmosphere it does not have.
+                    std::unique_ptr<Atmosphere::AtmosphereNest> atmosphere_;
             };
         } // namespace Assets
     } // namespace Render

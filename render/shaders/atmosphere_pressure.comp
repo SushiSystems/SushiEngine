@@ -1,0 +1,149 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// One relaxation sweep of the anelastic pressure equation
+//
+//     div( rho_base * c_p * theta_base * grad(pi') )  =  div(rho_base * u*) / dt
+//
+// solved *exactly in the vertical* for a whole column at a time, and iterated in the
+// horizontal by red-black colouring.
+//
+// **Why a vertical line solver rather than the FFT §6 names, or a plain point iteration.**
+// The nest's grid is strongly anisotropic on purpose: ~2 km horizontally against ~80-560 m
+// vertically. The Laplacian's vertical coupling therefore outweighs its horizontal coupling by
+// (dx/dz)^2 -- upwards of two orders of magnitude near the ground. A point smoother (Jacobi,
+// red-black Gauss-Seidel on the full stencil) propagates information one cell per sweep along
+// the direction that matters and converges appallingly; a *line* solver inverts that direction
+// in one shot, which is the textbook remedy for exactly this anisotropy. An FFT would need a
+// Vulkan compute FFT written from scratch, which is a project of its own for no gain the line
+// solver does not already deliver at this grid's aspect ratio.
+//
+// What is given up, stated rather than hidden: with no coarse-grid correction the *smooth
+// horizontal* component of the error decays slowly, so a fixed sweep count leaves a small
+// residual divergence -- a slight mass imbalance rather than a wrong answer, invisible at the
+// scales this atmosphere is looked at. Geometric multigrid over the horizontal (semi-coarsened,
+// with this shader as its smoother) is the refinement if the residual ever proves visible, and
+// it drops in without changing anything around it.
+//
+// Neumann conditions everywhere -- no flow through the ground or the lid, and the lateral
+// boundary is a relaxation zone rather than a wall -- leave pi' defined only up to a constant.
+// That is harmless: the projection uses its gradient and nothing else.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "atmosphere_nest_common.glsl"
+
+layout(set = 0, binding = 1) uniform sampler3D divergence;
+layout(set = 0, binding = 2, r32f) uniform image3D pressure;
+
+layout(push_constant) uniform Params
+{
+    uint colour; // 0 = red cells this sweep, 1 = black
+} push;
+
+// The nest's vertical resolution ceiling, asserted against on the C++ side.
+//
+// Only *one* array of this length is kept per invocation -- the forward sweep's c' factors,
+// which the back substitution cannot avoid needing. Everything else the Thomas algorithm would
+// normally hold (the three diagonals, the right-hand side) is recomputed on the fly from
+// analytic functions of the level index, and the forward sweep's d' is written straight into
+// the pressure image and read back during the substitution. That is the difference between
+// 256 bytes of private storage per column and a kilobyte of it, which at a 64-column workgroup
+// is the difference between fitting and spilling.
+const int MAX_LEVELS = 64;
+
+// The elliptic operator's coefficient C = rho_base * c_p * theta_base at an altitude.
+float nest_pressure_coefficient(float altitude)
+{
+    return nest_base_density(altitude) * nest.specific_heat_pressure * nest_base_theta(altitude);
+}
+
+void main()
+{
+    ivec2 column = ivec2(gl_GlobalInvocationID.xy);
+    if (column.x >= nest.cells_x || column.y >= nest.cells_z)
+        return;
+    // Red-black: neighbouring columns are updated in different sweeps, so a sweep never reads
+    // a horizontal neighbour it is concurrently writing.
+    if ((uint(column.x + column.y) & 1u) != push.colour)
+        return;
+
+    int levels = min(nest_level_count(), MAX_LEVELS);
+    float inverse_dx2 = 1.0 / (nest.spacing * nest.spacing);
+    float inverse_dt = 1.0 / max(nest.dt, 1e-4);
+
+    // c' factors of the forward elimination; the only thing the back substitution cannot
+    // recompute. Index k holds the factor relating level k to level k + 1.
+    float factor[MAX_LEVELS];
+
+    float previous_diagonal = 1.0;
+    float previous_solution = 0.0;
+
+    for (int k = 0; k < levels; ++k)
+    {
+        ivec3 cell = ivec3(column.x, k, column.y);
+        float altitude = nest_level_altitude(float(k));
+        float thickness = nest_level_thickness(k);
+
+        // Vertical coefficients live on the faces so the discrete operator stays self-adjoint
+        // -- the same reason the divergence is a sum of face fluxes.
+        float coefficient = nest_pressure_coefficient(altitude);
+        float coefficient_below = nest_pressure_coefficient(nest_face_altitude(float(k)));
+        float coefficient_above = nest_pressure_coefficient(nest_face_altitude(float(k) + 1.0));
+
+        // Centre-to-centre spacing is what a face-normal derivative divides by on a stretched
+        // grid; at the boundaries the level's own thickness stands in and the coefficient is
+        // zeroed anyway, which is the no-flow condition.
+        float gap_below = k > 0 ? altitude - nest_level_altitude(float(k) - 1) : thickness;
+        float gap_above = k < levels - 1 ? nest_level_altitude(float(k) + 1) - altitude
+                                         : thickness;
+
+        float lower = k > 0 ? coefficient_below / (gap_below * thickness) : 0.0;
+        float upper = k < levels - 1 ? coefficient_above / (gap_above * thickness) : 0.0;
+        float horizontal = coefficient * inverse_dx2;
+        float diagonal = -(lower + upper) - 4.0 * horizontal;
+
+        // Horizontal neighbours enter the right-hand side at their current values -- the
+        // "line" part of line relaxation. They belong to the other colour, so this sweep is
+        // never reading a column it is concurrently writing.
+        float neighbours =
+            imageLoad(pressure, nest_clamp(cell + ivec3(1, 0, 0))).r +
+            imageLoad(pressure, nest_clamp(cell - ivec3(1, 0, 0))).r +
+            imageLoad(pressure, nest_clamp(cell + ivec3(0, 0, 1))).r +
+            imageLoad(pressure, nest_clamp(cell - ivec3(0, 0, 1))).r;
+        float rhs = texelFetch(divergence, cell, 0).r * inverse_dt - horizontal * neighbours;
+
+        // Forward elimination. A collapsed pivot (a degenerate single-level domain) would
+        // divide by zero; the floor keeps it finite, and the answer there is simply "no
+        // correction", which is the right answer for a domain with nowhere to push mass.
+        float pivot;
+        if (k == 0)
+        {
+            pivot = abs(diagonal) > 1e-12 ? diagonal : 1e-12;
+            previous_solution = rhs / pivot;
+        }
+        else
+        {
+            factor[k - 1] = previous_diagonal;
+            pivot = diagonal - lower * previous_diagonal;
+            pivot = abs(pivot) > 1e-12 ? pivot : 1e-12;
+            previous_solution = (rhs - lower * previous_solution) / pivot;
+        }
+        previous_diagonal = upper / pivot;
+
+        // d' goes straight into the image rather than into a second private array; the back
+        // substitution reads it out again a moment later.
+        imageStore(pressure, cell, vec4(previous_solution, 0.0, 0.0, 0.0));
+    }
+
+    // Back substitution, in place. `previous_solution` is already x at the top level, where d'
+    // and x coincide.
+    float above = previous_solution;
+    for (int k = levels - 2; k >= 0; --k)
+    {
+        ivec3 cell = ivec3(column.x, k, column.y);
+        float solution = imageLoad(pressure, cell).r - factor[k] * above;
+        imageStore(pressure, cell, vec4(solution, 0.0, 0.0, 0.0));
+        above = solution;
+    }
+}

@@ -110,6 +110,32 @@ namespace SushiEngine
                 return meshes_.morph_target_count(mesh);
             }
 
+            void AssetLibrary::step_atmosphere(const AtmosphereParameters& parameters,
+                                               const AtmosphereForcing& forcing)
+            {
+                // A nest with no parent solution has nothing driving it, so "is anyone
+                // publishing forcing" is the real enable: a scene with no weather provider
+                // never builds one and never pays its hundred-odd megabytes, without the
+                // renderer needing to know what a weather provider is.
+                if (!parameters.enabled || !forcing.valid())
+                {
+                    // Left standing rather than torn down: switching weather off and on again is
+                    // an editor action, and re-allocating a hundred megabytes on the frame it
+                    // happens would be a visible hitch for no gain. The nest simply stops
+                    // stepping, and its mirror stops advancing with it.
+                    return;
+                }
+                if (!atmosphere_)
+                    atmosphere_ = std::make_unique<Atmosphere::AtmosphereNest>(
+                        device_, shaders_, pipelines_, samplers_, AtmosphereNestSize{});
+                atmosphere_->step(parameters, forcing);
+            }
+
+            AtmosphereMirror AssetLibrary::atmosphere_mirror() const noexcept
+            {
+                return atmosphere_ ? atmosphere_->atmosphere_mirror() : AtmosphereMirror{};
+            }
+
             bool AssetLibrary::update()
             {
                 textures_.update();
@@ -121,6 +147,9 @@ namespace SushiEngine
                 // views rebuild their own pipelines from the new SPIR-V.
                 vkDeviceWaitIdle(device_.device());
                 pipelines_.clear_libraries();
+                // The nest is device-level, so no view will rebuild it on their behalf.
+                if (atmosphere_)
+                    atmosphere_->rebuild_pipelines();
                 return true;
             }
         } // namespace Assets
