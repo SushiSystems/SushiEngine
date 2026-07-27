@@ -153,14 +153,24 @@ sentence is part of the change.
 
 Treat the following as hard requirements, not suggestions:
 
-- **Every user-visible change updates [`docs/CHANGELOG.md`](docs/CHANGELOG.md).**
-  Add an entry under `## [Unreleased]` in the right group (`Added` / `Changed` /
+- **Changelog entries start at v1.0.0.** The project has not yet been assigned a
+  semantic version — we are in prototype stage. Do not add entries to
+  [`CHANGELOG.md`](CHANGELOG.md) until the project cuts its v1.0.0
+  release. Once versioned, every user-visible change updates the changelog with an
+  entry under `## [Unreleased]` in the right group (`Added` / `Changed` /
   `Fixed` / `Removed` / `Deprecated`).
 - **A new or changed feature updates the guides.** When you add, rename, or change
   behavior, update [`ARCHITECTURE.md`](ARCHITECTURE.md) —
-  every class, system, and concept it names must still exist — and the top-level
+  every class, system, and concept it names must still exist — and
+  [`INTRODUCTION.md`](INTRODUCTION.md) (the getting-started tour and its code
+  samples must compile against the current API), and the top-level
   [`README.md`](README.md) when the change touches what the project *is* or how a
   first-time reader gets started.
+- **Any CLI change updates the CLI docs.** If you add, rename, or change an
+  `se` / `sushiengine` command, flag, or its output, update
+  [`CLI_GUIDE.md`](CLI_GUIDE.md) — the full command reference — *and* the
+  build/test snippets in this file and the README that invoke it. Command help
+  text (Typer `--help`) and the guide must agree.
 - **Public API carries Doxygen.** New or changed public functions follow §4. The
   header *is* documentation.
 

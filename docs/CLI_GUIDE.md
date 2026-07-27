@@ -1,0 +1,173 @@
+# The SushiEngine CLI
+
+SushiEngine ships with a small command-line tool that drives everything you do
+day to day: building the engine, running its tests, launching the editor and
+the standalone render/audio probes, and managing the Docker image. It is a
+thin wrapper around CMake and CTest that reads your machine-specific toolchain
+paths from a config file so you don't have to retype long compiler flags.
+
+This guide explains every command in plain English. If you just want to get
+the project compiling and running for the first time, see
+[CONTRIBUTING.md](CONTRIBUTING.md) instead — it walks you through the sibling
+checkout with SushiRuntime and your first build.
+
+## Installing the CLI
+
+The CLI is a Python package that lives in the `cli/` folder. Install it once
+and it puts two commands on your `PATH`:
+
+- **`se`** — short name.
+- **`sushiengine`** — long name.
+
+They are identical; use whichever you prefer. Every example below uses `se`.
+
+To install:
+
+```bash
+pip install -e cli               # inside a venv/conda env
+```
+
+The package depends on `sushicli` (the shared CLI presentation layer used
+across the Sushi stack), which is not published to any index — install it
+once from its sibling checkout first (`pip install -e ../sushicli`).
+
+### How the CLI finds your compiler
+
+The CLI reads toolchain paths from two files:
+
+- **`cli/config.toml`** — committed, shared defaults (the same for everyone).
+- **`cli/config.local.toml`** — your machine's absolute paths (the SushiRuntime
+  sibling location, vcpkg location, compiler executables). This file is
+  gitignored, so your personal paths never get committed.
+
+If you're ever unsure what the CLI is actually using, run `se config` to see
+the final resolved values and where each one came from.
+
+## Command overview
+
+| Command                                              | What it's for                                    |
+|-------------------------------------------------------|---------------------------------------------------|
+| `se build` / `test` / `run` / `clean` / `doxygen`     | Build, test, run, and document the C++ project    |
+| `se editor`                                           | Build and launch the ImGui editor                 |
+| `se render`                                           | Build and run the Vulkan renderer probe           |
+| `se audio`                                            | Build and run the audio demo                      |
+| `se docker`                                           | Build and run the development container           |
+| `se config`                                           | Show the resolved configuration                   |
+| `se env`                                               | Show the environment your builds run under        |
+
+Run any command with `--help` to see its options.
+
+## `se build` / `test` / `run` / `clean` / `doxygen`
+
+This is the group you'll use most.
+
+### `se build`
+
+Configures (if needed) and builds the engine against the SushiRuntime sibling
+checkout.
+
+```bash
+se build                  # Release build (the default)
+se build --type debug     # Debug build
+se build --clean          # delete the build tree first, then build from scratch
+se build --no-test        # skip compiling the test suite (SE_BUILD_TESTS=OFF)
+```
+
+The `--type` (`-t`) option accepts `release`, `debug`, or `relwithdebinfo`. The
+test suite is compiled by default; pass `--no-test` to skip it for a faster,
+engine-only build.
+
+### `se test`
+
+Runs the test suite through CTest. Tests are grouped by label, and you pick a
+group with `--suite` (`-s`):
+
+```bash
+se test                          # functional suite (the default)
+se test --suite functional       # unit + regression + integration
+se test --suite all              # every test
+se test --suite functional --filter 'Integrator.*'   # ctest -R over test names
+se test --repeat 50               # re-run each test up to 50x, stop on first failure
+```
+
+`--filter` (`-f`) is a `ctest -R` regex matched against `Suite.Case` test
+names. `--repeat` (`-r`) is handy for hunting down flaky tests. For
+GoogleTest-level options CTest doesn't expose (shuffling, break on failure),
+run the binary directly with `se run` and pass flags after `--`.
+
+### `se run`
+
+Runs a built executable. With no target it runs the project's default.
+
+```bash
+se run                                                     # run the default target
+se run sandbox                                             # run a specific binary by name
+se run --sort                                              # interactively pick from the list of executables
+se run se_functional_tests -- --gtest_shuffle --gtest_break_on_failure
+```
+
+The target name is matched exactly first, then by substring. Anything after
+`--` is forwarded straight to the program.
+
+### `se clean` and `se doxygen`
+
+```bash
+se clean       # remove the build/ tree
+se doxygen     # generate Doxygen documentation
+```
+
+## `se editor` — the ImGui editor
+
+```bash
+se editor                 # build (Release) and launch the editor
+se editor --type debug    # Debug build
+se editor --no-run        # build the editor but do not launch it
+```
+
+Configures with `SE_BUILD_EDITOR=ON` and builds into its own `build-editor/`
+tree, separate from `se build`'s `build/`, so the two never clobber each
+other's `CMAKE_BUILD_TYPE`.
+
+## `se render` — the Vulkan renderer probe
+
+```bash
+se render             # build and run the standalone renderer probe
+se render --no-run     # build only
+```
+
+Configures with `SE_BUILD_RENDER=ON`.
+
+## `se audio` — the audio demo
+
+```bash
+se audio             # build and run the audio demo
+se audio --no-run     # build only
+```
+
+Configures with `SE_BUILD_AUDIO=ON`.
+
+## `se docker` — the development container
+
+```bash
+se docker build                       # build the `sushiengine` dev image
+se docker build --no-cache            # rebuild every layer, ignoring Docker's cache
+se docker build --runtime-ref <ref>   # clone a specific SushiRuntime branch/tag/sha (default: main)
+se docker run                         # start the container with the source mounted
+se docker run --admin                 # run privileged (--privileged --cap-add=SYS_ADMIN)
+se docker run --no-gpu                # skip GPU passthrough (CPU SYCL device still works)
+```
+
+## `se config` and `se env` — diagnostics
+
+```bash
+se config         # print the resolved config and where each value came from
+
+se env            # print the environment cmake/ctest/run subprocesses run under
+se env --all      # show every variable, not just build-relevant ones
+```
+
+## Building without the CLI
+
+The CLI is a convenience, not a requirement — it only runs CMake and CTest for
+you. See the **Getting set up** section of [CONTRIBUTING.md](CONTRIBUTING.md)
+for the equivalent raw `cmake` invocation.
