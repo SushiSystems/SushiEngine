@@ -129,10 +129,14 @@ namespace SushiEngine
                     }
                     else
                     {
-                        clouds.decks[3].enabled = false;
+                        clouds.decks[3] = Render::CloudDeck{};
                     }
-                    clouds.decks[4].enabled = false;
-                    clouds.decks[5].enabled = false;
+                    // Cleared outright rather than merely disabled: a deck that keeps last
+                    // frame's genus and coverage behind an `enabled` flag is stale state every
+                    // reader has to know to distrust, and the memcmp that gates the cloudscape
+                    // bake would see it change for no visible reason.
+                    clouds.decks[4] = Render::CloudDeck{};
+                    clouds.decks[5] = Render::CloudDeck{};
 
                     // The design doc's ask: "the dead evolution_rate uniform becomes the
                     // synoptic advance multiplier" (§5.1). W0 already wired the shader side to

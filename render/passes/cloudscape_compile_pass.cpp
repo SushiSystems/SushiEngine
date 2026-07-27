@@ -547,9 +547,23 @@ namespace SushiEngine
                                             FAR_WEATHER_INTERVAL_SECONDS) ||
                              sun_dot < FAR_SUN_COS_TOLERANCE;
 
+                // Whether the *placement* changed, as opposed to merely the contents. Only a
+                // re-centring invalidates the light volume's and the shadow map's amortized
+                // slices, because only then do the already-baked ones describe a different
+                // piece of the world than the ones still to come. A weather-cadence rebake
+                // leaves the window exactly where it was, so those two keep amortizing.
+                near_recentred_ = false;
                 if (near_dirty_)
+                {
+                    const double previous_x = near_window_.pattern_origin_x;
+                    const double previous_z = near_window_.pattern_origin_z;
+                    const bool was_baked = near_window_.baked;
                     place_window(near_window_, NEAR_SPAN_METERS, FIELD_RESOLUTION_XZ, frame.eye,
                                  wind_x, wind_z, time_seconds, sun);
+                    near_recentred_ = !was_baked ||
+                                      near_window_.pattern_origin_x != previous_x ||
+                                      near_window_.pattern_origin_z != previous_z;
+                }
                 if (far_dirty_)
                     place_window(far_window_, FAR_SPAN_METERS, FIELD_RESOLUTION_XZ, frame.eye,
                                  wind_x, wind_z, time_seconds, sun);

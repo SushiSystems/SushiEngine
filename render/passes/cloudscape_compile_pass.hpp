@@ -181,7 +181,7 @@ namespace SushiEngine
                      * refresh on the frame this returns true, instead of banding for an eighth of
                      * a second after every re-centring. Valid only after @ref update_window.
                      */
-                    bool near_window_moved() const noexcept { return near_dirty_; }
+                    bool near_window_moved() const noexcept { return near_recentred_; }
 
                 private:
                     /** @brief One baked volume: its image, view, and allocation. */
@@ -401,6 +401,7 @@ namespace SushiEngine
                     Push near_push_{};
                     Push far_push_{};
                     bool near_dirty_ = false;
+                    bool near_recentred_ = false;
                     bool far_dirty_ = false;
                     bool built_ = false;
             };
