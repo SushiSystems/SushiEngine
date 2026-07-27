@@ -2634,15 +2634,18 @@ namespace SushiEngine
                             // cause, every symptom, not two independently sampled systems that
                             // happen to agree.
                             const WeatherColumn column = weather_provider_->sample_column(local);
-                            scene_.environment.clouds = weather_compiler_.compile(column);
+                            scene_.environment.clouds =
+                                weather_compiler_.compile(column, scene_.environment.clouds);
                             scene_.environment.weather = weather_world_compiler_.compile(column);
 
                             // The spatial half (docs/slop/atmosphere_system.md §7): the same
-                            // provider's horizontal structure, published as a field the cloud
-                            // march reads per sample. The column above is what the deck stack was
-                            // compiled from, so it is also the field's reference -- record it here,
-                            // from the same sample, rather than letting the two drift apart.
-                            weather_field_buffer_.set_reference_column(column);
+                            // provider's horizontal structure, published as the field the
+                            // cloudscape bake resolves a genus and a coverage from, per baked
+                            // column. The compiled `Cloudscape` above no longer decides what is
+                            // in the sky when that field classifies (§7.4) -- it still carries
+                            // the medium's scattering knobs, the weather/erosion scales and the
+                            // editor's readout, which are properties of the whole sky rather
+                            // than of one column.
                             weather_provider_->publish_field(observer, weather_field_buffer_);
                             scene_.environment.weather_field = weather_field_buffer_.view();
                         }

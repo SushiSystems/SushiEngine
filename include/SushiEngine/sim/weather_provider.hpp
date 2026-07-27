@@ -162,10 +162,13 @@ namespace SushiEngine
 
                 // A manually authored deck stack is uniform everywhere by construction (see
                 // the class docs), so the uniform field is not a degraded answer here -- it is
-                // the whole truth about this provider.
+                // the whole truth about this provider. `derives_genus` is false for the reason
+                // `Render::WeatherField` gives: this column was *decomposed from* an authored
+                // deck stack, so letting the bake re-derive a genus from it would overrule the
+                // author with a round trip through the classifier.
                 void publish_field(const GeodeticPosition&, WeatherFieldBuffer& out) const override
                 {
-                    out.fill_uniform(column_);
+                    out.fill_uniform(column_, false);
                 }
 
                 // A fixed authored sky has no clock of its own; time passing changes nothing

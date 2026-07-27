@@ -66,7 +66,6 @@ namespace SushiEngine
         {
             class CloudscapeCompilePass;
             class CloudLightVolumePass;
-            class WeatherFieldPass;
 
             /**
              * @brief Builds and owns the baked cloud panorama.
@@ -82,16 +81,14 @@ namespace SushiEngine
                      * @param shaders      Library the bake compute module comes from.
                      * @param pipelines    Factory the compute pipeline is built through.
                      * @param samplers     Cache providing the panorama's sampler.
-                     * @param cloudscape   The pass that owns the density field this bake reads.
-                     * @param light_volume The pass that owns the baked light volume.
-                     * @param weather      The pass that owns the simulation's weather field.
+                     * @param cloudscape   The pass that owns the two cloudscape windows this bake reads.
+                     * @param light_volume The pass that owns the baked near-window light volume.
                      */
                     CloudPanoramaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                       Resources::GraphicsPipelineFactory& pipelines,
                                       Resources::SamplerCache& samplers,
                                       CloudscapeCompilePass& cloudscape,
-                                      CloudLightVolumePass& light_volume,
-                                      WeatherFieldPass& weather);
+                                      CloudLightVolumePass& light_volume);
                     ~CloudPanoramaPass() override;
 
                     CloudPanoramaPass(const CloudPanoramaPass&) = delete;
@@ -119,7 +116,6 @@ namespace SushiEngine
                     /** @brief The bake shader's push block. */
                     struct Push
                     {
-                        float tile_meters;
                         std::uint32_t row_start;
                         std::uint32_t row_count;
                     };
@@ -141,7 +137,6 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     CloudscapeCompilePass& cloudscape_;
                     CloudLightVolumePass& light_volume_;
-                    WeatherFieldPass& weather_;
 
                     Panorama panorama_;
                     VkSampler sampler_ = VK_NULL_HANDLE;

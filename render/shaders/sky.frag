@@ -62,26 +62,11 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 bodies[80];
     // Fixed stars, 2 vec4 each: [2i+0] = direction.xyz, brightness; [2i+1] = colour.rgb.
     vec4 sky_stars[128];
-    // Near-field ring of the dominant analytic planet: x = inner radius (m), y = outer (m),
-    // 0 = no ring. Appended after the arrays so the shaders sharing this block that read
-    // only its earlier fields keep their offsets. Plane normal is planet_frame.xyz.
-    vec4 planet_ring;
-    // Ellipsoid precision terms formed on the CPU in double (see SceneUniforms):
-    //   xyz = scaled centre gradient c_rad/a^2 + pole*c_ax/b^2, subtracted in
-    //         ellipsoid_normal() to recover the geodetic normal without the
-    //         large-minus-large snap that made lighting/shadows crawl on the planet;
-    //   w   = the ray-ellipsoid quadratic constant |M c|^2 - 1 for a camera-origin ray,
-    //         so the "- 1" keeps its bits instead of cancelling against a ~6.4e6^2 term.
-    vec4 planet_precision;
-    // Every body lighting the scene, ordered by what it delivers at the camera, 2 vec4
-    // each: [2i+0] = direction to the body.xyz, irradiance; [2i+1] = colour.rgb, emits.
-    // Light 0 owns the shadow cascades.
-    vec4 lights[10];
-    vec4 light_counts; // x = light count
-    // Secondary directional casters' punctual-atlas shadow record index, brightest-first,
-    // -1 = unshadowed; light 0 always -1 here since it samples the cascades instead.
-    vec4 light_shadow_a; // lights 0-3
-    vec4 light_shadow_b; // light 4 in x, yzw spare
+    // The block's tail, from planet_ring onward. Included rather than restated: this pass
+    // reaches all the way to the cloud-field window members (cloud_shadow_common.glsl needs
+    // them to place the ground shadow), and std140 offsets are positional, so declaring them
+    // means declaring everything before them — which is exactly what the shared tail is for.
+#include "scene_weather_tail.glsl"
 } scene;
 
 #include "cloud_shadow_common.glsl"

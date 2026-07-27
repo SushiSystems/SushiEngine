@@ -28,7 +28,12 @@ void main()
     ivec3 fine_size = textureSize(cloudscape_field, 0);
     ivec3 base = texel * DOWNSAMPLE;
 
-    vec2 max_density = vec2(0.0);
+    // One density channel, not two. The fine field used to split cumuliform and cirriform
+    // decks across r/g so the march could give each its own anti-repetition offset; with the
+    // field camera-centred and non-wrapping there is no repetition left to break up, that
+    // offset is gone, and every consumer summed the pair anyway — so the split went with it
+    // (docs/slop/atmosphere_system.md §7.2/§7.3).
+    float max_density = 0.0;
     for (int z = 0; z < DOWNSAMPLE.z; ++z)
     {
         for (int y = 0; y < DOWNSAMPLE.y; ++y)
@@ -36,10 +41,10 @@ void main()
             for (int x = 0; x < DOWNSAMPLE.x; ++x)
             {
                 ivec3 c = min(base + ivec3(x, y, z), fine_size - 1);
-                max_density = max(max_density, texelFetch(cloudscape_field, c, 0).rg);
+                max_density = max(max_density, texelFetch(cloudscape_field, c, 0).r);
             }
         }
     }
 
-    imageStore(cloudscape_skip, texel, vec4(max_density, 0.0, 1.0));
+    imageStore(cloudscape_skip, texel, vec4(max_density, 0.0, 0.0, 1.0));
 }

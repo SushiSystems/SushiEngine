@@ -9,6 +9,103 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- **Atmosphere phase B1: the cloudscape field becomes a camera-centred window, and genus is
+  derived per column.** Phase A left three items deferred together, on the record, because
+  they are one change; this is that change. `docs/slop/atmosphere_system.md` §7.2/§7.4.
+  - **What was in the way.** The baked field was a *periodic 32 km tile*, addressed by
+    `fract(p.xz / tile)`. `fract` is many-to-one, so a bake addressed in tile space holds a
+    `uv` with no recoverable world position — which is exactly why `CloudLightVolumePass` and
+    `CloudShadowMapPass` could not consult a spatial weather field, and why sun energy through
+    cloud and cloud shadow on the ground still described the observer's own column everywhere,
+    so a cleared region kept receiving shadow. The same property blocked per-column genus: one
+    globally compiled deck stack was instantiated at every texel. Being camera-*locked*
+    rather than world-anchored, the tile also travelled with the camera, so flying never moved
+    the player through the clouds.
+  - **Two camera-centred, non-wrapping windows** (`render/shaders/cloud_field_window.glsl` is
+    the one place their addressing lives, shared by the march, the light volume, the shadow
+    map, the panorama and the ground/mesh shadow lookup, so those five cannot disagree about
+    which piece of the world a texel is). A **near** window keeps the old 32 768 m span and its
+    128 m texel, so nothing about how finely the sky resolves where the camera actually is
+    changed; a **far** window covers 262 144 m at ~1 km per texel, which is what a march sample
+    past the near window reads instead of a clamped, smeared edge. The march reaches fourteen
+    shell thicknesses (~150 km), so a single window that reached that far would have put
+    ~600 m between texels next to the camera — hence two rather than a wider one. They
+    cross-fade over the near window's outer rim; both are baked from the same weather field, so
+    they agree about *where* the weather is and differ only in how finely they carve its shape,
+    which is what makes the hand-off read as detail falling away with distance.
+  - **The light volume and the cloud shadow map now carry spatial weather** — and the fix
+    turned out not to be "look the weather up here". Addressed in window space they march the
+    *baked field*, which already carries the simulation's coverage per column, so both became
+    correct simply by addressing the right texels. A clearing stops casting shadow because
+    there is no cloud in the field there to cast it.
+  - **Genus is derived per baked column** (§7.4). When the published field classifies, the
+    bake reads the three simulated bands at each column, resolves a genus through the shared
+    classifier, and evaluates that genus's own profile — so a stratus sheet, a cumulus field
+    and a cirrus deck coexist in one view, each where the simulation put it, with a
+    cumulonimbus added *on top of* the low band (not replacing it) where deep convection
+    supports one. The classifier itself moved to `Render::classify_cloud_genus` /
+    `cloud_band_towers` / `cloud_genus_thresholds` in `environment.hpp`: one authority, with
+    its thresholds uploaded to the GPU as data rather than repeated as literals in GLSL, which
+    is the OCP finding §1.6 recorded against `WeatherCloudscapeCompiler`'s three hard-coded
+    `if` chains. A manually authored sky still bakes its own deck stack unchanged —
+    `Render::WeatherField::derives_genus` is how the *producer* says which it is, because
+    `StaticWeather`'s column *is* an authored deck stack decomposed into bands and
+    re-classifying it would overrule the author.
+  - **The march shell follows the field when the field classifies.**
+    `WeatherField::union_base_m/union_top_m` are taken by the producer as it fills the cells —
+    the only party that sees every column — because a cumulonimbus growing 300 km away still
+    has to be inside the span the march crosses. Derived from the deck stack as before
+    otherwise.
+  - **The far window carries its own optical depth toward the sun**
+    (`render/shaders/cloudscape_far_light.comp`, into the far field's `b` channel). The near
+    light volume covers only the near window, and before this a distant storm and a distant
+    fair-weather field would have been lit identically — showing the front's shape while
+    lighting it flat. Source and destination are two images rather than one
+    read-modify-write, because the march reads texels its neighbouring invocations are
+    writing.
+  - **Rebake cadence replaces the deck-stack memcmp.** A window is rebaked when the authored
+    stack changes, when the march shell moves, when the camera drifts 8 % of the window's span
+    out of it, on a weather cadence (1 s near, 4 s far — the published field is interpolated
+    every frame between the simulation's own 15 s ticks, so "the weather changed" is
+    continuously true and cannot gate anything alone), and — for the far window's sun channel
+    only — when the sun has moved a degree. Origins snap to each window's own texel lattice,
+    so re-centring reproduces the identical value at the identical world point and a rebake is
+    invisible. **The wind needs no trigger of its own**: it is expressed purely as a shift of
+    the window's origin, absorbed by the bake and folded into the published map as a residual
+    each frame, so the sky advects continuously between rebakes with no staleness at all — the
+    lookup slides, the content does not go out of date. `CloudscapeCompilePass::update_window`
+    is called by the scene view between the uniform fill and the upload, because the bake and
+    every consumer of the bake read the same mapping out of that block.
+  - **Simplifications this made possible.** The march's second, mirrored anti-repetition tap
+    is gone (it existed to hide a tile period there is no longer any of), as is the per-sample
+    weather lookup and the whole coverage-scale/reference-column mechanism
+    (`cloud_weather_field.glsl`, `WeatherField::reference_coverage`,
+    `weather_field_reference`) — the bake reads coverage directly, so the march reads the
+    answer rather than the meteorology. The field's two density channels collapse to one (the
+    cumuliform/cirriform split existed for per-layer anti-repetition offsets that were never
+    actually distinct, and every consumer summed the pair). Freeing the march's weather-field
+    binding is what made room for the far window in the last per-pass image slot. Samplers
+    move from `REPEAT` to `CLAMP_TO_EDGE`.
+  - **The medium stays authorable under procedural weather.** `WeatherCloudscapeCompiler`
+    used to return a default-constructed `Cloudscape`, discarding the scattering knobs, the
+    ground-shadow strength and the erosion scale every tick — tolerable while the deck stack
+    was the whole description of the sky and the editor disabled those sliders anyway. It now
+    compiles over the current cloudscape, and the Atmosphere panel re-enables them, because
+    since §7.4 they are the only authored control over the look that is left.
+  - **VRAM**: four `R8G8B8A8` volumes at 256×32×256 (near, far, the far density scratch) plus
+    the 64×16×64 near skip — ~25 MB, inside §12's ~40 MB budget for the T3 field set.
+  - **Tests**: `Unit_WeatherField` gains the producer-side half of the genus authority — that
+    an authored column does not claim it, that a classified one publishes a shell reaching its
+    own cumulonimbus top, and that a band under the enable threshold holds no shell open.
+  - **Named limit**: ground more than ~16 km from the camera loses its cloud shadow (the map
+    covers exactly the near window and fades out across its rim). It had one before, but it
+    was a repeated copy of the camera's own patch; at that distance a wrong dappling reads as
+    texture where a missing one reads as haze. A second, coarser shadow cascade over the far
+    window is the natural follow-up and is a separate change.
+  - **Verified**: every changed shader compiles (`shader_compiler`, all nine), and every
+    changed translation unit passes a syntax-only compile under the project's own flags
+    (`-Wall -Wextra -Werror -pedantic`). **Not verified**: the user's full build, `se test`,
+    and — as with phase A — the acceptance bar by eye in a live editor session.
 - **Atmosphere phase A: the weather simulation now reaches the sky spatially.** The cloud
   march reads coverage from the simulation's own horizontal grid per sample, so a front is
   drawn as a front — `docs/slop/atmosphere_system.md` §1.1 named this the root defect of the

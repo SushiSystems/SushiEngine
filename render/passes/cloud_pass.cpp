@@ -31,7 +31,6 @@
 #include "passes/cloud_light_volume_pass.hpp"
 #include "passes/cloudscape_compile_pass.hpp"
 #include "passes/fullscreen.hpp"
-#include "passes/weather_field_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/pipeline_cache.hpp"
 #include "resources/sampler_cache.hpp"
@@ -51,11 +50,9 @@ namespace SushiEngine
             CloudPass::CloudPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                  Resources::GraphicsPipelineFactory& pipelines,
                                  Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
-                                 CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
-                                 WeatherFieldPass& weather)
+                                 CloudLightVolumePass& light_volume, Textures::CloudNoise& noise)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  cloudscape_(cloudscape), light_volume_(light_volume), noise_(noise),
-                  weather_(weather)
+                  cloudscape_(cloudscape), light_volume_(light_volume), noise_(noise)
             {
                 create_pipeline();
             }
@@ -167,10 +164,12 @@ namespace SushiEngine
                         writer.image(4, noise_.detail(), noise_.sampler());
                         writer.image(5, light_volume_.view(), light_volume_.sampler(),
                                      VK_IMAGE_LAYOUT_GENERAL);
-                        // The simulation's spatial weather (WeatherFieldPass): the march's
-                        // coverage authority, in the last free per-pass image slot.
-                        writer.image(6, weather_.view(), weather_.sampler(),
-                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        // The far window, in the last free per-pass image slot. It is where the
+                        // simulation's weather now reaches the march: the bake resolved coverage
+                        // per column, so the march reads the answer instead of the meteorology,
+                        // which is exactly what freed this binding up.
+                        writer.image(6, cloudscape_.far_view(), cloudscape_.sampler(),
+                                     VK_IMAGE_LAYOUT_GENERAL);
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),
                                        sizeof(Scene::TemporalUniforms));
@@ -186,14 +185,11 @@ namespace SushiEngine
                             std::uint32_t steps_near;
                             std::uint32_t steps_far;
                             std::uint32_t light_steps;
-                            float field_tile_meters;
-                            float skip_cell_meters;
                             std::uint32_t light_taps;
                             std::uint32_t near_far_split;
                         } budget{frame.quality.cloud_primary_steps_near,
                                  frame.quality.cloud_primary_steps_far,
-                                 frame.quality.cloud_light_steps, CloudscapeCompilePass::tile_meters(),
-                                 CloudscapeCompilePass::skip_cell_meters(),
+                                 frame.quality.cloud_light_steps,
                                  frame.quality.cloud_light_taps,
                                  frame.quality.cloud_near_far_split ? 1u : 0u};
                         // The shared push-constant range is declared VERTEX|FRAGMENT (see

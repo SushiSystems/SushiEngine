@@ -22,12 +22,14 @@
 
 #include "passes/cloudscape_compile_pass.hpp"
 
+#include <cmath>
 #include <cstring>
 
 #include <SushiEngine/render/environment.hpp>
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "passes/weather_field_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
 #include "resources/pipeline_cache.hpp"
@@ -86,12 +88,16 @@ namespace SushiEngine
                                                          Resources::ShaderLibrary& shaders,
                                                          Resources::GraphicsPipelineFactory& pipelines,
                                                          Resources::SamplerCache& samplers,
-                                                         Textures::CloudNoise& noise)
-                : device_(device), shaders_(shaders), pipelines_(pipelines), noise_(noise)
+                                                         Textures::CloudNoise& noise,
+                                                         WeatherFieldPass& weather)
+                : device_(device), shaders_(shaders), pipelines_(pipelines), noise_(noise),
+                  weather_(weather)
             {
-                // Field bake: one storage-image output, the scene uniform block (for the
-                // deck stack), and the four noise volumes the deck loop samples.
-                VkDescriptorSetLayoutBinding f_bindings[6]{};
+                // Field bake: one storage-image output, the scene uniform block (for the deck
+                // stack and the weather field's addressing), the four noise volumes the deck loop
+                // samples, the simulation's own field, and the static genus catalogue the derived
+                // path resolves a column through.
+                VkDescriptorSetLayoutBinding f_bindings[8]{};
                 f_bindings[0].binding = 0;
                 f_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 f_bindings[0].descriptorCount = 1;
@@ -100,17 +106,21 @@ namespace SushiEngine
                 f_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 f_bindings[1].descriptorCount = 1;
                 f_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                for (std::uint32_t i = 2; i < 6; ++i)
+                for (std::uint32_t i = 2; i < 7; ++i)
                 {
                     f_bindings[i].binding = i;
                     f_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                     f_bindings[i].descriptorCount = 1;
                     f_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 }
+                f_bindings[7].binding = 7;
+                f_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                f_bindings[7].descriptorCount = 1;
+                f_bindings[7].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
                 VkDescriptorSetLayoutCreateInfo f_layout_info{};
                 f_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                f_layout_info.bindingCount = 6;
+                f_layout_info.bindingCount = 8;
                 f_layout_info.pBindings = f_bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &f_layout_info, nullptr,
                                                           &field_layout_),
@@ -157,36 +167,148 @@ namespace SushiEngine
                                                      &skip_pipeline_layout_),
                               "vkCreatePipelineLayout(cloudscape skip)");
 
-                create_volume(field_, FIELD_RESOLUTION_XZ, FIELD_RESOLUTION_Y, FIELD_RESOLUTION_XZ);
+                // Far sun-depth resolve: writes the published far window, reads the scratch
+                // density bake. Two images rather than one read-modify-write, because the march
+                // reads texels its neighbours are writing.
+                VkDescriptorSetLayoutBinding l_bindings[3]{};
+                l_bindings[0].binding = 0;
+                l_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                l_bindings[0].descriptorCount = 1;
+                l_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                l_bindings[1].binding = 1;
+                l_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                l_bindings[1].descriptorCount = 1;
+                l_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                l_bindings[2].binding = 2;
+                l_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                l_bindings[2].descriptorCount = 1;
+                l_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+                VkDescriptorSetLayoutCreateInfo l_layout_info{};
+                l_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                l_layout_info.bindingCount = 3;
+                l_layout_info.pBindings = l_bindings;
+                Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &l_layout_info, nullptr,
+                                                          &far_light_layout_),
+                              "vkCreateDescriptorSetLayout(cloudscape far light)");
+
+                VkPushConstantRange l_range{};
+                l_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                l_range.size = sizeof(FarLightPush);
+
+                VkPipelineLayoutCreateInfo l_pipeline_info{};
+                l_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+                l_pipeline_info.setLayoutCount = 1;
+                l_pipeline_info.pSetLayouts = &far_light_layout_;
+                l_pipeline_info.pushConstantRangeCount = 1;
+                l_pipeline_info.pPushConstantRanges = &l_range;
+                Vulkan::check(vkCreatePipelineLayout(device_.device(), &l_pipeline_info, nullptr,
+                                                     &far_light_pipeline_layout_),
+                              "vkCreatePipelineLayout(cloudscape far light)");
+
+                create_volume(near_, FIELD_RESOLUTION_XZ, FIELD_RESOLUTION_Y, FIELD_RESOLUTION_XZ);
                 create_volume(skip_, FIELD_RESOLUTION_XZ / SKIP_DOWNSAMPLE_XZ,
                              FIELD_RESOLUTION_Y / SKIP_DOWNSAMPLE_Y,
                              FIELD_RESOLUTION_XZ / SKIP_DOWNSAMPLE_XZ);
+                create_volume(far_source_, FIELD_RESOLUTION_XZ, FIELD_RESOLUTION_Y,
+                              FIELD_RESOLUTION_XZ);
+                create_volume(far_, FIELD_RESOLUTION_XZ, FIELD_RESOLUTION_Y, FIELD_RESOLUTION_XZ);
 
-                // The field tiles periodically in every axis (X/Z wrap the flat bake tile,
-                // Y wraps too so a march sample that strays a texel past the union band's
-                // edge reads its own boundary back instead of the border colour); linear
-                // filtering smooths the block boundaries the bake's discrete texels leave.
+                // CLAMP_TO_EDGE, not REPEAT: the windows do not wrap any more (see
+                // cloud_field_window.glsl). A lookup that leaves a window reads its nearest real
+                // weather rather than folding back into an unrelated piece of sky a span away,
+                // which is exactly the property the near/far cross-fade and the sun marches rely
+                // on. Linear filtering smooths the block boundaries the bake's discrete texels
+                // leave, as before.
                 Resources::SamplerDesc sampler_desc{};
                 sampler_desc.filter = VK_FILTER_LINEAR;
-                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                 sampler_ = samplers.get(sampler_desc);
 
+                create_catalogue();
                 create_pipelines();
             }
 
             CloudscapeCompilePass::~CloudscapeCompilePass()
             {
                 destroy_pipelines();
-                destroy_volume(field_);
+                destroy_catalogue();
+                destroy_volume(near_);
                 destroy_volume(skip_);
+                destroy_volume(far_source_);
+                destroy_volume(far_);
                 if (field_pipeline_layout_ != VK_NULL_HANDLE)
                     vkDestroyPipelineLayout(device_.device(), field_pipeline_layout_, nullptr);
                 if (skip_pipeline_layout_ != VK_NULL_HANDLE)
                     vkDestroyPipelineLayout(device_.device(), skip_pipeline_layout_, nullptr);
+                if (far_light_pipeline_layout_ != VK_NULL_HANDLE)
+                    vkDestroyPipelineLayout(device_.device(), far_light_pipeline_layout_, nullptr);
                 if (field_layout_ != VK_NULL_HANDLE)
                     vkDestroyDescriptorSetLayout(device_.device(), field_layout_, nullptr);
                 if (skip_layout_ != VK_NULL_HANDLE)
                     vkDestroyDescriptorSetLayout(device_.device(), skip_layout_, nullptr);
+                if (far_light_layout_ != VK_NULL_HANDLE)
+                    vkDestroyDescriptorSetLayout(device_.device(), far_light_layout_, nullptr);
+            }
+
+            void CloudscapeCompilePass::create_catalogue()
+            {
+                GenusCatalogue catalogue{};
+                for (int i = 0; i < CLOUD_GENUS_COUNT; ++i)
+                {
+                    const CloudGenusProfile profile =
+                        cloud_genus_profile(static_cast<CloudGenus>(i));
+                    // Same lane assignment the scene block's deck arrays use, so the bake's deck
+                    // evaluation does not care which of the two filled them.
+                    catalogue.a[i][0] = profile.base_altitude;
+                    catalogue.a[i][1] = profile.top_altitude;
+                    catalogue.a[i][2] = profile.coverage;
+                    catalogue.a[i][3] = profile.density;
+                    catalogue.b[i][0] = profile.stratiform;
+                    catalogue.b[i][1] = profile.detail_strength;
+                    catalogue.b[i][2] = profile.shape_scale;
+                    catalogue.b[i][3] = profile.detail_scale;
+                    catalogue.c[i][0] = static_cast<float>(profile.wind.x);
+                    catalogue.c[i][1] = static_cast<float>(profile.wind.y);
+                    catalogue.c[i][2] = static_cast<float>(profile.wind.z);
+                    catalogue.c[i][3] =
+                        static_cast<float>(static_cast<std::uint32_t>(profile.noise));
+                    catalogue.d[i][0] = profile.anvil;
+                }
+
+                const CloudGenusThresholds& thresholds = cloud_genus_thresholds();
+                catalogue.thresholds[0] = thresholds.convective;
+                catalogue.thresholds[1] = thresholds.low_broken;
+                catalogue.thresholds[2] = thresholds.middle_overcast;
+                catalogue.thresholds[3] = thresholds.high_sheet;
+                catalogue.thresholds_tail[0] = thresholds.cumulonimbus_convective;
+                catalogue.thresholds_tail[1] = thresholds.cumulonimbus_coverage;
+                catalogue.thresholds_tail[2] = thresholds.enable_coverage;
+
+                VkBufferCreateInfo buffer_info{};
+                buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                buffer_info.size = sizeof(GenusCatalogue);
+                buffer_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+                VmaAllocationCreateInfo alloc{};
+                alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                              VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+                VmaAllocationInfo mapped{};
+                Vulkan::check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc, &catalogue_,
+                                              &catalogue_allocation_, &mapped),
+                              "vmaCreateBuffer(cloud genus catalogue)");
+                if (mapped.pMappedData != nullptr)
+                    std::memcpy(mapped.pMappedData, &catalogue, sizeof(GenusCatalogue));
+            }
+
+            void CloudscapeCompilePass::destroy_catalogue()
+            {
+                if (catalogue_ != VK_NULL_HANDLE)
+                    vmaDestroyBuffer(device_.allocator(), catalogue_, catalogue_allocation_);
+                catalogue_ = VK_NULL_HANDLE;
+                catalogue_allocation_ = VK_NULL_HANDLE;
             }
 
             void CloudscapeCompilePass::create_pipelines()
@@ -195,6 +317,9 @@ namespace SushiEngine
                                                             shaders_.module("cloudscape_field.comp"));
                 skip_pipeline_ = pipelines_.create_compute(skip_pipeline_layout_,
                                                            shaders_.module("cloudscape_skip.comp"));
+                far_light_pipeline_ =
+                    pipelines_.create_compute(far_light_pipeline_layout_,
+                                              shaders_.module("cloudscape_far_light.comp"));
             }
 
             void CloudscapeCompilePass::destroy_pipelines()
@@ -203,8 +328,11 @@ namespace SushiEngine
                     vkDestroyPipeline(device_.device(), field_pipeline_, nullptr);
                 if (skip_pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), skip_pipeline_, nullptr);
+                if (far_light_pipeline_ != VK_NULL_HANDLE)
+                    vkDestroyPipeline(device_.device(), far_light_pipeline_, nullptr);
                 field_pipeline_ = VK_NULL_HANDLE;
                 skip_pipeline_ = VK_NULL_HANDLE;
+                far_light_pipeline_ = VK_NULL_HANDLE;
             }
 
             void CloudscapeCompilePass::rebuild_pipelines()
@@ -272,27 +400,259 @@ namespace SushiEngine
                 return false;
             }
 
+            void CloudscapeCompilePass::place_window(Window& window, float span,
+                                                     std::uint32_t resolution, const double eye[3],
+                                                     double wind_x, double wind_z,
+                                                     float time_seconds, const float sun[3])
+            {
+                // Snapped to the window's own texel lattice, in absolute coordinates. That is what
+                // makes re-centring free of artefacts: the bake is a pure function of the pattern
+                // position, so a window that moved by a whole number of texels reproduces the
+                // identical value at the identical world point, and a rebake is invisible. Snap to
+                // anything else and every rebake would resample the sky onto a shifted lattice and
+                // shimmer.
+                const double texel = double(span) / double(resolution);
+                const double centre_x = eye[0] + wind_x;
+                const double centre_z = eye[2] + wind_z;
+                window.pattern_origin_x =
+                    std::floor((centre_x - double(span) * 0.5) / texel) * texel;
+                window.pattern_origin_z =
+                    std::floor((centre_z - double(span) * 0.5) / texel) * texel;
+                window.wind_x = wind_x;
+                window.wind_z = wind_z;
+                window.eye_x = eye[0];
+                window.eye_z = eye[2];
+                window.time_seconds = time_seconds;
+                window.sun[0] = sun[0];
+                window.sun[1] = sun[1];
+                window.sun[2] = sun[2];
+                window.baked = true;
+            }
+
+            void CloudscapeCompilePass::window_map(const Window& window, float span,
+                                                   const double eye[3], double wind_x,
+                                                   double wind_z, float map[4])
+            {
+                if (!window.baked || span <= 0.0f)
+                {
+                    map[0] = map[1] = map[2] = map[3] = 0.0f;
+                    return;
+                }
+                // Camera-relative XZ metres -> window UV. The eye and the wind are *this frame's*,
+                // not the bake's: that difference is precisely how far the sky has drifted since,
+                // and folding it in here is what keeps the pattern moving continuously between
+                // rebakes instead of freezing and jumping. Formed in double because both terms are
+                // planet-scale and their difference is metres.
+                const double inverse_span = 1.0 / double(span);
+                map[0] = static_cast<float>(inverse_span);
+                map[1] = static_cast<float>(inverse_span);
+                map[2] = static_cast<float>((eye[0] + wind_x - window.pattern_origin_x) * inverse_span);
+                map[3] = static_cast<float>((eye[2] + wind_z - window.pattern_origin_z) * inverse_span);
+            }
+
+            void CloudscapeCompilePass::window_push(const Window& window, float span,
+                                                    float weather_scale, bool derive_genus,
+                                                    Push& push)
+            {
+                push.pattern_origin[0] = static_cast<float>(window.pattern_origin_x);
+                push.pattern_origin[1] = static_cast<float>(window.pattern_origin_z);
+                // The same corner with the wind and the eye taken back out: camera-relative scene
+                // metres, which is the frame `weather_field_map` addresses the meteorology in.
+                push.world_origin[0] =
+                    static_cast<float>(window.pattern_origin_x - window.wind_x - window.eye_x);
+                push.world_origin[1] =
+                    static_cast<float>(window.pattern_origin_z - window.wind_z - window.eye_z);
+                push.span_meters = span;
+                push.weather_scale = weather_scale;
+                push.derive_genus = derive_genus ? 1u : 0u;
+            }
+
+            void CloudscapeCompilePass::update_window(const Frame::FrameContext& frame,
+                                                      const Environment& environment,
+                                                      Scene::SceneUniforms& uniforms)
+            {
+                near_dirty_ = false;
+                far_dirty_ = false;
+
+                if (!environment.clouds.enabled)
+                {
+                    // A zero scale is the published "no window" state every consumer checks; see
+                    // cloud_field_window.glsl. The windows are dropped rather than kept, so
+                    // switching the cloudscape back on rebakes against wherever the camera has
+                    // gone in the meantime instead of resurrecting a stale placement.
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        uniforms.cloud_field_near[i] = 0.0f;
+                        uniforms.cloud_field_far[i] = 0.0f;
+                        uniforms.cloud_field_params[i] = 0.0f;
+                    }
+                    near_window_.baked = false;
+                    far_window_.baked = false;
+                    built_ = false;
+                    return;
+                }
+
+                const float time_seconds = uniforms.misc[2];
+
+                // "The" wind: deck 0's, the same dominant-deck convention the ground-shadow march
+                // and the old sample-time UV scroll both used. With genus resolved per column no
+                // single deck owns the sky any more, but the field still advects as one pattern,
+                // and the reference column's low deck is the honest choice for it — that is the
+                // column the camera is standing in. Accumulated in double: it is a velocity times
+                // a monotonically growing clock, and it is what the window's own origin tracks.
+                const double wind_x = double(uniforms.cloud_deck_c[0][0]) * double(time_seconds);
+                const double wind_z = double(uniforms.cloud_deck_c[0][2]) * double(time_seconds);
+                const float sun[3] = {uniforms.sun_dir[0], uniforms.sun_dir[1], uniforms.sun_dir[2]};
+
+                const WeatherField& field = environment.weather_field;
+                const bool derive = field.valid() && field.derives_genus;
+
+                Snapshot snapshot{};
+                for (int i = 0; i < CLOUD_MAX_DECKS; ++i)
+                {
+                    snapshot.decks[i].enabled = environment.clouds.decks[i].enabled ? 1u : 0u;
+                    snapshot.decks[i].genus =
+                        static_cast<std::uint32_t>(environment.clouds.decks[i].genus);
+                    snapshot.decks[i].coverage_bias = environment.clouds.decks[i].coverage_bias;
+                    snapshot.decks[i].density_scale = environment.clouds.decks[i].density_scale;
+                }
+                snapshot.weather_scale = environment.clouds.weather_scale;
+                // The bake maps its Y axis across exactly this altitude span, so a shell that moved
+                // is a field addressed against the wrong altitudes — a rebake, not a cadence.
+                snapshot.shell_base = uniforms.cloud_global[1];
+                snapshot.shell_top = uniforms.cloud_global[2];
+                snapshot.derive_genus = derive ? 1u : 0u;
+                const bool authored_changed = cloudscape_changed(snapshot);
+
+                const auto drifted = [&](const Window& window, float span)
+                {
+                    if (!window.baked)
+                        return true;
+                    const double centre_x = window.pattern_origin_x + double(span) * 0.5;
+                    const double centre_z = window.pattern_origin_z + double(span) * 0.5;
+                    const double dx = (frame.eye[0] + wind_x) - centre_x;
+                    const double dz = (frame.eye[2] + wind_z) - centre_z;
+                    const double limit = double(span) * REBAKE_DRIFT_FRACTION;
+                    return (dx * dx + dz * dz) > (limit * limit);
+                };
+
+                near_dirty_ = authored_changed || drifted(near_window_, NEAR_SPAN_METERS) ||
+                              (derive && (time_seconds - near_window_.time_seconds) >=
+                                             NEAR_WEATHER_INTERVAL_SECONDS);
+
+                const float sun_dot = far_window_.sun[0] * sun[0] + far_window_.sun[1] * sun[1] +
+                                      far_window_.sun[2] * sun[2];
+                far_dirty_ = authored_changed || drifted(far_window_, FAR_SPAN_METERS) ||
+                             (derive && (time_seconds - far_window_.time_seconds) >=
+                                            FAR_WEATHER_INTERVAL_SECONDS) ||
+                             sun_dot < FAR_SUN_COS_TOLERANCE;
+
+                if (near_dirty_)
+                    place_window(near_window_, NEAR_SPAN_METERS, FIELD_RESOLUTION_XZ, frame.eye,
+                                 wind_x, wind_z, time_seconds, sun);
+                if (far_dirty_)
+                    place_window(far_window_, FAR_SPAN_METERS, FIELD_RESOLUTION_XZ, frame.eye,
+                                 wind_x, wind_z, time_seconds, sun);
+
+                window_map(near_window_, NEAR_SPAN_METERS, frame.eye, wind_x, wind_z,
+                           uniforms.cloud_field_near);
+                window_map(far_window_, FAR_SPAN_METERS, frame.eye, wind_x, wind_z,
+                           uniforms.cloud_field_far);
+                uniforms.cloud_field_params[0] = near_window_.baked ? NEAR_SPAN_METERS : 0.0f;
+                uniforms.cloud_field_params[1] = far_window_.baked ? FAR_SPAN_METERS : 0.0f;
+                uniforms.cloud_field_params[2] =
+                    NEAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ / SKIP_DOWNSAMPLE_XZ);
+                uniforms.cloud_field_params[3] = FAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ);
+
+                window_push(near_window_, NEAR_SPAN_METERS, environment.clouds.weather_scale,
+                            derive, near_push_);
+                window_push(far_window_, FAR_SPAN_METERS, environment.clouds.weather_scale, derive,
+                            far_push_);
+                built_ = true;
+            }
+
+            void CloudscapeCompilePass::record_density(VkCommandBuffer cmd,
+                                                       const Frame::FrameContext& frame,
+                                                       VkBuffer uniform_buffer, Volume& target,
+                                                       const Push& push)
+            {
+                transition(cmd, target.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
+                           VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+
+                const VkDescriptorSet set = frame.descriptors->allocate(field_layout_);
+                Resources::DescriptorWriter writer;
+                writer.storage_image(0, target.view);
+                writer.uniform_buffer(1, uniform_buffer, sizeof(Scene::SceneUniforms));
+                writer.sampled_image(2, noise_.shape(), noise_.sampler());
+                writer.sampled_image(3, noise_.detail(), noise_.sampler());
+                writer.sampled_image(4, noise_.weather(), noise_.sampler());
+                writer.sampled_image(5, noise_.cirrus(), noise_.sampler());
+                writer.sampled_image(6, weather_.view(), weather_.sampler());
+                writer.uniform_buffer(7, catalogue_, sizeof(GenusCatalogue));
+                writer.update(device_.device(), set);
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, field_pipeline_);
+                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                               field_pipeline_layout_, 0, set);
+                vkCmdPushConstants(cmd, field_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                   sizeof(Push), &push);
+                vkCmdDispatch(cmd, groups(target.width), groups(target.height),
+                              groups(target.depth));
+            }
+
+            void CloudscapeCompilePass::record_skip(VkCommandBuffer cmd,
+                                                    const Frame::FrameContext& frame)
+            {
+                transition(cmd, skip_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
+                           VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+
+                const VkDescriptorSet set = frame.descriptors->allocate(skip_layout_);
+                Resources::DescriptorWriter writer;
+                writer.storage_image(0, skip_.view);
+                writer.sampled_image(1, near_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
+                writer.update(device_.device(), set);
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, skip_pipeline_);
+                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                               skip_pipeline_layout_, 0, set);
+                vkCmdDispatch(cmd, groups(skip_.width), groups(skip_.height), groups(skip_.depth));
+            }
+
+            void CloudscapeCompilePass::record_far_light(VkCommandBuffer cmd,
+                                                         const Frame::FrameContext& frame,
+                                                         VkBuffer uniform_buffer)
+            {
+                transition(cmd, far_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
+                           VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+
+                const FarLightPush push{FAR_SPAN_METERS};
+                const VkDescriptorSet set = frame.descriptors->allocate(far_light_layout_);
+                Resources::DescriptorWriter writer;
+                writer.storage_image(0, far_.view);
+                writer.sampled_image(1, far_source_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
+                writer.uniform_buffer(2, uniform_buffer, sizeof(Scene::SceneUniforms));
+                writer.update(device_.device(), set);
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, far_light_pipeline_);
+                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                               far_light_pipeline_layout_, 0, set);
+                vkCmdPushConstants(cmd, far_light_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                   sizeof(FarLightPush), &push);
+                vkCmdDispatch(cmd, groups(far_.width), groups(far_.height), groups(far_.depth));
+            }
+
             void CloudscapeCompilePass::register_pass(Graph::RenderGraph& graph,
                                                        const Frame::FrameContext& frame)
             {
                 if (frame.environment == nullptr || !frame.environment->clouds.enabled)
                     return;
-                const Cloudscape& clouds = frame.environment->clouds;
-
-                Snapshot snapshot{};
-                for (int i = 0; i < CLOUD_MAX_DECKS; ++i)
-                {
-                    snapshot.decks[i].enabled = clouds.decks[i].enabled ? 1u : 0u;
-                    snapshot.decks[i].genus = static_cast<std::uint32_t>(clouds.decks[i].genus);
-                    snapshot.decks[i].coverage_bias = clouds.decks[i].coverage_bias;
-                    snapshot.decks[i].density_scale = clouds.decks[i].density_scale;
-                }
-                snapshot.weather_scale = clouds.weather_scale;
-
-                const bool dirty = cloudscape_changed(snapshot);
-                built_ = true;
-                // The last bake still describes the current deck stack; nothing to redo.
-                if (!dirty)
+                // update_window already decided; nothing this frame is stale.
+                if (!near_dirty_ && !far_dirty_)
                     return;
 
                 const Graph::BufferHandle uniforms = frame.targets.uniforms;
@@ -300,71 +660,59 @@ namespace SushiEngine
                     "cloudscape-compile",
                     [uniforms](Graph::RenderPassBuilder& builder)
                     {
-                        // The field/skip images are pass-owned and barriered by hand below;
-                        // the one graph resource is the scene uniform block the bake reads
-                        // the deck stack from. A side effect keeps the pass from being
-                        // culled — it has no graph-tracked write to keep it alive otherwise.
+                        // The window images are pass-owned and barriered by hand below; the one
+                        // graph resource is the scene uniform block the bake reads the deck stack,
+                        // the march shell and the weather field's addressing from. A side effect
+                        // keeps the pass from being culled — it has no graph-tracked write to keep
+                        // it alive otherwise.
                         builder.read(uniforms, Graph::BufferAccess::UniformRead);
                         builder.set_side_effect();
                     },
                     [this, &frame, uniforms](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const Push push{TILE_METERS};
+                        const VkBuffer uniform_buffer = context.buffer(uniforms);
 
-                        transition(cmd, field_.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                   VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
-                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+                        if (near_dirty_)
                         {
-                            const VkDescriptorSet set = frame.descriptors->allocate(field_layout_);
-                            Resources::DescriptorWriter writer;
-                            writer.storage_image(0, field_.view);
-                            writer.uniform_buffer(1, context.buffer(uniforms),
-                                                  sizeof(Scene::SceneUniforms));
-                            writer.sampled_image(2, noise_.shape(), noise_.sampler());
-                            writer.sampled_image(3, noise_.detail(), noise_.sampler());
-                            writer.sampled_image(4, noise_.weather(), noise_.sampler());
-                            writer.sampled_image(5, noise_.cirrus(), noise_.sampler());
-                            writer.update(device_.device(), set);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, field_pipeline_);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                                           field_pipeline_layout_, 0, set);
-                            vkCmdPushConstants(cmd, field_pipeline_layout_,
-                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
-                            vkCmdDispatch(cmd, groups(field_.width), groups(field_.height),
-                                          groups(field_.depth));
-                        }
-                        // Readable by the skip-field build below (compute) and, once this
-                        // pass ends, by the view march's own full-quality tap (fragment).
-                        transition(cmd, field_.image, VK_IMAGE_LAYOUT_GENERAL,
-                                   VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                            record_density(cmd, frame, uniform_buffer, near_, near_push_);
+                            // Readable by the skip build below (compute) and, once this pass ends,
+                            // by the view march, the light volume, the shadow map and the panorama.
+                            transition(cmd, near_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                            record_skip(cmd, frame);
+                            transition(cmd, skip_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-
-                        transition(cmd, skip_.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                   VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
-                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                        {
-                            const VkDescriptorSet set = frame.descriptors->allocate(skip_layout_);
-                            Resources::DescriptorWriter writer;
-                            writer.storage_image(0, skip_.view);
-                            writer.sampled_image(1, field_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
-                            writer.update(device_.device(), set);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, skip_pipeline_);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                                           skip_pipeline_layout_, 0, set);
-                            vkCmdDispatch(cmd, groups(skip_.width), groups(skip_.height),
-                                          groups(skip_.depth));
+                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
                         }
-                        // Readable by the view march (CloudPass), fragment stage.
-                        transition(cmd, skip_.image, VK_IMAGE_LAYOUT_GENERAL,
-                                   VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                        if (far_dirty_)
+                        {
+                            record_density(cmd, frame, uniform_buffer, far_source_, far_push_);
+                            transition(cmd, far_source_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                            record_far_light(cmd, frame, uniform_buffer);
+                            transition(cmd, far_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                        }
                     });
             }
         } // namespace Passes

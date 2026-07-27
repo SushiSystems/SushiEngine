@@ -3034,8 +3034,9 @@ sample.
 **The data.** `Render::WeatherField` (`include/SushiEngine/render/weather_field.hpp`) is a
 *borrowed* view — `cells_x × cells_z × level_count` samples of
 coverage/density/convective-fraction/precipitation, plus a scale-and-offset from
-scene-absolute world XZ to field UV, the three band centre altitudes, and the reference
-column's coverage. Borrowed rather than copied because `Environment` is copied per frame
+scene-absolute world XZ to field UV, the three band centre altitudes, whether the renderer
+may resolve genus from it (§16.4), and the altitude span the genera it resolves to occupy.
+Borrowed rather than copied because `Environment` is copied per frame
 while the payload changes on a multi-second cadence; the sim owns the storage
 (`Simulation::WeatherFieldBuffer`) and `revision` is how the renderer notices a change.
 
@@ -3061,29 +3062,22 @@ are fixed for the renderer's lifetime; staging is a three-buffer ring indexed by
 own slot, and the image is cleared once so a scene that never publishes weather still binds a
 defined resource. It registers before the cloud bakes that read it.
 
-**Consumption.** `render/shaders/cloud_weather_field.glsl`, included by `cloud.frag` (binding
-6, the last free per-pass image slot) and `cloud_panorama.comp`. The field's coverage is
-turned into a scale about the reference column and applied as a **re-threshold**,
-`remap(d, 1 − c, 1, 0, 1) · c`, not a density multiply: a multiply fades a whole cloud toward
-transparency, a re-threshold erodes its low-density fringe first, so edges retreat and holes
-open the way falling coverage actually works. `c == 1` is exactly the identity, which is what
-makes a uniform sky render bit-identically to one with no field at all. The three new scene
-uniforms ride the block's tail (`render/shaders/scene_weather_tail.glsl`, included by every
-shader that needs to reach them), with the camera position folded into the map's offset in
-double.
+**Consumption.** Phase A read the field *per march sample*, turning its coverage into a scale
+about the column the deck stack was compiled from and applying it as a re-threshold. That
+mechanism is gone (§16.4): the field is now an input to the cloudscape **bake**, which
+resolves coverage and genus per baked column, so the march reads the answer rather than the
+meteorology and the light volume, the shadow map and the panorama inherit the same answer
+instead of each needing their own lookup. The scene uniforms carrying the field's addressing
+ride the block's tail (`render/shaders/scene_weather_tail.glsl`, included by every shader that
+needs to reach them), with the camera position folded into the map's offset in double.
 
 **The column is now sampled at the camera**, not at the scene's geodetic anchor — the same
 point while the weather was uniform, not the same point now. The deck stack, the fog, the
-wetness, and the rain therefore all describe where the player stands, and the coverage scale
-is exactly 1 at the camera, so the bake is never stretched where it is seen most closely.
+wetness, and the rain therefore all describe where the player stands.
 
-**What still does not consult the field**, and why it is one deferral rather than three: the
-cloud field remains a wrapping 65 km tile, so the light volume and the cloud shadow map —
-both addressed in *tile* space, holding a `uv` with no recoverable world position — cannot
-look the field up at all, and genus cannot become a derived label. Sun energy through cloud
-and cloud shadows on the ground consequently still reflect the reference column's coverage
-everywhere. All three resolve together when the field becomes camera-centred and
-non-wrapping.
+Phase A deferred three items together on the record — the field stayed a wrapping tile, so
+the light volume and the cloud shadow map could not consult it and genus could not become a
+derived label. §16.4 is that one change.
 
 **Substitutability, repaired.** `ISimulation` used to return a concrete `ProceduralWeather*`
 and the host stored that type, which is why `IngestedWeather` was written, tested, and
@@ -3095,5 +3089,90 @@ offer.
 
 `tests/functional/unit/test_weather_field.cpp` (`Unit_WeatherField`) defends the claim that
 matters — a published field is non-uniform when the simulation is — plus the addressing,
-every provider's ability to publish, and the reference column. 400 functional tests pass; the
-acceptance bar has not yet been confirmed by eye in a live editor session.
+every provider's ability to publish, and (since §16.4) the producer's own genus authority.
+The acceptance bar has not yet been confirmed by eye in a live editor session.
+
+### 16.4. The cloudscape window, and genus as a derived label (atmosphere phase B1)
+
+`docs/slop/atmosphere_system.md` §7.2/§7.4. §16.3 gave the renderer a spatial field but read
+it per march sample, on top of a bake that was still one globally compiled deck stack painted
+over a periodic tile. This subsection replaces both halves of that: the tile becomes a
+camera-centred window, and the deck stack stops deciding what a march sample finds.
+
+**Why the tile had to go.** The baked field was addressed by `fract(p.xz / tile)`. `fract` is
+many-to-one, so a bake addressed that way holds a `uv` with **no recoverable world position**
+— which is why `CloudLightVolumePass` and `CloudShadowMapPass` could not consult a spatial
+weather field at all, and why per-column genus was impossible (every texel evaluated the same
+decks). Being camera-relative rather than world-anchored, the tile also travelled with the
+camera. One property — invertibility of the address — was blocking all three.
+
+**Two windows.** `render/shaders/cloud_field_window.glsl` is the single place their addressing
+lives, shared by the view march, the light volume, the shadow map, the far-field panorama and
+the ground/mesh shadow lookup, so those five cannot disagree about which piece of the world a
+texel is. A **near** window keeps the old 32 768 m span and 128 m texel; a **far** window
+covers 262 144 m at ~1 km per texel. Two rather than one because the march reaches fourteen
+shell thicknesses (~150 km): a single window with that reach would put ~600 m between texels
+next to the camera. They cross-fade across the near window's outer rim, and because both are
+baked from the same weather field they agree about *where* the weather is and differ only in
+how finely they carve its shape — which is what makes the hand-off read as detail falling
+away with distance rather than as a ring.
+
+**The derived bakes needed no lookup of their own.** Once the light volume and the shadow map
+address window space, the field they march already carries the simulation's coverage per
+column, so both became spatially correct by addressing the right texels. A clearing stops
+casting shadow because there is no cloud in the field there to cast it.
+
+**Genus, derived.** `Render::classify_cloud_genus` / `cloud_band_towers` /
+`cloud_genus_thresholds` (`environment.hpp`) are the one authority. The GPU bake resolves a
+genus per baked column from the three simulated bands and evaluates that genus's own
+`cloud_genus_profile`; a cumulonimbus is added *on top of* the low band where deep convection
+supports one, rather than replacing it, so a cumulus field with one storm growing out of it
+stays representable. `WeatherCloudscapeCompiler` resolves the same label through the same
+function for the editor readout and METAR-style reporting — its three hard-coded `if` chains
+(the OCP finding in the design doc's §1.6) are gone, and its thresholds are uploaded to the
+GPU as data so a retune is a data change rather than two edits that can disagree. The
+classifier's *branch structure* is the one thing that exists twice, in C++ and GLSL, and the
+two copies name each other.
+
+`Render::WeatherField::derives_genus` is how the **producer** says whether its column state is
+meteorology at all: `StaticWeather`'s column *is* an authored deck stack decomposed into
+bands, and re-classifying it would overrule the author, so it answers no and the bake stays on
+the authored stack. `union_base_m`/`union_top_m` are taken by the producer as it fills the
+cells — the only party that sees every column — because with genus per column the march shell
+is a property of the field, not of the deck stack: a cumulonimbus growing 300 km away still
+has to be inside the span the march crosses.
+
+**The far window's own light.** `cloudscape_far_light.comp` writes optical depth toward the
+sun into the far field's `b` channel, because `CloudLightVolumePass` covers only the near
+window and lighting everything past it from that window's edge would show a front's shape
+while lighting it flat. Source and destination are two images rather than one
+read-modify-write, since the march reads texels its neighbouring invocations write.
+
+**Placement and cadence.** `CloudscapeCompilePass::update_window` runs between the scene
+uniform fill and its upload — the bake and every consumer of the bake read the same mapping
+out of that block, and the pass that owns the window state cannot reach it once uploaded, so
+the pass keeps the state and the scene view owns only the ordering. Origins snap to each
+window's own texel lattice, which is what makes re-centring invisible: the bake is a pure
+function of the pattern position, so a window that moved a whole number of texels reproduces
+the identical value at the identical world point. A rebake is triggered by an authored change,
+a moved march shell, the camera drifting 8 % of the span out of the window, a weather cadence
+(1 s near, 4 s far — the published field is interpolated every frame between the simulation's
+own 15 s ticks, so "the weather changed" is continuously true and cannot gate anything alone),
+and, for the far window's sun channel, the sun moving a degree. **The wind has no trigger of
+its own**: it is expressed purely as a shift of the window's origin, absorbed by the bake and
+republished as a residual each frame, so the sky advects continuously between rebakes with no
+staleness — the lookup slides, the content does not go out of date.
+
+**What this let go.** The per-sample coverage-scale/reference-column mechanism
+(`cloud_weather_field.glsl`, `WeatherField::reference_coverage`) is deleted; so is the march's
+mirrored anti-repetition tap, which existed to hide a tile period there is no longer any of.
+The field's two density channels collapse to one — the cumuliform/cirriform split existed for
+per-layer anti-repetition offsets that were never actually distinct, and every consumer summed
+the pair — and freeing the march's weather-field binding is what made room for the far window
+in the last per-pass image slot. Samplers move from `REPEAT` to `CLAMP_TO_EDGE`.
+
+**Named limit.** Ground more than ~16 km from the camera loses its cloud shadow: the map
+covers exactly the near window and fades out across its rim. It had one before, but it was a
+repeated copy of the camera's own patch, and at that distance a wrong dappling reads as
+texture where a missing one reads as haze. A second, coarser shadow cascade over the far
+window is the natural follow-up.

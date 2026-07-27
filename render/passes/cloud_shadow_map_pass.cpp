@@ -221,8 +221,13 @@ namespace SushiEngine
                 // changed — the same reasoning as CloudLightVolumePass.
                 const std::uint32_t row_group = frame_counter_ % AMORTIZE_FRAMES;
                 ++frame_counter_;
+                // A moved near window (or the first bake) invalidates every row at once, not one
+                // group at a time — see CloudscapeCompilePass::near_window_moved.
                 const bool first_bake = !built_;
+                const bool full_refresh = first_bake || cloudscape_.near_window_moved();
                 built_ = true;
+                const std::uint32_t row_start = full_refresh ? 0u : row_group * ROW_COUNT;
+                const std::uint32_t row_count = full_refresh ? RESOLUTION : ROW_COUNT;
 
                 const Graph::BufferHandle uniforms = frame.targets.uniforms;
                 graph.add_pass(
@@ -236,11 +241,11 @@ namespace SushiEngine
                         builder.read(uniforms, Graph::BufferAccess::UniformRead);
                         builder.set_side_effect();
                     },
-                    [this, &frame, uniforms, row_group,
+                    [this, &frame, uniforms, row_start, row_count,
                      first_bake](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const Push push{CloudscapeCompilePass::tile_meters(), row_group * ROW_COUNT,
-                                        ROW_COUNT};
+                        const Push push{CloudscapeCompilePass::near_span_meters(), row_start,
+                                        row_count};
 
                         transition(cmd, map_.image,
                                   first_bake ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
@@ -263,7 +268,7 @@ namespace SushiEngine
                                                        pipeline_layout_, 0, set);
                         vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                            sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(RESOLUTION), groups(ROW_COUNT), 1);
+                        vkCmdDispatch(cmd, groups(RESOLUTION), groups(row_count), 1);
 
                         // Readable by every shadow consumer's fragment stage: sky.frag's
                         // ground march and pbr.frag's mesh shading alike.

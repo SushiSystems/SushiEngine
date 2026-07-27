@@ -1,0 +1,110 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Resolves the far cloudscape window: copies the density bake through and adds the optical
+// depth toward the sun that the near light volume cannot reach.
+//
+// Why the far window needs a light term of its own: CloudLightVolumePass covers the *near*
+// window, which is where a march sample's self-shadowing detail actually matters, and
+// stretching it across the far window's eight-times-wider span would cost the near field the
+// resolution the whole volume exists for. Before phase B a sample past the near window did
+// not care — the sky was globally uniform, so reading the near window's clamped edge was
+// reading the truth. It is not any more: with the simulation deciding coverage per column
+// (docs/slop/atmosphere_system.md §7.4), a distant storm and a distant fair-weather field are
+// different amounts of cloud, and lighting both from one edge value would show the front's
+// shape while lighting it flat.
+//
+// Source and destination are two images rather than one read-modify-write, because the march
+// reads texels its neighbouring invocations are writing; ping-ponging is what makes that
+// ordinary instead of a race whose only symptom would be a rare torn texel. The cost is one
+// scratch volume, and it buys the view march a far field that carries density, vertical
+// profile and light in a single fetch off a single binding — which matters, because the march
+// has exactly one per-pass image slot left.
+//
+// Not amortized across frames, unlike the near light volume: this runs only when the far
+// window is rebaked (a camera move of kilometres, or a weather step), and between rebakes the
+// sun drifts by hundredths of a degree — far below what a ~1 km texel resolves.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image3D cloudscape_far;
+layout(set = 0, binding = 1) uniform sampler3D cloudscape_far_density;
+
+layout(set = 0, binding = 2) uniform SceneBlock
+{
+    mat4 view;
+    mat4 proj;
+    vec4 cam_forward;
+    vec4 cam_right;
+    vec4 cam_up;
+    vec4 planet_center;
+    vec4 planet_radii;
+    vec4 sun_dir;
+    vec4 sun_color;
+    vec4 ambient;
+    vec4 rayleigh;
+    vec4 scatter;
+    vec4 ground_albedo;
+    vec4 ocean_color;
+    vec4 cloud_global;
+    vec4 star_params;
+    vec4 misc;
+    vec4 sky_counts;
+    vec4 planet_frame;
+    vec4 cloud_light;
+} scene;
+
+layout(push_constant) uniform Params
+{
+    float span_meters;
+} params;
+
+#include "cloud_field_window.glsl"
+
+const int FAR_LIGHT_STEPS = 8;
+
+void main()
+{
+    ivec3 size = imageSize(cloudscape_far);
+    ivec3 texel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(texel, size)))
+        return;
+
+    vec2 uv = (vec2(texel.xz) + 0.5) / vec2(size.xz);
+    float height01 = (float(texel.y) + 0.5) / float(max(size.y, 1));
+
+    vec3 up = normalize(scene.planet_frame.xyz);
+    vec3 sun = normalize(scene.sun_dir.xyz);
+    float sun_up = dot(sun, up);
+    vec3 sun_horizontal = sun - up * sun_up;
+
+    // Grazing suns would otherwise send the march's world-space path length toward infinity
+    // for a fixed vertical distance to cover; clamped the same way a directional shadow map
+    // clamps its light-space frustum near the horizon, and to the same 0.12 the near light
+    // volume uses, so the two agree across the window boundary they share a cross-fade over.
+    float safe_sun_up = (sun_up >= 0.0 ? 1.0 : -1.0) * max(abs(sun_up), 0.12);
+
+    float band_meters = max(scene.cloud_global.z - scene.cloud_global.y, 1.0);
+    float total_distance = band_meters / abs(safe_sun_up);
+    float step_meters = total_distance / float(FAR_LIGHT_STEPS);
+
+    float depth = 0.0;
+    vec2 march_uv = uv;
+    float march_h = height01;
+    for (int i = 0; i < FAR_LIGHT_STEPS; ++i)
+    {
+        if (march_h < 0.0 || march_h > 1.0)
+            break;
+        depth += texture(cloudscape_far_density, vec3(march_uv, march_h)).r * step_meters;
+        // A uv step is a real world step because the window is world-anchored and
+        // non-wrapping; the sampler clamps, so a ray leaving the window sideways reads the
+        // window's own edge instead of wrapping into an unrelated piece of sky, which is the
+        // whole reason the tile stopped wrapping.
+        march_uv += (sun_horizontal.xz * step_meters) / max(params.span_meters, 1.0);
+        march_h += (safe_sun_up * step_meters) / band_meters;
+    }
+
+    vec2 base = texture(cloudscape_far_density, vec3(uv, height01)).rg;
+    imageStore(cloudscape_far, texel,
+               vec4(base, clamp(depth / CLOUD_FAR_SUN_DEPTH_METERS, 0.0, 1.0), 1.0));
+}

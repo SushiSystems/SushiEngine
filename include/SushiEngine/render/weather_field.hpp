@@ -113,17 +113,40 @@ namespace SushiEngine
             float level_altitudes[WEATHER_FIELD_LEVELS]{};
 
             /**
-             * @brief The coverage the authored deck stack was compiled from, per band.
+             * @brief Whether the renderer should resolve cloud genus from this field.
              *
-             * The field says how much cloud there is *here*; the baked cloudscape says what
-             * cloud *looks like*, and it was baked from one column's worth of coverage. The
-             * renderer needs both to know whether this point should have more cloud than the
-             * bake assumed or less, so the producer records the column it compiled the decks
-             * from alongside the field. Equal to the field's own value at the reference point
-             * by construction, which is what makes the renderer's scale exactly 1 there — a
-             * uniform sky is bit-identical to one rendered with no field at all.
+             * `docs/slop/atmosphere_system.md` §7.4: with a spatial field the cloudscape bake
+             * resolves a genus *per baked column* from the local band state, instead of
+             * instantiating one globally compiled deck stack everywhere. That is right for a
+             * provider whose column state is meteorology — it is what lets a stratus sheet, a
+             * cumulus field and a cirrus deck coexist in one view, each where the simulation
+             * actually put it — and wrong for `StaticWeather`, whose column state *is* an
+             * authored deck stack decomposed into bands: re-deriving a genus from it would
+             * quietly overrule the author's own choice of genus. So the producer answers the
+             * question rather than the renderer guessing from the field's shape.
+             *
+             * False leaves the bake on the authored deck stack. The field is still uploaded
+             * and still describes the sky truthfully; it simply says nothing the deck stack
+             * does not already say, which for a uniform authored sky is the whole truth.
              */
-            float reference_coverage[WEATHER_FIELD_LEVELS]{};
+            bool derives_genus = false;
+
+            /**
+             * @brief Altitude span the derived decks occupy across the whole field, metres.
+             *
+             * The march shell (`cloud_global.yz`) is the union of every deck that can appear.
+             * When the decks are compiled once, globally, that union is a property of the deck
+             * stack; when each column resolves its own genus it is a property of the *field*,
+             * because a cumulonimbus growing 300 km away still has to be inside the shell the
+             * march crosses or it is invisible. The producer takes the union as it fills the
+             * cells — it is the only party that sees every column — and the renderer uses it
+             * in place of the deck-derived shell whenever @ref derives_genus is set.
+             *
+             * Both zero when nothing was classified (no band reached the enable threshold),
+             * which the renderer reads as "no cloud", exactly as an empty deck stack is read.
+             */
+            float union_base_m = 0.0f;
+            float union_top_m = 0.0f;
 
             /** @brief Whether this field carries usable data this frame. */
             bool valid() const noexcept

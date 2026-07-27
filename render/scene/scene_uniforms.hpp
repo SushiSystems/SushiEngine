@@ -114,6 +114,11 @@ namespace SushiEngine
                  * cast, the same discipline every other planet-scale term in this block
                  * follows. Appended after light_shadow_b so shaders reading only earlier
                  * fields keep their offsets.
+                 *
+                 * Read by the cloudscape *bake* alone. Since `docs/slop/atmosphere_system.md`
+                 * §7.4 the field is what the bake resolves a genus and a coverage from, per
+                 * baked column — not a per-sample correction the march applies on top of a
+                 * globally compiled deck stack, which is what it was in phase A.
                  */
                 float weather_field_map[4];
                 /**
@@ -128,13 +133,35 @@ namespace SushiEngine
                  */
                 float weather_field_levels[4];
                 /**
-                 * @brief The coverage the deck stack was compiled from, per band; w spare.
+                 * @brief Camera-relative XZ metres -> the near cloudscape window's UV.
                  *
-                 * The denominator that turns the field's absolute coverage into a scale about
-                 * the reference column (`Render::WeatherField::reference_coverage`). Appended
-                 * last for the same offset reason as the two above.
+                 * `xy` = scale (1/span on both axes), `zw` = offset. The window is
+                 * camera-centred and snapped to an absolute texel lattice by
+                 * `CloudscapeCompilePass`; the eye and the wind that has blown since the last
+                 * bake are folded into the offset here in double, so the pattern keeps
+                 * drifting smoothly between bakes without the lookup ever leaving the window.
+                 *
+                 * Zero scale means "never baked", which
+                 * `render/shaders/cloud_field_window.glsl` reads as clear sky.
                  */
-                float weather_field_reference[4];
+                float cloud_field_near[4];
+                /**
+                 * @brief The same mapping for the coarse far window (§7.2's far field).
+                 *
+                 * What a march sample past the near window reads instead of a clamped edge:
+                 * the same simulated structure baked over an eight-times-wider span, so the
+                 * horizon carries the front the near field only shows the beginning of.
+                 */
+                float cloud_field_far[4];
+                /**
+                 * @brief The two window spans and the two skip distances, metres.
+                 *
+                 * `x` = near span, `y` = far span, `z` = the near skip field's cell (the
+                 * Nubis3 step rule's `skip_distance` inside the near window), `w` = one far
+                 * field texel (the same role past it). Appended last for the same offset
+                 * reason as everything above it.
+                 */
+                float cloud_field_params[4];
             };
 
             /**

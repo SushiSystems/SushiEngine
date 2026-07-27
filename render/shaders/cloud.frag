@@ -44,15 +44,20 @@ layout(set = 0, binding = 0) uniform SceneBlock
 } scene;
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
-// The T3-baked cloudscape (CloudscapeCompilePass): rg = layer0 (cumuliform decks) / layer1
-// (Cirrus-genus decks) density, pre-integrated across the whole deck stack so a march
+// The T3-baked cloudscape (CloudscapeCompilePass): r = density pre-integrated across the
+// whole deck stack, g = the contributing deck's own vertical density profile, so a march
 // sample is one fetch instead of the six-deck loop. `cloudscape_skip` is the coarser
-// max-pooled copy the cheap/coarse probe reads. Both wrap a flat, wind-neutral tile — see
-// cloudscape_field.comp — so the march applies wind as a UV offset here, not a bake input.
-// Bindings 2-5: the shared SceneLayout reserves 7/8/9/10 by name (MATERIAL_BINDING,
+// max-pooled copy the cheap/coarse probe reads. Both cover the **near window** — a
+// camera-centred, non-wrapping span of world (docs/slop/atmosphere_system.md §7.2), no longer
+// a periodic tile; `cloudscape_far` carries the same simulated structure out past the horizon
+// at a coarser texel, plus its own optical-depth-toward-the-sun channel, for the part of the
+// march that leaves the near window.
+// Bindings 2-6: the shared SceneLayout reserves 7/8/9/10 by name (MATERIAL_BINDING,
 // MOTION_BINDING, TEMPORAL_BINDING, SHADOW_BINDING — see scene_layout.hpp) as a
 // different descriptor type each; only 1-6 are genuinely free per-pass image slots, so
-// every image this pass owns outright lives there instead.
+// every image this pass owns outright lives there instead. The far field fits because the
+// weather field itself no longer needs one: the bake resolves coverage per column now (§7.4),
+// so the march reads the answer rather than the meteorology.
 layout(set = 0, binding = 2) uniform sampler3D cloudscape_field;
 layout(set = 0, binding = 3) uniform sampler3D cloudscape_skip;
 // One raw noise volume, re-admitted for W2's near-camera-only (<200 m, see W3's
@@ -61,21 +66,18 @@ layout(set = 0, binding = 3) uniform sampler3D cloudscape_skip;
 // notion of camera distance) and the skip/field fetches alone are too coarse to
 // resolve up close.
 layout(set = 0, binding = 4) uniform sampler3D cloud_detail_texture;
-// CloudLightVolumePass's amortized summed-density-toward-the-sun volume: same flat,
-// wind-neutral tile and (u, v, height01) addressing as cloudscape_field, refreshed a
-// slice at a time across 8 frames. The cheap base signal cloud_sun_energy lights every
-// sample from; budget.light_taps layers in the costlier inline cone march on top for
-// near-field crispness.
+// CloudLightVolumePass's amortized summed-density-toward-the-sun volume: the same near
+// window and (u, v, height01) addressing as cloudscape_field, refreshed a slice at a time
+// across 8 frames. The cheap base signal cloud_sun_energy lights every sample from;
+// budget.light_taps layers in the costlier inline cone march on top for near-field crispness.
 layout(set = 0, binding = 5) uniform sampler3D cloud_light_volume;
-// WeatherFieldPass's upload of the simulation's own horizontal grid: rgba = coverage /
-// density scale (half-encoded) / convective fraction / precipitation, addressed in world
-// space by scene.weather_field_map and in altitude by scene.weather_field_levels. This is
-// what decides whether there is cloud *here* — the baked field above only decides what
-// cloud looks like. Binding 6 is the last per-pass image slot the shared SceneLayout leaves
-// free (7-10 are named/reserved; see the note on bindings 2-5).
-layout(set = 0, binding = 6) uniform sampler3D weather_field;
+// The far window: r = density, g = profile, b = optical depth toward the sun (the far field's
+// own light term, since the volume above only covers the near window). Binding 6 is the last
+// per-pass image slot the shared SceneLayout leaves free (7-10 are named/reserved; see the
+// note on bindings 2-5).
+layout(set = 0, binding = 6) uniform sampler3D cloudscape_far;
 
-#include "cloud_weather_field.glsl"
+#include "cloud_field_window.glsl"
 
 layout(location = 0) in vec2 v_ndc;
 
@@ -99,8 +101,10 @@ layout(push_constant) uniform CloudBudget
     uint steps_far;     // minimum guaranteed step count spread across the whole
                         // march; floors how coarse a step may get far from the camera
     uint light_steps;   // self-shadow steps toward the sun
-    float field_tile_meters; // the baked cloudscape field's wrap period, metres
-    float skip_cell_meters; // world size of one skip-field texel, XZ axes
+    // The field's own geometry used to ride here as a wrap period and a skip cell. It moved
+    // into the scene block (`cloud_field_*`) when the field became a camera-centred window,
+    // because the light volume, the shadow map, the panorama and the ground shadow all need
+    // the same mapping and only this pass has a push block to put it in.
     uint light_taps;    // tiered inline light-march correction cadence, 0-3 (Low..Ultra)
     uint near_far_split; // W3: QualityParams::cloud_near_far_split, High/Ultra only
 } budget;
@@ -147,21 +151,35 @@ float phase_mie(float mu, float g)
     return 1.0 / (4.0 * PI) * (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * mu, 1.5);
 }
 
-// Total cloud density at p: one (or two, off-repetition) fetches of the T3-baked field
-// instead of the six-deck loop this used to run per sample — the field already carries
-// each deck's coverage, shape, erosion, and cross-deck sum, baked once on
-// CloudscapeCompilePass's own schedule. `p` is camera-relative; wind is applied here as a
-// UV offset (the field itself is a wind-neutral, wrap-tiled pattern) using deck 0's
-// authored wind, the same "dominant deck" convention the ground-shadow march in sky.frag
-// already uses for its own single light-march direction.
+// How much of the near window applies at a camera-relative position: 1 through its middle,
+// falling to 0 across its rim, where the far window takes over. Shared by the density and the
+// light lookup so the two always cross over together.
+float cloud_near_blend(vec3 p, out vec2 near_uv)
+{
+    near_uv = cloud_window_uv(scene.cloud_field_near.xy, scene.cloud_field_near.zw, p.xz);
+    return cloud_window_near_weight(near_uv, scene.cloud_field_params.x);
+}
+
+// Total cloud density at p: one fetch of the T3-baked field instead of the six-deck loop
+// this used to run per sample — the field already carries each deck's coverage, shape,
+// erosion, cross-deck sum *and*, since phase B, the simulation's own coverage at this
+// column, baked once on CloudscapeCompilePass's own schedule.
 //
-// `cheap` selects the coarser, max-pooled skip field (cloud_light_march's many samples,
-// and the view march's coarse probe) over the fine field (the view march's one
-// full-quality sample per step) and skips the second, decorrelating tap — a light-march
-// sample does not need the extra anti-repetition fidelity a screen pixel does. `profile`
-// is the fine field's baked vertical density-gradient channel (0 at a cloud's own edge, 1
-// through its middle) for the W2 profile-gradient ambient term; left at 0 on the cheap
-// path, which only has the skip field's two density channels to read.
+// Two things this function no longer does, both because the field became a camera-centred,
+// non-wrapping window (docs/slop/atmosphere_system.md §7.2):
+//   * It no longer scrolls the lookup by `wind * time`. The wind is absorbed by the bake's
+//     own pattern origin; whatever has blown since that bake is already folded into
+//     `cloud_field_near.zw` on the CPU, so the pattern still drifts continuously and the
+//     lookup still lands inside the window.
+//   * It no longer takes a second, mirrored anti-repetition tap. That tap existed to hide a
+//     32 km tile period, and there is no period left to hide: the field is unique over the
+//     window, and the simulation's structure across it is unique over hundreds of kilometres.
+//
+// `cheap` selects the coarser, max-pooled skip field (cloud_light_march's many samples, and
+// the view march's coarse probe) over the fine field. `profile` is the fine field's baked
+// vertical density-gradient channel (0 at a cloud's own edge, 1 through its middle) for the
+// W2 profile-gradient ambient term; left at 0 on the cheap path, which only has the skip
+// field's single density channel to read.
 float cloud_density(vec3 p, bool cheap, out float ambient_h, out float profile)
 {
     profile = 0.0;
@@ -172,35 +190,36 @@ float cloud_density(vec3 p, bool cheap, out float ambient_h, out float profile)
     if (altitude < base_min || altitude > top_max)
         return 0.0;
 
-    vec3 wind = scene.cloud_deck_c[0].xyz * scene.misc.z;
-    vec2 uv = fract((p.xz + wind.xz) / budget.field_tile_meters);
+    vec2 near_uv;
+    float near_weight = cloud_near_blend(p, near_uv);
 
-    // The simulation's answer to "is there cloud here at all", applied to the bake's answer
-    // to "what does cloud look like". Note the wind offset above is deliberately *not*
-    // applied to this lookup: the baked pattern is advected by scrolling its UV, but the
-    // weather field is already where the simulation advected it to, and scrolling it again
-    // would move the front at twice its own speed.
-    float coverage_scale = weather_coverage_scale(weather_field, scene.weather_field_map,
-                                                  scene.weather_field_levels,
-                                                  scene.weather_field_reference, p, altitude);
-
-    if (cheap)
+    float density = 0.0;
+    if (near_weight > 0.0)
     {
-        vec2 layers = texture(cloudscape_skip, vec3(uv, ambient_h)).rg;
-        return weather_apply_coverage(layers.x + layers.y, coverage_scale);
+        if (cheap)
+        {
+            density = texture(cloudscape_skip, vec3(near_uv, ambient_h)).r;
+        }
+        else
+        {
+            vec2 fine = texture(cloudscape_field, vec3(near_uv, ambient_h)).rg;
+            density = fine.r;
+            profile = fine.g;
+        }
     }
-
-    vec4 primary = texture(cloudscape_field, vec3(uv, ambient_h));
-    // A second tap at an incommensurate scale, mirrored and offset, so the field's own
-    // finite tile period never reads as a repeating pattern — the same anti-repetition
-    // idea the original per-deck domain warp served, moved to sample time since the bake
-    // itself is one fixed tile.
-    vec2 mirror_uv = fract(vec2(1.0) - (p.xz - wind.xz * 0.6) / (budget.field_tile_meters * 1.37) +
-                           vec2(0.29));
-    vec2 mirror = texture(cloudscape_field, vec3(mirror_uv, ambient_h)).rg;
-    vec2 blended = primary.rg * 0.65 + mirror * 0.35;
-    profile = primary.b;
-    return weather_apply_coverage(blended.x + blended.y, coverage_scale);
+    if (near_weight < 1.0)
+    {
+        // Past the near window the same simulated sky continues, resolved coarsely. Both
+        // windows were baked from the same weather field, so they agree about where the
+        // weather is and differ only in how finely they carve its shape — which is what makes
+        // the cross-fade read as detail falling away with distance rather than as a seam.
+        vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy, scene.cloud_field_far.zw, p.xz);
+        vec2 coarse = texture(cloudscape_far, vec3(far_uv, ambient_h)).rg;
+        density = mix(coarse.r, density, near_weight);
+        if (!cheap)
+            profile = mix(coarse.g, profile, near_weight);
+    }
+    return density;
 }
 
 // The costlier inline self-shadow cone march: still the ground truth for near-field
@@ -231,14 +250,32 @@ float cloud_light_march(vec3 p, vec3 sun)
     return depth;
 }
 
-// CloudLightVolumePass's baked summed-density-toward-the-sun, sampled with the same UV
-// convention cloud_density uses for the fine field (wind applied at sample time, deck 0's
-// direction standing in for "the" wind the whole tile advects under).
+// The baked optical depth toward the sun at p, from whichever window covers it: the
+// amortized light volume inside the near window, the far field's own light channel past it.
+// Cross-faded on exactly the same weight cloud_density uses, so a sample never reads its
+// density from one window and its light from the other.
+//
+// Both windows are needed because they answer different questions. Before phase B a sample
+// past the near window could reuse the near reading — the sky was uniform, so it was the same
+// answer. With coverage resolved per column it is not: a distant storm and a distant fair
+// weather field are different amounts of cloud, and lighting them alike would show the
+// front's shape while lighting it flat.
 float cloud_light_volume_sample(vec3 p, float ambient_h)
 {
-    vec3 wind = scene.cloud_deck_c[0].xyz * scene.misc.z;
-    vec2 uv = fract((p.xz + wind.xz) / budget.field_tile_meters);
-    return texture(cloud_light_volume, vec3(uv, ambient_h)).r;
+    vec2 near_uv;
+    float near_weight = cloud_near_blend(p, near_uv);
+
+    float depth = 0.0;
+    if (near_weight > 0.0)
+        depth = texture(cloud_light_volume, vec3(near_uv, ambient_h)).r;
+    if (near_weight < 1.0)
+    {
+        vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy, scene.cloud_field_far.zw, p.xz);
+        float far_depth = texture(cloudscape_far, vec3(far_uv, ambient_h)).b *
+                          CLOUD_FAR_SUN_DEPTH_METERS;
+        depth = mix(far_depth, depth, near_weight);
+    }
+    return depth;
 }
 
 // Cheap curl-noise warp (a divergence-free field built from central differences of a
@@ -273,6 +310,17 @@ const float NEAR_BAND_METERS = 200.0;
 // re-converge on a moving dither — the near/far split's actual contribution to "no
 // shimmer under motion" at distance.
 const float JITTER_FREEZE_METERS = 250.0;
+
+// The Nubis3 step rule's `skip_distance`: how far the march may hop once the coarse probe
+// proves the block it just read is empty. That block is the skip field's max-pool cell inside
+// the near window and one far-field texel past it, so the hop is exactly as long as the
+// emptiness that was actually proven — never longer.
+float cloud_skip_distance(vec3 p)
+{
+    vec2 near_uv;
+    float near_weight = cloud_near_blend(p, near_uv);
+    return mix(scene.cloud_field_params.w, scene.cloud_field_params.z, near_weight);
+}
 
 float near_field_erosion(vec3 p, float height01)
 {
@@ -504,7 +552,7 @@ void main()
             // max-pool over the fine field, so a zero reading means zero everywhere
             // inside it), so the march can cross the entire cell in one hop instead of
             // a fixed multiplier that either under- or over-shoots it.
-            t += max(dist_step, budget.skip_cell_meters);
+            t += max(dist_step, cloud_skip_distance(p));
         }
     }
 

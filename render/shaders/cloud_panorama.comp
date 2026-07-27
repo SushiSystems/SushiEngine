@@ -22,7 +22,11 @@ layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D panorama;
 layout(set = 0, binding = 1) uniform sampler3D cloudscape_field;
 layout(set = 0, binding = 2) uniform sampler3D cloud_light_volume;
 
-layout(set = 0, binding = 4) uniform sampler3D weather_field;
+// The far window: r = density, g = profile, b = optical depth toward the sun. This bake spends
+// most of its march past the near window, so the far field is not a fallback here — it is the
+// main source, and its own light channel is why a distant storm reads dark from a reflection
+// probe instead of borrowing the near window's edge.
+layout(set = 0, binding = 4) uniform sampler3D cloudscape_far;
 
 layout(set = 0, binding = 3) uniform SceneBlock
 {
@@ -58,11 +62,10 @@ layout(set = 0, binding = 3) uniform SceneBlock
 #include "scene_weather_tail.glsl"
 } scene;
 
-#include "cloud_weather_field.glsl"
+#include "cloud_field_window.glsl"
 
 layout(push_constant) uniform Params
 {
-    float tile_meters;
     uint row_start;
     uint row_count;
 } params;
@@ -157,21 +160,35 @@ void main()
                         clamp((altitude - scene.cloud_global.y) /
                                  max(scene.cloud_global.z - scene.cloud_global.y, 1.0),
                              0.0, 1.0);
-                    vec2 uv = fract(p.xz / params.tile_meters);
-                    vec2 layers = texture(cloudscape_field, vec3(uv, height01)).rg;
-                    // The same coverage authority the primary march applies, so the far
-                    // field and the near field agree about where the weather is -- without
-                    // it the panorama handoff distance would read as a ring where a front
-                    // stops and a uniform sky starts.
-                    float density = weather_apply_coverage(
-                        layers.x + layers.y,
-                        weather_coverage_scale(weather_field, scene.weather_field_map,
-                                               scene.weather_field_levels,
-                                               scene.weather_field_reference, p, altitude));
+                    // The same two windows the primary march reads, weighted the same way, so
+                    // the panorama and the view agree about where the weather is; without
+                    // that the hand-off distance would read as a ring where a front stops and
+                    // a uniform sky starts. The near window carries the detail, the far one
+                    // carries the horizon — and this bake spends most of its steps out there.
+                    vec2 near_uv = cloud_window_uv(scene.cloud_field_near.xy,
+                                                   scene.cloud_field_near.zw, p.xz);
+                    float near_weight =
+                        cloud_window_near_weight(near_uv, scene.cloud_field_params.x);
+                    vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy,
+                                                  scene.cloud_field_far.zw, p.xz);
+
+                    float density = 0.0;
+                    float light_depth = 0.0;
+                    if (near_weight > 0.0)
+                    {
+                        density = texture(cloudscape_field, vec3(near_uv, height01)).r;
+                        light_depth = texture(cloud_light_volume, vec3(near_uv, height01)).r;
+                    }
+                    if (near_weight < 1.0)
+                    {
+                        vec4 coarse = texture(cloudscape_far, vec3(far_uv, height01));
+                        density = mix(coarse.r, density, near_weight);
+                        light_depth = mix(coarse.b * CLOUD_FAR_SUN_DEPTH_METERS, light_depth,
+                                          near_weight);
+                    }
                     if (density > 0.001)
                     {
                         float sigma = density * extinction_scale;
-                        float light_depth = texture(cloud_light_volume, vec3(uv, height01)).r;
                         float sun_energy = exp(-light_depth * extinction_scale) * phase * 4.0 * PI;
                         vec3 ambient = scene.ambient.xyz + sun_radiance * 0.02;
                         vec3 luminance = sun_radiance * sun_energy + ambient;

@@ -343,6 +343,115 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The three WMO étage bands a simulated column reports cloud in.
+         *
+         * Mirrors `Simulation::CloudLevel` value for value, deliberately restated here
+         * rather than depended on: the classifier below is consumed by the render tier (the
+         * cloudscape bake, which resolves a genus per baked column) and by the sim tier (the
+         * editor's and METAR's genus label), and the render tier does not include sim
+         * headers. Same three buckets `cloud_genus_profile`'s own étages already imply.
+         */
+        enum class CloudBand : std::uint32_t
+        {
+            Low = 0,
+            Middle,
+            High,
+            Count,
+        };
+
+        /** @brief Number of bands in @ref CloudBand (excludes @c Count). */
+        constexpr int CLOUD_BAND_COUNT = static_cast<int>(CloudBand::Count);
+
+        /**
+         * @brief The thresholds @ref classify_cloud_genus decides a genus with.
+         *
+         * Data rather than literals inside the classifier, for the reason
+         * `docs/slop/atmosphere_system.md` §13 gives (OCP: "genus and every physical constant
+         * are data"): the cloudscape bake resolves a genus per baked column *on the GPU* and
+         * therefore needs these same numbers uploaded, and a threshold that exists twice —
+         * once in a C++ `if` and once in a GLSL `if` — is a threshold that will eventually
+         * disagree with itself.
+         */
+        struct CloudGenusThresholds
+        {
+            /** @brief Convective fraction above which a band reads as cellular/towering. */
+            float convective = 0.5f;
+            /** @brief Convective fraction above which a low band is at least broken-cellular. */
+            float low_broken = 0.2f;
+            /** @brief Coverage above which a middle band is raining rather than merely grey. */
+            float middle_overcast = 0.7f;
+            /** @brief Coverage above which a high band is a sheet rather than filaments. */
+            float high_sheet = 0.6f;
+            /** @brief Convective fraction a low band must exceed to tower into cumulonimbus. */
+            float cumulonimbus_convective = 0.75f;
+            /** @brief Coverage a low band must exceed before deep convection is credible. */
+            float cumulonimbus_coverage = 0.30f;
+            /** @brief Coverage below which a band carries no deck at all. */
+            float enable_coverage = 0.05f;
+        };
+
+        /** @brief The shipped thresholds; every consumer reads these rather than its own. */
+        inline const CloudGenusThresholds& cloud_genus_thresholds()
+        {
+            static const CloudGenusThresholds thresholds{};
+            return thresholds;
+        }
+
+        /**
+         * @brief Names the genus a band's simulated state reads as.
+         *
+         * `docs/slop/atmosphere_system.md` §7.4: genus stops being an *input* to the density
+         * field and becomes a *label derived from* it. This is that derivation, and it is the
+         * only one — the cloudscape bake resolves one genus per baked column through the GPU
+         * copy of these thresholds, and the editor readout, the METAR-style report, and
+         * `Simulation::WeatherCloudscapeCompiler` resolve the same label through this
+         * function, so a column can never be reported as one genus and rendered as another.
+         *
+         * @param band                Which étage the state describes.
+         * @param coverage            Fraction of sky the band covers here, [0, 1].
+         * @param convective_fraction 0 stratiform sheet -> 1 cellular/towering, [0, 1].
+         * @return The genus that band reads as. Cumulonimbus is *not* returned here — deep
+         *         convection is an additional deck on top of the low band, not a replacement
+         *         for it (see @ref cloud_band_towers), which is how a cumulus field with one
+         *         storm growing out of it stays representable.
+         */
+        inline CloudGenus classify_cloud_genus(CloudBand band, float coverage,
+                                               float convective_fraction)
+        {
+            const CloudGenusThresholds& t = cloud_genus_thresholds();
+            switch (band)
+            {
+            case CloudBand::Low:
+                if (convective_fraction > t.convective)
+                    return CloudGenus::Cumulus;
+                if (convective_fraction > t.low_broken)
+                    return CloudGenus::Stratocumulus;
+                return CloudGenus::Stratus;
+            case CloudBand::Middle:
+                if (convective_fraction > t.convective)
+                    return CloudGenus::Altocumulus;
+                if (coverage > t.middle_overcast)
+                    return CloudGenus::Nimbostratus;
+                return CloudGenus::Altostratus;
+            default:
+                return coverage > t.high_sheet ? CloudGenus::Cirrostratus : CloudGenus::Cirrus;
+            }
+        }
+
+        /**
+         * @brief Whether a low band's state supports a cumulonimbus tower on top of it.
+         * @param coverage            The low band's coverage, [0, 1].
+         * @param convective_fraction The low band's convective fraction, [0, 1].
+         * @return True when deep convection should add a Cumulonimbus deck to the column.
+         */
+        inline bool cloud_band_towers(float coverage, float convective_fraction)
+        {
+            const CloudGenusThresholds& t = cloud_genus_thresholds();
+            return convective_fraction > t.cumulonimbus_convective &&
+                   coverage > t.cumulonimbus_coverage;
+        }
+
+        /**
          * @brief One named cloud deck: a genus placed in the sky with light author tweaks.
          *
          * A deck references a @ref CloudGenus and inherits its @ref cloud_genus_profile,

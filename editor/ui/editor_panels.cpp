@@ -3670,16 +3670,18 @@ namespace SushiEngine
                 {
                     if (procedural)
                         ImGui::TextDisabled(
-                            "Manual deck editing is overwritten every tick while Procedural "
-                            "weather is active -- switch to Manual to hand-author decks.");
+                            "Deck editing is overwritten every tick while Procedural weather is "
+                            "active -- switch to Manual to hand-author decks. The medium below "
+                            "still applies: it describes the whole sky, not one column.");
 
-                    // Overwritten every tick by WeatherCloudscapeCompiler while Procedural
-                    // weather drives the sky, so editing here would silently do nothing —
-                    // matches the warning above instead of contradicting it.
-                    ImGui::BeginDisabled(procedural);
-
-                    // Shared medium: every deck is one physical volume, so the scattering
-                    // knobs, ground shadow, and weather evolution apply to the whole stack.
+                    // The medium stays live under procedural weather. It used to be disabled
+                    // along with the decks, which was right while WeatherCloudscapeCompiler's
+                    // output was the entire description of the sky -- but since
+                    // docs/slop/atmosphere_system.md §7.4 the decks no longer decide what a march
+                    // sample finds (the cloudscape bake resolves genus and coverage per column
+                    // from the simulated field), and these knobs are what is left of the author's
+                    // control over how the sky *looks*. Disabling them would leave a procedurally
+                    // driven sky with no authored handles at all.
                     ImGui::SeparatorText("Medium (all decks)");
                     if (ImGui::SliderFloat("Light Absorption", &environment.clouds.light_absorption,
                                            0.0f, 2.0f))
@@ -3698,13 +3700,22 @@ namespace SushiEngine
                     if (ImGui::SliderFloat("Weather Scale", &environment.clouds.weather_scale,
                                            10000.0f, 200000.0f, "%.0f m"))
                         changed = true;
+                    // Evolution rate is the one member of this block procedural weather does
+                    // own: it is driven by the simulated wind and front activity, so the sky
+                    // churns faster under a strong convective flow than a calm one.
+                    ImGui::BeginDisabled(procedural);
                     if (ImGui::SliderFloat("Evolution Rate", &environment.clouds.evolution_rate,
                                            0.0f, 1.0f))
                         changed = true;
+                    ImGui::EndDisabled();
 
                     // One deck per row: pick any of the ten WMO genera and nudge its coverage
                     // and density. Each deck inherits its genus's physical altitude band and
                     // morphology from the catalogue, so the sky is a few coexisting genera.
+                    // Disabled under procedural weather, where the decks are recompiled every
+                    // tick and an edit here would silently do nothing -- which is what the
+                    // warning at the top of this node says.
+                    ImGui::BeginDisabled(procedural);
                     const char* genus_items[SushiEngine::Render::CLOUD_GENUS_COUNT];
                     for (int g = 0; g < SushiEngine::Render::CLOUD_GENUS_COUNT; ++g)
                         genus_items[g] = SushiEngine::Render::cloud_genus_name(

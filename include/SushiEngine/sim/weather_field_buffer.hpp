@@ -48,6 +48,7 @@
 #include <cstdint>
 #include <vector>
 
+#include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/weather_field.hpp>
 #include <SushiEngine/sim/regional_weather_grid.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
@@ -90,6 +91,7 @@ namespace SushiEngine
                     cells_z_ = std::min(grid_z, Render::WEATHER_FIELD_MAX_CELLS);
                     samples_.resize(std::size_t(cells_x_) * std::size_t(cells_z_) *
                                     std::size_t(CLOUD_LEVEL_COUNT));
+                    begin_classification(true);
 
                     for (int iz = 0; iz < cells_z_; ++iz)
                         for (int ix = 0; ix < cells_x_; ++ix)
@@ -145,6 +147,7 @@ namespace SushiEngine
                     cells_z_ = cells_x_;
                     samples_.resize(std::size_t(cells_x_) * std::size_t(cells_z_) *
                                     std::size_t(CLOUD_LEVEL_COUNT));
+                    begin_classification(true);
 
                     const double span = std::max(span_meters, 1.0);
                     const double radius = std::max(planet_radius_m, 1.0);
@@ -179,13 +182,21 @@ namespace SushiEngine
                  * exactly what such a provider knows, and the renderer's clamped addressing
                  * turns it into the uniform sky it should be.
                  *
-                 * @param column The column to publish everywhere.
+                 * @param column        The column to publish everywhere.
+                 * @param derives_genus Whether this column is meteorology the renderer may
+                 *                      resolve a genus from (a decoded station report), or a
+                 *                      restatement of an authored deck stack it must not
+                 *                      overrule (`StaticWeather`). See
+                 *                      `Render::WeatherField::derives_genus`; it is a
+                 *                      parameter rather than an inference from the fill shape
+                 *                      because both kinds of provider publish one column.
                  */
-                void fill_uniform(const WeatherColumn& column)
+                void fill_uniform(const WeatherColumn& column, bool derives_genus = false)
                 {
                     cells_x_ = 1;
                     cells_z_ = 1;
                     samples_.resize(std::size_t(CLOUD_LEVEL_COUNT));
+                    begin_classification(derives_genus);
                     store_column(0, 0, column);
                     // Every lookup lands on the single texel's centre, whatever the world
                     // position — a constant map, not an arbitrary one.
@@ -194,21 +205,6 @@ namespace SushiEngine
                     uv_offset_x_ = 0.5;
                     uv_offset_z_ = 0.5;
                     ++revision_;
-                }
-
-                /**
-                 * @brief Records the column the renderer's deck stack was compiled from.
-                 *
-                 * See `Render::WeatherField::reference_coverage`. Set by whoever compiles the
-                 * `Cloudscape`, from the same column it compiled — the two must describe the
-                 * same point, or the renderer will scale a bake it was never given.
-                 *
-                 * @param column The reference column.
-                 */
-                void set_reference_column(const WeatherColumn& column) noexcept
-                {
-                    for (int level = 0; level < CLOUD_LEVEL_COUNT; ++level)
-                        reference_coverage_[level] = column.levels[level].coverage;
                 }
 
                 /**
@@ -232,8 +228,13 @@ namespace SushiEngine
                     field.level_altitudes[0] = static_cast<float>(CLOUD_LEVEL_LOW_CENTER_METERS);
                     field.level_altitudes[1] = static_cast<float>(CLOUD_LEVEL_MID_CENTER_METERS);
                     field.level_altitudes[2] = static_cast<float>(CLOUD_LEVEL_HIGH_CENTER_METERS);
-                    for (int level = 0; level < CLOUD_LEVEL_COUNT; ++level)
-                        field.reference_coverage[level] = reference_coverage_[level];
+                    field.derives_genus = derives_genus_;
+                    // A field nothing was classified out of leaves the span collapsed, which
+                    // the renderer reads as "no cloud" -- the same answer an empty deck stack
+                    // gives, rather than an inverted span it would have to defend against.
+                    const bool classified = union_top_m_ > union_base_m_;
+                    field.union_base_m = classified ? union_base_m_ : 0.0f;
+                    field.union_top_m = classified ? union_top_m_ : 0.0f;
                     return field;
                 }
 
@@ -243,8 +244,54 @@ namespace SushiEngine
                 // there, and this keeps it finite rather than pretending otherwise.
                 static constexpr double MIN_COS_LATITUDE = 0.05;
 
+                // Resets the per-fill classification state. Called at the top of every fill so
+                // the union span describes *this* field and not the union of every field ever
+                // published into this buffer.
+                void begin_classification(bool derives_genus) noexcept
+                {
+                    derives_genus_ = derives_genus;
+                    union_base_m_ = 0.0f;
+                    union_top_m_ = 0.0f;
+                }
+
+                // Widens the union span by whatever decks @p column would resolve to, through
+                // the same `Render::classify_cloud_genus` the bake resolves them with -- the
+                // span has to bound exactly the decks that will be rendered, so it cannot
+                // afford a second, independently written opinion about which those are.
+                void classify_column(const WeatherColumn& column) noexcept
+                {
+                    if (!derives_genus_)
+                        return;
+                    const float enable = Render::cloud_genus_thresholds().enable_coverage;
+                    for (int level = 0; level < CLOUD_LEVEL_COUNT; ++level)
+                    {
+                        const WeatherLevelState& state = column.levels[level];
+                        if (state.coverage <= enable)
+                            continue;
+                        widen(Render::classify_cloud_genus(static_cast<Render::CloudBand>(level),
+                                                           state.coverage, state.convective_fraction));
+                    }
+                    const WeatherLevelState& low = column.levels[static_cast<int>(CloudLevel::Low)];
+                    if (Render::cloud_band_towers(low.coverage, low.convective_fraction))
+                        widen(Render::CloudGenus::Cumulonimbus);
+                }
+
+                void widen(Render::CloudGenus genus) noexcept
+                {
+                    const Render::CloudGenusProfile profile = Render::cloud_genus_profile(genus);
+                    if (union_top_m_ <= union_base_m_)
+                    {
+                        union_base_m_ = profile.base_altitude;
+                        union_top_m_ = profile.top_altitude;
+                        return;
+                    }
+                    union_base_m_ = std::min(union_base_m_, profile.base_altitude);
+                    union_top_m_ = std::max(union_top_m_, profile.top_altitude);
+                }
+
                 void store_column(int ix, int iz, const WeatherColumn& column)
                 {
+                    classify_column(column);
                     for (int level = 0; level < CLOUD_LEVEL_COUNT; ++level)
                     {
                         const std::size_t index =
@@ -259,7 +306,12 @@ namespace SushiEngine
                 }
 
                 std::vector<Render::WeatherFieldSample> samples_;
-                float reference_coverage_[CLOUD_LEVEL_COUNT]{};
+                // The classification the renderer needs and only this side can take: whether
+                // genus is the field's to resolve, and the altitude span the resolved decks
+                // occupy across every cell (see `Render::WeatherField`'s own docs).
+                bool derives_genus_ = false;
+                float union_base_m_ = 0.0f;
+                float union_top_m_ = 0.0f;
                 int cells_x_ = 0;
                 int cells_z_ = 0;
                 double uv_scale_x_ = 0.0;

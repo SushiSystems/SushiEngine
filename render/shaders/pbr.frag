@@ -48,14 +48,11 @@ layout(set = 0, binding = 0) uniform SceneBlock
     vec4 cloud_deck_d[6];
     vec4 bodies[80];
     vec4 sky_stars[128];
-    vec4 planet_ring;
-    vec4 planet_precision;
-    vec4 lights[10];      // per light: xyz dir + w irradiance, then xyz colour + w emits
-    vec4 light_counts;    // x = light count
-    // Secondary directional casters' punctual-atlas shadow record index, brightest-first,
-    // -1 = unshadowed; light 0 always -1 here since it samples the cascades instead.
-    vec4 light_shadow_a;  // lights 0-3
-    vec4 light_shadow_b;  // light 4 in x, yzw spare
+    // The block's tail, from planet_ring onward. Included rather than restated: this pass
+    // reaches all the way to the cloud-field window members (cloud_shadow_common.glsl needs
+    // them to place the cloud shadow on a mesh), and std140 offsets are positional, so
+    // declaring them means declaring everything before them.
+#include "scene_weather_tail.glsl"
 } scene;
 
 // The bindless texture heap (set 1). Declared before the clustered-lighting include

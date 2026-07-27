@@ -1,16 +1,27 @@
 #version 450
 
 // CloudLightVolumePass (W2): bakes the summed cloud density toward the sun into a volume
-// sharing the T3 field's flat, wind-neutral tile and (u, v, height01) addressing — the
-// amortized replacement for evaluating a multi-tap cone march on every lit view-march
-// sample. Only a Y-slice group is rebaked per dispatch (see the C++ side's
-// AMORTIZE_FRAMES), so the sun can drift every frame without ever forcing a full-volume
-// stall; the resulting up-to-8-frame lag is invisible at the sun's own angular rate.
+// sharing the T3 near window's (u, v, height01) addressing — the amortized replacement for
+// evaluating a multi-tap cone march on every lit view-march sample. Only a Y-slice group is
+// rebaked per dispatch (see the C++ side's AMORTIZE_FRAMES), so the sun can drift every frame
+// without ever forcing a full-volume stall; the resulting up-to-8-frame lag is invisible at
+// the sun's own angular rate.
 //
-// The march happens entirely in the flat-tile approximation the whole T3 tier already
-// accepts (regional-tile scale, planet curvature invisible): `planet_frame.xyz` stands in
-// for local "up" so a world-space step along the sun direction becomes a height01 step
-// (vertical) plus a UV step (horizontal), both linear in the step's world length.
+// **What phase B changed, and why it is the whole point.** This volume used to be addressed
+// in the field's *tile* space: a `uv` reached by `fract(world / tile)`, which is many-to-one
+// and therefore holds no recoverable world position. That is exactly why phase A had to defer
+// it — a volume that cannot say where it is cannot consult a spatial weather field, so sun
+// energy through cloud reflected the observer's own column everywhere, and a cleared region
+// still received cloud shadow. The field is now a camera-centred, non-wrapping window
+// (docs/slop/atmosphere_system.md §7.2), so this volume's `uv` names one place in the world —
+// and the fix turns out not to be "look the weather up here" at all: the field it marches
+// *already* carries the simulation's coverage per column, so the light term becomes spatially
+// correct simply by addressing the right texels.
+//
+// The march happens entirely in the flat-window approximation the whole T3 tier already
+// accepts (regional scale, planet curvature invisible): `planet_frame.xyz` stands in for local
+// "up" so a world-space step along the sun direction becomes a height01 step (vertical) plus a
+// UV step (horizontal), both linear in the step's world length.
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
@@ -50,7 +61,7 @@ layout(set = 0, binding = 2) uniform SceneBlock
 
 layout(push_constant) uniform Params
 {
-    float tile_meters;
+    float span_meters;  // the near window's world span, so a uv step is a real world step
     uint y_slice_start; // first Y layer this dispatch covers
     uint y_slice_count; // how many Y layers this dispatch covers
 } params;
@@ -92,11 +103,11 @@ void main()
     {
         if (height01 < 0.0 || height01 > 1.0)
             break;
-        vec2 layers = texture(cloudscape_field, vec3(uv, clamp(height01, 0.0, 1.0))).rg;
-        depth += (layers.x + layers.y) * step_meters;
-        // The field's sampler wraps REPEAT, so the UV is left to drift rather than
-        // fract()'d here — identical result, one fewer op per step.
-        uv += (sun_horizontal.xz * step_meters) / params.tile_meters;
+        depth += texture(cloudscape_field, vec3(uv, clamp(height01, 0.0, 1.0))).r * step_meters;
+        // The sampler clamps to the window's edge rather than wrapping, so a sun ray leaving
+        // the window sideways keeps reading the nearest real weather instead of folding back
+        // into an unrelated piece of sky one tile period away.
+        uv += (sun_horizontal.xz * step_meters) / max(params.span_meters, 1.0);
         height01 += (safe_sun_up * step_meters) / band_meters;
     }
 

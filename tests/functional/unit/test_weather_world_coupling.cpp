@@ -108,8 +108,8 @@ TEST(Unit_WeatherCloudscapeCompiler, PrecipitationDarkensOnlyTheLowDeck)
     rainy.precipitation = 1.0f;
 
     WeatherCloudscapeCompiler compiler;
-    const Render::Cloudscape dry_clouds = compiler.compile(dry);
-    const Render::Cloudscape rainy_clouds = compiler.compile(rainy);
+    const Render::Cloudscape dry_clouds = compiler.compile(dry, Render::Cloudscape{});
+    const Render::Cloudscape rainy_clouds = compiler.compile(rainy, Render::Cloudscape{});
 
     EXPECT_GT(rainy_clouds.decks[0].density_scale, dry_clouds.decks[0].density_scale)
         << "low deck should darken under precipitation";

@@ -69,14 +69,15 @@ namespace SushiEngine
                                        atmosphere_lut_pass_, lights_),
                   weather_field_pass_(device, assets.samplers()),
                   cloudscape_compile_pass_(device, assets.shaders(), assets.pipelines(),
-                                           assets.samplers(), assets.cloud_noise()),
+                                           assets.samplers(), assets.cloud_noise(),
+                                           weather_field_pass_),
                   cloud_light_volume_pass_(device, assets.shaders(), assets.pipelines(),
                                            assets.samplers(), cloudscape_compile_pass_),
                   cloud_shadow_map_pass_(device, assets.shaders(), assets.pipelines(),
                                         assets.samplers(), cloudscape_compile_pass_),
                   cloud_panorama_pass_(device, assets.shaders(), assets.pipelines(),
                                       assets.samplers(), cloudscape_compile_pass_,
-                                      cloud_light_volume_pass_, weather_field_pass_),
+                                      cloud_light_volume_pass_),
                   ibl_pass_(device, assets.shaders(), assets.pipelines(), assets.samplers(),
                             assets.layout(), assets.cloud_noise(), atmosphere_lut_pass_,
                             volumetric_fog_pass_),
@@ -119,7 +120,7 @@ namespace SushiEngine
                                               assets.layout()),
                   cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                               cloudscape_compile_pass_, cloud_light_volume_pass_,
-                              assets.cloud_noise(), weather_field_pass_),
+                              assets.cloud_noise()),
                   // 16u, 16u: the same construction-time placeholder resources_ below
                   // uses — width_/height_ are declared later in the class and are not
                   // yet initialized this early in the member-init list, so the real
@@ -450,6 +451,13 @@ namespace SushiEngine
                 Scene::SceneUniforms uniforms;
                 Scene::fill_scene_uniforms(camera, environment, frame.eye,
                                            static_cast<float>(frame_counter_) * 0.016f, uniforms);
+                // The cloudscape windows are placed here, between the fill and the upload,
+                // because the bake and every consumer of the bake — the view march, the light
+                // volume, the cloud shadow map, the panorama, and the ground/mesh shadow lookup —
+                // read the same mapping out of this block, and the pass that owns the window
+                // state cannot reach it once it has been uploaded. The pass keeps the state; the
+                // view only owns the ordering.
+                cloudscape_compile_pass_.update_window(frame, environment, uniforms);
                 for (int i = 0; i < 4; ++i)
                     uniforms.light_shadow_a[i] =
                         static_cast<float>(lights_.directional_shadow_index(static_cast<std::uint32_t>(i)));

@@ -226,8 +226,13 @@ namespace SushiEngine
                 // AMORTIZE_FRAMES frames regardless of what else changed.
                 const std::uint32_t slice_group = frame_counter_ % AMORTIZE_FRAMES;
                 ++frame_counter_;
+                // A moved near window (or the first bake) invalidates every slice at once, not
+                // one group at a time — see CloudscapeCompilePass::near_window_moved.
                 const bool first_bake = !built_;
+                const bool full_refresh = first_bake || cloudscape_.near_window_moved();
                 built_ = true;
+                const std::uint32_t slice_start = full_refresh ? 0u : slice_group * Y_SLICE_COUNT;
+                const std::uint32_t slice_count = full_refresh ? RESOLUTION_Y : Y_SLICE_COUNT;
 
                 const Graph::BufferHandle uniforms = frame.targets.uniforms;
                 graph.add_pass(
@@ -240,11 +245,11 @@ namespace SushiEngine
                         builder.read(uniforms, Graph::BufferAccess::UniformRead);
                         builder.set_side_effect();
                     },
-                    [this, &frame, uniforms, slice_group,
+                    [this, &frame, uniforms, slice_start, slice_count,
                      first_bake](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const Push push{CloudscapeCompilePass::tile_meters(),
-                                        slice_group * Y_SLICE_COUNT, Y_SLICE_COUNT};
+                        const Push push{CloudscapeCompilePass::near_span_meters(), slice_start,
+                                        slice_count};
 
                         transition(cmd, volume_.image,
                                   first_bake ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
@@ -267,7 +272,7 @@ namespace SushiEngine
                                                        pipeline_layout_, 0, set);
                         vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                            sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(volume_.width), groups(Y_SLICE_COUNT),
+                        vkCmdDispatch(cmd, groups(volume_.width), groups(slice_count),
                                      groups(volume_.depth));
 
                         // Readable by the view march (CloudPass), fragment stage.

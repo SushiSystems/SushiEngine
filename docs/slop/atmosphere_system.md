@@ -513,7 +513,10 @@ region (~64–128 km), rebaked when the camera crosses a rebake threshold or whe
 whichever is sooner, amortized across frames exactly as the current bake already is.
 
 This is the one structurally significant change to the render tier, and it is the price
-of the feature.
+of the feature. **Shipped in Phase B1**, as two windows rather than one — a near window at
+32 768 m / 128 m per texel and a far window at 262 144 m / ~1 km, cross-faded — because the
+march reaches ~150 km and a single window with that reach would have coarsened the near field
+by five times.
 
 ### 7.3 Noise becomes detail, not signal
 
@@ -547,7 +550,11 @@ authoring/ingested paths that still need to *specify* a sky. `cloud_genus_profil
 becomes the classifier's reference table plus the `StaticAtmosphere` generator. Nothing
 about the WMO vocabulary is lost; it stops being load-bearing for rendering.
 
-`WeatherCloudscapeCompiler` is deleted.
+`WeatherCloudscapeCompiler` is **kept rather than deleted** (Phase B1 revises §16's
+disposition): the genus *choice* moved out of it into `Render::classify_cloud_genus`, which
+the GPU bake and the label path now share, but the label and the medium — the scattering
+knobs, the erosion scale, `evolution_rate` — still need a producer, and this is a truthful
+one. What it stopped being is the sole answer to "what is in the sky".
 
 ### 7.5 The far field
 
@@ -677,29 +684,49 @@ low-density fringe first, so edges retreat and holes open the way falling covera
 works. `c == 1` is exactly the identity, which is what makes a uniform sky render
 bit-identically to one with no field at all.
 
-**Deliberately deferred to Phase B, and why.** Three items originally listed here turn out
-to be the *same* change and are dishonest to split:
+**Deferred to Phase B1, and why.** Three items originally listed here turn out to be the
+*same* change and are dishonest to split: the field stayed a wrapping 65 km tile, so the
+light volume and the cloud shadow map — both addressed in *tile* space, holding a `uv` with
+no recoverable world position — could not consult it at all, and genus stayed an input rather
+than a derived label. All three were closed together in Phase B1 below.
 
-- **The cloud field stays a wrapping 65 km tile** (§7.2 not yet done). Making it
-  camera-centred is only worth doing together with the density authority moving into it,
-  which is Phase B's job.
-- **The light volume and the cloud shadow map do not consult the field.** Both are
-  addressed in *tile* space — they hold a `uv` with no recoverable world position — so they
-  cannot look the field up at all until the tile re-anchoring above happens. Consequence to
-  be aware of meanwhile: sun energy through cloud and cloud shadows on the ground still
-  reflect the reference column's coverage everywhere, so a cleared region can still receive
-  some cloud shadow. The march itself, its inline light taps, and the far-field panorama all
-  have real world positions and *do* apply the field.
-- **Genus stays an input** rather than a derived label (§7.4). Deriving it per column
-  requires the bake to be spatial, i.e. the same re-anchoring.
+### Phase B1 — The cloudscape window *(Phase A's deferred trio)* — **shipped**
+
+The one change all three deferred items reduce to: the baked field becomes **camera-centred
+and non-wrapping** (§7.2), which makes its addressing invertible and therefore makes every
+consumer able to say where it is.
+
+Two windows rather than one, because the march reaches ~150 km and a single window with that
+reach would put ~600 m between texels beside the camera: a near window at the old 32 768 m
+span and 128 m texel, and a far window over 262 144 m at ~1 km, cross-faded across the near
+window's rim. Both are baked from the same weather field, so they agree about where the
+weather is and differ only in how finely they carve its shape.
+
+The light volume and the cloud shadow map re-address into the near window and thereby carry
+spatial weather with no lookup of their own — the field they march already holds the
+simulation's coverage per column. Genus becomes a derived label (§7.4): the bake resolves one
+per baked column through `Render::classify_cloud_genus`, the same classifier the editor
+readout and the METAR path use, with its thresholds uploaded as data; a manually authored sky
+still bakes its own deck stack, because `WeatherField::derives_genus` lets the *producer* say
+which it is. The march shell follows the field's own union span when it classifies. The far
+window carries its own optical depth toward the sun, since the near light volume does not
+reach it. The per-sample coverage-scale/reference-column mechanism, the mirrored
+anti-repetition tap, and the field's second density channel all retire.
+
+The wind is absorbed into the window's origin and republished as a residual each frame, so the
+sky advects continuously between rebakes; rebakes are triggered by authored change, a moved
+shell, 8 % of span of camera drift, a weather cadence, and (far window only) the sun moving a
+degree.
+
+*Acceptance: the same bar as Phase A, now also with cloud shadows and sun energy that follow
+the front instead of the observer's own column, and with different genera visible in one view
+where the simulation put them.*
+
+**Named limit.** Ground more than ~16 km from the camera loses its cloud shadow: the map
+covers exactly the near window and fades across its rim. A second, coarser cascade over the
+far window is the natural follow-up.
 
 ### Phase B — Real thermodynamics and vertical structure
-
-Also picks up Phase A's three deferred items, which all reduce to one change: the cloud
-field becomes camera-centred and non-wrapping (§7.2), which in turn lets the light volume
-and the shadow map recover a world position and consult the field, and lets genus become a
-derived label (§7.4).
-
 
 Replace the three étage buckets with 32–48 levels and real prognostic variables; anelastic
 dynamics with a pressure solve; monotone advection at Courant ≈ 1; Kessler + ice
@@ -840,7 +867,7 @@ Stated here so they are decisions rather than discoveries:
 |---|---|
 | `synoptic_weather.hpp` | Deleted (Phase C). Its editor affordance becomes vorticity injection into T1. |
 | `regional_weather_grid.hpp` | Deleted (Phase B). Replaced by the GPU nest, decomposed into policy objects. |
-| `weather_cloudscape_compiler.hpp` | Deleted (Phase A). Genus moves to §7.4's classifier. |
+| `weather_cloudscape_compiler.hpp` | Kept, narrowed (Phase B1). The genus choice moved to §7.4's classifier (`Render::classify_cloud_genus`, shared with the GPU bake); what remains produces the label and the medium. |
 | `weather_provider.hpp` | Reshaped (Phase A) into `IAtmosphereSource` / `IAtmosphereField` / `IAtmosphereQuery` / `IAtmosphereAuthoring`. |
 | `weather_types.hpp` | Replaced (Phase E) by `AtmosphereProfile` / `AtmosphereDiagnostics`. |
 | `ingested_weather.hpp`, `metar_parser.hpp` | Kept, retargeted onto the new contract — and made installable, which they are not today. |

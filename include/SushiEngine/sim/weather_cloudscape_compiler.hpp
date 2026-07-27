@@ -27,14 +27,20 @@
  * @file weather_cloudscape_compiler.hpp
  * @brief The sim-side bridge: any `IWeatherProvider`'s column state -> `Render::Cloudscape`.
  *
- * The class named in the task brief as "its own small, focused class (SRP)": a pure
- * function of a `WeatherColumn`, owning no simulation policy of its own — the sim-side
- * analogue of `Render::CloudscapeCompiler`'s "compiles column state into the GPU field
- * set, pure function of its input" description (design doc §3), one step earlier in
- * the pipeline. Its output is written to `Render::Environment::clouds` exactly where
- * manual authoring already writes it (see `RuntimeSimulation`), so `CloudscapeCompilePass`
- * (T3) and everything after it needs zero changes to consume procedurally-driven
- * weather — the entire point of introducing this seam.
+ * A pure function of a `WeatherColumn`, owning no simulation policy of its own. Its output
+ * is written to `Render::Environment::clouds` exactly where manual authoring already writes
+ * it (see `RuntimeSimulation`), so nothing downstream branches on where the sky came from.
+ *
+ * **What it stopped being.** Until `docs/slop/atmosphere_system.md` §7.4 it was the sole
+ * answer to "what is in the sky": one column, compiled into one deck stack, instantiated
+ * everywhere. It is not that any more — when the published field classifies
+ * (`Render::WeatherField::derives_genus`) the cloudscape bake resolves a genus and a
+ * coverage per baked column and the deck stack no longer decides what a march sample finds.
+ * What survives is everything that is genuinely a property of the whole sky rather than of
+ * one point: the medium's scattering knobs, the erosion/weather scales, `evolution_rate`,
+ * and the genus *label* the editor readout and a METAR-style report quote. That is why the
+ * class is kept rather than deleted as §16's disposition table proposed — the label and the
+ * medium still need a producer, and this is a truthful one.
  */
 
 #include <algorithm>
@@ -50,35 +56,54 @@ namespace SushiEngine
         /**
          * @brief Compiles a `WeatherColumn` into a ready-to-render `Render::Cloudscape`.
          *
-         * Picks one genus per `CloudLevel` from the level's `convective_fraction`/
-         * `coverage` (stratiform vs. cumuliform, thin vs. filled — mirrors the choices a
-         * human author already makes in the Advanced deck editor) and fills
+         * Names one genus per `CloudLevel` through `Render::classify_cloud_genus` — the same
+         * classifier the GPU bake resolves its per-column genus with — and fills
          * `CloudDeck::coverage_bias`/`density_scale` so the deck reproduces the column's
-         * authored coverage/density on top of `cloud_genus_profile`'s baseline. A fourth
-         * deck slot is reserved for towering convection (Cumulonimbus), enabled only when
-         * the low level is both filled and strongly convective — the acceptance bar's
-         * "cumulus line" at a cold front.
+         * coverage/density on top of `cloud_genus_profile`'s baseline. A fourth deck slot is
+         * reserved for towering convection (Cumulonimbus), enabled only when the low level is
+         * both filled and strongly convective — the acceptance bar's "cumulus line" at a cold
+         * front.
          */
         class WeatherCloudscapeCompiler
         {
             public:
                 /**
-                 * @brief Compiles @p column into a `Cloudscape`.
+                 * @brief Compiles @p column into a `Cloudscape`, over the authored medium.
+                 *
+                 * @p medium is carried through untouched apart from the decks and
+                 * `evolution_rate`. It used to be discarded — the compiler returned a
+                 * default-constructed `Cloudscape` — which was tolerable while the deck stack was
+                 * the whole description of the sky and the editor disabled those sliders under
+                 * procedural weather anyway. It is not tolerable now: since
+                 * `docs/slop/atmosphere_system.md` §7.4 the decks no longer decide what a march
+                 * sample finds, so the scattering knobs, the ground-shadow strength and the
+                 * erosion scale are all the authored control over the look that is left, and
+                 * resetting them every tick would make them uneditable in the one mode that
+                 * matters.
+                 *
+                 * `enabled` is forced on rather than carried through: a provider that has weather
+                 * to report is reporting it, and inheriting a scene that happened to be authored
+                 * with the cloudscape switched off would leave procedural weather silently
+                 * invisible.
+                 *
                  * @param column The layered-column state to render, from any `IWeatherProvider`.
+                 * @param medium The current cloudscape, for everything that describes the whole
+                 *               sky rather than one column.
                  * @return A `Cloudscape` ready to assign to `Render::Environment::clouds`.
                  */
-                Render::Cloudscape compile(const WeatherColumn& column) const
+                Render::Cloudscape compile(const WeatherColumn& column,
+                                           const Render::Cloudscape& medium) const
                 {
-                    Render::Cloudscape clouds;
+                    Render::Cloudscape clouds = medium;
                     clouds.enabled = true;
 
                     const WeatherLevelState& low = column.levels[static_cast<int>(CloudLevel::Low)];
                     const WeatherLevelState& mid = column.levels[static_cast<int>(CloudLevel::Mid)];
                     const WeatherLevelState& high = column.levels[static_cast<int>(CloudLevel::High)];
 
-                    assign_level(clouds.decks[0], low, pick_low_genus(low));
-                    assign_level(clouds.decks[1], mid, pick_mid_genus(mid));
-                    assign_level(clouds.decks[2], high, pick_high_genus(high));
+                    assign_level(clouds.decks[0], low, Render::CloudBand::Low);
+                    assign_level(clouds.decks[1], mid, Render::CloudBand::Middle);
+                    assign_level(clouds.decks[2], high, Render::CloudBand::High);
 
                     // W5 world coupling (design doc §5.3): "cloud-base darkening from the rain
                     // channel", the old system's literal `density += density * weather.a`. Applied
@@ -92,9 +117,7 @@ namespace SushiEngine
                         std::clamp(clouds.decks[0].density_scale * (1.0f + column.precipitation),
                                   0.0f, 2.0f);
 
-                    constexpr float CB_CONVECTIVE_THRESHOLD = 0.75f;
-                    constexpr float CB_COVERAGE_THRESHOLD = 0.30f;
-                    if (low.convective_fraction > CB_CONVECTIVE_THRESHOLD && low.coverage > CB_COVERAGE_THRESHOLD)
+                    if (Render::cloud_band_towers(low.coverage, low.convective_fraction))
                     {
                         clouds.decks[3].enabled = true;
                         clouds.decks[3].genus = Render::CloudGenus::Cumulonimbus;
@@ -126,34 +149,19 @@ namespace SushiEngine
                 }
 
             private:
-                static Render::CloudGenus pick_low_genus(const WeatherLevelState& state) noexcept
-                {
-                    if (state.convective_fraction > 0.5f)
-                        return Render::CloudGenus::Cumulus;
-                    if (state.convective_fraction > 0.2f)
-                        return Render::CloudGenus::Stratocumulus;
-                    return Render::CloudGenus::Stratus;
-                }
-
-                static Render::CloudGenus pick_mid_genus(const WeatherLevelState& state) noexcept
-                {
-                    if (state.convective_fraction > 0.5f)
-                        return Render::CloudGenus::Altocumulus;
-                    if (state.coverage > 0.7f)
-                        return Render::CloudGenus::Nimbostratus;
-                    return Render::CloudGenus::Altostratus;
-                }
-
-                static Render::CloudGenus pick_high_genus(const WeatherLevelState& state) noexcept
-                {
-                    return state.coverage > 0.6f ? Render::CloudGenus::Cirrostratus : Render::CloudGenus::Cirrus;
-                }
-
+                // The genus choice itself lives in `Render::classify_cloud_genus`, not here.
+                // It used to live here, as three hard-coded `if` chains -- exactly the OCP
+                // finding docs/slop/atmosphere_system.md §1.6 records against this class. It
+                // has to move because the cloudscape bake now resolves a genus per baked
+                // column on the GPU (§7.4), and two copies of the same thresholds, one in C++
+                // and one in GLSL, would eventually label a column as one genus and render it
+                // as another.
                 static void assign_level(Render::CloudDeck& deck, const WeatherLevelState& state,
-                                         Render::CloudGenus genus) noexcept
+                                         Render::CloudBand band) noexcept
                 {
-                    constexpr float ENABLE_COVERAGE_THRESHOLD = 0.05f;
-                    deck.enabled = state.coverage > ENABLE_COVERAGE_THRESHOLD;
+                    deck.enabled = state.coverage > Render::cloud_genus_thresholds().enable_coverage;
+                    const Render::CloudGenus genus =
+                        Render::classify_cloud_genus(band, state.coverage, state.convective_fraction);
                     deck.genus = genus;
                     const Render::CloudGenusProfile profile = Render::cloud_genus_profile(genus);
                     deck.coverage_bias = std::clamp(state.coverage - profile.coverage, -1.0f, 1.0f);

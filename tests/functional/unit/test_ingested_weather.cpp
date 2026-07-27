@@ -151,7 +151,7 @@ TEST(Unit_IngestedWeather, SubstitutesForAnyOtherProviderThroughTheSharedCompile
     const WeatherColumn column = seam.sample_column(degrees(48.8566, 2.3522));
 
     WeatherCloudscapeCompiler cloudscape_compiler;
-    const Render::Cloudscape clouds = cloudscape_compiler.compile(column);
+    const Render::Cloudscape clouds = cloudscape_compiler.compile(column, Render::Cloudscape{});
     EXPECT_TRUE(clouds.enabled);
     EXPECT_TRUE(clouds.decks[0].enabled) << "a filled, cold low deck should compile to an enabled low deck";
 
@@ -165,6 +165,6 @@ TEST(Unit_IngestedWeather, SubstitutesForAnyOtherProviderThroughTheSharedCompile
     // compiled cloudscape must read as an ordinary clear-column compile -- proving this
     // provider's own internal blend, not just that it returns *some* WeatherColumn.
     const WeatherColumn far_column = seam.sample_column(degrees(-33.8688, 151.2093)); // Sydney.
-    const Render::Cloudscape far_clouds = cloudscape_compiler.compile(far_column);
+    const Render::Cloudscape far_clouds = cloudscape_compiler.compile(far_column, Render::Cloudscape{});
     EXPECT_FALSE(far_clouds.decks[0].enabled);
 }

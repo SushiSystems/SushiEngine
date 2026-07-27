@@ -23,7 +23,6 @@
 
 #include "passes/cloud_panorama_pass.hpp"
 
-#include "passes/weather_field_pass.hpp"
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
@@ -87,10 +86,9 @@ namespace SushiEngine
                                                  Resources::GraphicsPipelineFactory& pipelines,
                                                  Resources::SamplerCache& samplers,
                                                  CloudscapeCompilePass& cloudscape,
-                                                 CloudLightVolumePass& light_volume,
-                                                 WeatherFieldPass& weather)
+                                                 CloudLightVolumePass& light_volume)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), cloudscape_(cloudscape),
-                  light_volume_(light_volume), weather_(weather)
+                  light_volume_(light_volume)
             {
                 static_assert(HEIGHT % AMORTIZE_FRAMES == 0,
                              "the panorama must divide evenly across the amortization window");
@@ -258,8 +256,7 @@ namespace SushiEngine
                     [this, &frame, uniforms, row_group,
                      first_bake](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const Push push{CloudscapeCompilePass::tile_meters(), row_group * ROW_COUNT,
-                                        ROW_COUNT};
+                        const Push push{row_group * ROW_COUNT, ROW_COUNT};
 
                         transition(cmd, panorama_.image,
                                   first_bake ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
@@ -278,8 +275,11 @@ namespace SushiEngine
                         writer.sampled_image(2, light_volume_.view(), light_volume_.sampler(),
                                              VK_IMAGE_LAYOUT_GENERAL);
                         writer.uniform_buffer(3, context.buffer(uniforms), sizeof(Scene::SceneUniforms));
-                        writer.sampled_image(4, weather_.view(), weather_.sampler(),
-                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        // The far window, not the simulation's raw field: this bake spends most
+                        // of its march past the near window, and since the cloudscape bake resolves
+                        // coverage per column the far field already *is* the meteorology, resolved.
+                        writer.sampled_image(4, cloudscape_.far_view(), cloudscape_.sampler(),
+                                             VK_IMAGE_LAYOUT_GENERAL);
                         writer.update(device_.device(), set);
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,

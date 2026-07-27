@@ -70,7 +70,6 @@ namespace SushiEngine
         {
             class CloudscapeCompilePass;
             class CloudLightVolumePass;
-            class WeatherFieldPass;
 
             /**
              * @brief Marches the baked cloudscape field into the tier-scaled cloud target.
@@ -86,19 +85,17 @@ namespace SushiEngine
                      * @param shaders    Library the shader modules come from.
                      * @param pipelines  Factory the pipeline is built through.
                      * @param layout     The shared scene descriptor and pipeline layout.
-                     * @param cloudscape The pass that owns the baked density field/skip field.
-                     * @param light_volume The pass that owns the baked light volume.
+                     * @param cloudscape The pass that owns the near and far cloudscape windows
+                     *                   and the near skip field.
+                     * @param light_volume The pass that owns the baked near-window light volume.
                      * @param noise      The cloud noise volumes; only the detail volume is
                      *                   read here, for the near-camera-only 811 m erosion
                      *                   and curl warp the T3 bake cannot carry.
-                     * @param weather    The pass that owns the simulation's uploaded weather
-                     *                   field — the march's coverage authority.
                      */
                     CloudPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                               Resources::GraphicsPipelineFactory& pipelines,
                               Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
-                              CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
-                              WeatherFieldPass& weather);
+                              CloudLightVolumePass& light_volume, Textures::CloudNoise& noise);
                     ~CloudPass() override;
 
                     CloudPass(const CloudPass&) = delete;
@@ -119,7 +116,6 @@ namespace SushiEngine
                     CloudscapeCompilePass& cloudscape_;
                     CloudLightVolumePass& light_volume_;
                     Textures::CloudNoise& noise_;
-                    WeatherFieldPass& weather_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

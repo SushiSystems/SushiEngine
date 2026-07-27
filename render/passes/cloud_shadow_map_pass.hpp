@@ -110,7 +110,7 @@ namespace SushiEngine
                     /** @brief The bake shader's push block. */
                     struct Push
                     {
-                        float tile_meters;
+                        float span_meters;
                         std::uint32_t row_start;
                         std::uint32_t row_count;
                     };

@@ -234,10 +234,11 @@ namespace SushiEngine
                     uniforms.weather_field_levels[1] = field.level_altitudes[1];
                     uniforms.weather_field_levels[2] = field.level_altitudes[2];
                     uniforms.weather_field_levels[3] = enabled ? 1.0f : 0.0f;
-                    uniforms.weather_field_reference[0] = field.reference_coverage[0];
-                    uniforms.weather_field_reference[1] = field.reference_coverage[1];
-                    uniforms.weather_field_reference[2] = field.reference_coverage[2];
-                    uniforms.weather_field_reference[3] = 0.0f;
+                    // The window mapping that follows these is stamped in by
+                    // CloudscapeCompilePass::update_window, which the scene view calls between
+                    // this fill and the upload — it is the only party that knows where the
+                    // windows are anchored, and it needs this block's deck stack and march shell
+                    // to decide.
                 }
 
                 uniforms.ambient[0] = static_cast<float>(environment.ambient.x);
@@ -319,6 +320,18 @@ namespace SushiEngine
                 {
                     base_min = 0.0f;
                     top_max = 0.0f;
+                }
+                // When the published field resolves genus per column
+                // (docs/slop/atmosphere_system.md §7.4), the march shell is a property of the
+                // *field*, not of the compiled deck stack: a cumulonimbus growing 300 km away
+                // still has to be inside the span the march crosses, and the deck stack only ever
+                // saw the column under the camera. The producer takes that union as it fills the
+                // cells — it is the only party that sees every column — so it is read straight
+                // through here rather than re-derived from decks that no longer decide anything.
+                if (environment.weather_field.valid() && environment.weather_field.derives_genus)
+                {
+                    base_min = environment.weather_field.union_base_m;
+                    top_max = environment.weather_field.union_top_m;
                 }
                 uniforms.cloud_global[0] = environment.clouds.ground_shadow_strength;
                 uniforms.cloud_global[1] = base_min;

@@ -1,28 +1,36 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Bakes the cloudscape density field (T3): the same six-deck genus loop cloud.frag used
-// to run per march sample, evaluated once per field texel instead. The view march then
-// spends ~2 fetches where it used to spend ~48 (8 texture reads x up to 6 decks). Runs
-// only when CloudscapeCompilePass finds the authored deck stack changed, so this cost is
-// amortized over however many frames the sky holds still.
+// Bakes the cloudscape density field (T3), once per rebake instead of once per march
+// sample. The view march then spends ~2 fetches where it used to spend ~48 (8 texture reads
+// x up to 6 decks), and every other consumer of the cloudscape — the light volume, the cloud
+// shadow map, the far-field panorama — reads the same baked answer, so none of them can
+// disagree with the march about where cloud is.
 //
-// The field is a flat, wind-neutral, periodic tile: X/Z wrap a fixed metre-square region
-// (CLOUD_FIELD_TILE_METERS, matched on the C++ side) and Y is the fraction across the
-// union altitude band (scene.cloud_global.y..z), not a true planet-relative radius. Over
-// a tile this small the planet's curvature is invisible (sub-centimetre sagitta), so the
-// bake skips the ellipsoid math entirely and reconstructs each deck's own local height
-// fraction from plain altitude. "Wind-neutral" means no deck's wind is added to the bake
-// position — translating the pattern over time is deferred to the view march, which
-// shifts its field UV lookup by the accumulated wind offset instead, so the field stays
-// valid (and cacheable) while the wind keeps blowing.
+// Two things changed here in phase B (docs/slop/atmosphere_system.md §7.2/§7.4), and they
+// are the same change seen from two ends:
 //
-// Three output channels, split by the same noise-kind flag the march already reads: R
-// sums every cumuliform deck, G sums every cirriform (true Cirrus-genus) deck. The view
-// march samples both independently with their own anti-repetition offset. B carries the
-// contributing deck's own vertical density profile (cloud_height_gradient's 0-at-edge,
-// 1-at-middle shape) for the W2 profile-gradient ambient term (Nubis3's `pow(1-profile,
-// 0.5)`) — free, since it rides the same texel the density channels already occupy.
+// 1. The field is no longer a periodic, camera-locked 32 km tile. It is a **camera-centred,
+//    non-wrapping window** whose texels stand over known world positions, pushed in as an
+//    origin and a span (see cloud_field_window.glsl for why that is what unlocks the rest).
+//    Two windows are baked with this same shader: a near one at ~128 m per texel and a far
+//    one covering the whole march range at ~1 km. The pattern is evaluated at a *world*
+//    coordinate rather than a camera-relative one, which is also what stops the sky from
+//    travelling with the camera the way the wrapped tile made it.
+//
+// 2. When the simulation publishes a field it classifies (`WeatherField::derives_genus`),
+//    each baked column resolves **its own genus** from the local band state instead of
+//    instantiating one globally compiled deck stack everywhere. That is §7.4: genus stops
+//    being an input to the density field and becomes a label derived from it. A stratus
+//    sheet here, a cumulus field 40 km away and a cirrus deck over both is one bake, not
+//    three global decks fighting over one coverage number. The authored deck stack remains
+//    the path for a manually authored sky, unchanged — a `Cloudscape` an author typed in is
+//    not a classification and must not be round-tripped through the classifier.
+//
+// The wind is absorbed here rather than scrolled at sample time: the pattern origin the CPU
+// pushes already carries however far the sky has blown, and the march offsets its lookup only
+// by the residual since this bake, which is metres rather than kilometres. That is what lets
+// the window be non-wrapping and still advect.
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
@@ -50,6 +58,8 @@ layout(set = 0, binding = 1) uniform SceneBlock
     vec4 sky_counts;
     vec4 planet_frame;
     vec4 cloud_light;
+    // Declared through to the weather members: std140 offsets are positional, so reaching
+    // the block's tail means naming everything before it.
     vec4 ibl_params;
     vec4 cloud_deck_a[6];
     vec4 cloud_deck_b[6];
@@ -57,19 +67,70 @@ layout(set = 0, binding = 1) uniform SceneBlock
     vec4 cloud_deck_d[6];
     vec4 bodies[80];
     vec4 sky_stars[128];
+#include "scene_weather_tail.glsl"
 } scene;
 
 layout(set = 0, binding = 2) uniform sampler3D cloud_shape_texture;
 layout(set = 0, binding = 3) uniform sampler3D cloud_detail_texture;
 layout(set = 0, binding = 4) uniform sampler2D cloud_weather_texture;
 layout(set = 0, binding = 5) uniform sampler3D cloud_cirrus_texture;
+// The simulation's own horizontal grid (WeatherFieldPass): rgba = coverage / density scale
+// (half-encoded) / convective fraction / precipitation, addressed in world space by
+// scene.weather_field_map and in the vertical by band index. Read here and nowhere else —
+// this bake is the one place the meteorology enters the render tier.
+layout(set = 0, binding = 6) uniform sampler3D weather_field;
+
+// The WMO genus catalogue, uploaded once at pass construction from Render::cloud_genus_profile
+// and Render::cloud_genus_thresholds. Static data, so it is a device-local block written at
+// startup rather than a per-frame upload.
+layout(set = 0, binding = 7) uniform GenusCatalogue
+{
+    vec4 a[10];       // base altitude, top altitude, default coverage, default density
+    vec4 b[10];       // stratiform, detail strength, shape scale, detail scale
+    vec4 c[10];       // wind.xyz, noise kind (1 = cirriform)
+    vec4 d[10];       // anvil, spare, spare, spare
+    // Render::CloudGenusThresholds, in field order:
+    //   x = convective, y = low_broken, z = middle_overcast, w = high_sheet
+    vec4 thresholds;
+    //   x = cumulonimbus_convective, y = cumulonimbus_coverage, z = enable_coverage
+    vec4 thresholds_tail;
+} genus;
 
 layout(push_constant) uniform Params
 {
-    float tile_meters;
+    // World XZ of this window's texel-(0,0) corner in the *pattern* frame: scene-absolute
+    // metres plus everything the wind has displaced the sky by. The noise is evaluated here.
+    vec2 pattern_origin;
+    // The same corner in *camera-relative* metres, which is the frame scene.weather_field_map
+    // addresses. The meteorology is looked up here. The two differ by the eye and the wind.
+    vec2 world_origin;
+    float span_meters;
+    float weather_scale;   // Cloudscape::weather_scale, the coverage map's tiling period
+    uint derive_genus;     // 1 = resolve a genus per column from the field; 0 = authored decks
 } params;
 
+// Deliberately not including cloud_field_window.glsl: this shader is the one consumer that
+// is *told* its window rather than reading the published one, because it bakes both windows
+// and the near/far selection those helpers exist for is a read-side concern.
+
 #define CLOUD_MAX_DECKS 6
+
+// Genus indices, matching Render::CloudGenus's declaration order. The classifier below
+// mirrors Render::classify_cloud_genus branch for branch; its *thresholds* are uploaded
+// rather than repeated (see the catalogue block), so retuning the classifier is a data
+// change, and the two copies of the branch structure name each other so neither is edited
+// alone.
+const int GENUS_CIRRUS = 0;
+const int GENUS_CIRROSTRATUS = 2;
+const int GENUS_ALTOCUMULUS = 3;
+const int GENUS_ALTOSTRATUS = 4;
+const int GENUS_NIMBOSTRATUS = 5;
+const int GENUS_STRATOCUMULUS = 6;
+const int GENUS_STRATUS = 7;
+const int GENUS_CUMULUS = 8;
+const int GENUS_CUMULONIMBUS = 9;
+
+const int BAND_COUNT = 3;
 
 float remap(float v, float a, float b, float c, float d)
 {
@@ -88,16 +149,26 @@ float cloud_height_gradient(float height01, float stratiform, float anvil)
     return mix(g, tower, anvil);
 }
 
-// One deck's density at a flat bake position, faithfully mirroring cloud.frag's original
-// cloud_deck_density (the full, non-cheap path — the bake is amortized, so it always
-// affords the best-quality evaluation). `xz` and `world_altitude` are wind-neutral: the
-// caller has not added any deck's wind offset. `height_gradient` is this deck's vertical
-// density profile at world_altitude (0 at the top/bottom edges of measurable evaluation,
-// 1 in the middle), left at 0 whenever the deck contributes nothing here.
-float deck_density(int i, vec2 xz, float world_altitude, out float height_gradient)
+// One deck's density at a world pattern position, faithfully mirroring cloud.frag's original
+// per-sample cloud_deck_density (the full, non-cheap path — the bake is amortized, so it
+// always affords the best-quality evaluation). Parameterized by the deck's four packed
+// vectors rather than reading the deck array directly, because the derived path builds them
+// from the genus catalogue and the authored path copies them out of the scene block, and both
+// have to land in exactly the same evaluation.
+//
+//   la = base altitude, top altitude, coverage, density scale
+//   lb = stratiform, detail strength, shape scale, detail scale
+//   lc = wind.xyz (unused here; the pattern position already carries it), noise kind
+//   ld = anvil, weather scale, spare, spare
+//
+// `slot` only decorrelates one deck's noise from another's, so two decks sharing an altitude
+// do not carve the identical shape. `height_gradient` is this deck's vertical density profile
+// at world_altitude (0 at its top/bottom edges, 1 through its middle), left at 0 wherever the
+// deck contributes nothing.
+float deck_density(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float world_altitude,
+                   out float height_gradient)
 {
     height_gradient = 0.0;
-    vec4 la = scene.cloud_deck_a[i];
     float density_scale = la.w;
     if (density_scale <= 0.0)
         return 0.0;
@@ -105,9 +176,6 @@ float deck_density(int i, vec2 xz, float world_altitude, out float height_gradie
         return 0.0;
     float height01 = (world_altitude - la.x) / max(la.y - la.x, 1.0);
 
-    vec4 lb = scene.cloud_deck_b[i];
-    vec4 lc = scene.cloud_deck_c[i];
-    vec4 ld = scene.cloud_deck_d[i];
     float stratiform = lb.x;
     float shape_scale = lb.z;
     float detail_scale = lb.w;
@@ -118,7 +186,7 @@ float deck_density(int i, vec2 xz, float world_altitude, out float height_gradie
     // Fixed up = +Y, so the tangent basis is just the flat XZ axes — no cross/normalize
     // needed, unlike the per-sample march which derives it from the point's own radial
     // direction on the curved planet.
-    vec3 deck_offset = vec3(float(i) * 6130.0, float(i) * 2710.0, float(i) * 9770.0);
+    vec3 deck_offset = vec3(float(slot) * 6130.0, float(slot) * 2710.0, float(slot) * 9770.0);
     vec3 sp = vec3(xz.x, world_altitude, xz.y) + deck_offset;
 
     vec2 wpln = sp.xz;
@@ -135,7 +203,13 @@ float deck_density(int i, vec2 xz, float world_altitude, out float height_gradie
     float weather_small = texture(cloud_weather_texture, street_uv + vec2(0.13)).r;
     weather = weather * 0.7 + weather_small * 0.3;
 
-    float coverage = clamp(la.z + (weather - 0.5) * 1.35, 0.0, 1.0);
+    // The tiled weather map is a *detail* modulation of the deck's own coverage, at a reduced
+    // amplitude — the §7.3 demotion. Where the coverage comes from is what changed: on the
+    // derived path it is the simulation's own value at this column, unique over hundreds of
+    // kilometres, so the tiling stops reading as tiling because the repeating thing is no
+    // longer the thing deciding whether there is a cloud here.
+    const float WEATHER_DETAIL_AMPLITUDE = 0.35;
+    float coverage = clamp(la.z + (weather - 0.5) * WEATHER_DETAIL_AMPLITUDE, 0.0, 1.0);
     coverage = clamp(coverage + anvil * smoothstep(0.55, 1.0, height01) * 0.55, 0.0, 1.0);
 
     vec3 warp_broad = texture(cloud_shape_texture, sp / (shape_scale * 8.0) + vec3(0.19)).rgb - 0.5;
@@ -174,6 +248,57 @@ float deck_density(int i, vec2 xz, float world_altitude, out float height_gradie
     return d * density_scale;
 }
 
+// Mirrors Render::classify_cloud_genus. See the note by the genus index constants above.
+int classify_genus(int band, float coverage, float convective)
+{
+    if (band == 0)
+    {
+        if (convective > genus.thresholds.x)
+            return GENUS_CUMULUS;
+        if (convective > genus.thresholds.y)
+            return GENUS_STRATOCUMULUS;
+        return GENUS_STRATUS;
+    }
+    if (band == 1)
+    {
+        if (convective > genus.thresholds.x)
+            return GENUS_ALTOCUMULUS;
+        if (coverage > genus.thresholds.z)
+            return GENUS_NIMBOSTRATUS;
+        return GENUS_ALTOSTRATUS;
+    }
+    return coverage > genus.thresholds.w ? GENUS_CIRROSTRATUS : GENUS_CIRRUS;
+}
+
+// The simulated band state at this column: r = coverage, g = density scale (half-encoded on
+// upload, so doubled back here), b = convective fraction, a = column precipitation.
+vec4 band_state(vec2 world_rel_xz, int band)
+{
+    vec2 uv = world_rel_xz * scene.weather_field_map.xy + scene.weather_field_map.zw;
+    vec4 s = texture(weather_field, vec3(uv, (float(band) + 0.5) / float(BAND_COUNT)));
+    s.g *= 2.0;
+    return s;
+}
+
+// Accumulates one derived deck into the running totals, if the band carries one at all.
+void add_derived_deck(int genus_index, float coverage, float density_scale, int slot,
+                      vec2 pattern_xz, float world_altitude, inout float density,
+                      inout float profile)
+{
+    vec4 la = genus.a[genus_index];
+    la.z = coverage;                       // the simulation's own coverage, not the genus default
+    la.w = max(la.w * density_scale, 0.0); // ... scaled about the genus's own opacity
+    vec4 ld = genus.d[genus_index];
+    ld.y = params.weather_scale;
+
+    float hg;
+    float d = deck_density(la, genus.b[genus_index], genus.c[genus_index], ld, slot, pattern_xz,
+                           world_altitude, hg);
+    density += d;
+    if (d > 0.001)
+        profile = max(profile, hg);
+}
+
 void main()
 {
     ivec3 size = imageSize(cloudscape_field);
@@ -183,28 +308,68 @@ void main()
 
     vec2 uv01 = (vec2(texel.xz) + 0.5) / vec2(size.xz);
     float height01 = (float(texel.y) + 0.5) / float(max(size.y, 1));
-    vec2 xz = uv01 * params.tile_meters;
     float world_altitude = mix(scene.cloud_global.y, scene.cloud_global.z, height01);
 
-    float layer0 = 0.0; // cumuliform decks
-    float layer1 = 0.0; // cirriform (Cirrus-genus) decks
+    // The two frames this bake lives in at once: the pattern is world-anchored and
+    // wind-advected (so a cloud stays over the same ground and drifts with the wind), the
+    // lookup is camera-relative (so it lands in the frame the weather field is addressed in).
+    vec2 pattern_xz = params.pattern_origin + uv01 * params.span_meters;
+    vec2 world_rel_xz = params.world_origin + uv01 * params.span_meters;
+
+    float density = 0.0;
     // The tallest/thickest local contributor's own vertical profile stands in for "this
     // texel's" profile — a deck barely reaching this altitude reads near its own edge
-    // (hg -> 0) and should not flatten a thicker deck's mid-band glow (hg -> 1) sharing
-    // the same texel, so the loop keeps the max rather than an average.
+    // (hg -> 0) and should not flatten a thicker deck's mid-band glow (hg -> 1) sharing the
+    // same texel, so this keeps the max rather than an average.
     float profile = 0.0;
-    for (int i = 0; i < CLOUD_MAX_DECKS; ++i)
+
+    if (params.derive_genus != 0u && scene.weather_field_levels.w > 0.5)
     {
-        float hg;
-        float d = deck_density(i, xz, world_altitude, hg);
-        if (scene.cloud_deck_c[i].w > 0.5)
-            layer1 += d;
-        else
-            layer0 += d;
-        if (d > 0.001)
-            profile = max(profile, hg);
+        float enable = genus.thresholds_tail.z;
+        for (int band = 0; band < BAND_COUNT; ++band)
+        {
+            vec4 state = band_state(world_rel_xz, band);
+            if (state.r <= enable)
+                continue;
+            // Cloud-base darkening: the low band is the one the moisture closure actually
+            // rains from, so it is the only one a surface shower thickens. Same rule
+            // WeatherCloudscapeCompiler applies on the label side, so the reported deck and
+            // the rendered one describe the same cloud.
+            float density_scale = band == 0 ? clamp(state.g * (1.0 + state.a), 0.0, 2.0) : state.g;
+            add_derived_deck(classify_genus(band, state.r, state.b), state.r, density_scale, band,
+                             pattern_xz, world_altitude, density, profile);
+        }
+
+        // Deep convection is an extra deck on the low band rather than a replacement for it,
+        // which is how a cumulus field with one storm growing out of it stays representable —
+        // Render::cloud_band_towers states the same rule for the label side.
+        vec4 low = band_state(world_rel_xz, 0);
+        if (low.b > genus.thresholds_tail.x && low.r > genus.thresholds_tail.y)
+        {
+            add_derived_deck(GENUS_CUMULONIMBUS, low.r, clamp(low.g * low.b, 0.0, 2.0),
+                             BAND_COUNT, pattern_xz, world_altitude, density, profile);
+        }
+    }
+    else
+    {
+        // The authored deck stack, evaluated globally. Reached for a manually authored sky,
+        // for `StaticWeather`, and whenever no field was published at all.
+        for (int i = 0; i < CLOUD_MAX_DECKS; ++i)
+        {
+            vec4 ld = scene.cloud_deck_d[i];
+            ld.y = params.weather_scale;
+            float hg;
+            float d = deck_density(scene.cloud_deck_a[i], scene.cloud_deck_b[i],
+                                   scene.cloud_deck_c[i], ld, i, pattern_xz, world_altitude, hg);
+            density += d;
+            if (d > 0.001)
+                profile = max(profile, hg);
+        }
     }
 
+    // b is the optical depth toward the sun, which only the far window carries and only
+    // cloudscape_far_light.comp can fill (it needs the finished density field to march). Left
+    // at 0 here; inside the near window the march reads the real light volume instead.
     imageStore(cloudscape_field, ivec3(texel),
-              vec4(clamp(layer0, 0.0, 1.0), clamp(layer1, 0.0, 1.0), clamp(profile, 0.0, 1.0), 1.0));
+              vec4(clamp(density, 0.0, 1.0), clamp(profile, 0.0, 1.0), 0.0, 1.0));
 }

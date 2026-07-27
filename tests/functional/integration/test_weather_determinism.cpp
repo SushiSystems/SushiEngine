@@ -143,8 +143,8 @@ TEST(Integration_WeatherDeterminism, SameSeedProducesSameStateAcrossIndependentR
     expect_column_equal(first.columns[3], second.columns[3], "far away");
 
     WeatherCloudscapeCompiler compiler;
-    const Render::Cloudscape cloudscape_first = compiler.compile(first.columns[0]);
-    const Render::Cloudscape cloudscape_second = compiler.compile(second.columns[0]);
+    const Render::Cloudscape cloudscape_first = compiler.compile(first.columns[0], Render::Cloudscape{});
+    const Render::Cloudscape cloudscape_second = compiler.compile(second.columns[0], Render::Cloudscape{});
     for (int deck = 0; deck < Render::CLOUD_MAX_DECKS; ++deck)
     {
         EXPECT_EQ(cloudscape_first.decks[deck].enabled, cloudscape_second.decks[deck].enabled) << "deck " << deck;
@@ -210,7 +210,7 @@ TEST(Integration_WeatherFrontCrossing, ColdFrontSweepsPastAFixedPointAndCloudsRe
         front_cold[std::size_t(i)] = weather.synoptic().front_proximity(observer).cold;
         const WeatherColumn column = weather.sample_column(observer);
         low_coverage[std::size_t(i)] = column.levels[static_cast<int>(CloudLevel::Low)].coverage;
-        low_deck_active[std::size_t(i)] = compiler.compile(column).decks[0].enabled;
+        low_deck_active[std::size_t(i)] = compiler.compile(column, Render::Cloudscape{}).decks[0].enabled;
     }
 
     int peak_index = 0;

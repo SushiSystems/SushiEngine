@@ -46,6 +46,7 @@
 #include "cloud_noise_weather.comp.h"
 #include "cloudscape_field.comp.h"
 #include "cloudscape_skip.comp.h"
+#include "cloudscape_far_light.comp.h"
 #include "cloud_light_volume.comp.h"
 #include "cloud_shadow_map.comp.h"
 #include "cloud_taa.comp.h"
@@ -173,6 +174,9 @@ namespace SushiEngine
                  Shaders::cloudscape_field_comp_spv_word_count, "cloudscape_field.comp"},
                 {"cloudscape_skip.comp", ShaderStage::Compute, Shaders::cloudscape_skip_comp_spv,
                  Shaders::cloudscape_skip_comp_spv_word_count, "cloudscape_skip.comp"},
+                {"cloudscape_far_light.comp", ShaderStage::Compute,
+                 Shaders::cloudscape_far_light_comp_spv,
+                 Shaders::cloudscape_far_light_comp_spv_word_count, "cloudscape_far_light.comp"},
                 {"cloud_light_volume.comp", ShaderStage::Compute,
                  Shaders::cloud_light_volume_comp_spv,
                  Shaders::cloud_light_volume_comp_spv_word_count, "cloud_light_volume.comp"},

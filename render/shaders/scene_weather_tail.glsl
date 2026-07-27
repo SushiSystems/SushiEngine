@@ -20,8 +20,21 @@ vec4 light_shadow_b;  // light 4 in x, y = ground wetness, zw spare
 //   map.xy    = scene-XZ -> field UV scale, map.zw = offset (camera position already folded in)
 //   levels.xyz = the three band centre altitudes, metres above the surface, ascending
 //   levels.w   = 1 when a field was published this frame, 0 to ignore the field entirely
-//   reference.xyz = the coverage the deck stack was compiled from, per band — the denominator
-//                   that turns the field's absolute coverage into a scale about the observer
+// Only the cloudscape *bake* reads these now: with §7.4's per-column genus the weather field
+// is a bake input, not a per-march-sample correction, so the march never touches it.
 vec4 weather_field_map;
 vec4 weather_field_levels;
-vec4 weather_field_reference;
+// The two camera-centred cloudscape windows the T3 bake writes (atmosphere_system.md §7.2).
+// Both map camera-relative XZ metres straight to the window's [0, 1] UV — xy = scale,
+// zw = offset, with the eye and the wind residual since the last bake already folded in on
+// the CPU in double. The near window is the detailed one the march, the light volume and the
+// cloud shadow map all share; the far one carries the same simulated structure out to the
+// horizon at a coarser texel, and is what a sample past the near window reads instead of a
+// clamped edge.
+//   params.x = near window span, metres          params.y = far window span, metres
+//   params.z = near skip-field cell, metres      params.w = far field texel, metres
+// A window that has never been baked publishes span 0, which cloud_field_window.glsl reads
+// as "no field" and every consumer then treats as clear sky.
+vec4 cloud_field_near;
+vec4 cloud_field_far;
+vec4 cloud_field_params;

@@ -28,6 +28,7 @@
 // simulation is not uniform*, plus the addressing that decides where in the world each cell
 // lands. Pure host maths; no SushiRuntime needed, same reasoning as the other weather tests.
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -202,23 +203,68 @@ TEST(Unit_WeatherField, EveryProviderPublishesAUsableField)
     }
 }
 
-TEST(Unit_WeatherField, ReferenceColumnIsWhatTheRendererDividesBy)
+TEST(Unit_WeatherField, AuthoredColumnDoesNotClaimTheGenusAuthority)
 {
-    // The renderer scales the baked cloudscape by coverage/reference, so a field published
-    // together with the column its decks were compiled from must read exactly 1 there — which
-    // is what makes a uniform sky render identically to one with no field at all.
+    // `StaticWeather`'s column *is* an authored deck stack decomposed into bands, so the bake
+    // must not round-trip it back through the classifier and overrule the author's own genus.
+    // The producer says so; the renderer does not guess (Render::WeatherField::derives_genus).
     WeatherColumn column{};
     column.levels[int(CloudLevel::Low)].coverage = 0.42f;
     column.levels[int(CloudLevel::Mid)].coverage = 0.11f;
 
     WeatherFieldBuffer buffer;
-    buffer.set_reference_column(column);
-    buffer.fill_uniform(column);
+    buffer.fill_uniform(column, false);
     const Render::WeatherField field = buffer.view();
 
     ASSERT_TRUE(field.valid());
-    EXPECT_FLOAT_EQ(field.reference_coverage[int(CloudLevel::Low)], 0.42f);
-    EXPECT_FLOAT_EQ(field.reference_coverage[int(CloudLevel::Mid)], 0.11f);
-    EXPECT_FLOAT_EQ(sample_at(field, int(CloudLevel::Low), 0, 0).coverage,
-                    field.reference_coverage[int(CloudLevel::Low)]);
+    EXPECT_FALSE(field.derives_genus);
+    // With no classification there is no field-derived march shell either, so the renderer
+    // keeps deriving it from the deck stack, which is the only thing that knows the sky.
+    EXPECT_FLOAT_EQ(field.union_base_m, 0.0f);
+    EXPECT_FLOAT_EQ(field.union_top_m, 0.0f);
+    EXPECT_FLOAT_EQ(sample_at(field, int(CloudLevel::Low), 0, 0).coverage, 0.42f);
+}
+
+TEST(Unit_WeatherField, ClassifiedColumnPublishesTheShellItsGeneraNeed)
+{
+    // The march shell has to bound every deck the bake can resolve, or a cloud the simulation
+    // put 300 km away is simply outside the span the march crosses and is never seen. A
+    // strongly convective, well-covered low band resolves to cumulus *and* tops it with a
+    // cumulonimbus, so the published span must reach that tower's own top.
+    WeatherColumn column{};
+    WeatherLevelState& low = column.levels[int(CloudLevel::Low)];
+    low.coverage = 0.6f;
+    low.convective_fraction = 0.9f;
+
+    WeatherFieldBuffer buffer;
+    buffer.fill_uniform(column, true);
+    const Render::WeatherField field = buffer.view();
+
+    ASSERT_TRUE(field.valid());
+    EXPECT_TRUE(field.derives_genus);
+    const Render::CloudGenusProfile tower =
+        Render::cloud_genus_profile(Render::CloudGenus::Cumulonimbus);
+    const Render::CloudGenusProfile cumulus =
+        Render::cloud_genus_profile(Render::CloudGenus::Cumulus);
+    EXPECT_FLOAT_EQ(field.union_top_m, tower.top_altitude);
+    EXPECT_FLOAT_EQ(field.union_base_m, std::min(tower.base_altitude, cumulus.base_altitude));
+}
+
+TEST(Unit_WeatherField, BandBelowTheEnableThresholdCarriesNoDeck)
+{
+    // A trace of coverage is not a cloud. The classifier's enable threshold is the one place
+    // that decides so, and the published shell has to agree with it — otherwise the march
+    // would cross a span held open by a band that bakes nothing.
+    WeatherColumn column{};
+    column.levels[int(CloudLevel::High)].coverage =
+        Render::cloud_genus_thresholds().enable_coverage * 0.5f;
+
+    WeatherFieldBuffer buffer;
+    buffer.fill_uniform(column, true);
+    const Render::WeatherField field = buffer.view();
+
+    ASSERT_TRUE(field.valid());
+    EXPECT_TRUE(field.derives_genus);
+    EXPECT_FLOAT_EQ(field.union_base_m, 0.0f);
+    EXPECT_FLOAT_EQ(field.union_top_m, 0.0f);
 }
