@@ -29,6 +29,7 @@
 // lands. Pure host maths; no SushiRuntime needed, same reasoning as the other weather tests.
 
 #include <algorithm>
+#include <vector>
 #include <cmath>
 #include <memory>
 
@@ -64,6 +65,43 @@ namespace
         u = double(field.uv_scale_x) * scene_x + double(field.uv_offset_x);
         v = double(field.uv_scale_z) * scene_z + double(field.uv_offset_z);
     }
+
+    //: Cells per axis of the synthetic mirrors below. The real one is
+    //: Render::ATMOSPHERE_MIRROR_CELLS; a smaller lattice keeps the tests readable and the
+    //: buffer's own resampling is exercised by the size difference rather than hidden by it.
+    constexpr int MIRROR_CELLS = 8;
+
+    // A mirror's worth of columns whose low-band coverage is `coverage(ix, iz)`. Built here
+    // rather than by running a provider because the grid now comes from the GPU: a CPU test can
+    // either state what the readback said or test nothing at all.
+    template <typename Coverage>
+    std::vector<Render::AtmosphereMirrorColumn> mirror_columns(int cells, Coverage coverage)
+    {
+        std::vector<Render::AtmosphereMirrorColumn> columns(std::size_t(cells) *
+                                                            std::size_t(cells));
+        for (int iz = 0; iz < cells; ++iz)
+            for (int ix = 0; ix < cells; ++ix)
+            {
+                Render::AtmosphereMirrorColumn& column =
+                    columns[std::size_t(iz) * std::size_t(cells) + std::size_t(ix)];
+                column.bands[int(CloudLevel::Low)][0] = coverage(ix, iz);
+                column.bands[int(CloudLevel::Low)][1] = 1.0f;
+            }
+        return columns;
+    }
+
+    /** @brief A borrowed view of @p columns with a unit mapping the caller may overwrite. */
+    Render::AtmosphereMirror mirror_view(
+        const std::vector<Render::AtmosphereMirrorColumn>& columns, int cells)
+    {
+        Render::AtmosphereMirror mirror{};
+        mirror.columns = columns.data();
+        mirror.cells = cells;
+        mirror.revision = 1;
+        mirror.uv_scale_x = 1.0f;
+        mirror.uv_scale_z = 1.0f;
+        return mirror;
+    }
 } // namespace
 
 TEST(Unit_WeatherField, UniformFillPublishesOneCellCarryingTheColumn)
@@ -98,19 +136,26 @@ TEST(Unit_WeatherField, UniformFillPublishesOneCellCarryingTheColumn)
     EXPECT_DOUBLE_EQ(v, 0.5);
 }
 
-TEST(Unit_WeatherField, GridFillIsSpatiallyNonUniformWhenTheSimulationIs)
+TEST(Unit_WeatherField, GridFillIsSpatiallyNonUniformWhenTheMirrorIs)
 {
-    // The whole point of the field. Seed a grid, run it long enough for the synoptic systems
-    // to have shaped it, and require that the published cells actually differ from each other
-    // — the assertion the previous single-column bridge could not have passed by construction.
+    // The whole point of the field, asked of the path the grid now actually arrives by.
+    //
+    // Phase A filled this from a CPU weather grid, and Phase B2 deleted that grid: the
+    // atmosphere lives on the GPU, so the only spatial weather a provider can publish is what
+    // came back from the nest. A `ProceduralWeather` with no mirror bound therefore publishes a
+    // uniform clear field on purpose — `PublishedFieldFallsBackToClearWithoutAMirror` pins that
+    // — and asking it for a varying grid is asking the retired design.
     const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
-    ProceduralWeather weather(/*seed=*/7, EARTH_RADIUS_M);
-    weather.apply_preset(Render::WeatherPreset::Storm, observer);
-    for (int step = 0; step < 4000; ++step)
-        weather.tick(1.0, observer, 2451545.0 + double(step) / 86400.0);
+    const std::vector<Render::AtmosphereMirrorColumn> columns =
+        mirror_columns(MIRROR_CELLS, [](int ix, int iz)
+        {
+            // A front: clear on one side, overcast on the other, with a gradient between.
+            return float(ix + iz) / float(2 * (MIRROR_CELLS - 1));
+        });
+    const Render::AtmosphereMirror mirror = mirror_view(columns, MIRROR_CELLS);
 
     WeatherFieldBuffer buffer;
-    weather.publish_field(observer, buffer);
+    buffer.fill_from_mirror(mirror, observer);
     const Render::WeatherField field = buffer.view();
 
     ASSERT_TRUE(field.valid());
@@ -129,20 +174,34 @@ TEST(Unit_WeatherField, GridFillIsSpatiallyNonUniformWhenTheSimulationIs)
 
     EXPECT_GT(maximum - minimum, 0.01f)
         << "the published field is uniform, so no front, shower, or clearing could ever be "
-           "visible in the sky — the exact defect the field exists to remove";
+           "visible in the sky -- the exact defect the field exists to remove";
 }
 
-TEST(Unit_WeatherField, GridAddressingPutsTheObserverAtTheGridsOwnCentre)
+TEST(Unit_WeatherField, GridAddressingIsTheMirrorsOwnAndNotASecondDerivation)
 {
-    // The observer stands at the scene origin, and the grid recentres itself on the observer,
-    // so scene (0, 0) must land within half a cell of the field's middle. Get this wrong and
-    // every cloud is drawn over the wrong part of the world.
+    // Get this wrong and every cloud is drawn over the wrong part of the world.
+    //
+    // The load-bearing claim changed with Phase B2 and this states the new one. The field used
+    // to build its own geodetic lattice, which made easting run faster than northing by
+    // 1/cos(latitude) on a plate-carree grid. It no longer does: the nest is square in *metres*
+    // and is centred on the observer by the renderer, and the mirror carries the scene-absolute
+    // mapping it was centred with. Passing that through rather than rebuilding it is the point
+    // -- two derivations of one lattice are two chances to disagree about where the weather is
+    // -- so what a test can check is that the field did not derive anything of its own.
     const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
-    ProceduralWeather weather(/*seed=*/3, EARTH_RADIUS_M);
-    weather.tick(1.0, observer, 2451545.0);
+    const std::vector<Render::AtmosphereMirrorColumn> columns =
+        mirror_columns(MIRROR_CELLS, [](int, int) { return 0.5f; });
+    Render::AtmosphereMirror mirror = mirror_view(columns, MIRROR_CELLS);
+
+    // A nest centred on scene (0, 0) spanning `span` metres: world zero lands at the middle.
+    const double span = 384000.0;
+    mirror.uv_scale_x = float(1.0 / span);
+    mirror.uv_scale_z = float(1.0 / span);
+    mirror.uv_offset_x = 0.5f;
+    mirror.uv_offset_z = 0.5f;
 
     WeatherFieldBuffer buffer;
-    weather.publish_field(observer, buffer);
+    buffer.fill_from_mirror(mirror, observer);
     const Render::WeatherField field = buffer.view();
     ASSERT_TRUE(field.valid());
 
@@ -154,13 +213,19 @@ TEST(Unit_WeatherField, GridAddressingPutsTheObserverAtTheGridsOwnCentre)
     EXPECT_NEAR(u, 0.5, half_cell_u);
     EXPECT_NEAR(v, 0.5, half_cell_v);
 
-    // Scene +X is east and +Z is north (weather_field_buffer.hpp states the convention the
-    // rain emitter's drift already assumed), so both must increase with the coordinate, and
-    // easting must run faster than northing by 1/cos(latitude) on the plate-carree lattice.
+    // Scene +X is east and +Z is north, so both must increase with the coordinate, and the two
+    // must scale *identically*: the nest's cells are square in metres, and a field that scaled
+    // them differently would be re-introducing a projection the nest does not have.
     EXPECT_GT(field.uv_scale_x, 0.0f);
     EXPECT_GT(field.uv_scale_z, 0.0f);
-    EXPECT_NEAR(double(field.uv_scale_x) / double(field.uv_scale_z),
-                1.0 / std::cos(observer.latitude_radians), 1e-3);
+    EXPECT_FLOAT_EQ(field.uv_scale_x, mirror.uv_scale_x);
+    EXPECT_FLOAT_EQ(field.uv_scale_z, mirror.uv_scale_z);
+    EXPECT_FLOAT_EQ(field.uv_offset_x, mirror.uv_offset_x);
+    EXPECT_FLOAT_EQ(field.uv_offset_z, mirror.uv_offset_z);
+
+    // Half the span east of the observer is the field's own edge, not somewhere off it.
+    field_uv(field, span * 0.5, 0.0, u, v);
+    EXPECT_NEAR(u, 1.0, 1e-6);
 }
 
 TEST(Unit_WeatherField, EveryProviderPublishesAUsableField)

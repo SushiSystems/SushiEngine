@@ -32,7 +32,7 @@ layout(set = 0, binding = 6, r32f) uniform writeonly image3D wind_x_target;
 layout(set = 0, binding = 7, r32f) uniform writeonly image3D wind_y_target;
 layout(set = 0, binding = 8, r32f) uniform writeonly image3D wind_z_target;
 layout(set = 0, binding = 9, r32f) uniform writeonly image3D theta_target;
-layout(set = 0, binding = 10, rgba16f) uniform writeonly image3D moisture_target;
+layout(set = 0, binding = 10, rgba32f) uniform writeonly image3D moisture_target;
 layout(set = 0, binding = 11) uniform sampler2D forcing;
 
 layout(push_constant) uniform Params

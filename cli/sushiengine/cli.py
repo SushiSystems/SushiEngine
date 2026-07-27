@@ -122,13 +122,24 @@ def editor(
 # --------------------------------------------------------------------------- #
 # render
 # --------------------------------------------------------------------------- #
-@app.command("render")
+@app.command("render", context_settings={"allow_extra_args": True,
+                                         "ignore_unknown_options": True})
 def render(
+    ctx: typer.Context,
     no_run: bool = typer.Option(
-        False, "--no-run", help="Build the renderer probe but do not run it."),
+        False, "--no-run", help="Build the probe but do not run it."),
+    probe: str = typer.Option(
+        "render", "--probe",
+        help="Which headless probe to build: 'render' (triangle smoke test) or "
+             "'atmosphere' (steps the regional nest and reports its column)."),
 ):
-    """Build and run the Vulkan renderer probe (configures with SE_BUILD_RENDER=ON)."""
-    raise typer.Exit(render_svc.build_and_run(run=not no_run))
+    """Build and run a headless Vulkan probe (configures with SE_BUILD_RENDER=ON).
+
+    Arguments after the options are passed through to the probe, so
+    `se render --probe atmosphere -- --hours 3 --profile p.csv` works.
+    """
+    raise typer.Exit(
+        render_svc.build_and_run(run=not no_run, probe=probe, args=ctx.args))
 
 
 # --------------------------------------------------------------------------- #

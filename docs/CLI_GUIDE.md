@@ -49,7 +49,7 @@ the final resolved values and where each one came from.
 |-------------------------------------------------------|---------------------------------------------------|
 | `se build` / `test` / `run` / `clean` / `doxygen`     | Build, test, run, and document the C++ project    |
 | `se editor`                                           | Build and launch the ImGui editor                 |
-| `se render`                                           | Build and run the Vulkan renderer probe           |
+| `se render`                                           | Build and run a headless Vulkan probe             |
 | `se audio`                                            | Build and run the audio demo                      |
 | `se docker`                                           | Build and run the development container           |
 | `se config`                                           | Show the resolved configuration                   |
@@ -128,14 +128,38 @@ Configures with `SE_BUILD_EDITOR=ON` and builds into its own `build-editor/`
 tree, separate from `se build`'s `build/`, so the two never clobber each
 other's `CMAKE_BUILD_TYPE`.
 
-## `se render` — the Vulkan renderer probe
+## `se render` — the headless Vulkan probes
 
 ```bash
-se render             # build and run the standalone renderer probe
+se render              # build and run the renderer probe (triangle smoke test)
 se render --no-run     # build only
+se render --probe atmosphere -- --hours 3 --profile column.csv
 ```
 
-Configures with `SE_BUILD_RENDER=ON`.
+Configures with `SE_BUILD_RENDER=ON`. Both probes run without a window, so they work
+over SSH and in CI.
+
+`--probe render` (the default) renders a triangle offscreen and reads two pixels back,
+which proves the device, shaders, pipeline and submit path came up.
+
+`--probe atmosphere` steps the regional weather nest through hours of simulated time in
+seconds of wall clock and reports both the observer column and the whole domain's sky —
+a measuring instrument rather than a smoke test, so everything after `--` is passed
+straight through to it. Run it with `--help` for the full list; the ones worth knowing
+are `--hours`, `--diurnal` (drive the sun through a real day instead of holding it),
+`--profile <path.csv>` (the full vertical state, one row per level per sample),
+`--series <path.csv>` (one row per sample), and the `--sensible` / `--latent` /
+`--seed` / `--eddy` / `--pbl-depth` / `--pbl-w` / `--critical` / `--humidity` /
+`--sweeps` overrides that isolate one term of the physics at a time.
+
+```bash
+se render --probe atmosphere -- --hours 11 --diurnal --sample 45
+```
+
+The three rightmost columns are the domain's sky — what fraction of columns hold cloud,
+the mean coverage and the mean cloud base — because a single column is a noisy sample of
+a 192² field, and "is there cloud" is a question about the sky rather than about where
+the observer happens to be standing.
 
 ## `se audio` — the audio demo
 

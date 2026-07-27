@@ -81,8 +81,9 @@ layout(set = 0, binding = 5) uniform sampler3D cloud_cirrus_texture;
 layout(set = 0, binding = 6) uniform sampler3D weather_field;
 
 // The regional nest's optical extinction (atmosphere_extinction.comp): r = sigma in 1/m,
-// g = the vertical profile through the cloud's own depth, b = rain content, a = the margin to
-// saturation. Read only when the nest is running, and when it is, it replaces both paths below.
+// g = the vertical profile through the cloud's own depth, b = rain content, a = the cell's
+// cloud fraction. Read only when the nest is running, and when it is, it replaces both paths
+// below.
 layout(set = 0, binding = 8) uniform sampler3D nest_extinction;
 
 // The WMO genus catalogue, uploaded once at pass construction from Render::cloud_genus_profile
@@ -457,7 +458,12 @@ void main()
         // field into discrete clouds with edges: at low coverage only the noise's peaks survive
         // as scattered puffs, and as coverage rises they grow and merge into an overcast sheet.
         // A multiply cannot do that; it only dims a lump that was already the wrong shape.
-        float coverage = clamp(nest.r / max(scene.atmosphere_nest_params.w, 1e-6), 0.0, 1.0);
+        // Coverage is the nest's own diagnosed cloud fraction — how much of this cell is cloud —
+        // rather than a proxy read off the cell-mean extinction, which is what it used to be.
+        // The two are different questions and the proxy answered neither: it made a thin haze
+        // spread over a whole cell read as scattered cloud and a small dense cumulus read as
+        // nearly clear, because both come out as the same cell mean.
+        float coverage = clamp(nest.a, 0.0, 1.0);
         profile = clamp(nest.g, 0.0, 1.0);
 
         if (coverage > 0.0)
@@ -490,16 +496,46 @@ void main()
             // double-counting the same taper -- and because that multiply had a floor, the
             // density could never reach zero at a cloud's own edge, so every cloud was a slab
             // with hard top and bottom faces and the sky read as a solid white ceiling.
-            density = clamp(remap(base_shape, 1.0 - coverage, 1.0, 0.0, 1.0), 0.0, 1.0) * coverage;
+            //
+            // The amplitude is the **in-cloud** water, not the cell mean: sigma is spread over
+            // the whole cell and the water is only in `coverage` of it, so the carve — which
+            // fills that same fraction of the texels — has to be filled at sigma/coverage or the
+            // cloud is dimmed twice for being small. The floor bounds the divide for a cell with
+            // a sliver of cloud in it; below a twentieth of a cell there is nothing here to see
+            // at this grid anyway.
+            float in_cloud = clamp(nest.r / (max(coverage, 0.05) *
+                                             max(scene.atmosphere_nest_params.w, 1e-6)),
+                                   0.0, 1.0);
 
-            // Erode the low-density fringe with a finer octave, so edges are ragged rather than
-            // smooth iso-contours of the shape noise.
-            if (density > 0.0)
+            // Shape first, water second — and keeping them apart is the point rather than a
+            // refactor. Everything from here to the erosion is *where the cloud is*, a
+            // dimensionless [0, 1] carved out of noise by the nest's own coverage; `in_cloud` is
+            // *how much water is in it*, a measured quantity that can be anything. The two are
+            // multiplied once, at the end.
+            //
+            // They used to be multiplied before the erosion, and that is a bug with a signature.
+            // The erosion subtracts an absolute threshold — up to 0.45, averaging 0.225 — which
+            // is a fringe when applied to the deck path's authored density of order one. Applied
+            // to a *physical* density it is not a fringe: a marginal fair-weather deck (14 % cloud
+            // fraction, 0.01 g/kg, sitting right at the closure's critical humidity) reaches here
+            // at 0.058, so the threshold drove 87 % of its texels to zero and crushed the rest
+            // toward it. What renders is not cloud but the noise's own surviving peaks, and
+            // because the field rebakes every nest step, *which* peaks survive changes each time:
+            // flickering specks. Measured in the editor, and it is what a thin deck looked like.
+            //
+            // Eroding the shape instead keeps the ragged edge the octave exists to draw — it
+            // still produces real zeros, still moves the cloud's own boundary — while a faint
+            // deck stays a faint deck rather than becoming confetti.
+            float shape = clamp(remap(base_shape, 1.0 - coverage, 1.0, 0.0, 1.0), 0.0, 1.0);
+
+            if (shape > 0.0)
             {
                 vec4 det = texture(cloud_detail_texture, sp / NEST_DETAIL_SCALE);
                 float detail_fbm = det.r * 0.625 + det.g * 0.25 + det.b * 0.125;
-                density = clamp(remap(density, detail_fbm * 0.45, 1.0, 0.0, 1.0), 0.0, 1.0);
+                shape = clamp(remap(shape, detail_fbm * 0.45, 1.0, 0.0, 1.0), 0.0, 1.0);
             }
+
+            density = shape * in_cloud;
         }
     }
     else if (params.derive_genus != 0u && scene.weather_field_levels.w > 0.5)

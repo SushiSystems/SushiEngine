@@ -23,19 +23,22 @@
 // Cloud *base* falls out rather than being placed: a parcel rising along its dry adiabat cools
 // until q_s(T) drops to its own q_v, and the altitude where that happens is the lifting
 // condensation level. Nothing in this shader knows what altitude that is.
+//
+// The saturation adjustment carries a **subgrid cloud fraction** on top of Kessler, and that is
+// not an embellishment: at 2 km spacing the cell mean and the parcel are different things, and
+// condensing only on the mean is what made this nest produce fog at 19 m and never a cumulus.
+// `nest_cloud_partition` in atmosphere_nest_common.glsl holds the closure and the measurement.
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "atmosphere_nest_common.glsl"
 
 layout(set = 0, binding = 1, r32f) uniform image3D theta;
-layout(set = 0, binding = 2, rgba16f) uniform image3D moisture;
+layout(set = 0, binding = 2, rgba32f) uniform image3D moisture;
 // Surface precipitation accumulated out of the bottom of the column, mm/h — what the world
 // coupling, the rain emitter and the readback all ultimately read.
 layout(set = 0, binding = 3, r32f) uniform image2D surface_rain;
 
-// Mixing ratios are carried in g/kg: fp16 holds 1e-3..20 comfortably, where kg/kg would put
-// drizzle-scale rain into the denormal range and flush it to zero.
 void main()
 {
     ivec3 cell = ivec3(gl_GlobalInvocationID);
@@ -52,33 +55,55 @@ void main()
     float dt = nest.dt;
 
     float theta_perturbation = imageLoad(theta, cell).r;
-    vec4 q = imageLoad(moisture, cell) / MOISTURE_UNIT;
+    // The three mixing ratios; the fourth channel is this shader's own output and is diagnosed
+    // below rather than read, so it is deliberately not taken here.
+    vec3 q = imageLoad(moisture, cell).xyz / MOISTURE_UNIT;
     float vapour = q.x;
     float cloud = q.y;
     float rain = q.z;
 
-    // ---- Saturation adjustment -------------------------------------------------------
+    // ---- Saturation adjustment, with a subgrid cloud fraction -------------------------
     //
-    // Condense (or evaporate) until the parcel sits exactly at saturation, releasing (or
-    // absorbing) latent heat as it goes. Saturation moves *with* the temperature the heating
-    // changes, so this is a fixed point, not a one-shot subtraction: one Newton step on
-    //     f(dq) = (q_v - dq) - q_s(T + L dq / c_p)
-    // is enough at these time steps, and the derivative of q_s is what makes it converge in
-    // one rather than needing an iteration nobody can afford per cell.
-    float temperature = (base_theta + theta_perturbation) * exner;
-    float saturation = nest_saturation_mixing_ratio(temperature, pressure);
+    // Condense (or evaporate) toward the equilibrium the cell's *distribution* of humidity
+    // implies, releasing (or absorbing) latent heat as it goes. Two things make this more than
+    // a subtraction, and the second is the whole of this phase's fix:
+    //
+    //   * Saturation moves *with* the temperature the heating changes, so the adjustment is a
+    //     fixed point. One Newton step on f(dq) = (q_v - dq) - q_s(T + L dq / c_p) is enough at
+    //     these time steps; `nest_condensation_efficiency` is that step's denominator.
+    //   * A cell is 2 km across, so its humidity is a *mean*, and a cumulus is saturated air
+    //     occupying a fraction of it. `nest_cloud_partition` condenses the saturated part of
+    //     that distribution rather than waiting for the mean to cross -- see its comment for
+    //     why waiting produces fog and nothing else.
+    //
+    // Stated on the pair (total water, liquid-water temperature), which are what a parcel
+    // conserves as it condenses. That is what turns the partition into a *diagnosis* of the end
+    // state instead of a rate applied to whatever the last step happened to leave behind, and it
+    // is what makes evaporation fall out for free: less cloud than the partition asks for
+    // condenses, more evaporates, and neither needs a branch or a clamp against the cloud that
+    // is there.
     float latent_over_cp = nest.latent_heat_vaporization / nest.specific_heat_pressure;
+    float total_water = vapour + cloud;
+    float temperature = (base_theta + theta_perturbation) * exner;
+    // What this cell would cool to if all its cloud evaporated. Conserved under condensation,
+    // which is exactly why the partition is evaluated against it and not against T.
+    float liquid_temperature = temperature - latent_over_cp * cloud;
 
-    // d(q_s)/dT from the Clausius-Clapeyron form the Magnus expression approximates.
-    float saturation_slope = saturation * nest.latent_heat_vaporization /
-                             (nest.gas_constant_vapour * temperature * temperature);
-    float excess = (vapour - saturation) / (1.0 + latent_over_cp * saturation_slope);
-    // Evaporation cannot take more cloud water than there is.
-    excess = max(excess, -cloud);
+    float saturation = nest_saturation_mixing_ratio(liquid_temperature, pressure);
+    float efficiency = nest_condensation_efficiency(saturation, liquid_temperature);
 
-    vapour -= excess;
-    cloud += excess;
+    float fraction = 0.0;
+    float condensate = nest_cloud_partition(total_water, saturation, efficiency, fraction);
+
+    float excess = condensate - cloud;
+    vapour = max(total_water - condensate, 0.0);
+    cloud = max(condensate, 0.0);
     theta_perturbation += latent_over_cp * excess / max(exner, 1e-6);
+
+    // The state the terms below see is the adjusted one: rain falls through the air this cell
+    // now holds, not the air it held before condensing.
+    temperature = (base_theta + theta_perturbation) * exner;
+    saturation = nest_saturation_mixing_ratio(temperature, pressure);
 
     // ---- Autoconversion: cloud droplets collide into drizzle --------------------------
     //
@@ -103,7 +128,14 @@ void main()
     // a downdraft: air that is colder than its surroundings sinks, spreads out at the ground
     // as a cold pool, and lifts the air ahead of it -- which is how one cell triggers the
     // next. This term is the entire mechanism behind the phase's acceptance bar.
-    float subsaturation = max(saturation - vapour, 0.0);
+    //
+    // Only the *clear* part of the cell evaporates rain, which is what the cloud fraction is
+    // for on this side of the scheme: inside a cloud the air is already saturated by
+    // construction, so rain falling through it is not evaporating however subsaturated the cell
+    // mean around it reads. Without the factor a shower would erode itself inside its own
+    // parent cloud, and an overcast cell would evaporate as freely as a clear one.
+    float clear = clamp(1.0 - fraction, 0.0, 1.0);
+    float subsaturation = max(saturation - vapour, 0.0) * clear;
     if (rain > 0.0 && subsaturation > 0.0)
     {
         float evaporated = min(nest.rain_evaporation_rate * subsaturation *
@@ -151,6 +183,11 @@ void main()
     }
 
     imageStore(theta, cell, vec4(theta_perturbation, 0.0, 0.0, 0.0));
+    // The fourth channel rides beside the water it describes and is *not* scaled by
+    // MOISTURE_UNIT: it is a fraction, not a mixing ratio. Written unconditionally, so a cell
+    // that has just cleared reports zero rather than keeping a fraction advected in from a
+    // neighbour last step.
     imageStore(moisture, cell,
-               vec4(max(vapour, 0.0), max(cloud, 0.0), max(rain, 0.0), 0.0) * MOISTURE_UNIT);
+               vec4(vec3(max(vapour, 0.0), max(cloud, 0.0), max(rain, 0.0)) * MOISTURE_UNIT,
+                    clamp(fraction, 0.0, 1.0)));
 }

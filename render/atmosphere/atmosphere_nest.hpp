@@ -209,6 +209,8 @@ namespace SushiEngine
                         float humidity_scale_height;
 
                         float eddy_viscosity;
+                        float boundary_layer_depth;
+                        float boundary_layer_velocity_scale;
                         float sponge_depth;
                         float sponge_rate;
                         float boundary_relaxation;
@@ -216,6 +218,7 @@ namespace SushiEngine
                         float coriolis;
                         float convective_velocity_scale;
 
+                        float cloud_critical_humidity;
                         float autoconversion_rate;
                         float autoconversion_threshold;
                         float accretion_rate;
@@ -265,6 +268,9 @@ namespace SushiEngine
                         VkBuffer buffer = VK_NULL_HANDLE;
                         VmaAllocation allocation = VK_NULL_HANDLE;
                         void* mapped = nullptr;
+                        VkBuffer profile_buffer = VK_NULL_HANDLE;
+                        VmaAllocation profile_allocation = VK_NULL_HANDLE;
+                        void* profile_mapped = nullptr;
                         std::uint64_t timeline_value = 0; /**< 0 = never filled. */
                         double simulated_seconds = 0.0;
                         double origin_x = 0.0;
@@ -293,6 +299,7 @@ namespace SushiEngine
                     void upload_forcing(VkCommandBuffer cmd, const AtmosphereForcing& forcing);
                     void record_shift(VkCommandBuffer cmd, std::int32_t shift_x,
                                       std::int32_t shift_z, const AtmosphereForcing& forcing);
+                    void record_clear(VkCommandBuffer cmd);
                     void record_step(VkCommandBuffer cmd, const AtmosphereForcing& forcing);
                     void record_extinction(VkCommandBuffer cmd);
                     void record_readback(VkCommandBuffer cmd, std::uint32_t slot);
@@ -322,6 +329,8 @@ namespace SushiEngine
                     void* params_mapped_ = nullptr;
                     VkBuffer mirror_ = VK_NULL_HANDLE;
                     VmaAllocation mirror_allocation_ = VK_NULL_HANDLE;
+                    VkBuffer profile_ = VK_NULL_HANDLE;
+                    VmaAllocation profile_allocation_ = VK_NULL_HANDLE;
                     VkBuffer forcing_staging_ = VK_NULL_HANDLE;
                     VmaAllocation forcing_staging_allocation_ = VK_NULL_HANDLE;
                     void* forcing_staging_mapped_ = nullptr;
@@ -363,6 +372,7 @@ namespace SushiEngine
                     // most recently completed. Kept here rather than handing out the mapped
                     // pointer so a consumer can never read a slot the GPU is refilling.
                     std::vector<AtmosphereMirrorColumn> mirror_columns_;
+                    std::vector<AtmosphereProfileLevel> profile_levels_;
                     AtmosphereMirror mirror_view_{};
                     // The timeline value of the snapshot currently held above, so a completed
                     // slot is copied out exactly once however many frames it stays completed.
@@ -372,6 +382,7 @@ namespace SushiEngine
                     // count and the parameter block is uploaded once, not per sweep.
                     std::uint32_t pressure_sweeps_ = 12;
                     float solar_elevation_sine_ = 0.0f;
+                    float coriolis_ = 0.0f;
             };
         } // namespace Atmosphere
     } // namespace Render

@@ -3220,6 +3220,25 @@ readback.
   autoconversion, accretion, sub-cloud evaporation, and terminal-fall-speed sedimentation.
   Cloud base is nowhere placed — it falls out where a rising parcel's `q_s(T)` drops to its own
   `q_v`, which is the lifting condensation level by definition.
+- **The boundary layer** is parameterized, because the eddies that carry surface heat and
+  moisture out of the lowest level are two orders below a 2 km grid. Vertical diffusion of total
+  θ and the moisture species on Troen & Mahrt's `K = κ·w_s·z·(1 − z/h)²` — linear in height at the
+  ground, where surface-layer similarity requires it, and peaking at `h/3` — over a depth
+  diagnosed per column by the
+  parcel method and capped by `boundary_layer_depth_m`. The depth carries a floor of the two
+  lowest levels: mechanical turbulence at the ground does not switch off with the stratification,
+  and without the floor a level that is momentarily colder than the one above it decouples
+  entirely and then accumulates without limit — measured at −8.76 K, which fogged the level.
+- **Subgrid cloud fraction** sits on top of the adjustment and is what lets a grid-mean model
+  draw a cumulus at all. A cell's humidity is a *mean* over 4 km²; a fair-weather cumulus is a
+  200 m–1 km thermal, saturated inside while the cell around it is not. So the cell's humidity is
+  a top-hat distribution of half-width `(1 − critical)·q_s` about that mean (Sommeria–Deardorff;
+  Smith 1990's uniform member), condensation takes its saturated tail, and the fraction and the
+  condensate come out together. At `cloud_critical_humidity = 1` it collapses exactly onto the
+  all-or-nothing adjustment it generalises, so there is one condensation path and not two. The
+  fraction rides in the moisture volume's fourth channel and the extinction volume's alpha, and
+  it is what the cloudscape bake now thresholds against — cell-mean σ divided by it is the
+  in-cloud water the bake draws at.
 
 **The pressure solve** is the piece worth reading. The grid is deliberately anisotropic, so the
 Laplacian's vertical coupling outweighs its horizontal by `(Δx/Δz)²` — two orders of magnitude
@@ -3237,7 +3256,7 @@ unchanged.
 VFX preview). A per-view nest would simulate three divergent atmospheres at three times the cost
 and several hundred megabytes, and the simulation would have to pick one to answer "what is the
 weather". So `AtmosphereNest` is a device-level service in `AssetLibrary`, beside the cloud
-noise, built on first use so a scene that never enables weather never pays its ~113 MB. It is
+noise, built on first use so a scene that never enables weather never pays its ~135 MB. It is
 centred on the **simulation's observer**, not on any camera, which decouples it from views
 entirely.
 
@@ -3260,6 +3279,30 @@ two in one line (`simulation->set_atmosphere_mirror(&renderer->assets())`). This
 mirror pulled forward from phase E, deliberately and only as far as it had to be: the moment the
 grid moved onto the GPU there was nothing left on the CPU for `sample_column` to read. §9.1's
 full `AtmosphereProfile` stays in phase E, where it has consumers written for it.
+
+**The profile beside the columns.** The same dispatch also writes `AtmosphereProfileLevel` — the
+observer column's *unreduced* vertical state, published on `AtmosphereMirror` alongside the
+coarse records. Every field of a `WeatherColumn` is already a vertical reduction, which is what
+gameplay wants and is exactly what a column that refuses to condense has destroyed the evidence
+in: a log of exact zeros is the case where the only remaining question ("why") is answerable
+solely by height. Sixteen floats a level over at most 64 levels is 4 KB against the columns' 64,
+written from samples the dispatch was already fetching. It carries state and not diagnosis —
+θ′, the three mixing ratios and the base state's own vapour beside them, the diagnosed cloud
+fraction, the wind, the extinction, the buoyancy the level would feel and the divergence the
+projection was handed — because a derived summary is what the columns already are. The Meteorology
+panel renders it level by level, cloudy rows tinted, which is where a clear sky is diagnosed
+without leaving the editor.
+
+**`atmosphere_probe`** (`render/probe/atmosphere_main.cpp`) drives all of it headlessly: a Vulkan
+device with no window, the nest stepped through hours of game time in seconds of wall clock, and
+the profile written to CSV. A measuring instrument rather than a test — it asserts nothing, and
+`test_atmosphere_nest.cpp` is where the pinning lives. It exists because the questions this tier
+raises are of the form "what is it doing, and at what height", which no pass/fail answers and no
+editor session answers quickly; parameter overrides (`--sensible`, `--latent`, `--seed`,
+`--eddy`, `--pbl-w`, `--critical`, `--sweeps`) let one term be separated from the rest by running
+without it — which is how all three of the boundary-layer defects fixed on 2026-07-28 were found.
+Beside the column it reports the whole mirror's sky: cloudy-column fraction, mean coverage and mean
+cloud base, because one 2 km column is a noisy sample of an intermittent field.
 
 **Before the first readback**, and in a host that never binds a mirror, every weather query
 answers from the base state: a clear sky with the synoptic wind. Honest rather than convenient —

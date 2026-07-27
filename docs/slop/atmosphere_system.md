@@ -438,9 +438,15 @@ B = g · (θ_v′/θ̄_v − q_c − q_r)                 buoyancy including con
 | Δt (game time) | ~3 s | ~2 s | ~1.5 s |
 | VRAM | ~60 MB | ~150 MB | ~420 MB |
 
-`θ`, `u`, `v`, `w`, `π′` are fp32; the `q_*` fields are fp16 (their dynamic range is
-small and their gradients are not differentiated) — this is where the VRAM figures come
-from. Double buffering only for the fields the advection step needs both states of.
+Every prognostic field is fp32, including the `q_*` fields. Half floats were the
+original choice for them on a range argument — mixing ratios are a few grams per
+kilogram and nowhere near the format's ceiling — and §11's Phase B2c measures that
+argument to be the wrong one: what decides a format here is the ratio of a step's
+tendency to the value it lands on, and the surface latent flux's increment was a third
+of one unit in the last place, so the boundary layer never moistened at all. The VRAM
+figures above assume fp16 and are correspondingly optimistic; the shipped 192×192×48
+nest is ~135 MB. Double buffering only for the fields the advection step needs both
+states of.
 
 **Advection** is monotone semi-Lagrangian at Courant ≈ 1 (MacCormack with a limiter, or
 BFECC), directly replacing §1.4's diffusive scheme. **Pressure** is an FFT-based Poisson
@@ -798,6 +804,20 @@ per-column genus from the published field, then the authored deck stack.
 
 ### Phase B2c — The correctness pass B2 exposed — *in progress*
 
+**The instrument came first.** `render/probe/atmosphere_main.cpp` (`atmosphere_probe`) brings the
+nest up on a headless Vulkan device, steps it through hours of simulated weather in seconds of
+wall clock, and prints the observer column's *unreduced* vertical profile. Everything below the
+"Fixed in the cloudscape bake" heading was settled with it, and none of it was settleable without
+it: three hours of weather is thirty seconds of wall clock rather than half an hour of an editor
+session, and the mirror's `WeatherColumn`-shaped record — a vertical reduction by construction —
+had already destroyed the evidence every remaining question needed. The profile it reads is
+`AtmosphereProfileLevel`, published on `AtmosphereMirror` beside the columns and written by the
+same readback dispatch: §9.1's diagnostic slice, deliberately not §9.1's contract.
+
+It takes parameter overrides (`--sensible`, `--latent`, `--seed`, `--eddy`, `--sweeps`) so that a
+claim about one term is separated from the rest by running without it rather than by arguing
+about it.
+
 B2 and B2b are shipped and do what they were designed to do. Running them made visible that the
 render path they feed, and the nest itself, both carried defects no amount of correct new code
 could compensate for. This section is the record of what was **measured**, because on this phase
@@ -892,22 +912,247 @@ is how the diagnostic above first reported 69500 % relative humidity. It now liv
 `atmosphere_nest_common.glsl` beside a note that `theta` and `moisture` use *opposite*
 conventions in the same nest.
 
+#### The drying was not drying: the vapour field was frozen by its own storage format
+
+The moisture volume was `rgba16f`, chosen for range — mixing ratios are a few grams per kilogram
+and never approach fp16's ceiling. What decides a format is not the range but the **ratio of a
+step's tendency to the value it lands on**. The surface latent flux adds
+
+```
+Δq_v = F_latent · Δt / (L · ρ̄ Δz) = 90 · 2.44 / (2.501e6 · 66.3) = 1.33 × 10⁻³ g/kg
+```
+
+per step to a surface layer holding 7.27 g/kg, where fp16's spacing is 3.91 × 10⁻³ g/kg. **The
+increment is 0.34 of one unit in the last place**, so `q_v + Δq_v` rounded straight back to `q_v`,
+every step, forever. Measured and then independently reproduced: the probe reported 7.2695 g/kg
+unchanged after 4 434 steps, and an emulation of the same rounding predicts 7.269531 exactly,
+against 11.25 for the arithmetic the shader was written to perform.
+
+So the boundary layer never moistened at all. Relative humidity fell because potential temperature
+(fp32) accumulated heat normally while vapour did not, the lifting condensation level receded
+because warming alone pushes it up, and no column could condense however long it ran. The
+`−9.9 points/hour` recorded above is that, and only that — **nothing was ever lost.** The mirror
+reported a *relative* humidity, which cannot distinguish air that is drying from air that is
+warming, and the hypothesis was formed from the one number that could not answer the question.
+
+Fixed by making the moisture volume `rgba32f`, which leaves the increment at some 2 700 units in
+the last place. VRAM for the moisture pair goes 27 → 54 MB, the nest's total from ~108 to ~135 MB at
+this tier. The memory-cheaper alternative — store vapour as a departure from the base state, as `theta`
+does, so the stored magnitude sits near zero where fp16's spacing is tiny — needs the base-state
+transport term in the advection and gives the four channels of one texture two conventions, so it
+is recorded as the refinement rather than taken.
+
+Confirmed working: column water now integrates to 11.32 kg/m² after three hours against 10.96 at
+the start, where `F_latent · t / L` predicts 0.389 kg/m² of gain.
+
+#### The updraft is not weak; the forcing has nowhere to go
+
+With the vapour unfrozen, three hours at the authored fluxes leaves the observer column like this:
+
+| level | altitude | θ′ | q_v | buoyancy at the face below |
+|---|---|---|---|---|
+| 0 | 19 m | **+17.64 K** | **12.66 g/kg** | — (rigid ground) |
+| 1 | 99 m | **0.0000 K** | **6.8719 g/kg** — *bit-identical to its initial value* | **0.317 m/s²** |
+| 2 | 214 m | 0.0003 K | 6.3391 g/kg | −6.3 × 10⁻⁵ m/s² |
+
+The surface fluxes have piled 17.6 K and 5.4 g/kg into the lowest 54 m, and after 4 434 steps the
+level above has received **nothing** — not a little, not a diffused fraction: the same floats it
+started with. The buoyancy at the interface is 0.32 m/s², three orders of magnitude larger than
+anything else in the column, and the vertical velocity there is 1.7 × 10⁻⁴ m/s.
+
+The projection is not at fault; it is correct. A **horizontally uniform** heated slab cannot rise,
+by mass continuity — there is nowhere for the air to come from — and removing exactly that is what
+an anelastic projection is for. The thermal seed's variance is negligible beside 17.6 K of uniform
+heating, so what the solver sees is a uniform layer and it annihilates it.
+
+**The nest has no vertical mixing of any kind.** `eddy_viscosity` is applied horizontally only, by
+explicit design (`atmosphere_forces.comp`), and there is no boundary-layer parameterization. Real
+surface fluxes are carried upward by turbulence far below a 2 km grid — which is precisely what
+§2.1 lists among the parameterizations that "actually determine the weather" (YSU, MYNN). Without
+one, heat and moisture accumulate in a 54 m slab without bound, the layer above never destabilizes,
+and no parcel is ever lifted. Running longer does not help; nor would more pressure sweeps, a
+larger seed, or a stronger flux.
+
+The chain above that link is intact, and this was checked rather than assumed. Forced with
+`--sensible 0 --latent 220`, the surface layer saturates on its own, and at three hours the probe
+reports relative humidity 100 %, the LCL descended to 19 m, and **cloud base at 19 m**: saturation
+adjustment, latent heating, the optical extinction and the readback's cloud detection all work.
+The nest makes cloud the moment a parcel reaches saturation. It made fog, because fog is what an
+atmosphere with no vertical transport can make.
+
+#### Also found, and fixed
+
+- **Potential temperature was advected without its stratification.** `theta` is a perturbation
+  about a height-varying base state, so its equation is `∂θ′/∂t + u·∇θ′ + w ∂θ̄/∂z = 0`;
+  `atmosphere_advect_scalars.comp` carried only the material derivative. Without the second term a
+  parcel keeps its warmth as it rises into an environment whose own warming with height it never
+  feels, so it never loses buoyancy and never finds an equilibrium level: the domain's
+  Brunt–Väisälä frequency is zero, convection has no top, and gravity waves have no restoring
+  force. Added after the monotone limiter deliberately — it is a source, not a transported
+  quantity, and clamping it to the upstream stencil would cap exactly the stable stratification it
+  supplies. Latent while the updraft was zero; it would have been the next fault exposed.
+- **Coriolis was never uploaded.** `NestParams::coriolis` is declared, is documented as riding the
+  forcing, and was never assigned — so `f` was identically zero and `AtmosphereForcing::coriolis`,
+  which the simulation computes from the observer's latitude, was dropped on the floor.
+- **Three volumes were read before anything wrote them.** `atmosphere_shift.comp` seeds the
+  prognostic state, because that is what a fresh atmosphere *is*; pressure, divergence and surface
+  rain are step outputs and no step has run on the seed frame. Pressure is the one that matters:
+  the relaxation warm-starts from the field it left behind, so undefined contents propagate rather
+  than being overwritten and a single NaN would be permanent. Cleared on seed.
+- **`thermal_seed_amplitude` is a rate, not a magnitude.** The header said K, the shader scales it
+  by `dt` and its own comment says K/s. Corrected in the header, with what it implies stated: the
+  seed is re-drawn and added each step, so what it produces is a random walk rather than a bounded
+  wobble. *(Superseded below: the walk turned out to be the source of the domain's ground fog, and
+  the seed now modulates the surface flux instead of θ.)*
+
+#### The boundary layer, added — and what it did and did not fix
+
+The missing transport is now in: vertical eddy diffusion of *total* potential temperature and the
+moisture species, on a `K(z)` profile over a mixed-layer depth **diagnosed per column by
+the parcel method** — walk up from the surface, stop at the first level whose potential temperature
+exceeds the surface parcel's by 0.5 K. `boundary_layer_depth_m` survives as the cap the free
+troposphere's inversion puts on it. It lives in the advection stage rather than beside the
+horizontal diffusion in `atmosphere_forces.comp`, because that shader reads its stencil from the
+image it writes: horizontally that is a smoothing operator either way, but across a
+surface-to-air gradient of tens of kelvin it would not be.
+
+Diagnosed rather than prescribed because the *growth* is the diurnal cycle's mechanism. A fixed
+depth mixes the whole layer from the first step and dilutes the surface moisture into ten times
+the air it should have; a diagnosed one is a few tens of metres at sunrise and deepens as the
+surface parcel outgrows more of the stratification above it.
+
+Three things it fixed, measured:
+
+- The mixed layer is real. After eight hours, `q_v` is uniform at ~4.7 g/kg from the ground to
+  1 600 m and untouched above — a textbook well-mixed profile where there had been a 54 m slab at
+  +17 K against a level that still held its initial value to the last bit.
+- Relative humidity now peaks at the **top** of the mixed layer, which is where cumulus belongs.
+- Domain peak |w| went from 5 × 10⁻³ to 5 × 10⁻² m/s, and the column began to vary in time
+  instead of marching monotonically.
+
+And the thing it did not fix: **the nest still condenses only at the surface.** Across a sweep of
+Bowen ratio (1.4 down to 0.26), mixed-layer cap (700–2 500 m) and airmass moisture (base surface
+RH 0.70–0.80, parent anomaly 0–0.15), every run that made cloud made it at 19 m — fog — and no run
+made cloud at the mixed-layer top. Mixed-layer-top RH reaches 78–95 % and stops there.
+
+That is not a defect to be tuned out; it is the model class. A grid-mean model condenses when the
+*cell mean* saturates, and a fair-weather cumulus is a 200 m–1 km thermal overshooting the
+mixed-layer top in the **tail** of the subgrid distribution while the mean stays subsaturated.
+2 km cannot represent that, which is exactly why every operational model at this resolution carries
+a subgrid **cloud-fraction** closure (Sundqvist, Smith) on top of its boundary-layer scheme. What
+the nest *can* resolve is the organized end — a storm updraft, a frontal band — because those are
+kilometres across.
+
+#### The cloud-fraction closure, and the three defects it uncovered
+
+The closure is in. A cell's humidity is now a **top-hat distribution** about its mean rather than
+a single value — half-width `(1 − critical)·q_s`, after Sommeria–Deardorff and Mellor, the uniform
+member of the family Smith (1990) generalises — and condensation takes its saturated tail.
+Fraction and condensate come out of the same partition, evaluated on total water and the
+liquid-water temperature so it is a *diagnosis of the end state* rather than a rate applied to
+whatever the last step left behind; evaporation then falls out with no branch. At
+`cloud_critical_humidity = 1` the width is zero and it collapses **exactly** onto the
+all-or-nothing adjustment it replaces, which is what makes it one condensation path and not two.
+`Render::atmosphere_cloud_partition` mirrors it on the CPU so the identities are tested rather
+than asserted.
+
+The fraction is carried, not just computed: the moisture volume's fourth channel, the extinction
+volume's alpha (displacing a saturation margin nothing read), and from there the bake — which now
+thresholds against the fraction and draws at `σ / fraction`, the in-cloud water, instead of
+treating the cell mean as both. Band coverage in the mirror is the maximum-random overlap of the
+levels' fractions rather than `1 − exp(−τ)`, which measured opacity and called it coverage.
+
+**It did not, on its own, make a cumulus.** What it did was make the nest's actual state legible,
+and three defects came out of the first eight-hour run — each one found by measurement, none of
+them visible from a screenshot:
+
+1. **A cold level decouples from the boundary layer permanently.** The parcel test correctly finds
+   a column stable when its lowest level is colder than the one above, diagnoses zero mixing depth,
+   and leaves the level exchanging with *nothing* — so the thermal seed's random walk accumulated
+   in it without limit. Measured at −8.76 K after four hours, 99 % relative humidity, against a
+   level 80 m above it at 50 %. Every cloud the closure made in that run was that fog. Fixed with a
+   floor of the two lowest levels on the diagnosed depth: mechanical turbulence at the ground does
+   not switch off with the stratification, which is why every operational scheme keeps a non-zero
+   stable-case exchange.
+2. **The diffusivity profile weakened where it needed to be strongest.** The parabola
+   `4·K_peak·f(1 − f)` goes as `K_peak·(z/h)` near the ground, so its surface mixing *falls as the
+   layer deepens* — and the lowest face is the one that must carry the whole surface flux out of a
+   54 m level. With a 2 500 m layer it left 12 m²/s there; the surface level sat 9 K above the one
+   80 m up, the layer never homogenised, and its top reached 57 % relative humidity after eight
+   hours of heating. Replaced with Troen & Mahrt (1986), `K = κ·w_s·z·(1 − z/h)²`, whose slope does
+   not know `h` at all. A profile normalised to its own peak cannot express that, so the parameter
+   became the **velocity scale** `w_s` (1.5 m/s, peaking near 220 m²/s a third of the way up).
+3. **The thermal seed was an unbounded random walk.** An additive kick on θ redrawn every step is
+   exactly that, and with 37 000 columns its cold tail kept a few percent of the domain in
+   permanent ground fog that the sky reported as cloud. It now modulates the **surface flux**,
+   which is where the heterogeneity physically lives: bounded by construction — a heated surface is
+   heated more here and less there, never refrigerated — and it stops at dusk with the flux it
+   scales, which is when a stable nocturnal layer should not be stirred. The amplitude became a
+   dimensionless patchiness (0.4).
+
+#### What it does now, measured
+
+With all three in, over eleven simulated hours from sunrise, a quiescent parent airmass and no
+front:
+
+| land cover | W/m² | Bowen | mean sky coverage | cloud base | spurious fog |
+|---|---|---|---|---|---|
+| semi-desert / bare soil *(the default)* | 140 / 100 | 1.40 | 0.00 | — | none |
+| mixed cropland | 130 / 180 | 0.72 | 0.04 | 1 341 m | none |
+| vegetated summer land | 120 / 250 | 0.48 | **0.16** | **1 341 m** | none |
+| open water / marsh | 60 / 320 | 0.19 | 0.45 | 700–900 m | none |
+
+The third row is the phase's acceptance bar: a scattered fair-weather cumulus deck at the
+mixed-layer top, 16 % of the sky, forming out of nothing but surface heating. The last is
+stratocumulus — moist, barely buoyant, low base that stays low — which is what an almost entirely
+latent surface should give and is a different genus rather than more of the same. The first row is
+the same model told the ground is a semi-desert, and it is *correct*: a Bowen ratio of 1.4 heats
+the air far faster than it moistens it, so relative humidity falls all day and the condensation
+level runs away upward. Every row is now free of the ground fog that used to be the only thing any
+of them produced.
+
+**The ratio is authored, not defaulted.** Which of these a scene stands on is a scene-authoring
+decision and the engine has no way to guess it, so the default is left where it is and the choice
+is made where it belongs: the Meteorology panel carries the four covers as one-click presets with
+the sky each produces in its tooltip, and displays the resulting Bowen ratio, flagged above 1.
+
 #### Where to resume
 
-Re-log `peak_w` for half an hour with the buoyancy correction in.
-
-- **Still ~3.5 × 10⁻⁴ m/s** → the loss is in the pressure projection or the thermal seed, not
-  the forcing. Look at `pressure_iterations` against the residual the anisotropic grid leaves,
-  and at whether `thermal_seed_amplitude` produces enough horizontal variance for the anelastic
-  constraint to permit any ascent at all. A horizontally uniform buoyancy field cannot lift
-  anything, by mass continuity.
-- **Orders of magnitude larger** → follow it to the condensation level and check the moisture
-  budget next.
-
-The drying is *not yet explained*. Diffusion is eliminated, advection cannot produce a net
-domain-wide loss, and condensation would show as cloud. Settling it needs the vertical profile
-of `q_v`, which the mirror does not carry — it reports the surface only. That is the next
-diagnostic to add, and it should be added before the next hypothesis is formed.
+- **`humidity_scale_height` does not do what it is documented to do, and the airmass is drier
+  than it should be because of it.** The field is described as "the e-folding height of the
+  base-state *vapour* profile"; `atmosphere_base_vapour` applies the exponential to *relative
+  humidity* instead, so `q_v = RH₀·e^(−z/H)·q_s(z)` decays twice — once through the exponential
+  and again through `q_s`. A real sounding has the mixing ratio decaying with a ~2.5 km scale
+  height while `q_s` falls faster, so relative humidity *rises* through a moist layer; here it
+  can only fall, which is why the free troposphere sits at 40 % and why every configuration that
+  makes cloud has to be pushed there with surface humidity and a low Bowen ratio. Measured: at
+  1 341 m the base state gives RH 0.41, against ~0.62 for the profile the doc describes.
+  Deliberately **not** fixed — it changes the look of every existing scene, and that is an
+  authoring decision. It is the first thing to reach for if the tier still reads as too dry.
+- **A lifted cloud base cannot be an initial condition**, and follows from the above: base-state
+  relative humidity is monotone decreasing by construction, so the saturated part of a fresh
+  column is always the part touching the ground. An instantly-cloudy scene is a ground-based
+  layer whose base then rises as the surface warms. That is not a limitation to remove — a cloud
+  base is what the model *produces* by lifting moisture to it — but it is worth stating, because
+  "give me a config with clouds already in it" is a reasonable request with a specific answer:
+  raise `surface_humidity` to ~0.95 and pick a low-Bowen land cover, which reaches 100 % of
+  columns cloudy within ten simulated minutes. The authored deck stack (nest off) remains the
+  zero-wait path and is what it is for.
+- **The deck forms late** — mid-to-late afternoon rather than late morning. The mixed layer has to
+  deepen to ~1 300 m before its top saturates, and the diagnosed depth grows with the surface
+  parcel's excess, so the timing is a consequence of the parcel criterion and the heating rate. Not
+  wrong, but worth measuring against a real sounding before it is called right.
+- **The seed is still white in space.** Bounded now, but it carries no structure at the several-cell,
+  several-minute scale a 2 km-resolved plume would organise around. A time-correlated,
+  spatially-smooth field is the refinement — and it is the remaining half of a *visible* artifact,
+  not only a theoretical one: a deck sitting near the critical humidity has its cloud fraction
+  amplified by the closure's own slope (`d(fraction)/d(RH) = 1/2(1 − critical)`, so 2.5 at the
+  authored value), and a seed that is uncorrelated between neighbouring cells therefore renders as
+  neighbouring cells scintillating independently. The other half was the bake eroding density
+  rather than shape, fixed 2026-07-28.
+- **Cost is still unprofiled.** The parcel-method walk is a short vertical loop per cell inside the
+  cap and the step is already above §12's 2 ms budget. Bounded — cells above the cap return without
+  walking — but not measured.
 
 ### Phase B3 — Surface energy balance and ice
 

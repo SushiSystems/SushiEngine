@@ -1,0 +1,575 @@
+/**************************************************************************/
+/* atmosphere_main.cpp                                                    */
+/**************************************************************************/
+/*                          This file is part of:                         */
+/*                              SushiEngine                               */
+/*               https://github.com/SushiSystems/SushiEngine              */
+/*                        https://sushisystems.io                         */
+/**************************************************************************/
+/* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
+/*     http://www.apache.org/licenses/LICENSE-2.0                         */
+/*                                                                        */
+/* Unless required by applicable law or agreed to in writing, software    */
+/* distributed under the License is distributed on an "AS IS" BASIS,      */
+/* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
+/* implied. See the License for the specific language governing           */
+/* permissions and limitations under the License.                         */
+/**************************************************************************/
+
+// Headless driver for the regional nest: brings up a Vulkan device with no window, steps the
+// nest through hours of simulated weather in seconds of wall clock, and writes what the column
+// under the observer actually contains.
+//
+// **Why this exists.** `docs/slop/atmosphere_system.md` §11's Phase B2c records that every
+// hypothesis in that phase reasoned from a screenshot turned out wrong, and every one settled by
+// porting the code and sampling it turned out right. The remaining questions it names — whether
+// the vertical velocity survives the buoyancy correction, and where the boundary layer's water
+// goes — are of the second kind, and until now they could only be asked through the editor: open
+// a panel, switch on procedural weather, animate the sky, and wait half an hour of wall clock for
+// three hours of weather that the mirror then reports one surface number of. This runs the same
+// nest, the same shaders and the same parameters with the editor removed, at whatever rate the
+// device manages, and prints the profile (§9.1's diagnostic slice) rather than the reduction.
+//
+// It is a *measuring instrument*, not a test: it asserts nothing and returns 0 whenever the nest
+// ran. `test_atmosphere_nest.cpp` is where the base state, the saturation relations and the grid
+// are pinned against textbook values. What this answers is the question a pass/fail cannot —
+// "what is it doing, and at what height".
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <fstream>
+#include <iomanip>
+#include <string>
+#include <vector>
+
+#include <SushiEngine/render/atmosphere_nest.hpp>
+
+#include "atmosphere/atmosphere_nest.hpp"
+#include "resources/pipeline_cache.hpp"
+#include "resources/sampler_cache.hpp"
+#include "resources/shader_library.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "shader_catalogue.hpp"
+
+namespace
+{
+    /** @brief Everything the run is parameterized by; all of it settable from the command line. */
+    struct Options
+    {
+        double hours = 3.0;         /**< Simulated hours to run. */
+        double sample_minutes = 10.0; /**< Simulated minutes between profile dumps. */
+        float solar_sine = 0.9f;    /**< Fixed sine of solar elevation, unless `diurnal`. */
+        bool diurnal = false;       /**< Drive the sun through a day/night cycle instead. */
+        /**
+         * @brief Length of one solar day in the nest's *own* elapsed seconds.
+         *
+         * 24 h is a real day. Anything shorter reproduces the case the editor is actually in:
+         * the sky animates on the simulation's clock while the nest advances at most
+         * `max_steps_per_frame` steps a frame and drops the surplus, so a sky running faster
+         * than the nest can step gives it a *compressed* day — the same diurnal forcing over
+         * less simulated time, and therefore less energy into the boundary layer per apparent
+         * day. The Meteorology panel reports the ratio and offers to match the two; this is how
+         * the consequence of not doing so is measured.
+         */
+        double day_seconds = 86400.0;
+        float latitude_degrees = 45.0f; /**< Sets the Coriolis parameter. */
+        std::string profile_path;   /**< CSV of the observer column's profile; empty = none. */
+        std::string series_path;    /**< CSV of one line per sample; empty = none. */
+        bool validation = false;    /**< Turn the Vulkan validation layers on. */
+
+        // Overrides on `AtmosphereParameters`, so a hypothesis about one term can be separated
+        // from the rest by running with it turned off rather than by arguing about it. NaN means
+        // "leave the authored default alone", which keeps a default run identical to the scene's.
+        float sensible_flux = std::nanf("");
+        float latent_flux = std::nanf("");
+        float thermal_seed = std::nanf("");
+        float eddy_viscosity = std::nanf("");
+        float boundary_layer_depth = std::nanf("");
+        float boundary_layer_velocity_scale = std::nanf("");
+        float surface_humidity = std::nanf("");
+        float critical_humidity = std::nanf("");
+        // The parent solution the Davies zone relaxes toward. Zero is a quiescent airmass,
+        // which is the hardest case the nest can be asked for and therefore the default.
+        float forcing_humidity_anomaly = 0.0f;
+        float forcing_theta_anomaly = 0.0f;
+        float forcing_wind_east = 0.0f;
+        std::uint32_t pressure_iterations = 0; /**< 0 = leave the default. */
+    };
+
+    void usage()
+    {
+        std::printf(
+            "atmosphere_probe -- steps the regional nest headlessly and reports its column.\n\n"
+            "  --hours <h>          simulated hours to run            (default 3)\n"
+            "  --sample <minutes>   simulated minutes between samples (default 10)\n"
+            "  --sun <sine>         fixed sine of solar elevation     (default 0.9)\n"
+            "  --diurnal            drive the sun through a day/night cycle instead of holding it\n"
+            "  --day <hours>        length of that cycle in simulated hours (default 24). Shorter\n"
+            "                       reproduces a sky animating faster than the nest can step.\n"
+            "  --latitude <deg>     latitude the Coriolis term is taken at (default 45)\n"
+            "  --profile <path.csv> write every sampled profile, one row per level\n"
+            "  --series <path.csv>  write one row per sample of the column summary\n"
+            "  --validation         enable the Vulkan validation layers\n"
+            "\nParameter overrides (unset leaves the authored default):\n"
+            "  --sensible <W/m2>    peak surface sensible heat flux\n"
+            "  --latent <W/m2>      peak surface latent heat flux\n"
+            "  --seed <0-1>         surface heating patchiness; 0 removes the symmetry break\n"
+            "  --eddy <m2/s>        subgrid eddy viscosity\n"
+            "  --pbl-depth <m>      cap on the diagnosed mixed-layer depth\n"
+            "  --pbl-w <m/s>        mixed-layer turbulent velocity scale (Troen-Mahrt w_s)\n"
+            "  --humidity <0-1>     base-state surface relative humidity\n"
+            "  --critical <0-1>     relative humidity subgrid cloud begins at; 1 disables the\n"
+            "                       subgrid closure and condenses on the cell mean alone\n"
+            "  --parent-humidity <f> parent-solution relative humidity anomaly\n"
+            "  --parent-theta <K>   parent-solution potential temperature anomaly\n"
+            "  --parent-wind <m/s>  parent-solution eastward wind\n"
+            "  --sweeps <n>         red-black pressure sweeps per step\n");
+    }
+
+    /**
+     * @brief Parses the command line into @p options.
+     * @param argc    Argument count.
+     * @param argv    Argument vector.
+     * @param options Filled in place.
+     * @return false when an argument was malformed or `--help` was asked for.
+     */
+    bool parse(int argc, char** argv, Options& options)
+    {
+        for (int i = 1; i < argc; ++i)
+        {
+            const std::string argument = argv[i];
+            const auto value = [&](const char** out) -> bool
+            {
+                if (i + 1 >= argc)
+                {
+                    std::printf("error: %s needs a value\n", argument.c_str());
+                    return false;
+                }
+                *out = argv[++i];
+                return true;
+            };
+            const char* text = nullptr;
+
+            if (argument == "--help" || argument == "-h")
+                return false;
+            else if (argument == "--diurnal")
+                options.diurnal = true;
+            else if (argument == "--validation")
+                options.validation = true;
+            else if (argument == "--hours" && value(&text))
+                options.hours = std::atof(text);
+            else if (argument == "--day" && value(&text))
+                options.day_seconds = std::atof(text) * 3600.0;
+            else if (argument == "--sample" && value(&text))
+                options.sample_minutes = std::atof(text);
+            else if (argument == "--sun" && value(&text))
+                options.solar_sine = float(std::atof(text));
+            else if (argument == "--latitude" && value(&text))
+                options.latitude_degrees = float(std::atof(text));
+            else if (argument == "--profile" && value(&text))
+                options.profile_path = text;
+            else if (argument == "--series" && value(&text))
+                options.series_path = text;
+            else if (argument == "--sensible" && value(&text))
+                options.sensible_flux = float(std::atof(text));
+            else if (argument == "--latent" && value(&text))
+                options.latent_flux = float(std::atof(text));
+            else if (argument == "--seed" && value(&text))
+                options.thermal_seed = float(std::atof(text));
+            else if (argument == "--eddy" && value(&text))
+                options.eddy_viscosity = float(std::atof(text));
+            else if (argument == "--pbl-depth" && value(&text))
+                options.boundary_layer_depth = float(std::atof(text));
+            else if (argument == "--pbl-w" && value(&text))
+                options.boundary_layer_velocity_scale = float(std::atof(text));
+            else if (argument == "--humidity" && value(&text))
+                options.surface_humidity = float(std::atof(text));
+            else if (argument == "--critical" && value(&text))
+                options.critical_humidity = float(std::atof(text));
+            else if (argument == "--parent-humidity" && value(&text))
+                options.forcing_humidity_anomaly = float(std::atof(text));
+            else if (argument == "--parent-theta" && value(&text))
+                options.forcing_theta_anomaly = float(std::atof(text));
+            else if (argument == "--parent-wind" && value(&text))
+                options.forcing_wind_east = float(std::atof(text));
+            else if (argument == "--sweeps" && value(&text))
+                options.pressure_iterations = std::uint32_t(std::atoi(text));
+            else if (text == nullptr)
+            {
+                std::printf("error: unknown argument '%s'\n", argument.c_str());
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @brief The parent solution the nest's Davies zone relaxes toward.
+     *
+     * Deliberately quiescent — no wind, no thermal anomaly, no humidity anomaly — so that
+     * anything the nest develops is the nest's own convection and not something advected in
+     * through its boundary. That is the experiment the open questions call for; a probe that
+     * blew a front across the domain would answer a different one.
+     */
+    std::vector<SushiEngine::Render::AtmosphereForcingSample> uniform_forcing(
+        float humidity_anomaly, float theta_anomaly, float wind_east)
+    {
+        const int cells = SushiEngine::Render::ATMOSPHERE_FORCING_MAX_CELLS;
+        SushiEngine::Render::AtmosphereForcingSample sample{};
+        sample.humidity_anomaly = humidity_anomaly;
+        sample.theta_anomaly_k = theta_anomaly;
+        sample.wind_east_mps = wind_east;
+        return std::vector<SushiEngine::Render::AtmosphereForcingSample>(
+            std::size_t(cells) * std::size_t(cells), sample);
+    }
+
+    /** @brief The largest column peak |w| anywhere in the mirror, m/s. */
+    float domain_peak_updraft(const SushiEngine::Render::AtmosphereMirror& mirror)
+    {
+        float peak = 0.0f;
+        const std::size_t count = std::size_t(mirror.cells) * std::size_t(mirror.cells);
+        for (std::size_t i = 0; i < count; ++i)
+            peak = std::max(peak, mirror.columns[i].extent[2]);
+        return peak;
+    }
+
+    /**
+     * @brief What the whole domain's sky looks like, rather than one column of it.
+     *
+     * The observer column is a single 2 km cell out of 192², and a cloud field is by nature
+     * intermittent — so a run can be reported as clear while a quarter of the domain holds
+     * cumulus, purely by where the centre happened to land. "Can I see clouds" is a question
+     * about the sky, and the sky is the mirror.
+     */
+    struct DomainSky
+    {
+        float cloudy_columns = 0.0f; /**< Fraction of columns holding any cloud at all. */
+        float mean_coverage = 0.0f;  /**< Mean low-band coverage over every column. */
+        float mean_base_m = 0.0f;    /**< Mean cloud base over the cloudy columns, metres. */
+    };
+
+    DomainSky domain_sky(const SushiEngine::Render::AtmosphereMirror& mirror)
+    {
+        DomainSky sky;
+        const std::size_t count = std::size_t(mirror.cells) * std::size_t(mirror.cells);
+        if (count == 0)
+            return sky;
+        std::size_t cloudy = 0;
+        double coverage = 0.0;
+        double base = 0.0;
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            coverage += double(mirror.columns[i].bands[0][0]);
+            if (mirror.columns[i].surface[3] > 0.0f)
+            {
+                ++cloudy;
+                base += double(mirror.columns[i].surface[3]);
+            }
+        }
+        sky.cloudy_columns = float(double(cloudy) / double(count));
+        sky.mean_coverage = float(coverage / double(count));
+        sky.mean_base_m = cloudy > 0 ? float(base / double(cloudy)) : 0.0f;
+        return sky;
+    }
+
+    /** @brief Column-integrated water, kg/m² — vapour, cloud and rain against their base state. */
+    struct WaterBudget
+    {
+        double vapour = 0.0;
+        double base_vapour = 0.0;
+        double condensate = 0.0;
+    };
+
+    WaterBudget water_budget(const SushiEngine::Render::AtmosphereMirror& mirror,
+                             const SushiEngine::Render::AtmosphereParameters& parameters,
+                             const SushiEngine::Render::AtmosphereNestSize& size)
+    {
+        WaterBudget budget;
+        for (std::int32_t k = 0; k < mirror.profile_levels; ++k)
+        {
+            const SushiEngine::Render::AtmosphereProfileLevel& level = mirror.profile[k];
+            const float thickness = SushiEngine::Render::atmosphere_level_thickness(
+                std::uint32_t(k), size.levels, size.top_m);
+            // Mixing ratio is per kilogram of dry air, so the base-state density is what turns
+            // it into the kilograms per square metre a water budget is actually stated in.
+            const double mass = double(SushiEngine::Render::atmosphere_base_density(
+                                    parameters, level.altitude_m)) *
+                                double(thickness);
+            budget.vapour += double(level.vapour) * mass;
+            budget.base_vapour += double(level.base_vapour) * mass;
+            budget.condensate += double(level.cloud_water + level.rain) * mass;
+        }
+        return budget;
+    }
+
+    /**
+     * @brief Opens @p path for writing, reporting the failure itself.
+     * @param stream Stream to open; left closed when @p path is empty.
+     * @param path   File to write, or empty to do nothing.
+     * @return false only when a non-empty path could not be opened.
+     */
+    bool open_csv(std::ofstream& stream, const std::string& path)
+    {
+        if (path.empty())
+            return true;
+        stream.open(path);
+        if (stream.is_open())
+            return true;
+        std::printf("error: cannot open %s\n", path.c_str());
+        return false;
+    }
+
+    void write_profile_header(std::ofstream& file)
+    {
+        file << "simulated_s,level,altitude_m,pressure_pa,temperature_k,"
+                "theta_pert_k,vapour,base_vapour,saturation,relative_humidity,"
+                "cloud_water,cloud_fraction,rain,wind_e,wind_n,wind_up,extinction,buoyancy,"
+                "divergence\n";
+    }
+
+    void write_profile(std::ofstream& file, double simulated_seconds,
+                       const SushiEngine::Render::AtmosphereMirror& mirror)
+    {
+        // Enough digits that a difference between two samples is a physical change rather than
+        // a rounding of the report. The quantization this probe was built to settle would have
+        // been invisible at a default six significant figures.
+        file << std::setprecision(9);
+        for (std::int32_t k = 0; k < mirror.profile_levels; ++k)
+        {
+            const SushiEngine::Render::AtmosphereProfileLevel& level = mirror.profile[k];
+            file << simulated_seconds << ',' << k << ',' << level.altitude_m << ','
+                 << level.pressure_pa << ',' << level.temperature_k << ','
+                 << level.theta_perturbation_k << ',' << level.vapour << ','
+                 << level.base_vapour << ',' << level.saturation << ','
+                 << (level.saturation > 0.0f ? level.vapour / level.saturation : 0.0f) << ','
+                 << level.cloud_water << ',' << level.cloud_fraction << ',' << level.rain << ','
+                 << level.wind_east_mps << ','
+                 << level.wind_north_mps << ',' << level.wind_up_mps << ',' << level.extinction
+                 << ',' << level.buoyancy << ',' << level.divergence << '\n';
+        }
+        file.flush();
+    }
+} // namespace
+
+int main(int argc, char** argv)
+{
+    Options options;
+    if (!parse(argc, argv, options))
+    {
+        usage();
+        return 1;
+    }
+
+    try
+    {
+        SushiEngine::Render::RenderDeviceDesc desc;
+        desc.enable_validation = options.validation;
+        SushiEngine::Render::Vulkan::VulkanDevice device(desc);
+        std::printf("device: %s\n", device.info().name.c_str());
+
+        // No watch directory: the probe runs the shaders the binary was built with, so a run is
+        // reproducible against a commit rather than against whatever is on disk.
+        SushiEngine::Render::Resources::ShaderLibrary shaders(
+            device, std::string(), SushiEngine::Render::shader_catalogue(),
+            SushiEngine::Render::shader_catalogue_count());
+        SushiEngine::Render::Resources::PipelineCache cache(device, std::string());
+        SushiEngine::Render::Resources::GraphicsPipelineFactory pipelines(device, cache);
+        SushiEngine::Render::Resources::SamplerCache samplers(device);
+
+        const SushiEngine::Render::AtmosphereNestSize size;
+        SushiEngine::Render::Atmosphere::AtmosphereNest nest(device, shaders, pipelines, samplers,
+                                                             size);
+        std::printf("nest: %ux%ux%u at %.0f m, top %.0f m\n", size.cells_x, size.cells_z,
+                    size.levels, double(size.spacing_m), double(size.top_m));
+
+        SushiEngine::Render::AtmosphereParameters parameters;
+        const auto override_float = [](float& target, float value)
+        {
+            if (!std::isnan(value))
+                target = value;
+        };
+        override_float(parameters.surface_sensible_flux, options.sensible_flux);
+        override_float(parameters.surface_latent_flux, options.latent_flux);
+        override_float(parameters.thermal_seed_amplitude, options.thermal_seed);
+        override_float(parameters.eddy_viscosity, options.eddy_viscosity);
+        override_float(parameters.boundary_layer_depth_m, options.boundary_layer_depth);
+        override_float(parameters.boundary_layer_velocity_scale,
+                       options.boundary_layer_velocity_scale);
+        override_float(parameters.surface_humidity, options.surface_humidity);
+        override_float(parameters.cloud_critical_humidity, options.critical_humidity);
+        if (options.pressure_iterations > 0)
+            parameters.pressure_iterations = options.pressure_iterations;
+        std::printf("forcing: %.0f W/m2 sensible, %.0f W/m2 latent, seed %.3f K/s, "
+                    "eddy %.0f m2/s, %u sweeps\n",
+                    double(parameters.surface_sensible_flux),
+                    double(parameters.surface_latent_flux),
+                    double(parameters.thermal_seed_amplitude),
+                    double(parameters.eddy_viscosity), parameters.pressure_iterations);
+        std::printf("closure: mixed layer to %.0f m at w_s %.2f m/s, subgrid cloud from RH %.2f\n",
+                    double(parameters.boundary_layer_depth_m),
+                    double(parameters.boundary_layer_velocity_scale),
+                    double(parameters.cloud_critical_humidity));
+
+        const std::vector<SushiEngine::Render::AtmosphereForcingSample> samples =
+            uniform_forcing(options.forcing_humidity_anomaly,
+                            options.forcing_theta_anomaly, options.forcing_wind_east);
+
+        // The nest addresses the parent solution in scene-absolute metres; with the observer at
+        // the origin the whole forcing field maps onto the domain and stays there.
+        const double span = double(size.spacing_m) * double(size.cells_x);
+        SushiEngine::Render::AtmosphereForcing forcing;
+        forcing.samples = samples.data();
+        forcing.cells_x = SushiEngine::Render::ATMOSPHERE_FORCING_MAX_CELLS;
+        forcing.cells_z = SushiEngine::Render::ATMOSPHERE_FORCING_MAX_CELLS;
+        forcing.revision = 1;
+        forcing.uv_scale_x = float(1.0 / span);
+        forcing.uv_scale_z = float(1.0 / span);
+        forcing.uv_offset_x = 0.5f;
+        forcing.uv_offset_z = 0.5f;
+        forcing.observer_x = 0.0;
+        forcing.observer_z = 0.0;
+        const double EARTH_ROTATION = 7.2921159e-5;
+        forcing.coriolis = float(2.0 * EARTH_ROTATION *
+                                 std::sin(double(options.latitude_degrees) * 3.14159265358979 /
+                                          180.0));
+
+        std::ofstream profile_file;
+        std::ofstream series_file;
+        if (!open_csv(profile_file, options.profile_path) ||
+            !open_csv(series_file, options.series_path))
+            return 1;
+        if (profile_file.is_open())
+            write_profile_header(profile_file);
+        if (series_file.is_open())
+            series_file << "simulated_s,sun_sine,surface_rh,column_peak_w,domain_peak_w,lcl_m,"
+                           "cloud_base_m,cloud_top_m,rain_mm_h,vapour_kg_m2,base_vapour_kg_m2,"
+                           "condensate_kg_m2,peak_buoyancy,peak_divergence,peak_cloud_fraction,"
+                           "peak_fraction_altitude_m,sky_cloudy_columns,sky_mean_coverage,"
+                           "sky_mean_base_m\n";
+
+        const double total_seconds = options.hours * 3600.0;
+        const double sample_seconds = std::max(options.sample_minutes * 60.0, 1.0);
+        // The step the nest will choose. Mirrored rather than queried because `choose_step` is
+        // private and the clock this probe advances has to be the one the nest consumes: the
+        // nest takes at most one step per call, from the difference against the clock it last
+        // saw, so advancing by less than a step would spin and by more would silently drop time.
+        const float thinnest =
+            SushiEngine::Render::atmosphere_level_thickness(0, size.levels, size.top_m);
+        const double step = double(std::clamp(
+            parameters.courant_target * thinnest /
+                std::max(10.0f * parameters.convective_velocity_scale, 1.0f),
+            parameters.min_step_seconds, parameters.max_step_seconds));
+        std::printf("stepping %.2f s of game time per step, %.0f steps for %.1f h\n", step,
+                    total_seconds / step, options.hours);
+
+        double next_sample = 0.0;
+        std::uint32_t samples_written = 0;
+        // The last three are the domain's sky rather than the observer's column, which is the
+        // difference between "is there cloud where I am standing" and "is there cloud".
+        std::printf("\n%10s %8s %8s %10s %9s %8s %8s %9s %8s %8s %9s\n", "sim_s", "sun", "sfc_rh",
+                    "dom_w", "lcl_m", "water", "cld_frac", "frac_m", "sky_pct", "sky_cov",
+                    "sky_base");
+        for (double elapsed = 0.0; elapsed <= total_seconds + 0.5 * step; elapsed += step)
+        {
+            forcing.total_seconds = elapsed;
+            forcing.solar_elevation_sine =
+                options.diurnal
+                    ? float(std::sin(2.0 * 3.14159265358979 * elapsed /
+                                     std::max(options.day_seconds, 1.0)))
+                    : options.solar_sine;
+            nest.step(parameters, forcing);
+
+            if (elapsed + 0.5 * step < next_sample)
+                continue;
+
+            // The readback is asynchronous by design (§3.2), so a sample has to wait for the
+            // step it is asking about. Idling the device is legal *here* and nowhere else: the
+            // renderer must never do this, and the probe has no frame to protect.
+            vkDeviceWaitIdle(device.device());
+            // Collecting happens at the top of step(); a call with no time left to spend does
+            // nothing but publish whatever finished.
+            nest.step(parameters, forcing);
+
+            const SushiEngine::Render::AtmosphereMirror mirror = nest.atmosphere_mirror();
+            if (!mirror.valid() || mirror.profile == nullptr)
+                continue;
+            next_sample = elapsed + sample_seconds;
+
+            const SushiEngine::Render::AtmosphereMirrorColumn& column =
+                mirror.columns[std::size_t(mirror.cells / 2) * std::size_t(mirror.cells) +
+                               std::size_t(mirror.cells / 2)];
+            const WaterBudget budget = water_budget(mirror, parameters, size);
+            const float domain_peak = domain_peak_updraft(mirror);
+            const DomainSky sky = domain_sky(mirror);
+
+            float peak_buoyancy = 0.0f;
+            float peak_divergence = 0.0f;
+            // The cloudiest level and how high it is — the two numbers this phase turns on.
+            // "Some condensate somewhere" was true of every earlier run too; what distinguishes
+            // a cumulus field from fog is that the cloud is at the mixed-layer top and not at
+            // 19 m, and a column summary cannot say which because it reduces over height.
+            float peak_fraction = 0.0f;
+            float peak_fraction_altitude = 0.0f;
+            for (std::int32_t k = 0; k < mirror.profile_levels; ++k)
+            {
+                peak_buoyancy =
+                    std::max(peak_buoyancy, std::fabs(mirror.profile[k].buoyancy));
+                peak_divergence =
+                    std::max(peak_divergence, std::fabs(mirror.profile[k].divergence));
+                if (mirror.profile[k].cloud_fraction > peak_fraction)
+                {
+                    peak_fraction = mirror.profile[k].cloud_fraction;
+                    peak_fraction_altitude = mirror.profile[k].altitude_m;
+                }
+            }
+
+            std::printf("%10.0f %8.3f %8.1f %10.2e %9.0f %8.2f %8.3f %9.0f %8.1f %8.3f %9.0f\n",
+                        mirror.simulated_seconds, double(forcing.solar_elevation_sine),
+                        double(column.extent[1]) * 100.0, double(domain_peak),
+                        double(column.extent[3]), budget.vapour, double(peak_fraction),
+                        double(peak_fraction_altitude), double(sky.cloudy_columns) * 100.0,
+                        double(sky.mean_coverage), double(sky.mean_base_m));
+
+            if (profile_file.is_open())
+                write_profile(profile_file, mirror.simulated_seconds, mirror);
+            if (series_file.is_open())
+            {
+                series_file << std::setprecision(9) << mirror.simulated_seconds << ','
+                            << forcing.solar_elevation_sine << ',' << column.extent[1] << ','
+                            << column.extent[2] << ',' << domain_peak << ','
+                            << column.extent[3] << ',' << column.surface[3] << ','
+                            << column.extent[0] << ',' << column.surface[0] << ','
+                            << budget.vapour << ',' << budget.base_vapour << ','
+                            << budget.condensate << ',' << peak_buoyancy << ','
+                            << peak_divergence << ',' << peak_fraction << ','
+                            << peak_fraction_altitude << ',' << sky.cloudy_columns << ','
+                            << sky.mean_coverage << ',' << sky.mean_base_m << '\n';
+                series_file.flush();
+            }
+            ++samples_written;
+        }
+
+        vkDeviceWaitIdle(device.device());
+
+        std::printf("\nsimulated %.0f s (%.2f h) in %llu steps, %u samples\n",
+                    nest.simulated_seconds(), nest.simulated_seconds() / 3600.0,
+                    static_cast<unsigned long long>(nest.step_count()), samples_written);
+        std::printf("RESULT: %s\n", samples_written > 0 ? "OK" : "FAIL (no readback completed)");
+        return samples_written > 0 ? 0 : 1;
+    }
+    catch (const std::exception& error)
+    {
+        std::printf("RESULT: FAIL (%s)\n", error.what());
+        return 1;
+    }
+}

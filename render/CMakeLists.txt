@@ -463,3 +463,14 @@ target_link_libraries(render_probe PRIVATE sushi_render)
 set_target_properties(render_probe PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON)
+
+# Headless driver for the regional nest: steps it through hours of simulated weather in
+# seconds of wall clock and prints the observer column's vertical profile. A measuring
+# instrument rather than a test — it takes the editor out of the loop for the questions
+# docs/slop/atmosphere_system.md §11's Phase B2c leaves open.
+add_executable(atmosphere_probe probe/atmosphere_main.cpp)
+target_include_directories(atmosphere_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(atmosphere_probe PRIVATE sushi_render)
+set_target_properties(atmosphere_probe PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON)

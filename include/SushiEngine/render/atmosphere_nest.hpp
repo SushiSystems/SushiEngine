@@ -141,8 +141,50 @@ namespace SushiEngine
              * depends on the nest's clock being exact (§3.4).
              */
             std::uint32_t max_steps_per_frame = 4;
-            /** @brief Subgrid eddy viscosity/diffusivity, m²/s. */
+            /** @brief Subgrid eddy viscosity/diffusivity, m²/s. Horizontal only. */
             float eddy_viscosity = 40.0f;
+            /**
+             * @brief Ceiling on how deep the mixed layer may grow, m.
+             *
+             * The nest resolves 2 km horizontally, and the turbulence that carries heat and
+             * moisture up out of the surface layer is two orders below that — so it is
+             * parameterized, exactly as it is in every operational model (§2.1's YSU, MYNN).
+             * Without it the fluxes accumulate in the lowest level and go nowhere: a 54 m slab
+             * reaching +17 K while the level above holds its initial value to the last bit, and
+             * a horizontally uniform slab cannot rise, so the pressure projection removes the
+             * buoyancy and nothing ever convects. This is what makes the difference between a
+             * boundary layer and a hotplate.
+             *
+             * A *cap*, not the depth: the depth itself is diagnosed per column by the parcel
+             * method, so at sunrise the layer is a few tens of metres and grows through the
+             * morning as the surface parcel outgrows more of the stratification above it. That
+             * growth is the diurnal cycle's mechanism — a shallow layer early keeps the surface
+             * moisture concentrated, and deepening carries it to its condensation level — and a
+             * fixed depth would dilute it into ten times the air from the first step. What this
+             * number stands for is the capping inversion the free troposphere puts on a
+             * fair-weather layer.
+             */
+            float boundary_layer_depth_m = 2500.0f;
+            /**
+             * @brief Turbulent velocity scale of the mixed layer, m/s.
+             *
+             * The whole vertical diffusivity profile, in one number. Troen & Mahrt (1986) — the
+             * form YSU and its lineage use — sets `K(z) = κ·w_s·z·(1 − z/h)²`, so this is `w_s`:
+             * the convective velocity scale, how fast the layer's eddies actually turn over.
+             * 1–2 m/s is a fair-weather convective afternoon and the profile it implies peaks at
+             * 150–300 m²/s a third of the way up, which is the observed range.
+             *
+             * **A velocity and not a peak diffusivity, for a measured reason.** A profile
+             * normalised to its own peak — the parabola `4·K_peak·f(1 − f)` this replaced — goes
+             * as `K_peak·(z/h)` near the ground, so its near-surface mixing *weakens as the layer
+             * deepens*. The lowest face is the one that has to carry the entire surface flux out
+             * of a 54 m level, so that feedback is exactly backwards: with a 2 500 m layer it left
+             * 12 m²/s there, the surface level sat 9 K above the one 80 m above it, the layer
+             * never homogenised, and its top reached only 57 % relative humidity after eight
+             * hours of heating — no cloud, at any Bowen ratio. Troen–Mahrt's slope does not
+             * depend on `h` at all.
+             */
+            float boundary_layer_velocity_scale = 1.5f;
             /**
              * @brief Depth of the Rayleigh damping layer below the domain top, m.
              *
@@ -175,14 +217,24 @@ namespace SushiEngine
              */
             std::uint32_t pressure_iterations = 12;
             /**
-             * @brief Amplitude of the surface-layer temperature perturbation, K.
+             * @brief Fractional variation in surface heating across a cell, [0, 1].
              *
              * Convection needs something to break the horizontal symmetry of a uniformly
              * heated surface, or the whole boundary layer rises as one slab and no cell ever
-             * forms. Real air has turbulence doing this; a cloud model without a resolved
-             * surface layer seeds it explicitly, and every one of them does.
+             * forms. Real air has turbulence and real ground has patchy albedo, moisture and
+             * cover doing this; a cloud model without a resolved surface layer seeds it
+             * explicitly, and every one of them does. 0.4 is a mixed landscape.
+             *
+             * **A modulation of the surface flux, not an additive kick on θ**, and the
+             * difference is not cosmetic. An additive perturbation redrawn every step is a
+             * random walk with no bound: it reached −8.76 K in the coldest columns after four
+             * hours, saturating them from below, so a few percent of the domain sat in permanent
+             * ground fog that the sky then reported as cloud. Scaling the flux is bounded by
+             * construction — a heated surface is heated more in one cell and less in the next,
+             * never refrigerated — and it switches off at night with the flux it scales, which
+             * is exactly when a stable nocturnal layer should not be stirred.
              */
-            float thermal_seed_amplitude = 0.12f;
+            float thermal_seed_amplitude = 0.4f;
             /**
              * @brief Updraft speed a band reads as fully convective, m/s.
              *
@@ -194,6 +246,33 @@ namespace SushiEngine
             float convective_velocity_scale = 2.0f;
 
             // ---- Microphysics: Kessler (1969) warm rain ------------------------------
+
+            /**
+             * @brief Relative humidity a cell begins to hold cloud at, [0, 1].
+             *
+             * The closure that makes a grid-mean model able to draw a cumulus at all, and it is
+             * a *resolution* correction rather than a tuning knob. A nest cell is 2 km across,
+             * so its humidity is a cell mean; a fair-weather cumulus is a 200 m–1 km thermal
+             * overshooting the mixed-layer top, saturated inside while the cell around it is
+             * not. Condensing only when the mean saturates therefore cannot produce one: it
+             * produces nothing at all until the entire 4 km² column saturates, and then it
+             * produces fog. That is measured, not supposed — before this existed, every run
+             * that made condensate made it at 19 m, and the mixed-layer top topped out at
+             * 78–95 % relative humidity and never crossed.
+             *
+             * So the humidity inside a cell is treated as a distribution about its mean rather
+             * than a single value, cloud forms in the part of that distribution which is
+             * saturated, and this is where the distribution's dry edge sits: at a cell mean of
+             * `critical × q_s` the wettest air in the cell is exactly at saturation and the
+             * first cloud appears. 0.8 is the standard value for a boundary-layer scheme at
+             * this spacing (Sundqvist 1978; Smith 1990) and the reason every operational model
+             * near 2 km carries one of these on top of its boundary-layer scheme.
+             *
+             * At 1.0 the distribution has no width and the scheme collapses *exactly* onto the
+             * all-or-nothing saturation adjustment it generalises, which is what makes this a
+             * strict generalisation rather than a second, competing condensation path.
+             */
+            float cloud_critical_humidity = 0.80f;
 
             /** @brief Autoconversion rate coefficient k₁, 1/s. */
             float autoconversion_rate = 1.0e-3f;
@@ -413,6 +492,99 @@ namespace SushiEngine
             return vapour < saturation ? vapour : saturation;
         }
 
+        /** @brief What @ref atmosphere_cloud_partition resolves a cell's water into. */
+        struct AtmosphereCloudPartition
+        {
+            /** @brief Fraction of the cell that is cloud, [0, 1]. */
+            float fraction = 0.0f;
+            /** @brief Cell-mean condensate the fraction implies, kg/kg. */
+            float condensate = 0.0f;
+        };
+
+        /**
+         * @brief Split a cell's total water into cloud fraction and cell-mean condensate.
+         *
+         * The subgrid closure, as a function, mirrored from `atmosphere_microphysics.comp` for
+         * the same reason every other relation in this file is: GLSL cannot include a C++
+         * header, so the formula is stated twice and the *numbers* only once. What that buys
+         * here is a closure with a test — the identities below are arithmetic, not opinion, and
+         * `test_atmosphere_nest.cpp` pins them.
+         *
+         * The distribution is a top-hat (Sommeria & Deardorff 1977; Mellor 1977) of half-width
+         * `(1 - critical) q_s` about the cell mean, which is the simplest member of the family
+         * Smith (1990) generalises with a triangular one. Writing `Q` for how far the mean sits
+         * across that width,
+         *
+         *   - `Q ≤ -1`: the whole cell is subsaturated. No cloud, no condensate.
+         *   - `-1 < Q < 1`: partly cloudy. Fraction `(1 + Q)/2`, condensate the mean of the
+         *     saturated tail — which is quadratic in `1 + Q`, so the first cloud in a cell is
+         *     thin and grows faster than linearly as the cell moistens.
+         *   - `Q ≥ 1`: every part of the cell is saturated. Fraction 1, and the condensate is
+         *     the whole excess — identically what an all-or-nothing adjustment would give.
+         *
+         * @param total_water Vapour plus cloud, kg/kg. Rain is a separate, precipitating
+         *                    species and is not part of the distribution.
+         * @param saturation  Saturation mixing ratio at the *liquid-water* temperature, kg/kg.
+         * @param efficiency  The fraction of a nominal excess that actually condenses once its
+         *                    own latent heating has raised `q_s`; see
+         *                    @ref atmosphere_condensation_efficiency.
+         * @param critical    @ref AtmosphereParameters::cloud_critical_humidity.
+         */
+        inline AtmosphereCloudPartition atmosphere_cloud_partition(float total_water,
+                                                                   float saturation,
+                                                                   float efficiency,
+                                                                   float critical)
+        {
+            AtmosphereCloudPartition partition;
+            const float mean = efficiency * (total_water - saturation);
+            const float clamped = critical < 0.0f ? 0.0f : (critical > 1.0f ? 1.0f : critical);
+            const float width = efficiency * (1.0f - clamped) * saturation;
+            if (!(width > 0.0f))
+            {
+                // The degenerate limit is the scheme this generalises, and it is reached by the
+                // formulas below only in the limit — so it is written out rather than divided by
+                // a zero width and rescued afterwards.
+                partition.fraction = mean > 0.0f ? 1.0f : 0.0f;
+                partition.condensate = mean > 0.0f ? mean : 0.0f;
+                return partition;
+            }
+            const float across = mean / width;
+            if (across <= -1.0f)
+                return partition;
+            if (across >= 1.0f)
+            {
+                partition.fraction = 1.0f;
+                partition.condensate = mean;
+                return partition;
+            }
+            partition.fraction = 0.5f * (1.0f + across);
+            partition.condensate = width * (1.0f + across) * (1.0f + across) * 0.25f;
+            return partition;
+        }
+
+        /**
+         * @brief The fraction of a nominal excess that survives its own latent heating, [0, 1].
+         *
+         * Condensing water warms the parcel, which raises `q_s`, which leaves less excess to
+         * condense — so a saturation adjustment is a fixed point rather than a subtraction. One
+         * Newton step on `f(δ) = (q_v - δ) - q_s(T + Lδ/c_p)` is exact enough at these time
+         * steps, and this is that step's denominator: `1 / (1 + (L/c_p)·dq_s/dT)`. Roughly ½ at
+         * 290 K, and falling with temperature, which is why a warm cloud takes twice the water
+         * to reach a given condensate that a cold one does.
+         *
+         * @param p             The thermodynamic constants.
+         * @param saturation    Saturation mixing ratio at @p temperature_k, kg/kg.
+         * @param temperature_k The temperature the derivative is taken at, K.
+         */
+        inline float atmosphere_condensation_efficiency(const AtmosphereParameters& p,
+                                                        float saturation, float temperature_k)
+        {
+            const float safe = temperature_k > 1.0f ? temperature_k : 1.0f;
+            const float slope = saturation * p.latent_heat_vaporization /
+                                (p.gas_constant_vapour * safe * safe);
+            return 1.0f / (1.0f + p.latent_heat_vaporization / p.specific_heat_pressure * slope);
+        }
+
         /**
          * @brief One coarse cell of the parent solution the nest's boundary relaxes toward.
          *
@@ -541,6 +713,90 @@ namespace SushiEngine
             float extent[4]{};
         };
 
+        /** @brief Levels the profile readback carries; the Ultra tier's count is the ceiling. */
+        constexpr int ATMOSPHERE_PROFILE_MAX_LEVELS = 64;
+
+        /**
+         * @brief One level of the observer column's vertical state, as the GPU writes it.
+         *
+         * The mirror's columns (@ref AtmosphereMirrorColumn) answer "what is the weather here",
+         * which is what gameplay asks and all it asks. They cannot answer *why* a column holds
+         * what it holds, because every one of their fields is already a vertical reduction —
+         * and a log of exact zeros is precisely the case where the reduction has thrown away
+         * the only information worth having. A column that will not condense has its explanation
+         * distributed over height: where the vapour is, where the parcel stops rising, at what
+         * level the two would have met.
+         *
+         * So this is the same asynchronous readback, unreduced, for one column: the nest's
+         * centre, which is the cell the observer stands on. Sixteen floats a level over at most
+         * 64 levels is 4 KB — the profile is free beside the 64 KB of columns it travels with,
+         * and it is written by the same dispatch from samples that were already being fetched.
+         *
+         * It is deliberately *not* §9.1's `AtmosphereProfile`. That contract is phase E's, has
+         * consumers written for it, and carries derived quantities (dewpoint, turbulence, icing)
+         * this does not. This is the state vector the nest actually integrates, plus the two
+         * base-state quantities needed to interpret it — which is what a diagnostic wants and
+         * what a gameplay API would be wrong to expose.
+         */
+        struct AtmosphereProfileLevel
+        {
+            /** @brief Level centre, metres above the surface. */
+            float altitude_m = 0.0f;
+            /** @brief Base-state pressure at this level, Pa. */
+            float pressure_pa = 0.0f;
+            /** @brief Absolute temperature, K — base state plus the perturbation, through Exner. */
+            float temperature_k = 0.0f;
+            /** @brief The prognostic potential temperature perturbation, K. */
+            float theta_perturbation_k = 0.0f;
+            /** @brief Water vapour mixing ratio, kg/kg. Total, not a perturbation. */
+            float vapour = 0.0f;
+            /** @brief Base-state vapour mixing ratio at this level, kg/kg — what it started at. */
+            float base_vapour = 0.0f;
+            /** @brief Saturation mixing ratio at this level's own temperature, kg/kg. */
+            float saturation = 0.0f;
+            /** @brief Cloud water mixing ratio, kg/kg. A **cell mean**, not an in-cloud value. */
+            float cloud_water = 0.0f;
+            /**
+             * @brief Fraction of the cell that is cloud, [0, 1].
+             *
+             * Carried beside the condensate because the two answer different questions and the
+             * condensate alone answers neither: 0.1 g/kg spread thinly over a whole 2 km cell is
+             * a haze, and the same 0.1 g/kg concentrated in a third of it is a cumulus field with
+             * blue between the clouds. Dividing one by the other is the in-cloud water content,
+             * which is what the bake's amplitude is derived from.
+             */
+            float cloud_fraction = 0.0f;
+            /** @brief Rain mixing ratio, kg/kg. */
+            float rain = 0.0f;
+            /** @brief Eastward wind on this cell's face, m/s. */
+            float wind_east_mps = 0.0f;
+            /** @brief Northward wind on this cell's face, m/s. */
+            float wind_north_mps = 0.0f;
+            /** @brief Vertical wind on the face below this level, m/s — the one that must be nonzero. */
+            float wind_up_mps = 0.0f;
+            /** @brief Optical extinction, 1/m — what the cloudscape bake reads. */
+            float extinction = 0.0f;
+            /**
+             * @brief Buoyancy this level's face would feel from the state now held, m/s².
+             *
+             * Re-evaluated here rather than captured from `atmosphere_forces.comp`, which does
+             * not store it: microphysics has since added latent heating to `theta`, so this is
+             * the buoyancy of the *end* of the step and not the number the step's own velocity
+             * update used. The distinction matters for arithmetic and not for the question this
+             * answers, which is whether there is any buoyancy in the column at all.
+             */
+            float buoyancy = 0.0f;
+            /**
+             * @brief Mass divergence of the provisional velocity, 1/s.
+             *
+             * What the pressure solve was asked to remove, not what it left behind: the
+             * divergence volume is written once per step before the sweeps and is not
+             * recomputed after them. A large value here with a small updraft is the signature
+             * of a projection working hard against a term that should never have reached it.
+             */
+            float divergence = 0.0f;
+        };
+
         /**
          * @brief The asynchronous readback of the nest, as gameplay reads it.
          *
@@ -559,6 +815,16 @@ namespace SushiEngine
             const AtmosphereMirrorColumn* columns = nullptr; /**< `cells * cells`; borrowed. */
             std::int32_t cells = 0;
             std::uint32_t revision = 0; /**< Bumped per completed readback; 0 = nothing yet. */
+
+            /**
+             * @brief The observer column's unreduced vertical state; `profile_levels` entries.
+             *
+             * Borrowed, from the same snapshot as @ref columns and therefore of the same age.
+             * Null until the first readback completes. Diagnostic (@ref AtmosphereProfileLevel):
+             * nothing the renderer draws depends on it.
+             */
+            const AtmosphereProfileLevel* profile = nullptr;
+            std::int32_t profile_levels = 0;
 
             float uv_scale_x = 0.0f;  /**< Scene-absolute world X metres -> U. */
             float uv_scale_z = 0.0f;  /**< Scene-absolute world Z metres -> V. */

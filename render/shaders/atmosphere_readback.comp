@@ -28,6 +28,9 @@ layout(set = 0, binding = 4) uniform sampler3D wind_x;
 layout(set = 0, binding = 5) uniform sampler3D wind_y;
 layout(set = 0, binding = 6) uniform sampler3D wind_z;
 layout(set = 0, binding = 7) uniform sampler2D surface_rain;
+// Bound for the profile alone. It holds the divergence of the *provisional* velocity — the
+// quantity the pressure solve is handed — because nothing recomputes it after the sweeps.
+layout(set = 0, binding = 8) uniform sampler3D divergence;
 
 // One record per mirror cell, laid out to match Render::AtmosphereMirrorColumn exactly.
 struct MirrorColumn
@@ -37,10 +40,43 @@ struct MirrorColumn
     vec4 extent;   // cloud top (m), surface RH (0-1), peak |w| (m/s), LCL (m; 0 = none)
 };
 
-layout(std430, set = 0, binding = 8) buffer Mirror
+layout(std430, set = 0, binding = 9) buffer Mirror
 {
     MirrorColumn columns[];
 } mirror;
+
+// One level of the observer column, laid out to match Render::AtmosphereProfileLevel exactly.
+// Sixteen tightly packed floats: std430 gives an array of floats-only structs a stride of
+// exactly its size, which is why this is written as scalars rather than as vec4s.
+struct ProfileLevel
+{
+    float altitude_m;
+    float pressure_pa;
+    float temperature_k;
+    float theta_perturbation_k;
+    float vapour;
+    float base_vapour;
+    float saturation;
+    float cloud_water;
+    float cloud_fraction;
+    float rain;
+    float wind_east_mps;
+    float wind_north_mps;
+    float wind_up_mps;
+    float extinction;
+    float buoyancy;
+    float divergence;
+};
+
+// The unreduced column. Everything above this line is a vertical *reduction* — which is what
+// gameplay wants and is exactly what a column that refuses to condense has already destroyed
+// the evidence in. Three hours of exact zeros in the reductions is the case where the only
+// question left ("why") is answerable solely by height: where the vapour sits, how far a
+// parcel gets, and at what level those two would have met.
+layout(std430, set = 0, binding = 10) buffer Profile
+{
+    ProfileLevel levels[];
+} profile;
 
 layout(push_constant) uniform Params
 {
@@ -51,11 +87,82 @@ layout(push_constant) uniform Params
 const float BAND_LOW_CEILING = 2500.0;
 const float BAND_MID_CEILING = 6000.0;
 
+// Writes the nest centre column's unreduced vertical state. Run by a single invocation, and by
+// the *centre* column specifically rather than by whichever mirror cell happens to land nearest
+// it: the nest is re-centred on the observer every step, so cell (cells_x/2, cells_z/2) is the
+// one the observer stands on, and the mirror's own lattice does not sample it exactly.
+void write_profile()
+{
+    const ivec2 centre = ivec2(nest.cells_x / 2, nest.cells_z / 2);
+    const int levels = min(nest_level_count(), profile.levels.length());
+
+    for (int k = 0; k < levels; ++k)
+    {
+        const ivec3 cell = ivec3(centre.x, k, centre.y);
+        const float altitude = nest_level_altitude(float(k));
+        const float pressure = nest_base_pressure(altitude);
+        const float exner = nest_exner(altitude);
+
+        const float theta_perturbation = texelFetch(theta, cell, 0).r;
+        // Only the three mixing ratios carry MOISTURE_UNIT; the fourth is a cloud fraction.
+        const vec4 raw = texelFetch(moisture, cell, 0);
+        const vec4 q = vec4(raw.xyz / MOISTURE_UNIT, raw.w);
+        const float temperature = (nest_base_theta(altitude) + theta_perturbation) * exner;
+
+        ProfileLevel level;
+        level.altitude_m = altitude;
+        level.pressure_pa = pressure;
+        level.temperature_k = temperature;
+        level.theta_perturbation_k = theta_perturbation;
+        level.vapour = q.x;
+        // Carried beside the vapour rather than left for the reader to recompute, because the
+        // question this profile exists to answer is a *difference*: the domain starts at the
+        // base state everywhere, so q_v minus this is exactly how much water the simulation has
+        // added or lost since, level by level.
+        level.base_vapour = nest_base_vapour(altitude);
+        level.saturation = nest_saturation_mixing_ratio(temperature, pressure);
+        level.cloud_water = q.y;
+        level.cloud_fraction = q.w;
+        level.rain = q.z;
+        level.wind_east_mps = texelFetch(wind_x, cell, 0).r;
+        level.wind_north_mps = texelFetch(wind_z, cell, 0).r;
+        level.wind_up_mps = texelFetch(wind_y, cell, 0).r;
+        level.extinction = texelFetch(extinction, cell, 0).r;
+        level.divergence = texelFetch(divergence, cell, 0).r;
+
+        // The same face-centred expression atmosphere_forces.comp applies, evaluated on the
+        // state as it now stands. The two are not the same number — microphysics has since
+        // heated theta — and the comment on AtmosphereProfileLevel::buoyancy says so.
+        level.buoyancy = 0.0;
+        if (k > 0 && k < nest_level_count() - 1)
+        {
+            const ivec3 below = ivec3(centre.x, k - 1, centre.y);
+            const vec4 q_below = texelFetch(moisture, below, 0) / MOISTURE_UNIT;
+            const float face_altitude = nest_face_altitude(float(k));
+            const float face_base_theta = nest_base_theta(face_altitude);
+
+            const float theta_face =
+                0.5 * (theta_perturbation + texelFetch(theta, below, 0).r);
+            const float vapour_face =
+                0.5 * (q.x + q_below.x) - nest_base_vapour(face_altitude);
+            const float condensate_face = 0.5 * (q.y + q.z + q_below.y + q_below.z);
+            const float theta_virtual = theta_face + face_base_theta * 0.61 * vapour_face;
+            level.buoyancy = nest.gravity *
+                             (theta_virtual / max(face_base_theta, 1.0) - condensate_face);
+        }
+
+        profile.levels[k] = level;
+    }
+}
+
 void main()
 {
     ivec2 mirror_cell = ivec2(gl_GlobalInvocationID.xy);
     if (mirror_cell.x >= push.mirror_cells || mirror_cell.y >= push.mirror_cells)
         return;
+
+    if (mirror_cell == ivec2(0))
+        write_profile();
 
     // Point-sample the nest at the mirror cell's centre. The mirror is coarse by design: it
     // answers "what is the weather here" for gameplay, at a resolution a player cannot walk
@@ -73,7 +180,17 @@ void main()
     float reference_sigma = 3.0 * 0.001 /
                             (2.0 * nest.water_density * max(nest.droplet_effective_radius, 1e-7));
 
-    float optical_depth[3] = float[3](0.0, 0.0, 0.0);
+    // Band coverage by maximum-random overlap (Geleyn & Hollingsworth 1979), accumulated in two
+    // running lanes per band: the maximum fraction within the contiguous cloudy run being walked,
+    // and the product of clear-sky fractions over the runs already closed.
+    //
+    // Overlap has to be assumed because the levels only report their own fractions, and the
+    // assumption is the standard one for the same reason it is standard: a cumulus tower occupies
+    // the same footprint at every level it spans, so levels inside one cloud overlap *maximally*
+    // and combine as a max; two decks separated by clear air are unrelated, so they overlap
+    // *randomly* and combine as 1 - (1-a)(1-b).
+    float run_maximum[3] = float[3](0.0, 0.0, 0.0);
+    float clear_sky[3] = float[3](1.0, 1.0, 1.0);
     float peak_sigma[3] = float[3](0.0, 0.0, 0.0);
     float peak_updraft[3] = float[3](0.0, 0.0, 0.0);
     float temperature_sum[3] = float[3](0.0, 0.0, 0.0);
@@ -99,8 +216,20 @@ void main()
         float thickness = nest_level_thickness(k);
         int band = altitude < BAND_LOW_CEILING ? 0 : (altitude < BAND_MID_CEILING ? 1 : 2);
 
+        // The nest's own cloud fraction for this level, straight out of the moisture volume's
+        // fourth channel — which is why this is not divided by MOISTURE_UNIT.
+        float fraction = clamp(texelFetch(moisture, cell, 0).w, 0.0, 1.0);
+        if (fraction > 0.0)
+        {
+            run_maximum[band] = max(run_maximum[band], fraction);
+        }
+        else if (run_maximum[band] > 0.0)
+        {
+            clear_sky[band] *= 1.0 - run_maximum[band];
+            run_maximum[band] = 0.0;
+        }
+
         float sigma = texelFetch(extinction, cell, 0).r;
-        optical_depth[band] += sigma * thickness;
         peak_sigma[band] = max(peak_sigma[band], sigma);
         float updraft = abs(texelFetch(wind_y, cell, 0).r);
         peak_updraft[band] = max(peak_updraft[band], updraft);
@@ -113,7 +242,13 @@ void main()
         // The band condensate actually occupies. The march shell is stretched across exactly
         // this, so a sky with one low deck does not spend two thirds of the baked field's
         // vertical resolution on empty stratosphere.
-        if (sigma > reference_sigma * 0.02)
+        //
+        // Measured against the *cloud fraction*, which is what the bake thresholds on, and not
+        // against an optical-depth fraction as it used to be. The two disagreed: a thin deck
+        // could report a band coverage of 0.05 — cloud the bake does draw — while every level
+        // fell under the optical threshold, so the shell excluded it and the march clipped away
+        // exactly the cloud the field had been given.
+        if (fraction > 0.02)
         {
             if (!found_base)
             {
@@ -165,9 +300,16 @@ void main()
     MirrorColumn column;
     for (int band = 0; band < 3; ++band)
     {
-        // Coverage as the band's own vertical opacity: a column you cannot see through is
-        // covered. Physically meaningful, and it needs no threshold of its own.
-        float coverage = 1.0 - exp(-optical_depth[band]);
+        // Close whatever run the loop ended inside, then read the coverage off the clear-sky
+        // product. This replaces `1 - exp(-optical_depth)`, which measured *opacity* and called
+        // it coverage: a scattered cumulus field a third of the way across the sky is opaque
+        // wherever there is a cloud, so that expression reported it as overcast and gameplay
+        // could not tell a broken sky from a solid one.
+        clear_sky[band] *= 1.0 - run_maximum[band];
+        float coverage = 1.0 - clear_sky[band];
+        // Density stays the *cell-mean* condensate against a solid cumulus, deliberately: it is
+        // the opacity scale a deck is drawn at, and it is coverage's complement rather than a
+        // second statement of it.
         float density = clamp(peak_sigma[band] / reference_sigma, 0.0, 2.0);
         float convective = clamp(peak_updraft[band] / max(nest.convective_velocity_scale, 0.1),
                                  0.0, 1.0);

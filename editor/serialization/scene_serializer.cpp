@@ -139,6 +139,10 @@ namespace SushiEngine
                           {"pressure_iterations", e.atmosphere_nest.pressure_iterations},
                           {"thermal_seed_amplitude", e.atmosphere_nest.thermal_seed_amplitude},
                           {"convective_velocity_scale", e.atmosphere_nest.convective_velocity_scale},
+                          {"boundary_layer_depth_m", e.atmosphere_nest.boundary_layer_depth_m},
+                          {"boundary_layer_velocity_scale",
+                           e.atmosphere_nest.boundary_layer_velocity_scale},
+                          {"cloud_critical_humidity", e.atmosphere_nest.cloud_critical_humidity},
                           {"autoconversion_rate", e.atmosphere_nest.autoconversion_rate},
                           {"autoconversion_threshold", e.atmosphere_nest.autoconversion_threshold},
                           {"accretion_rate", e.atmosphere_nest.accretion_rate},
@@ -249,6 +253,13 @@ namespace SushiEngine
                         a.value("thermal_seed_amplitude", n.thermal_seed_amplitude);
                     n.convective_velocity_scale =
                         a.value("convective_velocity_scale", n.convective_velocity_scale);
+                    n.boundary_layer_depth_m =
+                        a.value("boundary_layer_depth_m", n.boundary_layer_depth_m);
+                    n.boundary_layer_velocity_scale =
+                        a.value("boundary_layer_velocity_scale",
+                                n.boundary_layer_velocity_scale);
+                    n.cloud_critical_humidity =
+                        a.value("cloud_critical_humidity", n.cloud_critical_humidity);
                     n.autoconversion_rate = a.value("autoconversion_rate", n.autoconversion_rate);
                     n.autoconversion_threshold =
                         a.value("autoconversion_threshold", n.autoconversion_threshold);

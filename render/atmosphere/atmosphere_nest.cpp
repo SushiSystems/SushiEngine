@@ -107,14 +107,37 @@ namespace SushiEngine
                     {"atmosphere_project.comp", "usiii", 0},
                     {"atmosphere_microphysics.comp", "uiii", 0},
                     {"atmosphere_extinction.comp", "usi", 0},
-                    {"atmosphere_readback.comp", "usssssssb", sizeof(ReadbackPush)},
+                    {"atmosphere_readback.comp", "ussssssssbb", sizeof(ReadbackPush)},
                 };
 
                 static_assert(sizeof(STAGES) / sizeof(STAGES[0]) == 10,
                               "the stage table and AtmosphereNest::STAGE_COUNT must agree");
 
                 constexpr VkFormat SCALAR_FORMAT = VK_FORMAT_R32_SFLOAT;
-                constexpr VkFormat MOISTURE_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+                // Full floats, and the reason is a measurement rather than a preference.
+                //
+                // Half floats were chosen for the range — mixing ratios are a few grams per
+                // kilogram and never approach fp16's ceiling. What decides the format is not the
+                // range but the *ratio of a step's tendency to the value it lands on*. The
+                // surface latent flux adds 1.3e-3 g/kg per step to a surface layer holding 7.27
+                // g/kg, where fp16's spacing is 3.9e-3 g/kg: the increment is a third of one
+                // unit in the last place, so every step rounded straight back to where it
+                // started and the boundary layer never moistened at all. Measured, not deduced —
+                // `atmosphere_probe` reported 7.2695 g/kg unchanged after three thousand steps,
+                // which is the value an emulation of the same rounding predicts exactly.
+                //
+                // The consequence was the whole of the phase's symptom: with vapour frozen and
+                // potential temperature (fp32) accumulating heat normally, relative humidity fell
+                // under warming alone, the lifting condensation level receded, and no column
+                // could ever condense however long it ran.
+                //
+                // fp32 leaves the increment at some 2 700 units in the last place. The
+                // memory-cheaper alternative is to store vapour as a departure from the base
+                // state, as `theta` does, which puts the stored magnitude near zero where fp16's
+                // spacing is tiny; it needs the base-state transport term in the advection and
+                // gives the four channels of one texture two different conventions, so it is
+                // recorded as the refinement rather than taken here.
+                constexpr VkFormat MOISTURE_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
                 constexpr VkFormat EXTINCTION_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
                 // Full floats for the parent solution: it is 64x64 texels, so the format costs
                 // 256 KB, and half floats would need a packer on the host for no gain at all.
@@ -175,6 +198,7 @@ namespace SushiEngine
 
                 mirror_columns_.resize(std::size_t(ATMOSPHERE_MIRROR_CELLS) *
                                        std::size_t(ATMOSPHERE_MIRROR_CELLS));
+                profile_levels_.resize(std::size_t(ATMOSPHERE_PROFILE_MAX_LEVELS));
 
                 create_volumes();
                 create_buffers();
@@ -327,6 +351,19 @@ namespace SushiEngine
                          &mirror_slots_[slot].mapped, mirror_bytes,
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
 
+                // A buffer of its own rather than a second region of the mirror's: the
+                // descriptor writer binds from offset zero, and widening it to carry an offset
+                // for this one caller would be a worse trade than a 4 KB allocation.
+                const VkDeviceSize profile_bytes = sizeof(AtmosphereProfileLevel) *
+                                                   std::size_t(ATMOSPHERE_PROFILE_MAX_LEVELS);
+                make(profile_, profile_allocation_, nullptr, profile_bytes,
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, false);
+                for (std::uint32_t slot = 0; slot < MIRROR_SLOTS; ++slot)
+                    make(mirror_slots_[slot].profile_buffer,
+                         mirror_slots_[slot].profile_allocation,
+                         &mirror_slots_[slot].profile_mapped, profile_bytes,
+                         VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+
                 make(forcing_staging_, forcing_staging_allocation_, &forcing_staging_mapped_,
                      VkDeviceSize(ATMOSPHERE_FORCING_MAX_CELLS) * ATMOSPHERE_FORCING_MAX_CELLS *
                          4 * sizeof(float),
@@ -344,9 +381,14 @@ namespace SushiEngine
                 };
                 drop(params_, params_allocation_);
                 drop(mirror_, mirror_allocation_);
+                drop(profile_, profile_allocation_);
                 drop(forcing_staging_, forcing_staging_allocation_);
                 for (std::uint32_t slot = 0; slot < MIRROR_SLOTS; ++slot)
+                {
                     drop(mirror_slots_[slot].buffer, mirror_slots_[slot].allocation);
+                    drop(mirror_slots_[slot].profile_buffer,
+                         mirror_slots_[slot].profile_allocation);
+                }
             }
 
             void AtmosphereNest::create_layouts()
@@ -579,11 +621,14 @@ namespace SushiEngine
                 block.surface_humidity = p.surface_humidity;
                 block.humidity_scale_height = p.humidity_scale_height;
                 block.eddy_viscosity = p.eddy_viscosity;
+                block.boundary_layer_depth = p.boundary_layer_depth_m;
+                block.boundary_layer_velocity_scale = p.boundary_layer_velocity_scale;
                 block.sponge_depth = p.sponge_depth;
                 block.sponge_rate = p.sponge_rate;
                 block.boundary_relaxation = p.boundary_relaxation;
                 block.thermal_seed_amplitude = p.thermal_seed_amplitude;
                 block.convective_velocity_scale = p.convective_velocity_scale;
+                block.cloud_critical_humidity = p.cloud_critical_humidity;
                 block.autoconversion_rate = p.autoconversion_rate;
                 block.autoconversion_threshold = p.autoconversion_threshold;
                 block.accretion_rate = p.accretion_rate;
@@ -607,7 +652,10 @@ namespace SushiEngine
                 block.step_index = std::int32_t(step_index_ & 0x7fffffffu);
                 // Coriolis rides the forcing rather than the authored parameters: it is a
                 // property of *where the nest is*, and the simulation is the only party that
-                // knows the observer's latitude.
+                // knows the observer's latitude. Held on the object beside the solar sine for
+                // the same reason — the parameter block is uploaded once per step and this is
+                // one of its fields, not something to thread through every record call.
+                block.coriolis = coriolis_;
                 std::memcpy(params_mapped_, &block, sizeof(NestParams));
             }
 
@@ -648,7 +696,7 @@ namespace SushiEngine
                     barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
                     barriers[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
                     barriers[i].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                               VK_PIPELINE_STAGE_2_COPY_BIT;
+                                               VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
                     barriers[i].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT;
                     barriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -924,6 +972,45 @@ namespace SushiEngine
 
             }
 
+            void AtmosphereNest::record_clear(VkCommandBuffer cmd)
+            {
+                // The three volumes `atmosphere_shift.comp` does not write. It seeds the
+                // prognostic state — wind, theta, moisture — because those are what a fresh
+                // atmosphere *is*; these three are step outputs, and on the seed frame no step
+                // has run to produce them.
+                //
+                // Pressure is the one that matters. The relaxation warm-starts from the field
+                // it left behind last step, which on the first step is whatever the allocator
+                // handed back: undefined contents that a red-black sweep would propagate rather
+                // than overwrite, and that a single NaN in would make permanent, since every
+                // subsequent step inherits it. The other two only reach the readback — a mirror
+                // reporting rain out of uninitialized memory before the first step is a smaller
+                // fault than a solver that never recovers, but it is the same fault.
+                VkClearColorValue zero{};
+                VkImageSubresourceRange range{};
+                range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                range.levelCount = 1;
+                range.layerCount = 1;
+                const VkImage images[] = {pressure_.image, divergence_.image,
+                                          surface_rain_.image};
+                for (VkImage image : images)
+                    vkCmdClearColorImage(cmd, image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+
+                VkMemoryBarrier2 memory{};
+                memory.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+                memory.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+                memory.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                memory.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                memory.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+                VkDependencyInfo dependency{};
+                dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dependency.memoryBarrierCount = 1;
+                dependency.pMemoryBarriers = &memory;
+                vkCmdPipelineBarrier2(cmd, &dependency);
+            }
+
             void AtmosphereNest::record_extinction(VkCommandBuffer cmd)
             {
                 // What the rest of the engine sees. Recorded separately from the step because a
@@ -960,10 +1047,14 @@ namespace SushiEngine
                 writer.sampled_image(5, wind_y_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(6, wind_z_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(7, surface_rain_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
-                writer.storage_buffer(8, mirror_,
+                writer.sampled_image(8, divergence_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
+                writer.storage_buffer(9, mirror_,
                                       sizeof(AtmosphereMirrorColumn) *
                                           std::size_t(ATMOSPHERE_MIRROR_CELLS) *
                                           std::size_t(ATMOSPHERE_MIRROR_CELLS));
+                writer.storage_buffer(10, profile_,
+                                      sizeof(AtmosphereProfileLevel) *
+                                          std::size_t(ATMOSPHERE_PROFILE_MAX_LEVELS));
                 writer.update(device_.device(), set);
 
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -992,6 +1083,12 @@ namespace SushiEngine
                             std::size_t(ATMOSPHERE_MIRROR_CELLS) *
                             std::size_t(ATMOSPHERE_MIRROR_CELLS);
                 vkCmdCopyBuffer(cmd, mirror_, mirror_slots_[slot].buffer, 1, &copy);
+
+                VkBufferCopy profile_copy{};
+                profile_copy.size = sizeof(AtmosphereProfileLevel) *
+                                    std::size_t(ATMOSPHERE_PROFILE_MAX_LEVELS);
+                vkCmdCopyBuffer(cmd, profile_, mirror_slots_[slot].profile_buffer, 1,
+                                &profile_copy);
             }
 
             void AtmosphereNest::collect_readback()
@@ -1023,11 +1120,20 @@ namespace SushiEngine
                     return;
                 std::memcpy(mirror_columns_.data(), source.mapped,
                             mirror_columns_.size() * sizeof(AtmosphereMirrorColumn));
+                if (source.profile_mapped != nullptr)
+                    std::memcpy(profile_levels_.data(), source.profile_mapped,
+                                profile_levels_.size() * sizeof(AtmosphereProfileLevel));
                 mirror_taken_ = source.timeline_value;
 
                 const double span = double(size_.spacing_m) * double(size_.cells_x);
                 mirror_view_.columns = mirror_columns_.data();
                 mirror_view_.cells = ATMOSPHERE_MIRROR_CELLS;
+                // The shader writes only as many levels as the nest has; a tier below the
+                // ceiling leaves the tail of the buffer untouched, so the published count is
+                // the nest's own rather than the allocation's.
+                mirror_view_.profile = profile_levels_.data();
+                mirror_view_.profile_levels =
+                    std::min(std::int32_t(size_.levels), std::int32_t(ATMOSPHERE_PROFILE_MAX_LEVELS));
                 mirror_view_.revision += 1;
                 mirror_view_.simulated_seconds = source.simulated_seconds;
                 mirror_view_.uv_scale_x = static_cast<float>(1.0 / span);
@@ -1045,8 +1151,9 @@ namespace SushiEngine
 
                 pressure_sweeps_ = std::max(parameters.pressure_iterations, 1u);
                 // Held from the forcing rather than passed down through every record call: the
-                // parameter block is uploaded once per step and this is one of its fields.
+                // parameter block is uploaded once per step and these are two of its fields.
                 solar_elevation_sine_ = forcing.solar_elevation_sine;
+                coriolis_ = forcing.coriolis;
 
                 const float dt = choose_step(parameters, forcing);
                 // The delta against the last clock this nest saw. Three views calling in with
@@ -1125,6 +1232,7 @@ namespace SushiEngine
                     // A shift larger than the domain leaves every cell without a source, which
                     // is exactly "fill everything from the base state and the parent" — the
                     // seed is the degenerate case of the re-centre, not a second code path.
+                    record_clear(cmd);
                     record_shift(cmd, std::int32_t(size_.cells_x), std::int32_t(size_.cells_z),
                                  forcing);
                     seeded_ = true;

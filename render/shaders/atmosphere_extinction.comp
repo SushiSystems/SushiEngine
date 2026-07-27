@@ -20,8 +20,14 @@
 //
 // The output is a compact field the cloudscape bake samples: r = extinction (1/m), g = a
 // vertical profile term standing in for how deep inside its own cloud this sample sits,
-// b = rain content for the shafts under a cell, a = a saturation margin the bake uses to keep
-// cloud edges from terminating in a hard step.
+// b = rain content for the shafts under a cell, a = the cell's cloud fraction.
+//
+// **sigma is a cell mean, and the fraction beside it is what makes that statable.** The water
+// is spread over the `a` part of a 2 km cell, not over all of it, so sigma / a is the extinction
+// *inside* the cloud and `a` is how much of the sky it covers. The bake needs both and they are
+// not recoverable from one another; the alpha channel previously carried a saturation margin
+// invented to feather cloud edges, which was a worse answer to the same question, computed from
+// a base-state temperature this cell had long since departed from, and read by nothing.
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
@@ -39,7 +45,10 @@ void main()
 
     float altitude = nest_level_altitude(float(cell.y));
     float density = nest_base_density(altitude);
-    vec4 q = texelFetch(moisture, cell, 0) / MOISTURE_UNIT;
+    // Only the three mixing ratios carry MOISTURE_UNIT; the fourth channel is a fraction and
+    // dividing it would be a factor of a thousand with no symptom the shader could see.
+    vec4 raw = texelFetch(moisture, cell, 0);
+    vec4 q = vec4(raw.xyz / MOISTURE_UNIT, raw.w);
 
     float liquid_water_content = density * q.y;                       // kg/m^3
     float sigma = 3.0 * liquid_water_content /
@@ -56,12 +65,11 @@ void main()
     float here = q.y * MOISTURE_UNIT;
     float profile = here > 0.0 ? min(min(above, below) / max(here, 1e-4), 1.0) : 0.0;
 
-    // The margin to saturation, as a fraction. Where a parcel is only just subsaturated a
-    // cloud edge is about to form, and letting the bake feather across that band is what stops
-    // a cloud from ending in the hard step a zero-condensate threshold would otherwise draw.
-    float temperature = nest_base_temperature(altitude);
-    float saturation = nest_saturation_mixing_ratio(temperature, nest_base_pressure(altitude));
-    float margin = clamp(q.x / max(saturation, 1e-6), 0.0, 1.0);
+    // The cloud fraction, diagnosed by `atmosphere_microphysics` from the same water this
+    // sigma was computed from and stored in the moisture volume's fourth channel — which is why
+    // it needs no scaling by MOISTURE_UNIT and no recomputation here. The two cross zero
+    // together by construction, so a cell with extinction always has a fraction to divide it by.
+    float fraction = clamp(q.w, 0.0, 1.0);
 
-    imageStore(extinction, cell, vec4(sigma, profile, q.z, margin));
+    imageStore(extinction, cell, vec4(sigma, profile, q.z, fraction));
 }

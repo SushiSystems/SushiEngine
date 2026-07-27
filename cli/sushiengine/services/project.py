@@ -217,16 +217,24 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int
 
     env = load_build_env(cfg, build_dir)
 
-    if _needs_configure(build_dir, cfg.generator, cmake_build_type):
+    # Configure on every build, not only when the tree has to be thrown away. `se render`
+    # and `se editor` reach the same tree with their own -D flags, so a cache left by one of
+    # them can disagree with what this call was asked for — and the disagreement is silent:
+    # the header above would report "Tests: ON" while the cache said OFF and nothing built
+    # the suite, so `se test` would then pass against a stale binary. Re-running configure in
+    # place is cheap; CMake picks the changed -D up without rebuilding what did not change.
+    fresh = _needs_configure(build_dir, cfg.generator, cmake_build_type)
+    if fresh:
         console.info(f"Configuring CMake... (type={build_type.value}, tests={'ON' if tests else 'OFF'})")
         if build_dir.is_dir():
             shutil.rmtree(build_dir, ignore_errors=True)
-        args = _configure_args(cfg, root, build_dir, cmake_build_type, tests)
-        rc = _run(args, env, cwd=root)
-        if rc != 0:
-            console.error("CMake configure failed.")
-            return rc
-        build_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        console.info(f"Reconfiguring in place (tests={'ON' if tests else 'OFF'})...")
+    rc = _run(_configure_args(cfg, root, build_dir, cmake_build_type, tests), env, cwd=root)
+    if rc != 0:
+        console.error("CMake configure failed.")
+        return rc
+    build_dir.mkdir(parents=True, exist_ok=True)
 
     console.info("Building...")
     rc = _run([_cmake(cfg), "--build", str(build_dir), "--config", cmake_build_type],

@@ -31,7 +31,7 @@ layout(set = 0, binding = 1, r32f) uniform image3D wind_x;
 layout(set = 0, binding = 2, r32f) uniform image3D wind_y;
 layout(set = 0, binding = 3, r32f) uniform image3D wind_z;
 layout(set = 0, binding = 4, r32f) uniform image3D theta;
-layout(set = 0, binding = 5, rgba16f) uniform image3D moisture;
+layout(set = 0, binding = 5, rgba32f) uniform image3D moisture;
 // The parent solution the boundary zone relaxes toward: rg = wind, b = theta anomaly,
 // a = relative-humidity anomaly, addressed in world space by the map below.
 layout(set = 0, binding = 6) uniform sampler2D forcing;
@@ -90,15 +90,22 @@ void main()
                          nest.surface_night_flux * (1.0 - step(0.0, nest.solar_elevation_sine));
         float latent = nest.surface_latent_flux * daylight;
 
+        // The symmetry break, applied where the heterogeneity physically *is*: in the surface
+        // flux. A uniformly heated surface has no horizontal structure for convection to
+        // organise around and the whole boundary layer would rise as one slab, so something has
+        // to break it -- but this used to be an independent additive kick on theta, and an
+        // additive kick redrawn every step is a *random walk with no bound*. Over four hours it
+        // reached -8.76 K in the coldest columns, which saturated them from below: a few percent
+        // of the domain sat in permanent ground fog, the sky read as cloudy, and none of it was
+        // convection. Modulating the flux instead is bounded by construction -- a heated surface
+        // is heated more here and less there, never refrigerated -- it vanishes at night with
+        // the flux it scales, which is when a stable layer should not be stirred at all, and the
+        // amplitude becomes what it actually means: the fractional variation in surface heating
+        // across a 2 km cell, which over mixed terrain is a few tens of percent.
+        sensible *= 1.0 + nest.thermal_seed_amplitude * nest_thermal_seed(cell);
+
         float heating = sensible / (nest.specific_heat_pressure * mass);
         theta_perturbation += heating * dt / max(nest_exner(altitude), 1e-6);
-        // Scaled by the step like every other forcing term. Without it the seed was a fixed
-        // kick *per step*, so how vigorously the boundary layer stirred depended on the time
-        // step the CFL happened to pick -- a model whose convection changes when the wind picks
-        // up and shortens dt is not a model. The amplitude is stated per second, and one second
-        // is about the shortest step the nest ever takes, so the authored number keeps its
-        // meaning.
-        theta_perturbation += nest.thermal_seed_amplitude * nest_thermal_seed(cell) * dt;
 
         float moistening = latent / (nest.latent_heat_vaporization * mass);
         q.x += moistening * dt;

@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 
@@ -210,6 +211,90 @@ TEST(Unit_AtmosphereNest, MirrorTranscriptionSpeaksTheBridgesUnits)
     EXPECT_FLOAT_EQ(WeatherFieldBuffer::column_from_mirror(source).precipitation, 1.0f);
 }
 
+TEST(Unit_AtmosphereNest, ProfileIsAFlatFloatRunAndIsAbsentUntilAReadbackCompletes)
+{
+    // Both halves of this pin the same seam from opposite sides, and both failures are silent.
+    //
+    // The layout half: `atmosphere_readback.comp` writes a std430 array of `ProfileLevel`, which
+    // the host then memcpys into `AtmosphereProfileLevel`. std430 gives an array of a
+    // floats-only struct a stride of exactly its size, so the two agree only while this side
+    // stays a flat, tightly packed run of floats. A field added here and not there — or a
+    // member that is not a float — shifts every level after it, and the result is a profile
+    // full of plausible numbers rather than a crash or a compile error.
+    static_assert(std::is_standard_layout<Render::AtmosphereProfileLevel>::value,
+                  "the profile is copied from a GPU buffer, so its layout must be fixed");
+    EXPECT_EQ(sizeof(Render::AtmosphereProfileLevel), 16 * sizeof(float))
+        << "the shader's ProfileLevel and this struct are the same bytes seen from either side "
+           "of a buffer copy; a field was added to one of them alone";
+    EXPECT_EQ(alignof(Render::AtmosphereProfileLevel), alignof(float));
+
+    // The lifetime half: the profile is borrowed from a readback that may not have happened.
+    // Publishing a non-null pointer with nothing behind it would be the worse failure, so a
+    // mirror that carries no snapshot must say so through both fields at once.
+    const Render::AtmosphereMirror cold{};
+    EXPECT_FALSE(cold.valid());
+    EXPECT_EQ(cold.profile, nullptr);
+    EXPECT_EQ(cold.profile_levels, 0);
+}
+
+TEST(Unit_AtmosphereNest, SubgridCloudFractionGeneralisesTheAllOrNothingAdjustment)
+{
+    // The closure's load-bearing property, and the reason it can be adopted without a second,
+    // competing condensation path: at a critical humidity of 1 the subgrid distribution has no
+    // width, and the partition must reduce *exactly* to condensing the excess over saturation.
+    // If it does not, then a scene authored at 1.0 gets some third behaviour belonging to
+    // neither scheme, and every comparison against the phase's earlier measurements is void.
+    const Render::AtmosphereParameters parameters;
+    const float saturation = 0.008f;                // kg/kg, a fair-weather cumulus base
+    const float efficiency = 0.5f;                  // near enough the 290 K value
+
+    const Render::AtmosphereCloudPartition dry =
+        Render::atmosphere_cloud_partition(0.006f, saturation, efficiency, 1.0f);
+    EXPECT_FLOAT_EQ(dry.fraction, 0.0f);
+    EXPECT_FLOAT_EQ(dry.condensate, 0.0f);
+
+    const Render::AtmosphereCloudPartition wet =
+        Render::atmosphere_cloud_partition(0.010f, saturation, efficiency, 1.0f);
+    EXPECT_FLOAT_EQ(wet.fraction, 1.0f);
+    EXPECT_FLOAT_EQ(wet.condensate, efficiency * (0.010f - saturation));
+
+    // With a width, the first cloud appears exactly at the authored critical humidity and not
+    // before it. This is the number an author sets, so it has to mean what it says.
+    const float critical = 0.8f;
+    const Render::AtmosphereCloudPartition below = Render::atmosphere_cloud_partition(
+        saturation * (critical - 0.01f), saturation, efficiency, critical);
+    EXPECT_FLOAT_EQ(below.fraction, 0.0f);
+    const Render::AtmosphereCloudPartition above = Render::atmosphere_cloud_partition(
+        saturation * (critical + 0.01f), saturation, efficiency, critical);
+    EXPECT_GT(above.fraction, 0.0f);
+    EXPECT_GT(above.condensate, 0.0f);
+
+    // Half the cell is cloud when the cell mean is exactly saturated — which is the whole
+    // difference from the scheme this replaces, where a saturated *mean* was the point cloud
+    // began rather than the point it was already half-formed.
+    const Render::AtmosphereCloudPartition mean_saturated =
+        Render::atmosphere_cloud_partition(saturation, saturation, efficiency, critical);
+    EXPECT_FLOAT_EQ(mean_saturated.fraction, 0.5f);
+    EXPECT_GT(mean_saturated.condensate, 0.0f);
+
+    // And it closes: at the wet end the partition rejoins the all-or-nothing answer, so a
+    // deep saturated cell condenses the same water either way and only the approach differs.
+    const float width = efficiency * (1.0f - critical) * saturation;
+    const Render::AtmosphereCloudPartition overcast = Render::atmosphere_cloud_partition(
+        saturation + width / efficiency, saturation, efficiency, critical);
+    EXPECT_FLOAT_EQ(overcast.fraction, 1.0f);
+    EXPECT_NEAR(overcast.condensate, width, 1.0e-9f);
+
+    // The efficiency itself: latent heating consumes part of every excess, so a saturation
+    // adjustment can never condense the whole of it. Around half at cumulus-base temperature.
+    const float measured =
+        Render::atmosphere_condensation_efficiency(parameters, saturation, 290.0f);
+    EXPECT_GT(measured, 0.3f);
+    EXPECT_LT(measured, 0.7f);
+    // Colder air holds less vapour, so less heating per unit excess and more of it survives.
+    EXPECT_GT(Render::atmosphere_condensation_efficiency(parameters, 0.002f, 260.0f), measured);
+}
+
 TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward)
 {
     // The parent half of Davies nesting. The load-bearing claim is that it is *not uniform*:
@@ -222,7 +307,11 @@ TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward
 
     AtmosphereForcingBuffer buffer;
     weather.publish_forcing(observer, /*total_seconds=*/0.0, buffer);
-    const Render::AtmosphereForcing forcing = buffer.view(0.0, 0.0, 0.0, 1.0e-4f);
+    // The sun is passed through unexamined here; what this test is about is the horizontal
+    // structure of the parent solution, which the surface forcing does not touch.
+    const Render::AtmosphereForcing forcing =
+        buffer.view(0.0, 0.0, /*total_seconds=*/0.0, /*coriolis=*/1.0e-4f,
+                    /*solar_elevation_sine=*/0.9f);
 
     ASSERT_TRUE(forcing.valid());
     ASSERT_GT(forcing.cells_x, 1);

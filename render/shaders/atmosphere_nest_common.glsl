@@ -39,6 +39,8 @@ layout(set = 0, binding = 0) uniform NestParams
 
     // Dynamics.
     float eddy_viscosity;
+    float boundary_layer_depth;
+    float boundary_layer_velocity_scale;
     float sponge_depth;
     float sponge_rate;
     float boundary_relaxation;
@@ -47,6 +49,7 @@ layout(set = 0, binding = 0) uniform NestParams
     float convective_velocity_scale;
 
     // Microphysics.
+    float cloud_critical_humidity;
     float autoconversion_rate;
     float autoconversion_threshold;
     float accretion_rate;
@@ -151,9 +154,8 @@ float nest_base_density(float altitude)
 
 // ---- Moist thermodynamics -------------------------------------------------------------
 
-// The moisture volume's storage scale. Mixing ratios are a few grams per kilogram, and an
-// rgba16f texel has a ten-bit mantissa, so storing kg/kg directly would spend the format's
-// precision on leading zeros; the field is held in grams per kilogram and divided back here.
+// The moisture volume's storage scale: the field is held in grams per kilogram and divided
+// back to kg/kg here, so every reader sees SI and only the texels are scaled.
 //
 // It lives in this shared header rather than beside each user because the volume it describes
 // is one volume: a copy that drifted, or a reader that never learned about the scale at all,
@@ -162,6 +164,16 @@ float nest_base_density(float altitude)
 //
 // Note also what the channels are: **total** vapour, cloud and rain mixing ratios, not
 // perturbations about the base state, unlike `theta` and the wind components next to them.
+// The two conventions sitting side by side in one nest is the single easiest thing to get
+// wrong here, and it has been got wrong twice.
+//
+// The fourth channel is the odd one out and is deliberately *not* scaled by this: it is the
+// diagnosed cloud fraction, already dimensionless and already in [0, 1]. It is stored beside
+// the water rather than in its own volume because it is a property of the same cell and costs a
+// channel that was zero, and it is a **diagnosis, not a prognostic** -- `atmosphere_microphysics`
+// overwrites it in full every step from that step's own state. Advection and the boundary-layer
+// mixing carry it along with the rest of the vec4, which is harmless precisely because nothing
+// reads it before microphysics has replaced it.
 const float MOISTURE_UNIT = 1000.0;
 
 // Saturation vapour pressure over liquid water, Pa (Magnus/Teten). The relation the shipped
@@ -188,6 +200,74 @@ float nest_base_vapour(float altitude)
     float saturation = nest_saturation_mixing_ratio(temperature, pressure);
     float humidity = nest.surface_humidity * exp(-altitude / max(nest.humidity_scale_height, 1.0));
     return min(humidity * saturation, saturation);
+}
+
+// ---- Subgrid cloud fraction -------------------------------------------------------------
+
+// The fraction of a nominal excess that survives its own latent heating.
+//
+// Condensing water warms the parcel, which raises q_s, which leaves less excess to condense --
+// so a saturation adjustment is a fixed point rather than a subtraction. One Newton step on
+// f(d) = (q_v - d) - q_s(T + L d / c_p) is exact enough at these time steps, and this is that
+// step's denominator. Roughly 1/2 at 290 K, which is why a warm cloud takes about twice the
+// water a cold one does to reach the same condensate.
+float nest_condensation_efficiency(float saturation, float temperature)
+{
+    float safe = max(temperature, 1.0);
+    float slope = saturation * nest.latent_heat_vaporization /
+                  (nest.gas_constant_vapour * safe * safe);
+    return 1.0 / (1.0 + nest.latent_heat_vaporization / nest.specific_heat_pressure * slope);
+}
+
+// Split a cell's total water into a cloud fraction and the cell-mean condensate it implies.
+//
+// **The closure that lets a grid-mean model draw a cumulus.** A cell here is 2 km across, so
+// its humidity is a cell mean, and a fair-weather cumulus is a 200 m - 1 km thermal that is
+// saturated inside while the cell around it is not. Condensing only when the mean saturates
+// therefore cannot produce one -- it produces nothing until the whole 4 km^2 column saturates,
+// and then it produces fog. That is measured: before this existed the mixed-layer top ran
+// 78-95 % relative humidity and never crossed, and every run that made condensate made it at
+// 19 m.
+//
+// So the humidity inside a cell is a *distribution* about its mean, taken as a top-hat of
+// half-width (1 - critical) * q_s (Sommeria & Deardorff 1977; Mellor 1977 -- the simplest
+// member of the family Smith 1990 generalises with a triangular one). Writing Q for how far the
+// mean sits across that half-width, the saturated tail gives fraction (1 + Q)/2 and a condensate
+// quadratic in (1 + Q): the first cloud in a cell is thin and thickens faster than linearly.
+//
+// At critical = 1 the width is zero and this collapses *exactly* onto the all-or-nothing
+// adjustment it generalises, which is what makes it one condensation path rather than two.
+//
+// Mirrors Render::atmosphere_cloud_partition; neither is edited alone.
+//
+// @param total_water Vapour plus cloud, kg/kg. Rain precipitates and is not in the distribution.
+// @param saturation  Saturation mixing ratio at the *liquid-water* temperature, kg/kg.
+// @param efficiency  nest_condensation_efficiency at that temperature.
+// @param fraction    Out: the fraction of the cell that is cloud.
+// @return            The cell-mean condensate, kg/kg.
+float nest_cloud_partition(float total_water, float saturation, float efficiency,
+                           out float fraction)
+{
+    float mean = efficiency * (total_water - saturation);
+    float width = efficiency * (1.0 - clamp(nest.cloud_critical_humidity, 0.0, 1.0)) * saturation;
+    if (width <= 0.0)
+    {
+        fraction = mean > 0.0 ? 1.0 : 0.0;
+        return max(mean, 0.0);
+    }
+    float across = mean / width;
+    if (across <= -1.0)
+    {
+        fraction = 0.0;
+        return 0.0;
+    }
+    if (across >= 1.0)
+    {
+        fraction = 1.0;
+        return mean;
+    }
+    fraction = 0.5 * (1.0 + across);
+    return width * (1.0 + across) * (1.0 + across) * 0.25;
 }
 
 // ---- Zone weights ----------------------------------------------------------------------
@@ -218,10 +298,63 @@ float nest_sponge_weight(float altitude)
     return s * s;
 }
 
-// A cheap, deterministic hash-based surface perturbation. Convection needs something to break
-// the horizontal symmetry of a uniformly heated surface or the whole boundary layer rises as
-// one slab and no cell ever forms; real air has turbulence doing this, and every cloud model
-// without a resolved surface layer seeds it explicitly.
+// Vertical eddy diffusivity at a level *face*, m^2/s — the mixed layer, parameterized.
+//
+// The turbulence that carries surface heat and moisture upward has eddies of tens to hundreds
+// of metres; this grid is 2 km across, so that transport is entirely subgrid and has to be
+// represented rather than resolved. Every operational model does the same thing (§2.1's YSU,
+// MYNN) and for the same reason.
+//
+// The profile is Troen & Mahrt's (1986), the one YSU and its lineage use:
+//
+//     K(z) = kappa * w_s * z * (1 - z/h)^2
+//
+// Linear in height at the ground, where surface-layer similarity requires it; peaking at h/3;
+// and returning to zero at the layer top so the stratified free troposphere above is not eroded
+// from below. What it produces is a *well-mixed* layer — uniform potential temperature and
+// moisture through its depth — which is what turns a surface flux into a boundary layer instead
+// of a hotplate.
+//
+// **Why not the simpler parabola 4*K_peak*f*(1-f).** That was the first form here and it fails in
+// exactly the place that decides whether this model makes cloud. Near the ground it goes as
+// K_peak * (z/h), so its near-surface diffusivity *weakens as the layer deepens* — and the lowest
+// face is the one that must carry the entire surface flux out of a 54 m level. The feedback is
+// perverse and it was measured: with a 2 500 m layer the lowest face saw 12 m^2/s, the surface
+// level sat 9 K above the one 80 m over it, the layer never homogenised, and its top reached only
+// 57 % relative humidity in eight hours of heating. Troen-Mahrt's slope does not know h at all, so
+// the same authored number gives 45 m^2/s there instead. A model normalised to a peak cannot
+// express that, which is why the parameter is a *velocity scale* and not a diffusivity.
+//
+// @param face_altitude Altitude of the level face, metres above the surface.
+// @param depth         This column's diagnosed mixed-layer depth, metres. Per column and not
+//                      the authored constant, because the depth is a *state*: it grows through
+//                      the morning as the surface parcel outgrows more of the stratification
+//                      above it, and it is that growth that concentrates the surface moisture
+//                      in a shallow layer early and lifts it to its condensation level later.
+float nest_face_diffusivity(float face_altitude, float depth)
+{
+    const float VON_KARMAN = 0.4;
+    if (depth <= 0.0)
+        return 0.0;
+    float fraction = face_altitude / depth;
+    if (fraction <= 0.0 || fraction >= 1.0)
+        return 0.0;
+    float taper = 1.0 - fraction;
+    return VON_KARMAN * nest.boundary_layer_velocity_scale * face_altitude * taper * taper;
+}
+
+// A cheap, deterministic hash-based surface perturbation, in [-1, 1]. Convection needs something
+// to break the horizontal symmetry of a uniformly heated surface or the whole boundary layer
+// rises as one slab and no cell ever forms; real air has turbulence doing this, and every cloud
+// model without a resolved surface layer seeds it explicitly.
+//
+// Its *caller* decides what it perturbs, and `atmosphere_forces.comp` scales the surface flux by
+// it rather than adding it to theta — see there for why an additive kick redrawn every step is a
+// random walk with no bound, and what that random walk did.
+//
+// Named limit: white in space as well as in time, so it carries no structure at the several-cell,
+// several-minute scale a 2 km-resolved plume would organise around. A time-correlated,
+// spatially-smooth field is the refinement.
 float nest_thermal_seed(ivec3 cell)
 {
     uvec3 h = uvec3(cell) * uvec3(0x8da6b343u, 0xd8163841u, 0xcb1ab31fu) +
