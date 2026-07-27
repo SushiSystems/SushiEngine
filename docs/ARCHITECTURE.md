@@ -334,14 +334,16 @@ flag/params), Paste replays them through the matching setters onto newly `create
 entities, and Cut is Copy immediately followed by `destroy` on the originals — no
 new engine-side clone primitive, just existing `IWorldEditor` surface replayed.
 
-### 4.3 Collision and soft bodies
+### 4.4 Collision and soft bodies
 
 Two additions extend the XPBD physics without touching the graph-coloured solver.
 `physics/collision.hpp` is the narrowphase: element-parametric collider shapes
-(`SphereCollider<T>`, `PlaneCollider<T>`, `BoxCollider<T>`) and pure functions that
-return a `Contact` (unit normal from the first shape to the second, positive
-penetration depth) for each shape pair. They are geometry only — no runtime, ECS, or
-solver dependency — so they are unit-tested directly (`Unit_Collision`).
+(`SphereCollider<T>`, `PlaneCollider<T>`, `BoxCollider<T>`, and the oriented
+`OrientedBox<T>`) and pure functions that return a `Contact` (unit normal from the
+first shape to the second, positive penetration depth, contact point) for each shape
+pair — including a full 15-axis SAT `collide_obb_obb` for oriented-box vs. oriented-box.
+They are geometry only — no runtime, ECS, or solver dependency — so they are
+unit-tested directly (`Unit_Collision`).
 `physics/contact_solver.hpp` consumes them: non-penetration is an inequality
 constraint that only pushes bodies apart, so rather than living in the compile-once
 `XpbdSolver` (whose constraint set is fixed) it is a positional projection pass
@@ -360,20 +362,25 @@ solver runs a deformable block with no new constraint type — a mass-spring sof
 Contacts are now wired into the **live tick**. `PhysicsWorld::step` takes an optional
 post-solve callback — run each sub-step between the constraint solve and the velocity
 derivation — so the world stays collider-agnostic while a caller injects a narrowphase.
-`PhysicsSimulation<T>` uses it: rigid bodies collide as spheres (radius from the entity's
-Collider/Shape) against each other and the scene's static `Plane` colliders (Terrain,
-supplied every tick via `set_static_planes`), and cloth particles collide against those
-planes and against the rigid bodies snapshotted as sphere obstacles — one-way coupling, so
-cloth drapes over a rigid without pushing back on it yet. So a body dropped on terrain
-comes to rest (its downward velocity absorbed with no restitution term, since velocity is
-derived from the post-contact position) and a cloth sheet settles over a sphere. Two-way
-cloth→rigid reaction, true box/oriented contacts (bodies collide as spheres today), and a
-broadphase are the follow-ups; rendering a deforming surface mesh (cloth and soft bodies
-reach the renderer as vertex sets, drawn as wireframes) is the remaining visual work.
+`PhysicsSimulation<T>` uses it: `resolve_contacts()` builds one unified `ContactBody<T>`
+view over both the rigid world and the cloth world, runs a sweep-and-prune broadphase
+across all bodies combined (rigid bodies as true oriented boxes or spheres, from the
+entity's Collider/Shape, plus the scene's static `Plane` colliders — Terrain, supplied
+every tick via `set_static_planes`), and resolves every candidate pair through the shared
+`ContactBody`-based projection — **two-way coupling**: a rigid body and a cloth particle
+that overlap are each pushed apart by their own generalized inverse mass, so cloth drapes
+over a rigid *and* pushes back on it (only cloth-cloth pairs are skipped). So a body
+dropped on terrain comes to rest (its downward velocity absorbed with no restitution term,
+since velocity is derived from the post-contact position) and a cloth sheet settles over,
+and visibly displaces, a rigid sphere it overlaps. Remaining gaps: no friction, no
+restitution, one contact point per pair (a resting box can rock), and no cloth
+self-collision yet; rendering a deforming surface mesh (cloth and soft bodies reach the
+renderer as vertex sets) is otherwise complete — cloth already draws shaded and pickable
+through the mesh pipeline (§4.2), not as a wireframe.
 
-### 4.4 Editor authoring: cloth, UI, and custom components
+### 4.5 Editor authoring: cloth, UI, and custom components
 
-Every capability §4.1–§4.3 added is now authorable in the editor, all through the same
+Every capability §4.1–§4.4 added is now authorable in the editor, all through the same
 plain-C++ `IWorldEditor` seam and all as attach/detach components.
 
 **Cloth as an object.** `create_cloth` (Entity ▸ Objects ▸ Cloth) makes a bare entity
@@ -1078,17 +1085,19 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    same way `scattered` is, normalized by the total in-scatter weight) — the aerial-
    perspective coupling's input, described with the composite below. Density comes from `CloudscapeCompilePass`
    (`cloudscape_compile_pass.{hpp,cpp}`, `cloudscape_field.comp`,
-   `cloudscape_skip.comp`): a compute bake that runs the six-deck genus loop once per
-   texel of a 3D field — a flat, wind-neutral, periodic tile (X/Z wrap a fixed
-   metre-square region, Y is the fraction across the union altitude band) — instead of
-   once per march sample, gated by a POD snapshot of the deck stack so it only redispatches
-   when an author actually changes something. Two more passes bake off that same field,
-   both amortized across 8 frames instead of change-gated (the sun moves every frame the
-   clock advances, so there is no "settled" state to gate on): `CloudLightVolumePass`
+   `cloudscape_skip.comp`): a compute bake that runs the genus loop once per texel of a 3D
+   field — since atmosphere phase B1 (§16.4), two **camera-centred, non-wrapping windows**
+   (a near one at a 32,768 m span/128 m texel, a far one at 262,144 m/~1 km texel,
+   addressed through the shared `render/shaders/cloud_field_window.glsl`) rather than a
+   periodic, camera-locked tile — instead of once per march sample, gated by the window
+   drifting out of range, an authored change, or the weather/wind/sun advancing (see §16.4
+   for the exact cadence). Two more passes bake off that same field, both amortized across
+   8 frames instead of change-gated (the sun moves every frame the clock advances, so there
+   is no "settled" state to gate on): `CloudLightVolumePass`
    (`cloud_light_volume_pass.{hpp,cpp}`, `cloud_light_volume.comp`) bakes a 256x256x32
    volume of summed density toward the sun, refreshing a Y-slice group at a time, and
    `CloudShadowMapPass` (`cloud_shadow_map_pass.{hpp,cpp}`, `cloud_shadow_map.comp`) bakes
-   a 768² map of the same quantity projected over the field's flat tile, refreshing a row
+   a 768² map of the same quantity addressed directly in window space, refreshing a row
    group at a time — the single shadow authority `cloud_shadow_common.glsl` and the
    analytic ground both read (§5's shadow paragraph). A fourth bake shares the same
    cadence: `CloudPanoramaPass` (`cloud_panorama_pass.{hpp,cpp}`, `cloud_panorama.comp`,
@@ -1100,12 +1109,14 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
 
    `cloud.frag`'s march reads the field with one or two fetches (plus a coarser
    max-pooled skip field for its coarse probe) where it used to run the full per-deck
-   loop; wind is applied at sample time as a UV offset into the field, not baked in,
-   which is what keeps the bake cacheable while the wind still blows every frame. One
-   further fetch, of the simulation's own weather field (§16.3), decides how much of that
-   baked shape is actually present here — the bake answers what cloud looks like, the field
-   answers whether there is cloud at this point at all. Its
-   step length grows with distance already travelled from the camera (not with camera
+   loop; wind is absorbed into the window's own origin rather than applied as a UV
+   offset at sample time (§16.4), so the bake stays cacheable while the sky still
+   advects every frame. Since phase B1, the field the march reads is itself already
+   spatially resolved from the simulation (§16.3/§16.4) — there is no separate per-sample
+   weather-field fetch layered on top of the bake any more; that mechanism (the
+   coverage-scale/reference-column lookup) was deleted once the bake itself carried the
+   simulation's per-column coverage. The march's step length grows with distance already
+   travelled from the camera (not with camera
    altitude, the variable it keyed on before W0 — that starved the march exactly when a
    climb made the cloud band thinner on screen, so quality fell with altitude for no
    geometric reason), floored by the tier's near-camera budget and capped by its far-field step
@@ -1417,8 +1428,9 @@ Typer layer over a service layer that issues the cmake/ctest calls. It owns no
 build knowledge the CMake does not — its job is to resolve the toolchain the
 engine consumes (SushiRuntime's bundled clang++ and vcpkg) and snapshot the MSVC
 environment on Windows, then drive configure/build/test/run. The same one-way
-dependency holds: the CLI reads the runtime's `dependencies/` tree but the engine
-never reaches back into runtime source.
+dependency holds: the CLI resolves the toolchain from the shared SushiStack
+workspace's `dependencies/` tree (falling back to a runtime-local copy for
+backward compatibility) but the engine never reaches back into runtime source.
 
 ## 8. SushiLoop Snapshot: rollback (M3)
 

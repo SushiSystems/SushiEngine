@@ -36,10 +36,13 @@ Projects/
   sushiengine/
 ```
 
-Install the CLI and build:
+Install the CLI and build. `sushiengine-cli` depends on the shared, unpublished
+`sushicli` presentation layer, so install that once first from its sibling
+checkout:
 
 ```bash
-pip install -e cli               # puts `se` and `sushiengine` on your PATH
+pip install -e ../sushicli        # once, if not already installed
+pip install -e cli                # puts `se` and `sushiengine` on your PATH
 se build                   # Release build (the default)
 se run sandbox              # runs the worked ECS example against its scalar reference
 ```
@@ -181,9 +184,10 @@ int main()
 
 ### Building and running it
 
-Add your `.cpp` to `examples/CMakeLists.txt` (or use `sandbox/` directly),
-following the pattern the project already uses, then build and run through the
-CLI:
+Declare your `.cpp` as its own target in the root `CMakeLists.txt` (there is no
+separate `examples/CMakeLists.txt` — every example is its own single-TU SYCL
+executable declared with `add_sushi_sycl_executable(name examples/name.cpp)`,
+right alongside the ~50 existing ones), then build and run through the CLI:
 
 ```bash
 se build

@@ -155,7 +155,7 @@ Every build option is off by default and additive:
 | `SE_BUILD_TESTS` | OFF | `tests/` (GoogleTest, `se_functional_tests`) |
 | `SE_BUILD_RENDER` | OFF | `render/` — the Vulkan library and `render_probe` |
 | `SE_BUILD_INPUT` | OFF | `input/` — the SDL input translator |
-| `SE_BUILD_AUDIO` | OFF | `audio/` and its ~25 `audio_*_demo` executables |
+| `SE_BUILD_AUDIO` | OFF | `audio/` and its 21 `audio_*_demo` executables |
 | `SE_BUILD_EDITOR` | OFF | `editor/` and `sim/`; also forces `SE_BUILD_RENDER`, `SE_BUILD_INPUT`, and `SE_BUILD_AUDIO` to `ON` |
 | `SE_DETERMINISTIC_FP` | ON | `-fno-fast-math -ffp-contract=off` on Clang/AppleClang/GNU |
 
@@ -305,7 +305,7 @@ procedural/modal synthesis, convolution, and a SYCL accelerator backend — plus
 further hardening beyond the roadmap: measured SOFA/MagLS HRTF, Vorbis/Opus
 streaming codecs, ray-traced acoustics, an authoring DAW-style panel, a bus
 dynamics rack, discrete multichannel surround, and a lock-free control-plane
-ring for multi-core voice rendering. Five of the ~25 audio demos
+ring for multi-core voice rendering. Five of the 21 audio demos
 (`audio_opus_demo`, `audio_vorbis_demo`, `audio_sofa_demo`, `audio_magls_demo`,
 `audio_stream_compressed_demo`) need the optional Opus/Vorbis/HDF5 vcpkg
 packages; the source is complete and wired into CMake either way, they simply
@@ -397,7 +397,7 @@ include/SushiEngine/   Header-only engine core
   animation/            Skeleton/clip/controller assets, evaluator, IK, retargeting (44 files)
   audio/                Spatialization, DSP, propagation, banks, procedural synthesis (54 files)
   ui/                   Retained ECS UI: RectTransform, Canvas, UIImage/Text/Button
-  render/               Public render seam: RHI device, scene view, window renderer (12 files)
+  render/               Public render seam: RHI device, scene view, window renderer (11 files)
   astro/                Orbital mechanics, ephemeris, reference frames (13 files)
   vfx/                  Particle-effect authoring: emitter compiler, modules, curves
   sim/                  Public simulation seam consumed by the editor (16 files)
@@ -432,8 +432,9 @@ docs/                    This guide, ARCHITECTURE.md, INTRODUCTION.md, CLI_GUIDE
 - [CLI_GUIDE.md](CLI_GUIDE.md) — every `se` command in detail.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — coding style, the documentation
   requirements for a change, and how to open a pull request.
-- [docs/CHANGELOG.md](CHANGELOG.md) — notable changes (entries begin at the
-  project's first tagged release; see [CONTRIBUTING.md](CONTRIBUTING.md)).
+- [docs/CHANGELOG.md](CHANGELOG.md) — notable changes, accumulating under
+  `[Unreleased]` until the project cuts its first tagged release (see
+  [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## License
 

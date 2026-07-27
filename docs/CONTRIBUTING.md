@@ -21,30 +21,38 @@ public API, not bolted onto the engine.
 
 ## 1. Getting set up
 
-SushiEngine consumes SushiRuntime as a sibling checkout and reuses its SYCL
-toolchain. Check both out side by side:
+SushiEngine consumes SushiRuntime as a sibling checkout and shares the
+**SushiStack** workspace's toolchain — the intel/llvm `clang++`, vcpkg, CMake,
+and CTest live in SushiStack's `dependencies/` tree, not inside either engine
+repo. Check both engine repos out side by side, get SushiStack, then install
+the CLI:
 
 ```
 Projects/
+  sushistack/     # workspace: dependencies/ (toolchains, vcpkg, cmake, ctest)
   sushiruntime/
   sushiengine/
 ```
 
-Configure with the same compiler the runtime uses (the bundled intel/llvm
-`clang++` is the primary path) and point CMake at the runtime's vcpkg toolchain:
-
 ```bash
-cmake -S . -B build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_COMPILER=<sushiruntime>/dependencies/toolchains/llvm-sycl/bin/clang++ \
-  -DVCPKG_ROOT=<sushiruntime>/dependencies/vcpkg \
-  -DCMAKE_TOOLCHAIN_FILE=<sushiruntime>/dependencies/vcpkg/scripts/buildsystems/vcpkg.cmake
-cmake --build build --target sandbox
+ss add sushiruntime sushiengine    # clone both engine repos into the workspace
+ss install-cli sushiengine         # install `se` / `sushiengine`
 ```
 
-Override the runtime location with `-DSUSHIRUNTIME_DIR=...` when it is not at
-`../sushiruntime`. On **Windows**, configure from a Developer environment
-(`vcvars64.bat`) so the resource compiler and MSVC libraries are on the path.
+Every build and program action goes through the `se` CLI (per this repo's
+`CLAUDE.md`) — never invoke `cmake`/`ninja` directly:
+
+```bash
+se build            # configure and build against the SushiRuntime sibling
+se run sandbox       # the worked ECS example
+```
+
+Override the runtime location with `-DSUSHIRUNTIME_DIR=...` (or the
+`SUSHIRUNTIME_DIR`/`SUSHISTACK_HOME` environment variables) when it is not at
+`../sushiruntime`. On **Windows**, `se` snapshots a Developer environment
+(`vcvars64.bat`) for you so the resource compiler and MSVC libraries are on
+the path. See [README.md](README.md) for the full requirements list and the
+raw `cmake` invocation if you need to skip the CLI.
 
 ---
 
@@ -64,18 +72,22 @@ Override the runtime location with `-DSUSHIRUNTIME_DIR=...` when it is not at
 ## 3. Building and testing your change
 
 ```bash
-cmake --build build --target sandbox     # the example game / smoke target
-./build/sandbox                          # runs the headless simulation check
+se build                      # builds se_functional_tests by default
+se test --suite functional     # unit + integration + regression
+se run sandbox                 # the ECS worked example, exits 0 on success
 ```
 
 Expectations for a mergeable change:
 
 1. **The tree builds clean** with the primary intel-llvm toolchain, warnings and
-   all (`-Wall -Wextra` are inherited from the runtime's flags).
-2. **New behavior ships with a check.** Until a dedicated test tree exists, a new
-   system or component must be exercised by the `sandbox` (or a small target
-   beside it) with a deterministic assertion, the way the Milestone A integrator
-   is checked against its closed-form result.
+   all (`-Wall -Wextra -Werror -pedantic` are inherited from the runtime's flags).
+2. **New behavior ships with a test.** Add a GoogleTest case under
+   `tests/functional/unit/`, `integration/`, or `regression/` (see
+   [README.md](README.md) for the exact layout and CTest label scheme) —
+   a device kernel checked against an independent scalar/host reference, the
+   way the existing ECS, physics, and loop tests are structured. A new example
+   or demo under `examples/`/`sandbox/` is a useful illustration but does not
+   substitute for a test.
 3. **Determinism holds.** Same input, same architecture, same result — a change
    that makes a simulation step non-deterministic needs a stated reason.
 
@@ -153,12 +165,18 @@ sentence is part of the change.
 
 Treat the following as hard requirements, not suggestions:
 
-- **Changelog entries start at v1.0.0.** The project has not yet been assigned a
-  semantic version — we are in prototype stage. Do not add entries to
-  [`CHANGELOG.md`](CHANGELOG.md) until the project cuts its v1.0.0
-  release. Once versioned, every user-visible change updates the changelog with an
-  entry under `## [Unreleased]` in the right group (`Added` / `Changed` /
-  `Fixed` / `Removed` / `Deprecated`).
+- **Every user-visible change updates [`CHANGELOG.md`](CHANGELOG.md)**, under
+  `## [Unreleased]` in the right group (`Added` / `Changed` / `Fixed` /
+  `Removed` / `Deprecated`). The project has not yet been assigned a semantic
+  version — we are in prototype stage — so entries accumulate under
+  `[Unreleased]` until the project cuts its first tagged release; a
+  `## [1.0.0]` (or later) heading is only opened once that release actually
+  happens.
+- **A changelog entry is a short bullet, not an essay.** Same shape as a
+  commit/PR body (§6): one line, a past-tense verb, then the object — "Added
+  X", "Fixed Y", "Changed Z to do W." One or two supporting sub-bullets are
+  fine for a change with real user-facing parts; a multi-paragraph writeup
+  belongs in the PR description or `ARCHITECTURE.md`, not the changelog.
 - **A new or changed feature updates the guides.** When you add, rename, or change
   behavior, update [`ARCHITECTURE.md`](ARCHITECTURE.md) —
   every class, system, and concept it names must still exist — and
