@@ -640,6 +640,17 @@ across clients even though each client's rendered atmosphere is its own simulati
 
 ## 10. Editor integration
 
+**Shipped: the Meteorology panel** (`Window ▸ Meteorology`), the first slice of the list below.
+It is deliberately a *tuning and logging* surface rather than a visualiser, because the questions
+this tier raises are numerical: is the sky animating faster than the nest can step, what is the
+solar forcing right now, what does the observer's column actually contain, and — when it contains
+nothing — which link in the chain from "procedural weather" to "readback complete" is broken. It
+names that link and offers the fix beside it, rather than reporting a symptom.
+
+Its CSV log is sampled on the **nest's own clock**, not the wall clock, so a line is a fixed
+interval of simulated weather however fast the sky is being animated, and two runs at different
+time scales are comparable. Phase B2c's entire diagnosis came out of that file.
+
 - **Atmosphere panel** replacing the Weather panel: global map overlay (T1 pressure/
   vorticity/precipitable water, with fronts diagnosed from the thermal gradient rather
   than drawn from a ray pair), the nest's footprint, and a time-scrub coupled to the
@@ -726,18 +737,188 @@ where the simulation put them.*
 covers exactly the near window and fades across its rim. A second, coarser cascade over the
 far window is the natural follow-up.
 
-### Phase B — Real thermodynamics and vertical structure
+### Phase B2 — Real thermodynamics and vertical structure — **shipped**
 
-Replace the three étage buckets with 32–48 levels and real prognostic variables; anelastic
-dynamics with a pressure solve; monotone advection at Courant ≈ 1; Kessler + ice
-microphysics with saturation adjustment and latent heating; surface energy balance and
-boundary layer. Port to GPU compute in the same phase — the CPU version of this model is
-not worth writing. `RegionalWeatherGrid` decomposes into `IDynamicalCore` /
-`IMicrophysics` / `ISurfaceModel` / `IRadiationModel` with `AtmosphereParameters` as data.
+`RegionalWeatherGrid` is deleted. In its place a GPU regional nest: prognostic θ, `q_v`, `q_c`,
+`q_r` and a staggered Arakawa C-grid velocity field over 192×192×48 cells at 2 km horizontally
+and ~54–560 m vertically, stepped in game time on a CFL-chosen Δt. Ten compute stages —
+MacCormack-corrected semi-Lagrangian transport with a monotone limiter at Courant ≈ 1, buoyancy
+with condensate loading through the virtual potential temperature, Coriolis, subgrid diffusion,
+a Rayleigh sponge, Davies lateral relaxation, an anelastic pressure projection, Kessler warm-rain
+microphysics with saturation adjustment and latent heating, optical extinction, and the readback.
+
+**The pressure solve is a vertical line solver, not §6's FFT.** The grid is deliberately
+anisotropic, so the Laplacian's vertical coupling outweighs its horizontal by `(Δx/Δz)²`; the
+vertical is solved exactly per column by a Thomas sweep and the horizontal iterated red-black.
+Named limit: no coarse-grid correction, so a fixed sweep count leaves a small residual
+divergence. Semi-coarsened multigrid with that shader as its smoother is the refinement.
+
+**Two things forced by the editor rather than chosen.** It runs three `ISceneView`s, so the nest
+is a *device-level* service rather than a render pass — one atmosphere, not three divergent ones
+— and it is centred on the simulation's observer rather than any camera. Its writes are ordered
+against those three readers by a timeline semaphore each view's first submission waits on.
+
+**§9.2's query mirror is pulled forward from Phase E**, deliberately and only as far as it had
+to be: the moment the grid moved onto the GPU there was nothing left on the CPU for
+`sample_column` to read. A 32×32 lattice of `WeatherColumn`-shaped records, read back
+asynchronously, is what every existing gameplay consumer is now served from. §9.1's full
+`AtmosphereProfile` stays in Phase E. Before the first readback the answer is the base state — a
+clear sky with the synoptic wind — rather than an invented coverage.
+
+**`SynopticLayer` survives as the parent solution**, feeding the Davies zone. Named as an
+interim; §5's quasi-geostrophic core replaces it in Phase C.
+
+**Determinism is given up here in practice, not only on paper.**
+`test_weather_determinism.cpp` is deleted per §0 and §14, replaced by
+`test_atmosphere_nest.cpp`, which pins the base state against the International Standard
+Atmosphere, Magnus saturation against its textbook values, the stretched grid closing on its
+domain top, and the mirror's cold start and transcription.
 
 *Acceptance: a cumulus grows from a thermal, deepens, rains, and its downdraft cold pool
-triggers a neighbour. Morning clear → midday cumulus → evening decay happens without
-anything scripting it. Cloud bases sit at the lifting condensation level.*
+triggers a neighbour. Cloud bases sit at the lifting condensation level.* **Not confirmed by
+eye** — nothing has been run.
+
+### Phase B2b — Extinction drives the cloudscape directly — **shipped**
+
+The last piece of §7.1. `cloudscape_field.comp` gains a third path, taken whenever the nest is
+running: `σ_ext` read straight from the nest, with no genus, no deck and no height gradient. A
+cumulus has a flat base because the condensation level is flat, not because a gradient function
+draws one. Tiled noise survives only as a sub-2 km modulation at 35 % amplitude — §7.3's
+demotion in its final form, since the nest resolves 2 km and that is all it is still needed for.
+
+Baked density is stated against the extinction of 1 g/m³ of liquid water rather than in absolute
+1/m, so the medium's authored absorption keeps the meaning it has always had: *where* the cloud
+is and how it falls off across its own edge is physics, while how opaque a given amount of water
+reads stays authored. The march shell follows the readback's own lowest cloud base and highest
+cloud top, so the baked field's vertical resolution sits on the cloud rather than on empty
+stratosphere.
+
+Three paths now, ordered, each truthful when the one above it has nothing to say: the nest, then
+per-column genus from the published field, then the authored deck stack.
+
+### Phase B2c — The correctness pass B2 exposed — *in progress*
+
+B2 and B2b are shipped and do what they were designed to do. Running them made visible that the
+render path they feed, and the nest itself, both carried defects no amount of correct new code
+could compensate for. This section is the record of what was **measured**, because on this phase
+the measurements are the deliverable — every hypothesis reasoned from a screenshot in this work
+turned out wrong, and every one settled by porting the code and sampling it turned out right.
+
+#### Fixed in the cloudscape bake — all three pre-date the nest
+
+**`coverage` did not mean coverage.** The Nubis threshold `remap(base_shape, 1 - coverage, 1, 0,
+1) * coverage` is a percentile cut, and a percentile cut is only meaningful on a field that is
+uniform on [0, 1]. `cloud_noise_common.glsl` was ported exactly to numpy and sampled on lattices
+from 56³ to 100³ (converged to five decimals): the deck path's `base_shape` is a narrow bell,
+mean 0.779, standard deviation 0.038, **entire support [0.574, 0.906]**. The threshold therefore
+never reached the field above ~0.43 coverage:
+
+| requested coverage | clear sky asked for | clear sky delivered |
+|---|---|---|
+| 0.42 (Cumulus) | 58 % | **0.0 %** |
+| 0.70 (Stratocumulus) | 30 % | **0.0 %** |
+| 0.95 (Nimbostratus) | 5 % | **0.0 %** |
+
+Every deck at or above half coverage was a gapless slab shaped by nothing but
+`cloud_height_gradient` — a flat-based, flat-topped plateau of uniform white. That is what the
+sky had been made of since long before the field became a window.
+
+Fixed by pushing the field through its own cumulative distribution, which is exactly the
+transform that turns a threshold into a percentile. `base_shape` is near-Gaussian (skew −0.6),
+so the standard logistic approximation to the normal CDF earns its single `exp`: measured, it
+lands delivered clear sky within 1.5 points of requested at every coverage. The transform is
+**monotone**, so it cannot alter the field's level sets — it relabels them. Cloud shapes are
+untouched; only which iso-surface `coverage` selects moves, and that was the whole defect.
+Constants are per-path (the deck path mixes two taps, the nest takes one, cirrus reads another
+volume). **The authored coverage and density defaults were tuned against the broken field and
+need retuning.**
+
+**A window may not carve what its own grid can sample.** The far window spans 262 km across 256
+texels — 1024 m each — and was asked to carve 4200 m-shape-scale cumulus. The shape volume lays
+four Worley cells per `shape_scale`, so a cloud is 1050 m: **1.03 samples per cloud**. Because
+the bake thresholds before storing, the alias returned with its gaps filled rather than blurred,
+and 130 km of march through it integrated to an opaque white square with the near window showing
+as a hole in the middle. `min_shape_scale()` now floors every path's shape scale at sixteen
+texels. The near window's floor lands at 2048 m and every genus sits above it, so this is a
+far-window correction that costs the near window nothing; the far window draws ~4 km cloud
+*clusters*, which is what a hundred kilometres of sky resolves to anyway.
+
+**The nest was never built, and nothing said so.** `procedural_weather_enabled()` is off by
+default and persisted per scene; with it off nothing publishes `AtmosphereForcing`, so
+`AssetLibrary` never constructs the nest and the bake silently falls back to the authored deck
+stack. The Meteorology panel (§10) now names which rung of that chain is failing instead of
+reporting "no readback yet", and offers the fix beside the diagnosis.
+
+#### The nest, measured
+
+Three hours of simulated time through the observer's column, logged from the panel, produced no
+condensation whatsoever — `cloud_base`, `cloud_top`, all three bands' coverage, and rain all
+exactly zero. The diagnostics added to the readback's three spare `extent` lanes (surface
+relative humidity, column peak |w|, lifting condensation level — all free, since the lanes were
+already allocated and `moisture` was already bound and never sampled) say why:
+
+| | |
+|---|---|
+| peak \|w\| anywhere in the column | **3.5 × 10⁻⁴ m/s** — four orders below convective scale |
+| surface relative humidity | **69.5 % → 41.4 %**, −9.9 points/hour |
+| low-band `dT` | +0.069 K/hour |
+| lifting condensation level | **762 m → 1466 m** — receding |
+
+At that updraft a parcel needs 25 days to reach its condensation level, and the level is moving
+away faster than anything approaches it. **Running the nest longer does not bring it closer to a
+cloud.** Two independent faults: the dynamics produce essentially no vertical velocity, and the
+boundary layer loses about a quarter of its surface water in two hours despite a positive latent
+flux.
+
+#### Causes: one eliminated, one found
+
+*Eliminated by reading rather than assuming.* Subgrid diffusion was the leading hypothesis — 40
+m²/s on a 38 m surface layer would be a 36-second damping timescale and would kill both the
+dynamics and the moisture. It is **horizontal only** and divides by the 2 km spacing, giving
+~10⁻⁵/s. Far too weak. The hypothesis was wrong.
+
+*Found.* The buoyancy did not compute the equation stated at the top of its own file. `B = g ·
+(θ_v′/θ̄_v − q_c − q_r)` requires the prime to cover the vapour term, but `moisture` stores
+**totals** while `theta` stores a perturbation, and the vapour was taken at face value. For a 7
+g/kg surface layer the spurious part is 0.043 m/s² against 0.0068 m/s² for a 0.2 K thermal —
+**six times the signal**. Being horizontally near-uniform it drives no updraft of its own; the
+pressure projection cancels it, which is what a projection does to a term already in hydrostatic
+balance. But the solve is a fixed number of relaxation sweeps, so the residual it leaves scales
+with what it was asked to remove, and the convection was running under a six-fold larger one.
+Corrected by subtracting `nest_base_vapour`.
+
+`MOISTURE_UNIT` was defined separately in four shaders and in none of the shared headers, which
+is how the diagnostic above first reported 69500 % relative humidity. It now lives in
+`atmosphere_nest_common.glsl` beside a note that `theta` and `moisture` use *opposite*
+conventions in the same nest.
+
+#### Where to resume
+
+Re-log `peak_w` for half an hour with the buoyancy correction in.
+
+- **Still ~3.5 × 10⁻⁴ m/s** → the loss is in the pressure projection or the thermal seed, not
+  the forcing. Look at `pressure_iterations` against the residual the anisotropic grid leaves,
+  and at whether `thermal_seed_amplitude` produces enough horizontal variance for the anelastic
+  constraint to permit any ascent at all. A horizontally uniform buoyancy field cannot lift
+  anything, by mass continuity.
+- **Orders of magnitude larger** → follow it to the condensation level and check the moisture
+  budget next.
+
+The drying is *not yet explained*. Diffusion is eliminated, advection cannot produce a net
+domain-wide loss, and condensation would show as cloud. Settling it needs the vertical profile
+of `q_v`, which the mirror does not carry — it reports the surface only. That is the next
+diagnostic to add, and it should be added before the next hypothesis is formed.
+
+### Phase B3 — Surface energy balance and ice
+
+The other half of Phase B's original acceptance bar. Surface fluxes are prescribed constants
+today; a real energy balance — insolation through `Astro::Ephemeris`, a slab heat capacity,
+land/sea partitioning — is what turns them into the diurnal cycle, and `ISurfaceModel` /
+`IRadiationModel` are introduced when they have an implementation rather than stubbed ahead of
+one. Ice microphysics (deposition, freezing, snow with its own fall speed) joins Kessler here.
+
+*Acceptance: morning clear → midday cumulus → evening decay happens without anything scripting
+it.*
 
 ### Phase C — Global core and climatology
 
@@ -866,11 +1047,11 @@ Stated here so they are decisions rather than discoveries:
 | File | Disposition |
 |---|---|
 | `synoptic_weather.hpp` | Deleted (Phase C). Its editor affordance becomes vorticity injection into T1. |
-| `regional_weather_grid.hpp` | Deleted (Phase B). Replaced by the GPU nest, decomposed into policy objects. |
+| `regional_weather_grid.hpp` | **Deleted (Phase B2).** Replaced by the GPU nest. The policy-object decomposition is not what the GPU form wanted — a stage is a compute shader plus its parameters, so `AtmosphereParameters` carries the data and the ten shaders carry the schemes; `ISurfaceModel`/`IRadiationModel` arrive in B3 with implementations rather than as stubs. |
 | `weather_cloudscape_compiler.hpp` | Kept, narrowed (Phase B1). The genus choice moved to §7.4's classifier (`Render::classify_cloud_genus`, shared with the GPU bake); what remains produces the label and the medium. |
 | `weather_provider.hpp` | Reshaped (Phase A) into `IAtmosphereSource` / `IAtmosphereField` / `IAtmosphereQuery` / `IAtmosphereAuthoring`. |
 | `weather_types.hpp` | Replaced (Phase E) by `AtmosphereProfile` / `AtmosphereDiagnostics`. |
 | `ingested_weather.hpp`, `metar_parser.hpp` | Kept, retargeted onto the new contract — and made installable, which they are not today. |
 | `weather_wind.hpp`, `weather_flight_hazards.hpp`, `weather_world_coupling.hpp` | API shape kept; source becomes the query mirror. |
-| `test_weather_determinism.cpp` | Deleted (§0). Replaced by summary-contract and conservation tests. |
+| `test_weather_determinism.cpp` | **Deleted (Phase B2)** per §0. Replaced by `test_atmosphere_nest.cpp`, which pins the base state, the saturation relations and the grid against textbook values, plus the mirror's cold start. The summary contract itself is Phase E. |
 | W0–W3 render passes and shaders | Kept. Changes enumerated in §8. |

@@ -29,6 +29,7 @@
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "atmosphere/atmosphere_nest.hpp"
 #include "passes/weather_field_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
 #include "resources/descriptor_writer.hpp"
@@ -97,7 +98,7 @@ namespace SushiEngine
                 // stack and the weather field's addressing), the four noise volumes the deck loop
                 // samples, the simulation's own field, and the static genus catalogue the derived
                 // path resolves a column through.
-                VkDescriptorSetLayoutBinding f_bindings[8]{};
+                VkDescriptorSetLayoutBinding f_bindings[9]{};
                 f_bindings[0].binding = 0;
                 f_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 f_bindings[0].descriptorCount = 1;
@@ -117,10 +118,17 @@ namespace SushiEngine
                 f_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 f_bindings[7].descriptorCount = 1;
                 f_bindings[7].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                // The regional nest's extinction field. Bound unconditionally so the descriptor
+                // set is one shape whether or not a nest exists; the bake reads it only when the
+                // scene block says the nest is running.
+                f_bindings[8].binding = 8;
+                f_bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                f_bindings[8].descriptorCount = 1;
+                f_bindings[8].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
                 VkDescriptorSetLayoutCreateInfo f_layout_info{};
                 f_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                f_layout_info.bindingCount = 8;
+                f_layout_info.bindingCount = 9;
                 f_layout_info.pBindings = f_bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &f_layout_info, nullptr,
                                                           &field_layout_),
@@ -469,10 +477,53 @@ namespace SushiEngine
 
             void CloudscapeCompilePass::update_window(const Frame::FrameContext& frame,
                                                       const Environment& environment,
+                                                      const Atmosphere::AtmosphereNest* nest,
                                                       Scene::SceneUniforms& uniforms)
             {
                 near_dirty_ = false;
                 far_dirty_ = false;
+                nest_ = nest;
+
+                // The nest's own addressing, for the bake to read condensate through
+                // (docs/slop/atmosphere_system.md §7.1). Stamped here rather than in
+                // fill_scene_uniforms because the nest is centred on the *simulation's*
+                // observer while everything in that block is camera-relative, and this is the
+                // one place both are in hand.
+                for (int i = 0; i < 4; ++i)
+                {
+                    uniforms.atmosphere_nest_map[i] = 0.0f;
+                    uniforms.atmosphere_nest_params[i] = 0.0f;
+                }
+                if (nest_ != nullptr && nest_->step_count() > 0)
+                {
+                    const AtmosphereNestSize& size = nest_->size();
+                    const double span = double(size.spacing_m) * double(size.cells_x);
+                    double origin_x = 0.0;
+                    double origin_z = 0.0;
+                    nest_->origin(origin_x, origin_z);
+                    const double inverse_span = 1.0 / span;
+                    uniforms.atmosphere_nest_map[0] = static_cast<float>(inverse_span);
+                    uniforms.atmosphere_nest_map[1] = static_cast<float>(inverse_span);
+                    // Formed in double: both terms are planet-scale and their difference is
+                    // metres, the same discipline every other camera-relative term in the block
+                    // follows.
+                    uniforms.atmosphere_nest_map[2] =
+                        static_cast<float>((frame.eye[0] - origin_x) * inverse_span);
+                    uniforms.atmosphere_nest_map[3] =
+                        static_cast<float>((frame.eye[2] - origin_z) * inverse_span);
+                    uniforms.atmosphere_nest_params[0] = size.top_m;
+                    // Uploaded already inverted so the bake's altitude -> W is one pow rather
+                    // than a divide inside a per-texel loop.
+                    uniforms.atmosphere_nest_params[1] = 1.0f / ATMOSPHERE_VERTICAL_STRETCH;
+                    uniforms.atmosphere_nest_params[2] = 1.0f;
+                    // The extinction of the authored "fully overcast" water content, from the
+                    // authored droplet radius: the scale the baked density states sigma against.
+                    const AtmosphereParameters& physics = environment.atmosphere_nest;
+                    uniforms.atmosphere_nest_params[3] =
+                        3.0f * std::max(physics.coverage_reference_lwc, 1.0e-6f) /
+                        (2.0f * physics.water_density *
+                         std::max(physics.droplet_effective_radius, 1.0e-7f));
+                }
 
                 if (!environment.clouds.enabled)
                 {
@@ -522,6 +573,10 @@ namespace SushiEngine
                 snapshot.shell_base = uniforms.cloud_global[1];
                 snapshot.shell_top = uniforms.cloud_global[2];
                 snapshot.derive_genus = derive ? 1u : 0u;
+                // A stepped nest is new condensate, and since §7.1 the bake reads condensate
+                // directly -- so this is the trigger that actually fires most of the time once
+                // the nest is running, in place of the weather cadence below.
+                snapshot.nest_step = nest_ != nullptr ? nest_->step_count() : 0;
                 const bool authored_changed = cloudscape_changed(snapshot);
 
                 const auto drifted = [&](const Window& window, float span)
@@ -606,6 +661,14 @@ namespace SushiEngine
                 writer.sampled_image(5, noise_.cirrus(), noise_.sampler());
                 writer.sampled_image(6, weather_.view(), weather_.sampler());
                 writer.uniform_buffer(7, catalogue_, sizeof(GenusCatalogue));
+                // Falls back to the weather field's own image when no nest exists: a descriptor
+                // has to point at *something* valid, and the shader never reads it in that case
+                // because the scene block's nest flag is zero.
+                writer.sampled_image(8,
+                                     nest_ != nullptr ? nest_->extinction_view() : weather_.view(),
+                                     nest_ != nullptr ? nest_->sampler() : weather_.sampler(),
+                                     nest_ != nullptr ? VK_IMAGE_LAYOUT_GENERAL
+                                                      : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 writer.update(device_.device(), set);
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, field_pipeline_);
                 Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,

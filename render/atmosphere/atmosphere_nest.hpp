@@ -227,6 +227,8 @@ namespace SushiEngine
 
                         float surface_sensible_flux;
                         float surface_latent_flux;
+                        float surface_night_flux;
+                        float solar_elevation_sine;
 
                         float spacing;
                         float domain_top;
@@ -292,6 +294,7 @@ namespace SushiEngine
                     void record_shift(VkCommandBuffer cmd, std::int32_t shift_x,
                                       std::int32_t shift_z, const AtmosphereForcing& forcing);
                     void record_step(VkCommandBuffer cmd, const AtmosphereForcing& forcing);
+                    void record_extinction(VkCommandBuffer cmd);
                     void record_readback(VkCommandBuffer cmd, std::uint32_t slot);
                     void collect_readback();
                     VkDescriptorSet allocate(std::uint32_t stage, std::uint32_t slot);
@@ -368,6 +371,7 @@ namespace SushiEngine
                     // Resolved from the authored parameters each step; the shader loop needs a
                     // count and the parameter block is uploaded once, not per sweep.
                     std::uint32_t pressure_sweeps_ = 12;
+                    float solar_elevation_sine_ = 0.0f;
             };
         } // namespace Atmosphere
     } // namespace Render

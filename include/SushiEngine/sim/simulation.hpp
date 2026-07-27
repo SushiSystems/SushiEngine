@@ -1393,6 +1393,25 @@ namespace SushiEngine
                 virtual IWorldEditor& world() noexcept = 0;
 
                 /**
+                 * @brief Binds the renderer's readback of the GPU atmosphere.
+                 *
+                 * `docs/slop/atmosphere_system.md` §3.2: the atmosphere's state lives on the GPU
+                 * and is written by exactly one path, and the coarse, stale summary the mirror
+                 * carries is the only thing that flows back the other way.
+                 *
+                 * On `ISimulation` rather than on `IWorldEditor` deliberately: connecting a
+                 * renderer to a simulation is *host wiring*, not world editing, and a shipped
+                 * runtime with no editor in it needs to do exactly this. Bound once by whoever
+                 * owns both objects; a host that never binds one leaves every weather query
+                 * answered from the base state — a clear sky with the synoptic wind — rather than
+                 * from a sky that has silently stopped evolving.
+                 *
+                 * @param mirror The renderer's mirror, or null to unbind.
+                 */
+                virtual void set_atmosphere_mirror(
+                    const Render::IAtmosphereMirror* mirror) noexcept = 0;
+
+                /**
                  * @brief The master simulation epoch as a Julian Date.
                  *
                  * The single "now" the orbital dynamics and the sky are evaluated at. The

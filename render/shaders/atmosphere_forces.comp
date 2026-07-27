@@ -47,8 +47,6 @@ layout(push_constant) uniform Params
 
 // Mixing ratios are carried in g/kg: fp16 holds 1e-3..20 comfortably, where kg/kg would put
 // drizzle-scale rain into the denormal range and flush it to zero.
-const float MOISTURE_UNIT = 1000.0;
-
 vec4 forcing_at(ivec3 cell)
 {
     vec2 world = push.origin_rel + (vec2(cell.x, cell.z) + 0.5) * nest.spacing;
@@ -81,12 +79,28 @@ void main()
     if (cell.y == 0)
     {
         float mass = max(base_density * thickness, 1.0); // kg/m^2 of air in this level
-        float heating = nest.surface_sensible_flux / (nest.specific_heat_pressure * mass);
-        theta_perturbation += heating * dt / max(nest_exner(altitude), 1e-6);
-        theta_perturbation += nest.thermal_seed_amplitude * nest_thermal_seed(cell);
 
-        float moistening = nest.surface_latent_flux /
-                           (nest.latent_heat_vaporization * mass);
+        // The sun does the work, and it is the same sun the sky is rendered with. Solar
+        // elevation carries the time of day *and* the season at once, because the declination
+        // that lifts the summer sun is already in the ephemeris -- so the model has seasons
+        // without anything in it modelling "summer". Below the horizon the ground radiates to
+        // space instead, which is what actually ends convection in the evening.
+        float daylight = max(nest.solar_elevation_sine, 0.0);
+        float sensible = nest.surface_sensible_flux * daylight -
+                         nest.surface_night_flux * (1.0 - step(0.0, nest.solar_elevation_sine));
+        float latent = nest.surface_latent_flux * daylight;
+
+        float heating = sensible / (nest.specific_heat_pressure * mass);
+        theta_perturbation += heating * dt / max(nest_exner(altitude), 1e-6);
+        // Scaled by the step like every other forcing term. Without it the seed was a fixed
+        // kick *per step*, so how vigorously the boundary layer stirred depended on the time
+        // step the CFL happened to pick -- a model whose convection changes when the wind picks
+        // up and shortens dt is not a model. The amplitude is stated per second, and one second
+        // is about the shortest step the nest ever takes, so the authored number keeps its
+        // meaning.
+        theta_perturbation += nest.thermal_seed_amplitude * nest_thermal_seed(cell) * dt;
+
+        float moistening = latent / (nest.latent_heat_vaporization * mass);
         q.x += moistening * dt;
     }
 
@@ -135,7 +149,19 @@ void main()
         float face_base_theta = nest_base_theta(face_altitude);
 
         float theta_face = 0.5 * (theta_perturbation + theta_below);
-        float vapour_face = 0.5 * (q.x + q_below.x);
+        // The **departure** from the base state's own vapour, not the total. `theta` is stored
+        // as a perturbation and `moisture` is not (see MOISTURE_UNIT's note), and taking the
+        // moisture at face value here quietly made this a different equation from the one at
+        // the top of this file: the prime on theta_v' has to cover the vapour term too.
+        //
+        // What it cost. g * 0.61 * q_v is 0.043 m/s^2 for a 7 g/kg surface layer, against
+        // 0.0068 m/s^2 for a 0.2 K thermal — the spurious part was **six times the signal**.
+        // Being horizontally near-uniform it drives no updraft of its own; the pressure solve
+        // cancels it, since that is precisely what a projection does to a term that is already
+        // in hydrostatic balance. But the solve is a fixed number of relaxation sweeps, so what
+        // it leaves behind scales with what it was asked to remove, and the convection this
+        // model exists to produce was being run underneath a six-fold larger residual.
+        float vapour_face = 0.5 * (q.x + q_below.x) - nest_base_vapour(face_altitude);
         float condensate_face = 0.5 * (q.y + q.z + q_below.y + q_below.z);
 
         // Virtual potential temperature: vapour is lighter than dry air by the ratio of their

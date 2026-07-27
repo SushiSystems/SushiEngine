@@ -54,6 +54,35 @@ TEST(Unit_WeatherWorldCoupling, ClearColumnCompilesToAllZeroCoupling)
     EXPECT_FLOAT_EQ(result.wind_north_mps, 0.0f);
 }
 
+TEST(Unit_WeatherWorldCoupling, OvercastAloftIsNotFogButCloudOnTheGroundIs)
+{
+    // The regression this exists for: fog used to be driven by the low deck's coverage times
+    // its density, so an ordinary grey overcast at 1 200 m produced ~0.008/m of extinction -- a
+    // ~370 m whiteout under a sky you can see the ground perfectly well beneath. Coverage aloft
+    // says nothing about the air at the surface; cloud *base* does.
+    WeatherColumn overcast{};
+    overcast.levels[static_cast<int>(CloudLevel::Low)].coverage = 1.0f;
+    overcast.levels[static_cast<int>(CloudLevel::Low)].density_scale = 2.0f;
+    overcast.cloud_base_m = 1200.0f;
+
+    WeatherWorldCoupling coupling;
+    EXPECT_FLOAT_EQ(coupling.compile(overcast).fog_density_bias, 0.0f)
+        << "a dry overcast sky overhead is not fog on the ground";
+
+    // The same amount of cloud, sitting on the ground, *is* fog -- that is what fog is.
+    WeatherColumn grounded = overcast;
+    grounded.cloud_base_m = 1.0f;
+    EXPECT_GT(coupling.compile(grounded).fog_density_bias, 0.0f);
+
+    // And it ramps rather than switching, so driving up a hill into the cloud base is a
+    // transition rather than a step.
+    WeatherColumn halfway = overcast;
+    halfway.cloud_base_m = 150.0f;
+    const float partial = coupling.compile(halfway).fog_density_bias;
+    EXPECT_GT(partial, 0.0f);
+    EXPECT_LT(partial, coupling.compile(grounded).fog_density_bias);
+}
+
 TEST(Unit_WeatherWorldCoupling, PrecipitationRaisesFogTurbidityAndWetnessTogether)
 {
     // One cause (precipitation), every symptom (design doc §7's acceptance bar): a single

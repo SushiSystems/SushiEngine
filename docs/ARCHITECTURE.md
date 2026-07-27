@@ -3188,3 +3188,152 @@ covers exactly the near window and fades out across its rim. It had one before, 
 repeated copy of the camera's own patch, and at that distance a wrong dappling reads as
 texture where a missing one reads as haze. A second, coarser shadow cascade over the far
 window is the natural follow-up.
+
+### 16.5. The regional nest: anelastic convection on the GPU (atmosphere phase B2)
+
+`docs/slop/atmosphere_system.md` §6. §16.1–§16.2 describe a simulation whose own audit (§1.3–
+§1.5 of the design doc) found three independent 2-D layers with no vertical advection at all,
+saturation expressed as `if (humidity > 0.85)`, no latent heating, semi-Lagrangian advection at
+Courant ≈ 0.02 — its maximally diffusive regime — and all of it in a single-threaded scalar CPU
+loop. This subsection replaces it.
+
+**The model.** Prognostic potential temperature, three moisture species (`q_v`, `q_c`, `q_r`)
+and a staggered Arakawa C-grid velocity field, over a camera-following domain of 192×192×48
+cells at 2 km horizontally and ~54–560 m vertically. Ten compute stages per step: shift, advect
+velocity, advect scalars, forces, divergence, pressure, project, microphysics, extinction,
+readback.
+
+- **Transport** is MacCormack-corrected semi-Lagrangian with a monotone limiter, at Courant ≈ 1
+  chosen from the flow's own speed. The limiter clamps the correction to the upstream stencil's
+  range, which is what stops an unlimited scheme manufacturing negative mixing ratios and
+  spurious cold pools.
+- **The anelastic constraint** is `∇·(ρ̄u) = 0` — the reference density, not the true one, which
+  is what filters sound waves out and therefore why the step is set by advection rather than by
+  the speed of sound. That single approximation is what the whole cost argument rests on.
+- **Buoyancy** is `B = g(θ_v′/θ̄_v − q_c − q_r)`: thermal buoyancy through the *virtual*
+  potential temperature, minus the weight of the water the cloud is carrying. Latent heat
+  released by condensation raises θ′, which raises B, which lifts more vapour to its
+  condensation level. That closed loop is why a cumulus grows rather than merely existing, and
+  it cannot be written down without a vertical velocity to feed it.
+- **Microphysics** is Kessler warm rain: Magnus saturation, a one-Newton-step saturation
+  adjustment (the fixed point moves with the temperature the latent heating changes),
+  autoconversion, accretion, sub-cloud evaporation, and terminal-fall-speed sedimentation.
+  Cloud base is nowhere placed — it falls out where a rising parcel's `q_s(T)` drops to its own
+  `q_v`, which is the lifting condensation level by definition.
+
+**The pressure solve** is the piece worth reading. The grid is deliberately anisotropic, so the
+Laplacian's vertical coupling outweighs its horizontal by `(Δx/Δz)²` — two orders of magnitude
+near the ground — and a point smoother would converge appallingly. It solves the vertical
+*exactly* with a Thomas sweep per column and iterates the horizontal by red-black colouring.
+Naive Thomas wants four private arrays, a kilobyte per column, which spills at a 64-column
+workgroup; everything but the `c′` factors is recomputed from analytic functions of the level
+index and `d′` is written straight into the pressure image, which is 256 bytes instead. Named
+limit: with no coarse-grid correction the smooth horizontal error decays slowly, so a fixed
+sweep count leaves a small residual divergence — a slight mass imbalance, not a wrong answer.
+Semi-coarsened multigrid with this shader as its smoother is the refinement and drops in
+unchanged.
+
+**Where it lives, and why that was forced.** The editor runs three `ISceneView`s (Scene, Game,
+VFX preview). A per-view nest would simulate three divergent atmospheres at three times the cost
+and several hundred megabytes, and the simulation would have to pick one to answer "what is the
+weather". So `AtmosphereNest` is a device-level service in `AssetLibrary`, beside the cloud
+noise, built on first use so a scene that never enables weather never pays its ~113 MB. It is
+centred on the **simulation's observer**, not on any camera, which decouples it from views
+entirely.
+
+**Ordering against three readers.** The step records into its own command buffer, submits on the
+graphics queue and signals a timeline semaphore each view's first submission waits on. Without
+it, three views sampling a resource an earlier submission is writing is a race the validation
+layers cannot see. `AtmosphereForcing` carries an *absolute* game clock rather than a per-frame
+delta, so the step is idempotent and whichever view reaches it first does the work.
+
+**Seeding is re-centring.** A shift larger than the domain leaves every cell without a source,
+which is exactly "fill from the base state and the parent solution" — one code path, not two
+that would eventually disagree about what a fresh cell contains. Surviving cells are copied, not
+resampled, because the lattice snaps to whole cells against an absolute origin.
+
+**The data plane.** Nothing reads the GPU state synchronously (§3.2). `atmosphere_readback.comp`
+compiles the nest into a 32×32 lattice of `WeatherColumn`-shaped records, copied into a
+triple-buffered host ring and taken once per completed step. `Render::IAtmosphereMirror` is the
+one seam that flows renderer → simulation; `IAssetLibrary` *is* that source, so a host binds the
+two in one line (`simulation->set_atmosphere_mirror(&renderer->assets())`). This is §9.2's query
+mirror pulled forward from phase E, deliberately and only as far as it had to be: the moment the
+grid moved onto the GPU there was nothing left on the CPU for `sample_column` to read. §9.1's
+full `AtmosphereProfile` stays in phase E, where it has consumers written for it.
+
+**Before the first readback**, and in a host that never binds a mirror, every weather query
+answers from the base state: a clear sky with the synoptic wind. Honest rather than convenient —
+nothing has been simulated, so there is no condensate to report, and inventing a coverage there
+is precisely the fabricated signal the design doc's §1 audit was written about.
+
+**What T1 still is.** `SynopticLayer` survives as the parent solution the Davies relaxation zone
+nudges toward — real geostrophic flow around real moving pressure systems, with its stylized
+frontal mask shaping the boundary's temperature and moisture anomalies. Named as an interim: §5's
+two-layer quasi-geostrophic core replaces it in phase C, where cyclogenesis is emergent and
+fronts are diagnosed from the thermal gradient rather than drawn from a ray pair.
+
+**Retired here.** `regional_weather_grid.hpp` (the design doc's own disposition table) and
+`test_weather_determinism.cpp` — bit-exact replay of the weather is given up deliberately (§0,
+§14), and the test's subject no longer exists. `tests/functional/unit/test_atmosphere_nest.cpp`
+replaces it by pinning what *is* still checkable: the base state against the International
+Standard Atmosphere, Magnus saturation against its textbook values, the stretched grid closing
+on its domain top, and the mirror's cold start and transcription.
+
+**Cloud shape now comes from the condensate (§7.1/§7.3, phase B2b).** `cloudscape_field.comp`
+has a third path, taken whenever the nest is running: it reads `σ_ext` from
+`atmosphere_extinction.comp`'s field directly and uses no genus, no deck and no height gradient
+at all. A cumulus has a flat base because the condensation level is flat, not because
+`cloud_height_gradient` draws one; an anvil spreads because the updraft spread it. The nest's
+stretched levels invert analytically (`w = (altitude/top)^(1/1.5)`), so altitude → texture W is
+one `pow`, and the horizontal map is stamped in `update_window` because the nest is centred on
+the *simulation's* observer while the scene block is camera-relative — that is the one place
+both frames are in hand.
+
+Baked density is stated against the extinction of 1 g/m³ of liquid water rather than in absolute
+1/m. That keeps the medium's authored absorption meaning exactly what it always meant: *where*
+the cloud is and how its density falls off across its own edge is now physics, while how opaque
+a given amount of water reads stays an authored property of the medium. Tiled noise survives
+only as a sub-2 km modulation at 35 % amplitude — §7.3's demotion in its final form, since the
+nest resolves 2 km and that is all the noise is still needed for.
+
+The march shell follows suit: `WeatherFieldBuffer::fill_from_mirror` takes the lowest cloud base
+and highest cloud top the readback reports and publishes those as the union span, so the baked
+field's thirty-two vertical texels sit on the cloud instead of on the empty stratosphere above
+it. A classifier could only ever have said "a cumulus reaches 3.2 km" because the catalogue says
+so; the nest knows where *this* cloud's top is.
+
+The three paths are ordered: nest first, then per-column genus from the published field, then the
+authored deck stack. Each is the truthful answer when the one above it has nothing to say.
+
+**Two invariants the bake now enforces on itself.** Both were violated for as long as the bake
+has existed, and neither is visible without measuring the noise rather than looking at it.
+
+*`coverage` is a percentile, so the field it cuts must be uniform.* `remap(base_shape, 1 -
+coverage, 1, 0, 1) * coverage` only means "keep the densest `coverage` of the sky" if
+`base_shape` is uniform on [0, 1]. Ported exactly and sampled, it is a narrow bell with support
+[0.574, 0.906], so the cut never reached the field above ~0.43 coverage and every deck at half
+coverage or more came out a gapless slab shaped only by `cloud_height_gradient`.
+`uniform_shape()` pushes it through its own CDF (a logistic approximation to the normal one,
+one `exp`) before anything thresholds it. The transform is monotone, so it cannot change the
+field's level sets — it changes which one `coverage` selects, which was the entire defect.
+Statistics are per-path because the deck path mixes two taps of the shape volume, the nest path
+takes one, and cirriform genera read a different volume.
+
+*A window may not carve a feature its own grid cannot sample.* The shape volume lays four Worley
+cells per `shape_scale`, so a cloud is `shape_scale / 4` — 1050 m for cumulus, against the far
+window's 1024 m texel. One sample per cloud, and since the bake thresholds *before* it stores,
+the alias arrives with its gaps filled rather than blurred. `min_shape_scale()` floors the scale
+at sixteen texels of whichever window is being baked. The near window's floor is 2048 m and
+every genus is above it, so the near field is untouched and the far field draws cloud clusters
+instead of a slab.
+
+**The Meteorology panel** (`editor/ui/editor_panels.cpp`) is the tuning and logging surface for
+all of this: the sky's animation rate against the rate the nest can actually step, the solar
+forcing, the observer's column, and a CSV log sampled on the *nest's* clock rather than the wall
+clock so runs at different time scales stay comparable. When the column is empty it names which
+link is broken — procedural weather off, nest disabled, forcing unpublished, or stepping without
+a completed readback — because the nest is built lazily behind several conditions and "no
+readback yet" on its own sends you to the wrong subsystem. The readback's three spare `extent`
+lanes carry surface relative humidity, the column's peak |w|, and the lifting condensation level:
+diagnostics the renderer does not consume, but the only ones that answer *why* a column is clear
+rather than merely *that* it is.

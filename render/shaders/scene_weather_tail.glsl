@@ -38,3 +38,15 @@ vec4 weather_field_levels;
 vec4 cloud_field_near;
 vec4 cloud_field_far;
 vec4 cloud_field_params;
+// The GPU regional nest's optical extinction field (atmosphere_system.md §7.1), addressed for
+// the cloudscape bake. This is where cloud *shape* comes from when the nest is running: the
+// bake reads how much water is actually suspended here rather than instantiating a genus
+// profile, so a cumulus has the outline the condensate has.
+//   nest_map.xy    = camera-relative XZ metres -> the nest's horizontal UV
+//   nest_map.zw    = the matching offset
+//   nest_params.x  = the nest's domain top, metres above the surface
+//   nest_params.y  = the inverse of the vertical stretch exponent, so altitude -> W is one pow
+//   nest_params.z  = 1 when the nest is running and the bake should read it, 0 otherwise
+//   nest_params.w  = the extinction of 1 g/m^3 of liquid water, the scale sigma is stated against
+vec4 atmosphere_nest_map;
+vec4 atmosphere_nest_params;

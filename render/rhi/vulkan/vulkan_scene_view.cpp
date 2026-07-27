@@ -463,7 +463,8 @@ namespace SushiEngine
                 // read the same mapping out of this block, and the pass that owns the window
                 // state cannot reach it once it has been uploaded. The pass keeps the state; the
                 // view only owns the ordering.
-                cloudscape_compile_pass_.update_window(frame, environment, uniforms);
+                cloudscape_compile_pass_.update_window(frame, environment, assets_.atmosphere(),
+                                                       uniforms);
                 for (int i = 0; i < 4; ++i)
                     uniforms.light_shadow_a[i] =
                         static_cast<float>(lights_.directional_shadow_index(static_cast<std::uint32_t>(i)));

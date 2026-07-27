@@ -9,7 +9,7 @@
 // horizontal by red-black colouring.
 //
 // **Why a vertical line solver rather than the FFT §6 names, or a plain point iteration.**
-// The nest's grid is strongly anisotropic on purpose: ~2 km horizontally against ~80-560 m
+// The nest's grid is strongly anisotropic on purpose: ~2 km horizontally against ~54-560 m
 // vertically. The Laplacian's vertical coupling therefore outweighs its horizontal coupling by
 // (dx/dz)^2 -- upwards of two orders of magnitude near the ground. A point smoother (Jacobi,
 // red-black Gauss-Seidel on the full stencil) propagates information one cell per sweep along

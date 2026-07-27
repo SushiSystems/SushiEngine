@@ -49,9 +49,20 @@ vec2 cloud_window_uv(vec2 map_scale, vec2 map_offset, vec2 xz)
     return xz * map_scale + map_offset;
 }
 
-// How much of the near window's answer applies at @p uv: 1 through the middle, falling to 0
-// across the rim, so the far window takes over continuously.
-float cloud_window_near_weight(vec2 uv, float span_meters)
+// How much of a window's answer applies at @p uv: 1 through the middle, falling to 0 across
+// the rim. For the near window that is where the far one takes over; for the far window it is
+// where cloud stops existing at all, and that is deliberate.
+//
+// **Why the far window must fade rather than clamp.** These windows are flat squares in world
+// XZ with no vertical extent — which makes them, geometrically, *infinite vertical prisms*.
+// That is exactly right within a few hundred kilometres of the camera, where the tangent-plane
+// approximation the whole T3 tier is built on holds. It is meaningless at planetary viewing
+// distance: a prism centred near the planet's own axis runs straight down it and intersects the
+// spherical cloud shell in precisely two places, the north and south polar caps, which is what
+// a clamped edge texel smeared across the rest of the sphere looks like from orbit. Fading to
+// nothing instead is the honest answer — the tier simulates a region, not a planet, and §7.5's
+// coarse planet-scale far field and panorama impostor are what is supposed to cover the rest.
+float cloud_window_weight(vec2 uv, float span_meters)
 {
     if (span_meters <= 0.0)
         return 0.0;

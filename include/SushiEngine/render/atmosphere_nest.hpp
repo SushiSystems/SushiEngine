@@ -140,7 +140,7 @@ namespace SushiEngine
              * worse outcome than weather that is briefly behind — and nothing downstream
              * depends on the nest's clock being exact (§3.4).
              */
-            std::uint32_t max_steps_per_frame = 2;
+            std::uint32_t max_steps_per_frame = 4;
             /** @brief Subgrid eddy viscosity/diffusivity, m²/s. */
             float eddy_viscosity = 40.0f;
             /**
@@ -217,6 +217,20 @@ namespace SushiEngine
              * a given amount of condensate reads as a crisp white cumulus or a thin haze.
              */
             float droplet_effective_radius = 8.0e-6f;
+            /**
+             * @brief Liquid water content a cell must hold to read as fully overcast, kg/m³.
+             *
+             * The one knob that separates *how much water the model makes* from *how much water
+             * reads as a solid sky*, and it exists because those are two different questions and
+             * conflating them makes a wrong answer to either look like a wrong answer to both.
+             *
+             * A nest cell is 2 km across, so its condensate is a **cell mean**: 1 g/m³ averaged
+             * over four square kilometres is a deep solid deck, while a fair-weather cumulus
+             * field — a sky that is mostly blue — averages a small fraction of that. Raising
+             * this makes a given amount of condensate read as thinner and more scattered without
+             * touching the physics that produced it; lowering it does the reverse.
+             */
+            float coverage_reference_lwc = 0.0015f;
 
             // ---- Surface forcing -----------------------------------------------------
             //
@@ -226,10 +240,27 @@ namespace SushiEngine
             // diurnal cycle. Prescribed values are stated as such rather than dressed up:
             // they are what a fair-weather convective afternoon actually delivers.
 
-            /** @brief Prescribed surface sensible heat flux, W/m². */
-            float surface_sensible_flux = 120.0f;
-            /** @brief Prescribed surface latent (moisture) heat flux, W/m². */
-            float surface_latent_flux = 90.0f;
+            /**
+             * @brief Surface sensible heat flux at solar noon with the sun overhead, W/m².
+             *
+             * A *peak*, not a constant. The nest scales it by the sine of the real sun's
+             * elevation, which is what makes the diurnal cycle and the seasons the same
+             * mechanism: the declination that puts the sun higher in July than in January is
+             * already in the ephemeris driving the rendered sun, so a summer afternoon delivers
+             * more heat to the ground than a winter one without anything modelling "summer".
+             */
+            float surface_sensible_flux = 140.0f;
+            /** @brief Surface latent (moisture) flux at solar noon with the sun overhead, W/m². */
+            float surface_latent_flux = 100.0f;
+            /**
+             * @brief Net radiative cooling of the surface at night, W/m².
+             *
+             * Positive; subtracted while the sun is down. This is what *ends* convection in the
+             * evening rather than merely starving it: the ground cools, the lowest level cools
+             * with it, the boundary layer stabilises and the cumulus field decays. Without a
+             * negative term the sky would simply stop growing new cloud and keep what it had.
+             */
+            float surface_night_flux = 35.0f;
 
             /** @brief Whether the nest runs at all; off falls back to the authored/classified sky. */
             bool enabled = true;
@@ -259,7 +290,7 @@ namespace SushiEngine
          * @brief The vertical stretch exponent, shared by the C++ and GLSL grid.
          *
          * `z(k) = top · ((k + ½)/N)^s`. At s = 1.5 with 48 levels over 18 km the spacing runs
-         * from ~80 m at the surface to ~560 m aloft — fine where the boundary layer and cloud
+         * from ~54 m at the surface to ~560 m aloft — fine where the boundary layer and cloud
          * base live, coarse where only the anvil does. A uniform grid would either waste most
          * of its levels above the weather or resolve cloud base at half a kilometre.
          */
@@ -439,6 +470,17 @@ namespace SushiEngine
             float coriolis = 0.0f;
 
             /**
+             * @brief Sine of the sun's elevation at the nest centre; negative below the horizon.
+             *
+             * The single number that makes the surface forcing diurnal *and* seasonal. Taken
+             * from the same sun the sky is rendered with — `docs/slop/atmosphere_system.md` §1.6
+             * records the shipped system reimplementing its own solar-position model, so that
+             * "the sun that heats the ground and the sun that is rendered are two different
+             * suns"; this is the same sun, read off the environment's own direction vector.
+             */
+            float solar_elevation_sine = 0.0f;
+
+            /**
              * @brief Where the nest should be centred, scene-absolute metres.
              *
              * The *simulation's observer*, deliberately, and not any view's camera: the editor
@@ -480,6 +522,23 @@ namespace SushiEngine
             float bands[3][4]{};
             /** @brief Precipitation (mm/h), eastward wind (m/s), northward wind (m/s), cloud base (m). */
             float surface[4]{};
+            /**
+             * @brief Cloud top (m), surface relative humidity (0-1), peak |w| (m/s), LCL (m).
+             *
+             * Base and top together are what let the march shell be stretched across the span
+             * condensate actually occupies, instead of across the nest's whole 18 km domain —
+             * which would spend two thirds of the baked field's vertical resolution on empty
+             * stratosphere.
+             *
+             * The other three are diagnostics rather than anything the renderer consumes, and
+             * they exist because the fields above can only report *that* a column is clear.
+             * The lifting condensation level is the decisive one: it is the altitude a surface
+             * parcel must be raised to before it saturates, so a nest whose LCL sits above what
+             * its convection can reach will stay clear however long it is heated — and because
+             * warming lowers relative humidity, more heating pushes the LCL further away rather
+             * than closer. Reported as 0 when the parcel never saturates inside the domain.
+             */
+            float extent[4]{};
         };
 
         /**

@@ -151,7 +151,7 @@ add_executable(se_functional_tests
     # Weather W5 (world coupling): WeatherWorldCoupling's WeatherColumn -> WeatherCoupling
     # bridge, weather_wind()'s analytic-plus-perturbation sampling, and the cloud-base
     # darkening WeatherCloudscapeCompiler applies under precipitation -- pure host maths,
-    # isolated from T1/T2's own tick (see test_weather_determinism.cpp for that).
+    # isolated from the simulation's own tick.
     functional/unit/test_weather_world_coupling.cpp
 
     # Weather W6 (flight-sim polish & data ingestion): icing_risk()/turbulence_intensity()'s
@@ -167,6 +167,7 @@ add_executable(se_functional_tests
     # world, that every provider can publish one, and that the reference column the shader
     # divides by is the column the deck stack was compiled from.
     functional/unit/test_weather_field.cpp
+    functional/unit/test_atmosphere_nest.cpp
 
     # Astro: the solar-system model behind the WGS84/atmosphere/orbital-mechanics regime.
     # Pure double-precision maths, verified against astronomical reference landmarks and
@@ -196,7 +197,6 @@ add_executable(se_functional_tests
     functional/integration/test_app.cpp
     functional/integration/test_input_determinism.cpp
     functional/integration/test_particle_determinism.cpp
-    functional/integration/test_weather_determinism.cpp
 
     # Audio S6: the wall-clock audio snapshot extract against the real ECS world — the
     # listener-local conversion (facing from the Orientation quaternion, eye-subtracted

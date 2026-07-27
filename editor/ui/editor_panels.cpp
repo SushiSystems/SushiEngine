@@ -857,6 +857,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Rendering", nullptr, &context.panels.rendering);
                 ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
                 ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
+                ImGui::MenuItem("Meteorology", nullptr, &context.panels.meteorology);
                 ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
                 ImGui::MenuItem("Preview", nullptr, &context.panels.preview);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
@@ -2874,6 +2875,305 @@ namespace SushiEngine
             ImGui::End();
         }
 
+        namespace
+        {
+            /**
+             * @brief The meteorology log's own state, private to the panel.
+             *
+             * A file handle and a cadence, kept here rather than on the editor context because
+             * nothing else in the editor has any business with it and the context is already
+             * long. Opened lazily on the first line written, so ticking the toggle and changing
+             * one's mind costs no file.
+             */
+            struct MeteorologyLog
+            {
+                bool enabled = false;
+                float interval_seconds = 10.0f;
+                double next_at_simulated = 0.0;
+                char path[256] = "meteorology.csv";
+                std::ofstream stream;
+                bool header_written = false;
+            };
+
+            MeteorologyLog& meteorology_log()
+            {
+                static MeteorologyLog log;
+                return log;
+            }
+
+            /** @brief The mirror column under the observer — the nest is centred on it. */
+            const SushiEngine::Render::AtmosphereMirrorColumn* observer_column(
+                const SushiEngine::Render::AtmosphereMirror& mirror)
+            {
+                if (!mirror.valid())
+                    return nullptr;
+                const int centre = mirror.cells / 2;
+                return &mirror.columns[std::size_t(centre) * std::size_t(mirror.cells) +
+                                       std::size_t(centre)];
+            }
+        } // namespace
+
+        void draw_meteorology_panel(EditorContext& context)
+        {
+            if (!context.panels.meteorology)
+                return;
+            if (!ImGui::Begin("Meteorology", &context.panels.meteorology))
+            {
+                ImGui::End();
+                return;
+            }
+
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr)
+            {
+                ImGui::TextUnformatted("No scene open.");
+                ImGui::End();
+                return;
+            }
+            const SushiEngine::Render::Environment environment = world->environment();
+
+            const SushiEngine::Render::AtmosphereMirror mirror =
+                context.assets != nullptr ? context.assets->atmosphere_mirror()
+                                          : SushiEngine::Render::AtmosphereMirror{};
+
+            // ---- The clock, and whether the atmosphere can keep up with it -----------------
+            //
+            // The most load-bearing readout here. The nest advances in *game* time by at most
+            // `max_steps_per_frame` steps of its CFL-chosen length per frame; a sky animating
+            // faster than that runs the sun ahead of the atmosphere it is meant to be heating,
+            // and the surface forcing then oscillates faster than a boundary layer can respond.
+            // Invisible without a number to look at, which is why there is one.
+            ImGui::SeparatorText("Clock");
+            const SushiEngine::Render::AtmosphereParameters& nest = environment.atmosphere_nest;
+
+            const double sky_rate = context.sky_animate ? context.sky_days_per_second * 86400.0 : 0.0;
+            // The step the nest will pick: the vertical CFL binds at this grid, so it is the
+            // thinnest level over a generous updraft, clamped into the authored window.
+            const SushiEngine::Render::AtmosphereNestSize size{};
+            const float thinnest =
+                SushiEngine::Render::atmosphere_level_thickness(0, size.levels, size.top_m);
+            const float step = std::clamp(nest.courant_target * thinnest /
+                                              std::max(10.0f * nest.convective_velocity_scale, 1.0f),
+                                          nest.min_step_seconds, nest.max_step_seconds);
+            const double sustainable = double(step) * double(nest.max_steps_per_frame) * 60.0;
+
+            ImGui::Text("Sky:        %.0f x real  (%.4f days/s)", sky_rate,
+                        context.sky_animate ? context.sky_days_per_second : 0.0);
+            ImGui::Text("Atmosphere: %.0f x real max  (%.2f s step, %u/frame at 60 fps)",
+                        sustainable, step, nest.max_steps_per_frame);
+
+            if (!context.sky_animate)
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                                   "Time is frozen -- enable Sky > Animate or nothing evolves.");
+            else if (sky_rate > sustainable * 1.05)
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Sky is %.1fx faster than the atmosphere can step; the sun\n"
+                                   "runs ahead of the weather it is heating.",
+                                   sky_rate / std::max(sustainable, 1.0));
+            else
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
+                                   "The atmosphere is keeping up with the sky.");
+
+            if (ImGui::Button("Match sky to atmosphere"))
+            {
+                context.sky_days_per_second = sustainable / 86400.0;
+                context.sky_animate = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(sets the fastest rate the weather can actually follow)");
+
+            // Why there is nothing to look at, when there is nothing to look at. The nest is
+            // built lazily and only when several things line up, and "no readback yet" on its own
+            // sends you looking in the wrong place -- as it did. Each rung of this chain is a
+            // different fix, so the panel names the rung rather than the symptom.
+            const bool procedural = world->procedural_weather_enabled();
+            const bool forcing_published = environment.atmosphere_forcing.valid();
+            if (mirror.valid())
+            {
+                ImGui::Text("Simulated %.0f s of game time (%.2f h).", mirror.simulated_seconds,
+                            mirror.simulated_seconds / 3600.0);
+            }
+            else if (!procedural)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Procedural weather is OFF, so nothing publishes the forcing\n"
+                                   "the nest is driven by and no nest is ever built. The sky you\n"
+                                   "are seeing is the authored deck stack -- which is uniform\n"
+                                   "everywhere, so it fills the cloud window edge to edge.");
+                // The fix, next to the diagnosis. The alternative is a panel that names a
+                // control in a different panel and expects you to go find it, which is how the
+                // toggle stayed off long enough to be mistaken for a physics bug.
+                if (ImGui::Button("Switch procedural weather on"))
+                    world->set_procedural_weather_enabled(true);
+            }
+            else if (!nest.enabled)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "The nest is switched off below; the sky is coming from the\n"
+                                   "classified deck stack instead.");
+                if (ImGui::Button("Switch the nest on"))
+                {
+                    SushiEngine::Render::Environment updated = environment;
+                    updated.atmosphere_nest.enabled = true;
+                    world->set_environment(updated);
+                }
+            }
+            else if (!forcing_published)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Weather is procedural but no forcing reached the renderer\n"
+                                   "this frame -- the simulation has not extracted yet.");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                                   "Forcing is published and the nest is building, but no\n"
+                                   "readback has completed. If this never clears, the nest is\n"
+                                   "seeded but never stepping -- check the clock above.");
+            }
+
+            // ---- The sun: one number that carries both the hour and the season -------------
+            ImGui::SeparatorText("Solar forcing");
+            const SushiEngine::Vector3& to_sun = environment.sun.direction;
+            const SushiEngine::Vector3& up = environment.planet_pole;
+            const double up_length = std::sqrt(up.x * up.x + up.y * up.y + up.z * up.z);
+            const double sun_length =
+                std::sqrt(to_sun.x * to_sun.x + to_sun.y * to_sun.y + to_sun.z * to_sun.z);
+            const double sine = (up_length > 0.0 && sun_length > 0.0)
+                                    ? (to_sun.x * up.x + to_sun.y * up.y + to_sun.z * up.z) /
+                                          (up_length * sun_length)
+                                    : 0.0;
+            const double elevation = std::asin(std::clamp(sine, -1.0, 1.0)) * 180.0 / 3.14159265358979;
+            ImGui::Text("Sun elevation: %+.1f deg  (sin = %+.3f)", elevation, sine);
+            ImGui::Text("Surface flux:  %.0f W/m2 sensible, %.0f W/m2 latent",
+                        sine > 0.0 ? nest.surface_sensible_flux * sine : -nest.surface_night_flux,
+                        sine > 0.0 ? nest.surface_latent_flux * sine : 0.0);
+            ImGui::TextDisabled("Seasons are this number: the declination that lifts the summer\n"
+                                "sun is already in the ephemeris, so a July noon delivers more\n"
+                                "heat than a January one with nothing modelling \"summer\".");
+
+            // ---- The column under the observer --------------------------------------------
+            ImGui::SeparatorText("Column under the observer");
+            const SushiEngine::Render::AtmosphereMirrorColumn* column = observer_column(mirror);
+            if (column == nullptr)
+            {
+                ImGui::TextDisabled("No readback yet.");
+            }
+            else
+            {
+                ImGui::Text("Cloud base %.0f m, top %.0f m", column->surface[3], column->extent[0]);
+                ImGui::Text("Rain %.2f mm/h   Wind %.1f E, %.1f N m/s", column->surface[0],
+                            column->surface[1], column->surface[2]);
+
+                // Why a clear column is clear. The three above say only *that* it is.
+                const float humidity = column->extent[1];
+                const float updraft = column->extent[2];
+                const float lcl = column->extent[3];
+                ImGui::Text("Surface RH %.0f%%   Peak updraft %.2f m/s", humidity * 100.0f,
+                            updraft);
+                if (lcl > 0.0f)
+                    ImGui::Text("Condensation level %.0f m", lcl);
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                       "No condensation level: a surface parcel never reaches\n"
+                                       "saturation anywhere in the 18 km domain, so this column\n"
+                                       "cannot make cloud however long it is heated. Heating in\n"
+                                       "fact lowers relative humidity and pushes it further out;\n"
+                                       "what this needs is moisture, not time.");
+                if (lcl > 0.0f && column->surface[3] <= 0.0f)
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                                       "There is a condensation level but nothing has reached it:\n"
+                                       "the convection is not lifting parcels that far.");
+                if (ImGui::BeginTable("bands", 5, ImGuiTableFlags_Borders |
+                                                      ImGuiTableFlags_SizingStretchProp))
+                {
+                    ImGui::TableSetupColumn("Band");
+                    ImGui::TableSetupColumn("Coverage");
+                    ImGui::TableSetupColumn("Density");
+                    ImGui::TableSetupColumn("Convective");
+                    ImGui::TableSetupColumn("dT (C)");
+                    ImGui::TableHeadersRow();
+                    static const char* names[3] = {"Low", "Middle", "High"};
+                    for (int band = 0; band < 3; ++band)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(names[band]);
+                        for (int field = 0; field < 4; ++field)
+                        {
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%.3f", column->bands[band][field]);
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+            }
+
+            // ---- Logging -------------------------------------------------------------------
+            //
+            // Sampled on the *nest's* clock rather than the wall clock, so a log line is a fixed
+            // interval of simulated weather however fast or slow the sky is being animated --
+            // which is what makes two runs at different time scales comparable.
+            ImGui::SeparatorText("Log");
+            MeteorologyLog& log = meteorology_log();
+            ImGui::InputText("File", log.path, sizeof(log.path));
+            ImGui::SliderFloat("Every", &log.interval_seconds, 1.0f, 3600.0f, "%.0f s simulated",
+                               ImGuiSliderFlags_Logarithmic);
+            if (ImGui::Checkbox("Logging", &log.enabled) && !log.enabled)
+            {
+                log.stream.close();
+                log.header_written = false;
+            }
+
+            const bool force = ImGui::Button("Write one line now");
+            if (column == nullptr)
+            {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "nothing to write -- see above");
+            }
+            if ((log.enabled || force) && column != nullptr)
+            {
+                const bool due = force || mirror.simulated_seconds >= log.next_at_simulated;
+                if (due)
+                {
+                    if (!log.stream.is_open())
+                        log.stream.open(log.path, std::ios::out | std::ios::app);
+                    if (log.stream.is_open())
+                    {
+                        if (!log.header_written)
+                        {
+                            log.stream << "simulated_s,julian_date,sun_sine,cloud_base_m,"
+                                          "cloud_top_m,surface_rh,peak_w,lcl_m,"
+                                          "rain_mm_h,wind_e,wind_n,"
+                                          "low_cov,low_den,low_conv,low_dT,"
+                                          "mid_cov,mid_den,mid_conv,mid_dT,"
+                                          "high_cov,high_den,high_conv,high_dT\n";
+                            log.header_written = true;
+                        }
+                        log.stream << mirror.simulated_seconds << ','
+                                   << (context.simulation != nullptr
+                                           ? context.simulation->julian_date()
+                                           : 0.0)
+                                   << ',' << sine << ',' << column->surface[3] << ','
+                                   << column->extent[0] << ',' << column->extent[1] << ','
+                                   << column->extent[2] << ',' << column->extent[3] << ','
+                                   << column->surface[0] << ',' << column->surface[1] << ','
+                                   << column->surface[2];
+                        for (int band = 0; band < 3; ++band)
+                            for (int field = 0; field < 4; ++field)
+                                log.stream << ',' << column->bands[band][field];
+                        log.stream << '\n';
+                        log.stream.flush();
+                    }
+                    log.next_at_simulated =
+                        mirror.simulated_seconds + double(log.interval_seconds);
+                }
+            }
+
+            ImGui::End();
+        }
+
         void draw_post_process_panel(EditorContext& context)
         {
             if (!context.panels.post_process)
@@ -3745,6 +4045,108 @@ namespace SushiEngine
                             changed = true;
                         ImGui::EndDisabled();
                         ImGui::PopID();
+                    }
+
+                    ImGui::EndDisabled();
+                    ImGui::TreePop();
+                }
+
+                // The GPU regional nest (docs/slop/atmosphere_system.md §6). Everything here is
+                // authored data serialized with the scene -- the design doc states twice that no
+                // physical constant may live inside a loop body, and this panel is what makes
+                // that claim mean something to an author rather than only to a reader.
+                if (ImGui::TreeNode("Atmosphere (regional nest)"))
+                {
+                    SushiEngine::Render::AtmosphereParameters& nest = environment.atmosphere_nest;
+
+                    // What the nest is actually doing, read through the same asynchronous mirror
+                    // gameplay reads. Deliberately the only window onto it: nothing in the editor
+                    // reaches the GPU state synchronously either.
+                    if (context.assets != nullptr)
+                    {
+                        const SushiEngine::Render::AtmosphereMirror mirror =
+                            context.assets->atmosphere_mirror();
+                        if (!nest.enabled)
+                            ImGui::TextDisabled("Nest off -- the sky comes from the classified or "
+                                                "authored deck stack.");
+                        else if (!mirror.valid())
+                            ImGui::TextDisabled("Nest has not reported yet; weather queries answer "
+                                                "from the base state.");
+                        else
+                            ImGui::Text("Simulated %.0f s of game time, %d x %d mirror columns.",
+                                        mirror.simulated_seconds, mirror.cells, mirror.cells);
+                    }
+
+                    if (ImGui::Checkbox("Nest Enabled", &nest.enabled))
+                        changed = true;
+                    ImGui::BeginDisabled(!nest.enabled);
+
+                    // The two numbers that decide whether an afternoon convects at all: how hard
+                    // the ground heats the air above it, and how much moisture it gives up. A real
+                    // surface energy balance replaces both in the next phase.
+                    ImGui::SeparatorText("Surface forcing (prescribed this phase)");
+                    if (ImGui::SliderFloat("Sensible Flux", &nest.surface_sensible_flux, 0.0f,
+                                           400.0f, "%.0f W/m2"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Latent Flux", &nest.surface_latent_flux, 0.0f, 400.0f,
+                                           "%.0f W/m2"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Thermal Seed", &nest.thermal_seed_amplitude, 0.0f, 1.0f,
+                                           "%.2f K"))
+                        changed = true;
+
+                    ImGui::SeparatorText("Base state");
+                    if (ImGui::SliderFloat("Surface Temperature", &nest.surface_temperature, 233.0f,
+                                           323.0f, "%.1f K"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Surface Humidity", &nest.surface_humidity, 0.0f, 1.0f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Humidity Scale Height", &nest.humidity_scale_height,
+                                           500.0f, 6000.0f, "%.0f m"))
+                        changed = true;
+
+                    // Kessler's own rate constants. The autoconversion threshold is the one an
+                    // author feels most directly: below it a cloud never rains, however thick it
+                    // gets, which is the difference between fair-weather cumulus and a shower.
+                    ImGui::SeparatorText("Microphysics (Kessler warm rain)");
+                    if (ImGui::SliderFloat("Autoconversion Threshold", &nest.autoconversion_threshold,
+                                           0.0f, 5.0e-3f, "%.4f kg/kg"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Autoconversion Rate", &nest.autoconversion_rate, 0.0f,
+                                           5.0e-3f, "%.4f /s"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Accretion Rate", &nest.accretion_rate, 0.0f, 6.0f,
+                                           "%.2f /s"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Rain Evaporation", &nest.rain_evaporation_rate, 0.0f,
+                                           0.1f, "%.3f /s"))
+                        changed = true;
+                    // The single number deciding whether a given amount of condensate reads as a
+                    // crisp white cumulus or a thin haze -- the same water, differently divided.
+                    if (ImGui::SliderFloat("Droplet Radius", &nest.droplet_effective_radius, 3.0e-6f,
+                                           2.0e-5f, "%.7f m"))
+                        changed = true;
+                    // Raise this if the sky reads as a solid white ceiling: it is how much water
+                    // a 2 km cell has to average before it renders as fully overcast, and it
+                    // changes nothing about the physics that produced the water.
+                    if (ImGui::SliderFloat("Overcast At", &nest.coverage_reference_lwc, 2.0e-4f,
+                                           8.0e-3f, "%.5f kg/m3"))
+                        changed = true;
+
+                    ImGui::SeparatorText("Dynamics");
+                    if (ImGui::SliderFloat("Courant Target", &nest.courant_target, 0.1f, 1.5f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Eddy Viscosity", &nest.eddy_viscosity, 0.0f, 400.0f,
+                                           "%.0f m2/s"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Boundary Relaxation", &nest.boundary_relaxation, 0.0f,
+                                           0.2f, "%.3f /s"))
+                        changed = true;
+                    int pressure_iterations = int(nest.pressure_iterations);
+                    if (ImGui::SliderInt("Pressure Sweeps", &pressure_iterations, 1, 48))
+                    {
+                        nest.pressure_iterations = std::uint32_t(pressure_iterations);
+                        changed = true;
                     }
 
                     ImGui::EndDisabled();

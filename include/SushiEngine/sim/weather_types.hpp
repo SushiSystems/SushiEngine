@@ -162,6 +162,18 @@ namespace SushiEngine
         {
             WeatherLevelState levels[CLOUD_LEVEL_COUNT]; /**< Indexed by @ref CloudLevel. */
             float precipitation = 0.0f;   /**< Column surface precipitation rate, [0, 1]. */
+            /**
+             * @brief Altitude of the lowest cloud in this column, metres; 0 when there is none.
+             *
+             * `docs/slop/atmosphere_system.md` §1.2 lists cloud base among the things the
+             * fifteen floats of this struct could not express, and names that as the ceiling on
+             * everything downstream. It is here now because the regional nest actually knows it —
+             * a column's base is the altitude its condensate starts at — and because the one
+             * consumer that most needed it was reaching for the wrong signal without it: **fog
+             * is cloud whose base is at the ground**, and nothing else in this struct can tell
+             * an overcast sky at 1 200 m from a hill fogged in at zero.
+             */
+            float cloud_base_m = 0.0f;
             float wind_u_mps = 0.0f;      /**< Low-level eastward wind, metres/second (future @c weather_wind() seam, W5). */
             float wind_v_mps = 0.0f;      /**< Low-level northward wind, metres/second. */
         };

@@ -34,6 +34,7 @@ struct MirrorColumn
 {
     vec4 bands[3]; // per etage: coverage, density scale, convective fraction, temperature offset (C)
     vec4 surface;  // precipitation (mm/h), wind east (m/s), wind north (m/s), cloud base (m)
+    vec4 extent;   // cloud top (m), surface RH (0-1), peak |w| (m/s), LCL (m; 0 = none)
 };
 
 layout(std430, set = 0, binding = 8) buffer Mirror
@@ -78,7 +79,18 @@ void main()
     float temperature_sum[3] = float[3](0.0, 0.0, 0.0);
     float weight[3] = float[3](0.0, 0.0, 0.0);
     float cloud_base = 0.0;
+    float cloud_top = 0.0;
     bool found_base = false;
+    // Why a column with no cloud in it has no cloud in it.
+    //
+    // The three summaries above answer "is there weather here", which is what gameplay asks.
+    // They cannot answer "why is there none", and a three-hour log of exact zeros is the case
+    // where that is the only question worth asking. These three lanes were already allocated
+    // and already read back, and `moisture` was already bound here and never sampled — so
+    // this costs one extra fetch per level and nothing at all in bandwidth.
+    float column_peak_updraft = 0.0;
+    float surface_humidity = 0.0; // vapour / saturation vapour at the lowest level
+    float lifting_condensation = 0.0;
 
     for (int k = 0; k < levels; ++k)
     {
@@ -90,16 +102,63 @@ void main()
         float sigma = texelFetch(extinction, cell, 0).r;
         optical_depth[band] += sigma * thickness;
         peak_sigma[band] = max(peak_sigma[band], sigma);
-        peak_updraft[band] = max(peak_updraft[band], abs(texelFetch(wind_y, cell, 0).r));
+        float updraft = abs(texelFetch(wind_y, cell, 0).r);
+        peak_updraft[band] = max(peak_updraft[band], updraft);
+        column_peak_updraft = max(column_peak_updraft, updraft);
         // Potential temperature perturbation becomes an actual temperature departure through
         // the Exner function -- which is the difference between a number and a thermometer.
         temperature_sum[band] += texelFetch(theta, cell, 0).r * nest_exner(altitude) * thickness;
         weight[band] += thickness;
 
-        if (!found_base && sigma > reference_sigma * 0.02)
+        // The band condensate actually occupies. The march shell is stretched across exactly
+        // this, so a sky with one low deck does not spend two thirds of the baked field's
+        // vertical resolution on empty stratosphere.
+        if (sigma > reference_sigma * 0.02)
         {
-            cloud_base = altitude;
-            found_base = true;
+            if (!found_base)
+            {
+                cloud_base = altitude;
+                found_base = true;
+            }
+            cloud_top = altitude;
+        }
+    }
+
+    // The lifting condensation level: how high a surface parcel would have to be raised,
+    // conserving its potential temperature and its water, before it saturated. This is the
+    // number that says whether an atmosphere *can* make a cloud at all — if the LCL sits above
+    // anything the convection can lift a parcel to, the sky stays clear no matter how long the
+    // surface is heated, and heating alone in fact pushes the LCL *up* because it lowers the
+    // relative humidity. Reported as 0 when the parcel never saturates inside the domain.
+    {
+        const ivec3 surface_cell = ivec3(nest_cell.x, 0, nest_cell.y);
+        const float surface_altitude = nest_level_altitude(0.0);
+        // Absolute quantities: the fields carry perturbations about the base state.
+        // theta is stored as a perturbation about the base state, so it takes the base back.
+        // The moisture channels are not — they are total mixing ratios, in grams per kilogram
+        // (MOISTURE_UNIT). The two conventions sit side by side in the same nest, so read each
+        // one the way its own producer writes it.
+        const float parcel_theta = nest_base_theta(surface_altitude) +
+                                   texelFetch(theta, surface_cell, 0).r;
+        const float parcel_vapour =
+            max(texelFetch(moisture, surface_cell, 0).r / MOISTURE_UNIT, 0.0);
+
+        const float surface_saturation = nest_saturation_mixing_ratio(
+            parcel_theta * nest_exner(surface_altitude), nest_base_pressure(surface_altitude));
+        surface_humidity = parcel_vapour / max(surface_saturation, 1e-9);
+
+        for (int k = 0; k < levels; ++k)
+        {
+            // Dry-adiabatic ascent is exactly "theta held constant", so the parcel's
+            // temperature at each level is its own theta times that level's Exner function.
+            const float altitude = nest_level_altitude(float(k));
+            const float saturation = nest_saturation_mixing_ratio(
+                parcel_theta * nest_exner(altitude), nest_base_pressure(altitude));
+            if (parcel_vapour >= saturation)
+            {
+                lifting_condensation = altitude;
+                break;
+            }
         }
     }
 
@@ -121,6 +180,8 @@ void main()
                           texelFetch(wind_x, ivec3(nest_cell.x, 0, nest_cell.y), 0).r,
                           texelFetch(wind_z, ivec3(nest_cell.x, 0, nest_cell.y), 0).r,
                           found_base ? cloud_base : 0.0);
+    column.extent = vec4(found_base ? cloud_top : 0.0, surface_humidity, column_peak_updraft,
+                         lifting_condensation);
 
     mirror.columns[mirror_cell.y * push.mirror_cells + mirror_cell.x] = column;
 }

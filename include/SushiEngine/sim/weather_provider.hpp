@@ -29,7 +29,7 @@
  *
  * `IWeatherProvider` names one thing — the weather, as a point query and as a field — and
  * nothing about how it got there. `ProceduralWeather` wraps the synoptic layer and the
- * regional grid behind it; `StaticWeather` wraps a fixed, author-set `Render::Cloudscape`
+ * GPU regional nest behind it; `StaticWeather` wraps a fixed, author-set `Render::Cloudscape`
  * (manual authoring as a legitimate, substitutable provider rather than a special case the
  * host branches on); `IngestedWeather` (`sim/ingested_weather.hpp`) fills the same contract
  * from METAR-sourced data.
@@ -47,9 +47,8 @@
 #include <cmath>
 #include <cstdint>
 
-#include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/render/environment.hpp>
-#include <SushiEngine/sim/regional_weather_grid.hpp>
+#include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
 #include <SushiEngine/sim/weather_field_buffer.hpp>
 #include <SushiEngine/sim/synoptic_weather.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
@@ -111,6 +110,43 @@ namespace SushiEngine
                  */
                 virtual void tick(double dt_seconds, const GeodeticPosition& observer,
                                   double julian_date) = 0;
+
+                /**
+                 * @brief Publishes the parent solution the GPU regional nest is driven by.
+                 *
+                 * `docs/slop/atmosphere_system.md` §6's Davies nesting, from this side. A
+                 * provider that does not drive a nest leaves this a no-op, and the forcing then
+                 * never becomes valid — which is exactly what tells the renderer not to build a
+                 * nest at all, so a scene with a static or ingested sky pays nothing for one.
+                 *
+                 * @param observer      Where the nest should be centred, geodetic.
+                 * @param total_seconds Total game seconds simulated, monotonic.
+                 * @param out           Caller-owned storage to fill; the caller also owns the
+                 *                      lifetime the borrowed `Render::AtmosphereForcing` needs.
+                 */
+                virtual void publish_forcing(const GeodeticPosition& observer, double total_seconds,
+                                             AtmosphereForcingBuffer& out) const
+                {
+                    (void)observer;
+                    (void)total_seconds;
+                    (void)out;
+                }
+
+                /**
+                 * @brief Binds the renderer's asynchronous readback of the nest.
+                 *
+                 * The one thing that flows renderer → simulation (§3.2). Bound once by the host
+                 * rather than ferried per frame; a provider that answers from its own state
+                 * ignores it, which is a truthful answer and not a stub. Null is legal and means
+                 * "answer from the base state", which is what a provider does before the first
+                 * readback lands anyway.
+                 *
+                 * @param mirror The renderer's mirror, or null to unbind.
+                 */
+                virtual void set_atmosphere_mirror(const Render::IAtmosphereMirror* mirror) noexcept
+                {
+                    (void)mirror;
+                }
         };
 
         /**
@@ -216,96 +252,109 @@ namespace SushiEngine
         };
 
         /**
-         * @brief T1+T2, wrapped as an `IWeatherProvider`; the default procedural weather.
+         * @brief T1 plus the GPU regional nest, wrapped as an `IWeatherProvider`.
          *
-         * Owns a `SynopticLayer` (T1, ticked every call — analytic and microseconds-cheap)
-         * and a `RegionalWeatherGrid` (T2, ticked on its own nested
-         * `Loop::FixedTimestepClock` at the design doc's 10-30 s cadence). Both clocks are
-         * fed only by the caller-supplied `dt_seconds`, never wall-clock time, so this
-         * class inherits `Loop::FixedTimestepClock`'s determinism guarantee directly.
+         * Owns a `SynopticLayer` (T1, ticked every call — analytic and microseconds-cheap) and
+         * publishes the forcing that drives T2. It no longer owns T2 itself: the nest is a
+         * device-level GPU service (`render/atmosphere/atmosphere_nest.hpp`), because the model
+         * `docs/slop/atmosphere_system.md` §6 asks for — anelastic dynamics with a pressure
+         * solve, monotone transport at Courant ≈ 1, Kessler microphysics — is not worth writing
+         * for a CPU, and the design doc says so outright.
+         *
+         * What crosses back is @ref set_atmosphere_mirror's asynchronous readback, two or three
+         * frames stale, which every query below is answered from. Before the first readback —
+         * and in a host that never binds one — the answers come from the base state instead: a
+         * clear sky with the synoptic wind, which is a truthful description of an atmosphere
+         * that has not been simulated yet rather than a guess dressed up as data.
          */
         class ProceduralWeather final : public IWeatherProvider, public IWeatherAuthoring
         {
             public:
-                /** @brief T2's tick cadence, seconds — the design doc's 10-30 s window's low end. */
-                static constexpr double DEFAULT_GRID_TICK_SECONDS = 15.0;
-
                 /**
                  * @brief Creates a procedural weather provider seeded for reproducible evolution.
-                 * @param seed            Any 64-bit seed; identical seeds reproduce identical evolution.
+                 * @param seed            Any 64-bit seed; identical seeds reproduce identical T1 evolution.
                  * @param planet_radius_m The dominant body's mean radius, metres.
-                 * @param grid_nx         T2 horizontal cell count, X axis.
-                 * @param grid_nz         T2 horizontal cell count, Z axis.
-                 * @param grid_domain_m   T2 domain span per axis, metres.
-                 * @param grid_tick_seconds T2's tick cadence, seconds.
                  */
-                explicit ProceduralWeather(std::uint64_t seed, double planet_radius_m,
-                                           int grid_nx = DEFAULT_REGIONAL_GRID_CELLS,
-                                           int grid_nz = DEFAULT_REGIONAL_GRID_CELLS,
-                                           double grid_domain_m = DEFAULT_REGIONAL_GRID_DOMAIN_M,
-                                           double grid_tick_seconds = DEFAULT_GRID_TICK_SECONDS)
-                    : grid_(grid_nx, grid_nz, grid_domain_m, planet_radius_m),
-                      grid_clock_(grid_tick_seconds)
+                explicit ProceduralWeather(std::uint64_t seed, double planet_radius_m)
+                    : planet_radius_m_(planet_radius_m)
                 {
                     synoptic_.seed(seed, planet_radius_m);
                 }
 
                 /**
-                 * @brief Advances T1 every call and T2 whenever its own tick interval elapses.
-                 * @param dt_seconds  Fixed step duration; never wall-clock (see file docs).
-                 * @param observer    Where the regional grid should be centered.
+                 * @brief Advances T1. The nest advances itself, on the renderer's own clock.
+                 * @param dt_seconds  Fixed step duration; never wall-clock.
+                 * @param observer    Where the simulation is centred.
                  * @param julian_date Epoch, for climate/diurnal terms.
                  */
                 void tick(double dt_seconds, const GeodeticPosition& observer,
                           double julian_date) override
                 {
+                    (void)observer;
                     synoptic_.tick(dt_seconds, julian_date);
-                    if (!grid_seeded_)
-                    {
-                        grid_.seed(observer, synoptic_);
-                        grid_seeded_ = true;
-                    }
-                    grid_clock_.accumulate(dt_seconds);
-                    while (grid_clock_.consume_step())
-                        grid_.tick(grid_clock_.fixed_dt(), synoptic_, observer, julian_date);
                 }
 
                 WeatherColumn sample_column(const GeodeticPosition& position) const override
                 {
-                    if (!grid_seeded_)
-                        return WeatherColumn{};
-                    return grid_.sample_column(position, grid_clock_.interpolation());
+                    const Render::AtmosphereMirror mirror = current_mirror();
+                    if (!mirror.valid())
+                        return base_state_column(position);
+
+                    // Scene-absolute metres for the query point, in the frame the mirror is
+                    // addressed in -- the same plate-carree tangent plane every other weather
+                    // consumer already uses at this scale.
+                    const double cos_latitude =
+                        std::max(std::cos(position.latitude_radians), 0.05);
+                    const double scene_x =
+                        planet_radius_m_ * position.longitude_radians * cos_latitude;
+                    const double scene_z = planet_radius_m_ * position.latitude_radians;
+
+                    const double u = double(mirror.uv_scale_x) * scene_x + double(mirror.uv_offset_x);
+                    const double v = double(mirror.uv_scale_z) * scene_z + double(mirror.uv_offset_z);
+                    // Outside the nest's own footprint the mirror has nothing to say, and its
+                    // clamped edge would otherwise smear one boundary column across the rest of
+                    // the planet. The synoptic wind is still real out there, so the base state
+                    // keeps it.
+                    if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0)
+                        return base_state_column(position);
+
+                    const int ix = std::clamp(int(u * double(mirror.cells)), 0, mirror.cells - 1);
+                    const int iz = std::clamp(int(v * double(mirror.cells)), 0, mirror.cells - 1);
+                    return WeatherFieldBuffer::column_from_mirror(
+                        mirror.columns[std::size_t(iz) * std::size_t(mirror.cells) +
+                                       std::size_t(ix)]);
                 }
 
                 void publish_field(const GeodeticPosition& observer,
                                    WeatherFieldBuffer& out) const override
                 {
-                    // Before the first tick there is no grid to publish; a uniform empty field
-                    // is what the sky looked like a moment ago and keeps the renderer from
-                    // reading an unseeded lattice.
-                    if (!grid_seeded_)
-                    {
-                        out.fill_uniform(WeatherColumn{});
-                        return;
-                    }
-                    out.fill_from_grid(grid_, observer, grid_clock_.interpolation());
+                    out.fill_from_mirror(current_mirror(), observer);
+                }
+
+                void publish_forcing(const GeodeticPosition& observer, double total_seconds,
+                                     AtmosphereForcingBuffer& out) const override
+                {
+                    (void)total_seconds;
+                    out.fill(synoptic_, observer, planet_radius_m_, FORCING_SPAN_METERS,
+                             Render::ATMOSPHERE_FORCING_MAX_CELLS);
+                }
+
+                void set_atmosphere_mirror(const Render::IAtmosphereMirror* mirror) noexcept override
+                {
+                    mirror_ = mirror;
                 }
 
                 /** @brief T1, read-only — the editor's synoptic map overlay reads this. */
                 const SynopticLayer& synoptic() const noexcept override { return synoptic_; }
                 /** @brief T1, mutable — editor authoring (add/remove/edit a system). */
                 SynopticLayer& synoptic() noexcept override { return synoptic_; }
-                /** @brief T2, read-only — the editor's grid/debug view reads this. */
-                const RegionalWeatherGrid& grid() const noexcept { return grid_; }
 
                 /**
                  * @brief Seeds a named scenario (editor preset buttons), replacing the live systems.
                  *
-                 * Design doc §6: "preset buttons now seed synoptic states ... instead of
-                 * directly setting deck parameters". Each preset places (or omits) one
-                 * `PressureSystem` relative to @p observer so the resulting sky then evolves
-                 * on its own tick over tick, rather than snapping to a fixed deck mix the way
-                 * `Render::cloud_weather_preset` still does for the manual-authoring mode.
+                 * Each preset places (or omits) one `PressureSystem` relative to @p observer so
+                 * the resulting sky then evolves on its own, rather than snapping to a fixed deck
+                 * mix the way `Render::cloud_weather_preset` still does for manual authoring.
                  *
                  * @param preset   Which named scenario to seed.
                  * @param observer Where the scenario is centered (the current sky observer).
@@ -326,9 +375,9 @@ namespace SushiEngine
                         break;
                     case Render::WeatherPreset::FrontPassage:
                         // Already mature and several hundred km upstream, heading toward the
-                        // observer -- the acceptance-bar demo (design doc §7 W4): the front is
-                        // formed and approaching, not yet arrived, so it visibly crosses over
-                        // the following authored minutes rather than being present immediately.
+                        // observer -- the acceptance-bar demo: the front is formed and
+                        // approaching, not yet arrived, so it visibly crosses over the following
+                        // authored minutes rather than being present immediately.
                         synoptic_.add_system(scenario_system(observer, true, 26.0, 750000.0, -6.0));
                         break;
                     case Render::WeatherPreset::Storm:
@@ -340,6 +389,39 @@ namespace SushiEngine
                 }
 
             private:
+                /**
+                 * @brief The forcing lattice's span, metres.
+                 *
+                 * Deliberately wider than any nest the renderer might build, so the two are not
+                 * coupled: the nest samples the middle of this, and a change to its footprint or
+                 * its quality tier needs no corresponding change here. At 64 cells that is ~12 km
+                 * per sample against synoptic features hundreds of kilometres across.
+                 */
+                static constexpr double FORCING_SPAN_METERS = 768000.0;
+
+                Render::AtmosphereMirror current_mirror() const noexcept
+                {
+                    return mirror_ != nullptr ? mirror_->atmosphere_mirror()
+                                              : Render::AtmosphereMirror{};
+                }
+
+                /**
+                 * @brief What to answer before the nest has reported anything.
+                 *
+                 * A clear sky with the synoptic wind. Honest rather than convenient: nothing has
+                 * been simulated yet, so there is no condensate to report, and inventing a
+                 * coverage here would be exactly the fabricated signal the audit in §1 was
+                 * written about. The wind is real — T1 is analytic and answers immediately.
+                 */
+                WeatherColumn base_state_column(const GeodeticPosition& position) const
+                {
+                    WeatherColumn column{};
+                    const WindSample wind = synoptic_.wind_at(position, 0.25);
+                    column.wind_u_mps = static_cast<float>(wind.eastward_mps);
+                    column.wind_v_mps = static_cast<float>(wind.northward_mps);
+                    return column;
+                }
+
                 static PressureSystem scenario_system(const GeodeticPosition& observer, bool is_low,
                                                        double anomaly_hpa, double radius_m,
                                                        double longitude_offset_deg)
@@ -363,9 +445,10 @@ namespace SushiEngine
                 }
 
                 SynopticLayer synoptic_;
-                RegionalWeatherGrid grid_;
-                Loop::FixedTimestepClock grid_clock_;
-                bool grid_seeded_ = false;
+                double planet_radius_m_ = 6371000.0;
+                // Borrowed, never owned: the renderer outlives any single provider install, and
+                // a null here is a legal state meaning "answer from the base state".
+                const Render::IAtmosphereMirror* mirror_ = nullptr;
         };
     } // namespace Simulation
 } // namespace SushiEngine

@@ -160,6 +160,20 @@ namespace SushiEngine
         void draw_post_process_panel(EditorContext& context);
 
         /**
+         * @brief The meteorology readout: the atmosphere's clock, its column, and a log.
+         *
+         * A diagnostic window rather than an authoring one. The regional nest runs on the GPU
+         * and is read back asynchronously (`docs/slop/atmosphere_system.md` §3.2), so the only
+         * honest way to see what it is doing is through that same mirror — which is what this
+         * shows. Its most load-bearing readout is the *clock comparison*: the nest advances in
+         * game time at a rate its own step cost bounds, and a sky animating faster than that
+         * silently runs the sun ahead of the atmosphere it is supposed to be heating.
+         *
+         * @param context The editor context; reads the mirror through @c assets.
+         */
+        void draw_meteorology_panel(EditorContext& context);
+
+        /**
          * @brief Draw the GPU Culling panel: the GPU-driven geometry path's controls.
          *
          * The authoring surface for the compute cull that replaces one-draw-per-instance with

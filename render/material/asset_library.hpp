@@ -143,7 +143,7 @@ namespace SushiEngine
                      * that never runs the nest — which the simulation reads as "answer from the
                      * base state", not as an error.
                      */
-                    AtmosphereMirror atmosphere_mirror() const noexcept;
+                    AtmosphereMirror atmosphere_mirror() const noexcept override;
 
                     /** @brief The live nest, or null when the scene has never enabled one. */
                     Atmosphere::AtmosphereNest* atmosphere() noexcept { return atmosphere_.get(); }

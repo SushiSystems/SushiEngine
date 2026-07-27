@@ -271,18 +271,29 @@ namespace SushiEngine
                 push.color_density[0] = static_cast<float>(fog.scattering_color.x);
                 push.color_density[1] = static_cast<float>(fog.scattering_color.y);
                 push.color_density[2] = static_cast<float>(fog.scattering_color.z);
-                // Weather-driven visibility (design doc §5.3, W5): precipitation/low-cloud
-                // saturation adds extinction on top of the author's own density rather than
-                // replacing it, so a clear-weather scene is byte-for-byte unaffected (the bias
-                // is zero whenever procedural weather is off or nothing is raining). Harmless
-                // when fog is disabled below -- the shader zeroes base_density itself.
-                push.color_density[3] = fog.density + frame.environment->weather.fog_density_bias;
+                // Weather-driven visibility (design doc §5.3). The bias adds extinction on
+                // top of the author's own density, so a clear-weather scene is byte-for-byte
+                // unaffected -- the bias is zero whenever nothing is raining and no cloud is
+                // sitting on the ground.
+                //
+                // The author's density is only counted when the author actually asked for fog.
+                // Weather used to force `fog.enabled` on behind the author's back so that rain
+                // could be seen through *something*, which meant switching on procedural weather
+                // silently added the full authored density (0.01/m by default -- a 300 m
+                // whiteout) to a scene that had deliberately left fog off. Now the two are
+                // separable: the weather can raise fog out of nothing without inheriting a
+                // density nobody asked to see.
+                const float weather_bias = frame.environment->weather.fog_density_bias;
+                const bool authored = fog.enabled;
+                push.color_density[3] = (authored ? fog.density : 0.0f) + weather_bias;
                 push.params[0] = fog.height_falloff;
                 push.params[1] = fog.ambient;
                 push.params[2] = fog.phase_anisotropy;
-                // The author's toggle, dropped by the lowest tier (fog is the least
-                // essential atmosphere term).
-                const bool fog_on = fog.enabled && frame.quality.volumetric_fog;
+                // The author's toggle *or* weather that genuinely obscures, dropped by the
+                // lowest tier either way (fog is the least essential atmosphere term). The
+                // threshold is well below anything visible, so a scene with neither pays nothing.
+                const bool fog_on =
+                    (authored || weather_bias > 1.0e-5f) && frame.quality.volumetric_fog;
                 push.params[3] = fog_on ? 1.0f : 0.0f;
 
                 // Pack the local fog volumes camera-relative into this frame's ring buffer.

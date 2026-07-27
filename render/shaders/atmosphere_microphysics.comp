@@ -36,8 +36,6 @@ layout(set = 0, binding = 3, r32f) uniform image2D surface_rain;
 
 // Mixing ratios are carried in g/kg: fp16 holds 1e-3..20 comfortably, where kg/kg would put
 // drizzle-scale rain into the denormal range and flush it to zero.
-const float MOISTURE_UNIT = 1000.0;
-
 void main()
 {
     ivec3 cell = ivec3(gl_GlobalInvocationID);

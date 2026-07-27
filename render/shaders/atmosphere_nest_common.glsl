@@ -57,8 +57,10 @@ layout(set = 0, binding = 0) uniform NestParams
     float droplet_effective_radius;
 
     // Surface forcing.
-    float surface_sensible_flux;
-    float surface_latent_flux;
+    float surface_sensible_flux;   // peak, at solar noon with the sun overhead
+    float surface_latent_flux;     // peak, likewise
+    float surface_night_flux;      // net radiative cooling while the sun is down, positive
+    float solar_elevation_sine;    // sine of the sun's elevation; negative below the horizon
 
     // Grid and step.
     float spacing;      // horizontal cell size, metres
@@ -80,7 +82,7 @@ int nest_level_count() { return max(nest.levels, 1); }
 
 // Altitude of level k's centre, metres above the surface. Stretched so the boundary layer and
 // cloud base get the resolution and the anvil does not: at 48 levels over 18 km the spacing
-// runs ~80 m at the ground to ~560 m aloft.
+// runs ~54 m at the ground to ~560 m aloft.
 float nest_level_altitude(float level)
 {
     float fraction = (level + 0.5) / float(nest_level_count());
@@ -148,6 +150,19 @@ float nest_base_density(float altitude)
 }
 
 // ---- Moist thermodynamics -------------------------------------------------------------
+
+// The moisture volume's storage scale. Mixing ratios are a few grams per kilogram, and an
+// rgba16f texel has a ten-bit mantissa, so storing kg/kg directly would spend the format's
+// precision on leading zeros; the field is held in grams per kilogram and divided back here.
+//
+// It lives in this shared header rather than beside each user because the volume it describes
+// is one volume: a copy that drifted, or a reader that never learned about the scale at all,
+// is off by a factor of a thousand with no symptom the shader itself can see. That is not
+// hypothetical — it is exactly how this diagnostic first reported 69500% relative humidity.
+//
+// Note also what the channels are: **total** vapour, cloud and rain mixing ratios, not
+// perturbations about the base state, unlike `theta` and the wind components next to them.
+const float MOISTURE_UNIT = 1000.0;
 
 // Saturation vapour pressure over liquid water, Pa (Magnus/Teten). The relation the shipped
 // system replaced with `if (humidity > 0.85)`: saturation depends on temperature

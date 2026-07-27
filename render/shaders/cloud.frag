@@ -157,7 +157,7 @@ float phase_mie(float mu, float g)
 float cloud_near_blend(vec3 p, out vec2 near_uv)
 {
     near_uv = cloud_window_uv(scene.cloud_field_near.xy, scene.cloud_field_near.zw, p.xz);
-    return cloud_window_near_weight(near_uv, scene.cloud_field_params.x);
+    return cloud_window_weight(near_uv, scene.cloud_field_params.x);
 }
 
 // Total cloud density at p: one fetch of the T3-baked field instead of the six-deck loop
@@ -214,7 +214,11 @@ float cloud_density(vec3 p, bool cheap, out float ambient_h, out float profile)
         // weather is and differ only in how finely they carve its shape — which is what makes
         // the cross-fade read as detail falling away with distance rather than as a seam.
         vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy, scene.cloud_field_far.zw, p.xz);
-        vec2 coarse = texture(cloudscape_far, vec3(far_uv, ambient_h)).rg;
+        // Past the far window's own rim there is no simulated sky, and a clamped edge texel
+        // stretched across a planet is not an approximation of one -- see the header of
+        // cloud_field_window.glsl for what that looks like from orbit.
+        float far_weight = cloud_window_weight(far_uv, scene.cloud_field_params.y);
+        vec2 coarse = texture(cloudscape_far, vec3(far_uv, ambient_h)).rg * far_weight;
         density = mix(coarse.r, density, near_weight);
         if (!cheap)
             profile = mix(coarse.g, profile, near_weight);
@@ -272,7 +276,8 @@ float cloud_light_volume_sample(vec3 p, float ambient_h)
     {
         vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy, scene.cloud_field_far.zw, p.xz);
         float far_depth = texture(cloudscape_far, vec3(far_uv, ambient_h)).b *
-                          CLOUD_FAR_SUN_DEPTH_METERS;
+                          CLOUD_FAR_SUN_DEPTH_METERS *
+                          cloud_window_weight(far_uv, scene.cloud_field_params.y);
         depth = mix(far_depth, depth, near_weight);
     }
     return depth;
@@ -466,7 +471,19 @@ void main()
 
     vec3 ambient_color = scene.ambient.xyz + sun_radiance * 0.02;
 
-    float lod_distance = shell_thick * 4.0;
+    // Where the march stops paying for the fine field and reads the coarse max-pooled one.
+    //
+    // This used to be four shell thicknesses, which was a reasonable proxy only while the shell
+    // was the *genus catalogue's* union -- a dozen kilometres from a stratus base to a cirrus
+    // top, so the switch landed ~45 km out and was never noticed. Since the shell became the
+    // span the simulated condensate actually occupies, a single cumulus layer makes it ~1 km
+    // thick and the switch collapsed to under 5 km: every cloud past the next hill was suddenly
+    // being drawn from the skip field. Tying it to the shell was always wrong -- the fine field
+    // exists over the *near window* and nowhere else, so that is the distance it is worth
+    // sampling over.
+    float lod_distance = scene.cloud_field_params.x > 0.0
+                             ? scene.cloud_field_params.x * 0.5
+                             : shell_thick * 4.0;
 
     float transmittance = 1.0;
     vec3 scattered = vec3(0.0);

@@ -43,6 +43,7 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/render/atmosphere_nest.hpp>
 
 namespace SushiEngine
 {
@@ -228,10 +229,24 @@ namespace SushiEngine
          * until released; releasing one that is still referenced by a material leaves
          * that slot reading as unset rather than sampling freed memory.
          */
-        class IAssetLibrary
+        class IAssetLibrary : public IAtmosphereMirror
         {
             public:
                 virtual ~IAssetLibrary() = default;
+
+                /**
+                 * @brief The GPU atmosphere's readback, when this library runs one.
+                 *
+                 * `IAssetLibrary` *is* the mirror source rather than merely offering one, so a
+                 * host binds the renderer to the simulation in a single line and there is no
+                 * intermediate object whose lifetime someone has to reason about. An
+                 * implementation with no atmosphere answers with an invalid mirror, which the
+                 * simulation reads as "answer from the base state" — not as an error.
+                 */
+                AtmosphereMirror atmosphere_mirror() const noexcept override
+                {
+                    return AtmosphereMirror{};
+                }
 
                 /**
                  * @brief Loads an image file and registers it as a sampled texture.

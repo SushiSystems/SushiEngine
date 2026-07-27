@@ -239,6 +239,12 @@ int main(int argc, char** argv)
         std::vector<SushiEngine::Render::MeshInstance> instances;
         context.simulation = simulation.get();
         context.assets = &renderer->assets();
+        // The one thing that flows renderer -> simulation: the GPU atmosphere's asynchronous
+        // readback (docs/slop/atmosphere_system.md §3.2). Bound once here rather than ferried
+        // every frame, because the host is the only party that owns both. A host that skips this
+        // is not broken -- every weather query then answers from the base state, a clear sky with
+        // the synoptic wind, instead of from a sky that has silently stopped evolving.
+        simulation->set_atmosphere_mirror(&renderer->assets());
 
         // The live VFX preview: authored in the Particle Editor panel, simulated and
         // billboarded by the renderer, gizmo'd in the Scene viewport.
@@ -947,6 +953,7 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_rendering_panel(context);
             SushiEngine::Editor::draw_lighting_panel(context);
             SushiEngine::Editor::draw_post_process_panel(context);
+            SushiEngine::Editor::draw_meteorology_panel(context);
             SushiEngine::Editor::draw_gpu_culling_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_text_editor_panel(context);

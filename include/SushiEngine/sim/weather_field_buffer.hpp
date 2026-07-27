@@ -38,7 +38,7 @@
  * That is not a new convention — `RuntimeSimulation`'s rain emitter already drives its
  * lateral drift from `WindSample::eastward_mps`/`northward_mps` into exactly those scene
  * axes. Beyond that the mapping is a flat tangent plane, matching both the grid's own
- * equirectangular lattice (`regional_weather_grid.hpp`'s file docs) and the baked cloud
+ * equirectangular lattice and the baked cloud
  * field's flat tile: valid over the few hundred kilometres a march can see, not
  * geodesically exact.
  */
@@ -50,7 +50,6 @@
 
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/weather_field.hpp>
-#include <SushiEngine/sim/regional_weather_grid.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine
@@ -68,62 +67,6 @@ namespace SushiEngine
         class WeatherFieldBuffer
         {
             public:
-                /**
-                 * @brief Fills the buffer from a regional grid, decimating to the render cap.
-                 *
-                 * Walks the render-side cell lattice and reads the grid cell each one lands
-                 * on, so a simulation grid finer than `Render::WEATHER_FIELD_MAX_CELLS` is
-                 * point-sampled down rather than overrunning the renderer's fixed texture.
-                 * The published field keeps the *simulation's* footprint either way — the
-                 * renderer's resolution cap changes how finely that footprint is resolved,
-                 * never how much of the world it covers.
-                 *
-                 * @param grid             The grid to publish.
-                 * @param observer         Where the scene stands geodetically (scene origin).
-                 * @param interpolation_t  0 at the last grid tick, approaching 1 before the next.
-                 */
-                void fill_from_grid(const RegionalWeatherGrid& grid, const GeodeticPosition& observer,
-                                    double interpolation_t)
-                {
-                    const int grid_x = grid.cell_count_x();
-                    const int grid_z = grid.cell_count_z();
-                    cells_x_ = std::min(grid_x, Render::WEATHER_FIELD_MAX_CELLS);
-                    cells_z_ = std::min(grid_z, Render::WEATHER_FIELD_MAX_CELLS);
-                    samples_.resize(std::size_t(cells_x_) * std::size_t(cells_z_) *
-                                    std::size_t(CLOUD_LEVEL_COUNT));
-                    begin_classification(true);
-
-                    for (int iz = 0; iz < cells_z_; ++iz)
-                        for (int ix = 0; ix < cells_x_; ++ix)
-                        {
-                            const int source_x = cells_x_ == grid_x ? ix : (ix * grid_x) / cells_x_;
-                            const int source_z = cells_z_ == grid_z ? iz : (iz * grid_z) / cells_z_;
-                            const WeatherColumn column =
-                                grid.column_at_cell(source_x, source_z, interpolation_t);
-                            store_column(ix, iz, column);
-                        }
-
-                    // Scene metres -> the grid's absolute tangent lattice -> [0, 1] UV. Eastward
-                    // scene metres carry the 1/cos(latitude) factor because the lattice is plate
-                    // carree (x = R * longitude), so a metre of easting is more than a metre of
-                    // lattice x away from the equator; northing needs no such term.
-                    double origin_x = 0.0;
-                    double origin_z = 0.0;
-                    grid.tangent_origin_m(origin_x, origin_z);
-                    const double radius = grid.planet_radius_m();
-                    const double cell = grid.cell_size_m();
-                    const double span_x = cell * double(grid_x);
-                    const double span_z = cell * double(grid_z);
-                    const double cos_latitude =
-                        std::max(std::cos(observer.latitude_radians), MIN_COS_LATITUDE);
-
-                    uv_scale_x_ = 1.0 / (cos_latitude * span_x);
-                    uv_scale_z_ = 1.0 / span_z;
-                    uv_offset_x_ = (radius * observer.longitude_radians - origin_x) / span_x;
-                    uv_offset_z_ = (radius * observer.latitude_radians - origin_z) / span_z;
-                    ++revision_;
-                }
-
                 /**
                  * @brief Fills the buffer by sampling a point query over a lattice.
                  *
@@ -171,6 +114,126 @@ namespace SushiEngine
                     uv_offset_x_ = 0.5; // the lattice is centred on the observer by construction.
                     uv_offset_z_ = 0.5;
                     ++revision_;
+                }
+
+                /**
+                 * @brief Fills the buffer from the GPU nest's readback mirror.
+                 *
+                 * The path the simulated atmosphere reaches the render tier by since the nest
+                 * moved onto the GPU: the mirror is already a lattice of `WeatherColumn`-shaped
+                 * records over the nest's own footprint, so this is a transcription rather than
+                 * a resample, and everything downstream — the per-column genus the cloudscape
+                 * bake resolves, the compiled deck stack, the fog and wetness coupling — keeps
+                 * working against real condensate without knowing where it came from.
+                 *
+                 * @param mirror   The most recently completed readback.
+                 * @param observer The scene's geodetic anchor; the field is addressed relative to it.
+                 */
+                void fill_from_mirror(const Render::AtmosphereMirror& mirror,
+                                      const GeodeticPosition& observer)
+                {
+                    if (!mirror.valid())
+                    {
+                        fill_uniform(WeatherColumn{}, true);
+                        return;
+                    }
+                    cells_x_ = std::min(int(mirror.cells), Render::WEATHER_FIELD_MAX_CELLS);
+                    cells_z_ = cells_x_;
+                    samples_.resize(std::size_t(cells_x_) * std::size_t(cells_z_) *
+                                    std::size_t(CLOUD_LEVEL_COUNT));
+                    begin_classification(true);
+
+                    for (int iz = 0; iz < cells_z_; ++iz)
+                        for (int ix = 0; ix < cells_x_; ++ix)
+                        {
+                            const int sx = cells_x_ == mirror.cells
+                                               ? ix
+                                               : (ix * mirror.cells) / cells_x_;
+                            const int sz = cells_z_ == mirror.cells
+                                               ? iz
+                                               : (iz * mirror.cells) / cells_z_;
+                            store_column(ix, iz,
+                                         column_from_mirror(
+                                             mirror.columns[std::size_t(sz) *
+                                                                std::size_t(mirror.cells) +
+                                                            std::size_t(sx)]));
+                        }
+
+                    // The span condensate actually occupies, straight from the nest, replacing
+                    // the classifier's genus-profile union. The classifier can only say "a
+                    // cumulus reaches 3.2 km" because that is what the catalogue says a cumulus
+                    // does; the nest knows where this cloud's top *is*. Stretching the march
+                    // shell across the real span rather than the catalogue's is what keeps the
+                    // baked field's thirty-two vertical texels on the cloud instead of on empty
+                    // stratosphere above it.
+                    float lowest_base = 0.0f;
+                    float highest_top = 0.0f;
+                    bool measured = false;
+                    for (int i = 0; i < mirror.cells * mirror.cells; ++i)
+                    {
+                        const Render::AtmosphereMirrorColumn& source = mirror.columns[i];
+                        const float top = source.extent[0];
+                        if (top <= 0.0f)
+                            continue;
+                        const float base = source.surface[3];
+                        lowest_base = measured ? std::min(lowest_base, base) : base;
+                        highest_top = measured ? std::max(highest_top, top) : top;
+                        measured = true;
+                    }
+                    if (measured && highest_top > lowest_base)
+                    {
+                        // A little headroom below and above: the nest reports the centres of the
+                        // levels that hold condensate, and a cloud's own edge sits inside the
+                        // level it was found in.
+                        union_base_m_ = std::max(lowest_base - MIRROR_SHELL_MARGIN_M, 0.0f);
+                        union_top_m_ = highest_top + MIRROR_SHELL_MARGIN_M;
+                    }
+
+                    // The mirror already carries the scene-absolute mapping the nest was
+                    // centred with, so it is passed straight through rather than rebuilt: two
+                    // derivations of the same lattice is two chances to disagree about where
+                    // the weather is.
+                    (void)observer;
+                    uv_scale_x_ = mirror.uv_scale_x;
+                    uv_scale_z_ = mirror.uv_scale_z;
+                    uv_offset_x_ = mirror.uv_offset_x;
+                    uv_offset_z_ = mirror.uv_offset_z;
+                    ++revision_;
+                }
+
+                /**
+                 * @brief Transcribes one mirror record into the bridge's column contract.
+                 *
+                 * Shared by the field fill above and by `sample_column`, so a point query and
+                 * the published field can never report different weather at the same place.
+                 *
+                 * @param source One coarse column as the GPU wrote it.
+                 * @return The same state in `WeatherColumn`'s units.
+                 */
+                static WeatherColumn column_from_mirror(
+                    const Render::AtmosphereMirrorColumn& source) noexcept
+                {
+                    WeatherColumn column{};
+                    for (int level = 0; level < CLOUD_LEVEL_COUNT; ++level)
+                    {
+                        column.levels[level].coverage =
+                            std::clamp(source.bands[level][0], 0.0f, 1.0f);
+                        column.levels[level].density_scale =
+                            std::clamp(source.bands[level][1], 0.0f, 2.0f);
+                        column.levels[level].convective_fraction =
+                            std::clamp(source.bands[level][2], 0.0f, 1.0f);
+                        column.levels[level].temperature_offset_c = source.bands[level][3];
+                    }
+                    // The bridge's precipitation is a [0, 1] intensity and the nest reports
+                    // millimetres per hour, which is what a rain gauge reads. Ten is heavy
+                    // rain, so it is the scale the fraction is stated against.
+                    constexpr float RAIN_REFERENCE_MM_PER_HOUR = 10.0f;
+                    column.precipitation =
+                        std::clamp(source.surface[0] / RAIN_REFERENCE_MM_PER_HOUR, 0.0f, 1.0f);
+                    column.wind_u_mps = source.surface[1];
+                    column.wind_v_mps = source.surface[2];
+                    column.cloud_base_m = source.surface[3];
+                    return column;
                 }
 
                 /**
@@ -243,6 +306,12 @@ namespace SushiEngine
                 // cannot divide the mapping by zero; the projection is already meaningless
                 // there, and this keeps it finite rather than pretending otherwise.
                 static constexpr double MIN_COS_LATITUDE = 0.05;
+
+                // Headroom around the condensate the nest reports, metres. The readback names
+                // the *centres* of the levels that hold cloud, and a cloud's own edge sits
+                // inside the level it was found in, so a shell clamped exactly to those centres
+                // would clip its own top and bottom.
+                static constexpr float MIRROR_SHELL_MARGIN_M = 400.0f;
 
                 // Resets the per-fill classification state. Called at the top of every fill so
                 // the union span describes *this* field and not the union of every field ever

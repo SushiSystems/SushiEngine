@@ -168,7 +168,7 @@ void main()
                     vec2 near_uv = cloud_window_uv(scene.cloud_field_near.xy,
                                                    scene.cloud_field_near.zw, p.xz);
                     float near_weight =
-                        cloud_window_near_weight(near_uv, scene.cloud_field_params.x);
+                        cloud_window_weight(near_uv, scene.cloud_field_params.x);
                     vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy,
                                                   scene.cloud_field_far.zw, p.xz);
 
@@ -181,10 +181,12 @@ void main()
                     }
                     if (near_weight < 1.0)
                     {
+                        float far_weight =
+                            cloud_window_weight(far_uv, scene.cloud_field_params.y);
                         vec4 coarse = texture(cloudscape_far, vec3(far_uv, height01));
-                        density = mix(coarse.r, density, near_weight);
-                        light_depth = mix(coarse.b * CLOUD_FAR_SUN_DEPTH_METERS, light_depth,
-                                          near_weight);
+                        density = mix(coarse.r * far_weight, density, near_weight);
+                        light_depth = mix(coarse.b * CLOUD_FAR_SUN_DEPTH_METERS * far_weight,
+                                          light_depth, near_weight);
                     }
                     if (density > 0.001)
                     {

@@ -108,6 +108,48 @@ namespace SushiEngine
                           {"weather_scale", e.clouds.weather_scale},
                           {"evolution_rate", e.clouds.evolution_rate},
                           {"decks", decks}}},
+                    // The regional nest's physics. Every field of AtmosphereParameters is here
+                    // rather than a chosen few, because docs/slop/atmosphere_system.md §13's
+                    // claim -- "every physical constant is serialized with the scene, and
+                    // editable" -- is only true if a scene can actually carry all of them.
+                    {"atmosphere_nest",
+                     json{{"enabled", e.atmosphere_nest.enabled},
+                          {"gas_constant_dry", e.atmosphere_nest.gas_constant_dry},
+                          {"gas_constant_vapour", e.atmosphere_nest.gas_constant_vapour},
+                          {"specific_heat_pressure", e.atmosphere_nest.specific_heat_pressure},
+                          {"latent_heat_vaporization", e.atmosphere_nest.latent_heat_vaporization},
+                          {"gravity", e.atmosphere_nest.gravity},
+                          {"reference_pressure", e.atmosphere_nest.reference_pressure},
+                          {"water_density", e.atmosphere_nest.water_density},
+                          {"surface_temperature", e.atmosphere_nest.surface_temperature},
+                          {"surface_pressure", e.atmosphere_nest.surface_pressure},
+                          {"lapse_rate", e.atmosphere_nest.lapse_rate},
+                          {"tropopause_altitude", e.atmosphere_nest.tropopause_altitude},
+                          {"surface_humidity", e.atmosphere_nest.surface_humidity},
+                          {"humidity_scale_height", e.atmosphere_nest.humidity_scale_height},
+                          {"courant_target", e.atmosphere_nest.courant_target},
+                          {"max_step_seconds", e.atmosphere_nest.max_step_seconds},
+                          {"min_step_seconds", e.atmosphere_nest.min_step_seconds},
+                          {"max_steps_per_frame", e.atmosphere_nest.max_steps_per_frame},
+                          {"eddy_viscosity", e.atmosphere_nest.eddy_viscosity},
+                          {"sponge_depth", e.atmosphere_nest.sponge_depth},
+                          {"sponge_rate", e.atmosphere_nest.sponge_rate},
+                          {"boundary_zone_cells", e.atmosphere_nest.boundary_zone_cells},
+                          {"boundary_relaxation", e.atmosphere_nest.boundary_relaxation},
+                          {"pressure_iterations", e.atmosphere_nest.pressure_iterations},
+                          {"thermal_seed_amplitude", e.atmosphere_nest.thermal_seed_amplitude},
+                          {"convective_velocity_scale", e.atmosphere_nest.convective_velocity_scale},
+                          {"autoconversion_rate", e.atmosphere_nest.autoconversion_rate},
+                          {"autoconversion_threshold", e.atmosphere_nest.autoconversion_threshold},
+                          {"accretion_rate", e.atmosphere_nest.accretion_rate},
+                          {"accretion_exponent", e.atmosphere_nest.accretion_exponent},
+                          {"rain_evaporation_rate", e.atmosphere_nest.rain_evaporation_rate},
+                          {"fall_speed_coefficient", e.atmosphere_nest.fall_speed_coefficient},
+                          {"fall_speed_exponent", e.atmosphere_nest.fall_speed_exponent},
+                          {"droplet_effective_radius", e.atmosphere_nest.droplet_effective_radius},
+                          {"coverage_reference_lwc", e.atmosphere_nest.coverage_reference_lwc},
+                          {"surface_sensible_flux", e.atmosphere_nest.surface_sensible_flux},
+                          {"surface_latent_flux", e.atmosphere_nest.surface_latent_flux}}},
                     {"stars",
                      json{{"enabled", e.stars.enabled},
                           {"brightness", e.stars.brightness},
@@ -168,6 +210,62 @@ namespace SushiEngine
                     if (s.contains("ocean_color"))
                         environment.surface.ocean_color = vec3_from_json(s["ocean_color"]);
                     environment.surface.roughness = s.value("roughness", environment.surface.roughness);
+                }
+                if (j.contains("atmosphere_nest") && j["atmosphere_nest"].is_object())
+                {
+                    const json& a = j["atmosphere_nest"];
+                    SushiEngine::Render::AtmosphereParameters& n = environment.atmosphere_nest;
+                    // Every read defaults to the value already in the struct, so a scene written
+                    // before a parameter existed loads with that parameter's own default rather
+                    // than with a zero the physics would divide by.
+                    n.enabled = a.value("enabled", n.enabled);
+                    n.gas_constant_dry = a.value("gas_constant_dry", n.gas_constant_dry);
+                    n.gas_constant_vapour = a.value("gas_constant_vapour", n.gas_constant_vapour);
+                    n.specific_heat_pressure =
+                        a.value("specific_heat_pressure", n.specific_heat_pressure);
+                    n.latent_heat_vaporization =
+                        a.value("latent_heat_vaporization", n.latent_heat_vaporization);
+                    n.gravity = a.value("gravity", n.gravity);
+                    n.reference_pressure = a.value("reference_pressure", n.reference_pressure);
+                    n.water_density = a.value("water_density", n.water_density);
+                    n.surface_temperature = a.value("surface_temperature", n.surface_temperature);
+                    n.surface_pressure = a.value("surface_pressure", n.surface_pressure);
+                    n.lapse_rate = a.value("lapse_rate", n.lapse_rate);
+                    n.tropopause_altitude = a.value("tropopause_altitude", n.tropopause_altitude);
+                    n.surface_humidity = a.value("surface_humidity", n.surface_humidity);
+                    n.humidity_scale_height =
+                        a.value("humidity_scale_height", n.humidity_scale_height);
+                    n.courant_target = a.value("courant_target", n.courant_target);
+                    n.max_step_seconds = a.value("max_step_seconds", n.max_step_seconds);
+                    n.min_step_seconds = a.value("min_step_seconds", n.min_step_seconds);
+                    n.max_steps_per_frame = a.value("max_steps_per_frame", n.max_steps_per_frame);
+                    n.eddy_viscosity = a.value("eddy_viscosity", n.eddy_viscosity);
+                    n.sponge_depth = a.value("sponge_depth", n.sponge_depth);
+                    n.sponge_rate = a.value("sponge_rate", n.sponge_rate);
+                    n.boundary_zone_cells = a.value("boundary_zone_cells", n.boundary_zone_cells);
+                    n.boundary_relaxation = a.value("boundary_relaxation", n.boundary_relaxation);
+                    n.pressure_iterations = a.value("pressure_iterations", n.pressure_iterations);
+                    n.thermal_seed_amplitude =
+                        a.value("thermal_seed_amplitude", n.thermal_seed_amplitude);
+                    n.convective_velocity_scale =
+                        a.value("convective_velocity_scale", n.convective_velocity_scale);
+                    n.autoconversion_rate = a.value("autoconversion_rate", n.autoconversion_rate);
+                    n.autoconversion_threshold =
+                        a.value("autoconversion_threshold", n.autoconversion_threshold);
+                    n.accretion_rate = a.value("accretion_rate", n.accretion_rate);
+                    n.accretion_exponent = a.value("accretion_exponent", n.accretion_exponent);
+                    n.rain_evaporation_rate =
+                        a.value("rain_evaporation_rate", n.rain_evaporation_rate);
+                    n.fall_speed_coefficient =
+                        a.value("fall_speed_coefficient", n.fall_speed_coefficient);
+                    n.fall_speed_exponent = a.value("fall_speed_exponent", n.fall_speed_exponent);
+                    n.droplet_effective_radius =
+                        a.value("droplet_effective_radius", n.droplet_effective_radius);
+                    n.coverage_reference_lwc =
+                        a.value("coverage_reference_lwc", n.coverage_reference_lwc);
+                    n.surface_sensible_flux =
+                        a.value("surface_sensible_flux", n.surface_sensible_flux);
+                    n.surface_latent_flux = a.value("surface_latent_flux", n.surface_latent_flux);
                 }
                 if (j.contains("clouds") && j["clouds"].is_object())
                 {

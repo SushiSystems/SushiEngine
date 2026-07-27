@@ -43,8 +43,6 @@ layout(push_constant) uniform Params
     vec2 forcing_offset;
 } push;
 
-const float MOISTURE_UNIT = 1000.0;
-
 void main()
 {
     ivec3 cell = ivec3(gl_GlobalInvocationID);

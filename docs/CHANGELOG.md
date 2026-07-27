@@ -9,6 +9,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-07-27 — Added atmosphere phase B2b: the regional nest's optical extinction now drives cloud shape directly, with no genus, deck or height gradient in the path.
+- 2026-07-27 — Added a Meteorology panel (`Window ▸ Meteorology`) for tuning the nest and logging the observer's column to CSV on the nest's own clock.
 - 2026-07-27 — Added atmosphere phase B1: baked the cloudscape into two camera-centred, non-wrapping windows (near/far) instead of a periodic tile, and derived cloud genus per column from the simulated field.
 - 2026-07-27 — Added atmosphere phase A: coupled the weather simulation to the sky — the cloud march samples the simulation's own horizontal grid (`Render::WeatherField`), applies coverage as a re-threshold, and samples the driving column at the camera instead of the scene anchor.
 - 2026-07-26 — Added editor UI for GTAO, SSR, ray-traced shadows, particle bursts, and blend shapes — engine features that were already implemented but unreachable from the Inspector.
@@ -64,6 +66,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - 2026-07-02 — Changed cloud noise generation to run on the GPU (Perlin-Worley shape, erosion detail).
 
 ### Fixed
+- 2026-07-27 — Fixed cloud coverage having almost no effect: the shape field is a narrow bell, not the uniform distribution the coverage threshold assumes, so every deck at half coverage or more rendered as a gapless slab. Authored coverage and density defaults will need retuning against the corrected field.
+- 2026-07-27 — Fixed the far cloudscape window rendering as a featureless white square by flooring each window's shape scale at what its own texel spacing can sample.
+- 2026-07-27 — Fixed the atmosphere nest's buoyancy using total water vapour where the virtual-temperature term needs the departure from the base state, which put a spurious signal six times the size of the real one into the pressure solve.
+- 2026-07-27 — Fixed volumetric fog blinding the camera whenever the sky was overcast, and stopped enabling authored fog as a side effect of switching weather on.
 - 2026-07-26 — Fixed remaining device-loss paths (LUTs, MRT blend, IBL descriptors).
 - 2026-07-26 — Fixed functional CI by installing POCL, and fixed push-constant/image-layout validation errors.
 - 2026-07-26 — Fixed CI flakiness by pinning the intel/llvm nightly to an older, more POCL-5.0-compatible build.

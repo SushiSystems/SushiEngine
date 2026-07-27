@@ -90,6 +90,11 @@ namespace SushiEngine
             class CloudNoise;
         }
 
+        namespace Atmosphere
+        {
+            class AtmosphereNest;
+        }
+
         namespace Vulkan
         {
             class VulkanDevice;
@@ -144,6 +149,7 @@ namespace SushiEngine
                      */
                     void update_window(const Frame::FrameContext& frame,
                                        const Environment& environment,
+                                       const Atmosphere::AtmosphereNest* nest,
                                        Scene::SceneUniforms& uniforms);
 
                     void register_pass(Graph::RenderGraph& graph,
@@ -218,6 +224,14 @@ namespace SushiEngine
                         float shell_base = 0.0f;
                         float shell_top = 0.0f;
                         std::uint32_t derive_genus = 0;
+                        /**
+                         * @brief The nest step the last bake was taken from.
+                         *
+                         * A stepped nest is new condensate, and the bake reads condensate
+                         * directly (§7.1) — so it is a rebake trigger in its own right, and the
+                         * one that actually fires most of the time once the nest is running.
+                         */
+                        std::uint64_t nest_step = 0;
                     };
 
                     /** @brief The density bake's push block; see cloudscape_field.comp. */
@@ -375,6 +389,10 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Textures::CloudNoise& noise_;
                     WeatherFieldPass& weather_;
+                    // Borrowed, and null whenever the scene runs no atmosphere. Resolved per
+                    // frame in update_window rather than held from construction, because the
+                    // nest is built lazily on first use.
+                    const Atmosphere::AtmosphereNest* nest_ = nullptr;
 
                     Volume near_;
                     Volume skip_;

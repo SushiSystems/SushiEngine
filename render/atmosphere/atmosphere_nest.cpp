@@ -594,6 +594,8 @@ namespace SushiEngine
                 block.droplet_effective_radius = p.droplet_effective_radius;
                 block.surface_sensible_flux = p.surface_sensible_flux;
                 block.surface_latent_flux = p.surface_latent_flux;
+                block.surface_night_flux = p.surface_night_flux;
+                block.solar_elevation_sine = solar_elevation_sine_;
                 block.spacing = size_.spacing_m;
                 block.domain_top = size_.top_m;
                 block.dt = dt;
@@ -920,17 +922,29 @@ namespace SushiEngine
                     dispatch(STAGE_MICROPHYSICS, set, nullptr, 0, gx, gy, gz);
                 }
 
-                // 5. What the rest of the engine sees: optical extinction, and the coarse
-                //    column summary gameplay reads back.
-                {
-                    Resources::DescriptorWriter writer;
-                    const VkDescriptorSet set = begin(STAGE_EXTINCTION, writer);
-                    writer.sampled_image(1, moisture_.front.view, sampler_,
-                                         VK_IMAGE_LAYOUT_GENERAL);
-                    writer.storage_image(2, extinction_.view, VK_IMAGE_LAYOUT_GENERAL);
-                    writer.update(device_.device(), set);
-                    dispatch(STAGE_EXTINCTION, set, nullptr, 0, gx, gy, gz);
-                }
+            }
+
+            void AtmosphereNest::record_extinction(VkCommandBuffer cmd)
+            {
+                // What the rest of the engine sees. Recorded separately from the step because a
+                // frame that only *shifts* still needs it: the shift moves the lattice, and the
+                // cloudscape bake addresses this field through the nest's new origin, so leaving
+                // yesterday's extinction behind a moved mapping draws the sky offset by however
+                // many cells the camera travelled.
+                const VkDescriptorSet set = allocate(STAGE_EXTINCTION, slot_);
+                Resources::DescriptorWriter writer;
+                writer.uniform_buffer(0, params_, sizeof(NestParams));
+                writer.sampled_image(1, moisture_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
+                writer.storage_image(2, extinction_.view, VK_IMAGE_LAYOUT_GENERAL);
+                writer.update(device_.device(), set);
+
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                  stage_pipelines_[STAGE_EXTINCTION]);
+                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                               pipeline_layouts_[STAGE_EXTINCTION], 0, set);
+                vkCmdDispatch(cmd, groups(size_.cells_x, GROUP_3D), groups(size_.levels, GROUP_3D),
+                              groups(size_.cells_z, GROUP_3D));
+                barrier(cmd);
             }
 
             void AtmosphereNest::record_readback(VkCommandBuffer cmd, std::uint32_t slot)
@@ -1030,6 +1044,9 @@ namespace SushiEngine
                     return;
 
                 pressure_sweeps_ = std::max(parameters.pressure_iterations, 1u);
+                // Held from the forcing rather than passed down through every record call: the
+                // parameter block is uploaded once per step and this is one of its fields.
+                solar_elevation_sine_ = forcing.solar_elevation_sine;
 
                 const float dt = choose_step(parameters, forcing);
                 // The delta against the last clock this nest saw. Three views calling in with
@@ -1119,6 +1136,10 @@ namespace SushiEngine
 
                 if (stepping)
                     record_step(cmd, forcing);
+                // Always, not only after a step: a seed or a shift changes what every cell holds
+                // and where it is, and both the cloudscape bake and the readback address this
+                // through the nest's current origin.
+                record_extinction(cmd);
                 record_readback(cmd, slot);
 
                 Vulkan::check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(atmosphere)");

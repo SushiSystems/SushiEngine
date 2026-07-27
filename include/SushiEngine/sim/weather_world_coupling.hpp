@@ -68,22 +68,43 @@ namespace SushiEngine
                 Render::WeatherCoupling compile(const WeatherColumn& column) const
                 {
                     const WeatherLevelState& low = column.levels[static_cast<int>(CloudLevel::Low)];
-                    const float saturation_proxy = std::clamp(low.coverage * low.density_scale, 0.0f, 2.0f);
 
                     Render::WeatherCoupling coupling;
 
-                    // Sea-level extinction, per metre: heavy rain alone is worth roughly a
-                    // typical valley-fog author density (~0.02/m); the saturation proxy adds a
-                    // gentler haze under a filled, dense low deck even before it rains.
-                    coupling.fog_density_bias =
-                        column.precipitation * 0.020f + saturation_proxy * 0.004f;
+                    // **Fog is cloud whose base is at the ground.** This used to be driven by the
+                    // low deck's coverage times its density -- a stand-in for the dew-point
+                    // spread the old column contract could not carry -- and the consequence was
+                    // that merely being *overcast* produced 0.008/m of extinction, which is a
+                    // ~370 m visibility whiteout under a perfectly ordinary grey sky 1 200 m
+                    // overhead. Coverage aloft says nothing about the air at the surface. Cloud
+                    // base does, and the nest reports it.
+                    //
+                    // Ramped rather than switched: a base inside the surface layer is fog, a base
+                    // above it is not, and the transition between them is a real one you can
+                    // drive up a hill into.
+                    constexpr float FOG_BASE_CEILING_M = 300.0f;
+                    constexpr float IN_CLOUD_EXTINCTION = 0.02f; // ~150 m visibility, real fog
+                    const bool has_cloud = low.coverage > 0.0f && column.cloud_base_m > 0.0f;
+                    const float ground_cloud =
+                        has_cloud ? std::clamp(1.0f - column.cloud_base_m / FOG_BASE_CEILING_M,
+                                               0.0f, 1.0f)
+                                  : 0.0f;
 
-                    // Extra Mie scattering coefficient, per metre: rain droplets and haze both
-                    // scatter far more than clean, dry air (whose sea-level Mie coefficient is
-                    // ~21e-6 by default -- see AtmosphereParams::mie_coefficient), so the bias is
-                    // scaled to be a multiple of that baseline under a genuine downpour.
-                    coupling.turbidity_bias =
-                        column.precipitation * 8.0e-5f + saturation_proxy * 1.5e-5f;
+                    // Rain reduces visibility, but far less than it used to be credited with: a
+                    // 10 mm/h downpour gives roughly 1-2 km of visibility, which is ~0.002/m, not
+                    // the 0.02/m a full-intensity column used to add.
+                    constexpr float HEAVY_RAIN_EXTINCTION = 0.003f;
+                    coupling.fog_density_bias =
+                        column.precipitation * HEAVY_RAIN_EXTINCTION +
+                        ground_cloud * low.coverage * IN_CLOUD_EXTINCTION;
+
+                    // Extra Mie scattering coefficient, per metre. Rain droplets scatter far more
+                    // than clean dry air (whose sea-level Mie coefficient is ~21e-6 by default),
+                    // so a downpour is worth a few times that baseline. The humidity-driven haze
+                    // that used to ride here came from the same coverage proxy and is dropped with
+                    // it -- a real one needs the surface dew-point spread, which is what §9.1's
+                    // `AtmosphereProfile` carries in phase E.
+                    coupling.turbidity_bias = column.precipitation * 8.0e-5f;
 
                     // No soak-in/dry-out lag modelled -- wetness tracks precipitation
                     // instantaneously each sample, a named simplification (ground_wetness carries

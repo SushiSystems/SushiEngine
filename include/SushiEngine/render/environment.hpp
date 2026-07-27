@@ -43,8 +43,8 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/weather_field.hpp>
 
 namespace SushiEngine
@@ -265,7 +265,21 @@ namespace SushiEngine
             float stratiform;       /**< 0 cellular cumuliform → 1 flat stratiform sheet, [0, 1]. */
             float anvil;            /**< Deep-convective top-spread (cumulonimbus), [0, 1]. */
             float detail_strength;  /**< How hard the Worley detail erodes the base edges, [0, 1]. */
-            float shape_scale;      /**< Metres per tile of the base shape noise. */
+            /**
+             * @brief Metres per tile of the base shape noise.
+             *
+             * The base volume carries four Worley cells per axis, so **one cloud is roughly
+             * `shape_scale / 4`** — and that has to be smaller than the genus's own
+             * `top_altitude - base_altitude`, or the noise does not vary at all across the deck's
+             * thickness and the shape is simply extruded upward. That was wrong for every
+             * cumuliform genus until it was measured: a cumulus at 18 km carried 4.5 km cells
+             * through a 2.2 km deck, so it could only ever render as a vertical slab, and the
+             * wind-stretched cloud-street term then drew those slabs out into ridges.
+             *
+             * A stratiform genus is the opposite case and is *supposed* to be far wider than it
+             * is thick, so those scales are unchanged.
+             */
+            float shape_scale;
             float detail_scale;     /**< Metres per tile of the high-frequency detail noise. */
             Vector3 wind;           /**< Advection velocity, metres/second. */
             CloudNoiseKind noise;   /**< Which base volume the genus is carved from. */
@@ -289,13 +303,13 @@ namespace SushiEngine
                 return {8000.0f, 12000.0f, 0.35f, 0.14f, 0.15f, 0.0f, 0.60f, 60000.0f, 9000.0f,
                         Vector3{55.0, 0.0, 20.0}, CloudNoiseKind::Cirriform};
             case CloudGenus::Cirrocumulus:
-                return {6500.0f, 8500.0f, 0.40f, 0.20f, 0.10f, 0.0f, 0.60f, 12000.0f, 700.0f,
+                return {6500.0f, 8500.0f, 0.40f, 0.20f, 0.10f, 0.0f, 0.60f, 3000.0f, 400.0f,
                         Vector3{50.0, 0.0, 18.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Cirrostratus:
                 return {7000.0f, 9500.0f, 0.75f, 0.12f, 0.92f, 0.0f, 0.35f, 80000.0f, 9000.0f,
                         Vector3{48.0, 0.0, 16.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Altocumulus:
-                return {3500.0f, 5000.0f, 0.50f, 0.35f, 0.30f, 0.0f, 0.60f, 16000.0f, 900.0f,
+                return {3500.0f, 5000.0f, 0.50f, 0.35f, 0.30f, 0.0f, 0.60f, 4000.0f, 500.0f,
                         Vector3{28.0, 0.0, 10.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Altostratus:
                 return {3000.0f, 5500.0f, 0.88f, 0.42f, 0.90f, 0.0f, 0.30f, 70000.0f, 5000.0f,
@@ -304,13 +318,13 @@ namespace SushiEngine
                 return {1000.0f, 5500.0f, 0.95f, 0.70f, 0.85f, 0.0f, 0.35f, 60000.0f, 4200.0f,
                         Vector3{20.0, 0.0, 7.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Stratocumulus:
-                return {800.0f, 2200.0f, 0.70f, 0.50f, 0.55f, 0.0f, 0.55f, 20000.0f, 900.0f,
+                return {800.0f, 2200.0f, 0.70f, 0.50f, 0.55f, 0.0f, 0.55f, 7000.0f, 600.0f,
                         Vector3{18.0, 0.0, 6.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Stratus:
                 return {300.0f, 1200.0f, 0.90f, 0.48f, 0.95f, 0.0f, 0.25f, 50000.0f, 2500.0f,
                         Vector3{12.0, 0.0, 4.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Cumulus:
-                return {1000.0f, 3200.0f, 0.42f, 0.62f, 0.12f, 0.0f, 0.62f, 18000.0f, 1000.0f,
+                return {1000.0f, 3200.0f, 0.42f, 0.62f, 0.12f, 0.0f, 0.62f, 4200.0f, 600.0f,
                         Vector3{16.0, 0.0, 6.0}, CloudNoiseKind::Cumuliform};
             case CloudGenus::Cumulonimbus:
                 return {800.0f, 14000.0f, 0.35f, 0.90f, 0.10f, 0.70f, 0.60f, 28000.0f, 1200.0f,

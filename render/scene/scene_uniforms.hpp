@@ -162,6 +162,25 @@ namespace SushiEngine
                  * reason as everything above it.
                  */
                 float cloud_field_params[4];
+                /**
+                 * @brief Camera-relative XZ metres -> the regional nest's horizontal UV.
+                 *
+                 * `xy` = scale, `zw` = offset. Stamped by the scene view from the nest's own
+                 * snapped origin, with the eye folded in — the nest is centred on the
+                 * simulation's observer, not on any camera, so this is the one place the two
+                 * frames are reconciled.
+                 */
+                float atmosphere_nest_map[4];
+                /**
+                 * @brief The nest's vertical mapping and whether the bake should read it.
+                 *
+                 * `x` = domain top (m), `y` = the inverse vertical stretch exponent (the nest's
+                 * levels are stretched, so altitude -> texture W is one `pow`), `z` = 1 when the
+                 * nest is running, `w` = the extinction of 1 g/m³ of liquid water, which is the
+                 * scale the baked density states σ against. Appended last for the same offset
+                 * reason as everything above it.
+                 */
+                float atmosphere_nest_params[4];
             };
 
             /**

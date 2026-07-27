@@ -58,6 +58,7 @@
 #include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 #include <SushiEngine/sim/weather_cloudscape_compiler.hpp>
+#include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
 #include <SushiEngine/sim/weather_field_buffer.hpp>
 #include <SushiEngine/sim/weather_wind.hpp>
 #include <SushiEngine/sim/weather_world_coupling.hpp>
@@ -557,6 +558,14 @@ namespace SushiEngine
                                                     x / (radius * cos_latitude)};
                     }
 
+                    void set_atmosphere_mirror(
+                        const Render::IAtmosphereMirror* mirror) noexcept override
+                    {
+                        atmosphere_mirror_ = mirror;
+                        if (weather_provider_)
+                            weather_provider_->set_atmosphere_mirror(mirror);
+                    }
+
                     bool procedural_weather_enabled() const noexcept override
                     {
                         return static_cast<bool>(weather_provider_);
@@ -573,18 +582,20 @@ namespace SushiEngine
                             // The scene planet's mean radius anchors T1/T2's tangent-plane math to
                             // whichever body is dominant, matching Environment::planet already.
                             constexpr std::uint64_t DEFAULT_WEATHER_SEED = 1;
-                            install_weather_provider(std::make_unique<ProceduralWeather>(
-                                DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius()));
-                            // W5's acceptance bar wants reduced visibility to actually show up
-                            // under rain; froxel fog stays author-off by default (FogParams::enabled
-                            // = false) since most scenes never touch weather. A one-shot default
-                            // nudge here, not a continuous override: it only fires the instant
-                            // procedural weather turns on, and the author's own choice afterward
-                            // (including turning it back off) is never re-applied on top of it --
-                            // the same "fixed default, not a running override" shape as this
-                            // function's seed above.
-                            if (!scene_.environment.fog.enabled)
-                                scene_.environment.fog.enabled = true;
+                            auto provider = std::make_unique<ProceduralWeather>(
+                                DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius());
+                            // Bound now rather than at the host's convenience: the mirror may
+                            // have been installed long before this provider existed, and a
+                            // provider that never learns about it would answer from the base
+                            // state forever.
+                            provider->set_atmosphere_mirror(atmosphere_mirror_);
+                            install_weather_provider(std::move(provider));
+                            // Deliberately *not* switching the author's fog on. That nudge used
+                            // to exist so rain could be seen through something, and its cost was
+                            // that enabling weather silently added the full authored fog density
+                            // to a scene that had left fog off on purpose. VolumetricFogPass now
+                            // runs on the weather's own bias alone, so reduced visibility under
+                            // rain still shows up and an author who wanted no fog still has none.
                         }
                         else
                         {
@@ -2292,6 +2303,10 @@ namespace SushiEngine
                         const double step_days =
                             double(clock_.fixed_dt()) * time_scale_days_per_second_;
                         julian_date_ += step_days;
+                        // The nest is stepped in game time, and this is that clock: the same
+                        // scaled seconds the sky advances by, accumulated monotonically so the
+                        // renderer can take its own difference against it.
+                        atmosphere_seconds_ += step_days * 86400.0;
 
                         if (weather_provider_)
                             weather_provider_->tick(double(clock_.fixed_dt()),
@@ -2648,6 +2663,54 @@ namespace SushiEngine
                             // than of one column.
                             weather_provider_->publish_field(observer, weather_field_buffer_);
                             scene_.environment.weather_field = weather_field_buffer_.view();
+
+                            // The parent solution the GPU nest's lateral boundary relaxes toward,
+                            // plus the clock it steps on. This is the only channel the
+                            // simulation's own time reaches the render tier through, and
+                            // publishing it is what tells the renderer there is an atmosphere to
+                            // build at all.
+                            weather_provider_->publish_forcing(observer, atmosphere_seconds_,
+                                                               atmosphere_forcing_buffer_);
+                            // f = 2 Omega sin(latitude). Earth's sidereal rotation rate: the
+                            // nest is regional, so f's own variation across its few hundred
+                            // kilometres is below what the grid resolves and one value at the
+                            // centre is the standard f-plane approximation.
+                            constexpr double SIDEREAL_ROTATION_RAD_PER_S = 7.2921159e-5;
+                            const double coriolis = 2.0 * SIDEREAL_ROTATION_RAD_PER_S *
+                                                    std::sin(observer.latitude_radians);
+                            double scene_observer_x = 0.0;
+                            double scene_observer_z = 0.0;
+                            if (scene_.has_camera)
+                            {
+                                scene_observer_x = double(scene_.camera.position.x);
+                                scene_observer_z = double(scene_.camera.position.z);
+                            }
+                            // The sine of the *rendered* sun's elevation: the dot of the
+                            // direction to the sun with local up. §1.6 records the shipped
+                            // system reimplementing its own solar-position model so that "the
+                            // sun that heats the ground and the sun that is rendered are two
+                            // different suns" -- this is the same sun, read straight off the
+                            // environment the ephemeris already filled. It carries the time of
+                            // day and the season at once, because the declination that lifts the
+                            // summer sun is already in it.
+                            const Vector3& to_sun = scene_.environment.sun.direction;
+                            const Vector3& local_up = scene_.environment.planet_pole;
+                            const double up_length =
+                                std::sqrt(local_up.x * local_up.x + local_up.y * local_up.y +
+                                          local_up.z * local_up.z);
+                            const double sun_length =
+                                std::sqrt(to_sun.x * to_sun.x + to_sun.y * to_sun.y +
+                                          to_sun.z * to_sun.z);
+                            const double solar_elevation_sine =
+                                (up_length > 0.0 && sun_length > 0.0)
+                                    ? (to_sun.x * local_up.x + to_sun.y * local_up.y +
+                                       to_sun.z * local_up.z) / (up_length * sun_length)
+                                    : 0.0;
+                            scene_.environment.atmosphere_forcing =
+                                atmosphere_forcing_buffer_.view(scene_observer_x, scene_observer_z,
+                                                                atmosphere_seconds_,
+                                                                static_cast<float>(coriolis),
+                                                                static_cast<float>(solar_elevation_sine));
                         }
                         else
                         {
@@ -2656,6 +2719,9 @@ namespace SushiEngine
                             // zero/no-op, and an invalid field is ignored outright).
                             scene_.environment.weather = Render::WeatherCoupling{};
                             scene_.environment.weather_field = Render::WeatherField{};
+                            // No provider, no parent solution — so the renderer never builds a
+                            // nest and a scene without weather costs nothing for one.
+                            scene_.environment.atmosphere_forcing = Render::AtmosphereForcing{};
                         }
 
                         // Anchor ground-relative orientations and keep everything above the
@@ -3385,6 +3451,14 @@ namespace SushiEngine
                     // Render::WeatherField). Owned here because this object outlives every frame
                     // whose environment can still be read.
                     WeatherFieldBuffer weather_field_buffer_;
+
+                    // Storage behind Environment::atmosphere_forcing, borrowed the same way the
+                    // weather field's is, plus the monotonic game clock the nest steps on.
+                    AtmosphereForcingBuffer atmosphere_forcing_buffer_;
+                    double atmosphere_seconds_ = 0.0;
+                    // The renderer's readback of the nest, bound once by the host. Null until
+                    // then, which every consumer reads as "answer from the base state".
+                    const Render::IAtmosphereMirror* atmosphere_mirror_ = nullptr;
                     WeatherCloudscapeCompiler weather_compiler_;
                     WeatherWorldCoupling weather_world_compiler_;
 

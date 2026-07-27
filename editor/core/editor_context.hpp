@@ -81,6 +81,7 @@ namespace SushiEngine
             bool rendering = false;
             bool lighting = false;
             bool post_process = false;
+            bool meteorology = false;
             bool gpu_culling = false;
             /**
              * @brief The Preview viewport: the one surface anything being authored is shown on.
