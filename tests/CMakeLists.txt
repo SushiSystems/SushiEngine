@@ -189,6 +189,10 @@ add_executable(se_functional_tests
     functional/integration/test_physics_world.cpp
     functional/integration/test_physics_bridge.cpp
     functional/integration/test_physics_simulation.cpp
+    # The mutable world and the one-composition tick. The compile-count assertions
+    # here are what stop the late-binding design from silently regressing into a
+    # graph that recompiles every time a body is spawned.
+    functional/integration/test_runtime_graph_builder.cpp
     functional/integration/test_rollback.cpp
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp
