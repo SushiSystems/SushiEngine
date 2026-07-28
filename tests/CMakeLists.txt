@@ -51,6 +51,9 @@ add_executable(se_functional_tests
     functional/unit/test_collision.cpp
     functional/unit/test_broadphase.cpp
     functional/unit/test_contact_body.cpp
+    # The authored-components-to-physics-descriptors translation, which was
+    # untestable while it lived inside RuntimeSimulation.
+    functional/unit/test_physics_extract.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
     functional/unit/test_rng.cpp

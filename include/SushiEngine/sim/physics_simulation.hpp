@@ -37,6 +37,7 @@
  */
 
 #include <cstddef>
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -54,196 +55,26 @@
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/solver/xpbd_solver.hpp>
+#include <SushiEngine/sim/physics_services.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine
 {
     namespace Simulation
     {
-        /** @brief A rigid body to (re)build, addressed by its owning entity. */
-        struct RigidBodyDesc
-        {
-            EntityId id = NULL_ENTITY;   /**< The entity that owns this body. */
-            Vector3 position;            /**< Seed position (used only for a newly added body). */
-            Quaternion orientation;      /**< Seed orientation (used only for a newly added body). */
-            Scalar inv_mass = Scalar(1); /**< Inverse mass; 0 pins the body. */
-            Vector3 inv_inertia;         /**< Diagonal body-local inverse inertia. */
-            Scalar drag_coefficient = Scalar(0); /**< Quadratic drag: acceleration -k|v|v, m⁻¹; 0 disables. */
-            Scalar radius = Scalar(0.5); /**< Collision radius when the body collides as a sphere. */
-            bool box = false;            /**< Collide as an oriented box (else a sphere). */
-            Vector3 half_extents{Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)}}; /**< Box half-extents. */
-        };
-
-        /** @brief A cloth grid to (re)build, addressed by its owning entity. */
-        struct ClothDesc
-        {
-            EntityId id = NULL_ENTITY;     /**< The entity that owns this grid. */
-            std::size_t rows = 0;          /**< Grid rows (row 0 is pinned). */
-            std::size_t cols = 0;          /**< Grid columns. */
-            Scalar spacing = Scalar(0.5);  /**< Distance between adjacent grid points. */
-            Vector3 origin;                /**< World position of grid point (0, 0). */
-            Scalar compliance = Scalar(0); /**< XPBD compliance of every constraint. */
-            Scalar thickness = Scalar(0.1);/**< Per-particle collision radius against obstacles. */
-        };
-
-        /** @brief A static half-space plane the physics collides bodies against. */
-        struct PlaneDesc
-        {
-            Vector3 point;                            /**< A point on the plane, in world space. */
-            Vector3 normal{Vector3{0, 1, 0}};         /**< Unit plane normal (solid side is below it). */
-        };
-
-        /** @brief A solved rigid-body pose, in boundary precision. */
-        struct SolvedPose
-        {
-            Vector3 position;
-            Quaternion orientation;
-        };
-
         /**
-         * @brief Gravitational acceleration sampled at a body's world position.
-         *
-         * The seam through which the live world hands the physics a *field* rather than one
-         * scene-wide vector (dependency inversion — the solver names this abstraction, never
-         * the astronomy behind it). Boundary `Scalar` in and out; the host samples the true
-         * per-body field (falling off with altitude, curving toward the attractor) and the
-         * solver evaluates it once per body per sub-step. A uniform field is just a sampler
-         * that ignores its argument.
-         */
-        using GravitySampler = std::function<Vector3(const Vector3& position)>;
-
-        /**
-         * @brief The precision-agnostic physics surface the live world drives.
-         *
-         * Every value crossing this interface is boundary `Scalar`; the implementation
-         * converts to and from its own solve precision internally. The world rebuilds
-         * the body/grid set (only when it changes), steps once per tick, and reads the
-         * solved poses back — it never sees a `PhysicsWorld`, a `RigidBody`, or the
-         * solve precision.
-         */
-        class IPhysicsSimulation
-        {
-            public:
-                virtual ~IPhysicsSimulation() = default;
-
-                /**
-                 * @brief Rebuilds the rigid-body world from @p bodies.
-                 *
-                 * A body-count change needs a fresh solve graph, so this rebuilds
-                 * wholesale, but preserves each persisting entity's live velocity and
-                 * pose (matched by `id`) so toggling one body does not reset the others
-                 * already in motion; a newly added body seeds from its descriptor pose,
-                 * at rest. Call only when the set of bodies actually changes.
-                 *
-                 * @param bodies     The full set of rigid bodies after the change.
-                 * @param iterations Gauss-Seidel sweeps per sub-step.
-                 * @param substep_dt The fixed sub-step duration, in seconds.
-                 */
-                virtual void set_rigid_bodies(const std::vector<RigidBodyDesc>& bodies,
-                                              std::size_t iterations, Scalar substep_dt) = 0;
-
-                /**
-                 * @brief Updates a live body's mass/inertia/drag without a rebuild; a no-op if absent.
-                 * @param id               The entity whose body to update.
-                 * @param inv_mass         New inverse mass.
-                 * @param inv_inertia      New diagonal body-local inverse inertia.
-                 * @param drag_coefficient New quadratic drag coefficient.
-                 */
-                virtual void update_rigid_body_params(EntityId id, Scalar inv_mass,
-                                                      const Vector3& inv_inertia,
-                                                      Scalar drag_coefficient) = 0;
-
-                /**
-                 * @brief Reads a body's solved pose.
-                 * @param id  The entity whose body to read.
-                 * @param out Receives the solved pose when @p id has a body.
-                 * @return Whether @p id owns a rigid body (and @p out was written).
-                 */
-                virtual bool rigid_pose(EntityId id, SolvedPose& out) const = 0;
-
-                /**
-                 * @brief Teleports a live body to @p position/@p orientation, zeroing its velocity.
-                 *
-                 * The write path for a manual transform edit while the world is playing:
-                 * the body jumps to the authored pose and its velocity is cleared (so it
-                 * does not fly off with stale momentum), then the solve continues from
-                 * there — dragging a rigid body in the viewport moves the physics, it is
-                 * not immediately overwritten. A no-op if @p id has no body.
-                 *
-                 * @param id          The entity whose body to move.
-                 * @param position    The new world position.
-                 * @param orientation The new world orientation.
-                 */
-                virtual void set_rigid_pose(EntityId id, const Vector3& position,
-                                            const Quaternion& orientation) = 0;
-
-                /**
-                 * @brief Rebuilds the cloth world from @p grids.
-                 *
-                 * Unlike rigid bodies, no live state is carried over — a rows/cols/
-                 * spacing change replaces the grid topology outright, so there is
-                 * nothing meaningful to preserve.
-                 *
-                 * @param grids      The full set of cloth grids after the change.
-                 * @param iterations Gauss-Seidel sweeps per sub-step.
-                 * @param substep_dt The fixed sub-step duration, in seconds.
-                 */
-                virtual void set_cloth_grids(const std::vector<ClothDesc>& grids,
-                                             std::size_t iterations, Scalar substep_dt) = 0;
-
-                /**
-                 * @brief A cloth grid's current world-space particle positions.
-                 * @param id The entity whose grid to read.
-                 * @return Row-major positions (`row * cols + col`); empty if @p id has none.
-                 */
-                virtual std::vector<Vector3> cloth_positions(EntityId id) const = 0;
-
-                /**
-                 * @brief A cloth grid's row/column dimensions.
-                 * @param id   The entity whose grid to read.
-                 * @param rows Receives the row count.
-                 * @param cols Receives the column count.
-                 * @return Whether @p id owns a cloth grid (and the outputs were written).
-                 */
-                virtual bool cloth_dimensions(EntityId id, std::uint32_t& rows,
-                                              std::uint32_t& cols) const = 0;
-
-                /**
-                 * @brief Sets the static planes bodies and cloth collide against.
-                 *
-                 * Cheap to call every tick (it just replaces a small list), so a host
-                 * re-supplies the scene's ground/ramp planes each step rather than
-                 * tracking when they move. An empty list disables plane contacts.
-                 *
-                 * @param planes The static collision planes, in world space.
-                 */
-                virtual void set_static_planes(const std::vector<PlaneDesc>& planes) = 0;
-
-                /**
-                 * @brief Advances rigid and cloth by one outer step, resolving contacts.
-                 *
-                 * Each sub-step, after the constraint solve, rigid bodies are separated
-                 * from each other and pushed out of the static planes, and cloth
-                 * particles are pushed out of the planes and out of the rigid bodies
-                 * (snapshotted as sphere obstacles) — so rigid bodies rest and stack and
-                 * cloth drapes over them.
-                 *
-                 * @param gravity  The per-body gravitational field, sampled at each body's
-                 *                 position every sub-step.
-                 * @param substeps Number of sub-steps this step.
-                 */
-                virtual void step(const GravitySampler& gravity, std::size_t substeps) = 0;
-        };
-
-        /**
-         * @brief The `IPhysicsSimulation` implementation; the XPBD solve runs in `double`.
+         * @brief The `IPhysicsScene` implementation; the XPBD solve runs in `double`.
          *
          * Owns a `Physics::PhysicsWorld` for rigid bodies and another for cloth (kept
          * separate so a rigid-body rebuild's velocity carry-over never has to
          * special-case a pinned grid), and converts every boundary value between
          * `Scalar` and `T` at this class's edge.
+         *
+         * It implements all four services because it genuinely does all four jobs.
+         * Consumers should not: the split exists so a caller depends on the one
+         * service it uses, and naming this class instead is how that gets undone.
          */
-        class PhysicsSimulation final : public IPhysicsSimulation
+        class PhysicsSimulation final : public IPhysicsScene
         {
             public:
                 /**
@@ -298,6 +129,7 @@ namespace SushiEngine
                     }
                     world->finalize(iterations, T(substep_dt), Projection{});
                     rigid_ = std::move(world);
+                    substep_dt_ = T(substep_dt);
                 }
 
                 void update_rigid_body_params(EntityId id, Scalar inv_mass,
@@ -383,6 +215,7 @@ namespace SushiEngine
                     }
                     world->finalize(iterations, T(substep_dt), Projection{});
                     cloth_ = std::move(world);
+                    substep_dt_ = T(substep_dt);
                 }
 
                 std::vector<Vector3> cloth_positions(EntityId id) const override
@@ -435,6 +268,15 @@ namespace SushiEngine
                     {
                         return to_vector(gravity(from_vector(position)));
                     };
+                    // The candidate pairs are found once for the whole tick, against
+                    // bounds swept by how far a body can travel in it. Rebuilding them
+                    // every sub-step — twice every sub-step, as this did — sorts the
+                    // whole scene tens of times per tick to learn something that barely
+                    // changes, and it is the single reason a large sub-step count was
+                    // unaffordable. The per-sub-step work that remains is the
+                    // resolution, which is what actually has to be repeated.
+                    refresh_contact_pairs(T(substeps) * substep_dt_);
+
                     // Drive both worlds in lockstep so contacts spanning them (rigid↔cloth)
                     // are resolved before either derives its velocity — two-way coupling.
                     for (std::size_t s = 0; s < substeps; ++s)
@@ -455,6 +297,14 @@ namespace SushiEngine
                         if (cloth_)
                             cloth_->derive_velocity();
                     }
+
+                    refresh_statistics(substeps);
+                }
+
+                /** @copydoc IPhysicsStepper::statistics */
+                const Physics::PhysicsStatistics& statistics() const noexcept override
+                {
+                    return statistics_;
                 }
 
             private:
@@ -494,6 +344,7 @@ namespace SushiEngine
                 void build_contact_bodies()
                 {
                     contact_bodies_.clear();
+                    contact_speeds_.clear();
                     if (rigid_)
                     {
                         const std::size_t count = rigid_->body_count();
@@ -510,6 +361,10 @@ namespace SushiEngine
                             entry.radius = rigid_radii_[i];
                             entry.is_cloth = false;
                             contact_bodies_.push_back(entry);
+                            // Recorded alongside the view because the broadphase runs
+                            // once per tick now and has to know how far each entry can
+                            // travel before the next one.
+                            contact_speeds_.push_back(length(body.velocity));
                         }
                     }
                     if (cloth_)
@@ -524,32 +379,65 @@ namespace SushiEngine
                             entry.radius = cloth_radii_[i];
                             entry.is_cloth = true;
                             contact_bodies_.push_back(entry);
+                            contact_speeds_.push_back(length(body.velocity));
                         }
                     }
                 }
 
                 /**
-                 * @brief The unified contact pass: broadphase, then two-way pair + plane resolve.
+                 * @brief Finds this tick's candidate pairs, once, against swept bounds.
                  *
-                 * Builds one body view over both worlds, culls candidate pairs with
-                 * sweep-and-prune, and resolves them by inverse mass (so rigid↔cloth pushes
-                 * both ways), plus every body against the static planes. Runs a few sweeps
-                 * so stacks and drapes settle.
+                 * Sweeping the bounds by how far a body can travel over the whole tick
+                 * is what makes once-per-tick sound: a pair that will only start
+                 * overlapping three sub-steps from now is already a candidate, so the
+                 * resolution pass never needs a broadphase it does not have.
+                 *
+                 * The pair list is then sorted by body index. Sweep-and-prune emits
+                 * pairs in whatever order its axis sort produced, and the contact
+                 * resolution is Gauss-Seidel — order-dependent by construction — so
+                 * an unsorted list makes the result depend on something that is not
+                 * simulation state. Sorting costs a fraction of the sweep and buys the
+                 * determinism rule outright.
+                 *
+                 * @param tick_duration The whole step's duration, in seconds.
                  */
-                void resolve_contacts()
+                void refresh_contact_pairs(T tick_duration)
                 {
                     build_contact_bodies();
                     const std::size_t count = contact_bodies_.size();
+                    pairs_.clear();
                     if (count == 0)
+                        return;
+
+                    aabbs_.clear();
+                    aabbs_.reserve(count);
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        Physics::Aabb<T> bounds =
+                            Physics::contact_body_aabb(contact_bodies_[i]);
+                        const T margin = contact_speeds_[i] * tick_duration;
+                        bounds.min = bounds.min - Vector3T<T>{margin, margin, margin};
+                        bounds.max = bounds.max + Vector3T<T>{margin, margin, margin};
+                        aabbs_.push_back(bounds);
+                    }
+                    Physics::sweep_and_prune(aabbs_, pairs_);
+                    std::sort(pairs_.begin(), pairs_.end());
+                }
+
+                /**
+                 * @brief Resolves this sub-step's contacts over the tick's candidate pairs.
+                 *
+                 * Two-way by inverse mass, so rigid↔cloth pushes both ways, plus every
+                 * body against the static planes. Several sweeps, because one pass of a
+                 * Gauss-Seidel resolution leaves a stack leaning.
+                 */
+                void resolve_contacts()
+                {
+                    if (contact_bodies_.empty())
                         return;
 
                     for (std::size_t iteration = 0; iteration < CONTACT_ITERATIONS; ++iteration)
                     {
-                        aabbs_.clear();
-                        aabbs_.reserve(count);
-                        for (const Physics::ContactBody<T>& body : contact_bodies_)
-                            aabbs_.push_back(Physics::contact_body_aabb(body));
-                        Physics::sweep_and_prune(aabbs_, pairs_);
                         for (const auto& pair : pairs_)
                             Physics::resolve_contact_bodies(contact_bodies_[pair.first],
                                                             contact_bodies_[pair.second]);
@@ -557,6 +445,33 @@ namespace SushiEngine
                             for (const Physics::PlaneCollider<T>& plane : planes_)
                                 Physics::resolve_contact_body_plane(body, plane);
                     }
+                }
+
+                /**
+                 * @brief Refreshes the per-tick counters after a step.
+                 *
+                 * What can honestly be reported at this stage and no more. The contact
+                 * pass is still a host pass outside the solve graph, so there are no
+                 * manifolds to count and no per-stage device timings to read; those
+                 * appear when the contacts move into the graph, and reporting a zero
+                 * is the truthful placeholder until they do.
+                 *
+                 * @param substeps The sub-step count this tick ran.
+                 */
+                void refresh_statistics(std::size_t substeps)
+                {
+                    statistics_ = Physics::PhysicsStatistics{};
+                    statistics_.awake_bodies = contact_bodies_.size();
+                    statistics_.broadphase_pairs_produced = pairs_.size();
+                    statistics_.contact_points = pairs_.size();
+                    statistics_.substeps = substeps;
+                    if (rigid_)
+                    {
+                        statistics_.colors = rigid_->color_count();
+                        statistics_.compile_count += rigid_->compile_count();
+                    }
+                    if (cloth_)
+                        statistics_.compile_count += cloth_->compile_count();
                 }
 
                 SushiRuntime::API::Runtime& runtime_;
@@ -569,10 +484,14 @@ namespace SushiEngine
                 std::unordered_map<EntityId, Physics::ClothGrid> cloth_grids_;
                 std::vector<T> cloth_radii_;
                 std::vector<Physics::PlaneCollider<T>> planes_;
-                // Reused scratch for the per-sub-step contact pass.
+                T substep_dt_ = T(1) / T(240);
+                // Reused scratch for the contact pass. The pair list is found once per
+                // tick and read every sub-step, so it outlives a single sub-step.
                 std::vector<Physics::ContactBody<T>> contact_bodies_;
+                std::vector<T> contact_speeds_;
                 std::vector<Physics::Aabb<T>> aabbs_;
                 std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs_;
+                Physics::PhysicsStatistics statistics_{};
         };
 
         /**
@@ -580,10 +499,10 @@ namespace SushiEngine
          * @param runtime The runtime backing the physics buffers and graphs.
          * @return An owned physics simulation; never null.
          */
-        inline std::unique_ptr<IPhysicsSimulation> create_physics_simulation(
+        inline std::unique_ptr<IPhysicsScene> create_physics_simulation(
             SushiRuntime::API::Runtime& runtime)
         {
-            return std::unique_ptr<IPhysicsSimulation>(new PhysicsSimulation(runtime));
+            return std::unique_ptr<IPhysicsScene>(new PhysicsSimulation(runtime));
         }
     } // namespace Simulation
 } // namespace SushiEngine

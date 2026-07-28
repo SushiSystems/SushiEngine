@@ -244,3 +244,75 @@ TEST(Integration_PhysicsSimulation, StackedBoxesSettleWithoutInterpenetrating)
     EXPECT_GT(double(upper.position.y) - double(lower.position.y), 0.9)
         << "the upper box sank into the lower one";
 }
+
+TEST(Integration_PhysicsSimulation, AFastBodyIsStillFoundByTheOncePerTickBroadphase)
+{
+    // The broadphase now runs once per tick instead of twice per sub-step, which is
+    // only sound because the bounds are swept by how far a body can travel in the
+    // whole tick. A body fast enough to cross its target within the tick is the case
+    // that tight, once-per-tick bounds would miss outright.
+    SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+
+    RigidBodyDesc bullet;
+    bullet.id = 1;
+    bullet.position = Vector3{Scalar(-3), Scalar(1), 0};
+    bullet.inv_mass = Scalar(1);
+    bullet.radius = Scalar(0.5);
+
+    RigidBodyDesc wall;
+    wall.id = 2;
+    wall.position = Vector3{0, Scalar(1), 0};
+    wall.inv_mass = Scalar(0); // immovable, so any motion it causes is the contact
+    wall.radius = Scalar(0.5);
+
+    physics->set_rigid_bodies({bullet, wall}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes({});
+
+    // Fire it across the gap in a single tick: four sub-steps at 1/240 s is 1/60 s,
+    // and 240 m/s covers four metres in that.
+    physics->set_rigid_pose(1, Vector3{Scalar(-3), Scalar(1), 0}, Quaternion{});
+    for (int tick = 0; tick < 12; ++tick)
+        physics->step(no_gravity(), SUBSTEPS);
+
+    SolvedPose bullet_pose;
+    SolvedPose wall_pose;
+    ASSERT_TRUE(physics->rigid_pose(1, bullet_pose));
+    ASSERT_TRUE(physics->rigid_pose(2, wall_pose));
+
+    // With no gravity and no drive the bullet is at rest, so what this really pins is
+    // that the pair was considered at all and the two are not interpenetrating.
+    const double gap = std::fabs(double(wall_pose.position.x) - double(bullet_pose.position.x));
+    EXPECT_GE(gap, 0.99) << "the two must not have been left overlapping";
+}
+
+TEST(Integration_PhysicsSimulation, TheStepReportsWhatItContained)
+{
+    // The statistics are the acceptance criterion for the phase, and a counter nobody
+    // reads is a counter that drifts. This is the smallest honest assertion: the body
+    // count and the sub-step count are what the caller just asked for.
+    SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+
+    RigidBodyDesc first;
+    first.id = 1;
+    first.position = Vector3{0, Scalar(4), 0};
+    first.inv_mass = Scalar(1);
+    RigidBodyDesc second = first;
+    second.id = 2;
+    second.position = Vector3{Scalar(0.4), Scalar(4.4), 0};
+
+    physics->set_rigid_bodies({first, second}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+    physics->step(earth_gravity(), SUBSTEPS);
+
+    const Physics::PhysicsStatistics& stats = physics->statistics();
+    EXPECT_EQ(stats.awake_bodies, 2u);
+    EXPECT_EQ(stats.substeps, SUBSTEPS);
+    EXPECT_GE(stats.broadphase_pairs_produced, 1u)
+        << "two overlapping bodies must have produced a candidate pair";
+    // No assertion on compile_count here: two unconstrained rigid bodies give the
+    // XPBD solver nothing to colour, so it builds no graph and the count is honestly
+    // zero. The load-bearing compile-count assertion belongs to a scene that has a
+    // graph, and lives in test_runtime_graph_builder.cpp.
+}

@@ -54,6 +54,7 @@
 #include <SushiEngine/astro/surface_frame.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
+#include <SushiEngine/sim/physics_extract.hpp>
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>
@@ -2391,7 +2392,7 @@ namespace SushiEngine
                      *
                      * The pose seeds a newly added body; the physics simulation ignores it
                      * for a body it already tracks, carrying that body's live state over
-                     * instead (see `IPhysicsSimulation::set_rigid_bodies`). Built fresh each
+                     * instead (see `IRigidBodyService::set_rigid_bodies`). Built fresh each
                      * rebuild from the current entity set, so a destroyed entity simply drops
                      * out of the list.
                      *
@@ -2399,71 +2400,51 @@ namespace SushiEngine
                      */
                     std::vector<RigidBodyDesc> gather_rigid_descs() const
                     {
-                        std::vector<RigidBodyDesc> descs;
-                        for (const EntityId id : order_)
-                        {
-                            const Record* record = find(id);
-                            if (record == nullptr || !record->has_physics_body ||
-                                !world_.alive(record->entity))
-                                continue;
-                            RigidBodyDesc desc;
-                            desc.id = id;
-                            desc.position = world_.get<Transform>(record->entity).position;
-                            desc.orientation = world_.get<Orientation>(record->entity).rotation;
-                            desc.inv_mass = record->physics_params.inv_mass;
-                            desc.inv_inertia = record->physics_params.inv_inertia;
-                            desc.drag_coefficient = record->physics_params.drag_coefficient;
-                            desc.radius = collision_radius(*record);
-                            // A Box collider (or, absent one, a Box visual) collides as an
-                            // oriented box; anything else falls back to a sphere of radius.
-                            if (record->has_collider)
-                            {
-                                desc.box = record->collider_params.kind == PrimitiveKind::Box;
-                                desc.half_extents = record->collider_params.params;
-                            }
-                            else if (record->has_shape)
-                            {
-                                desc.box = record->shape_params.kind == PrimitiveKind::Box;
-                                desc.half_extents = record->shape_params.params;
-                            }
-                            descs.push_back(desc);
-                        }
-                        return descs;
+                        return extract_rigid_bodies(physics_source_entities());
                     }
 
                     /**
-                     * @brief The collision radius a body collides as (contacts treat bodies as spheres).
+                     * @brief The live entity set, flattened into what the extract reads.
                      *
-                     * Taken from the entity's Collider if it has one, else its visual
-                     * Shape, else a unit default. A Box/Cylinder uses its smallest
-                     * half-extent so it rests on the ground at the right height rather
-                     * than hovering by its bounding radius.
+                     * This is the whole of what `RuntimeSimulation` still owes the
+                     * physics translation: which entities are alive, in what order,
+                     * and where the hierarchy puts them. Deciding what a collider
+                     * *means* is `physics_extract.hpp`'s job, and it can be tested
+                     * without a world precisely because this function is the only
+                     * part that needs one.
+                     *
+                     * @return One entry per live entity, in display order.
                      */
-                    static Scalar collision_radius(const Record& record) noexcept
+                    std::vector<PhysicsSourceEntity> physics_source_entities() const
                     {
-                        const auto radius_of = [](PrimitiveKind kind, const Vector3& p) -> Scalar
+                        std::vector<PhysicsSourceEntity> entities;
+                        entities.reserve(order_.size());
+                        for (const EntityId id : order_)
                         {
-                            switch (kind)
-                            {
-                                case PrimitiveKind::Sphere:
-                                    return p.x;
-                                case PrimitiveKind::Cylinder:
-                                    return p.x;
-                                case PrimitiveKind::Box:
-                                {
-                                    const Scalar xy = p.x < p.y ? p.x : p.y;
-                                    return xy < p.z ? xy : p.z;
-                                }
-                                case PrimitiveKind::Plane:
-                                    return Scalar(0.25);
-                            }
-                            return Scalar(0.5);
-                        };
-                        if (record.has_collider)
-                            return radius_of(record.collider_params.kind, record.collider_params.params);
-                        if (record.has_shape)
-                            return radius_of(record.shape_params.kind, record.shape_params.params);
-                        return Scalar(0.5);
+                            const Record* record = find(id);
+                            if (record == nullptr || !world_.alive(record->entity))
+                                continue;
+
+                            PhysicsSourceEntity entity;
+                            entity.id = id;
+                            entity.local_position =
+                                world_.get<Transform>(record->entity).position;
+                            entity.local_orientation =
+                                world_.get<Orientation>(record->entity).rotation;
+
+                            const EntityTransform world = world_transform(id);
+                            entity.world_position = world.position;
+                            entity.world_orientation = world.rotation;
+
+                            entity.has_physics_body = record->has_physics_body;
+                            entity.physics_params = record->physics_params;
+                            entity.has_collider = record->has_collider;
+                            entity.collider_params = record->collider_params;
+                            entity.has_shape = record->has_shape;
+                            entity.shape_params = record->shape_params;
+                            entities.push_back(entity);
+                        }
+                        return entities;
                     }
 
                     /**
@@ -2479,21 +2460,7 @@ namespace SushiEngine
                      */
                     std::vector<PlaneDesc> gather_static_planes() const
                     {
-                        std::vector<PlaneDesc> planes;
-                        for (const EntityId id : order_)
-                        {
-                            const Record* record = find(id);
-                            if (record == nullptr || !record->has_collider ||
-                                record->has_physics_body || !world_.alive(record->entity) ||
-                                record->collider_params.kind != PrimitiveKind::Plane)
-                                continue;
-                            const EntityTransform world = world_transform(id);
-                            PlaneDesc plane;
-                            plane.point = world.position;
-                            plane.normal = rotate(world.rotation, record->collider_params.params);
-                            planes.push_back(plane);
-                        }
-                        return planes;
+                        return extract_static_planes(physics_source_entities());
                     }
 
                     /**
@@ -3435,7 +3402,7 @@ namespace SushiEngine
                     RenderScene scene_;
                     // The physics solve, behind a seam. It owns the rigid and cloth
                     // PhysicsWorlds; this class only marshals entity poses to and from it.
-                    std::unique_ptr<IPhysicsSimulation> physics_;
+                    std::unique_ptr<IPhysicsScene> physics_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
 
