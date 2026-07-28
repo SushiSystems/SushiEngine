@@ -1043,7 +1043,7 @@ a subgrid **cloud-fraction** closure (Sundqvist, Smith) on top of its boundary-l
 the nest *can* resolve is the organized end — a storm updraft, a frontal band — because those are
 kilometres across.
 
-#### The cloud-fraction closure, and the three defects it uncovered
+#### The cloud-fraction closure, and the six defects it uncovered
 
 The closure is in. A cell's humidity is now a **top-hat distribution** about its mean rather than
 a single value — half-width `(1 − critical)·q_s`, after Sommeria–Deardorff and Mellor, the uniform
@@ -1063,8 +1063,8 @@ treating the cell mean as both. Band coverage in the mirror is the maximum-rando
 levels' fractions rather than `1 − exp(−τ)`, which measured opacity and called it coverage.
 
 **It did not, on its own, make a cumulus.** What it did was make the nest's actual state legible,
-and three defects came out of the first eight-hour run — each one found by measurement, none of
-them visible from a screenshot:
+and three defects in the physics came out of the first eight-hour run — each one found by
+measurement, none of them visible from a screenshot:
 
 1. **A cold level decouples from the boundary layer permanently.** The parcel test correctly finds
    a column stable when its lowest level is colder than the one above, diagnoses zero mixing depth,
@@ -1090,9 +1090,49 @@ them visible from a screenshot:
    scales, which is when a stable nocturnal layer should not be stirred. The amplitude became a
    dimensionless patchiness (0.4).
 
+#### The defects that were not in the physics — and cost more than the ones that were
+
+Everything above was found in a day of headless probe runs. The next three took several days of
+the user's wall clock, and they are the ones worth reading, because none of them is a
+meteorology bug and all three present as **a blue sky** — which is also exactly what a correct
+model with a dry airmass presents as. That ambiguity is the actual defect; the individual bugs
+are just what was hiding behind it.
+
+4. **The sky ran ahead of the nest and the surplus was silently discarded.** The nest steps in
+   game time and takes at most `max_steps_per_frame` steps a frame, dropping the rest — which is
+   the right call (§3.4: weather briefly behind beats a frame that stalls to simulate an hour of
+   it) and was nowhere reported. Measured in a real session: **4 sky-days asked for, 6.2 hours
+   simulated.** The panel's own warning could not catch it because it estimated the sustainable
+   rate as `step × steps_per_frame × 60`, and the editor was drawing at about twelve frames a
+   second — so it printed *"the atmosphere is keeping up with the sky"* while four of every five
+   seconds of weather were being thrown away. The lesson generalises past this tier: **a rate
+   derived from an assumed frame rate is not a measurement.** Both the verdict and the
+   *Match sky to atmosphere* button now use the observed ratio of weather asked for to weather
+   simulated, over a recent window rather than the session total so that acting on it converges.
+   The counter-intuitive consequence is worth stating plainly, because it is what wasted the
+   days: **animating the sky faster does not make the weather evolve faster, it makes less of it
+   happen.**
+5. **The bake eroded density where it should have eroded shape.** The fringe erosion subtracts an
+   absolute threshold, averaging 0.225, which removes a fringe from the deck path's *authored*
+   density of order one. The nest path's density is *measured*: a marginal fair-weather deck —
+   14 % cloud fraction, 0.01 g/kg, sitting right at the critical humidity — reaches the erosion
+   at 0.058, so it drove 87 % of the texels to zero and crushed the survivors toward it. What
+   rendered was not cloud but the noise's own peaks, and since the field rebakes every nest step,
+   *which* peaks survived changed each time: flickering specks. The carve and the erosion now run
+   on the dimensionless **shape** and the measured water multiplies once at the end — which is
+   what §7.3's own split says ("the simulation supplies the coverage, the noise carves the
+   shape"); the code had merged them one multiply too early.
+6. **Nothing named which rung was empty.** Between condensate and pixels sit a switch, a published
+   field, a genus flag, a march shell and a bake, and every one of them fails to the same blue
+   sky. The Meteorology panel now carries a **Render path** section that names the rung — clouds
+   off, no field, field not marked as meteorology, shell with no height, or a healthy shell with
+   its span — beside the observer column's own cloud extent. This is the same "name the rung
+   rather than the symptom" pattern the panel already used for the nest's build chain, and it
+   should have been extended here the moment the bake started reading condensate.
+
 #### What it does now, measured
 
-With all three in, over eleven simulated hours from sunrise, a quiescent parent airmass and no
+With all of it in, over eleven simulated hours from sunrise, a quiescent parent airmass and no
 front:
 
 | land cover | W/m² | Bowen | mean sky coverage | cloud base | spurious fog |
@@ -1150,9 +1190,29 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   authored value), and a seed that is uncorrelated between neighbouring cells therefore renders as
   neighbouring cells scintillating independently. The other half was the bake eroding density
   rather than shape, fixed 2026-07-28.
-- **Cost is still unprofiled.** The parcel-method walk is a short vertical loop per cell inside the
-  cap and the step is already above §12's 2 ms budget. Bounded — cells above the cap return without
-  walking — but not measured.
+- **Cost is still unprofiled, and the tier is throttled by the frame rate rather than by the
+  GPU.** Two separate things, both open. The step itself has never been measured: the
+  parcel-method walk added a short vertical loop per cell inside the cap, and the step was already
+  above §12's 2 ms budget. Separately, the nest submits on the **graphics queue**
+  (`vkQueueSubmit2(device_.graphics_queue())`), so it serialises with rendering and its throughput
+  is `steps_per_frame × frame rate × step length` — which is why a scene drawing at twelve frames
+  a second simulates weather at twelve frames a second while the device sits idle. In order of
+  cost to fix: raise `max_steps_per_frame` (now authorable, and the cheapest lever there is);
+  lower `pressure_iterations`, since twelve red-black sweeps are a large share of the step's
+  bandwidth; move the submission to the **async compute queue**, which the engine already has a
+  seam for and which breaks the frame-rate coupling entirely; and finally the semi-coarsened
+  multigrid `atmosphere_pressure.comp`'s own header names, with the current shader as its
+  smoother. Every number in that ordering is an estimate — **profile the step before acting on
+  any of it.**
+- **SushiRuntime is the wrong tool for this tier, and the reason is worth recording** so it is not
+  re-proposed. The nest's output is a Vulkan 3D image the cloud bake samples with hardware
+  filtering; it is a *render resource* that happens to be computed. Moving the arithmetic to
+  SYCL/USM would not make it faster — it is the same device — but it would add an interop
+  boundary or a copy of the 14 MB extinction volume every step, and SushiRuntime is
+  throughput-oriented and blocking, with no real-time thread class and no async step, which is
+  precisely the property §3.2's whole concurrency story rests on. Its value is in the
+  deterministic simulation domain, where the data does not have to become something the
+  rasteriser samples.
 
 ### Phase B3 — Surface energy balance and ice
 
