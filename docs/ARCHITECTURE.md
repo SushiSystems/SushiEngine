@@ -36,7 +36,8 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 |-------|---------|----------------|
 | SushiLoop core | `loop/app.hpp`, `loop/fixed_timestep.hpp`, `loop/rng.hpp`, `loop/input.hpp`, `loop/rollback.hpp`, `loop/net.hpp` | The `Loop::App` authoring API over a fixed-step deterministic loop; plus seeded RNG, per-tick input capture, rollback snapshots, and loopback network reconciliation (see §8, §9, §10). |
 | UI | `ui/rect.hpp`, `ui/components.hpp`, `ui/layout.hpp`, `ui/interaction.hpp`, `ui/ui.hpp` | Retained ECS UI (Unity UGUI-shaped): `RectTransform`/`Canvas`/`UIImage`/`UIText`/`UIButton` components, the `resolve_rect` anchor solver, the pointer/click model, and the `UI` façade that builds, lays out, and drives a canvas of buttons (see §11). |
-| Physics     | `physics/pgs_solver.hpp`, `physics/graph_coloring.hpp`, `physics/xpbd_solver.hpp`, `physics/rigid_body.hpp`, `physics/physics_world.hpp`, `physics/cloth.hpp` | Graph-coloured PGS solver, its unified XPBD rigid-body generalization, and cloth grids built from it (see §4). |
+| Physics     | `physics/core/`, `physics/geometry/`, `physics/collision/`, `physics/constraints/`, `physics/solver/`, `physics/soft/`, `physics/scene/` | Body state and handles, shapes and mass properties, broad/narrowphase, constraint descriptors and their projections, the XPBD solvers behind `IConstraintSolver`, soft-body topology, and the world lifecycle (see §4). |
+| Geometry    | `geometry/triangle_mesh.hpp`, `geometry/signed_distance_field.hpp` | Engine-neutral triangle geometry and the shared signed-distance baker. Links nothing — no Vulkan, no SYCL, no runtime — because both the renderer and the physics read it and neither may own it. |
 | Animation   | `animation/skeleton*.hpp`, `animation/clip*.hpp`, `animation/animator_*.hpp`, `animation/blend_tree.hpp`, `animation/avatar_mask.hpp`, `animation/additive.hpp`, `animation/pose_modifier.hpp`, `animation/ik_*.hpp`, `animation/morph.hpp`, `animation/generic_track.hpp`, `animation/humanoid.hpp`, `animation/retarget.hpp`, `animation/edit_preview.hpp`, `animation/animation_database.hpp` | Skeletal-animation stack (phases A0–A9): skeleton/clip/controller/mask assets, the deterministic `animator_step`, the `AnimatorEvaluator` (blend trees, mask-gated layers, additive), the IK / pose-modifier stack, morph + generic tracks, humanoid retargeting, and controller JSON authoring, behind the `IAnimationDatabase` seam (see §12). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
@@ -114,7 +115,7 @@ the colouring and the graph structure are reused unchanged. `DistanceConstraint`
 
 ### 4.1. XPBD: the rigid-body generalization (SushiLoop M2)
 
-`physics/rigid_body.hpp`, `physics/xpbd_constraint.hpp`, and `physics/xpbd_solver.hpp`
+`physics/core/rigid_body.hpp`, `physics/constraints/xpbd_constraint.hpp`, and `physics/solver/xpbd_solver.hpp`
 add the unified XPBD (position-based dynamics) solver `SUSHILOOP.md` calls for:
 one compliant-constraint framework meant to grow into rigid bodies, soft bodies,
 cloth, and rope, rather than a family of special-cased solvers living side by side.
@@ -145,7 +146,7 @@ compliance term is only meaningful accumulated within a single step.
 `examples/xpbd_demo.cpp` ports `pgs_demo.cpp`'s hanging chain onto `RigidBody`/
 `XpbdSolver`, checked against a byte-for-byte host mirror of the projection.
 
-`physics/physics_world.hpp`'s `PhysicsWorld<Constraint>` is the layer above
+`physics/scene/physics_world.hpp`'s `PhysicsWorld<Constraint>` is the layer above
 `XpbdSolver` that turns a one-shot solve into an actual loop: register bodies and
 constraints, `finalize()` once (uploads the bodies, compiles the graph — mirrors
 `XpbdSolver`'s own build-once-replay-every-frame split), then `step()` every frame
@@ -162,8 +163,8 @@ consumer of that seam, and takes a different route from the generic
 only present when attached, but a Rigid Body's data (position, orientation) is
 already `Transform`/`Orientation`, always present. So attaching/detaching physics
 is plain host bookkeeping in `RuntimeSimulation::Record` (`has_physics_body`,
-`physics_params`). The physics itself lives behind the `Simulation::IPhysicsSimulation`
-seam (`sim/physics_simulation.hpp`), not in `RuntimeSimulation`: whenever the
+`physics_params`). The physics itself lives behind the `Simulation::IPhysicsScene`
+seam (`sim/physics_services.hpp`), not in `RuntimeSimulation`: whenever the
 physics-driven entity set changes, `tick()` gathers one `RigidBodyDesc` per Rigid Body
 entity and calls `set_rigid_bodies`, which rebuilds a free-body `PhysicsWorld` (no
 constraints registered — no joints yet) inside the seam, the same "rebuild only when
@@ -212,7 +213,7 @@ integration.
 
 ### 4.2. Cloth (SushiLoop M5)
 
-`physics/cloth.hpp`'s `build_cloth_grid` is the confirmation of §4.1's claim that
+`physics/soft/cloth.hpp`'s `build_cloth_grid` is the confirmation of §4.1's claim that
 XPBD is one framework, not a family of special-cased solvers: cloth adds no new
 solver or constraint type, only a topology. It registers `rows * cols` `RigidBody`s
 (zero inverse inertia, so anchors implicitly at each body's own origin recover the
@@ -248,12 +249,12 @@ grid point. Unlike a Rigid Body, whose count is the only thing that forces a reb
 grid's body count and there is no meaningful partial state to carry across a topology
 change the way a falling free body's position/velocity survives an unrelated Rigid Body
 toggle. `tick()` gathers one `ClothDesc` per Cloth entity and calls
-`IPhysicsSimulation::set_cloth_grids`; the rebuild is a wholesale replace, every grid
+`IClothService::set_cloth_grids`; the rebuild is a wholesale replace, every grid
 torn down and rebuilt from its current `Transform::position` as the grid origin, at
 rest. Inside the seam, cloth lives in its own `PhysicsWorld`, separate from the Rigid
 Body world — same constraint type, a second instance — specifically so the
 full-rebuild-on-any-change discipline never forces the free-body snapshot-and-carry-over
-logic to special-case an entire pinned grid. `IPhysicsSimulation::step` advances both
+logic to special-case an entire pinned grid. `IPhysicsStepper::step` advances both
 worlds under the same gravity and sub-step count, driven by the fixed step
 `Loop::FixedTimestepClock` reports (§4.1) — there is no separately hardcoded cloth
 tick rate.
@@ -337,14 +338,14 @@ new engine-side clone primitive, just existing `IWorldEditor` surface replayed.
 ### 4.4 Collision and soft bodies
 
 Two additions extend the XPBD physics without touching the graph-coloured solver.
-`physics/collision.hpp` is the narrowphase: element-parametric collider shapes
+`physics/collision/narrowphase.hpp` is the narrowphase: element-parametric collider shapes
 (`SphereCollider<T>`, `PlaneCollider<T>`, `BoxCollider<T>`, and the oriented
 `OrientedBox<T>`) and pure functions that return a `Contact` (unit normal from the
 first shape to the second, positive penetration depth, contact point) for each shape
 pair — including a full 15-axis SAT `collide_obb_obb` for oriented-box vs. oriented-box.
 They are geometry only — no runtime, ECS, or solver dependency — so they are
 unit-tested directly (`Unit_Collision`).
-`physics/contact_solver.hpp` consumes them: non-penetration is an inequality
+`physics/collision/contact_solver.hpp` consumes them: non-penetration is an inequality
 constraint that only pushes bodies apart, so rather than living in the compile-once
 `XpbdSolver` (whose constraint set is fixed) it is a positional projection pass
 regenerated from the narrowphase each sub-step, run between `predict` and
@@ -352,7 +353,7 @@ regenerated from the narrowphase each sub-step, run between `predict` and
 position, a body that lands on a surface loses its downward velocity with no explicit
 restitution term (inelastic contact).
 
-`physics/soft_body.hpp` is the 3D counterpart of the cloth grid (§4.2):
+`physics/soft/soft_body.hpp` is the 3D counterpart of the cloth grid (§4.2):
 `build_soft_body_lattice` wires an `nx*ny*nz` particle grid held by structural (axis)
 and shear (face-diagonal) `XpbdDistanceConstraint`s into a `PhysicsWorld`, so the same
 solver runs a deformable block with no new constraint type — a mass-spring soft body
@@ -915,7 +916,8 @@ always shade a pixel. `IrradianceVolumePass` owns the probe SH grid (scene set-0
 through a pluggable `IProbeTracer` — the strategy seam (DIP) that decides how a probe
 gathers incident radiance. The default `SdfProbeTracer` (Tier A, all hardware) rebuilds a
 coarse scene distance clipmap (64³) each frame from the frame's analytic primitives and the
-per-mesh signed-distance bricks `MeshRegistry` bakes at import (`mesh_sdf_baker`), then
+per-mesh signed-distance bricks `MeshRegistry` bakes at import (`Geometry::bake_signed_distance_field`,
+reached through the `gi/mesh_sdf_baker.hpp` adapter), then
 sphere-traces it per probe: a hit contributes one coloured bounce plus any emitted radiance
 (a parallel emissive clipmap injects `material.emissive` at probe rate — lights from
 materials, no separate light path), a miss the distant environment, projected back to SH.
@@ -1295,7 +1297,7 @@ handled by the same parametric code (Mercury–Pluto and the Moon, no per-body b
   `body_orientation.hpp`'s `body_equatorial_to_ecliptic` is its inverse rotation.
 
 `RuntimeSimulation` consumes this two ways. **Per-body gravity:** each physics step builds a
-`Simulation::GravitySampler` (`make_gravity_sampler`) and hands it to `IPhysicsSimulation::step`,
+`Simulation::GravitySampler` (`make_gravity_sampler`) and hands it to `IPhysicsStepper::step`,
 which samples it at every body's own position each sub-step (`PhysicsWorld::predict_substep_field`).
 The sampler maps a body's scene position to heliocentric, samples the injected
 `Astro::IGravityField` — the *same* `SummedRailsGravityField` the orbital integrator uses, so
@@ -1380,7 +1382,7 @@ types are, however, element-parametric (`Vector3T<T>`/`QuaternionT<T>`), and the
 layer templates on that element (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`), so the
 **simulation's physics-solve precision is a separate runtime choice**
 (`Simulation::Precision`): both a float and a double solver are compiled into `sushi_sim`
-and `create_simulation(Precision)` picks one behind `Simulation::IPhysicsSimulation`,
+and `create_simulation(Precision)` picks one behind `Simulation::IPhysicsScene`,
 letting the editor switch physics precision live (rebuilding the world from a scene
 snapshot) without a rebuild of the binary. `sushi_render` shares the value types (across
 `MeshInstance`/`CameraView`) without linking the engine target — it links the runtime

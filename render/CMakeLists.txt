@@ -441,6 +441,7 @@ target_compile_definitions(sushi_render PRIVATE
     SUSHI_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders"
     SUSHI_PIPELINE_CACHE_DIR="${CMAKE_BINARY_DIR}")
 target_link_libraries(sushi_render PUBLIC
+    sushi_geometry
     Vulkan::Headers
     Vulkan::Loader
     GPUOpen::VulkanMemoryAllocator

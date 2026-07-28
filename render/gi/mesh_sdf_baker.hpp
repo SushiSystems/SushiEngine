@@ -25,21 +25,25 @@
 
 /**
  * @file mesh_sdf_baker.hpp
- * @brief A standalone CPU signed-distance-field baker for triangle meshes.
+ * @brief The renderer's view of the shared signed-distance baker.
  *
- * Pure geometry: given a mesh's positions and triangle indices, it produces a
- * cube brick of signed distances sampled at voxel centres in the mesh's own local
- * space. The unsigned distance at each voxel is the minimum point-to-triangle
- * distance over every triangle; the sign is taken from the nearest triangle's
- * geometric normal, so points behind the surface read negative. The brick's AABB
- * is padded by two voxels so the zero isosurface has clearance and rays entering
- * from outside always read positive distances first. No Vulkan, no engine coupling
- * beyond @ref Geometry::MeshVertex.
+ * The bake itself moved down to `SushiEngine::Geometry`, where it belongs: a mesh's
+ * distance field is what the renderer cone-traces through, what a collision
+ * narrowphase queries, and what a soft-body cooker uses to decide what is inside a
+ * shape. Leaving it in `render/gi/` made it a global-illumination private that the
+ * physics could only reach by depending upward.
+ *
+ * What stays here is the one thing that is genuinely the renderer's: knowing that
+ * *its* vertices are 60-byte @ref Geometry::MeshVertex records whose first three
+ * floats are the position. That is expressed as a stride, so nothing is copied — the
+ * shared baker walks the renderer's own array in place.
  */
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
+
+#include <SushiEngine/geometry/signed_distance_field.hpp>
+#include <SushiEngine/geometry/triangle_mesh.hpp>
 
 namespace SushiEngine
 {
@@ -53,30 +57,20 @@ namespace SushiEngine
         namespace Gi
         {
             /**
-             * @brief A cube of signed distances baked from a triangle mesh.
+             * @brief The shared brick type, under the name the renderer already uses.
              *
-             * @c distances holds @c resolution^3 signed distances in local units,
-             * indexed as @c index = x + resolution * (y + resolution * z) with
-             * @c x the fastest-varying axis. Voxel @c (x,y,z)'s centre in local space
-             * is, per axis, @c aabb_min + (voxel + 0.5) * (aabb_max - aabb_min) / resolution.
-             * Negative distances are inside the surface, positive outside. @c distances
-             * is empty for a degenerate mesh, in which case @c resolution is zero.
+             * An alias rather than a rename at every call site: the renderer's GI
+             * code has nothing to gain from the churn, and the type it was using was
+             * always this one.
              */
-            struct MeshSdfBrick
-            {
-                float aabb_min[3];              // padded local-space AABB minimum
-                float aabb_max[3];              // padded local-space AABB maximum
-                std::int32_t resolution = 0;    // voxels per axis (cube)
-                std::vector<float> distances;   // resolution^3 signed distances, local units
-            };
+            using MeshSdfBrick = SushiEngine::Geometry::SignedDistanceFieldBrick;
 
             /**
-             * @brief Bakes a signed distance field brick for a triangle mesh.
+             * @brief Bakes a signed distance field brick for a renderer mesh.
              *
-             * <mechanism: for each voxel centre, the minimum unsigned distance to any triangle;
-             * the sign comes from the geometric normal of the nearest triangle (negative when the
-             * point is behind it, i.e. inside). The AABB is padded by two voxels so the zero
-             * isosurface has clearance and rays approaching from outside read positive distances.>
+             * A thin adapter over @ref SushiEngine::Geometry::bake_signed_distance_field:
+             * it describes the renderer's vertex array as a strided position view and
+             * hands it over. No copy, and no geometry knowledge of its own.
              *
              * @param vertices     The mesh vertices (only position is read).
              * @param vertex_count Number of vertices.
@@ -85,9 +79,10 @@ namespace SushiEngine
              * @param resolution   Voxels per axis of the cube brick (e.g. 32).
              * @return The baked brick; distances empty if the mesh was degenerate.
              */
-            MeshSdfBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices, std::size_t vertex_count,
-                                       const std::uint32_t* indices, std::size_t index_count,
-                                       std::int32_t resolution);
+            MeshSdfBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices,
+                                       std::size_t vertex_count,
+                                       const std::uint32_t* indices,
+                                       std::size_t index_count, std::int32_t resolution);
         } // namespace Gi
     } // namespace Render
 } // namespace SushiEngine

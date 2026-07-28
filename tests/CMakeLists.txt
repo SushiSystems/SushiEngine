@@ -54,6 +54,9 @@ add_executable(se_functional_tests
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp
+    # The neutral geometry module, reachable without a renderer — which is the point
+    # of having moved it out from behind Vulkan.
+    functional/unit/test_geometry_sdf.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
     functional/unit/test_rng.cpp
@@ -223,6 +226,9 @@ add_executable(se_functional_tests
 sushi_configure_test_target(se_functional_tests)
 # The input-bindings serialization test includes nlohmann/json directly.
 target_link_libraries(se_functional_tests PRIVATE nlohmann_json::nlohmann_json)
+# The signed-distance baker is the one compiled unit in the neutral geometry module;
+# everything else the tests reach there is header-only.
+target_link_libraries(se_functional_tests PRIVATE sushi_geometry)
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second

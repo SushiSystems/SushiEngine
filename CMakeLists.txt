@@ -361,6 +361,14 @@ if(SE_BUILD_AUDIO)
     endif()
 endif()
 
+# The engine-neutral geometry module (geometry/): a triangle mesh and the shared
+# signed-distance baker, linking nothing at all. Added unconditionally and before
+# the renderer, because both the renderer and the physics read it and neither is
+# allowed to own it — the physics sits below the renderer, so pointing it at a
+# Vulkan-owning class would invert the layering and make an offline cooker require
+# a device (docs/slop/physics_system.md §3.4).
+add_subdirectory(geometry)
+
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
 # (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.
 if(SE_BUILD_RENDER)
