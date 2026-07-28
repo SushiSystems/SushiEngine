@@ -1642,6 +1642,61 @@ because their constraints were laid out already satisfied, so the projection had
 nothing to correct and the ordering could not matter. Each scene here has since been
 checked against a deliberately reversed colour order and made to fail.
 
+### 16.3 Where this stands
+
+**P0 closed on 2026-07-29.** The functional suite is 453 tests, all passing. What
+follows is the handover: what a reader can now rely on, what is deliberately still
+missing, and what the next session picks up.
+
+**What exists and is tested.**
+
+- `physics/` is seven modules with the dependency direction running one way, and
+  `physics/geometry` owns single shapes while `physics/collision` owns pairs of them.
+- A body has a material index, a flag word, a collision filter, a centre-of-mass
+  offset and its sleeping bookkeeping. Mass and inertia can be derived from a shape
+  and a density instead of typed by hand — though nothing calls that yet, so an
+  author still types an inverse mass (see below).
+- The world is mutable with no `finalize()`. Handles carry a generation; buffers are
+  fixed at capacity and a budget being exceeded is a counted event; colouring is
+  incremental; removing a body removes its constraints.
+- The tick is one composition and one `run()`, built for the maximum substep count
+  with every node late-bound. `compile_count()` is 1 after warm-up however much the
+  world churns, and a test asserts it.
+- `IConstraintSolver` has two implementations and a shared conformance suite. The
+  substep count is derived from state through the runtime's fixed-order reduce.
+- The `sim/` boundary is four segregated services; the extract is its own tested unit.
+- `SushiEngine::Geometry` is a neutral module that links nothing, holding the triangle
+  mesh and the shared signed-distance baker.
+
+**What P0 deliberately left.** Three things, and they are one thing: the contact pass
+is still a host pass outside the solve graph.
+
+1. **Contacts are not constraints yet.** They are resolved by
+   `collision/contact_solver.hpp` between substeps, not projected inside the graph. So
+   there is no per-body contact impulse for `add_segmented_reduce` (§12.2) to fold and
+   no per-stage device timing for the Physics panel to show. Both arrive with the same
+   change, and that change belongs to P1, because moving a *single-point* contact into
+   the graph would be moving the wrong thing — manifolds come first.
+2. **Mass properties are computed but not wired.** `geometry/mass_properties.hpp` is
+   complete and tested in isolation; `PhysicsBodyParams` still carries a hand-authored
+   inverse mass and diagonal inverse inertia. Connecting them is a `sim/` change that
+   belongs with the `Collider` record replacing `ColliderParams` (§5.5), not with P0.
+3. **`ContactBody::is_cloth` survives.** §4.4 wants it replaced by filter masks and
+   material properties, which now exist — but the contact pass that reads it is the
+   pass P1 rewrites, so deleting the flag now would mean writing its replacement twice.
+
+**What P1 opens with.** §16's P1 row, in the order the dependencies fall: persistent
+manifolds with face clipping and reduction (§7.3) first, because everything else in the
+phase reads them; then warm starting, then the velocity pass that finally makes
+restitution and dynamic friction expressible (§7.4). The contact-as-constraint-kind
+move (§6.3) lands with the manifolds, and it is what closes the three carry-overs
+above.
+
+**Two things worth reading before touching the solver.** §16.2 records the bug the
+conformance suite caught and why an undeclared `Reads` is not a style question. And
+`runtime_graph_builder.hpp`'s file comment records why every projection node writes the
+whole body buffer — the serialization between colours is deliberate, not an oversight.
+
 **Ordering rationale.** P0–P2 fix the foundation, because every later phase multiplies whatever is
 underneath it — and P0's runtime work in particular, since a solver that recomposes its graph every
 tick makes every performance number in §13.1 unreachable no matter what is built on top. P3 lands the
