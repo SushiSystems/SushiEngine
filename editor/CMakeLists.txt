@@ -68,6 +68,7 @@ add_executable(se_editor
     vfx/effect_preview.cpp
     audio/audio_editor_system.cpp
     audio/audio_panels.cpp
+    physics/physics_statistics_panel.cpp
     gizmo/gizmo_controller.cpp
     core/preferences.cpp
     serialization/scene_serializer.cpp

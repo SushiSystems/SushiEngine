@@ -44,6 +44,9 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+// The statistics value type only, not the physics boundary: physics_services.hpp
+// includes this header, so naming it here would close a cycle.
+#include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -1388,6 +1391,16 @@ namespace SushiEngine
 
                 /** @brief Number of live entities in the world. */
                 virtual std::size_t entity_count() const noexcept = 0;
+
+                /**
+                 * @brief What the most recent physics step contained and what it cost.
+                 *
+                 * Exposed here rather than by handing out the physics scene, because a
+                 * caller that wants the numbers is not a caller that should be able to
+                 * add bodies. A world with no physics reports a zeroed value rather
+                 * than failing, so a panel can draw it unconditionally.
+                 */
+                virtual const Physics::PhysicsStatistics& physics_statistics() const noexcept = 0;
 
                 /** @brief The editor's read/write surface onto this world. */
                 virtual IWorldEditor& world() noexcept = 0;

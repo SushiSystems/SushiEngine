@@ -83,6 +83,7 @@ namespace SushiEngine
             bool post_process = false;
             bool meteorology = false;
             bool gpu_culling = false;
+            bool physics = false;
             /**
              * @brief The Preview viewport: the one surface anything being authored is shown on.
              *
@@ -337,6 +338,16 @@ namespace SushiEngine
             std::vector<std::string> console_lines;
 
             std::size_t world_entity_count = 0;
+
+            /**
+             * @brief What the last physics step contained, snapshotted per frame.
+             *
+             * A copy rather than a reference to the live simulation, matching how the
+             * GPU timings and the entity count already reach the panels: the UI reads
+             * a frame's worth of numbers and cannot reach back into the world through
+             * them.
+             */
+            SushiEngine::Physics::PhysicsStatistics physics_statistics;
 
             // Which display the Game view renders, chosen from the resolved cameras.
             std::uint32_t game_display = 0;

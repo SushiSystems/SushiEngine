@@ -859,6 +859,7 @@ namespace SushiEngine
                 ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
                 ImGui::MenuItem("Meteorology", nullptr, &context.panels.meteorology);
                 ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
+                ImGui::MenuItem("Physics", nullptr, &context.panels.physics);
                 ImGui::MenuItem("Preview", nullptr, &context.panels.preview);
                 ImGui::MenuItem("Project", nullptr, &context.panels.project);
                 ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);

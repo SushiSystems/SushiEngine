@@ -153,6 +153,15 @@ namespace SushiEngine
                         return order_.size();
                     }
 
+                    const Physics::PhysicsStatistics& physics_statistics() const noexcept override
+                    {
+                        // A world whose physics has not been created yet reports a
+                        // zeroed value rather than failing, so a panel can draw it
+                        // from the first frame instead of guarding every field.
+                        static const Physics::PhysicsStatistics NONE{};
+                        return physics_ != nullptr ? physics_->statistics() : NONE;
+                    }
+
                     IWorldEditor& world() noexcept override { return *this; }
 
                     double julian_date() const noexcept override { return julian_date_; }

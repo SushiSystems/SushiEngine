@@ -68,6 +68,7 @@
 #include "animation/animator_preview_panel.hpp"
 #include "audio/audio_editor_system.hpp"
 #include "audio/audio_panels.hpp"
+#include "physics/physics_statistics_panel.hpp"
 
 namespace
 {
@@ -371,6 +372,7 @@ int main(int argc, char** argv)
                 instances.push_back(instance);
             }
             context.world_entity_count = simulation->entity_count();
+            context.physics_statistics = simulation->physics_statistics();
 
             // Soft-body meshes: one strand view per cloth grid, pointing directly
             // into the snapshot's concatenated vertex buffer for this frame's lifetime.
@@ -964,6 +966,7 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_animator_preview_panel(context);
             SushiEngine::Editor::draw_audio_mixer_panel(context, audio_system);
             SushiEngine::Editor::draw_audio_profiler_panel(context, audio_system);
+            SushiEngine::Editor::draw_physics_statistics_panel(context);
             SushiEngine::Editor::draw_preferences_window(context);
             SushiEngine::Editor::draw_input_manager_window(context);
             SushiEngine::Editor::draw_save_scene_as_modal(context, running);
