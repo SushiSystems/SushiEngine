@@ -1606,7 +1606,33 @@ says, so this is what is actually done and what is not.
 | Deterministic contact ordering (§12.1) | **Done for the host pass.** The candidate pairs are sorted by body index before resolution, so the Gauss-Seidel order is a function of simulation state rather than of whatever order the sweep's axis sort happened to produce. The pass is still on the host; moving it into the graph is what §12.2 waits on. |
 | Broadphase once per tick (§6.1) | **Done.** It ran twice per sub-step — sorting the whole scene tens of times a tick to learn something that barely changes, and the single reason a large sub-step count was unaffordable. It now runs once, against bounds swept by how far a body can travel over the whole tick, which is what makes once-per-tick sound rather than merely cheaper. |
 | Segmented accumulation (§12.2) | **Not started**, and blocked on the item above rather than merely unscheduled. `add_segmented_reduce` folds per-body contact impulses; there are no per-body contact impulses to fold until the contact pass is inside the graph. The plain fixed-order `add_reduce` *is* in use, for the substep schedule's motion maximum. |
+| Conformance suite (§4.4) | **Done.** `HostXpbdSolver` is a second `IConstraintSolver`, and `test_solver_conformance.cpp` runs the same scenes against both. The two share the layout (`ConstraintStore`) and the arithmetic (`XpbdDistanceProjectionT`, moved out of the runtime-including header for the purpose), so what the suite actually measures is the claim colouring makes: that projecting a colour in parallel equals projecting it in sequence. It earned its place immediately — see below. |
 | `PhysicsStatistics` wiring (§13.3) | **Partial.** Populated by both the solver and the `sim/` boundary, reported through `IPhysicsStepper::statistics()`, and asserted by tests. Two gaps remain: nothing surfaces them in the editor, and the per-stage timings are a single total rather than a breakdown, because the contact pass is still outside the graph and has no device timings to read. |
+
+### 16.2 What the conformance suite found
+
+Worth recording, because it is the argument for building the suite at all rather
+than after the fact.
+
+The motion-measuring node — the one that feeds the substep schedule — read the body
+buffer but declared `Reads()`, empty. The runtime cannot infer what a kernel touches;
+a `Dynamic` callable is a `void(std::size_t)` capturing raw pointers, so a node that
+does not *name* the data it reads has no edge to the work that produces it. That node
+was free to run beside the solve, measuring velocities that were still being written.
+
+It produced no crash, no warning, and nothing visibly wrong in a scene: the substep
+count is a quality dial, so the symptom was a simulation that occasionally spent four
+substeps where it should have spent eight. The only reason it surfaced is that a
+second implementation derived a different number from the same state, and a test
+compared them.
+
+Two things follow. First, §6.6's rule — *every physics node names its data with
+`Reads`/`Writes`* — is not a style preference, and the one place it was skipped is the
+one place a bug appeared. Second, a conformance suite is only worth what its scenes
+exercise: three of the first drafts passed against a deliberately broken solver
+because their constraints were laid out already satisfied, so the projection had
+nothing to correct and the ordering could not matter. Each scene here has since been
+checked against a deliberately reversed colour order and made to fail.
 
 **Ordering rationale.** P0–P2 fix the foundation, because every later phase multiplies whatever is
 underneath it — and P0's runtime work in particular, since a solver that recomposes its graph every

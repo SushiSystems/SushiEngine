@@ -82,15 +82,15 @@
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/physics/constraints/distance_projection.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/core/body_flags.hpp>
 #include <SushiEngine/physics/core/configuration.hpp>
 #include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
-#include <SushiEngine/physics/solver/incremental_coloring.hpp>
+#include <SushiEngine/physics/solver/constraint_store.hpp>
 #include <SushiEngine/physics/solver/solver_interface.hpp>
-#include <SushiEngine/physics/solver/xpbd_solver.hpp>
 
 namespace SushiEngine
 {
@@ -144,17 +144,11 @@ namespace SushiEngine
                     : runtime_(runtime),
                       configuration_(configuration),
                       body_slots_(configuration.capacities.bodies),
-                      constraint_slots_(configuration.capacities.constraints),
-                      coloring_(configuration.capacities.bodies,
-                                configuration.capacities.colors),
-                      color_count_(clamped_color_count(configuration.capacities.colors)),
-                      band_capacity_(configuration.capacities.constraints /
-                                     (color_count_ > 0 ? color_count_ : 1)),
-                      band_live_(color_count_, 0),
-                      constraint_mirror_(band_capacity_ * color_count_),
-                      constraint_of_slot_(band_capacity_ * color_count_, 0),
-                      slot_of_constraint_(configuration.capacities.constraints, 0),
-                      color_of_constraint_(configuration.capacities.constraints, 0),
+                      constraints_store_(configuration.capacities.bodies,
+                                         configuration.capacities.constraints,
+                                         configuration.capacities.colors),
+                      constraint_mirror_(constraints_store_.band_capacity() *
+                                         constraints_store_.color_count()),
                       body_mirror_(configuration.capacities.bodies)
                 {
                     // The rebalancer migrates tasks mid-run on a millisecond
@@ -226,47 +220,21 @@ namespace SushiEngine
                 /** @copydoc IConstraintSolver::add_constraint */
                 ConstraintHandle add_constraint(const Constraint& constraint) override
                 {
-                    const std::uint32_t color =
-                        coloring_.assign(constraint.a, constraint.b);
-                    if (color == IncrementalColoring::NO_COLOR)
+                    const ConstraintPlacement placement =
+                        constraints_store_.place(constraint.a, constraint.b);
+                    if (!placement.handle.valid())
                     {
                         ++statistics_.capacity_overflows;
-                        return ConstraintHandle{};
+                        return placement.handle;
                     }
-
-                    if (band_live_[color] >= band_capacity_)
-                    {
-                        // The colour exists but its band is full. Give the colour
-                        // back before failing, or the bodies would carry a colour no
-                        // constraint holds and the next assignment would skip it.
-                        coloring_.release(constraint.a, constraint.b, color);
-                        ++statistics_.capacity_overflows;
-                        return ConstraintHandle{};
-                    }
-
-                    const ConstraintHandle handle = constraint_slots_.allocate();
-                    if (!handle.valid())
-                    {
-                        coloring_.release(constraint.a, constraint.b, color);
-                        ++statistics_.capacity_overflows;
-                        return handle;
-                    }
-
-                    const std::size_t slot = color * band_capacity_ + band_live_[color];
-                    ++band_live_[color];
-
-                    slot_of_constraint_[handle.index] = std::uint32_t(slot);
-                    constraint_of_slot_[slot] = handle.index;
-                    color_of_constraint_[handle.index] = color;
-                    stage_constraint(slot, constraint);
-
-                    return handle;
+                    stage_constraint(placement.slot, constraint);
+                    return placement.handle;
                 }
 
                 /** @copydoc IConstraintSolver::remove_constraint */
                 bool remove_constraint(ConstraintHandle handle) override
                 {
-                    if (!constraint_slots_.alive(handle))
+                    if (!constraints_store_.alive(handle))
                         return false;
                     remove_constraint_unchecked(handle);
                     return true;
@@ -343,7 +311,7 @@ namespace SushiEngine
                 /** @copydoc IConstraintSolver::constraint_capacity */
                 std::size_t constraint_capacity() const noexcept override
                 {
-                    return constraint_slots_.capacity();
+                    return constraints_store_.capacity();
                 }
 
                 /**
@@ -352,15 +320,21 @@ namespace SushiEngine
                  * Structural, not live: the graph holds a node per colour per substep
                  * whether or not that colour currently has constraints.
                  */
-                std::size_t color_count() const noexcept { return color_count_; }
+                std::size_t color_count() const noexcept
+                {
+                    return constraints_store_.color_count();
+                }
 
                 /** @brief How many constraints one colour may hold. */
-                std::size_t band_capacity() const noexcept { return band_capacity_; }
+                std::size_t band_capacity() const noexcept
+                {
+                    return constraints_store_.band_capacity();
+                }
 
                 /** @brief Live constraints in colour @p color. */
                 std::size_t color_size(std::size_t color) const noexcept
                 {
-                    return color < band_live_.size() ? band_live_[color] : 0;
+                    return constraints_store_.band_size(color);
                 }
 
                 /** @brief The report from the most recent @ref step. */
@@ -370,16 +344,6 @@ namespace SushiEngine
                 }
 
             private:
-                /** @brief The colour count actually built, bounded by the mask width. */
-                static std::size_t clamped_color_count(std::size_t requested) noexcept
-                {
-                    if (requested == 0)
-                        return 1;
-                    return requested < IncrementalColoring::MAXIMUM_COLORS
-                               ? requested
-                               : IncrementalColoring::MAXIMUM_COLORS;
-                }
-
                 /**
                  * @brief Allocates every buffer once, at capacity.
                  *
@@ -400,7 +364,7 @@ namespace SushiEngine
                         std::uint32_t(configuration_.device_index)};
 
                     const std::size_t bodies = body_slots_.capacity();
-                    const std::size_t constraints = band_capacity_ * color_count_;
+                    const std::size_t constraints = constraint_mirror_.size();
 
                     bodies_.emplace(runtime_.buffer<RigidBodyT<T>>(
                         bodies > 0 ? bodies : 1, device, Residency::Device));
@@ -469,18 +433,20 @@ namespace SushiEngine
                                         uniforms->substep_duration);
                             });
 
-                        for (std::size_t color = 0; color < color_count_; ++color)
+                        for (std::size_t color = 0; color < constraints_store_.color_count();
+                             ++color)
                         {
-                            const std::size_t base = color * band_capacity_;
-                            const SushiRuntime::API::ElementRange band{base,
-                                                                       band_capacity_};
+                            const std::size_t base = constraints_store_.band_base(color);
+                            const SushiRuntime::API::ElementRange band{
+                                base, constraints_store_.band_capacity()};
 
                             graph_->add(
                                 SushiRuntime::API::when(
                                     color_predicate(substep, color))
                                     .and_sized(color_count_provider(color)),
                                 Reads(*uniforms_, constraints_->region(band)),
-                                Writes(*bodies_, lambdas_->region(band)), band_capacity_,
+                                Writes(*bodies_, lambdas_->region(band)),
+                                constraints_store_.band_capacity(),
                                 [bodies, constraints, lambdas, uniforms,
                                  base](std::size_t i)
                                 {
@@ -514,8 +480,17 @@ namespace SushiEngine
                     // tick's outcome, which is what keeps it a function of simulation
                     // state alone. Measuring it here costs one pass; reading it back
                     // on the host would cost a transfer of every body.
+                    // Reads(*bodies_) is load-bearing, not decoration. The runtime
+                    // cannot infer what a kernel touches — the callable is a
+                    // void(size_t) capturing raw pointers — so a node that reads the
+                    // bodies without naming them has no edge to the solve at all, and
+                    // is free to run beside it. This one did, and the conformance
+                    // suite caught it: the two solvers derived different substep
+                    // counts because one of them was measuring velocities that were
+                    // still being written.
                     graph_->add(SushiRuntime::API::sized(body_count_provider()),
-                                Reads(), Writes(*motion_), body_slots_.capacity(),
+                                Reads(*bodies_), Writes(*motion_),
+                                body_slots_.capacity(),
                                 [bodies, motion](std::size_t i)
                                 {
                                     const RigidBodyT<T>& body = bodies[i];
@@ -548,7 +523,10 @@ namespace SushiEngine
                 /** @brief A provider reporting colour @p color's live constraint count. */
                 auto color_count_provider(std::size_t color) const
                 {
-                    return [this, color]() -> std::size_t { return band_live_[color]; };
+                    return [this, color]() -> std::size_t
+                    {
+                        return constraints_store_.band_size(color);
+                    };
                 }
 
                 /** @brief A predicate enabling a colour's node only when it has work. */
@@ -556,7 +534,8 @@ namespace SushiEngine
                 {
                     return [this, substep, color]() -> bool
                     {
-                        return substep < live_substeps_ && band_live_[color] > 0;
+                        return substep < live_substeps_ &&
+                               constraints_store_.band_size(color) > 0;
                     };
                 }
 
@@ -646,24 +625,20 @@ namespace SushiEngine
                  */
                 void remove_constraint_unchecked(ConstraintHandle handle)
                 {
-                    const std::uint32_t color = color_of_constraint_[handle.index];
-                    const std::size_t slot = slot_of_constraint_[handle.index];
-                    const std::size_t base = std::size_t(color) * band_capacity_;
-                    const std::size_t last = base + band_live_[color] - 1;
-
-                    const Constraint& removed = constraint_mirror_[slot];
-                    coloring_.release(removed.a, removed.b, color);
-
-                    if (slot != last)
-                    {
-                        const std::uint32_t moved = constraint_of_slot_[last];
-                        stage_constraint(slot, constraint_mirror_[last]);
-                        constraint_of_slot_[slot] = moved;
-                        slot_of_constraint_[moved] = std::uint32_t(slot);
-                    }
-
-                    --band_live_[color];
-                    constraint_slots_.release(handle);
+                    const std::size_t slot = constraints_store_.slot_of(handle);
+                    if (slot >= constraint_mirror_.size())
+                        return;
+                    const Constraint removed = constraint_mirror_[slot];
+                    const ConstraintRemoval removal =
+                        constraints_store_.remove(handle, removed.a, removed.b);
+                    if (!removal.removed)
+                        return;
+                    // The store moved the bookkeeping; the descriptor has to follow,
+                    // because the store deliberately does not own it — it may live in
+                    // a device buffer the host cannot address.
+                    if (removal.slot != removal.moved_from)
+                        stage_constraint(removal.slot,
+                                         constraint_mirror_[removal.moved_from]);
                 }
 
                 /**
@@ -679,14 +654,15 @@ namespace SushiEngine
                  */
                 void remove_constraints_touching(std::uint32_t body)
                 {
-                    for (std::size_t color = 0; color < color_count_; ++color)
+                    for (std::size_t color = 0; color < constraints_store_.color_count();
+                         ++color)
                     {
-                        const std::size_t base = color * band_capacity_;
+                        const std::size_t base = constraints_store_.band_base(color);
                         // Downward, because a swap-remove fills the vacated slot from
                         // the top of the band — an entry this walk has already
                         // examined and rejected. Walking upward would move an
                         // unexamined entry into a slot already passed.
-                        std::size_t offset = band_live_[color];
+                        std::size_t offset = constraints_store_.band_size(color);
                         while (offset > 0)
                         {
                             --offset;
@@ -694,8 +670,12 @@ namespace SushiEngine
                             const Constraint& constraint = constraint_mirror_[slot];
                             if (constraint.a != body && constraint.b != body)
                                 continue;
-                            remove_constraint_unchecked(
-                                constraint_slots_.handle_of(constraint_of_slot_[slot]));
+                            const ConstraintRemoval removal = constraints_store_.remove(
+                                constraints_store_.handle_at(slot), constraint.a,
+                                constraint.b);
+                            if (removal.removed && removal.slot != removal.moved_from)
+                                stage_constraint(removal.slot,
+                                                 constraint_mirror_[removal.moved_from]);
                         }
                     }
                 }
@@ -738,14 +718,18 @@ namespace SushiEngine
                 {
                     statistics_.awake_bodies = body_slots_.live_count();
                     statistics_.sleeping_bodies = 0;
-                    statistics_.constraints = constraint_slots_.live_count();
-                    statistics_.colors = coloring_.highest_used();
+                    statistics_.constraints = constraints_store_.live_count();
+                    statistics_.colors = constraints_store_.colors_used();
                     statistics_.substeps = live_substeps_;
 
                     std::size_t largest = 0;
-                    for (std::size_t live : band_live_)
+                    for (std::size_t color = 0; color < constraints_store_.color_count();
+                         ++color)
+                    {
+                        const std::size_t live = constraints_store_.band_size(color);
                         if (live > largest)
                             largest = live;
+                    }
                     statistics_.largest_color = largest;
 
                     // compile_count is the number this solver is held to: one
@@ -761,17 +745,9 @@ namespace SushiEngine
                 PhysicsConfigurationT<T> configuration_;
 
                 HandleTable<BodyTag> body_slots_;
-                HandleTable<ConstraintTag> constraint_slots_;
-                IncrementalColoring coloring_;
-
-                std::size_t color_count_;
-                std::size_t band_capacity_;
-                std::vector<std::size_t> band_live_;
+                ConstraintStore constraints_store_;
 
                 std::vector<Constraint> constraint_mirror_;
-                std::vector<std::uint32_t> constraint_of_slot_;
-                std::vector<std::uint32_t> slot_of_constraint_;
-                std::vector<std::uint32_t> color_of_constraint_;
                 std::vector<RigidBodyT<T>> body_mirror_;
 
                 bool body_dirty_ = false;

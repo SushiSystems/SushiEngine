@@ -54,6 +54,7 @@
 #include <SushiEngine/physics/collision/contact_solver.hpp>
 #include <SushiEngine/physics/collision/narrowphase.hpp>
 #include <SushiEngine/physics/constraints/constraint.hpp>
+#include <SushiEngine/physics/constraints/distance_projection.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/solver/graph_coloring.hpp>
 #include <SushiEngine/physics/solver/pgs_solver.hpp>

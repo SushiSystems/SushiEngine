@@ -96,14 +96,14 @@ add_executable(se_functional_tests
     functional/unit/test_audio_reverb.cpp
 
     # Audio S6: the ECS bridge's control-plane structure (AudioScene) in isolation — the
-    # snapshot → live-voice reconciliation (start on appear, move/re-gain on persist, stop
+    # snapshot â†’ live-voice reconciliation (start on appear, move/re-gain on persist, stop
     # on silence or removal) and reverb-zone steering, driven by a hand-built snapshot.
     functional/unit/test_audio_scene.cpp
 
     # Audio S7: occlusion/obstruction — the acoustic BVH (BLAS ray hit/miss, TLAS placement
     # + refit), three-band material transmission (through-wall is bassy), soft multi-ray
     # occlusion, the occlusion DSP (obstruction muffles dry, occlusion also cuts the reverb
-    # send), the room/portal graph (cross-room → doorway source), and image-source early
+    # send), the room/portal graph (cross-room â†’ doorway source), and image-source early
     # reflections.
     functional/unit/test_audio_occlusion.cpp
 
@@ -114,7 +114,7 @@ add_executable(se_functional_tests
     # streaming decoder/source (memory source pumped into the ring, rendered, drained).
     functional/unit/test_audio_bank.cpp
 
-    # Audio S9: the live-profiler telemetry channel — the seqlock audio→GUI snapshot
+    # Audio S9: the live-profiler telemetry channel — the seqlock audioâ†’GUI snapshot
     # (publish/latest, empty before first publish), the mixer's per-bus meters, and the
     # AudioEngine gather (real/virtual/active voice counts, master peak/RMS tracking the
     # signal, per-bus meters, downsampled scope; profiling toggle).
@@ -140,7 +140,7 @@ add_executable(se_functional_tests
     # Audio S11 (AAA gap-closing): state-based mixing — snapshot snap + timed cross-fade.
     functional/unit/test_audio_mix_state.cpp
 
-    # Audio S12 (AAA gap-closing, dependency-free): the authoring project → runtime flatten
+    # Audio S12 (AAA gap-closing, dependency-free): the authoring project â†’ runtime flatten
     # (contiguous-child layout, container semantics survive the bake), the MagLS binaural
     # decoder + anthropometric HRTF warp (laterality, head-size ITD scaling) over a synthetic
     # HRTF, and ray-traced room acoustics (RT60 vs Sabine, Maekawa edge diffraction).
@@ -196,6 +196,9 @@ add_executable(se_functional_tests
     # here are what stop the late-binding design from silently regressing into a
     # graph that recompiles every time a body is spawned.
     functional/integration/test_runtime_graph_builder.cpp
+    # The shared IConstraintSolver conformance suite: the same scenes against every
+    # implementation, which is what lets a device solver replace a host one.
+    functional/integration/test_solver_conformance.cpp
     functional/integration/test_rollback.cpp
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp
@@ -236,3 +239,4 @@ gtest_discover_tests(se_functional_tests
     DISCOVERY_MODE PRE_TEST
     TEST_FILTER "Regression_*"
     PROPERTIES LABELS "regression")
+
