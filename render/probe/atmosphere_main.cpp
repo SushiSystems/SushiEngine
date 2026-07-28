@@ -53,6 +53,7 @@
 #include <vector>
 
 #include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/render/quality_params.hpp>
 
 #include "atmosphere/atmosphere_nest.hpp"
 #include "resources/pipeline_cache.hpp"
@@ -90,9 +91,16 @@ namespace
         // Overrides on `AtmosphereParameters`, so a hypothesis about one term can be separated
         // from the rest by running with it turned off rather than by arguing about it. NaN means
         // "leave the authored default alone", which keeps a default run identical to the scene's.
-        float sensible_flux = std::nanf("");
-        float latent_flux = std::nanf("");
+        float albedo = std::nanf("");
+        float moisture_availability = std::nanf("");
+        float heat_capacity = std::nanf("");
+        float exchange = std::nanf("");
+        float transmittance = std::nanf("");
+        float surface_temperature = std::nanf("");
+        float autoconversion_threshold = std::nanf("");
         float thermal_seed = std::nanf("");
+        float seed_length = std::nanf("");
+        float seed_period = std::nanf("");
         float eddy_viscosity = std::nanf("");
         float boundary_layer_depth = std::nanf("");
         float boundary_layer_velocity_scale = std::nanf("");
@@ -103,7 +111,37 @@ namespace
         float forcing_humidity_anomaly = 0.0f;
         float forcing_theta_anomaly = 0.0f;
         float forcing_wind_east = 0.0f;
+        /**
+         * @brief Parent large-scale vertical motion, m/s; negative is subsidence.
+         *
+         * Zero leaves the term entirely inert, which is the state Phase B3e measured and is
+         * therefore the default. A synoptic high delivers a couple of centimetres a second of
+         * descent, so -0.02 is the value to reach for.
+         */
+        float forcing_vertical = 0.0f;
         std::uint32_t pressure_iterations = 0; /**< 0 = leave the default. */
+        /**
+         * @brief Steps of game time to advance the clock by per call into the nest.
+         *
+         * 1 asks the nest for one step per call. Higher values hand it a frame's worth of
+         * elapsed time at once and exercise `max_steps_per_frame` — which is what the editor
+         * does whenever the sky is animated faster than one step per frame, and what the
+         * shipped code silently discarded. With a fixed sun the two should agree exactly, since
+         * everything that varies within a frame's steps is passed per dispatch.
+         */
+        std::uint32_t batch = 1;
+        /**
+         * @brief Force the step length, seconds of game time; 0 leaves `choose_step` alone.
+         *
+         * Pins `min_step_seconds` and `max_step_seconds` together so the clamp delivers exactly
+         * this. The step is what decides the tier's *total* cost — cost per step over seconds of
+         * weather bought — and the vertical CFL that picks it is taken against an assumed 20 m/s
+         * updraft rather than against anything the model produces, so what a longer step actually
+         * costs in accuracy is a question only a measurement answers.
+         */
+        double dt = 0.0;
+        /** @brief Quality tier whose nest discretization to run: low/medium/high/ultra. */
+        std::string tier = "high";
     };
 
     void usage()
@@ -121,9 +159,22 @@ namespace
             "  --series <path.csv>  write one row per sample of the column summary\n"
             "  --validation         enable the Vulkan validation layers\n"
             "\nParameter overrides (unset leaves the authored default):\n"
-            "  --sensible <W/m2>    peak surface sensible heat flux\n"
-            "  --latent <W/m2>      peak surface latent heat flux\n"
+            "\n  The surface, stated as what it *is* -- the fluxes are solved from these:\n"
+            "  --albedo <0-1>       shortwave albedo of the surface\n"
+            "  --beta <0-1>         moisture availability; the Bowen ratio's real author\n"
+            "  --slab <J/m2/K>      surface heat capacity; how far the peak lags solar noon\n"
+            "  --exchange <C_H>     bulk transfer coefficient for heat and moisture\n"
+            "  --transmittance <0-1> clear-sky atmospheric transmittance at zenith\n"
+            "  --surface-temp <K>   base-state surface temperature; lowering it brings the\n"
+            "                       freezing level down into the cloud and glaciates it\n"
+            "\n  Everything else:\n"
             "  --seed <0-1>         surface heating patchiness; 0 removes the symmetry break\n"
+            "  --seed-length <m>    length that patchiness is correlated over; far below the\n"
+            "                       cell spacing makes it white in space again\n"
+            "  --seed-period <s>    time it is correlated over; far below the step makes it\n"
+            "                       white in time again\n"
+            "  --autoconversion <kg/kg> cloud water precipitation starts at; lowering it makes\n"
+            "                       a thin deck rain, which is how the fall speeds are compared\n"
             "  --eddy <m2/s>        subgrid eddy viscosity\n"
             "  --pbl-depth <m>      cap on the diagnosed mixed-layer depth\n"
             "  --pbl-w <m/s>        mixed-layer turbulent velocity scale (Troen-Mahrt w_s)\n"
@@ -133,7 +184,11 @@ namespace
             "  --parent-humidity <f> parent-solution relative humidity anomaly\n"
             "  --parent-theta <K>   parent-solution potential temperature anomaly\n"
             "  --parent-wind <m/s>  parent-solution eastward wind\n"
-            "  --sweeps <n>         red-black pressure sweeps per step\n");
+            "  --sweeps <n>         red-black pressure sweeps per step\n"
+            "  --batch <n>          steps of game time handed to the nest per call (default 1);\n"
+            "                       above 1 exercises max_steps_per_frame\n"
+            "  --dt <seconds>       force the step length instead of letting the CFL pick it\n"
+            "  --tier <name>        nest discretization: low, medium, high (default), ultra\n");
     }
 
     /**
@@ -180,12 +235,26 @@ namespace
                 options.profile_path = text;
             else if (argument == "--series" && value(&text))
                 options.series_path = text;
-            else if (argument == "--sensible" && value(&text))
-                options.sensible_flux = float(std::atof(text));
-            else if (argument == "--latent" && value(&text))
-                options.latent_flux = float(std::atof(text));
+            else if (argument == "--albedo" && value(&text))
+                options.albedo = float(std::atof(text));
+            else if (argument == "--beta" && value(&text))
+                options.moisture_availability = float(std::atof(text));
+            else if (argument == "--slab" && value(&text))
+                options.heat_capacity = float(std::atof(text));
+            else if (argument == "--exchange" && value(&text))
+                options.exchange = float(std::atof(text));
+            else if (argument == "--transmittance" && value(&text))
+                options.transmittance = float(std::atof(text));
+            else if (argument == "--surface-temp" && value(&text))
+                options.surface_temperature = float(std::atof(text));
+            else if (argument == "--autoconversion" && value(&text))
+                options.autoconversion_threshold = float(std::atof(text));
             else if (argument == "--seed" && value(&text))
                 options.thermal_seed = float(std::atof(text));
+            else if (argument == "--seed-length" && value(&text))
+                options.seed_length = float(std::atof(text));
+            else if (argument == "--seed-period" && value(&text))
+                options.seed_period = float(std::atof(text));
             else if (argument == "--eddy" && value(&text))
                 options.eddy_viscosity = float(std::atof(text));
             else if (argument == "--pbl-depth" && value(&text))
@@ -202,8 +271,16 @@ namespace
                 options.forcing_theta_anomaly = float(std::atof(text));
             else if (argument == "--parent-wind" && value(&text))
                 options.forcing_wind_east = float(std::atof(text));
+            else if (argument == "--parent-subsidence" && value(&text))
+                options.forcing_vertical = float(std::atof(text));
             else if (argument == "--sweeps" && value(&text))
                 options.pressure_iterations = std::uint32_t(std::atoi(text));
+            else if (argument == "--batch" && value(&text))
+                options.batch = std::uint32_t(std::max(1, std::atoi(text)));
+            else if (argument == "--dt" && value(&text))
+                options.dt = std::atof(text);
+            else if (argument == "--tier" && value(&text))
+                options.tier = text;
             else if (text == nullptr)
             {
                 std::printf("error: unknown argument '%s'\n", argument.c_str());
@@ -222,13 +299,14 @@ namespace
      * blew a front across the domain would answer a different one.
      */
     std::vector<SushiEngine::Render::AtmosphereForcingSample> uniform_forcing(
-        float humidity_anomaly, float theta_anomaly, float wind_east)
+        float humidity_anomaly, float theta_anomaly, float wind_east, float vertical)
     {
         const int cells = SushiEngine::Render::ATMOSPHERE_FORCING_MAX_CELLS;
         SushiEngine::Render::AtmosphereForcingSample sample{};
         sample.humidity_anomaly = humidity_anomaly;
         sample.theta_anomaly_k = theta_anomaly;
         sample.wind_east_mps = wind_east;
+        sample.vertical_velocity_mps = vertical;
         return std::vector<SushiEngine::Render::AtmosphereForcingSample>(
             std::size_t(cells) * std::size_t(cells), sample);
     }
@@ -256,6 +334,27 @@ namespace
         float cloudy_columns = 0.0f; /**< Fraction of columns holding any cloud at all. */
         float mean_coverage = 0.0f;  /**< Mean low-band coverage over every column. */
         float mean_base_m = 0.0f;    /**< Mean cloud base over the cloudy columns, metres. */
+        /**
+         * @brief Standard deviation of that coverage across the domain.
+         *
+         * The mean alone cannot tell a broken cumulus field from a uniform sheet of the same
+         * total cloud, and that distinction is the entire question the thermal seed exists to
+         * decide: a uniformly heated surface rises as one slab, so a *flat* coverage field is
+         * the symptom of a symmetry that never broke. `cloudy_columns` saturates at 1 as soon as
+         * every column holds a trace, which is exactly when it stops discriminating; this does
+         * not saturate.
+         */
+        float coverage_sd = 0.0f;
+        /**
+         * @brief Mean absolute difference between neighbouring columns' coverage.
+         *
+         * The same field measured at the *shortest* scale the mirror resolves rather than over
+         * the whole domain. Together with `coverage_sd` it separates the two ways a sky can be
+         * variable: a few large cloud masses give a high deviation and a low roughness, while
+         * structure at the lattice scale gives them in equal measure — and structure at the
+         * lattice scale is the one thing a grid-mean model has not earned.
+         */
+        float coverage_roughness = 0.0f;
     };
 
     DomainSky domain_sky(const SushiEngine::Render::AtmosphereMirror& mirror)
@@ -279,6 +378,39 @@ namespace
         sky.cloudy_columns = float(double(cloudy) / double(count));
         sky.mean_coverage = float(coverage / double(count));
         sky.mean_base_m = cloudy > 0 ? float(base / double(cloudy)) : 0.0f;
+
+        const std::int32_t side = mirror.cells;
+        double variance = 0.0;
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const double d = double(mirror.columns[i].bands[0][0]) - double(sky.mean_coverage);
+            variance += d * d;
+        }
+        sky.coverage_sd = float(std::sqrt(variance / double(count)));
+
+        // Both axes, and only the pairs that exist — the lattice does not wrap, so the domain
+        // edge is not a neighbour of the opposite edge.
+        double rough = 0.0;
+        std::size_t pairs = 0;
+        for (std::int32_t z = 0; z < side; ++z)
+            for (std::int32_t x = 0; x < side; ++x)
+            {
+                const double here = double(mirror.columns[std::size_t(z) * std::size_t(side) +
+                                                          std::size_t(x)].bands[0][0]);
+                if (x + 1 < side)
+                {
+                    rough += std::fabs(double(mirror.columns[std::size_t(z) * std::size_t(side) +
+                                                             std::size_t(x + 1)].bands[0][0]) - here);
+                    ++pairs;
+                }
+                if (z + 1 < side)
+                {
+                    rough += std::fabs(double(mirror.columns[std::size_t(z + 1) * std::size_t(side) +
+                                                             std::size_t(x)].bands[0][0]) - here);
+                    ++pairs;
+                }
+            }
+        sky.coverage_roughness = pairs > 0 ? float(rough / double(pairs)) : 0.0f;
         return sky;
     }
 
@@ -311,6 +443,103 @@ namespace
         }
         return budget;
     }
+
+    /**
+     * @brief Accumulates the nest's per-stage GPU cost over the steps of a run.
+     *
+     * A single step's timestamps are noisy — a few tens of microseconds of scheduling jitter on
+     * a dispatch chain that runs for a couple of milliseconds — and the question the profile has
+     * to settle is a *ratio*: whether the pressure sweeps really are the large share of the step
+     * that `atmosphere_pressure.comp`'s own header supposes, since that is what decides whether
+     * lowering `pressure_iterations` buys anything. So this means over every step of the run
+     * rather than reporting the last one.
+     *
+     * Keyed by name rather than by index because the set of sections is not fixed: a frame that
+     * re-centres the lattice records a shift the next one does not, and a positional accumulator
+     * would silently add that shift into whatever section followed it.
+     */
+    struct CostAccumulator
+    {
+        std::vector<std::string> names;
+        std::vector<double> milliseconds;
+        double submission = 0.0;
+        /** @brief Measured submissions — the divisor for the per-stage breakdown. */
+        std::uint64_t submissions = 0;
+        /** @brief Steps across those submissions — the divisor for the submission total. */
+        std::uint64_t steps = 0;
+        std::uint64_t last_step_index = 0;
+
+        void add(const SushiEngine::Render::AtmosphereStepCost& cost)
+        {
+            // Each measurement is published once per completed submission, but the probe calls
+            // step() twice per sample and reads the cost from whichever slot last completed —
+            // so the same step's numbers can be seen more than once.
+            if (!cost.measured || cost.step_index == last_step_index)
+                return;
+            last_step_index = cost.step_index;
+            // Two divisors, because the two halves of a measurement have different denominators:
+            // the submission bracket covers every step the frame recorded, while the breakdown
+            // is the first step alone (the query pool holds a fixed number of sections). Keeping
+            // them apart is what makes both means per-step whatever the step cap is set to.
+            ++submissions;
+            steps += cost.steps > 0 ? cost.steps : 1;
+            submission += double(cost.total_ms);
+            for (int i = 0; i < cost.count; ++i)
+            {
+                const std::string name = cost.stages[i].name;
+                std::size_t slot = names.size();
+                for (std::size_t j = 0; j < names.size(); ++j)
+                    if (names[j] == name)
+                    {
+                        slot = j;
+                        break;
+                    }
+                if (slot == names.size())
+                {
+                    names.push_back(name);
+                    milliseconds.push_back(0.0);
+                }
+                milliseconds[slot] += double(cost.stages[i].milliseconds);
+            }
+        }
+
+        /**
+         * @brief Prints the breakdown against §12's budget.
+         *
+         * The per-stage mean divides by the number of *submissions*, not by how many of them
+         * recorded that section, so a shift that happens on one frame in fifty is reported as
+         * the per-frame cost it actually is rather than as the cost of the frames it appeared
+         * on.
+         */
+        void report(double budget_ms) const
+        {
+            if (submissions == 0 || steps == 0)
+            {
+                std::printf("\nno step cost measured (device reports no timestamp support, or "
+                            "no step completed)\n");
+                return;
+            }
+            const double total = submission / double(steps);
+            std::printf("\nstep cost over %llu steps in %llu submissions, mean milliseconds:\n",
+                        static_cast<unsigned long long>(steps),
+                        static_cast<unsigned long long>(submissions));
+            double sum = 0.0;
+            for (std::size_t i = 0; i < names.size(); ++i)
+            {
+                const double mean = milliseconds[i] / double(submissions);
+                sum += mean;
+                std::printf("  %-16s %8.3f  %5.1f %%\n", names[i].c_str(), mean,
+                            total > 0.0 ? 100.0 * mean / total : 0.0);
+            }
+            // Stated rather than hidden: a breakdown that adds up to less than the measured
+            // submission is dispatches the barriers let overlap, and one that adds up to more is
+            // a section's opening timestamp written before the previous section drained. Either
+            // way the submission is the number to budget against.
+            std::printf("  %-16s %8.3f  (sections sum to %.3f)\n", "SUBMISSION", total, sum);
+            std::printf("  budget (doc §12) %8.3f  -- %s\n", budget_ms,
+                        total <= budget_ms ? "inside" : "OVER");
+        }
+    };
 
     /**
      * @brief Opens @p path for writing, reporting the failure itself.
@@ -386,7 +615,19 @@ int main(int argc, char** argv)
         SushiEngine::Render::Resources::GraphicsPipelineFactory pipelines(device, cache);
         SushiEngine::Render::Resources::SamplerCache samplers(device);
 
-        const SushiEngine::Render::AtmosphereNestSize size;
+        // Through the same resolver the renderer uses, so a probe run at a tier is that tier and
+        // not a second opinion about what it means.
+        SushiEngine::Render::RenderSettings authored;
+        if (options.tier == "low")
+            authored.quality = SushiEngine::Render::RenderQuality::Low;
+        else if (options.tier == "medium")
+            authored.quality = SushiEngine::Render::RenderQuality::Medium;
+        else if (options.tier == "ultra")
+            authored.quality = SushiEngine::Render::RenderQuality::Ultra;
+        else
+            authored.quality = SushiEngine::Render::RenderQuality::High;
+        const SushiEngine::Render::AtmosphereNestSize size =
+            SushiEngine::Render::resolve_quality(authored).params.atmosphere_nest;
         SushiEngine::Render::Atmosphere::AtmosphereNest nest(device, shaders, pipelines, samplers,
                                                              size);
         std::printf("nest: %ux%ux%u at %.0f m, top %.0f m\n", size.cells_x, size.cells_z,
@@ -398,9 +639,16 @@ int main(int argc, char** argv)
             if (!std::isnan(value))
                 target = value;
         };
-        override_float(parameters.surface_sensible_flux, options.sensible_flux);
-        override_float(parameters.surface_latent_flux, options.latent_flux);
+        override_float(parameters.surface_albedo, options.albedo);
+        override_float(parameters.surface_moisture_availability, options.moisture_availability);
+        override_float(parameters.surface_heat_capacity, options.heat_capacity);
+        override_float(parameters.surface_exchange_coefficient, options.exchange);
+        override_float(parameters.clear_sky_transmittance, options.transmittance);
+        override_float(parameters.surface_temperature, options.surface_temperature);
+        override_float(parameters.autoconversion_threshold, options.autoconversion_threshold);
         override_float(parameters.thermal_seed_amplitude, options.thermal_seed);
+        override_float(parameters.thermal_seed_length_m, options.seed_length);
+        override_float(parameters.thermal_seed_period_s, options.seed_period);
         override_float(parameters.eddy_viscosity, options.eddy_viscosity);
         override_float(parameters.boundary_layer_depth_m, options.boundary_layer_depth);
         override_float(parameters.boundary_layer_velocity_scale,
@@ -409,11 +657,27 @@ int main(int argc, char** argv)
         override_float(parameters.cloud_critical_humidity, options.critical_humidity);
         if (options.pressure_iterations > 0)
             parameters.pressure_iterations = options.pressure_iterations;
-        std::printf("forcing: %.0f W/m2 sensible, %.0f W/m2 latent, seed %.3f K/s, "
-                    "eddy %.0f m2/s, %u sweeps\n",
-                    double(parameters.surface_sensible_flux),
-                    double(parameters.surface_latent_flux),
+        if (options.dt > 0.0)
+        {
+            // Both ends together, so `choose_step`'s clamp delivers exactly this whatever the
+            // CFL would have chosen.
+            parameters.min_step_seconds = float(options.dt);
+            parameters.max_step_seconds = float(options.dt);
+        }
+        // The surface is stated by what it *is*, not by the fluxes it delivers: those are solved.
+        // "seed" is a fraction of the absorbed shortwave, not a heating rate; it stopped being an
+        // additive kick on theta when that turned out to be an unbounded random walk.
+        std::printf("surface: albedo %.2f, beta %.2f, slab %.2g J/m2/K, C_H %.4f, tau %.2f\n",
+                    double(parameters.surface_albedo),
+                    double(parameters.surface_moisture_availability),
+                    double(parameters.surface_heat_capacity),
+                    double(parameters.surface_exchange_coefficient),
+                    double(parameters.clear_sky_transmittance));
+        std::printf("forcing: seed %.3f over %.0f m and "
+                    "%.0f s, eddy %.0f m2/s, %u sweeps\n",
                     double(parameters.thermal_seed_amplitude),
+                    double(parameters.thermal_seed_length_m),
+                    double(parameters.thermal_seed_period_s),
                     double(parameters.eddy_viscosity), parameters.pressure_iterations);
         std::printf("closure: mixed layer to %.0f m at w_s %.2f m/s, subgrid cloud from RH %.2f\n",
                     double(parameters.boundary_layer_depth_m),
@@ -421,8 +685,8 @@ int main(int argc, char** argv)
                     double(parameters.cloud_critical_humidity));
 
         const std::vector<SushiEngine::Render::AtmosphereForcingSample> samples =
-            uniform_forcing(options.forcing_humidity_anomaly,
-                            options.forcing_theta_anomaly, options.forcing_wind_east);
+            uniform_forcing(options.forcing_humidity_anomaly, options.forcing_theta_anomaly,
+                            options.forcing_wind_east, options.forcing_vertical);
 
         // The nest addresses the parent solution in scene-absolute metres; with the observer at
         // the origin the whole forcing field maps onto the domain and stays there.
@@ -455,31 +719,61 @@ int main(int argc, char** argv)
                            "cloud_base_m,cloud_top_m,rain_mm_h,vapour_kg_m2,base_vapour_kg_m2,"
                            "condensate_kg_m2,peak_buoyancy,peak_divergence,peak_cloud_fraction,"
                            "peak_fraction_altitude_m,sky_cloudy_columns,sky_mean_coverage,"
-                           "sky_mean_base_m\n";
+                           "sky_mean_base_m,sky_coverage_sd,sky_coverage_roughness,"
+                           "skin_k,sensible_w_m2,latent_w_m2,net_radiation_w_m2\n";
 
         const double total_seconds = options.hours * 3600.0;
         const double sample_seconds = std::max(options.sample_minutes * 60.0, 1.0);
-        // The step the nest will choose. Mirrored rather than queried because `choose_step` is
-        // private and the clock this probe advances has to be the one the nest consumes: the
-        // nest takes at most one step per call, from the difference against the clock it last
-        // saw, so advancing by less than a step would spin and by more would silently drop time.
+        // The step the nest will choose on its *first* call, before any readback has given the
+        // vertical CFL something measured to bind against. The clock this probe advances has to
+        // be the one the nest consumes: it takes as many steps as the elapsed game time is due,
+        // up to `max_steps_per_frame`, and drops the rest — so advancing by one step per call
+        // asks for exactly one and can never be the case that drops any, which is what makes a
+        // probe run comparable against the editor's rather than a compressed version of it.
+        //
+        // Re-read from the nest each iteration below, because the step is no longer a constant:
+        // it lengthens in a quiet airmass and tightens when convection gets going.
         const float thinnest =
             SushiEngine::Render::atmosphere_level_thickness(0, size.levels, size.top_m);
-        const double step = double(std::clamp(
+        double step = double(std::clamp(
             parameters.courant_target * thinnest /
                 std::max(10.0f * parameters.convective_velocity_scale, 1.0f),
             parameters.min_step_seconds, parameters.max_step_seconds));
-        std::printf("stepping %.2f s of game time per step, %.0f steps for %.1f h\n", step,
-                    total_seconds / step, options.hours);
+        // What the clock advances by per call. The nest is asked for `batch` steps at a time and
+        // will take them all as long as `max_steps_per_frame` allows; anything above that cap it
+        // drops, which is the behaviour this option exists to be able to see.
+        double advance = step * double(options.batch);
+        std::printf("stepping %.2f s of game time per step (initial), %.0f steps for %.1f h, "
+                    "%u step(s) per call\n",
+                    step, total_seconds / step, options.hours, options.batch);
+        // What the tier costs is not the step but the step over the weather it buys, so this is
+        // the number to compare across runs with different step lengths.
+        std::printf("(a step buys %.2f s of weather; cost per simulated second is the step cost "
+                    "divided by that)\n",
+                    step);
+        if (options.batch > parameters.max_steps_per_frame)
+            std::printf("note: --batch %u exceeds max_steps_per_frame %u, so %u step(s) per call "
+                        "will be dropped\n",
+                        options.batch, parameters.max_steps_per_frame,
+                        options.batch - parameters.max_steps_per_frame);
 
         double next_sample = 0.0;
         std::uint32_t samples_written = 0;
-        // The last three are the domain's sky rather than the observer's column, which is the
-        // difference between "is there cloud where I am standing" and "is there cloud".
-        std::printf("\n%10s %8s %8s %10s %9s %8s %8s %9s %8s %8s %9s\n", "sim_s", "sun", "sfc_rh",
-                    "dom_w", "lcl_m", "water", "cld_frac", "frac_m", "sky_pct", "sky_cov",
-                    "sky_base");
-        for (double elapsed = 0.0; elapsed <= total_seconds + 0.5 * step; elapsed += step)
+        CostAccumulator cost;
+        // The last four are the domain's sky rather than the observer's column, which is the
+        // difference between "is there cloud where I am standing" and "is there cloud" — and the
+        // last two are the difference between a cloud *field* and a sheet of the same total
+        // cloud, which is the question the surface heterogeneity decides.
+        // The three after the sun are the surface energy balance's own state, which is no longer
+        // an input: skin temperature in Celsius and the two turbulent fluxes it delivers. Their
+        // ratio is the Bowen ratio, measured rather than authored, and watching it drift through
+        // the day is watching the ground dry out.
+        std::printf("\n%10s %8s %8s %8s %8s %10s %9s %8s %8s %9s %8s %8s %9s %9s\n", "sim_s",
+                    "sun", "skin_c", "H", "LE", "dom_w", "lcl_m", "water", "cld_frac", "frac_m",
+                    "sky_pct", "sky_cov", "sky_sd", "sky_rough");
+        for (double elapsed = 0.0; elapsed <= total_seconds + 0.5 * advance;
+             elapsed += advance, advance = std::max(double(nest.step_seconds()), 1e-3) *
+                                           double(options.batch))
         {
             forcing.total_seconds = elapsed;
             forcing.solar_elevation_sine =
@@ -488,8 +782,9 @@ int main(int argc, char** argv)
                                      std::max(options.day_seconds, 1.0)))
                     : options.solar_sine;
             nest.step(parameters, forcing);
+            cost.add(nest.step_cost());
 
-            if (elapsed + 0.5 * step < next_sample)
+            if (elapsed + 0.5 * advance < next_sample)
                 continue;
 
             // The readback is asynchronous by design (§3.2), so a sample has to wait for the
@@ -499,6 +794,7 @@ int main(int argc, char** argv)
             // Collecting happens at the top of step(); a call with no time left to spend does
             // nothing but publish whatever finished.
             nest.step(parameters, forcing);
+            cost.add(nest.step_cost());
 
             const SushiEngine::Render::AtmosphereMirror mirror = nest.atmosphere_mirror();
             if (!mirror.valid() || mirror.profile == nullptr)
@@ -533,12 +829,15 @@ int main(int argc, char** argv)
                 }
             }
 
-            std::printf("%10.0f %8.3f %8.1f %10.2e %9.0f %8.2f %8.3f %9.0f %8.1f %8.3f %9.0f\n",
+            std::printf("%10.0f %8.3f %8.1f %8.0f %8.0f %10.2e %9.0f %8.2f %8.3f %9.0f %8.1f "
+                        "%8.3f %9.4f %9.4f\n",
                         mirror.simulated_seconds, double(forcing.solar_elevation_sine),
-                        double(column.extent[1]) * 100.0, double(domain_peak),
+                        double(column.skin[0]) - 273.15, double(column.skin[1]),
+                        double(column.skin[2]), double(domain_peak),
                         double(column.extent[3]), budget.vapour, double(peak_fraction),
                         double(peak_fraction_altitude), double(sky.cloudy_columns) * 100.0,
-                        double(sky.mean_coverage), double(sky.mean_base_m));
+                        double(sky.mean_coverage), double(sky.coverage_sd),
+                        double(sky.coverage_roughness));
 
             if (profile_file.is_open())
                 write_profile(profile_file, mirror.simulated_seconds, mirror);
@@ -553,13 +852,19 @@ int main(int argc, char** argv)
                             << budget.condensate << ',' << peak_buoyancy << ','
                             << peak_divergence << ',' << peak_fraction << ','
                             << peak_fraction_altitude << ',' << sky.cloudy_columns << ','
-                            << sky.mean_coverage << ',' << sky.mean_base_m << '\n';
+                            << sky.mean_coverage << ',' << sky.mean_base_m << ','
+                            << sky.coverage_sd << ',' << sky.coverage_roughness << ','
+                            << column.skin[0] << ',' << column.skin[1] << ','
+                            << column.skin[2] << ',' << column.skin[3] << '\n';
                 series_file.flush();
             }
             ++samples_written;
         }
 
         vkDeviceWaitIdle(device.device());
+
+        // §12 budgets the regional nest at ~2.0 ms per step.
+        cost.report(2.0);
 
         std::printf("\nsimulated %.0f s (%.2f h) in %llu steps, %u samples\n",
                     nest.simulated_seconds(), nest.simulated_seconds() / 3600.0,

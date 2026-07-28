@@ -18,12 +18,25 @@
 // Vulkan compute FFT written from scratch, which is a project of its own for no gain the line
 // solver does not already deliver at this grid's aspect ratio.
 //
-// What is given up, stated rather than hidden: with no coarse-grid correction the *smooth
-// horizontal* component of the error decays slowly, so a fixed sweep count leaves a small
-// residual divergence -- a slight mass imbalance rather than a wrong answer, invisible at the
-// scales this atmosphere is looked at. Geometric multigrid over the horizontal (semi-coarsened,
-// with this shader as its smoother) is the refinement if the residual ever proves visible, and
-// it drops in without changing anything around it.
+// **How few sweeps this needs, measured rather than supposed.** With no coarse-grid correction
+// the *smooth horizontal* component of the error decays slowly -- which is a real property of an
+// isotropic Poisson problem and very nearly beside the point here. The anisotropy that motivates
+// the line solver in the first place also makes what is left for the sweeps to do a small,
+// strongly diagonally dominant correction: the horizontal coupling is 1/12 of the vertical at the
+// domain top and 1/1370 of it at the ground, so the smooth mode the relaxation converges slowly
+// on contributes proportionally little to the answer.
+//
+// Measured end-to-end over six simulated hours, at 2, 4, 8, 12 and 20 sweeps: surface humidity,
+// lifting condensation level, cloud base, column water and sky coverage identical to every
+// printed figure, and the peak divergence -- the quantity this solve exists to control -- equal
+// to seven significant figures. At *one* sweep it is not, which is what tells convergence apart
+// from a solve that was never doing anything. `pressure_iterations` defaults to 4 accordingly:
+// twice the measured convergence point, and a third of what it used to spend.
+//
+// Geometric multigrid over the horizontal (semi-coarsened, with this shader as its smoother)
+// remains the refinement, and drops in without changing anything around it -- but the
+// measurement says there is no residual for it to remove at this grid's aspect ratio. It becomes
+// interesting if the domain is ever made closer to isotropic.
 //
 // Neumann conditions everywhere -- no flow through the ground or the lid, and the lateral
 // boundary is a relaxation zone rather than a wall -- leave pi' defined only up to a constant.
@@ -42,15 +55,32 @@ layout(push_constant) uniform Params
 } push;
 
 // The nest's vertical resolution ceiling, asserted against on the C++ side.
-//
-// Only *one* array of this length is kept per invocation -- the forward sweep's c' factors,
-// which the back substitution cannot avoid needing. Everything else the Thomas algorithm would
-// normally hold (the three diagonals, the right-hand side) is recomputed on the fly from
-// analytic functions of the level index, and the forward sweep's d' is written straight into
-// the pressure image and read back during the substitution. That is the difference between
-// 256 bytes of private storage per column and a kilobyte of it, which at a 64-column workgroup
-// is the difference between fitting and spilling.
 const int MAX_LEVELS = 64;
+
+// **The tridiagonal matrix does not depend on the column, so neither does its factorization.**
+//
+// `lower`, `upper` and `diagonal` below are functions of the level index alone -- base-state
+// density, potential temperature and the stretched grid's spacings, none of which vary
+// horizontally. Only the right-hand side is a property of the column. So the Thomas
+// elimination's pivots and c' factors, which the original form recomputed per column and kept in
+// a 64-float private array, are one table shared by every column in the workgroup.
+//
+// This is not an approximation; it is the same arithmetic hoisted out of a loop it never
+// belonged in. Two things fall out of it, and both were what the measurement found: the private
+// array is gone, and with it the local-memory spill a dynamically indexed 256-byte array per
+// invocation forces on NVIDIA; and `nest_pressure_coefficient` -- a chain of `pow` and `exp`
+// through the base-state pressure and Exner function -- is evaluated three times per *level*
+// instead of three times per level per *column*, a factor of 64 at this workgroup size.
+//
+// What is given up, stated rather than hidden: with no coarse-grid correction the *smooth
+// horizontal* component of the error still decays slowly, exactly as before. This changes the
+// cost of a sweep and nothing about what a sweep computes.
+shared float s_lower[MAX_LEVELS];      // sub-diagonal, level k to k - 1
+shared float s_horizontal[MAX_LEVELS]; // the horizontal coefficient the neighbours enter through
+shared float s_inverse_pivot[MAX_LEVELS];
+shared float s_factor[MAX_LEVELS];     // c'_k = upper_k / pivot_k
+shared float s_upper[MAX_LEVELS];
+shared float s_diagonal[MAX_LEVELS];
 
 // The elliptic operator's coefficient C = rho_base * c_p * theta_base at an altitude.
 float nest_pressure_coefficient(float altitude)
@@ -61,27 +91,20 @@ float nest_pressure_coefficient(float altitude)
 void main()
 {
     ivec2 column = ivec2(gl_GlobalInvocationID.xy);
-    if (column.x >= nest.cells_x || column.y >= nest.cells_z)
-        return;
-    // Red-black: neighbouring columns are updated in different sweeps, so a sweep never reads
-    // a horizontal neighbour it is concurrently writing.
-    if ((uint(column.x + column.y) & 1u) != push.colour)
-        return;
-
     int levels = min(nest_level_count(), MAX_LEVELS);
     float inverse_dx2 = 1.0 / (nest.spacing * nest.spacing);
     float inverse_dt = 1.0 / max(nest.dt, 1e-4);
 
-    // c' factors of the forward elimination; the only thing the back substitution cannot
-    // recompute. Index k holds the factor relating level k to level k + 1.
-    float factor[MAX_LEVELS];
+    // ---- The column-independent half, built once for the whole workgroup ------------------
+    //
+    // Every thread participates and no thread has returned yet: the bounds and colour tests are
+    // deferred past the barriers below, because a barrier reached by only some invocations of a
+    // workgroup is undefined behaviour and the colour test makes exactly half of them diverge.
 
-    float previous_diagonal = 1.0;
-    float previous_solution = 0.0;
-
-    for (int k = 0; k < levels; ++k)
+    uint lane = gl_LocalInvocationIndex;
+    if (lane < uint(levels))
     {
-        ivec3 cell = ivec3(column.x, k, column.y);
+        int k = int(lane);
         float altitude = nest_level_altitude(float(k));
         float thickness = nest_level_thickness(k);
 
@@ -101,7 +124,47 @@ void main()
         float lower = k > 0 ? coefficient_below / (gap_below * thickness) : 0.0;
         float upper = k < levels - 1 ? coefficient_above / (gap_above * thickness) : 0.0;
         float horizontal = coefficient * inverse_dx2;
-        float diagonal = -(lower + upper) - 4.0 * horizontal;
+
+        s_lower[k] = lower;
+        s_upper[k] = upper;
+        s_horizontal[k] = horizontal;
+        s_diagonal[k] = -(lower + upper) - 4.0 * horizontal;
+    }
+    barrier();
+
+    // The elimination is a sequential recurrence in k, so one lane walks it. Forty-eight
+    // iterations of four multiplies, once per workgroup, against the 64 columns that would
+    // otherwise each repeat it.
+    if (lane == 0u)
+    {
+        float previous_factor = 0.0;
+        for (int k = 0; k < levels; ++k)
+        {
+            // A collapsed pivot (a degenerate single-level domain) would divide by zero; the
+            // floor keeps it finite, and the answer there is simply "no correction", which is
+            // the right answer for a domain with nowhere to push mass.
+            float pivot = k == 0 ? s_diagonal[0] : s_diagonal[k] - s_lower[k] * previous_factor;
+            pivot = abs(pivot) > 1e-12 ? pivot : 1e-12;
+            float inverse_pivot = 1.0 / pivot;
+            s_inverse_pivot[k] = inverse_pivot;
+            previous_factor = s_upper[k] * inverse_pivot;
+            s_factor[k] = previous_factor;
+        }
+    }
+    barrier();
+
+    // ---- The column's own half -------------------------------------------------------------
+    //
+    // Red-black: neighbouring columns are updated in different sweeps, so a sweep never reads a
+    // horizontal neighbour it is concurrently writing.
+    if (column.x >= nest.cells_x || column.y >= nest.cells_z ||
+        (uint(column.x + column.y) & 1u) != push.colour)
+        return;
+
+    float previous_solution = 0.0;
+    for (int k = 0; k < levels; ++k)
+    {
+        ivec3 cell = ivec3(column.x, k, column.y);
 
         // Horizontal neighbours enter the right-hand side at their current values -- the
         // "line" part of line relaxation. They belong to the other colour, so this sweep is
@@ -111,27 +174,13 @@ void main()
             imageLoad(pressure, nest_clamp(cell - ivec3(1, 0, 0))).r +
             imageLoad(pressure, nest_clamp(cell + ivec3(0, 0, 1))).r +
             imageLoad(pressure, nest_clamp(cell - ivec3(0, 0, 1))).r;
-        float rhs = texelFetch(divergence, cell, 0).r * inverse_dt - horizontal * neighbours;
+        float rhs =
+            texelFetch(divergence, cell, 0).r * inverse_dt - s_horizontal[k] * neighbours;
 
-        // Forward elimination. A collapsed pivot (a degenerate single-level domain) would
-        // divide by zero; the floor keeps it finite, and the answer there is simply "no
-        // correction", which is the right answer for a domain with nowhere to push mass.
-        float pivot;
-        if (k == 0)
-        {
-            pivot = abs(diagonal) > 1e-12 ? diagonal : 1e-12;
-            previous_solution = rhs / pivot;
-        }
-        else
-        {
-            factor[k - 1] = previous_diagonal;
-            pivot = diagonal - lower * previous_diagonal;
-            pivot = abs(pivot) > 1e-12 ? pivot : 1e-12;
-            previous_solution = (rhs - lower * previous_solution) / pivot;
-        }
-        previous_diagonal = upper / pivot;
+        previous_solution =
+            (rhs - (k == 0 ? 0.0 : s_lower[k] * previous_solution)) * s_inverse_pivot[k];
 
-        // d' goes straight into the image rather than into a second private array; the back
+        // d' goes straight into the image rather than into a private array; the back
         // substitution reads it out again a moment later.
         imageStore(pressure, cell, vec4(previous_solution, 0.0, 0.0, 0.0));
     }
@@ -142,7 +191,7 @@ void main()
     for (int k = levels - 2; k >= 0; --k)
     {
         ivec3 cell = ivec3(column.x, k, column.y);
-        float solution = imageLoad(pressure, cell).r - factor[k] * above;
+        float solution = imageLoad(pressure, cell).r - s_factor[k] * above;
         imageStore(pressure, cell, vec4(solution, 0.0, 0.0, 0.0));
         above = solution;
     }

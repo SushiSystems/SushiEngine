@@ -138,6 +138,8 @@ namespace SushiEngine
                           {"boundary_relaxation", e.atmosphere_nest.boundary_relaxation},
                           {"pressure_iterations", e.atmosphere_nest.pressure_iterations},
                           {"thermal_seed_amplitude", e.atmosphere_nest.thermal_seed_amplitude},
+                          {"thermal_seed_length_m", e.atmosphere_nest.thermal_seed_length_m},
+                          {"thermal_seed_period_s", e.atmosphere_nest.thermal_seed_period_s},
                           {"convective_velocity_scale", e.atmosphere_nest.convective_velocity_scale},
                           {"boundary_layer_depth_m", e.atmosphere_nest.boundary_layer_depth_m},
                           {"boundary_layer_velocity_scale",
@@ -151,9 +153,26 @@ namespace SushiEngine
                           {"fall_speed_coefficient", e.atmosphere_nest.fall_speed_coefficient},
                           {"fall_speed_exponent", e.atmosphere_nest.fall_speed_exponent},
                           {"droplet_effective_radius", e.atmosphere_nest.droplet_effective_radius},
+                          {"latent_heat_fusion", e.atmosphere_nest.latent_heat_fusion},
+                          {"freezing_temperature", e.atmosphere_nest.freezing_temperature},
+                          {"glaciation_temperature", e.atmosphere_nest.glaciation_temperature},
+                          {"snow_fall_speed_coefficient",
+                           e.atmosphere_nest.snow_fall_speed_coefficient},
+                          {"snow_fall_speed_exponent", e.atmosphere_nest.snow_fall_speed_exponent},
+                          {"glaciated_autoconversion_factor",
+                           e.atmosphere_nest.glaciated_autoconversion_factor},
+                          {"ice_effective_radius", e.atmosphere_nest.ice_effective_radius},
                           {"coverage_reference_lwc", e.atmosphere_nest.coverage_reference_lwc},
-                          {"surface_sensible_flux", e.atmosphere_nest.surface_sensible_flux},
-                          {"surface_latent_flux", e.atmosphere_nest.surface_latent_flux}}},
+                          {"solar_constant", e.atmosphere_nest.solar_constant},
+                          {"clear_sky_transmittance", e.atmosphere_nest.clear_sky_transmittance},
+                          {"surface_albedo", e.atmosphere_nest.surface_albedo},
+                          {"surface_emissivity", e.atmosphere_nest.surface_emissivity},
+                          {"surface_heat_capacity", e.atmosphere_nest.surface_heat_capacity},
+                          {"surface_moisture_availability",
+                           e.atmosphere_nest.surface_moisture_availability},
+                          {"surface_exchange_coefficient",
+                           e.atmosphere_nest.surface_exchange_coefficient},
+                          {"surface_minimum_wind", e.atmosphere_nest.surface_minimum_wind}}},
                     {"stars",
                      json{{"enabled", e.stars.enabled},
                           {"brightness", e.stars.brightness},
@@ -251,6 +270,13 @@ namespace SushiEngine
                     n.pressure_iterations = a.value("pressure_iterations", n.pressure_iterations);
                     n.thermal_seed_amplitude =
                         a.value("thermal_seed_amplitude", n.thermal_seed_amplitude);
+                    // Absent from every scene written before 2026-07-28, and `value` leaving the
+                    // default in place is exactly right for those: the seed used to be white, and
+                    // the default is the correlation it should have had.
+                    n.thermal_seed_length_m =
+                        a.value("thermal_seed_length_m", n.thermal_seed_length_m);
+                    n.thermal_seed_period_s =
+                        a.value("thermal_seed_period_s", n.thermal_seed_period_s);
                     n.convective_velocity_scale =
                         a.value("convective_velocity_scale", n.convective_velocity_scale);
                     n.boundary_layer_depth_m =
@@ -272,11 +298,41 @@ namespace SushiEngine
                     n.fall_speed_exponent = a.value("fall_speed_exponent", n.fall_speed_exponent);
                     n.droplet_effective_radius =
                         a.value("droplet_effective_radius", n.droplet_effective_radius);
+                    n.latent_heat_fusion = a.value("latent_heat_fusion", n.latent_heat_fusion);
+                    n.freezing_temperature =
+                        a.value("freezing_temperature", n.freezing_temperature);
+                    n.glaciation_temperature =
+                        a.value("glaciation_temperature", n.glaciation_temperature);
+                    n.snow_fall_speed_coefficient =
+                        a.value("snow_fall_speed_coefficient", n.snow_fall_speed_coefficient);
+                    n.snow_fall_speed_exponent =
+                        a.value("snow_fall_speed_exponent", n.snow_fall_speed_exponent);
+                    n.glaciated_autoconversion_factor =
+                        a.value("glaciated_autoconversion_factor",
+                                n.glaciated_autoconversion_factor);
+                    n.ice_effective_radius =
+                        a.value("ice_effective_radius", n.ice_effective_radius);
                     n.coverage_reference_lwc =
                         a.value("coverage_reference_lwc", n.coverage_reference_lwc);
-                    n.surface_sensible_flux =
-                        a.value("surface_sensible_flux", n.surface_sensible_flux);
-                    n.surface_latent_flux = a.value("surface_latent_flux", n.surface_latent_flux);
+                    // `surface_sensible_flux` / `surface_latent_flux` / `surface_night_flux`
+                    // were the prescribed fluxes Phase B3 replaced with a solved balance. A
+                    // scene written before it carries them and they are simply not read: what
+                    // they encoded — how hot and how wet the ground is — is now the albedo,
+                    // moisture availability and heat capacity below, and there is no honest
+                    // mapping from a pair of peak fluxes back onto them.
+                    n.solar_constant = a.value("solar_constant", n.solar_constant);
+                    n.clear_sky_transmittance =
+                        a.value("clear_sky_transmittance", n.clear_sky_transmittance);
+                    n.surface_albedo = a.value("surface_albedo", n.surface_albedo);
+                    n.surface_emissivity = a.value("surface_emissivity", n.surface_emissivity);
+                    n.surface_heat_capacity =
+                        a.value("surface_heat_capacity", n.surface_heat_capacity);
+                    n.surface_moisture_availability =
+                        a.value("surface_moisture_availability", n.surface_moisture_availability);
+                    n.surface_exchange_coefficient =
+                        a.value("surface_exchange_coefficient", n.surface_exchange_coefficient);
+                    n.surface_minimum_wind =
+                        a.value("surface_minimum_wind", n.surface_minimum_wind);
                 }
                 if (j.contains("clouds") && j["clouds"].is_object())
                 {

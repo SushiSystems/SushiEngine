@@ -295,6 +295,215 @@ TEST(Unit_AtmosphereNest, SubgridCloudFractionGeneralisesTheAllOrNothingAdjustme
     EXPECT_GT(Render::atmosphere_condensation_efficiency(parameters, 0.002f, 260.0f), measured);
 }
 
+TEST(Unit_AtmosphereNest, IcePartitionReducesExactlyToLiquidAboveFreezing)
+{
+    // The phase partition's load-bearing property, and the one that lets it be adopted without
+    // re-tuning every warm scene: above the freezing point the blended relations must be
+    // *identically* the liquid ones. If they are not, then every measurement this phase took
+    // before ice existed is void, and the difference would be invisible — a slightly different
+    // sky, with nothing saying why.
+    const Render::AtmosphereParameters p;
+    const float pressure = 85000.0f; // ~1500 m, where these clouds live
+
+    for (const float t : {300.0f, 290.0f, 280.0f, p.freezing_temperature})
+    {
+        EXPECT_FLOAT_EQ(Render::atmosphere_ice_fraction(p, t), 0.0f) << "at " << t << " K";
+        EXPECT_FLOAT_EQ(Render::atmosphere_saturation_mixing_ratio_phase(p, t, pressure),
+                        Render::atmosphere_saturation_mixing_ratio(t, pressure))
+            << "at " << t << " K";
+        EXPECT_FLOAT_EQ(Render::atmosphere_latent_heat(p, t), p.latent_heat_vaporization);
+    }
+
+    // And below the glaciation point it is entirely ice: full fusion on top of vaporization,
+    // which is 13 % more heat per kilogram condensed.
+    const float cold = p.glaciation_temperature - 5.0f;
+    EXPECT_FLOAT_EQ(Render::atmosphere_ice_fraction(p, cold), 1.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_latent_heat(p, cold),
+                    p.latent_heat_vaporization + p.latent_heat_fusion);
+    EXPECT_NEAR(Render::atmosphere_latent_heat(p, cold) / p.latent_heat_vaporization, 1.133f,
+                0.01f);
+
+    // The band between is a ramp, monotone and reaching exactly a half at its midpoint.
+    const float middle = 0.5f * (p.freezing_temperature + p.glaciation_temperature);
+    EXPECT_FLOAT_EQ(Render::atmosphere_ice_fraction(p, middle), 0.5f);
+    EXPECT_GT(Render::atmosphere_ice_fraction(p, middle - 1.0f),
+              Render::atmosphere_ice_fraction(p, middle + 1.0f));
+}
+
+TEST(Unit_AtmosphereNest, SaturationOverIceIsLowerAndThatGapIsTheBergeronProcess)
+{
+    // The two Magnus curves must **meet exactly at 0 °C** — that is what makes blending across
+    // the mixed-phase band continuous rather than a step every cell crosses.
+    EXPECT_NEAR(Render::atmosphere_saturation_pressure(273.15f),
+                Render::atmosphere_saturation_pressure_ice(273.15f), 0.5f);
+    // Both agree with the textbook triple-point value.
+    EXPECT_NEAR(Render::atmosphere_saturation_pressure(273.15f), 611.2f, 1.0f);
+
+    // Below it the ice curve sits lower, and the gap peaks around −12 °C at some 10 %: air in
+    // equilibrium with a supercooled droplet is *supersaturated* with respect to a crystal
+    // beside it, so the crystal grows at the droplet's expense. That gap is the whole of the
+    // Bergeron process, and it is why a cold cloud glaciates and precipitates.
+    const float liquid = Render::atmosphere_saturation_pressure(261.15f);   // -12 C
+    const float ice = Render::atmosphere_saturation_pressure_ice(261.15f);
+    EXPECT_LT(ice, liquid);
+    EXPECT_NEAR(1.0f - ice / liquid, 0.10f, 0.02f);
+    // Textbook: 2.44 hPa over water and 2.17 hPa over ice at -12 C.
+    EXPECT_NEAR(liquid, 244.0f, 5.0f);
+    EXPECT_NEAR(ice, 217.0f, 5.0f);
+
+    // What that means for the model: the same air is cloudier when it is colder, on the same
+    // water. A cell below the glaciation point condenses against the ice curve, which is well
+    // under the liquid one, so its saturation mixing ratio is lower.
+    const Render::AtmosphereParameters p;
+    const float pressure = 85000.0f;
+    const float cold = p.glaciation_temperature - 5.0f;
+    EXPECT_LT(Render::atmosphere_saturation_mixing_ratio_phase(p, cold, pressure),
+              Render::atmosphere_saturation_mixing_ratio(cold, pressure));
+
+    // The condensation efficiency falls with the phase-blended latent heat, because a cell that
+    // releases more heat per kilogram raises its own saturation further and keeps less of the
+    // excess. Compared at equal saturation so the phase is the only thing that differs.
+    const float saturation = 0.002f;
+    EXPECT_LT(Render::atmosphere_condensation_efficiency(p, saturation, cold),
+              Render::atmosphere_condensation_efficiency(
+                  p, saturation, p.freezing_temperature + 0.1f));
+}
+
+TEST(Unit_AtmosphereNest, InsolationIsDimmedAlongTheSlantPathAndNotOnlyByElevation)
+{
+    const Render::AtmosphereParameters parameters;
+
+    // Below the horizon there is no sun, and the balance has to be able to say so rather than
+    // returning a small positive number that would keep the ground warming all night.
+    EXPECT_FLOAT_EQ(Render::atmosphere_clear_sky_shortwave(parameters, -0.1f), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_clear_sky_shortwave(parameters, 0.0f), 0.0f);
+
+    // Overhead: the constant, once through the atmosphere.
+    const float zenith = Render::atmosphere_clear_sky_shortwave(parameters, 1.0f);
+    EXPECT_NEAR(zenith, parameters.solar_constant * parameters.clear_sky_transmittance, 1.0f);
+
+    // **The load-bearing property.** At a 30 degree sun the geometric factor alone would give
+    // half the zenith value; the slant path costs another factor on top, because the beam
+    // crosses twice the air. That extra dimming is what makes the morning and evening shoulders
+    // steeper than a cosine, and it is why the ground starts warming long after the sky lights.
+    const float low = Render::atmosphere_clear_sky_shortwave(parameters, 0.5f);
+    EXPECT_LT(low, 0.5f * zenith);
+    EXPECT_GT(low, 0.0f);
+    // Monotone in elevation, which a Beer path through a non-negative optical depth must be.
+    EXPECT_LT(Render::atmosphere_clear_sky_shortwave(parameters, 0.2f), low);
+}
+
+TEST(Unit_AtmosphereNest, SurfaceBalanceIsUnconditionallyStableAndLandsItsSteadyState)
+{
+    // The diurnal cycle's integrator. Two claims are pinned here, and both are the kind that
+    // fail silently: a scene simply looks different, and nothing says why.
+    Render::AtmosphereParameters parameters;
+    const float air = 288.15f;
+    const float pressure = 101325.0f;
+    const float density = 1.2f;
+    const float wind = 2.0f;
+    const float vapour = 0.007f;
+    const float absorbed = 600.0f; // a bright afternoon, after albedo
+
+    // (1) It reaches a steady state, and the steady state is where the fluxes balance the
+    //     radiation -- not merely somewhere nearby. The relaxation time is C/lambda, which at
+    //     these values is some 2 800 s, so the loop steps in hundreds rather than ones: being
+    //     able to do that *is* the semi-implicit form's guarantee, and a one-second loop here
+    //     would only be measuring how many e-foldings it had patience for.
+    float skin = air;
+    Render::AtmosphereSurfaceBalance state;
+    for (int i = 0; i < 4000; ++i)
+    {
+        state = Render::atmosphere_surface_balance(parameters, skin, air, vapour, pressure,
+                                                   density, wind, absorbed, 100.0f);
+        skin = state.skin_k;
+    }
+    EXPECT_NEAR(state.net_radiation - state.sensible - state.latent, 0.0f, 0.05f);
+    // A surface under 600 W/m² is warmer than the air above it, and by a lot; that difference is
+    // what drives the convection this whole tier exists to produce.
+    EXPECT_GT(skin, air + 2.0f);
+
+    // (2) **Unconditional stability**, which is the reason the update is semi-implicit rather
+    //     than explicit. A thin slab -- a road, a rock face -- relaxes far faster than the nest
+    //     steps, and that is the regime an explicit update cannot survive.
+    //
+    //     What is claimed is stability, not exactness and not monotonicity. A step is one Newton
+    //     iteration on a nonlinear balance -- `q_s` is exponential in the skin -- so a very large
+    //     first step overshoots (measured, by 3.3 K on a 16 K approach) and then converges from
+    //     the other side. What it never does is grow: the residual falls every step after the
+    //     first, and the sequence lands on the same equilibrium the patient loop above found.
+    parameters.surface_heat_capacity = 1.0e3f;
+    const float huge_step = 1.0e6f;
+    float leaping = air;
+    float previous_residual = 0.0f;
+    float first_residual = 0.0f;
+    for (int i = 0; i < 8; ++i)
+    {
+        const Render::AtmosphereSurfaceBalance leap = Render::atmosphere_surface_balance(
+            parameters, leaping, air, vapour, pressure, density, wind, absorbed, huge_step);
+        ASSERT_TRUE(std::isfinite(leap.skin_k));
+        // Bounded by physics at every step, however large the step: a surface under 600 W/m²
+        // is somewhere between the air's temperature and a few tens of kelvin above it.
+        EXPECT_GT(leap.skin_k, air - 1.0f);
+        EXPECT_LT(leap.skin_k, air + 100.0f);
+        const float residual = std::fabs(leap.net_radiation - leap.sensible - leap.latent);
+        if (i == 0)
+            first_residual = residual;
+        else
+            EXPECT_LE(residual, previous_residual);
+        previous_residual = residual;
+        leaping = leap.skin_k;
+    }
+    EXPECT_NEAR(previous_residual, 0.0f, 0.5f);
+    // The answer is a property of the balance, not of how it was stepped there.
+    EXPECT_NEAR(leaping, skin, 0.5f);
+
+    // And this is what the semi-implicit form actually buys, stated as arithmetic rather than as
+    // an adjective. The explicit update at the same step is the same numerator over `C` alone
+    // instead of over `C + dt·lambda`, and with a thin slab and a long step that ratio is five
+    // orders of magnitude: the "temperature" it produces is not a large error, it is not a
+    // temperature.
+    const float explicit_delta = first_residual * huge_step / parameters.surface_heat_capacity;
+    EXPECT_GT(explicit_delta, 1.0e4f);
+
+    // (3) After dark the balance runs backwards on its own: no shortwave, so the ground radiates
+    //     to a colder sky than it is, cools below the air, and the sensible flux reverses. This
+    //     is what *ends* convection in the evening, and the retired `surface_night_flux` was a
+    //     constant standing in for it.
+    parameters = Render::AtmosphereParameters{};
+    const Render::AtmosphereSurfaceBalance night = Render::atmosphere_surface_balance(
+        parameters, air, air, vapour, pressure, density, wind, 0.0f, 60.0f);
+    EXPECT_LT(night.net_radiation, 0.0f);
+    EXPECT_LT(night.skin_k, air);
+    EXPECT_LT(night.sensible, 0.0f);
+
+    // (4) Moisture availability is the Bowen ratio's author, and it has to actually author it:
+    //     the same radiation over a wet surface must go mostly into evaporation and over a dry
+    //     one mostly into heating the air.
+    Render::AtmosphereParameters wet = parameters;
+    wet.surface_moisture_availability = 1.0f;
+    Render::AtmosphereParameters dry = parameters;
+    dry.surface_moisture_availability = 0.0f;
+    const auto settle = [&](const Render::AtmosphereParameters& p)
+    {
+        float s = air;
+        Render::AtmosphereSurfaceBalance b;
+        for (int i = 0; i < 20000; ++i)
+        {
+            b = Render::atmosphere_surface_balance(p, s, air, vapour, pressure, density, wind,
+                                                   absorbed, 1.0f);
+            s = b.skin_k;
+        }
+        return b;
+    };
+    const Render::AtmosphereSurfaceBalance soaked = settle(wet);
+    const Render::AtmosphereSurfaceBalance parched = settle(dry);
+    EXPECT_GT(soaked.latent, soaked.sensible);
+    EXPECT_FLOAT_EQ(parched.latent, 0.0f);
+    // And the wet surface is the cooler one, because evaporation is where its energy went.
+    EXPECT_LT(soaked.skin_k, parched.skin_k);
+}
+
 TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward)
 {
     // The parent half of Davies nesting. The load-bearing claim is that it is *not uniform*:
@@ -331,6 +540,13 @@ TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward
 
     EXPECT_GT(maximum_wind - minimum_wind, 0.5f)
         << "a uniform boundary wind cannot advect a front across the nest";
+    // **The assertion whose absence let a 15 534 m/s boundary wind ship.** The check above is
+    // about *structure* and a wildly-scaled field satisfies it perfectly, so nothing here ever
+    // looked at the magnitude. A synoptic wind is a wind: tens of metres per second at the top
+    // of a deepening low's gradient, not hundreds and not thousandths.
+    EXPECT_GT(maximum_wind, 1.0f) << "the parent is becalmed; nothing will advect across the nest";
+    EXPECT_LT(maximum_wind, 80.0f)
+        << "this is not a wind -- check the geostrophic scale's unit conversion";
     EXPECT_GT(widest_theta, 0.0f)
         << "a front with no thermal contrast is not a front the nest can sharpen";
 
@@ -339,6 +555,128 @@ TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward
     const double v = double(forcing.uv_scale_z) * 0.0 + double(forcing.uv_offset_z);
     EXPECT_NEAR(u, 0.5, 1e-6);
     EXPECT_NEAR(v, 0.5, 1e-6);
+}
+
+TEST(Unit_AtmosphereNest, EkmanPumpingLandsAtTheSynopticScaleAndBothWays)
+{
+    // The large-scale vertical motion the nest cannot generate for itself. Its magnitude is not
+    // tuned — it falls out of the friction turn the geostrophic wind already carries — so the
+    // thing worth pinning is that it lands where the textbook puts it. Centimetres per second:
+    // three orders under a convective updraft and two over nothing, and getting that exponent
+    // wrong is the failure mode a "looks about right" review would pass.
+    const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
+    ProceduralWeather weather(/*seed=*/5, EARTH_RADIUS_M);
+    weather.synoptic().clear_systems();
+
+    // One low and one high, placed by hand rather than taken from a preset, because what is
+    // being pinned is the *sign* and a preset that happens to spawn only lows would pass half
+    // of it silently. Placed 800 km either side of the observer so both centres are inside the
+    // sampled window.
+    const auto place = [&](bool is_low, double east_offset_m)
+    {
+        PressureSystem system;
+        system.id = is_low ? 1u : 2u;
+        system.is_low = is_low;
+        system.phase = PressureSystemPhase::Mature;
+        system.age_seconds = 1.0;
+        system.deepen_seconds = 1.0;
+        system.mature_seconds = 1.0e6;
+        system.fill_seconds = 1.0e6;
+        system.center_latitude_radians = observer.latitude_radians;
+        system.center_longitude_radians =
+            observer.longitude_radians +
+            east_offset_m / (EARTH_RADIUS_M * std::cos(observer.latitude_radians));
+        system.central_anomaly_hpa = 20.0;
+        system.radius_major_m = 500000.0;
+        system.radius_minor_m = 500000.0;
+        EXPECT_TRUE(weather.synoptic().add_system(system));
+    };
+    place(/*is_low=*/true, -800000.0);
+    place(/*is_low=*/false, +800000.0);
+
+    // Sampled over 3 000 km rather than over the nest's own 384 km footprint, deliberately: a
+    // window that small can sit entirely inside one system's circulation and see only one sign
+    // — which it does here — and that would make a one-sided result look like a bug when it is
+    // simply a close-up of a low.
+    AtmosphereForcingBuffer buffer;
+    buffer.fill(weather.synoptic(), observer, EARTH_RADIUS_M, /*span_meters=*/3.0e6,
+                Render::ATMOSPHERE_FORCING_MAX_CELLS);
+    const Render::AtmosphereForcing forcing = buffer.view(0.0, 0.0, 0.0, 1.0e-4f, 0.9f);
+    ASSERT_TRUE(forcing.valid());
+
+    float ascent = 0.0f;
+    float descent = 0.0f;
+    double magnitude = 0.0;
+    // Where the field is deepest and where it is highest, and what the pumping does there.
+    double lowest = 0.0;
+    double highest = 0.0;
+    float w_at_lowest = 0.0f;
+    float w_at_highest = 0.0f;
+    const double span = 3.0e6;
+    const double step = span / double(forcing.cells_x);
+    const double cos_latitude = std::cos(observer.latitude_radians);
+    const std::size_t count = std::size_t(forcing.cells_x) * std::size_t(forcing.cells_z);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const float w = forcing.samples[i].vertical_velocity_mps;
+        ascent = std::max(ascent, w);
+        descent = std::min(descent, w);
+        magnitude += std::fabs(double(w));
+
+        const int x = int(i % std::size_t(forcing.cells_x));
+        const int z = int(i / std::size_t(forcing.cells_x));
+        const double east = -span * 0.5 + (double(x) + 0.5) * step;
+        const double north = -span * 0.5 + (double(z) + 0.5) * step;
+        const GeodeticPosition point{
+            observer.latitude_radians + north / EARTH_RADIUS_M,
+            observer.longitude_radians + east / (EARTH_RADIUS_M * cos_latitude)};
+        const double anomaly = weather.synoptic().pressure_anomaly_hpa(point);
+        if (anomaly < lowest)
+        {
+            lowest = anomaly;
+            w_at_lowest = w;
+        }
+        if (anomaly > highest)
+        {
+            highest = anomaly;
+            w_at_highest = w;
+        }
+    }
+    magnitude /= double(count);
+
+    // **Checked at the extremes, not everywhere, and the reason is worth writing down.** Ekman
+    // pumping follows the *relative vorticity* — the Laplacian of the pressure — not the
+    // pressure anomaly itself, and for a Gaussian system those two only agree near the centre.
+    // A 2-D Gaussian's Laplacian changes sign at sqrt(2) sigma, so beyond about one radius a
+    // low's own field is anticyclonic and the air there sinks while the pressure is still below
+    // background. That subsiding ring is real — it is the clear slot around a cyclone — and a
+    // first version of this test asserted the sign matched the anomaly *everywhere* and measured
+    // 34 % agreement, which is the ring, not a bug.
+    ASSERT_LT(lowest, -1.0) << "the preset produced no low to test against";
+    ASSERT_GT(highest, 1.0) << "the preset produced no high to test against";
+    EXPECT_GT(w_at_lowest, 0.0f) << "air does not rise at the centre of the deepest low";
+    EXPECT_LT(w_at_highest, 0.0f) << "air does not sink at the centre of the strongest high";
+
+    // Both signs must appear somewhere: convergence into a low rises, divergence out of a high
+    // sinks. A field with one sign would be a bias rather than a circulation, and it would dry
+    // or moisten the whole world at once.
+    EXPECT_GT(ascent, 0.0f) << "nothing rises anywhere: the friction turn is not converging";
+    EXPECT_LT(descent, 0.0f) << "nothing sinks anywhere: air is being created";
+
+    // Centimetres per second. Below 1e-4 the term is inert and the acceptance clause it exists
+    // for stays open; above ~0.2 it is not Ekman pumping any more, it is a hurricane.
+    // Centimetres per second, which is the whole claim: three orders under a convective updraft
+    // and two over nothing. Measured here at 1.0 cm/s in the mean and 5.5 cm/s at the centres of
+    // a 20 hPa pair — the textbook synoptic range, and it falls out of the friction angle rather
+    // than out of a constant chosen to produce it.
+    //
+    // This band is also what caught the geostrophic scale being 735x too large: the pumping
+    // saturated its own 10 cm/s cap *everywhere*, which is not a subtle symptom.
+    EXPECT_GT(magnitude, 1.0e-3);
+    EXPECT_LT(magnitude, 5.0e-2);
+    EXPECT_GT(w_at_lowest, 1.0e-2f);
+    EXPECT_LT(w_at_highest, -1.0e-2f);
+    EXPECT_LT(std::max(ascent, -descent), 0.1f);
 }
 
 TEST(Unit_AtmosphereNest, PublishedFieldFallsBackToClearWithoutAMirror)

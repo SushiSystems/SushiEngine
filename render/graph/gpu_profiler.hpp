@@ -83,12 +83,22 @@ namespace SushiEngine
                     /**
                      * @brief Reads back a completed slot's timestamps into timings().
                      *
-                     * Only call once the submit that wrote @p slot has signalled its fence;
-                     * the results are otherwise undefined.
+                     * Only call once the submit that wrote @p slot is known to have completed —
+                     * by its fence, or by its timeline value having passed. The results are
+                     * otherwise undefined.
                      *
                      * @param slot The frame slot whose submit has completed.
+                     * @param wait Block until the queries are readable rather than giving up on
+                     *             a `VK_NOT_READY`. Completion of the submit does not oblige a
+                     *             driver to have made the results available yet, so a caller
+                     *             that has *already* established completion by other means can
+                     *             ask for them without that being a stall — while a caller
+                     *             resolving speculatively must not.
+                     * @return Whether fresh results were read. On false the previous frame's
+                     *         timings are still in timings(), so a caller that labels them with
+                     *         anything of its own must not do so unless this returned true.
                      */
-                    void resolve(std::uint32_t slot);
+                    bool resolve(std::uint32_t slot, bool wait = false);
 
                     /**
                      * @brief Resets a slot's queries and starts recording into it.

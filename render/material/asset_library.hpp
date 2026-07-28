@@ -39,6 +39,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <vector>
 
 #include <SushiEngine/render/material.hpp>
 
@@ -121,20 +122,59 @@ namespace SushiEngine
                     Textures::CloudNoise& cloud_noise() noexcept { return noise_; }
 
                     /**
-                     * @brief Advances the one regional atmosphere, if the scene runs one.
+                     * @brief Latches what the atmosphere should be stepped with this frame.
                      *
                      * Device-level rather than per-view because the editor renders three scene
                      * views and there is one atmosphere; see `atmosphere/atmosphere_nest.hpp`.
-                     * Idempotent within a frame — the nest takes the difference against the
-                     * clock it last saw — so every view may call it and only the first does
-                     * work. Brings the nest up on the first call that asks for it, so a scene
-                     * that never enables weather never pays its hundred-odd megabytes.
+                     * Every view may call it and the last one to do so wins, which is harmless
+                     * because they all pass the same `Environment`. Brings the nest up on the
+                     * first call that asks for it, so a scene that never enables weather never
+                     * pays its hundred-odd megabytes.
+                     *
+                     * **No GPU work happens here**, and that is the point. The step is a ~13 ms
+                     * dispatch chain; running it mid-frame put it in front of every pass that
+                     * reads its output, so the frame stalled on a whole step of weather. It is
+                     * deferred to @ref flush_atmosphere at the frame's end instead, and the
+                     * passes read the step before it — one nest step of staleness, which at a
+                     * couple of seconds of game time per step is well inside what §3.2 already
+                     * accepts for the query mirror.
                      *
                      * @param parameters The authored physics.
                      * @param forcing    The parent solution, the observer, and the clock.
+                     * @param size       The tier-resolved discretization
+                     *                   (@ref QualityParams::atmosphere_nest). A change here
+                     *                   rebuilds the nest at the next flush, which loses the
+                     *                   running weather — see @ref flush_atmosphere.
                      */
-                    void step_atmosphere(const AtmosphereParameters& parameters,
-                                         const AtmosphereForcing& forcing);
+                    void stage_atmosphere(const AtmosphereParameters& parameters,
+                                          const AtmosphereForcing& forcing,
+                                          const AtmosphereNestSize& size);
+
+                    /**
+                     * @brief Records a reader the next atmosphere step must not overtake.
+                     *
+                     * A scene view calls this after submitting, with the timeline value its last
+                     * submission signals. The step then waits on every reader registered since
+                     * the previous one before it writes anything they sample.
+                     *
+                     * Submission order alone would not do: Vulkan orders the *start* of
+                     * submissions on a queue and promises nothing about one completing before
+                     * the next begins, so a step submitted after a view is still free to
+                     * overwrite the extinction field that view is reading.
+                     *
+                     * @param timeline The view's queue timeline.
+                     * @param value    The value its final submission signals.
+                     */
+                    void note_atmosphere_reader(VkSemaphore timeline, std::uint64_t value);
+
+                    /**
+                     * @brief Steps the atmosphere, after every reader registered this frame.
+                     *
+                     * Called once per window frame, at its end — which is after every scene view
+                     * has submitted. Does nothing when @ref stage_atmosphere was never called or
+                     * the scene runs no nest.
+                     */
+                    void flush_atmosphere();
 
                     /**
                      * @brief The nest's asynchronous query mirror, for the simulation.
@@ -144,6 +184,9 @@ namespace SushiEngine
                      * base state", not as an error.
                      */
                     AtmosphereMirror atmosphere_mirror() const noexcept override;
+
+                    /** @brief The nest's last measured step cost, or an unmeasured one. */
+                    AtmosphereStepCost atmosphere_step_cost() const noexcept override;
 
                     /** @brief The live nest, or null when the scene has never enabled one. */
                     Atmosphere::AtmosphereNest* atmosphere() noexcept { return atmosphere_.get(); }
@@ -155,6 +198,19 @@ namespace SushiEngine
                     bool update();
 
                 private:
+                    /** @brief What the frame's views asked the atmosphere to be stepped with. */
+                    struct StagedAtmosphere
+                    {
+                        AtmosphereParameters parameters;
+                        AtmosphereForcing forcing;
+                        AtmosphereNestSize size;
+                        bool pending = false;
+                    };
+
+                    StagedAtmosphere staged_atmosphere_;
+                    /** @brief Readers the next step must wait on; cleared by each flush. */
+                    std::vector<VkSemaphoreSubmitInfo> atmosphere_readers_;
+
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary shaders_;
                     Resources::PipelineCache pipeline_cache_;

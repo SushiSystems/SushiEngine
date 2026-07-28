@@ -117,6 +117,8 @@ namespace SushiEngine
                             sample.humidity_anomaly =
                                 static_cast<float>(front.warm * WARM_SECTOR_HUMIDITY -
                                                    front.cold * COLD_SECTOR_HUMIDITY);
+                            sample.vertical_velocity_mps = static_cast<float>(
+                                ekman_pumping(synoptic, position, radius, cos_latitude, step));
                         }
 
                     uv_scale_ = 1.0 / span;
@@ -178,6 +180,75 @@ namespace SushiEngine
                 static constexpr double COLD_SECTOR_THETA_K = 4.5;
                 static constexpr double WARM_SECTOR_HUMIDITY = 0.12;
                 static constexpr double COLD_SECTOR_HUMIDITY = 0.08;
+
+                /** @brief Depth the surface convergence is integrated over, m — the Ekman layer. */
+                static constexpr double EKMAN_LAYER_DEPTH_M = 1000.0;
+                /**
+                 * @brief Cap on the pumped velocity, m/s.
+                 *
+                 * Ten centimetres a second is already extreme for a synoptic system; the cap is
+                 * here because the analytic pressure field has no lower bound on how tight a
+                 * system can get, and a divergence taken across a Gaussian narrower than the
+                 * sampling step would report a velocity the atmosphere does not have.
+                 */
+                static constexpr double MAX_PUMPED_MPS = 0.10;
+
+                /**
+                 * @brief Large-scale vertical motion at a point, m/s. Positive is ascent.
+                 *
+                 * **Ekman pumping**, and the striking thing is that `SynopticLayer` already had
+                 * everything it needs and nothing read it for this. Its geostrophic wind carries a
+                 * 25-degree surface-friction turn that relaxes with altitude — and that turn *is*
+                 * the cross-isobaric flow. Air spirals inward toward a low and outward from a
+                 * high, so the convergence it produces has to go somewhere, and where it goes is
+                 * up. Ascent under lows, subsidence under highs, and neither is placed by hand.
+                 *
+                 * Taken as the divergence of the near-surface wind over the layer that wind
+                 * occupies:
+                 *
+                 *     w = -h * (du/dx + dv/dy)
+                 *
+                 * Numerically from four neighbouring samples rather than analytically, because
+                 * the analytic wind *already* has the friction in it and re-deriving the
+                 * divergence in closed form would be a second expression of the same thing, free
+                 * to drift from the first. Five evaluations per forcing cell over a 64² lattice
+                 * is 20k analytic evaluations per publish, on the nest's multi-second cadence.
+                 *
+                 * The magnitude is not tuned: a 20 m/s geostrophic wind turned 25 degrees into a
+                 * 500 km low converges at about 3×10⁻⁵ /s, which over a kilometre of Ekman layer
+                 * is three centimetres a second — the textbook synoptic value, and it falls out of
+                 * the friction angle rather than out of a constant chosen to produce it.
+                 */
+                static double ekman_pumping(const SynopticLayer& synoptic,
+                                            const GeodeticPosition& position, double radius,
+                                            double cos_latitude, double step) noexcept
+                {
+                    // A whole forcing cell, so the difference is taken across the scale the field
+                    // is published at rather than across a step small enough to be noise.
+                    const double delta = std::max(step, 1.0);
+                    const double d_lat = delta / radius;
+                    const double d_lon = delta / (radius * cos_latitude);
+
+                    const auto wind = [&](double lat_offset, double lon_offset)
+                    {
+                        return synoptic.wind_at(
+                            GeodeticPosition{position.latitude_radians + lat_offset,
+                                             position.longitude_radians + lon_offset},
+                            0.0);
+                    };
+                    // Level fraction 0: the *surface* wind, which is the one carrying the full
+                    // friction turn. Sampling it aloft would find the geostrophic flow, whose
+                    // divergence is zero by construction and would report no pumping at all.
+                    const double east_plus = wind(0.0, d_lon).eastward_mps;
+                    const double east_minus = wind(0.0, -d_lon).eastward_mps;
+                    const double north_plus = wind(d_lat, 0.0).northward_mps;
+                    const double north_minus = wind(-d_lat, 0.0).northward_mps;
+
+                    const double divergence = (east_plus - east_minus) / (2.0 * delta) +
+                                              (north_plus - north_minus) / (2.0 * delta);
+                    return std::clamp(-EKMAN_LAYER_DEPTH_M * divergence, -MAX_PUMPED_MPS,
+                                      MAX_PUMPED_MPS);
+                }
 
                 std::vector<Render::AtmosphereForcingSample> samples_;
                 int cells_ = 0;

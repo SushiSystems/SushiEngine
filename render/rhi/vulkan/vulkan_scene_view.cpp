@@ -448,11 +448,14 @@ namespace SushiEngine
                                                    effective.shadows.max_directional_shadow_casters,
                                                    effective.shadows.distance);
 
-                // The one regional atmosphere, advanced before any of this frame's passes
-                // read it. Device-level and idempotent within a frame (see
-                // AssetLibrary::step_atmosphere), so all three of the editor's scene views may
-                // call it and only the first does work.
-                assets_.step_atmosphere(environment.atmosphere_nest, environment.atmosphere_forcing);
+                // The one regional atmosphere. Only *latched* here, and stepped at the window
+                // frame's end (see AssetLibrary::stage_atmosphere): the step is a ~13 ms
+                // dispatch chain, so running it in front of the passes that read it put a whole
+                // step of weather inside the frame's critical path. This frame's passes
+                // therefore read the step submitted at the end of the previous one.
+                assets_.stage_atmosphere(environment.atmosphere_nest,
+                                         environment.atmosphere_forcing,
+                                         resolved.params.atmosphere_nest);
 
                 Scene::SceneUniforms uniforms;
                 Scene::fill_scene_uniforms(camera, environment, frame.eye,
@@ -821,12 +824,19 @@ namespace SushiEngine
                     if (!atmosphere_waited && atmosphere_timeline != VK_NULL_HANDLE)
                     {
                         // The regional atmosphere is a device-level service shared by every
-                        // scene view, and its step submits on its own command buffer before any
-                        // of them render (see atmosphere/atmosphere_nest.hpp). This is what makes
-                        // reading its fields from a later submission *ordered* rather than
-                        // merely usually-fine: without it, three views sampling a resource one
-                        // earlier submission is writing is a race the validation layers cannot
-                        // see and a driver is free to lose.
+                        // scene view, and its step submits on its own command buffer (see
+                        // atmosphere/atmosphere_nest.hpp). This is what makes reading its fields
+                        // from a later submission *ordered* rather than merely usually-fine:
+                        // without it, views sampling a resource an earlier submission is writing
+                        // is a race the validation layers cannot see and a driver is free to
+                        // lose.
+                        //
+                        // The value waited on is the step submitted at the *end of the previous
+                        // frame*, because that is where the step now runs. So this is a wait
+                        // that has almost always already been satisfied by the time it is
+                        // reached — which is the whole point of having moved it: the frame is
+                        // ordered behind a step that finished a frame ago instead of stalling on
+                        // one that started a moment ago.
                         VkSemaphoreSubmitInfo& wait = waits[wait_count++];
                         wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                         wait.semaphore = atmosphere_timeline;
@@ -854,6 +864,14 @@ namespace SushiEngine
                                                  : device_.graphics_queue(),
                                          1, &submit, VK_NULL_HANDLE),
                           "vkQueueSubmit2");
+
+                    // This view has now read the atmosphere's fields, so the step recorded at
+                    // the end of this frame must not overtake it. Registered per submission
+                    // rather than once at the end because a graph with an async pass alternates
+                    // queues, and both of them may sample the extinction field.
+                    if (nest != nullptr)
+                        assets_.note_atmosphere_reader(resources_.timeline(submission.queue),
+                                                       signalled[i]);
                 }
 
                 motion_.end_frame();

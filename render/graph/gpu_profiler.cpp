@@ -66,21 +66,23 @@ namespace SushiEngine
                         vkDestroyQueryPool(device_.device(), slot.pool, nullptr);
             }
 
-            void GpuProfiler::resolve(std::uint32_t slot_index)
+            bool GpuProfiler::resolve(std::uint32_t slot_index, bool wait)
             {
                 if (!enabled_ || slot_index >= slots_.size())
-                    return;
+                    return false;
                 Slot& slot = slots_[slot_index];
                 if (slot.recorded == 0)
-                    return;
+                    return false;
 
                 std::vector<std::uint64_t> stamps(slot.recorded * 2);
+                const VkQueryResultFlags flags =
+                    VK_QUERY_RESULT_64_BIT | (wait ? VK_QUERY_RESULT_WAIT_BIT : 0);
                 const VkResult result = vkGetQueryPoolResults(
                     device_.device(), slot.pool, 0, slot.recorded * 2,
                     stamps.size() * sizeof(std::uint64_t), stamps.data(), sizeof(std::uint64_t),
-                    VK_QUERY_RESULT_64_BIT);
+                    flags);
                 if (result != VK_SUCCESS)
-                    return;
+                    return false;
 
                 timings_.clear();
                 timings_.reserve(slot.recorded);
@@ -98,6 +100,7 @@ namespace SushiEngine
                         static_cast<float>(ticks * static_cast<double>(timestamp_period_) * 1e-6);
                     timings_.push_back(std::move(timing));
                 }
+                return true;
             }
 
             void GpuProfiler::begin_frame(std::uint32_t slot_index, VkCommandBuffer cmd)

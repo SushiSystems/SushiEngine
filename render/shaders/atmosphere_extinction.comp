@@ -35,6 +35,19 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 layout(set = 0, binding = 1) uniform sampler3D moisture;
 layout(set = 0, binding = 2, rgba16f) uniform writeonly image3D extinction;
+// One texel per column: r = the column's cell-mean optical depth, g = the cloud fraction it is
+// spread over. The surface energy balance reads it to shade the ground it is heating.
+//
+// Written *here* rather than by the surface stage, and the reason is arithmetic: a column walk
+// is 48 fetches, and this stage runs once per frame where the surface stage runs once per
+// **step**. Folding it into the invocations that already own this column costs one frame of
+// staleness — the surface always sees the cloud the previous frame ended with, which at a couple
+// of seconds of game time per step is nothing a cloud field notices.
+layout(set = 0, binding = 3, rg32f) uniform writeonly image2D cloud_shade;
+// Bound for the *phase* alone: a crystal is nearly four times the effective radius of a droplet,
+// so glaciated cloud is that much thinner for the same water, and the temperature is the only
+// thing that says which a cell is holding.
+layout(set = 0, binding = 4) uniform sampler3D theta;
 
 void main()
 {
@@ -51,8 +64,20 @@ void main()
     vec4 q = vec4(raw.xyz / MOISTURE_UNIT, raw.w);
 
     float liquid_water_content = density * q.y;                       // kg/m^3
+    // The effective radius blended by phase, which is the optical half of the ice partition and
+    // the half anybody can see. Extinction divides by the radius, so a fully glaciated cell is
+    // roughly a quarter as opaque as a liquid one holding the same water -- which is the whole
+    // difference between a translucent cirrus veil or a soft anvil top and a wall of white.
+    // Without it a glaciating updraft renders its anvil as solid as its base.
+    // T = (theta_base + theta') * Pi, and theta_base is *defined* as T_base / Pi -- so this is
+    // T_base + theta' * Pi and needs one Exner rather than two, which matters because Exner is a
+    // pow() chain and the column loop below runs it once a level.
+    float temperature = nest_base_temperature(altitude) +
+                        texelFetch(theta, cell, 0).r * nest_exner(altitude);
+    float effective_radius = mix(nest.droplet_effective_radius, nest.ice_effective_radius,
+                                 nest_ice_fraction(temperature));
     float sigma = 3.0 * liquid_water_content /
-                  (2.0 * nest.water_density * max(nest.droplet_effective_radius, 1e-7));
+                  (2.0 * nest.water_density * max(effective_radius, 1e-7));
 
     // How far this sample sits from the top and bottom of its own contiguous cloud, as a 0-at-
     // the-edge, 1-through-the-middle profile. The march's ambient term reads it (Nubis3's
@@ -72,4 +97,40 @@ void main()
     float fraction = clamp(q.w, 0.0, 1.0);
 
     imageStore(extinction, cell, vec4(sigma, profile, q.z, fraction));
+
+    // ---- The column, for the ground underneath it -------------------------------------
+    //
+    // One invocation per column does the walk; the rest have already written their own cell.
+    //
+    // **Maximum overlap**, which is the right assumption for a convecting column and the wrong
+    // one for a frontal sheet: the cloudy parts of the levels of one cumulus are stacked on top
+    // of each other, not scattered independently. So the column's cover is the deepest level's
+    // fraction, and the optical depth *inside* the cloud is the cell-mean depth divided by that
+    // cover — the same "opacity is not coverage" distinction the readback makes, and getting it
+    // wrong the other way would have a 10 %-covered column shade the ground as if it were
+    // overcast with a tenth the thickness.
+    if (cell.y != 0)
+        return;
+
+    float mean_depth = 0.0;
+    float cover = 0.0;
+    for (int level = 0; level < levels; ++level)
+    {
+        vec4 sample_raw = texelFetch(moisture, ivec3(cell.x, level, cell.z), 0);
+        float sample_altitude = nest_level_altitude(float(level));
+        float sample_density = nest_base_density(sample_altitude);
+        // Same phase blend as the per-cell path above: an ice cloud shades the ground less than
+        // a liquid one holding the same water, and it would be a strange model that drew the
+        // difference but did not feel it.
+        float sample_temperature =
+            nest_base_temperature(sample_altitude) +
+            texelFetch(theta, ivec3(cell.x, level, cell.z), 0).r * nest_exner(sample_altitude);
+        float sample_radius = mix(nest.droplet_effective_radius, nest.ice_effective_radius,
+                                  nest_ice_fraction(sample_temperature));
+        float sample_sigma = 3.0 * sample_density * (sample_raw.y / MOISTURE_UNIT) /
+                             (2.0 * nest.water_density * max(sample_radius, 1e-7));
+        mean_depth += sample_sigma * nest_level_thickness(level);
+        cover = max(cover, clamp(sample_raw.w, 0.0, 1.0));
+    }
+    imageStore(cloud_shade, ivec2(cell.x, cell.z), vec4(mean_depth, cover, 0.0, 0.0));
 }

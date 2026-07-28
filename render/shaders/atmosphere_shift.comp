@@ -34,6 +34,13 @@ layout(set = 0, binding = 8, r32f) uniform writeonly image3D wind_z_target;
 layout(set = 0, binding = 9, r32f) uniform writeonly image3D theta_target;
 layout(set = 0, binding = 10, rgba32f) uniform writeonly image3D moisture_target;
 layout(set = 0, binding = 11) uniform sampler2D forcing;
+// The surface energy balance's state, which is prognostic and therefore shifts with everything
+// else: skin temperature (K), sensible flux, latent flux, net radiation (W/m^2). A nest that
+// walks two kilometres has to bring the ground's warmth with it -- re-deriving it would put a
+// cold strip along the leading edge every time the observer moved, and the strip would then
+// convect differently from the domain behind it.
+layout(set = 0, binding = 12) uniform sampler2D surface_source;
+layout(set = 0, binding = 13, rgba32f) uniform writeonly image2D surface_target;
 
 layout(push_constant) uniform Params
 {
@@ -100,4 +107,20 @@ void main()
     imageStore(wind_z_target, cell, vec4(v, 0.0, 0.0, 0.0));
     imageStore(theta_target, cell, vec4(theta, 0.0, 0.0, 0.0));
     imageStore(moisture_target, cell, moisture);
+
+    // The surface is one texel per column, so exactly one level does it -- and it is the top
+    // rather than the bottom because level 0 is the one whose invocation does the most work
+    // already (nothing here, but the habit is what keeps the two from drifting apart).
+    if (cell.y == levels - 1)
+    {
+        ivec2 column = ivec2(cell.x, cell.z);
+        vec4 surface = have_source
+                           ? texelFetch(surface_source, ivec2(source.x, source.z), 0)
+                           // A newly exposed column has no ground to inherit. The base state's
+                           // surface temperature is the honest guess and it relaxes within a
+                           // few minutes; the fluxes are step outputs and are re-solved before
+                           // anything reads them.
+                           : vec4(nest_base_temperature(0.0), 0.0, 0.0, 0.0);
+        imageStore(surface_target, column, surface);
+    }
 }

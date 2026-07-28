@@ -210,12 +210,32 @@ namespace SushiEngine
              * @brief Red-black sweeps of the pressure relaxation per step.
              *
              * Each sweep solves the *vertical* exactly (see `atmosphere_pressure.comp`), so
-             * these only iterate the horizontal coupling, which the grid's anisotropy makes the
-             * weak direction. Twelve leaves a small residual divergence — a slight mass
-             * imbalance rather than a wrong answer — and is the knob to raise if it ever proves
-             * visible, before reaching for the multigrid the shader's header names.
+             * these only iterate the horizontal coupling — and the grid's anisotropy is
+             * deliberate and extreme: 2 km horizontally against 54–560 m vertically, so the
+             * vertical coupling outweighs the horizontal by 12× at the domain top and 1 370× at
+             * the ground. What is left for these sweeps to do is therefore a small, strongly
+             * diagonally dominant correction, and it converges almost immediately.
+             *
+             * **Four, because two was measured to be the convergence point and this is the
+             * margin.** The previous value was twelve, chosen on the reasoning that a solver
+             * with no coarse-grid correction leaves smooth horizontal error behind — true of an
+             * *isotropic* Poisson problem, and beside the point here, where the horizontal is
+             * the weak direction and the smooth mode it leaves is proportionally tiny. Measured
+             * end-to-end over six simulated hours: at 2, 4, 8, 12 and 20 sweeps the surface
+             * humidity, lifting condensation level, cloud base, column water and sky coverage
+             * are *identical to every printed figure*, and the peak divergence — the quantity
+             * the solve exists to control — agrees to seven significant figures. At **one**
+             * sweep it does not, which is what distinguishes "converged" from "the solve was
+             * never doing anything". Repeated with a 25 m/s front and a +4 K parent anomaly,
+             * the case whose horizontal gradients this argument is weakest for: divergence
+             * still agrees to six figures at 4 sweeps.
+             *
+             * Costed on a GTX 1060 at the shipped tier, the sweeps are the whole difference:
+             * the pressure stage runs 1.3 / 2.7 / 8.0 / 15.3 ms at 2 / 4 / 12 / 20 sweeps, and
+             * the step 6.3 / 7.9 / 13.2 / 21.2 ms. Twelve sweeps spent 5.3 ms a step buying a
+             * change in the sixth significant figure.
              */
-            std::uint32_t pressure_iterations = 12;
+            std::uint32_t pressure_iterations = 4;
             /**
              * @brief Fractional variation in surface heating across a cell, [0, 1].
              *
@@ -236,12 +256,69 @@ namespace SushiEngine
              */
             float thermal_seed_amplitude = 0.4f;
             /**
+             * @brief Length the surface heterogeneity is correlated over, metres.
+             *
+             * The seed used to be white in space: every cell drew independently, so the field
+             * had no scale at all and the only structure convection could organise around was
+             * one cell wide — which is the scale a grid-mean model is least entitled to believe.
+             * Worse, it made the *tier* the correlation length: a Low cell is 4 km and an Ultra
+             * cell 1.5 km, so the same scene was seeded with patches of different physical size
+             * depending on a graphics setting.
+             *
+             * Stated in metres, that cannot happen — every tier samples one field, and a coarse
+             * tier simply resolves less of it, which is what a coarse grid does to real terrain.
+             * 6 km is a few times the depth of a well-developed boundary layer, the scale over
+             * which land cover, soil moisture and albedo actually vary, and the spacing a
+             * cumulus field's cells self-organise onto. Measured against 24 km, which recovers
+             * two thirds of the effect, and against a cell-scale field, which recovers a fifth.
+             *
+             * Named consequence: the tier spread narrows but does not vanish. Medium, High and
+             * Ultra now agree on domain structure to 1.10× and on coverage to 1.06×; **Low does
+             * not**, because a 4 km cell samples a 6 km patch with a cell and a half and cannot
+             * represent it however the field is defined. That is a resolution limit rather than
+             * an inconsistency, and it is the honest form of one.
+             *
+             * @see thermal_seed_period_s, the same argument on the time axis.
+             */
+            float thermal_seed_length_m = 6000.0f;
+            /**
+             * @brief Time the surface heterogeneity is correlated over, seconds.
+             *
+             * The seed was white in time as well, redrawn independently every step, and this is
+             * the axis that carries most of the effect. A step is a few seconds; a warm patch
+             * that exists for one step and is gone the next cannot lift anything, because a
+             * thermal needs the eddy turnover time of the layer it rises through — h/w* is
+             * about twelve minutes for a 1.5 km layer under a 2 m/s convective scale. What an
+             * uncorrelated kick does instead is cancel: over N steps it accumulates as sqrt(N)
+             * where a persistent one accumulates as N, so at the 150 steps a turnover takes it
+             * is an order of magnitude weaker.
+             *
+             * That is measured, not argued — see `nest_thermal_seed` in
+             * atmosphere_nest_common.glsl for the table. The short version is that the seed the
+             * nest had produced 1.22× the domain structure of running with *no seed at all*,
+             * and this produces 3.72×. A period well under the turnover (60 s) recovers half.
+             *
+             * 900 s is that turnover time. It is the *lifetime of a patch of warmer ground*,
+             * not of a cloud: the cloud's own lifetime comes out of the dynamics. Longer still
+             * (3600 s) raises the structure further but the field then barely renews across a
+             * whole convective afternoon, and the condensate measured *below* the unseeded run.
+             */
+            float thermal_seed_period_s = 900.0f;
+            /**
              * @brief Updraft speed a band reads as fully convective, m/s.
              *
-             * Purely a *reporting* scale: it converts the nest's vertical velocity into the
+             * A *reporting* scale: it converts the nest's vertical velocity into the
              * `convective_fraction` the genus classifier and the editor readout already speak
              * in. 2 m/s is a solidly convective updraft — a fair-weather cumulus runs a metre
              * or two per second, a thunderstorm ten times that.
+             *
+             * It says "purely" no longer, and the qualification is the point. `choose_step` also
+             * divided the vertical CFL by ten times this, so one number was quietly setting both
+             * how a cloud is *labelled* and how long the nest's time step is — and the second job
+             * was invisible from here, which is how a step three times tighter than anything the
+             * model needed went unquestioned. The CFL now takes its bound from the updraft the
+             * readback actually measures; this remains as the fallback until the first readback
+             * lands, and nothing else.
              */
             float convective_velocity_scale = 2.0f;
 
@@ -288,6 +365,77 @@ namespace SushiEngine
             float fall_speed_coefficient = 36.34f;
             /** @brief Terminal fall speed exponent b. */
             float fall_speed_exponent = 0.1364f;
+
+            // ---- Ice (Phase B3d) -----------------------------------------------------
+            //
+            // **A diagnostic phase partition, not a second condensate species**, and the choice
+            // is deliberate. Carrying cloud ice and snow as prognostic fields costs another
+            // rgba32f volume — 28 MB at the shipped tier — plus its share of the advection
+            // (~0.8 ms a step, against a 10 ms step), and buys mixed-phase coexistence: liquid
+            // and ice in the *same* cell with a transfer rate between them.
+            //
+            // At 2 km that coexistence is entirely subgrid. What is resolvable is that a cell
+            // colder than freezing saturates at a lower humidity than a warm one, releases more
+            // latent heat when it condenses, and precipitates as something that falls at a
+            // metre per second rather than seven. All three of those are functions of the
+            // temperature this cell already carries, so they are computed from it. What is given
+            // up is supercooled water below the glaciation point and the Bergeron transfer's own
+            // timescale — recorded, and the two-species scheme is the refinement.
+            //
+            // Between the two temperatures below, a cell is mixed: saturation, latent heat and
+            // fall speed are all blended by the ice fraction rather than switched.
+
+            /** @brief Latent heat of fusion, J/kg. Deposition releases this on top of @ref latent_heat_vaporization. */
+            float latent_heat_fusion = 3.337e5f;
+            /**
+             * @brief Warm edge of the mixed-phase band, K — above this a cloud is all liquid.
+             *
+             * Not a switch at 0 °C, because a cloud at −5 °C is mostly supercooled water and one
+             * at −20 °C is mostly crystals; the band between them is where the two coexist and
+             * where the Bergeron process runs. Saturation over ice is *lower* than over liquid,
+             * so a cell crossing into this band starts condensing at a humidity it would have
+             * been clear at — which is why cold clouds glaciate and precipitate so much more
+             * readily than warm ones.
+             */
+            float freezing_temperature = 273.15f;
+            /** @brief Cold edge of the mixed-phase band, K — below this a cloud is all ice. */
+            float glaciation_temperature = 253.15f;
+            /**
+             * @brief Terminal fall speed coefficient for snow in V = a·(ρ q)^b, SI.
+             *
+             * An order of magnitude under rain's, and that single fact is most of what makes
+             * snow look like snow: a crystal aggregate has an enormous cross-section for its
+             * mass, so it drifts at around a metre a second where a raindrop of the same water
+             * falls at seven. It is also why a snow shower's shaft leans so far downwind.
+             */
+            float snow_fall_speed_coefficient = 4.8f;
+            /** @brief Snow's fall-speed exponent. Flatter than rain's; aggregate size varies less with content. */
+            float snow_fall_speed_exponent = 0.08f;
+            /**
+             * @brief Factor on @ref autoconversion_threshold once a cloud is fully glaciated.
+             *
+             * Ice crystals aggregate into snow far more readily than droplets coalesce into
+             * drizzle — they stick, and they grow by vapour deposition at the expense of any
+             * liquid beside them. Lowering the threshold is the cheap statement of that: a cold
+             * cloud starts precipitating at a fraction of the condensate a warm one needs, which
+             * is why a winter sky produces snow out of a deck that in summer would just sit
+             * there.
+             */
+            float glaciated_autoconversion_factor = 0.25f;
+            /**
+             * @brief Effective radius of cloud *ice*, m — the optical half of the phase partition.
+             *
+             * §7.1's extinction divides by the effective radius, so this is nearly four times
+             * @ref droplet_effective_radius and glaciated cloud is correspondingly thinner for
+             * the same water. That single ratio is what makes a cirrus veil translucent and an
+             * anvil's top soft where a liquid cumulus of the same condensate is a wall — a
+             * crystal aggregate simply puts far less cross-section in the way per kilogram than
+             * the same mass divided into 8 µm droplets.
+             *
+             * Without it a glaciating updraft's anvil renders as solid as its base, which is the
+             * one thing everybody can see is wrong about a cloud model that has no ice.
+             */
+            float ice_effective_radius = 30.0e-6f;
             /**
              * @brief Effective cloud droplet radius, m.
              *
@@ -311,35 +459,100 @@ namespace SushiEngine
              */
             float coverage_reference_lwc = 0.0015f;
 
-            // ---- Surface forcing -----------------------------------------------------
+            // ---- Surface energy balance (Phase B3) -----------------------------------
             //
-            // Prescribed in this phase. A real surface energy balance — insolation through
-            // `Astro::Ephemeris`, a slab heat capacity, land/sea partitioning — is the next
-            // phase's `ISurfaceModel`, and it is what turns these two numbers into the
-            // diurnal cycle. Prescribed values are stated as such rather than dressed up:
-            // they are what a fair-weather convective afternoon actually delivers.
+            // **The fluxes are solved, not authored.** They used to be three numbers — a peak
+            // sensible flux, a peak latent flux and a night-time cooling rate — scaled by the
+            // sine of the sun's elevation, which is a *prescribed diurnal shape* wearing the
+            // costume of a diurnal cycle. Everything interesting about a real one is missing
+            // from it: the ground has no heat capacity, so the fluxes peak exactly at solar noon
+            // instead of lagging it; the surface cannot be warmer or cooler than whatever the
+            // author typed, so it cannot respond to the air above it; and the Bowen ratio is
+            // fixed by construction, so a boundary layer that dries the ground out keeps
+            // moistening at the same rate anyway.
+            //
+            // What replaces them is the textbook slab: the ground absorbs shortwave, exchanges
+            // longwave with the air, and loses what is left as turbulent sensible and latent
+            // heat, with its own temperature as the state that closes the loop.
+            //
+            //     C dT_s/dt = S(1-a) + L_down - e sigma T_s^4 - H - LE
+            //     H  = rho c_p C_H |U| (T_s - T_air)
+            //     LE = rho L   C_H |U| beta (q_s(T_s) - q_v_air)
+            //
+            // The lag, the response, and the ratio all fall out of that rather than being typed
+            // in. `atmosphere_surface.comp` holds the scheme; these are its data.
 
             /**
-             * @brief Surface sensible heat flux at solar noon with the sun overhead, W/m².
+             * @brief Solar irradiance at the top of the atmosphere, W/m².
              *
-             * A *peak*, not a constant. The nest scales it by the sine of the real sun's
-             * elevation, which is what makes the diurnal cycle and the seasons the same
-             * mechanism: the declination that puts the sun higher in July than in January is
-             * already in the ephemeris driving the rendered sun, so a summer afternoon delivers
-             * more heat to the ground than a winter one without anything modelling "summer".
+             * The real one, so that "how bright is the sun here" is a question about geometry
+             * and the air rather than about a tuning value. Insolation reaching the ground is
+             * this times the sine of the elevation of the sun the sky is *already rendered
+             * with* — which is what keeps the model from acquiring a second, private sun — times
+             * the transmittance below.
              */
-            float surface_sensible_flux = 140.0f;
-            /** @brief Surface latent (moisture) flux at solar noon with the sun overhead, W/m². */
-            float surface_latent_flux = 100.0f;
+            float solar_constant = 1361.0f;
             /**
-             * @brief Net radiative cooling of the surface at night, W/m².
+             * @brief Clear-sky atmospheric transmittance at zenith, [0, 1].
              *
-             * Positive; subtracted while the sun is down. This is what *ends* convection in the
-             * evening rather than merely starving it: the ground cools, the lowest level cools
-             * with it, the boundary layer stabilises and the cumulus field decays. Without a
-             * negative term the sky would simply stop growing new cloud and keep what it had.
+             * Applied along the slant path, so a low sun is dimmed more than by its elevation
+             * alone: `tau^(1/sin(elevation))`. That is what makes the morning and evening
+             * shoulders of the diurnal cycle steeper than a cosine, and it is why sunrise heats
+             * the ground so much later than it lights the sky.
              */
-            float surface_night_flux = 35.0f;
+            float clear_sky_transmittance = 0.75f;
+            /**
+             * @brief Shortwave albedo of the surface, [0, 1].
+             *
+             * 0.20 is vegetated land. Fresh snow is 0.8 and open water near noon is 0.06 — the
+             * range is the widest of any parameter here, and it is the first thing to reach for
+             * when a scene heats too fast or too slowly.
+             */
+            float surface_albedo = 0.20f;
+            /** @brief Longwave emissivity of the surface, [0, 1]. Near 1 for everything natural. */
+            float surface_emissivity = 0.96f;
+            /**
+             * @brief Heat capacity of the surface slab, J/m²/K.
+             *
+             * How much energy it takes to warm the ground by a degree, and therefore how far the
+             * afternoon peak lags solar noon. 1×10⁵ is a few centimetres of soil, which lags by
+             * an hour or two. Water is the extreme: a 3 m mixed layer is 1.3×10⁷, which is why
+             * a sea surface barely moves over a day and a sea breeze exists at all.
+             *
+             * The slab is integrated **semi-implicitly**, linearising the fluxes about the skin
+             * temperature, so this can be authored arbitrarily small without the step becoming
+             * unstable — an explicit slab would need dt < C/lambda, which at these lambda (~85
+             * W/m²/K) puts even soil within a factor of a few hundred of the nest's step.
+             */
+            float surface_heat_capacity = 1.0e5f;
+            /**
+             * @brief Moisture availability of the surface, [0, 1].
+             *
+             * The fraction of the saturation deficit the surface can actually supply: 1 is open
+             * water or saturated soil, 0 is dry rock or asphalt, and 0.35 is unremarkable
+             * vegetated land in summer. **This is the Bowen ratio's real author.** It used to be
+             * set by the ratio of two typed-in fluxes; here it is a property of the ground, and
+             * the ratio it produces changes through the day as the surface warms.
+             */
+            float surface_moisture_availability = 0.35f;
+            /**
+             * @brief Bulk transfer coefficient for heat and moisture, dimensionless.
+             *
+             * `k²/ln(z/z0)²` for the lowest model level over a given roughness — 0.005 is a
+             * ~54 m level over 0.1 m roughness. Neutral: a stability correction belongs with the
+             * Monin-Obukhov length, and this model has no surface layer resolved well enough to
+             * earn one.
+             */
+            float surface_exchange_coefficient = 0.005f;
+            /**
+             * @brief Wind speed the bulk formulae never fall below, m/s.
+             *
+             * A bulk flux is proportional to the wind, so on a calm morning it would be zero —
+             * and a calm morning is exactly when free convection carries the most heat. This
+             * stands for the eddies buoyancy drives when the mean wind does not: without it the
+             * model has a stable fixed point at "no wind, no flux, no convection, no wind".
+             */
+            float surface_minimum_wind = 1.0f;
 
             /** @brief Whether the nest runs at all; off falls back to the authored/classified sky. */
             bool enabled = true;
@@ -363,6 +576,75 @@ namespace SushiEngine
             std::uint32_t levels = 48;    /**< Stretched vertical levels. */
             float spacing_m = 2000.0f;    /**< Horizontal cell size, metres. */
             float top_m = 18000.0f;       /**< Domain top above the surface, metres. */
+        };
+
+        /** @brief One timed section of the nest's step, in the order it is recorded. */
+        struct AtmosphereStageTiming
+        {
+            /**
+             * @brief The section's name, owned inline.
+             *
+             * A buffer rather than a `const char*` because the set of sections is not fixed —
+             * a frame that re-centres the lattice records a shift the next one does not — so
+             * the name cannot be recovered from a position in a static table, and a pointer
+             * into the profiler's own storage would dangle the next time it resolved.
+             */
+            char name[20]{};
+            /** @brief GPU time between the section's two timestamps, milliseconds. */
+            float milliseconds = 0.0f;
+        };
+
+        /** @brief Sections the step is bracketed into; the ten stages plus the submission total. */
+        constexpr int ATMOSPHERE_TIMED_STAGES = 12;
+
+        /**
+         * @brief What one step of the nest actually cost on the GPU.
+         *
+         * §12 budgets the nest at ~2 ms per step and §11's Phase B2c closes by recording that
+         * the step "has never been measured" — so every lever named there (fewer pressure
+         * sweeps, the async compute queue, a multigrid pressure solve) was ordered by estimate.
+         * This is the measurement those estimates were waiting on, and it is deliberately a
+         * *per-stage* breakdown rather than a single number: the ordering only means anything if
+         * the sweeps really are the large share the shader's own header supposes.
+         *
+         * Timestamps come from the same query-pool mechanism the render graph profiles passes
+         * with, resolved at the point the nest already waits on the step's timeline value — so
+         * measuring costs no stall. A device that reports no timestamp support leaves
+         * @ref measured false and every number zero rather than reporting a fabricated one.
+         *
+         * Published only from frames that actually *stepped*. A frame that merely re-centres the
+         * lattice records a shift, an extinction and a readback, and calling that a step's cost
+         * would report a number four times too small whenever the observer moved.
+         */
+        struct AtmosphereStepCost
+        {
+            AtmosphereStageTiming stages[ATMOSPHERE_TIMED_STAGES]{};
+            /** @brief Sections filled in @ref stages. */
+            int count = 0;
+            /**
+             * @brief The whole submission, milliseconds — measured, not summed.
+             *
+             * An outer bracket around the entire command buffer rather than the sum of the
+             * sections below, because the two are not the same number and the difference is
+             * informative: a section's opening timestamp is written when the command is
+             * *reached*, so back-to-back sections can overlap, and a breakdown that adds up to
+             * noticeably less than the total is the signature of dispatches the barriers let run
+             * concurrently. Budget against this one; attribute with the ones below it.
+             */
+            float total_ms = 0.0f;
+            /** @brief The nest's step index this measurement was taken on. */
+            std::uint64_t step_index = 0;
+            /**
+             * @brief Steps the measured submission recorded; @ref total_ms covers all of them.
+             *
+             * A frame takes up to `max_steps_per_frame` steps in one submission, so the per-step
+             * cost is `total_ms / steps`. The @ref stages breakdown is from the *first* of them
+             * only — the query pool is a fixed size and timing every step would spend it
+             * part-way through the second.
+             */
+            std::uint32_t steps = 1;
+            /** @brief False until a stepping frame's timestamps have been read back. */
+            bool measured = false;
         };
 
         /**
@@ -474,6 +756,80 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Saturation vapour pressure over *ice*, Pa (Magnus, WMO coefficients).
+         *
+         * A different curve from the one above, not a correction to it, and the gap between them
+         * is the whole of the Bergeron process: at −12 °C the saturation pressure over ice is
+         * about 10 % below the one over supercooled water, so air that is in equilibrium with a
+         * droplet is **supersaturated** with respect to a crystal beside it. The crystal grows,
+         * the droplet evaporates to feed it, and that is how a mixed-phase cloud turns itself
+         * into snow. The two curves meet exactly at 0 °C, which is what makes blending across
+         * the mixed-phase band continuous.
+         */
+        inline float atmosphere_saturation_pressure_ice(float temperature_k)
+        {
+            return 611.2f * std::exp(22.46f * (temperature_k - 273.15f) /
+                                     (temperature_k - 0.53f));
+        }
+
+        /**
+         * @brief How much of a cell's condensate is ice, [0, 1].
+         *
+         * A linear ramp across the mixed-phase band rather than a switch at 0 °C, because a
+         * cloud at −5 °C is mostly supercooled water and one at −20 °C is mostly crystals. The
+         * band is where the two coexist.
+         *
+         * **This is the whole of the phase partition**, and everything else about ice in the
+         * nest is a function of it: the saturation the cell condenses at, the latent heat it
+         * releases, how readily it precipitates, and how fast that precipitation falls. Being a
+         * function of temperature alone is the scheme's simplification and its named limit —
+         * see @ref AtmosphereParameters::latent_heat_fusion for what that gives up.
+         */
+        inline float atmosphere_ice_fraction(const AtmosphereParameters& p, float temperature_k)
+        {
+            const float span = p.freezing_temperature - p.glaciation_temperature;
+            if (!(span > 0.0f))
+                return temperature_k < p.freezing_temperature ? 1.0f : 0.0f;
+            const float f = (p.freezing_temperature - temperature_k) / span;
+            return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+        }
+
+        /**
+         * @brief Saturation mixing ratio a cell actually condenses at, kg/kg.
+         *
+         * The liquid and ice curves blended by @ref atmosphere_ice_fraction. Below the
+         * glaciation point this *is* the ice curve, which sits well under the liquid one — so a
+         * column that would be clear at +2 °C can be cloudy at −25 °C on the same water. Mirrors
+         * `nest_saturation_mixing_ratio_phase` in atmosphere_nest_common.glsl.
+         */
+        inline float atmosphere_saturation_mixing_ratio_phase(const AtmosphereParameters& p,
+                                                              float temperature_k,
+                                                              float pressure_pa)
+        {
+            const float ice = atmosphere_ice_fraction(p, temperature_k);
+            if (ice <= 0.0f)
+                return atmosphere_saturation_mixing_ratio(temperature_k, pressure_pa);
+            const float e_liquid = atmosphere_saturation_pressure(temperature_k);
+            const float e_ice = atmosphere_saturation_pressure_ice(temperature_k);
+            const float e_s = (1.0f - ice) * e_liquid + ice * e_ice;
+            const float denominator = pressure_pa - 0.378f * e_s;
+            return denominator > 1.0f ? 0.622f * e_s / denominator : 1.0f;
+        }
+
+        /**
+         * @brief Latent heat released per kilogram condensed at @p temperature_k, J/kg.
+         *
+         * Vaporization plus the ice fraction's share of fusion: depositing straight to a crystal
+         * releases both, which is 13 % more heat than condensing to a droplet and is why a
+         * glaciating updraft gets a second push just as it is running out of the first.
+         */
+        inline float atmosphere_latent_heat(const AtmosphereParameters& p, float temperature_k)
+        {
+            return p.latent_heat_vaporization +
+                   atmosphere_ice_fraction(p, temperature_k) * p.latent_heat_fusion;
+        }
+
+        /**
          * @brief Base-state vapour mixing ratio at @p altitude_m, kg/kg.
          *
          * The surface relative humidity carried aloft with its own scale height, capped at
@@ -562,6 +918,140 @@ namespace SushiEngine
             return partition;
         }
 
+        /** @brief What @ref atmosphere_surface_balance leaves the ground holding. */
+        struct AtmosphereSurfaceBalance
+        {
+            /** @brief Skin temperature at the end of the step, K. */
+            float skin_k = 0.0f;
+            /** @brief Sensible heat flux into the air, W/m². Negative after dusk. */
+            float sensible = 0.0f;
+            /** @brief Latent heat flux into the air, W/m². */
+            float latent = 0.0f;
+            /** @brief Net radiation absorbed by the surface, W/m². */
+            float net_radiation = 0.0f;
+        };
+
+        /**
+         * @brief Advance the surface energy balance by one step.
+         *
+         * `atmosphere_surface.comp`'s scheme, mirrored for the same reason every other relation
+         * in this file is: GLSL cannot include a C++ header, so the formula is stated twice and
+         * the *numbers* only once. What it buys here is a diurnal cycle with a test — the
+         * equilibrium below is arithmetic, not opinion, and `test_atmosphere_nest.cpp` pins it.
+         *
+         *     C dT_s/dt = R_net - H - LE
+         *     H  = rho c_p C_H |U| (T_s - T_air)
+         *     LE = rho L   C_H |U| beta (q_s(T_s) - q_v_air)
+         *
+         * **Semi-implicit**, and that is the part worth reading. Every flux stiffens as the skin
+         * warms — the longwave as `4εσT³`, the sensible linearly, the latent through the
+         * Clausius–Clapeyron slope — some 85 W/m²/K against a soil slab of 10⁵ J/m²/K, a
+         * 20-minute relaxation time. An explicit update needs `dt < 2C/λ`, so an author choosing
+         * a thin slab (a road, a rock face) walks into an oscillation that reads as a physics bug
+         * and is an integrator bug. Linearising the fluxes about the current skin costs one
+         * divide and is unconditionally stable at any `dt`: the increment is the residual over
+         * `C + dt·λ` rather than over `C`, so the step cannot outrun the response that opposes
+         * it. The explicit form differs only in that denominator, and with a thin slab and a
+         * long step the ratio is five orders of magnitude — what it produces is not a large
+         * error, it is not a temperature.
+         *
+         * It is *not* exact in one step, and not monotone either: the balance is nonlinear
+         * (`q_s` is exponential in the skin), so a step is one Newton iteration. Measured, a
+         * single 10⁶ s step onto a 10³ J/m²/K slab overshoots the equilibrium by 3.3 K on a 16 K
+         * approach and converges from the other side within a few more. Both claims are pinned
+         * in `test_atmosphere_nest.cpp`, and both replaced a stronger one this comment made
+         * before the test was written.
+         *
+         * Longwave down is Brutsaert (1975): the clear-sky emissivity of air goes as the seventh
+         * root of vapour pressure over temperature, so a humid night radiates far more back down
+         * than a dry one — which is why a desert freezes after dark and a coast does not.
+         *
+         * @param p              The authored physics.
+         * @param skin_k         Skin temperature at the start of the step, K.
+         * @param air_k          Air temperature at the lowest level, K.
+         * @param air_vapour     Vapour mixing ratio there, kg/kg.
+         * @param pressure_pa    Base-state pressure there, Pa.
+         * @param density        Base-state density there, kg/m³.
+         * @param wind_mps       The *exchange* velocity, not the mean wind: see the shader for
+         *                       why free convection is added in quadrature.
+         * @param absorbed_w     Shortwave already absorbed — after albedo, cloud and patchiness.
+         * @param dt             Step length, seconds.
+         */
+        inline AtmosphereSurfaceBalance atmosphere_surface_balance(const AtmosphereParameters& p,
+                                                                  float skin_k, float air_k,
+                                                                  float air_vapour,
+                                                                  float pressure_pa, float density,
+                                                                  float wind_mps, float absorbed_w,
+                                                                  float dt)
+        {
+            constexpr float STEFAN_BOLTZMANN = 5.670374e-8f;
+            const auto clamp01 = [](float v)
+            { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+
+            const float emissivity = clamp01(p.surface_emissivity);
+            const float vapour_pressure =
+                std::fmax(air_vapour * pressure_pa / (0.622f + air_vapour), 1.0f);
+            float air_emissivity =
+                1.24f * std::pow(vapour_pressure * 0.01f / std::fmax(air_k, 1.0f), 1.0f / 7.0f);
+            air_emissivity = air_emissivity < 0.5f ? 0.5f : (air_emissivity > 1.0f ? 1.0f
+                                                                                  : air_emissivity);
+            const float longwave_down =
+                air_emissivity * STEFAN_BOLTZMANN * air_k * air_k * air_k * air_k;
+            const float longwave_up =
+                emissivity * STEFAN_BOLTZMANN * skin_k * skin_k * skin_k * skin_k;
+
+            AtmosphereSurfaceBalance out;
+            out.net_radiation = absorbed_w + emissivity * longwave_down - longwave_up;
+
+            const float exchange =
+                std::fmax(p.surface_exchange_coefficient, 0.0f) * wind_mps * density;
+            const float beta = clamp01(p.surface_moisture_availability);
+            float sensible = exchange * p.specific_heat_pressure * (skin_k - air_k);
+            const float skin_saturation =
+                atmosphere_saturation_mixing_ratio(skin_k, pressure_pa);
+            const float deficit = skin_saturation - air_vapour;
+            float latent = exchange * p.latent_heat_vaporization * beta *
+                           (deficit > 0.0f ? deficit : 0.0f);
+
+            const float slope = skin_saturation * p.latent_heat_vaporization /
+                                (p.gas_constant_vapour * std::fmax(skin_k * skin_k, 1.0f));
+            const float stiffness = 4.0f * emissivity * STEFAN_BOLTZMANN * skin_k * skin_k * skin_k +
+                                    exchange * p.specific_heat_pressure +
+                                    exchange * p.latent_heat_vaporization * beta * slope;
+            const float capacity = std::fmax(p.surface_heat_capacity, 1.0f);
+            const float delta =
+                (out.net_radiation - sensible - latent) * dt / (capacity + dt * stiffness);
+
+            // Reported at the temperature the step *ends* at, so what the air is handed and what
+            // the ground paid for it are the same number to first order.
+            out.skin_k = skin_k + delta;
+            out.sensible = sensible + exchange * p.specific_heat_pressure * delta;
+            out.latent = latent + exchange * p.latent_heat_vaporization * beta * slope * delta;
+            return out;
+        }
+
+        /**
+         * @brief Clear-sky shortwave reaching the surface, W/m².
+         *
+         * `solar_constant · sin(elevation) · tau^(1/sin(elevation))` — the transmittance along
+         * the *slant* path, so a low sun is dimmed by far more than its elevation alone. That is
+         * what makes the morning and evening shoulders of the diurnal cycle steeper than a cosine,
+         * and why the ground starts warming so much later than the sky lights up. Zero below the
+         * horizon. Mirrors `atmosphere_surface.comp`; neither is edited alone.
+         */
+        inline float atmosphere_clear_sky_shortwave(const AtmosphereParameters& p,
+                                                    float elevation_sine)
+        {
+            if (!(elevation_sine > 0.0f))
+                return 0.0f;
+            const float tau = p.clear_sky_transmittance < 0.01f
+                                  ? 0.01f
+                                  : (p.clear_sky_transmittance > 1.0f ? 1.0f
+                                                                      : p.clear_sky_transmittance);
+            return p.solar_constant * elevation_sine *
+                   std::pow(tau, 1.0f / std::fmax(elevation_sine, 0.05f));
+        }
+
         /**
          * @brief The fraction of a nominal excess that survives its own latent heating, [0, 1].
          *
@@ -580,9 +1070,13 @@ namespace SushiEngine
                                                         float saturation, float temperature_k)
         {
             const float safe = temperature_k > 1.0f ? temperature_k : 1.0f;
-            const float slope = saturation * p.latent_heat_vaporization /
-                                (p.gas_constant_vapour * safe * safe);
-            return 1.0f / (1.0f + p.latent_heat_vaporization / p.specific_heat_pressure * slope);
+            // The *phase-blended* latent heat, so a glaciating cell is correctly harder to
+            // condense in: it releases 13 % more heat per kilogram, which raises q_s further,
+            // which leaves less of the excess surviving. Using the liquid value below freezing
+            // would over-condense exactly where the extra heating matters most to the updraft.
+            const float latent = atmosphere_latent_heat(p, temperature_k);
+            const float slope = saturation * latent / (p.gas_constant_vapour * safe * safe);
+            return 1.0f / (1.0f + latent / p.specific_heat_pressure * slope);
         }
 
         /**
@@ -599,6 +1093,22 @@ namespace SushiEngine
             float wind_north_mps = 0.0f;  /**< Parent northward wind, m/s. */
             float theta_anomaly_k = 0.0f; /**< Departure from the base-state potential temperature, K. */
             float humidity_anomaly = 0.0f;/**< Departure from the base-state relative humidity, fraction. */
+            /**
+             * @brief Large-scale vertical motion, m/s. Positive is ascent.
+             *
+             * **The one field here that is not a boundary condition.** The three above shape what
+             * the nest relaxes toward in its Davies zone; this is applied across the *whole*
+             * domain, because it is a motion the nest cannot generate and would be wrong to try
+             * to: a 384 km window has no way to know it is sitting under a thousand-kilometre
+             * high, and the gentle descent that produces is what dries an airmass.
+             *
+             * Centimetres per second, and that is not a rounding error next to a 1 m/s updraft —
+             * it acts over the whole domain for the whole day rather than over one cell for ten
+             * minutes. Phase B3e's acceptance run failed its third clause on exactly this: with
+             * no subsidence a saturated layer aloft has no sink at all overnight, so an evening
+             * deck grew instead of decaying.
+             */
+            float vertical_velocity_mps = 0.0f;
         };
 
         /**
@@ -711,6 +1221,17 @@ namespace SushiEngine
              * than closer. Reported as 0 when the parcel never saturates inside the domain.
              */
             float extent[4]{};
+            /**
+             * @brief Skin temperature (K), sensible flux, latent flux, net radiation (W/m²).
+             *
+             * The surface energy balance's own state and what it did with it, which is not
+             * derivable from anything above: the fluxes are no longer authored numbers a caller
+             * could look up, and the skin temperature is a prognostic variable of the model with
+             * no proxy in the air. It is also the fastest way to read *why* a sky is doing what
+             * it is doing — a clear afternoon with a warm skin and a near-zero latent flux is a
+             * dry surface, and the same skin with the fluxes reversed is a wet one.
+             */
+            float skin[4]{};
         };
 
         /** @brief Levels the profile readback carries; the Ultra tier's count is the ceiling. */

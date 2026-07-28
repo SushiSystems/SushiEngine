@@ -44,6 +44,7 @@
 
 #include <cstdint>
 
+#include <SushiEngine/render/atmosphere_nest.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 
 namespace SushiEngine
@@ -303,6 +304,29 @@ namespace SushiEngine
              * one is the floor, the upper tiers spend more for smoother motion.
              */
             std::uint32_t particle_sim_substeps = 1;
+
+            /**
+             * @brief The regional atmosphere's discretization at this tier.
+             *
+             * **The horizontal domain is 384 km at every tier and only its resolution changes.**
+             * Raising the tier therefore resolves the same weather more finely rather than
+             * simulating a different amount of world, which is what keeps a scene's sky
+             * recognisably itself across machines — a front is in the same place, it is merely
+             * drawn with more or less structure. A tier that grew the domain instead would give
+             * two players in the same scene different weather.
+             *
+             * High is the shipped 192×192×48 at 2 km, unchanged, because the resolver's contract
+             * is that High *is* the authored baseline. That spacing is not an arbitrary rung: 2 km
+             * is where convection stops being parameterized and starts being resolved
+             * (`docs/slop/atmosphere_system.md` §2.2), which is what this tier's acceptance bar —
+             * a cumulus that grows on its own — rests on. Medium and Low sit above it and are
+             * honest about what that costs: their convection is smoother and more parameterized,
+             * in exchange for a step a third and a sixth of the price.
+             *
+             * Changing this rebuilds the nest, and a rebuilt nest starts from its base state —
+             * the running weather is lost. That is why it is a tier and not a slider.
+             */
+            AtmosphereNestSize atmosphere_nest{};
         };
 
         /**

@@ -50,6 +50,7 @@
 #include "atmosphere_shift.comp.h"
 #include "atmosphere_advect_velocity.comp.h"
 #include "atmosphere_advect_scalars.comp.h"
+#include "atmosphere_surface.comp.h"
 #include "atmosphere_forces.comp.h"
 #include "atmosphere_divergence.comp.h"
 #include "atmosphere_pressure.comp.h"
@@ -193,6 +194,9 @@ namespace SushiEngine
                  Shaders::atmosphere_advect_velocity_comp_spv_word_count, "atmosphere_advect_velocity.comp"},
                 {"atmosphere_advect_scalars.comp", ShaderStage::Compute, Shaders::atmosphere_advect_scalars_comp_spv,
                  Shaders::atmosphere_advect_scalars_comp_spv_word_count, "atmosphere_advect_scalars.comp"},
+                {"atmosphere_surface.comp", ShaderStage::Compute,
+                 Shaders::atmosphere_surface_comp_spv,
+                 Shaders::atmosphere_surface_comp_spv_word_count, "atmosphere_surface.comp"},
                 {"atmosphere_forces.comp", ShaderStage::Compute, Shaders::atmosphere_forces_comp_spv,
                  Shaders::atmosphere_forces_comp_spv_word_count, "atmosphere_forces.comp"},
                 {"atmosphere_divergence.comp", ShaderStage::Compute, Shaders::atmosphere_divergence_comp_spv,

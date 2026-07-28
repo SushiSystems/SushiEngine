@@ -82,14 +82,24 @@ void main()
     // is what makes evaporation fall out for free: less cloud than the partition asks for
     // condenses, more evaporates, and neither needs a branch or a clamp against the cloud that
     // is there.
-    float latent_over_cp = nest.latent_heat_vaporization / nest.specific_heat_pressure;
-    float total_water = vapour + cloud;
+    // **Phase.** Everything about ice in this shader comes off `nest_ice_fraction`, a ramp on
+    // temperature across the mixed-phase band -- the latent heat released, the saturation
+    // condensed against, how readily the cell precipitates, and how fast that precipitation
+    // falls. A diagnostic partition rather than a second prognostic species; see
+    // AtmosphereParameters::latent_heat_fusion for the trade and what it gives up.
     float temperature = (base_theta + theta_perturbation) * exner;
-    // What this cell would cool to if all its cloud evaporated. Conserved under condensation,
-    // which is exactly why the partition is evaluated against it and not against T.
+    float ice_fraction = nest_ice_fraction(temperature);
+    float latent_over_cp = nest_latent_heat(temperature) / nest.specific_heat_pressure;
+    float total_water = vapour + cloud;
+    // What this cell would cool to if all its condensate evaporated (or sublimed). Conserved
+    // under condensation, which is exactly why the partition is evaluated against it and not
+    // against T.
     float liquid_temperature = temperature - latent_over_cp * cloud;
 
-    float saturation = nest_saturation_mixing_ratio(liquid_temperature, pressure);
+    // Against the *blended* curve. Below freezing the ice curve sits well under the liquid one,
+    // so a cell that would be clear at +2 C condenses on the same water at -25 C -- and it is
+    // that gap, not a new species, that makes cold cloud form where warm cloud would not.
+    float saturation = nest_saturation_mixing_ratio_phase(liquid_temperature, pressure);
     float efficiency = nest_condensation_efficiency(saturation, liquid_temperature);
 
     float fraction = 0.0;
@@ -100,17 +110,28 @@ void main()
     cloud = max(condensate, 0.0);
     theta_perturbation += latent_over_cp * excess / max(exner, 1e-6);
 
-    // The state the terms below see is the adjusted one: rain falls through the air this cell
-    // now holds, not the air it held before condensing.
+    // The state the terms below see is the adjusted one: precipitation falls through the air
+    // this cell now holds, not the air it held before condensing. The phase is re-read with it,
+    // because latent heating can carry a cell back across the freezing point it condensed on the
+    // cold side of.
     temperature = (base_theta + theta_perturbation) * exner;
-    saturation = nest_saturation_mixing_ratio(temperature, pressure);
+    ice_fraction = nest_ice_fraction(temperature);
+    latent_over_cp = nest_latent_heat(temperature) / nest.specific_heat_pressure;
+    saturation = nest_saturation_mixing_ratio_phase(temperature, pressure);
 
     // ---- Autoconversion: cloud droplets collide into drizzle --------------------------
     //
     // Nothing happens below the threshold, which is what keeps a thin fair-weather cumulus
     // from raining. Above it the conversion is linear in the excess.
-    float autoconversion = nest.autoconversion_rate *
-                           max(cloud - nest.autoconversion_threshold, 0.0);
+    //
+    // The threshold falls as the cell glaciates. Ice crystals stick to each other where droplets
+    // have to coalesce, and they grow by deposition at the expense of any liquid beside them --
+    // so a cold cloud starts precipitating at a fraction of the condensate a warm one needs,
+    // which is why a winter deck snows out of cloud that in summer would just sit there. This is
+    // the Bergeron process's *consequence*; its rate is what the diagnostic partition gives up.
+    float threshold = nest.autoconversion_threshold *
+                      mix(1.0, nest.glaciated_autoconversion_factor, ice_fraction);
+    float autoconversion = nest.autoconversion_rate * max(cloud - threshold, 0.0);
 
     // ---- Accretion: falling rain sweeps up the cloud droplets it passes ---------------
     //
@@ -152,8 +173,23 @@ void main()
     // level above. Explicit and therefore limited to one level per step, which the time step
     // comfortably satisfies: at 5 m/s and a 2 s step, rain falls 10 m against level thicknesses
     // of 80 m and up.
-    float fall_here = nest.fall_speed_coefficient *
-                      pow(max(density * rain, 0.0), nest.fall_speed_exponent);
+    //
+    // **Snow falls at a seventh of rain's speed**, and blending the two by the ice fraction is
+    // what makes that visible without a second species. A crystal aggregate carries an enormous
+    // cross-section for its mass, so it drifts at around a metre a second where a raindrop of
+    // the same water falls at seven -- which is why a snow shaft leans so far downwind, and why
+    // snow accumulates aloft into a deep deck where rain would have already fallen out of it.
+    //
+    // Melting needs no term: a snowflake falling into air above freezing arrives in a cell whose
+    // ice fraction is zero, so it falls at rain's speed and evaporates on rain's curve from that
+    // level down. That is the diagnostic partition doing the work a prognostic species would
+    // need an explicit melting rate for -- and it is also its limit, since the melting is
+    // instantaneous rather than taking the few hundred metres it really does.
+    float fall_here = mix(nest.fall_speed_coefficient, nest.snow_fall_speed_coefficient,
+                          ice_fraction) *
+                      pow(max(density * rain, 0.0),
+                          mix(nest.fall_speed_exponent, nest.snow_fall_speed_exponent,
+                              ice_fraction));
     float outflow = min(fall_here * dt / thickness, 1.0) * rain;
 
     float inflow = 0.0;
@@ -162,9 +198,21 @@ void main()
         ivec3 above = ivec3(cell.x, cell.y + 1, cell.z);
         float rain_above = imageLoad(moisture, above).z / MOISTURE_UNIT;
         float thickness_above = nest_level_thickness(cell.y + 1);
-        float density_above = nest_base_density(nest_level_altitude(float(cell.y) + 1.0));
-        float fall_above = nest.fall_speed_coefficient *
-                           pow(max(density_above * rain_above, 0.0), nest.fall_speed_exponent);
+        float altitude_above = nest_level_altitude(float(cell.y) + 1.0);
+        float density_above = nest_base_density(altitude_above);
+        // The level above falls at *its own* phase's speed, which is the point: the flux across
+        // a boundary is set by what is falling, not by what it is falling into.
+        float theta_above = imageLoad(theta, above).r;
+        // T_base + theta' * Pi rather than (theta_base + theta') * Pi: the same number, one
+        // Exner instead of two, and Exner is a pow() chain.
+        float temperature_above = nest_base_temperature(altitude_above) +
+                                  theta_above * nest_exner(altitude_above);
+        float ice_above = nest_ice_fraction(temperature_above);
+        float fall_above = mix(nest.fall_speed_coefficient, nest.snow_fall_speed_coefficient,
+                               ice_above) *
+                           pow(max(density_above * rain_above, 0.0),
+                               mix(nest.fall_speed_exponent, nest.snow_fall_speed_exponent,
+                                   ice_above));
         // Mass, not mixing ratio, is what is conserved across a level boundary, so the flux
         // carries the ratio of the two levels' air masses with it.
         float mass_ratio = (density_above * thickness_above) / max(density * thickness, 1e-6);

@@ -3007,14 +3007,33 @@ namespace SushiEngine
             const SushiEngine::Render::AtmosphereParameters& nest = environment.atmosphere_nest;
 
             const double sky_rate = context.sky_animate ? context.sky_days_per_second * 86400.0 : 0.0;
-            // The step the nest will pick: the vertical CFL binds at this grid, so it is the
-            // thinnest level over a generous updraft, clamped into the authored window.
-            const SushiEngine::Render::AtmosphereNestSize size{};
+            // The grid the *quality tier* resolves to, not a hard-coded default: the nest's
+            // discretization is a tier parameter, so a panel that assumed 192x192x48 would
+            // report the wrong step and the wrong sustainable rate on every tier but High.
+            const SushiEngine::Render::AtmosphereNestSize size =
+                SushiEngine::Render::resolve_quality(context.render_settings)
+                    .params.atmosphere_nest;
+            // The step the nest will pick *before its first readback*, which is the only one
+            // predictable from here: after that the vertical CFL binds against the updraft the
+            // nest measures itself, and the step lengthens in quiet air.
             const float thinnest =
                 SushiEngine::Render::atmosphere_level_thickness(0, size.levels, size.top_m);
             const float step = std::clamp(nest.courant_target * thinnest /
                                               std::max(10.0f * nest.convective_velocity_scale, 1.0f),
                                           nest.min_step_seconds, nest.max_step_seconds);
+            ImGui::Text("Grid:       %u x %u x %u at %.0f m  (%.0f km domain, %.1f M cells)",
+                        size.cells_x, size.cells_z, size.levels, double(size.spacing_m),
+                        double(size.spacing_m) * double(size.cells_x) / 1000.0,
+                        double(size.cells_x) * double(size.cells_z) * double(size.levels) / 1e6);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Set by the render quality tier, not authored here. The domain\n"
+                                  "is 384 km at every tier and only the resolution changes, so\n"
+                                  "raising the tier resolves the same weather more finely rather\n"
+                                  "than simulating a different amount of world.\n\n"
+                                  "2 km (High) is where convection stops being parameterized and\n"
+                                  "starts being resolved. Changing the tier rebuilds the nest,\n"
+                                  "and a rebuilt nest starts from its base state -- the running\n"
+                                  "weather is lost.");
             // What the nest could sustain *if the editor rendered at 60 fps*. It does not: this
             // panel is drawn beside a 192x192x48 nest, three scene views and a deferred
             // renderer, and the frame rate that results is the whole term. Kept only as the
@@ -3094,6 +3113,62 @@ namespace SushiEngine
             else
                 ImGui::TextDisabled("(estimated; press again once weather has been simulated)");
 
+            // ---- What a step costs, measured ------------------------------------------------
+            //
+            // The rate above says how much weather is happening; this says what it is costing to
+            // make it happen, which is the other half of the same question and was for a long
+            // time not asked at all: §12 budgets the step at 2 ms and nothing had ever measured
+            // it. Timestamps around each stage of the step, resolved where the nest already
+            // waits on the submission's timeline value, so reading them stalls nothing.
+            //
+            // Both numbers are stated because they answer different questions. The per-step cost
+            // is what §12's budget is written against; the per-frame cost is what a dropped frame
+            // is caused by, and at a couple of seconds of game time per step the two differ by
+            // more than two orders of magnitude. A step that is "seven times over budget" and a
+            // tier that costs a tenth of a millisecond a frame are the same measurement.
+            const SushiEngine::Render::AtmosphereStepCost cost =
+                context.assets != nullptr ? context.assets->atmosphere_step_cost()
+                                          : SushiEngine::Render::AtmosphereStepCost{};
+            if (cost.measured && cost.steps > 0)
+            {
+                const float per_step = cost.total_ms / float(cost.steps);
+                // The step lands every `step` seconds of game time, and game time runs at
+                // `sky_rate` times real time — so this is how much of each wall-clock second of
+                // rendering the atmosphere is taking.
+                const double steps_per_second =
+                    double(step) > 0.0 ? std::max(sky_rate, 1.0) / double(step) : 0.0;
+                const double per_frame_ms = double(per_step) * steps_per_second / 60.0;
+
+                if (ImGui::TreeNode("Step cost"))
+                {
+                    ImGui::Text("%.2f ms per step, %u step(s) in the measured frame",
+                                double(per_step), cost.steps);
+                    ImGui::Text("~%.3f ms per frame at 60 fps and the current sky rate",
+                                per_frame_ms);
+                    if (per_step > 2.0f)
+                        ImGui::TextDisabled("(doc " "\xc2\xa7" "12 budgets 2.00 ms per step)");
+                    ImGui::Separator();
+                    // Against *one* step, not against the submission. The breakdown is the first
+                    // step of the frame and the total covers all of them, so dividing one by the
+                    // other reports a stage as a quarter of its real share on a four-step frame
+                    // — which is exactly when someone is looking at this panel.
+                    for (int i = 0; i < cost.count; ++i)
+                    {
+                        const float ms = cost.stages[i].milliseconds;
+                        ImGui::Text("%-14s %7.3f ms  %5.1f %%", cost.stages[i].name, double(ms),
+                                    per_step > 0.0f ? 100.0 * double(ms / per_step) : 0.0);
+                    }
+                    ImGui::TextDisabled(
+                        "The breakdown is the first step of the frame; the total covers all of\n"
+                        "them. Sections can overlap, so they need not sum to the total.");
+                    ImGui::TreePop();
+                }
+            }
+            else if (context.assets != nullptr && mirror.valid())
+            {
+                ImGui::TextDisabled("Step cost: not measured (no timestamp queries on this device)");
+            }
+
             // A frozen sun is a different failure from a frozen clock and reads identically in
             // every other readout: the nest steps, the log fills, and the surface forcing never
             // changes because the sun never moves. Without the astronomical sun the direction is
@@ -3169,30 +3244,50 @@ namespace SushiEngine
                                     : 0.0;
             const double elevation = std::asin(std::clamp(sine, -1.0, 1.0)) * 180.0 / 3.14159265358979;
             ImGui::Text("Sun elevation: %+.1f deg  (sin = %+.3f)", elevation, sine);
-            ImGui::Text("Surface flux:  %.0f W/m2 sensible, %.0f W/m2 latent",
-                        sine > 0.0 ? nest.surface_sensible_flux * sine : -nest.surface_night_flux,
-                        sine > 0.0 ? nest.surface_latent_flux * sine : 0.0);
             ImGui::TextDisabled("Seasons are this number: the declination that lifts the summer\n"
                                 "sun is already in the ephemeris, so a July noon delivers more\n"
                                 "heat than a January one with nothing modelling \"summer\".");
 
-            // The Bowen ratio, named. It is the single number that decides whether a heated
-            // boundary layer reaches its condensation level or simply gets hotter, it is a
-            // *derived* quantity so nothing in the panel showed it, and its authored value is
-            // a semi-desert — which is why a scene can be heated all day and stay clear.
-            // Measured: at 1.4 the domain makes no cloud in eleven hours; at 0.48 it makes a
-            // cumulus deck over 88 % of columns at 1341 m, the mixed-layer top.
-            const float bowen = nest.surface_latent_flux > 0.0f
-                                    ? nest.surface_sensible_flux / nest.surface_latent_flux
-                                    : 0.0f;
-            ImGui::Text("Bowen ratio:   %.2f  (sensible / latent)", bowen);
-            if (bowen > 1.0f)
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                                   "Above 1 is semi-desert: the ground heats the air far faster\n"
-                                   "than it moistens it, so relative humidity falls all day and\n"
-                                   "the condensation level runs away upward. Vegetated land in\n"
-                                   "summer is 0.3-0.6, and that is the difference between a\n"
-                                   "clear sky and a cumulus deck -- not the time of day.");
+            // **Measured, not authored.** These were the two numbers a user typed in; since
+            // Phase B3 they are what the surface energy balance solved, read back off the
+            // observer's column. The difference shows the moment the sun moves: the fluxes lag
+            // it, because the ground has a heat capacity now.
+            const SushiEngine::Render::AtmosphereMirrorColumn* surface_column =
+                observer_column(mirror);
+            if (surface_column == nullptr)
+            {
+                ImGui::TextDisabled("Surface flux:  no readback yet");
+            }
+            else
+            {
+                ImGui::Text("Skin:          %.1f C   (net radiation %+.0f W/m2)",
+                            double(surface_column->skin[0]) - 273.15,
+                            double(surface_column->skin[3]));
+                ImGui::Text("Surface flux:  %.0f W/m2 sensible, %.0f W/m2 latent",
+                            double(surface_column->skin[1]), double(surface_column->skin[2]));
+
+                // The Bowen ratio, named. It is the single number that decides whether a heated
+                // boundary layer reaches its condensation level or simply gets hotter, and it is
+                // a *derived* quantity so nothing in the panel showed it. It is now derived from
+                // the solved fluxes rather than from two authored ones, which means it moves
+                // through the day as the surface dries — the fixed ratio was itself part of what
+                // made a scene heat all afternoon and stay clear.
+                const float latent = surface_column->skin[2];
+                const float bowen = latent > 1.0f ? surface_column->skin[1] / latent : 0.0f;
+                if (latent <= 1.0f)
+                    ImGui::TextDisabled("Bowen ratio:   -- (no latent flux to divide by)");
+                else
+                    ImGui::Text("Bowen ratio:   %.2f  (sensible / latent)", double(bowen));
+                if (bowen > 1.0f)
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                                       "Above 1 is semi-desert: the ground heats the air far "
+                                       "faster\nthan it moistens it, so relative humidity falls "
+                                       "all day and\nthe condensation level runs away upward. "
+                                       "Vegetated land in\nsummer is 0.3-0.6, and that is the "
+                                       "difference between a\nclear sky and a cumulus deck -- not "
+                                       "the time of day.\nRaise Moisture Availability below to "
+                                       "move it.");
+            }
 
             // ---- The column under the observer --------------------------------------------
             ImGui::SeparatorText("Column under the observer");
@@ -4397,97 +4492,128 @@ namespace SushiEngine
                     // surface energy balance replaces both in the next phase.
                     ImGui::SeparatorText("Surface forcing (prescribed this phase)");
 
-                    // The land cover, as the flux pair it implies.
+                    // The land cover, as the *properties* it implies.
                     //
-                    // The two sliders below are the model's inputs, but nobody authors a scene by
-                    // choosing watts per square metre — they choose a place. What a place *is*,
-                    // for this model, is its Bowen ratio: how the ground splits absorbed sunlight
-                    // between heating the air and evaporating water. That single split decides
-                    // whether an afternoon reaches its condensation level or merely gets hotter,
-                    // and it is the difference between a clear sky and a cumulus deck at every
-                    // value of every other parameter in this panel. Measured over eleven simulated
-                    // hours from sunrise, quiescent airmass, no front: at 1.4 the domain makes no
-                    // cloud at all; at 0.48 it makes cumulus over 88 % of columns at 1341 m.
+                    // These presets used to set a pair of fluxes directly. Since Phase B3 the
+                    // fluxes are solved, so what a preset sets is what a place actually is —
+                    // how bright it is, how much water it can give up, and how much heat it
+                    // stores. The Bowen ratio it produces then falls out of the balance and
+                    // moves through the day as the ground dries, instead of being pinned.
                     //
                     // Presets rather than a default change, deliberately: which of these a scene
                     // is standing on is an authoring decision, and the engine has no way to guess
-                    // it. Each pair is what that cover actually delivers at midsummer noon.
+                    // it. The measured skies are in each tooltip; the panel above reports the
+                    // ratio the model is actually running at.
                     struct SurfacePreset
                     {
                         const char* name;
-                        float sensible;
-                        float latent;
+                        float albedo;
+                        float availability;
+                        float capacity;
                         const char* note;
                     };
                     static const SurfacePreset PRESETS[] = {
-                        {"Semi-desert / bare soil", 140.0f, 100.0f,
-                         "Bowen 1.4. Heats far faster than it moistens, so relative\n"
-                         "humidity falls all day and the sky stays clear. The\n"
-                         "engine default, and the reason a scene can be heated for\n"
-                         "hours and make nothing."},
-                        {"Mixed cropland", 130.0f, 180.0f,
-                         "Bowen 0.72. A dry summer, or land partly harvested.\n"
-                         "Measured: a thin deck late in the afternoon at 1341 m,\n"
-                         "4 % of the sky. Cloud, but barely."},
-                        {"Vegetated summer land", 120.0f, 250.0f,
-                         "Bowen 0.48. Temperate grassland or forest in leaf.\n"
-                         "Measured: a scattered fair-weather cumulus deck at\n"
-                         "1341 m, the mixed-layer top, covering 16 % of the sky."},
-                        {"Open water / marsh", 60.0f, 320.0f,
-                         "Bowen 0.19. Almost all the sun's energy goes into\n"
-                         "evaporation, so the layer is moist but barely buoyant.\n"
-                         "Measured: a solid low deck at 700-900 m covering 45 %\n"
-                         "of the sky by late afternoon -- stratocumulus, not\n"
-                         "cumulus. The base sits low and stays there."},
+                        {"Semi-desert / bare soil", 0.30f, 0.10f, 6.0e4f,
+                         "Bright, dry and thin: it heats fast, gives up almost no\n"
+                         "water, and its Bowen ratio runs well above 1. The sky\n"
+                         "stays clear however long it is left running, and that is\n"
+                         "the model being right rather than idle."},
+                        {"Mixed cropland", 0.22f, 0.30f, 1.0e5f,
+                         "A dry summer, or land partly harvested. Cloud, but late\n"
+                         "and thin."},
+                        {"Vegetated summer land", 0.18f, 0.55f, 1.5e5f,
+                         "Temperate grassland or forest in leaf. Dark, damp, and\n"
+                         "with enough thermal mass to keep the afternoon going --\n"
+                         "the fair-weather cumulus case."},
+                        {"Open water / lake", 0.06f, 1.00f, 1.3e7f,
+                         "Dark, saturated, and with the heat capacity of a three\n"
+                         "metre mixed layer: the skin barely moves over a whole\n"
+                         "day. Almost all the sun's energy goes into evaporation,\n"
+                         "so the layer is moist but barely buoyant -- and it is\n"
+                         "this contrast against the land beside it that a sea\n"
+                         "breeze is made of."},
                     };
                     ImGui::TextUnformatted("Land cover");
                     ImGui::SameLine();
-                    ImGui::TextDisabled("(sets both fluxes below)");
+                    ImGui::TextDisabled("(sets the three properties below)");
                     for (const SurfacePreset& preset : PRESETS)
                     {
                         if (ImGui::Button(preset.name))
                         {
-                            nest.surface_sensible_flux = preset.sensible;
-                            nest.surface_latent_flux = preset.latent;
+                            nest.surface_albedo = preset.albedo;
+                            nest.surface_moisture_availability = preset.availability;
+                            nest.surface_heat_capacity = preset.capacity;
                             changed = true;
                         }
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("%.0f W/m2 sensible, %.0f W/m2 latent.\n%s",
-                                              double(preset.sensible), double(preset.latent),
-                                              preset.note);
+                            ImGui::SetTooltip("albedo %.2f, moisture %.2f, slab %.2g J/m2/K.\n%s",
+                                              double(preset.albedo), double(preset.availability),
+                                              double(preset.capacity), preset.note);
                     }
 
-                    if (ImGui::SliderFloat("Sensible Flux", &nest.surface_sensible_flux, 0.0f,
-                                           400.0f, "%.0f W/m2"))
+                    if (ImGui::SliderFloat("Albedo", &nest.surface_albedo, 0.0f, 0.9f, "%.2f"))
                         changed = true;
-                    if (ImGui::SliderFloat("Latent Flux", &nest.surface_latent_flux, 0.0f, 400.0f,
-                                           "%.0f W/m2"))
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How much sunlight the ground throws away. The widest\n"
+                                          "range of any parameter here: 0.06 for water at noon,\n"
+                                          "0.20 for vegetation, 0.8 for fresh snow. First thing\n"
+                                          "to reach for when a scene heats too fast or too slow.");
+                    if (ImGui::SliderFloat("Moisture Availability", &nest.surface_moisture_availability,
+                                           0.0f, 1.0f, "%.2f"))
                         changed = true;
-                    // The consequence of the two above, next to them. It is the ratio and not
-                    // either number that decides whether this atmosphere can make cloud.
-                    {
-                        const float bowen = nest.surface_latent_flux > 0.0f
-                                                ? nest.surface_sensible_flux /
-                                                      nest.surface_latent_flux
-                                                : 0.0f;
-                        if (bowen > 1.0f)
-                            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                                               "Bowen ratio %.2f -- above 1 the ground dries the "
-                                               "air it heats,\nand the sky stays clear however "
-                                               "long it is left running.",
-                                               bowen);
-                        else
-                            ImGui::TextDisabled("Bowen ratio %.2f", bowen);
-                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The fraction of the saturation deficit the ground can\n"
+                                          "actually supply -- 1 is open water or saturated soil,\n"
+                                          "0 is dry rock. **This is the Bowen ratio's author.**\n"
+                                          "It decides whether a heated afternoon reaches its\n"
+                                          "condensation level or merely gets hotter, which is\n"
+                                          "the difference between a clear sky and a cumulus deck\n"
+                                          "at every value of every other parameter here.");
+                    if (ImGui::SliderFloat("Heat Capacity", &nest.surface_heat_capacity, 1.0e4f,
+                                           1.5e7f, "%.2g J/m2/K", ImGuiSliderFlags_Logarithmic))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How much energy warms the ground by a degree, and so\n"
+                                          "how far the afternoon peak lags solar noon. 1e5 is a\n"
+                                          "few centimetres of soil (an hour or two of lag); 1.3e7\n"
+                                          "is three metres of water, which barely moves all day.\n"
+                                          "Safe at any value: the slab is solved semi-implicitly,\n"
+                                          "so a thin one cannot destabilise the step.");
                     if (ImGui::SliderFloat("Surface Patchiness", &nest.thermal_seed_amplitude, 0.0f,
                                            1.0f, "%.2f"))
                         changed = true;
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How much the surface heating varies cell to cell,\n"
-                                          "as a fraction. Convection needs it: a uniformly\n"
-                                          "heated surface rises as one slab and never forms\n"
-                                          "cells. 0.4 is mixed terrain. It scales the flux,\n"
-                                          "so it cannot cool the ground and it stops at dusk.");
+                        ImGui::SetTooltip("How much the surface heating varies across the\n"
+                                          "ground, as a fraction. Convection needs it: a\n"
+                                          "uniformly heated surface rises as one slab and\n"
+                                          "never forms cells. 0.4 is mixed terrain. It scales\n"
+                                          "the flux, so it cannot cool the ground and it\n"
+                                          "stops at dusk.");
+                    // The two scales below are what make the slider above do anything. Measured:
+                    // patchiness with no scales -- redrawn per cell per step, as it was -- gives
+                    // 1.22x the domain structure of switching the seed off entirely, against
+                    // 3.72x for these defaults. They are in metres and seconds rather than cells
+                    // and steps so that the quality tier and the frame rate are not physical
+                    // parameters of the weather.
+                    if (ImGui::SliderFloat("Patch Size", &nest.thermal_seed_length_m, 1000.0f,
+                                           24000.0f, "%.0f m"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How wide a patch of warmer ground is. Convection\n"
+                                          "organises on this scale, so it sets how big the\n"
+                                          "cumulus cells come out. 6 km is the scale land\n"
+                                          "cover and soil moisture actually vary over; much\n"
+                                          "wider is broader than the plumes that form.");
+                    if (ImGui::SliderFloat("Patch Lifetime", &nest.thermal_seed_period_s, 60.0f,
+                                           3600.0f, "%.0f s"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How long a patch stays warmer before the pattern\n"
+                                          "renews. This is the axis that matters: a patch\n"
+                                          "gone in one step cannot lift anything, because a\n"
+                                          "thermal needs a boundary-layer turnover -- about\n"
+                                          "15 min -- to organise around it. Longer than an\n"
+                                          "hour and the pattern stops renewing at all.");
 
                     // Without this the two above go nowhere. The turbulence that lifts surface
                     // heat and moisture out of a 54 m surface layer is far below a 2 km grid, so
@@ -4564,6 +4690,57 @@ namespace SushiEngine
                                            8.0e-3f, "%.5f kg/m3"))
                         changed = true;
 
+                    // Ice is a *diagnosed phase*, not a second species: everything below is a
+                    // function of the cell's own temperature. Which is why there is a band and
+                    // not a switch -- a cloud at -5 C is mostly supercooled water and one at
+                    // -20 C is mostly crystals, and the band between them is where the two
+                    // coexist and where a cloud turns itself into snow.
+                    ImGui::SeparatorText("Ice");
+                    if (ImGui::SliderFloat("All Liquid Above", &nest.freezing_temperature, 263.15f,
+                                           278.15f, "%.2f K"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Warm edge of the mixed-phase band. Above this a cloud\n"
+                                          "is entirely liquid and every ice term below is\n"
+                                          "exactly inert, so a summer scene is untouched by any\n"
+                                          "of this.");
+                    if (ImGui::SliderFloat("All Ice Below", &nest.glaciation_temperature, 233.15f,
+                                           268.15f, "%.2f K"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Cold edge. Saturation over ice is lower than over\n"
+                                          "water, so a cell crossing into the band starts\n"
+                                          "condensing at a humidity it would have been clear at\n"
+                                          "-- which is why cold cloud forms where warm cloud\n"
+                                          "would not, on the same water.");
+                    if (ImGui::SliderFloat("Ice Radius", &nest.ice_effective_radius, 1.0e-5f,
+                                           1.0e-4f, "%.7f m"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The optical half, and the half you can see. A crystal\n"
+                                          "aggregate is nearly four times a droplet's effective\n"
+                                          "radius, so glaciated cloud is that much thinner for\n"
+                                          "the same water: a translucent cirrus veil and a soft\n"
+                                          "anvil top instead of a wall of white.");
+                    if (ImGui::SliderFloat("Snow Fall Speed", &nest.snow_fall_speed_coefficient,
+                                           1.0f, 20.0f, "%.1f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("An order of magnitude under rain's, and that single\n"
+                                          "fact is most of what makes snow look like snow: a\n"
+                                          "metre a second where a raindrop of the same water\n"
+                                          "falls at seven. It is also why a snow shaft leans so\n"
+                                          "far downwind.");
+                    if (ImGui::SliderFloat("Snow Precipitates At", &nest.glaciated_autoconversion_factor,
+                                           0.05f, 1.0f, "%.2f x"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Fraction of the warm threshold a fully glaciated cloud\n"
+                                          "needs before it precipitates. Crystals stick where\n"
+                                          "droplets have to coalesce, so a winter deck snows out\n"
+                                          "of cloud that in summer would just sit there. At 1.00\n"
+                                          "ice precipitates no more readily than water.");
+
                     ImGui::SeparatorText("Dynamics");
                     if (ImGui::SliderFloat("Courant Target", &nest.courant_target, 0.1f, 1.5f))
                         changed = true;
@@ -4582,10 +4759,14 @@ namespace SushiEngine
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Red-black sweeps of the pressure solve per step. The\n"
                                           "vertical is solved exactly, so these only iterate the\n"
-                                          "horizontal coupling. Twelve of the ten stages' work is\n"
-                                          "here, so this is the first thing to lower when the\n"
-                                          "step costs too much -- at the price of a small\n"
-                                          "residual divergence.");
+                                          "horizontal coupling -- which this grid's anisotropy\n"
+                                          "(2 km against 54-560 m) makes a small, strongly\n"
+                                          "diagonally dominant correction.\n\n"
+                                          "Measured: the solve converges at 2. From 2 to 20 the\n"
+                                          "weather is identical to every printed figure and the\n"
+                                          "peak divergence agrees to seven. 4 is that with a\n"
+                                          "margin. Raising it costs about 0.7 ms a step each and\n"
+                                          "buys nothing measurable.");
 
                     // How much weather one frame may buy. Read out by the Meteorology panel's
                     // clock since that panel existed, but never authorable -- and it is the

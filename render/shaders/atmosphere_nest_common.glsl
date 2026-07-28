@@ -45,6 +45,8 @@ layout(set = 0, binding = 0) uniform NestParams
     float sponge_rate;
     float boundary_relaxation;
     float thermal_seed_amplitude;
+    float thermal_seed_length;   // metres the surface heterogeneity is correlated over
+    float thermal_seed_period;   // seconds it is correlated over
     float coriolis;
     float convective_velocity_scale;
 
@@ -58,23 +60,36 @@ layout(set = 0, binding = 0) uniform NestParams
     float fall_speed_coefficient;
     float fall_speed_exponent;
     float droplet_effective_radius;
+    // Ice. A diagnostic phase partition rather than a second condensate species; see
+    // AtmosphereParameters::latent_heat_fusion for the trade and what it gives up.
+    float latent_heat_fusion;
+    float freezing_temperature;    // warm edge of the mixed-phase band, K
+    float glaciation_temperature;  // cold edge, K
+    float snow_fall_speed_coefficient;
+    float snow_fall_speed_exponent;
+    float glaciated_autoconversion_factor;
+    float ice_effective_radius;
 
-    // Surface forcing.
-    float surface_sensible_flux;   // peak, at solar noon with the sun overhead
-    float surface_latent_flux;     // peak, likewise
-    float surface_night_flux;      // net radiative cooling while the sun is down, positive
+    // Surface energy balance. The fluxes are solved from these, not authored; see
+    // atmosphere_surface.comp.
+    float solar_constant;              // top-of-atmosphere irradiance, W/m^2
+    float clear_sky_transmittance;     // at zenith; applied along the slant path
+    float surface_albedo;
+    float surface_emissivity;
+    float surface_heat_capacity;       // J/m^2/K of the slab
+    float surface_moisture_availability; // beta: the fraction of the deficit the ground supplies
+    float surface_exchange_coefficient;  // C_H, bulk transfer
+    float surface_minimum_wind;          // m/s the bulk formulae never fall below
     float solar_elevation_sine;    // sine of the sun's elevation; negative below the horizon
 
     // Grid and step.
     float spacing;      // horizontal cell size, metres
     float domain_top;   // domain top above the surface, metres
     float dt;           // this step's duration, seconds of game time
-    float elapsed;      // total game seconds simulated, for the thermal seed's phase
     int cells_x;
     int cells_z;
     int levels;
     int boundary_zone;  // Davies relaxation zone width, cells
-    int step_index;     // monotonically increasing step counter, decorrelates the seed
 } nest;
 
 const float ATMOSPHERE_VERTICAL_STRETCH = 1.5;
@@ -193,6 +208,58 @@ float nest_saturation_mixing_ratio(float temperature, float pressure)
     return denominator > 1.0 ? 0.622 * e_s / denominator : 1.0;
 }
 
+// ---- Ice ---------------------------------------------------------------------------------
+
+// Saturation vapour pressure over *ice*, Pa (Magnus, WMO coefficients). A different curve from
+// the liquid one above, not a correction to it, and the gap between them is the whole of the
+// Bergeron process: at -12 C the ice curve sits about 10 % below the supercooled-water one, so
+// air in equilibrium with a droplet is supersaturated with respect to a crystal beside it. The
+// crystal grows, the droplet evaporates to feed it, and a mixed-phase cloud turns itself into
+// snow. The two curves meet exactly at 0 C, which is what lets the band be blended continuously.
+float nest_saturation_pressure_ice(float temperature)
+{
+    return 611.2 * exp(22.46 * (temperature - 273.15) / max(temperature - 0.53, 1.0));
+}
+
+// How much of a cell's condensate is ice, [0, 1] -- **the whole of the phase partition**.
+//
+// A ramp across the mixed-phase band rather than a switch at 0 C: a cloud at -5 C is mostly
+// supercooled water and one at -20 C is mostly crystals, and the band between is where they
+// coexist. Everything else about ice here is a function of this one number -- the saturation the
+// cell condenses at, the latent heat it releases, how readily it precipitates, how fast that
+// precipitation falls.
+//
+// Mirrors Render::atmosphere_ice_fraction; neither is edited alone.
+float nest_ice_fraction(float temperature)
+{
+    float span = nest.freezing_temperature - nest.glaciation_temperature;
+    if (span <= 0.0)
+        return temperature < nest.freezing_temperature ? 1.0 : 0.0;
+    return clamp((nest.freezing_temperature - temperature) / span, 0.0, 1.0);
+}
+
+// The saturation mixing ratio a cell actually condenses at: the two curves blended by the ice
+// fraction. Below the glaciation point this *is* the ice curve, well under the liquid one, so a
+// column that would be clear at +2 C can be cloudy at -25 C on the same water.
+float nest_saturation_mixing_ratio_phase(float temperature, float pressure)
+{
+    float ice = nest_ice_fraction(temperature);
+    if (ice <= 0.0)
+        return nest_saturation_mixing_ratio(temperature, pressure);
+    float e_s = mix(nest_saturation_pressure(temperature),
+                    nest_saturation_pressure_ice(temperature), ice);
+    float denominator = pressure - 0.378 * e_s;
+    return denominator > 1.0 ? 0.622 * e_s / denominator : 1.0;
+}
+
+// Latent heat released per kilogram condensed, J/kg: vaporization plus the ice fraction's share
+// of fusion. Depositing straight to a crystal releases both -- 13 % more heat than condensing to
+// a droplet, which is a second push for an updraft just as it is running out of the first.
+float nest_latent_heat(float temperature)
+{
+    return nest.latent_heat_vaporization + nest_ice_fraction(temperature) * nest.latent_heat_fusion;
+}
+
 float nest_base_vapour(float altitude)
 {
     float temperature = nest_base_temperature(altitude);
@@ -211,12 +278,16 @@ float nest_base_vapour(float altitude)
 // f(d) = (q_v - d) - q_s(T + L d / c_p) is exact enough at these time steps, and this is that
 // step's denominator. Roughly 1/2 at 290 K, which is why a warm cloud takes about twice the
 // water a cold one does to reach the same condensate.
+// The latent heat is the *phase-blended* one, so a glaciating cell is correctly harder to
+// condense in: it releases 13 % more heat per kilogram, which raises q_s further, which leaves
+// less of the excess surviving. Using the liquid value below freezing would over-condense
+// exactly where the extra heating matters most to the updraft.
 float nest_condensation_efficiency(float saturation, float temperature)
 {
     float safe = max(temperature, 1.0);
-    float slope = saturation * nest.latent_heat_vaporization /
-                  (nest.gas_constant_vapour * safe * safe);
-    return 1.0 / (1.0 + nest.latent_heat_vaporization / nest.specific_heat_pressure * slope);
+    float latent = nest_latent_heat(temperature);
+    float slope = saturation * latent / (nest.gas_constant_vapour * safe * safe);
+    return 1.0 / (1.0 + latent / nest.specific_heat_pressure * slope);
 }
 
 // Split a cell's total water into a cloud fraction and the cell-mean condensate it implies.
@@ -343,23 +414,100 @@ float nest_face_diffusivity(float face_altitude, float depth)
     return VON_KARMAN * nest.boundary_layer_velocity_scale * face_altitude * taper * taper;
 }
 
-// A cheap, deterministic hash-based surface perturbation, in [-1, 1]. Convection needs something
-// to break the horizontal symmetry of a uniformly heated surface or the whole boundary layer
-// rises as one slab and no cell ever forms; real air has turbulence doing this, and every cloud
-// model without a resolved surface layer seeds it explicitly.
+// ---- Surface heterogeneity ---------------------------------------------------------------
+
+// Lattice cells before the seed field repeats. A power of two, so the wrap the caller applies to
+// the world coordinate — planet-scale coordinates do not survive a float32 otherwise — is exactly
+// a mask here and the seam is invisible. 256 cells of 6 km is 1536 km, four times the widest
+// domain the nest is ever given.
+const int NEST_SEED_WRAP = 256;
+
+// One lattice corner's value, in [0, 1).
+float nest_seed_corner(ivec3 lattice)
+{
+    // x and z wrap; the middle axis is time and simply runs, since unsigned arithmetic wraps it
+    // 10^14 seconds from now.
+    uvec3 c = uvec3(lattice & ivec3(NEST_SEED_WRAP - 1, 0x7fffffff, NEST_SEED_WRAP - 1));
+    uint n = c.x * 0x8da6b343u + c.y * 0xd8163841u + c.z * 0xcb1ab31fu;
+    n ^= n >> 15; n *= 0x2c1b3c6du; n ^= n >> 12; n *= 0x297a2d39u; n ^= n >> 15;
+    return float(n & 0xffffffu) / float(0xffffff);
+}
+
+// A deterministic model of *patchy ground*, in [-1, 1]. Convection needs something to break the
+// horizontal symmetry of a uniformly heated surface or the whole boundary layer rises as one slab
+// and no cell ever forms; real air has turbulence and real ground has patchy albedo, soil moisture
+// and cover doing this, and every cloud model without a resolved surface layer seeds it explicitly.
 //
 // Its *caller* decides what it perturbs, and `atmosphere_forces.comp` scales the surface flux by
 // it rather than adding it to theta — see there for why an additive kick redrawn every step is a
 // random walk with no bound, and what that random walk did.
 //
-// Named limit: white in space as well as in time, so it carries no structure at the several-cell,
-// several-minute scale a 2 km-resolved plume would organise around. A time-correlated,
-// spatially-smooth field is the refinement.
-float nest_thermal_seed(ivec3 cell)
+// **Correlated, and in physical units.** This was white noise on (cell index, step index), which
+// gave it three properties, none of them true of the ground: no length scale but one cell, no time
+// scale but one step, and — because both of those are *grid* quantities — a dependence on the
+// render quality tier and on how the frame rate happens to break the step.
+//
+// Measured, and the measurement is the reason this changed. `atmosphere_probe` grew two domain
+// diagnostics for it (`sky_coverage_sd`, `sky_coverage_roughness`) because the mean coverage
+// cannot tell a broken cumulus field from a sheet of the same total cloud, and that distinction is
+// the *entire* question a symmetry-breaking seed exists to decide. Roughness over simulated hours
+// 3-6, relative to running with the seed switched off altogether:
+//
+//     no seed at all                        1.00
+//     white in space and time (as it was)   1.22   <-- what the model actually had
+//     6 km in space, white in time          1.25
+//     6 km / 60 s                           1.88
+//     3.7 m / 900 s                         3.15
+//     24 km / 900 s                         2.27
+//     6 km / 900 s (this)                   3.72
+//
+// The seed the nest had was within 22 % of having no seed at all. Both axes are needed and the
+// *time* axis carries most of it: a patch must last long enough for a thermal to organise around
+// it, and 900 s is that time. A period well under the turnover (60 s) recovers half the effect and
+// a length well over the plume (24 km) two thirds. Four realisations of the field agree to 0.5 %.
+//
+// So: value noise on a lattice whose two horizontal axes are a *length* and whose third is a
+// *time*, interpolated with a smoothstep — C1, because a linear interpolation creases on every
+// lattice plane and convection would organise along the creases. The [-1, 1] bound is the white
+// field's, unchanged, so `thermal_seed_amplitude` still means what its documentation says.
+//
+// Its standard deviation is not: 0.37 against uniform noise's 0.577, because interpolating between
+// corners averages them (analytically, 2·sqrt((1/12)·0.743³)). The measurement above is what says
+// that costs nothing — what lifts a plume is the *mean* forcing over the plume's footprint, and
+// white noise cancels over an N-cell footprint as 1/sqrt(N) while a correlated field does not.
+//
+// Anchored to the ground and not to the grid: the caller passes a *world* position, so the pattern
+// stays put when the nest re-centres on a moving observer, and all four tiers sample one field.
+// (Contrast `cloud_critical_humidity`, §6's named limit, which does not scale with the spacing and
+// therefore does not have this property.)
+//
+// Named limit: one octave, so the ground this models is patchy at exactly one scale, and real land
+// cover is not. Phase B3 is where the pattern should stop being a hash at all — once a surface
+// energy balance carries a land/sea mask and an albedo field, *those* are the heterogeneity, and
+// this reduces to the unresolved-turbulence residual on top of them.
+//
+// @param world_xz Cell centre in world metres, wrapped by the caller onto NEST_SEED_WRAP lattice
+//                 cells so a planet-scale coordinate does not arrive quantised.
+// @param seconds  Game seconds the *step* begins at. Per step and not per frame: a frame records
+//                 several steps against one upload of the parameter block, so a field of that
+//                 block would hand every step of the frame the identical pattern.
+float nest_thermal_seed(vec2 world_xz, float seconds)
 {
-    uvec3 h = uvec3(cell) * uvec3(0x8da6b343u, 0xd8163841u, 0xcb1ab31fu) +
-              uint(nest.step_index) * 0x9e3779b9u;
-    uint n = h.x ^ h.y ^ h.z;
-    n ^= n >> 15; n *= 0x2c1b3c6du; n ^= n >> 12; n *= 0x297a2d39u; n ^= n >> 15;
-    return (float(n & 0xffffffu) / float(0xffffff) - 0.5) * 2.0;
+    float length = max(nest.thermal_seed_length, 1.0);
+    vec3 p = vec3(world_xz.x / length,
+                  seconds / max(nest.thermal_seed_period, 1.0),
+                  world_xz.y / length);
+    ivec3 base = ivec3(floor(p));
+    vec3 f = p - vec3(base);
+    vec3 w = f * f * (3.0 - 2.0 * f);
+
+    float x00 = mix(nest_seed_corner(base + ivec3(0, 0, 0)),
+                    nest_seed_corner(base + ivec3(1, 0, 0)), w.x);
+    float x10 = mix(nest_seed_corner(base + ivec3(0, 1, 0)),
+                    nest_seed_corner(base + ivec3(1, 1, 0)), w.x);
+    float x01 = mix(nest_seed_corner(base + ivec3(0, 0, 1)),
+                    nest_seed_corner(base + ivec3(1, 0, 1)), w.x);
+    float x11 = mix(nest_seed_corner(base + ivec3(0, 1, 1)),
+                    nest_seed_corner(base + ivec3(1, 1, 1)), w.x);
+    return (mix(mix(x00, x10, w.y), mix(x01, x11, w.y), w.z) - 0.5) * 2.0;
 }

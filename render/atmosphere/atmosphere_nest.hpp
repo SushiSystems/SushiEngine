@@ -57,12 +57,15 @@
  */
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
 #include <SushiEngine/render/atmosphere_nest.hpp>
+
+#include "graph/gpu_profiler.hpp"
 
 namespace SushiEngine
 {
@@ -117,9 +120,16 @@ namespace SushiEngine
                      *
                      * @param parameters The authored physics; uploaded fresh each step.
                      * @param forcing    The parent solution, the observer, and the elapsed time.
+                     * @param readers    Timeline waits the submission must not overtake — the
+                     *                   views that sampled the *previous* step's fields this
+                     *                   frame. Optional; a caller with no concurrent readers
+                     *                   (the headless probe) passes none.
+                     * @param reader_count Entries in @p readers.
                      */
                     void step(const AtmosphereParameters& parameters,
-                              const AtmosphereForcing& forcing);
+                              const AtmosphereForcing& forcing,
+                              const VkSemaphoreSubmitInfo* readers = nullptr,
+                              std::uint32_t reader_count = 0);
 
                     AtmosphereMirror atmosphere_mirror() const noexcept override;
 
@@ -159,8 +169,26 @@ namespace SushiEngine
                     /** @brief Total game seconds the nest has simulated. */
                     double simulated_seconds() const noexcept { return simulated_seconds_; }
 
+                    /**
+                     * @brief Seconds of game time the most recent step advanced by.
+                     *
+                     * Not a constant: the vertical CFL is taken against the updraft the nest is
+                     * measured to be producing, so this lengthens in a quiet airmass and
+                     * tightens when convection gets going. Zero before the first step.
+                     */
+                    float step_seconds() const noexcept { return step_seconds_; }
+
                     /** @brief Steps taken since construction — the editor's "is it running" readout. */
                     std::uint64_t step_count() const noexcept { return step_index_; }
+
+                    /**
+                     * @brief What the most recently completed *stepping* frame cost, per stage.
+                     *
+                     * Unmeasured until one has been read back, which takes as many frames as the
+                     * readback ring is deep. See @ref AtmosphereStepCost for why it is a
+                     * breakdown rather than a single number.
+                     */
+                    const AtmosphereStepCost& step_cost() const noexcept { return step_cost_; }
 
                 private:
                     /** @brief One 3-D field: image, view, allocation. */
@@ -215,6 +243,8 @@ namespace SushiEngine
                         float sponge_rate;
                         float boundary_relaxation;
                         float thermal_seed_amplitude;
+                        float thermal_seed_length;
+                        float thermal_seed_period;
                         float coriolis;
                         float convective_velocity_scale;
 
@@ -227,40 +257,41 @@ namespace SushiEngine
                         float fall_speed_coefficient;
                         float fall_speed_exponent;
                         float droplet_effective_radius;
+                        float latent_heat_fusion;
+                        float freezing_temperature;
+                        float glaciation_temperature;
+                        float snow_fall_speed_coefficient;
+                        float snow_fall_speed_exponent;
+                        float glaciated_autoconversion_factor;
+                        float ice_effective_radius;
 
-                        float surface_sensible_flux;
-                        float surface_latent_flux;
-                        float surface_night_flux;
+                        float solar_constant;
+                        float clear_sky_transmittance;
+                        float surface_albedo;
+                        float surface_emissivity;
+                        float surface_heat_capacity;
+                        float surface_moisture_availability;
+                        float surface_exchange_coefficient;
+                        float surface_minimum_wind;
                         float solar_elevation_sine;
 
                         float spacing;
                         float domain_top;
                         float dt;
-                        float elapsed;
                         std::int32_t cells_x;
                         std::int32_t cells_z;
                         std::int32_t levels;
                         std::int32_t boundary_zone;
-                        std::int32_t step_index;
-                        std::int32_t pad[3];
+                        // 56 scalars, exactly 224 bytes — a multiple of 16, so std140
+                        // needs no tail padding and this struct carries none. Neither is edited
+                        // without the other.
                     };
 
-                    /** @brief `atmosphere_forces.comp`'s and `atmosphere_shift.comp`'s push block. */
-                    struct ForcePush
-                    {
-                        float origin_rel[2];
-                        float forcing_scale[2];
-                        float forcing_offset[2];
-                    };
-
-                    /** @brief `atmosphere_shift.comp`'s push block. */
-                    struct ShiftPush
-                    {
-                        std::int32_t shift[2];
-                        float origin_rel[2];
-                        float forcing_scale[2];
-                        float forcing_offset[2];
-                    };
+                    // The push blocks these two stages take are *not* declared here. They were,
+                    // in a second copy that nothing referenced and that therefore could not be
+                    // kept honest: the real ones live in the anonymous namespace of the
+                    // translation unit that fills them, beside the shaders' `layout(push_constant)`
+                    // they have to match field for field.
 
                     /** @brief One frame's readback slot: a host-visible copy and what it holds. */
                     struct MirrorSlot
@@ -275,10 +306,34 @@ namespace SushiEngine
                         double simulated_seconds = 0.0;
                         double origin_x = 0.0;
                         double origin_z = 0.0;
+                        /**
+                         * @brief Whether this slot's submission recorded a step of the physics.
+                         *
+                         * A frame that only re-centres the lattice still records a shift, an
+                         * extinction and a readback, and publishing that as "the step's cost"
+                         * would report a fraction of one whenever the observer moved.
+                         */
+                        bool stepped = false;
+                        /** @brief The nest's step index at the time, for the published cost. */
+                        std::uint64_t step_index = 0;
+                        /** @brief Steps this submission recorded; the cost's divisor. */
+                        std::uint32_t steps = 0;
                     };
 
                     /** @brief How many readback slots the ring carries; matches the frame depth. */
                     static constexpr std::uint32_t MIRROR_SLOTS = 3;
+
+                    /**
+                     * @brief Descriptor sets one recording slot's pool can serve in a frame.
+                     *
+                     * A frame records a shift, an extinction and a readback, plus every stage of
+                     * every step it takes and two sets per pressure sweep. This is therefore
+                     * what caps @ref AtmosphereParameters::max_steps_per_frame in practice, and
+                     * `step()` reads it to clamp the step count rather than trusting the pool to
+                     * be big enough — 512 sets is a few tens of kilobytes and covers four steps
+                     * at twice the default sweep count.
+                     */
+                    static constexpr std::uint32_t DESCRIPTOR_SETS_PER_SLOT = 512;
 
                     void create_volumes();
                     void destroy_volumes();
@@ -300,10 +355,21 @@ namespace SushiEngine
                     void record_shift(VkCommandBuffer cmd, std::int32_t shift_x,
                                       std::int32_t shift_z, const AtmosphereForcing& forcing);
                     void record_clear(VkCommandBuffer cmd);
-                    void record_step(VkCommandBuffer cmd, const AtmosphereForcing& forcing);
+                    /**
+                     * @brief Records one step of the nest into @p cmd.
+                     * @param step_seconds Game seconds this step *begins* at. The thermal seed is
+                     *                     correlated in time, so it needs the step's own clock —
+                     *                     and the parameter block, uploaded once for a frame that
+                     *                     may record several steps, cannot carry it.
+                     * @param timed        Whether to break this step into profiled sections. One
+                     *                     step of a frame at most; the query pool is finite.
+                     */
+                    void record_step(VkCommandBuffer cmd, const AtmosphereForcing& forcing,
+                                     double step_seconds, bool timed);
                     void record_extinction(VkCommandBuffer cmd);
                     void record_readback(VkCommandBuffer cmd, std::uint32_t slot);
                     void collect_readback();
+                    void publish_cost(std::uint32_t slot);
                     VkDescriptorSet allocate(std::uint32_t stage, std::uint32_t slot);
                     void prepare_layouts(VkCommandBuffer cmd);
 
@@ -321,7 +387,36 @@ namespace SushiEngine
                     Volume divergence_;
                     Volume extinction_;
                     Volume surface_rain_; /**< 2-D, one texel per horizontal cell. */
+                    /**
+                     * @brief 2-D surface state: skin temperature (K), H, LE, net radiation (W/m²).
+                     *
+                     * Double-buffered for the *shift* and nothing else. It is the only field
+                     * outside the prognostic five that survives a re-centre — the skin
+                     * temperature is a state variable, not a step output, so a nest that walks
+                     * two kilometres must bring the ground's warmth with it rather than
+                     * re-deriving it. The surface stage itself writes it in place.
+                     */
+                    Buffered surface_;
+                    /**
+                     * @brief 2-D per-column cloud: cell-mean optical depth, and the cover it
+                     *        spans.
+                     *
+                     * Written by the extinction stage, which runs once a *frame*, and read by
+                     * the surface stage, which runs once a *step* — so the ground is always
+                     * shaded by the cloud the previous frame ended with. Single-buffered: the
+                     * two never touch it in the same dispatch.
+                     */
+                    Volume cloud_shade_;
                     Volume forcing_;      /**< 2-D, the parent solution. */
+                    /**
+                     * @brief 2-D, the parent's large-scale vertical motion. Positive is ascent.
+                     *
+                     * Separate from @ref forcing_ because that image's four channels are full,
+                     * and separate *in kind* as well: the parent solution above is what the
+                     * Davies zone relaxes toward, while this is applied across the whole domain
+                     * — a motion the nest cannot generate rather than a boundary condition.
+                     */
+                    Volume forcing_vertical_;
                     VkSampler sampler_ = VK_NULL_HANDLE;
 
                     VkBuffer params_ = VK_NULL_HANDLE;
@@ -340,7 +435,7 @@ namespace SushiEngine
                     // table rather than ten hand-written blocks: every layout here is "the
                     // parameter block, then a run of sampled images, storage images and one
                     // storage buffer", and a table says that once instead of ten times.
-                    static constexpr std::uint32_t STAGE_COUNT = 10;
+                    static constexpr std::uint32_t STAGE_COUNT = 11;
                     VkDescriptorSetLayout layouts_[STAGE_COUNT]{};
                     VkPipelineLayout pipeline_layouts_[STAGE_COUNT]{};
                     VkPipeline stage_pipelines_[STAGE_COUNT]{};
@@ -378,11 +473,38 @@ namespace SushiEngine
                     // slot is copied out exactly once however many frames it stays completed.
                     std::uint64_t mirror_taken_ = 0;
 
+                    // Timestamp queries around each recorded section, one pool per in-flight
+                    // slot. The render graph's profiler rather than a second implementation of
+                    // the same thing: it depends on nothing but the device, and the alternative
+                    // is a hundred lines of query-pool plumbing that would drift from it.
+                    // Resolved where the slot's timeline value is already known to have passed,
+                    // so the measurement costs no stall of its own.
+                    std::unique_ptr<Graph::GpuProfiler> profiler_;
+                    AtmosphereStepCost step_cost_{};
+
                     // Resolved from the authored parameters each step; the shader loop needs a
                     // count and the parameter block is uploaded once, not per sweep.
                     std::uint32_t pressure_sweeps_ = 12;
                     float solar_elevation_sine_ = 0.0f;
                     float coriolis_ = 0.0f;
+                    // The thermal seed's lattice spacing, metres. Held here for the same reason as
+                    // the two above: `record_step` needs it to wrap the world origin the seed is
+                    // addressed in, and it is handed the step rather than the parameters.
+                    float seed_length_m_ = 6000.0f;
+
+                    /**
+                     * @brief Domain peak |w| from the last readback, m/s; the vertical CFL's bound.
+                     *
+                     * Zero until the first readback, which `choose_step` reads as "nothing
+                     * measured yet, keep the conservative constant". Tracked with a decay so it
+                     * *shortens* the step the instant convection strengthens and only lengthens
+                     * it again slowly — the asymmetry a stability bound wants, since being late
+                     * to tighten is a wrong answer and being late to relax is only a cost.
+                     */
+                    float measured_updraft_ = 0.0f;
+
+                    /** @brief The step length most recently chosen, seconds of game time. */
+                    float step_seconds_ = 0.0f;
             };
         } // namespace Atmosphere
     } // namespace Render

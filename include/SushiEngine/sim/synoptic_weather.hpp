@@ -252,7 +252,21 @@ namespace SushiEngine
 
                     // k_hat x grad(p) in an East-North frame is (-grad_north, grad_east); the
                     // hemisphere sign of f already folds the Northern/Southern rotation sense in.
-                    constexpr double WIND_SCALE = 6.0e4; // tuned so a ~30 hPa deepening low reads ~15-20 m/s.
+                    //
+                    // **The scale is derived, and it used to be tuned — wrongly, by a factor of
+                    // 735.** The geostrophic relation is `V = grad(p) / (rho f)` with pressure in
+                    // *pascals*, and `pressure_gradient` returns hectopascals per metre, so the
+                    // conversion is 100 Pa/hPa divided by the density of air. That is 81.6, and
+                    // the constant here was 6.0e4 beside a comment claiming it made a 30 hPa low
+                    // read 15-20 m/s. Measured, the shipped `FrontPassage` preset produced a
+                    // **15 534 m/s** boundary wind, and after this it produces 21 m/s — so the
+                    // comment described the intent exactly and the number never matched it.
+                    // Nothing caught it because no test asserted a wind *magnitude*: the one that
+                    // covered this field asserted only that it was non-uniform, which a 15 km/s
+                    // field is.
+                    constexpr double AIR_DENSITY_KG_PER_M3 = 1.225; // ISA sea level
+                    constexpr double PASCALS_PER_HECTOPASCAL = 100.0;
+                    constexpr double WIND_SCALE = PASCALS_PER_HECTOPASCAL / AIR_DENSITY_KG_PER_M3;
                     double u = -grad_north / f * WIND_SCALE;
                     double v = grad_east / f * WIND_SCALE;
 

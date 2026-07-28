@@ -31,6 +31,10 @@ layout(set = 0, binding = 7) uniform sampler2D surface_rain;
 // Bound for the profile alone. It holds the divergence of the *provisional* velocity — the
 // quantity the pressure solve is handed — because nothing recomputes it after the sweeps.
 layout(set = 0, binding = 8) uniform sampler3D divergence;
+// The surface energy balance's state. Not derivable from anything else the mirror carries: the
+// fluxes are solved rather than authored, so a caller cannot look them up, and the skin
+// temperature has no proxy in the air.
+layout(set = 0, binding = 11) uniform sampler2D surface_state;
 
 // One record per mirror cell, laid out to match Render::AtmosphereMirrorColumn exactly.
 struct MirrorColumn
@@ -38,6 +42,7 @@ struct MirrorColumn
     vec4 bands[3]; // per etage: coverage, density scale, convective fraction, temperature offset (C)
     vec4 surface;  // precipitation (mm/h), wind east (m/s), wind north (m/s), cloud base (m)
     vec4 extent;   // cloud top (m), surface RH (0-1), peak |w| (m/s), LCL (m; 0 = none)
+    vec4 skin;     // skin temperature (K), sensible flux, latent flux, net radiation (W/m^2)
 };
 
 layout(std430, set = 0, binding = 9) buffer Mirror
@@ -324,6 +329,7 @@ void main()
                           found_base ? cloud_base : 0.0);
     column.extent = vec4(found_base ? cloud_top : 0.0, surface_humidity, column_peak_updraft,
                          lifting_condensation);
+    column.skin = texelFetch(surface_state, nest_cell, 0);
 
     mirror.columns[mirror_cell.y * push.mirror_cells + mirror_cell.x] = column;
 }

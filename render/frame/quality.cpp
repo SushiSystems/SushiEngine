@@ -120,6 +120,11 @@ namespace SushiEngine
                     q.gpu_particles = false;
                     q.max_particles = 1u << 15;
                     q.particle_sim_substeps = 1;
+                    // The same 384 km of atmosphere at a sixth the cells. 4 km is well above the
+                    // spacing at which convection resolves, so the floor's sky is smoother and
+                    // its cumulus a parameterized haze rather than individual cells — which is
+                    // the honest trade for a step this device can afford at all.
+                    q.atmosphere_nest = {96u, 96u, 32u, 4000.0f, 18000.0f};
                     s.delivery.frames_in_flight = 2;
                     break;
 
@@ -156,6 +161,11 @@ namespace SushiEngine
                     q.max_skinned_instances = 64;
                     q.bone_lod_bias = 1;
                     q.animation_influences = 4;
+                    // The same 384 km at 3 km and 40 levels — a third of High's cells. Above the
+                    // 2 km at which convection resolves, so a cumulus field here is a smoother,
+                    // more parameterized version of the same weather rather than a different
+                    // one: the front is in the same place, drawn with less structure.
+                    q.atmosphere_nest = {128u, 128u, 40u, 3000.0f, 18000.0f};
                     break;
 
                 case RenderQuality::High:
@@ -164,6 +174,11 @@ namespace SushiEngine
                     // knobs with no home in RenderSettings are filled here.
                     q.shadow_filter_taps = 16;
                     q.shadow_blocker_taps = 8;
+                    // The baseline discretization, and the one every measurement in
+                    // `docs/slop/atmosphere_system.md` §11's Phase B2c was taken against: 2 km is
+                    // where convection stops being parameterized and starts being resolved (§2.2),
+                    // which is what this tier's acceptance bar rests on.
+                    q.atmosphere_nest = {192u, 192u, 48u, 2000.0f, 18000.0f};
                     q.cloud_primary_steps_near = 96;
                     q.cloud_primary_steps_far = 32;
                     q.cloud_light_steps = 5;
@@ -238,6 +253,10 @@ namespace SushiEngine
                     q.gpu_particles = true;
                     q.max_particles = 1u << 20;
                     q.particle_sim_substeps = 2;
+                    // The same 384 km at 1.5 km and 64 levels — two and a half times High's
+                    // cells. Below 2 km the nest is resolving the individual thermal rather than
+                    // the field of them, which is where the extra cost actually shows.
+                    q.atmosphere_nest = {256u, 256u, 64u, 1500.0f, 18000.0f};
                     q.bloom = true;
                     q.depth_of_field = true;
                     q.motion_blur = true;

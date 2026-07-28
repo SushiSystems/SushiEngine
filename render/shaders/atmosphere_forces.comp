@@ -35,6 +35,12 @@ layout(set = 0, binding = 5, rgba32f) uniform image3D moisture;
 // The parent solution the boundary zone relaxes toward: rg = wind, b = theta anomaly,
 // a = relative-humidity anomaly, addressed in world space by the map below.
 layout(set = 0, binding = 6) uniform sampler2D forcing;
+// The surface energy balance's output for this column: skin temperature (K), sensible flux,
+// latent flux, net radiation (W/m²). Written one dispatch ago by atmosphere_surface.comp.
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D surface_state;
+// The parent's large-scale vertical motion, positive up, addressed by the same world-space map
+// as `forcing`. Applied over the whole domain rather than the boundary zone -- see below.
+layout(set = 0, binding = 8) uniform sampler2D forcing_vertical;
 
 layout(push_constant) uniform Params
 {
@@ -71,42 +77,29 @@ void main()
 
     // ---- Surface fluxes -------------------------------------------------------------
     //
-    // Prescribed this phase (a real energy balance is the next one's ISurfaceModel), applied
-    // into the lowest level only and converted from a flux to a tendency by the mass of air
-    // that level actually contains. A seed perturbation rides along, because a uniformly
-    // heated surface has no horizontal structure for convection to organise around and the
-    // whole boundary layer would rise as one slab.
+    // **Read, not computed.** `atmosphere_surface.comp` ran one dispatch ago and solved this
+    // column's energy balance; what is left here is the bookkeeping that turns a flux in W/m²
+    // into a tendency, by the mass of air the lowest level actually contains.
+    //
+    // The three things that used to be decided in this block — the diurnal shape, the surface
+    // heterogeneity, and the night-time cooling — all moved there, because all three are
+    // properties of the *ground* and none of them is a property of the air. What that bought is
+    // written up in that file; the short version is that a prescribed flux cannot lag solar
+    // noon, cannot respond to the air it is heating, and cannot change its Bowen ratio as the
+    // surface dries.
     if (cell.y == 0)
     {
         float mass = max(base_density * thickness, 1.0); // kg/m^2 of air in this level
-
-        // The sun does the work, and it is the same sun the sky is rendered with. Solar
-        // elevation carries the time of day *and* the season at once, because the declination
-        // that lifts the summer sun is already in the ephemeris -- so the model has seasons
-        // without anything in it modelling "summer". Below the horizon the ground radiates to
-        // space instead, which is what actually ends convection in the evening.
-        float daylight = max(nest.solar_elevation_sine, 0.0);
-        float sensible = nest.surface_sensible_flux * daylight -
-                         nest.surface_night_flux * (1.0 - step(0.0, nest.solar_elevation_sine));
-        float latent = nest.surface_latent_flux * daylight;
-
-        // The symmetry break, applied where the heterogeneity physically *is*: in the surface
-        // flux. A uniformly heated surface has no horizontal structure for convection to
-        // organise around and the whole boundary layer would rise as one slab, so something has
-        // to break it -- but this used to be an independent additive kick on theta, and an
-        // additive kick redrawn every step is a *random walk with no bound*. Over four hours it
-        // reached -8.76 K in the coldest columns, which saturated them from below: a few percent
-        // of the domain sat in permanent ground fog, the sky read as cloudy, and none of it was
-        // convection. Modulating the flux instead is bounded by construction -- a heated surface
-        // is heated more here and less there, never refrigerated -- it vanishes at night with
-        // the flux it scales, which is when a stable layer should not be stirred at all, and the
-        // amplitude becomes what it actually means: the fractional variation in surface heating
-        // across a 2 km cell, which over mixed terrain is a few tens of percent.
-        sensible *= 1.0 + nest.thermal_seed_amplitude * nest_thermal_seed(cell);
+        vec4 surface = imageLoad(surface_state, ivec2(cell.x, cell.z));
+        float sensible = surface.g;
+        float latent = surface.b;
 
         float heating = sensible / (nest.specific_heat_pressure * mass);
         theta_perturbation += heating * dt / max(nest_exner(altitude), 1e-6);
 
+        // Negative at night, as the sensible flux is: dew and frost are the surface taking water
+        // back out of the air, and clamping the vapour non-negative below is what keeps that from
+        // running past empty.
         float moistening = latent / (nest.latent_heat_vaporization * mass);
         q.x += moistening * dt;
     }
@@ -136,6 +129,66 @@ void main()
                                     0.0, saturation);
         theta_perturbation += (target_theta - theta_perturbation) * rate;
         q.x += (target_vapour - q.x) * rate;
+    }
+
+    // ---- Large-scale vertical motion ---------------------------------------------------
+    //
+    // **Not a boundary condition, and that is why it is outside the zone above.** A 384 km window
+    // has no way to know it is sitting under a thousand-kilometre high, and the gentle descent
+    // that produces is a real term in this air's budget: subsidence warms by compression and
+    // dries by bringing down air from where there is less water. Every limited-area model
+    // receives it from its parent, because the mechanism that sets it is larger than the domain.
+    //
+    // Phase B3e's acceptance run failed one clause on exactly this. With no subsidence a
+    // saturated layer aloft has *no sink at all* overnight -- too thin to rain, the mixed layer
+    // that fed it collapsed, nothing to mix it -- so an evening deck grew until dawn instead of
+    // decaying. Horizontal advection was measured and is far too slow: eight metres a second
+    // across 384 km is thirteen hours, against a night.
+    //
+    // Centimetres per second against a metre-per-second updraft, and it still matters, because
+    // it acts over the whole domain for the whole day rather than over one cell for ten minutes.
+    //
+    // The profile: zero at the ground (nothing descends through it), rising to the supplied
+    // value near the top of the boundary layer -- which is where Ekman pumping delivers it --
+    // and decaying to zero at the tropopause. Applied to the scalars only; the momentum it also
+    // advects is second-order beside the pressure gradient it comes with, and is left out.
+    {
+        vec2 world = push.origin_rel + (vec2(cell.x, cell.z) + 0.5) * nest.spacing;
+        float large_scale = texture(forcing_vertical,
+                                    world * push.forcing_scale + push.forcing_offset).r;
+        if (large_scale != 0.0)
+        {
+            float ramp = max(nest.boundary_layer_depth, 1.0);
+            float top = max(nest.tropopause_altitude, ramp + 1.0);
+            float shape = altitude < ramp
+                              ? altitude / ramp
+                              : max(1.0 - (altitude - ramp) / (top - ramp), 0.0);
+            float w_large = large_scale * shape;
+            if (w_large != 0.0)
+            {
+                // Against the *total* potential temperature, because it is the total profile
+                // that has the stability: the base state's own lapse is most of it, and taking
+                // only the perturbation's gradient would leave subsidence warming nothing at all
+                // in an undisturbed column -- which is precisely the column it has to dry.
+                int above = min(cell.y + 1, levels - 1);
+                int below = max(cell.y - 1, 0);
+                float altitude_above = nest_level_altitude(float(above));
+                float altitude_below = nest_level_altitude(float(below));
+                float span = max(altitude_above - altitude_below, 1.0);
+
+                float theta_up = nest_base_theta(altitude_above) +
+                                 imageLoad(theta, ivec3(cell.x, above, cell.z)).r;
+                float theta_down = nest_base_theta(altitude_below) +
+                                   imageLoad(theta, ivec3(cell.x, below, cell.z)).r;
+                theta_perturbation -= w_large * (theta_up - theta_down) / span * dt;
+
+                float vapour_up =
+                    imageLoad(moisture, ivec3(cell.x, above, cell.z)).x / MOISTURE_UNIT;
+                float vapour_down =
+                    imageLoad(moisture, ivec3(cell.x, below, cell.z)).x / MOISTURE_UNIT;
+                q.x -= w_large * (vapour_up - vapour_down) / span * dt;
+            }
+        }
     }
 
     // ---- Buoyancy, Coriolis, diffusion on the momentum --------------------------------

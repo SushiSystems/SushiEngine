@@ -168,6 +168,8 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_advect
     atmosphere_advect_velocity_comp_spv ATMOSPHERE_ADVECT_VELOCITY_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_advect_scalars.comp"
     atmosphere_advect_scalars_comp_spv ATMOSPHERE_ADVECT_SCALARS_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_surface.comp"
+    atmosphere_surface_comp_spv ATMOSPHERE_SURFACE_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_forces.comp"
     atmosphere_forces_comp_spv ATMOSPHERE_FORCES_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_divergence.comp"
@@ -389,6 +391,7 @@ add_library(sushi_render STATIC
     "${ATMOSPHERE_SHIFT_HEADER}"
     "${ATMOSPHERE_ADVECT_VELOCITY_HEADER}"
     "${ATMOSPHERE_ADVECT_SCALARS_HEADER}"
+    "${ATMOSPHERE_SURFACE_HEADER}"
     "${ATMOSPHERE_FORCES_HEADER}"
     "${ATMOSPHERE_DIVERGENCE_HEADER}"
     "${ATMOSPHERE_PRESSURE_HEADER}"

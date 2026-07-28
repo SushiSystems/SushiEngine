@@ -110,8 +110,20 @@ namespace SushiEngine
                 return meshes_.morph_target_count(mesh);
             }
 
-            void AssetLibrary::step_atmosphere(const AtmosphereParameters& parameters,
-                                               const AtmosphereForcing& forcing)
+            namespace
+            {
+                /** @brief Whether two discretizations describe the same grid. */
+                bool same_nest_size(const AtmosphereNestSize& a, const AtmosphereNestSize& b)
+                {
+                    return a.cells_x == b.cells_x && a.cells_z == b.cells_z &&
+                           a.levels == b.levels && a.spacing_m == b.spacing_m &&
+                           a.top_m == b.top_m;
+                }
+            } // namespace
+
+            void AssetLibrary::stage_atmosphere(const AtmosphereParameters& parameters,
+                                                const AtmosphereForcing& forcing,
+                                                const AtmosphereNestSize& size)
             {
                 // A nest with no parent solution has nothing driving it, so "is anyone
                 // publishing forcing" is the real enable: a scene with no weather provider
@@ -125,15 +137,84 @@ namespace SushiEngine
                     // stepping, and its mirror stops advancing with it.
                     return;
                 }
+                // Latched, not built and not stepped. `forcing` borrows the parent solution's
+                // samples from the `Environment` the caller is holding, which outlives this
+                // frame's rendering — the same lifetime the previous, immediate call already
+                // relied on. Construction moves to the flush with the step, because a tier
+                // change destroys an image this frame's views may already have submitted reads
+                // of, and the flush is the point where that is known to be over.
+                staged_atmosphere_.parameters = parameters;
+                staged_atmosphere_.forcing = forcing;
+                staged_atmosphere_.size = size;
+                staged_atmosphere_.pending = true;
+            }
+
+            void AssetLibrary::note_atmosphere_reader(VkSemaphore timeline, std::uint64_t value)
+            {
+                if (timeline == VK_NULL_HANDLE || !atmosphere_)
+                    return;
+                // One entry per view per frame, so the list is three long at its worst; a view
+                // that submits several times registers only its last value, which is the one
+                // that covers the rest.
+                for (VkSemaphoreSubmitInfo& reader : atmosphere_readers_)
+                    if (reader.semaphore == timeline)
+                    {
+                        reader.value = std::max(reader.value, value);
+                        return;
+                    }
+                VkSemaphoreSubmitInfo reader{};
+                reader.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                reader.semaphore = timeline;
+                reader.value = value;
+                // The step must not begin writing before the reader has finished reading, and a
+                // reader's sampling can happen in any stage of its own submission.
+                reader.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                atmosphere_readers_.push_back(reader);
+            }
+
+            void AssetLibrary::flush_atmosphere()
+            {
+                if (!staged_atmosphere_.pending)
+                {
+                    atmosphere_readers_.clear();
+                    return;
+                }
+                staged_atmosphere_.pending = false;
+
+                // A tier change re-discretizes the atmosphere, and the grid is fixed for a
+                // nest's lifetime — so the nest is rebuilt, and a rebuilt nest starts from its
+                // base state. The running weather is lost, which is why this is a tier and not a
+                // slider, and why the editor says so beside the setting.
+                //
+                // Idling the device first: the views of the frames still in flight hold
+                // descriptors pointing at the extinction volume about to be freed, and this is
+                // the one place with no cheaper way to know they are done with it. A tier change
+                // is a rare, deliberate act and a hitch is the right price for it — the same
+                // judgement the enable/disable path already makes in the other direction by
+                // *not* tearing the nest down.
+                if (atmosphere_ && !same_nest_size(atmosphere_->size(), staged_atmosphere_.size))
+                {
+                    vkDeviceWaitIdle(device_.device());
+                    atmosphere_.reset();
+                    atmosphere_readers_.clear();
+                }
                 if (!atmosphere_)
                     atmosphere_ = std::make_unique<Atmosphere::AtmosphereNest>(
-                        device_, shaders_, pipelines_, samplers_, AtmosphereNestSize{});
-                atmosphere_->step(parameters, forcing);
+                        device_, shaders_, pipelines_, samplers_, staged_atmosphere_.size);
+                atmosphere_->step(staged_atmosphere_.parameters, staged_atmosphere_.forcing,
+                                  atmosphere_readers_.data(),
+                                  std::uint32_t(atmosphere_readers_.size()));
+                atmosphere_readers_.clear();
             }
 
             AtmosphereMirror AssetLibrary::atmosphere_mirror() const noexcept
             {
                 return atmosphere_ ? atmosphere_->atmosphere_mirror() : AtmosphereMirror{};
+            }
+
+            AtmosphereStepCost AssetLibrary::atmosphere_step_cost() const noexcept
+            {
+                return atmosphere_ ? atmosphere_->step_cost() : AtmosphereStepCost{};
             }
 
             bool AssetLibrary::update()

@@ -337,6 +337,15 @@ IAtmosphereQuery           CPU point/profile queries → gameplay only
 IAtmosphereAuthoring       optional capability: place/edit systems, force scenarios (editor only)
 ```
 
+**The four composed interfaces above are how this was drawn before any of it ran on a GPU, and
+two of them never became types.** `ISurfaceModel` and `IRadiationModel` shipped in Phase B3 as
+*stages* — `atmosphere_surface.comp` is the surface model and the radiation is its shortwave and
+longwave terms — because on the GPU a "model" is a compute shader plus a parameter group, and
+there is exactly one of each. An interface with one implementation forever is a stub wearing a
+vtable. The substitutability the sketch was reaching for lives in `AtmosphereParameters` instead:
+a different planet, a different land cover or a different microphysics tuning is a data edit. See
+§11's B3c for the seam that *would* earn a type, and why it is blocked.
+
 Rules that follow, and that the shipped system violated:
 
 - The host owns `std::unique_ptr<IAtmosphereSource>`. **No concrete atmosphere type
@@ -430,13 +439,41 @@ B = g · (θ_v′/θ̄_v − q_c − q_r)                 buoyancy including con
 
 **Discretization.**
 
-| | Medium | High | Ultra |
-|---|---|---|---|
-| Horizontal | 192×192 @ 3 km | 256×256 @ 2 km | 384×384 @ 1.3 km |
-| Vertical | 32 stretched levels, 0–18 km | 48 levels, 0–20 km | 64 levels, 0–20 km |
-| Δz | ~150 m surface → 700 m aloft | ~100 m → 500 m | ~80 m → 400 m |
-| Δt (game time) | ~3 s | ~2 s | ~1.5 s |
-| VRAM | ~60 MB | ~150 MB | ~420 MB |
+**Shipped, and resolved by the render quality tier** (`QualityParams::atmosphere_nest`), so
+the nest is discretized by the same resolver every other pass reads. Step costs are *measured*
+on a GTX 1060 6 GB, not scaled from a model; VRAM is scaled from the measured High.
+
+| | Low | Medium | **High** | Ultra |
+|---|---|---|---|---|
+| Horizontal | 96×96 @ 4 km | 128×128 @ 3 km | **192×192 @ 2 km** | 256×256 @ 1.5 km |
+| Vertical | 32 levels | 40 levels | **48 levels** | 64 levels, all 0–18 km |
+| Cells | 0.29 M | 0.65 M | **1.77 M** | 4.19 M |
+| Δz surface → aloft | ~90 → 900 m | ~71 → 700 m | **~54 → 560 m** | ~44 → 420 m |
+| Step cost | 1.65 ms | 3.63 ms | **8.37 ms** | 19.5 ms |
+| VRAM | ~22 MB | ~50 MB | **~135 MB** | ~320 MB |
+
+**The horizontal domain is 384 km at every tier and only the resolution changes**, so raising
+the tier resolves the same weather more finely rather than simulating a different amount of
+world — which is what keeps a scene's sky recognisably itself across machines, and what stops
+two players in one scene from getting different weather. Verified: across all four tiers a
+quiescent airmass ends six hours at 48.6–49.8 % surface humidity and 12.73–12.75 kg/m² of column
+water, and a convecting one at 100 % cloudy columns with 0.49–0.62 coverage.
+
+High is the baseline the resolver's contract requires and is unchanged from what shipped; 2 km
+is not an arbitrary rung on that ladder but the spacing at which convection stops being
+parameterized and starts being *resolved* (§2.2), which is what this phase's acceptance bar — a
+cumulus that grows on its own — rests on. Medium and Low sit above it and their convection is
+correspondingly smoother and more parameterized.
+
+**Named limit: the subgrid cloud closure is not rescaled with the tier.**
+`cloud_critical_humidity` sets where a cell's humidity distribution begins to hold cloud, and its
+0.80 is the standard value *at 2 km* — the subgrid variance a cell hides is a function of how big
+the cell is, so the correct value falls at coarser spacing and approaches 1 as the grid resolves
+the cloud itself. One authored number therefore means slightly different things per tier.
+Measured, this is invisible when the sky is decisively cloudy or decisively clear, and visible
+exactly at the margin: a configuration that leaves High with 5.8 % of columns cloudy leaves Low,
+Medium and Ultra between 0 and 0.1 %. Scaling the critical humidity with `spacing_m` is the fix,
+and it wants its own calibration rather than a plausible-looking exponent.
 
 Every prognostic field is fp32, including the `q_*` fields. Half floats were the
 original choice for them on a range argument — mixing ratios are a few grams per
@@ -679,6 +716,44 @@ time scales are comparable. Phase B2c's entire diagnosis came out of that file.
 Each phase ships editor surface, tier wiring, profiler budget, and CHANGELOG/ARCHITECTURE
 entries per repo policy.
 
+### Where this stands — 2026-07-29
+
+**Shipped:** A · B1 · B2 · B2b · B2c · B3 (a–e) · **C1**. Phase B's acceptance bar is met, its
+last clause closed by C1's subsidence. 448 tests pass; `se build` and `se editor --no-run` are
+clean.
+
+**Next, and it is the largest remaining piece:** the rest of Phase C — T1's 2-layer moist
+quasi-geostrophic core replacing the analytic `SynopticLayer`, T0 climatology assets sourced and
+baked, and editor authoring becoming vorticity injection rather than system placement. C1 already
+took the first bite of the seam that connects them: the parent now supplies vertical motion as
+well as wind and anomalies, so a real core has somewhere to publish it.
+
+**Carried, deliberately, with the reason each time:**
+
+- **`humidity_scale_height` does not do what it is documented to do** — the airmass is drier than
+  it should be, every configuration that makes cloud has to be pushed there, and the afternoon
+  cumulus forms hours later than it ought to. Not fixed because it changes the look of every
+  existing scene, which is an authoring decision. This is the single highest-value item left in
+  the model and the first thing to reach for if the sky reads as too dry. See B2c's resume notes.
+- **`cloud_critical_humidity` is calibrated at 2 km and does not scale with the spacing**, so the
+  Low tier disagrees with the others at a marginal sky. Named limit in §6.
+- **`AtmosphereSurface` — the land/sea seam** — blocked on the same terrain height field Phase D
+  is blocked on (§15). See B3c for why building it early would be worse than not having it.
+- **The nocturnal cloud's only sink is now subsidence.** Cloud-top radiative cooling and the
+  entrainment it drives are not modelled; with the parent quiescent a deck still persists.
+- **A slow cooling near the tropopause**, −0.29 K/day over 72 h, attributable to numerical
+  diffusion in the semi-Lagrangian transport across the base state's sharpest θ gradient. Not a
+  radiation gap and a radiation scheme would not fix it.
+- **§12's performance budget table is stale.** It budgets the T2 step at 2 ms; the measured step
+  is ~10 ms at High. The honest metric established in B2c is *cost per second of weather bought*
+  (1.27 ms), not cost per step, and the table has not been rewritten in those terms.
+- **An async compute queue** is now a straightforward win rather than a blocked one, since the
+  step already submits at frame end and waits on the frame's readers.
+
+**Never visually confirmed in the editor.** Everything in B2c, B3 and C1 was settled with
+`atmosphere_probe` headlessly, plus builds and tests. The frame-end submission move, the surface
+panel rework and the ice optics have not been looked at on screen.
+
 ### Phase A — Spatial coupling *(existing physics, maximum visual delta)* — **shipped**
 
 Publish T2's existing grid as a world-addressed field (`Render::WeatherField`, uploaded by
@@ -802,7 +877,7 @@ stratosphere.
 Three paths now, ordered, each truthful when the one above it has nothing to say: the nest, then
 per-column genus from the published field, then the authored deck stack.
 
-### Phase B2c — The correctness pass B2 exposed — *in progress*
+### Phase B2c — The correctness pass B2 exposed — **shipped**
 
 **The instrument came first.** `render/probe/atmosphere_main.cpp` (`atmosphere_probe`) brings the
 nest up on a headless Vulkan device, steps it through hours of simulated weather in seconds of
@@ -814,9 +889,11 @@ had already destroyed the evidence every remaining question needed. The profile 
 `AtmosphereProfileLevel`, published on `AtmosphereMirror` beside the columns and written by the
 same readback dispatch: §9.1's diagnostic slice, deliberately not §9.1's contract.
 
-It takes parameter overrides (`--sensible`, `--latent`, `--seed`, `--eddy`, `--sweeps`) so that a
-claim about one term is separated from the rest by running without it rather than by arguing
-about it.
+It takes parameter overrides (`--sensible`, `--latent`, `--seed`, `--seed-length`, `--seed-period`,
+`--eddy`, `--sweeps`, `--tier`, `--dt`) so that a claim about one term is separated from the rest by
+running without it rather than by arguing about it. The two seed-correlation overrides exist for
+exactly that: setting a correlation scale far below the cell or the step reproduces the white field
+this phase replaced, which is how the table below was taken without keeping two builds around.
 
 B2 and B2b are shipped and do what they were designed to do. Running them made visible that the
 render path they feed, and the nest itself, both carried defects no amount of correct new code
@@ -1129,6 +1206,101 @@ are just what was hiding behind it.
    its span — beside the observer column's own cloud extent. This is the same "name the rung
    rather than the symptom" pattern the panel already used for the nest's build chain, and it
    should have been extended here the moment the bake started reading condensate.
+7. **`max_steps_per_frame` did not do what its own documentation said, so defect 4 had no
+   remedy.** The field is documented as "steps a single frame may take before the rest is
+   dropped", and the resume note below used to name raising it as "the cheapest lever there is".
+   It clamped the *accumulator* and nothing else: `record_step` was called once per frame
+   whatever it was set to, so the nest's throughput was pinned at exactly one step per frame and
+   raising the number bought more tolerated lag rather than more weather. That is the mechanism
+   behind "4 sky-days asked for, 6.2 hours simulated" — and it is why the lever the panel offered
+   could not have worked. A frame now records as many steps as are due, bounded by the cap and
+   again by what the recording slot's descriptor pool can serve, which is derived from the pool's
+   size rather than assumed to fit. The thermal seed's clock moved to a push constant, since
+   several steps share one upload of the parameter block and would otherwise draw the identical
+   pattern. Verified: handed four steps' worth of elapsed time per call, the nest simulates the
+   full hour in a quarter of the submissions, and the column agrees with the one-step-per-call run
+   at every sample.
+8. **The query mirror froze whenever the nest stepped continuously — including in every editor
+   session.** `collect_readback` looked for a slot whose `timeline_value` had passed the
+   semaphore counter, but a slot carries only its *most recent* submission's value, and with
+   three slots in flight the CPU sits exactly three submissions ahead. The value that has
+   actually completed is therefore always one no slot still carries. Measured over a hundred
+   consecutive steps: the counter read 95 while the three slots held 96, 97 and 98, and the sweep
+   matched nothing every single time. The mirror advanced only when something else idled the
+   device — which is why every measurement in this phase came from the probe's own sample points
+   and looked fine. Gameplay reads that mirror (§3.2), so the "two to three frames stale" the
+   design rests on was in fact "stale until the GPU happens to catch up". A slot is now collected
+   at the one point its completion is already established: immediately after the wait that
+   precedes overwriting it. Steps measured per hour of simulated weather went from 2 to 1 471 of
+   1 478.
+
+#### The symmetry break was doing a fifth of its job
+
+Defect 3 above made the thermal seed *bounded*. It left it **white**: a hash of the cell index and
+the step index, so the field had no length scale but one cell and no time scale but one step —
+and, both of those being grid quantities, it made the render quality tier and the frame rate into
+physical parameters of the weather.
+
+Measuring it needed an instrument that did not exist. Mean coverage cannot tell a broken cumulus
+field from a sheet holding the same total cloud, and that distinction is the *entire* question a
+symmetry-breaking seed decides; `sky_cloudy_columns` stops discriminating the moment every column
+holds a trace, which in a convecting airmass is immediately. So `atmosphere_probe` grew two domain
+diagnostics off the mirror it already reads — `sky_coverage_sd`, the spatial deviation of coverage
+over the whole domain, and `sky_coverage_roughness`, the mean difference between *neighbouring*
+mirror columns. Together they separate the two ways a sky can be variable: a few large cloud masses
+give a high deviation and a low roughness, while structure at the lattice scale gives both, and
+structure at the lattice scale is the one thing a grid-mean model has not earned.
+
+Roughness over simulated hours 3–6 (192³ nest, 250 W/m² each way, surface RH 0.90), relative to
+running with the seed switched off altogether:
+
+| seed field | domain roughness | mean coverage | condensate |
+|---|---|---|---|
+| none at all | 1.00 | 0.1334 | 0.0027 |
+| **white in space and time — what it was** | **1.22** | 0.1335 | 0.0026 |
+| 6 km in space, white in time | 1.25 | 0.1335 | 0.0028 |
+| 6 km / 60 s | 1.88 | 0.1340 | 0.0027 |
+| 3.7 m / 900 s | 3.15 | 0.1361 | 0.0027 |
+| 24 km / 900 s | 2.27 | 0.1363 | 0.0031 |
+| **6 km / 900 s — now** | **3.72** | 0.1380 | 0.0034 |
+| 6 km / 3600 s | 4.94 | 0.1420 | 0.0012 |
+
+**The seed the nest had was within 22 % of not being there.** Four realisations of the field (the
+lattice shifted 5.7–6.3 km) agree to 0.5 %, so the ordering is not sampling noise.
+
+The *time* axis carries most of it, and the reason is arithmetic rather than meteorological: an
+uncorrelated kick accumulates over N steps as √N where a persistent one accumulates as N, so over
+the 150 steps a boundary-layer eddy takes to turn over it is an order of magnitude weaker. Space
+alone buys nothing at all (1.25); time alone buys most of it (3.15); the two together buy the rest.
+Both scales matter in the right direction — 60 s is too short to lift anything and 24 km is wider
+than the plumes that organise — which is what makes 900 s and 6 km physical choices rather than
+fitted ones: h/w\* for a 1.5 km mixed layer under a 2 m/s convective scale is about twelve minutes,
+and 6 km is the scale land cover, soil moisture and albedo actually vary over. A 3600 s field is
+rougher still and is *not* the better answer: its condensate lands below the unseeded run, because
+across a single convective afternoon the pattern barely renews.
+
+The field is value noise on an (x, z, t) lattice with smoothstep interpolation, addressed in
+**world** metres and game seconds. Two consequences follow from the units alone. It is anchored to
+the ground, so the patches stay put when the nest re-centres on a moving observer, where a
+cell-indexed field slid with the camera. And the tier stops being a physical parameter: Medium,
+High and Ultra now agree on domain structure to 1.10× and on coverage to 1.06×, against 2.01× and
+1.23× for a cell-scale field. **Low still does not** — a 4 km cell samples a 6 km patch with a cell
+and a half — and that is a resolution limit rather than an inconsistency, stated here rather than
+hidden because it is the honest form of one.
+
+*Named limit.* One octave, so the ground this models is patchy at exactly one scale and real land
+cover is not. Phase B3 is where the pattern should stop being a hash at all: once a surface energy
+balance carries a land/sea mask and an albedo field, *those* are the heterogeneity and this becomes
+the unresolved-turbulence residual on top of them.
+
+*What was not confirmed.* The resume note this closes predicted a *visible* artifact — that
+neighbouring cells near the closure's critical humidity would scintillate, amplified by the
+closure's slope of 2.5. Measured at one sample per step over six hours, the step-to-step change in
+the observer column's cloud fraction is 0.12 % of its value with the white seed and 0.19 % with the
+correlated one. There was no scintillation to remove: the cloud fraction is a function of the
+*state*, and the state integrates the flux over thousands of steps, which is precisely the
+averaging that also made the white seed useless. The prediction was wrong and the change is worth
+making anyway, for the reason the table gives instead.
 
 #### What it does now, measured
 
@@ -1182,28 +1354,131 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   deepen to ~1 300 m before its top saturates, and the diagnosed depth grows with the surface
   parcel's excess, so the timing is a consequence of the parcel criterion and the heating rate. Not
   wrong, but worth measuring against a real sounding before it is called right.
-- **The seed is still white in space.** Bounded now, but it carries no structure at the several-cell,
-  several-minute scale a 2 km-resolved plume would organise around. A time-correlated,
-  spatially-smooth field is the refinement — and it is the remaining half of a *visible* artifact,
-  not only a theoretical one: a deck sitting near the critical humidity has its cloud fraction
-  amplified by the closure's own slope (`d(fraction)/d(RH) = 1/2(1 − critical)`, so 2.5 at the
-  authored value), and a seed that is uncorrelated between neighbouring cells therefore renders as
-  neighbouring cells scintillating independently. The other half was the bake eroding density
-  rather than shape, fixed 2026-07-28.
-- **Cost is still unprofiled, and the tier is throttled by the frame rate rather than by the
-  GPU.** Two separate things, both open. The step itself has never been measured: the
-  parcel-method walk added a short vertical loop per cell inside the cap, and the step was already
-  above §12's 2 ms budget. Separately, the nest submits on the **graphics queue**
-  (`vkQueueSubmit2(device_.graphics_queue())`), so it serialises with rendering and its throughput
-  is `steps_per_frame × frame rate × step length` — which is why a scene drawing at twelve frames
-  a second simulates weather at twelve frames a second while the device sits idle. In order of
-  cost to fix: raise `max_steps_per_frame` (now authorable, and the cheapest lever there is);
-  lower `pressure_iterations`, since twelve red-black sweeps are a large share of the step's
-  bandwidth; move the submission to the **async compute queue**, which the engine already has a
-  seam for and which breaks the frame-rate coupling entirely; and finally the semi-coarsened
-  multigrid `atmosphere_pressure.comp`'s own header names, with the current shader as its
-  smoother. Every number in that ordering is an estimate — **profile the step before acting on
-  any of it.**
+- ~~**The seed is still white in space.**~~ Closed 2026-07-28 — see *The symmetry break was doing a
+  fifth of its job* above. The predicted scintillation turned out not to exist; what the seed was
+  actually failing to do was break the symmetry at all, and that is measured rather than argued.
+- **The step is now profiled, and the measurement reordered the levers it was supposed to
+  choose between.** Timestamps bracket each stage of the step, resolved where the nest already
+  waits on the submission's timeline value, so measuring stalls nothing; `atmosphere_probe`
+  reports the mean over a run and the Meteorology panel carries the same breakdown. Measured on a
+  GTX 1060 6 GB at the shipped tier (192×192×48, 2 km, twelve sweeps), mean over 1 471 steps:
+
+  | stage | ms | share |
+  |---|---|---|
+  | stage | ms, as found | ms, after this section's two corrections |
+  |---|---|---|
+  | **pressure** | **7.71** | **2.74** |
+  | advect scalars | 1.38 | 1.47 |
+  | advect wind | 1.37 | 1.47 |
+  | forces | 0.78 | 0.82 |
+  | microphysics | 0.48 | 0.50 |
+  | project | 0.34 | 0.37 |
+  | extinction | 0.27 | 0.29 |
+  | divergence | 0.20 | 0.21 |
+  | readback | 0.06 | 0.07 |
+  | **whole submission** | **12.60** | **7.95** |
+
+  (The right column's non-pressure stages read slightly higher because they are a larger share of
+  a shorter submission and the device clocks accordingly; they are the same work.)
+
+  Three things follow, and the third is the one that matters.
+
+  *The pressure solve is the large share its own header supposed*, and two things came out of
+  looking at why.
+
+  The tridiagonal matrix is a function of the level index alone — base-state density, potential
+  temperature and the stretched grid's spacings do not vary horizontally — so its Thomas
+  factorization is identical for every column. It is now built once per workgroup into shared
+  memory instead of once per column into a dynamically indexed 64-float private array that
+  spilled to local memory. Same arithmetic, hoisted: 8.90 → 7.71 ms, physics bit-identical.
+
+  Then the sweep count itself, which had never been measured. **Twelve was five sweeps of pure
+  waste and the reasoning behind it was misapplied.** The justification was that a solver with no
+  coarse-grid correction leaves smooth horizontal error behind — a real property of an
+  *isotropic* Poisson problem, and very nearly irrelevant here. The anisotropy that motivates the
+  line solver in the first place also makes what remains for the sweeps a small, strongly
+  diagonally dominant correction: horizontal coupling is 1/12 of the vertical at the domain top
+  and 1/1370 of it at the ground. Measured end-to-end over six simulated hours at 2, 4, 8, 12 and
+  20 sweeps, the surface humidity, lifting condensation level, cloud base, column water and sky
+  coverage are **identical to every printed figure**, and the peak divergence — the quantity the
+  solve exists to control — agrees to **seven significant figures**. At *one* sweep it does not,
+  which is what tells convergence apart from a solve that was never doing anything. Repeated
+  under a 25 m/s front with a +4 K parent anomaly, the case the argument is weakest for:
+  divergence still agrees to six figures at four sweeps.
+
+  `pressure_iterations` therefore defaults to **4** — twice the measured convergence point. The
+  stage runs 1.3 / 2.7 / 8.0 / 15.3 ms at 2 / 4 / 12 / 20 sweeps, so twelve was spending 5.3 ms a
+  step to move the sixth significant figure. With both corrections the step is **7.95 ms**, down
+  from 13.97 as first measured — and the multigrid the shader's header names is no longer a
+  refinement worth reaching for at this aspect ratio, because there is no residual left for it to
+  remove. It becomes interesting only if the domain is ever made closer to isotropic.
+
+  *And the step itself was three times shorter than anything the model needed.* `choose_step`
+  took the vertical CFL against a flat `10 × convective_velocity_scale` — a thunderstorm core,
+  20 m/s — which pinned Δt at 2.43 s in every airmass and on every grid, three times tighter than
+  the horizontal term ever came to. Measured, a fair-weather domain peaks at **0.02 m/s** and a
+  convecting one at 0.03: the assumption was three orders out. And because the transport is
+  semi-Lagrangian and therefore *unconditionally stable*, what that bought was not stability but a
+  vertical Courant number of 9 × 10⁻⁴ — §1.4's maximally diffusive regime, the exact defect this
+  nest exists to have left behind. The short step was making the vertical advection worse, not
+  safer.
+
+  Two things were wrong at once. `convective_velocity_scale` is documented as "purely a
+  *reporting* scale", and was in fact also setting the time step — one number doing two unrelated
+  jobs, with the second invisible from where it is declared. The CFL now binds against the
+  **updraft the readback measures**, with a fourfold headroom for what convection can do between
+  readbacks and the old constant standing until the first readback lands; it is tracked with a
+  decay so it tightens the instant convection strengthens and only relaxes slowly. Measured at
+  2.44 / 5 / 6 / 10 / 20 s in both a quiescent and a convecting airmass: unchanged through 6 s
+  (sky coverage within 3 %, cloud base within 2 %), and at 10 s and beyond the domain peak
+  vertical velocity inflates by an order of magnitude and the sky changes with it — so
+  `max_step_seconds`, already 6, is the cap that keeps it the safe side. In practice Δt now sits
+  at 6 s until a real updraft exceeds ~2 m/s.
+
+  **Which is the change that matters, because the tier's cost is not the step — it is the step
+  over the weather the step buys.**
+
+  | | as found | now |
+  |---|---|---|
+  | cost per step | 13.97 ms | 7.64 ms |
+  | seconds of weather per step | 2.43 | 6.0 |
+  | **cost per simulated second** | **5.75 ms** | **1.27 ms** |
+
+  *Over budget per step is nonetheless a twentieth of a millisecond per frame.* A step falls due
+  every 6 s of game time, so at 1× time scale and 60 Hz the tier costs **0.021 ms** — under one
+  percent of §12's whole 2.6 ms frame budget. §12's per-step figure was optimistic on a 2016 card
+  and its per-frame figure was right.
+
+  The corollary is worth stating because it is what an editor session actually feels: the
+  per-frame cost is *linear in the sky's animation rate*. At 60× real time the tier costs
+  1.27 ms a frame; it crosses 2 ms at about **94×**; the 188× session that prompted this section
+  pays 4.0 ms, against the 16 ms it paid before. That is not the tier being heavy — it is the
+  amount of weather being ordered, and the price per unit of it is now 4.5× lower.
+
+  **What a 2 ms *per step* would take, stated so it is a decision rather than a discovery.** Not
+  tuning: the remaining step is 2.6 ms of pressure, 2.9 ms of MacCormack transport and 1.6 ms of
+  everything else, and none of it is waste. It would take roughly four times fewer cells than
+  192×192×48 — around 128×128×28 — which means either a coarser vertical or a spacing above 2 km.
+  2 km is the spacing at which convection stops being parameterized and starts being *resolved*
+  (§2.2), and it is what this phase's acceptance bar rests on, so that is a tier decision (§6's
+  Medium/High/Ultra ladder) and not a default to move quietly.
+
+  *So the defect was never the cost; it was where the cost landed.* The 12.6 ms fell inside a
+  single frame — one dropped frame every 2.4 s at 1× time scale, and far worse once defect 7
+  above was fixed and a frame could legitimately record four steps. Async compute alone would not
+  have helped: `vulkan_scene_view.cpp` had each view wait on the step submitted *this* frame, so
+  the frame was serialised behind it whatever queue it ran on. The step is now **staged during
+  the frame and submitted at its end**, after every scene view — so a frame reads the step before
+  it and waits on a value that has almost always already passed. The step waits on the frame's
+  readers in turn, because submission order on a queue orders the *start* of submissions and
+  promises nothing about one completing before the next begins. One nest step of staleness, a
+  couple of seconds of game time, against a medium whose own time scale is minutes.
+
+  Still open, in order: fewer sweeps or a tiled pressure smoother; the **async compute queue**,
+  which the engine already has a seam for (`VulkanDevice::share_across_queues`) and which is now
+  a straightforward win rather than a blocked one; and the semi-coarsened multigrid
+  `atmosphere_pressure.comp`'s header names. **The editor path of the frame-end move has been
+  built and its tests pass, but has not been confirmed by eye.**
 - **SushiRuntime is the wrong tool for this tier, and the reason is worth recording** so it is not
   re-proposed. The nest's output is a Vulkan 3D image the cloud bake samples with hardware
   filtering; it is a *render resource* that happens to be computed. Moving the arithmetic to
@@ -1214,18 +1489,379 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   deterministic simulation domain, where the data does not have to become something the
   rasteriser samples.
 
-### Phase B3 — Surface energy balance and ice
+### Phase B3 — Surface energy balance and ice — **shipped**; its open clause closed in C1
 
-The other half of Phase B's original acceptance bar. Surface fluxes are prescribed constants
-today; a real energy balance — insolation through `Astro::Ephemeris`, a slab heat capacity,
-land/sea partitioning — is what turns them into the diurnal cycle, and `ISurfaceModel` /
-`IRadiationModel` are introduced when they have an implementation rather than stubbed ahead of
-one. Ice microphysics (deposition, freezing, snow with its own fall speed) joins Kessler here.
+The other half of Phase B's original acceptance bar. Surface fluxes were prescribed constants; a
+real energy balance — insolation through the ephemeris, a slab heat capacity, land/sea
+partitioning — is what turns them into the diurnal cycle. Ice microphysics (deposition, freezing,
+snow with its own fall speed) joins Kessler here.
 
 *Acceptance: morning clear → midday cumulus → evening decay happens without anything scripting
 it.*
 
-### Phase C — Global core and climatology
+#### B3a — the ground became a state variable — **shipped**
+
+Three authored numbers went away: a peak sensible flux, a peak latent flux, and a night-time
+cooling rate, each scaled by the sine of the sun's elevation. That is a *prescribed diurnal shape*
+wearing the costume of a diurnal cycle, and the three things missing from it are the three things
+a diurnal cycle is:
+
+* **No lag.** With no heat capacity the fluxes peaked exactly at solar noon.
+* **No response.** The ground could not be warmer or cooler than what an author typed, so as the
+  air warmed underneath it nothing reduced the flux into it — and that negative feedback is what
+  makes a boundary layer settle at a depth instead of growing all afternoon.
+* **No changing Bowen ratio.** A surface drying out kept moistening the air at the rate it had
+  when it was wet.
+
+What replaces them is the textbook slab, one dispatch per column ahead of the forces stage:
+
+```
+C dT_s/dt = S(1-a) + L_down - e sigma T_s^4  -  H  -  LE
+H  = rho c_p C_H |U| (T_s - T_air)
+LE = rho L   C_H |U| beta (q_s(T_s) - q_v_air)
+```
+
+`atmosphere_surface.comp`, 37 000 invocations against the 1.8 million every 3-D stage runs, and it
+measures **0.069 ms — 0.7 % of the step.** The skin temperature is prognostic, so it joins the
+shift: a nest that walks two kilometres brings the ground's warmth with it rather than laying a
+cold strip along its leading edge.
+
+**Measured, on a 24 h cycle over vegetated summer land:**
+
+| | |
+|---|---|
+| skin maximum | **+90 min after solar noon**, 36.4 °C |
+| sensible flux maximum | +90 min, 197 W/m² |
+| sensible flux turns positive | at solar elevation sine **+0.500** — long after sunrise |
+| sensible flux turns negative | at sine **+0.065** — before sunset |
+| Bowen ratio through the day | **0.50 → −6.25** |
+
+Every row of that is emergent. The 90-minute lag is the slab's heat capacity; the morning
+transition waits for the ground to overtake the air rather than for the sun to rise; the evening
+one happens while the sun is still up, which is exactly when real convection stops. The Bowen
+ratio is now *reported* rather than authored, and it moves.
+
+Three decisions worth stating, because each replaced something that looked simpler:
+
+**The slab is integrated semi-implicitly.** Every flux stiffens as the skin warms — longwave as
+4εσT³, sensible linearly, latent through the Clausius–Clapeyron slope — some 85 W/m²/K against a
+soil slab of 10⁵ J/m²/K, a 20-minute relaxation time. Explicit would need a step under twice that,
+so an author choosing a thin slab (a road, a rock face) would walk into an oscillation that reads
+as a physics bug and is an integrator bug. Linearising about the current skin costs one divide,
+is unconditionally stable at any step length: the increment is the residual over `C + dt·λ` rather
+than over `C`, so the step cannot outrun the response that opposes it.
+
+Two weaker claims than this paragraph first made, and the unit test is why. It is **not** exact in
+one step — `q_s` is exponential in the skin, so a step is one Newton iteration — and it is **not**
+monotone: a single 10⁶ s step onto a 10³ J/m²/K slab overshoots the equilibrium by 3.3 K on a 16 K
+approach, then converges from the other side within a few more. The residual falls every step after
+the first and lands on the same equilibrium a patient loop finds. What the scheme buys is the
+denominator: the explicit form is the same numerator over `C` alone, which at that slab and that
+step is five orders of magnitude larger — not a large error, not a temperature.
+
+**The exchange velocity is not |U|.** A bulk flux proportional to the mean wind vanishes on a calm
+morning, which is precisely when free convection carries the most heat — the model has a stable
+fixed point at "no wind, no flux, no convection, no wind". Beljaars (1995) adds the convective
+velocity scale in quadrature; measured without it, a fixed overhead sun drove the skin **23 K**
+above the 54 m level it was exchanging with, because 0.005 × 1 m/s is 6 W/m²/K and moving 144 W/m²
+through 6 W/m²/K takes 24 K.
+
+**Downwelling longwave is Brutsaert's, not a constant.** It goes as the seventh root of vapour
+pressure over temperature, so a humid night radiates far more back down than a dry one — which is
+why a desert freezes after dark and a coast does not. The retired `surface_night_flux` had to fake
+that with a number.
+
+*Named limit.* `C_H` is the neutral value: a stability correction belongs with the Monin–Obukhov
+length, and this model has no surface layer resolved well enough to earn one. The free-convection
+velocity above is the standard cheap substitute and is not the same thing.
+
+*What this did **not** fix, measured.* Phase B's acceptance bar is not met yet, and the surface
+balance is not what is standing in the way. Over 24 h the sequence is morning clear → **midday
+still clear** → a deck forming at dusk → that deck sitting there all night, unchanged to three
+figures. Two separate causes, neither in this section:
+
+1. *Cloud forms late* because surface relative humidity **falls** all day (69.5 % → 39 %) while the
+   LCL climbs 897 → 1585 m. That is `humidity_scale_height` (recorded above, deliberately not
+   fixed): the base state's relative humidity can only decrease with height, so every configuration
+   that makes cloud has to be pushed there.
+2. *Cloud never decays* because a saturated layer at 1585 m has **no sink in this model at all**
+   overnight — it is too thin to rain, the mixed layer that fed it has collapsed so nothing mixes
+   it, and there is no radiative or subsidence drying. B3b's radiative terms are where that
+   belongs.
+
+#### B3b — cloud shades the ground it came from — **shipped**
+
+The negative feedback that closes the convective loop, and the only one the tier did not have: a
+cumulus forms, its own shadow cuts the heating that lifted it, the updraft weakens. Without it a
+heated afternoon has nothing telling it to stop.
+
+The column optical depth is accumulated by **the extinction stage**, not the surface stage, and the
+reason is arithmetic: a column walk is 48 fetches, extinction runs once a *frame* and the surface
+balance once a *step*. It costs 0.10 ms there (0.377 → 0.480) against roughly 3 ms of per-step
+walking, and buys one frame of staleness — the ground is shaded by the cloud the previous frame
+ended with, which at a couple of seconds of game time per step is nothing a cloud field notices.
+
+Cover and depth are carried separately, for the same reason the readback separates them: a
+tenth-covered column must let nine tenths of the sun straight through, not attenuate all of it by a
+tenth of the optical depth. Overlap is **maximum**, which is right for a convecting column and
+wrong for a frontal sheet.
+
+**Measured**, the same run with the shading multiply removed and restored — a moist vegetated day
+under a 24 h sun, cloud present from dawn:
+
+| solar sine | skin, unshaded | skin, shaded | sensible, unshaded | shaded | domain peak w |
+|---|---|---|---|---|---|
+| 0.707 (morning) | 20.3 °C | 17.2 °C | 50 W/m² | 20 W/m² | |
+| 0.966 | 31.7 °C | 25.4 °C | 157 | 97 | |
+| **1.000 (noon)** | **32.5 °C** | **26.8 °C** | **159** | **106** | |
+| 0.966 (afternoon) | 34.3 °C | 28.0 °C | 176 | 113 | 0.053 → **0.029 m/s** |
+
+**5.7 K of skin and a third of the sensible flux, at a third-covered sky.** Column water after 14 h
+runs 18.83 kg/m² unshaded against 17.03 shaded, and the peak updraft is nearly halved — the model
+was running an afternoon that fed itself.
+
+*Named limit.* The slant path is `1/μ` through the **same** column, so every shadow falls directly
+under its cloud. That is right at a high sun and wrong at a low one, where a shadow really lands
+kilometres downsun — but the error grows exactly as the flux being shaded shrinks, which is what
+makes it affordable. A correct one is a shadow march across neighbours and is not worth a march.
+
+**The other half of this phase's task was a wrong prediction, and it is recorded rather than
+quietly dropped.** The task predicted a warm drift needing a free-tropospheric radiative cooling
+term. Measured over **72 h** of diurnal cycling, mean θ′:
+
+| | 12 h | 24 h | 48 h | 72 h |
+|---|---|---|---|---|
+| above 3 km | −0.04 | −0.02 | −0.08 | **−0.25 K** |
+| above 10 km | −0.04 | +0.08 | −0.21 | **−0.86 K** |
+| lowest level | +4.66 | +3.11 | +2.04 | **+0.71 K** |
+
+There is no warm drift; the boundary layer trends *down* across three days and the free troposphere
+cools slowly. So the term is **not added** — it would have been a scheme fixing a problem the model
+does not have. The slow cooling that is there is concentrated above 10 km, straddling the
+tropopause, where the base state's θ gradient is sharpest: that is numerical diffusion in the
+semi-Lagrangian transport across a stiff gradient, at −0.29 K/day, and a radiative scheme would
+not fix it. Recorded as a named limit rather than masked.
+
+#### B3c — the land/sea seam, deliberately not built — **decided**
+
+B3's charter names land/sea partitioning, and this is the section that does not deliver it, with the
+reason rather than an apology.
+
+**Nothing in the engine can produce a land/sea mask.** Phase D is blocked (§15) on the terrain
+height field the engine does not have, and a procedurally invented coastline would be *worse* than
+none: the renderer would draw land where the atmosphere believes there is sea. That is a lie about
+the world, not a missing feature. §16's own rule — these seams "arrive with implementations rather
+than as stubs" — applied to itself. `AtmosphereSurface` is blocked on exactly what Phase D is
+blocked on, and lands with it.
+
+What was built and measured instead was the physics half: letting the patchiness field mean *soil
+moisture* and drive the moisture availability as well as the darkness of the ground, so neighbouring
+patches would differ in their **Bowen ratio** — the contrast that drives a sea breeze, at the scale
+a 6 km patch can manage.
+
+**It made things worse, and it is not shipped.** Domain coverage roughness over hours 3–6:
+
+| patchiness drives | roughness | condensate | peak w |
+|---|---|---|---|
+| **absorbed shortwave only (shipped)** | **0.0678** | 0.0186 | 0.032 |
+| shortwave and moisture together | 0.0519 | 0.0194 | 0.033 |
+| moisture only | 0.0409 | 0.0213 | 0.036 |
+
+The reason is visible once measured and was not before: a wetter patch absorbs *more* and evaporates
+*more*, so the two effects cancel in the skin temperature — and it is the **thermal** contrast that
+organises convection, not the moisture contrast. Structure falls 40 % for 15 % more condensate. The
+story was good and the measurement disagreed with it; the measurement wins.
+
+#### B3d — ice, as a diagnosed phase rather than a second species — **shipped**
+
+The scheme is a **phase partition on temperature**, not cloud ice and snow as prognostic fields,
+and the choice is the whole design:
+
+> Carrying them costs another `rgba32f` volume — 28 MB at the shipped tier — plus its share of the
+> advection, the boundary-layer mixing, the shift and the readback, and it buys mixed-phase
+> *coexistence*: liquid and ice in the same cell with a transfer rate between them. At 2 km that
+> coexistence is entirely subgrid. What is resolvable is that a colder cell saturates at a lower
+> humidity, releases more latent heat when it condenses, precipitates more readily, and drops
+> something that falls at a metre a second rather than seven — and all four are functions of the
+> temperature the cell already carries.
+
+So `nest_ice_fraction` ramps from 0 at 0 °C to 1 at −20 °C, and everything else is a function of
+it: the saturation curve (liquid and ice Magnus blended), the latent heat (vaporization plus the
+ice share of fusion — 13 % more), the autoconversion threshold (a quarter, once glaciated), the
+fall speed (rain's and snow's blended), and the **effective radius** the extinction divides by.
+
+**It costs 0.5 % of the step.** Measured by interleaving ice-on and ice-off builds three times in
+one session, because the GPU's clocks drifted between runs by 20 % and a straight before/after
+would have measured the clocks:
+
+| | microphysics | extinction | whole submission |
+|---|---|---|---|
+| ratio ice-on / ice-off, mean of 3 interleaved pairs | **1.007** | **1.034** | **1.005** |
+
+The first draft of the extinction path cost twice that, because it computed `(θ_base + θ′)·Π` per
+level, which is two Exner evaluations — each a `pow` chain. `T_base + θ′·Π` is the same number with
+one, and the column loop runs it 48 times.
+
+**Measured behaviour**, same forcing, three airmasses, autoconversion lowered so a thin deck
+precipitates:
+
+| surface | freezing level | mean coverage | condensate | precipitation held / cloud |
+|---|---|---|---|---|
+| 288 K | 2 308 m | 0.430 | 0.1045 kg/m² | 0.051 |
+| 276 K | 438 m | 0.496 | 0.0781 | 0.045 |
+| **265 K** | below ground | **0.621** | 0.0618 | **0.177** |
+
+Two signatures, and both are the ice curve rather than a tuning constant. **Coverage rises as the
+airmass cools while the condensate falls** — colder air holds less water, so the cloud is thinner,
+and yet more of the sky is covered, because the ice curve it condenses against sits well below the
+liquid one. And the cold column holds **3.5× the precipitation per unit cloud**, which is the
+slower fall speed and the lower glaciated threshold together.
+
+**The warm case is bit-identical to before any of this existed** — coverage, condensate and domain
+roughness agree to four decimals — which is the property that makes the partition adoptable: above
+the freezing point the blended relations are *exactly* the liquid ones, so every measurement this
+phase took earlier still stands. It is pinned by unit test rather than left to inspection.
+
+Melting needs no term: a flake falling into air above freezing arrives in a cell whose ice fraction
+is zero, so it falls at rain's speed and evaporates on rain's curve from that level down.
+
+*Named limits.* No supercooled water below the glaciation point, no Bergeron transfer *timescale*
+(only its consequence), and melting is instantaneous where it really takes a few hundred metres.
+The two-species scheme is the refinement and its cost is quantified above. **Snow reaching the
+ground was not demonstrated in a free run**: this configuration cannot build a cloud deep enough to
+precipitate on its own, so the precipitating measurements above have the autoconversion threshold
+lowered by hand. The fall-speed blend and the saturation curves are pinned by unit test instead.
+
+Also measured, and the reason B3b's third item exists: **the nocturnal deck has no sink at all**.
+A saturated layer at 1585 m is too thin to rain, the mixed layer that fed it has collapsed so
+nothing mixes it, and there is no subsidence — so it sits unchanged to three figures until dawn.
+Radiative cooling would make it *thicker*. The honest candidate is large-scale subsidence off the
+parent solution, which is Phase C's to supply and is left there.
+
+#### B3e — the acceptance bar, run: **two clauses of three**
+
+*Acceptance: morning clear → midday cumulus → evening decay happens without anything scripting it.*
+
+Run over 24 h of diurnal cycling, vegetated summer land (albedo 0.18, moisture availability 0.55,
+1.5×10⁵ J/m²/K), surface humidity 0.85, with a westerly parent carrying a −0.15 relative-humidity
+anomaly at 8 m/s:
+
+| hour | sun | coverage | cloud base | cloud top | skin | what it is |
+|---|---|---|---|---|---|---|
+| 00:00 | 0.00 | 0.000 | — | — | 15.0 °C | clear |
+| 01:30 | +0.38 | 0.163 | 19 m | 99 m | 12.9 | **radiation fog** |
+| 03:00 | +0.71 | 0.287 | 19 m | 99 m | 14.7 | fog deepening |
+| **04:30** | +0.92 | **0.000** | — | — | 20.1 | **burns off** |
+| 06:00 | +1.00 | 0.000 | — | — | 20.9 | clear at solar noon |
+| 07:30 | +0.92 | 0.000 | — | — | 22.8 | skin peak, +90 min |
+| **09:00** | +0.71 | 0.093 | **1 112 m** | 1 341 m | 20.1 | **cumulus at the mixed-layer top** |
+| 10:30 | +0.38 | 0.207 | 897 m | 1 341 m | 16.1 | deepening |
+| 12:00 | 0.00 | 0.194 | 19 m | 1 341 m | 13.8 | fog under the deck |
+| 18:00 | −1.00 | 0.637 | 19 m | 1 341 m | 10.8 | overnight deck |
+
+**What is emergent, and was not before B3:** a *radiation fog* that forms because the ground
+radiates to a cold sky and cools below the dew point, and then **burns off at mid-morning** when
+the sensible flux turns positive and lifts it. Neither end of that was reachable with a prescribed
+night flux, because the old constant had no idea how humid the air above it was — and both are the
+Brutsaert downwelling term and the prognostic skin doing exactly what they were added for. The
+same ground fog was a *defect* in Phase B2c; here it has a life cycle.
+
+**Clause by clause.** Morning clear: **yes**, 04:30 through 07:30. Midday cumulus: **partly** — a
+proper fair-weather deck forms at the mixed-layer top with a base over a kilometre up, but at
+09:00 rather than at noon. Evening decay: **no** — the deck grows through the night instead.
+
+> **Closed in Phase C1.** With the parent supplying subsidence the deck peaks at sunset and falls
+> 40 % overnight instead of growing. The diagnosis below was right, and the term that fixes it
+> came from a field `SynopticLayer` was already computing.
+
+**Why, measured rather than guessed.** The same run against a quiescent parent was taken as a
+control: the closed box peaks at a 35.3 °C skin instead of 22.8 °C and gains water monotonically
+(13.31 → 16.55 kg/m²) with coverage reaching 0.61 and never falling. The advected run does lose
+water in places (14.75 → 14.04 overnight) — so horizontal advection *is* a sink, and it is far too
+slow: 8 m/s across a 384 km domain is thirteen hours, against a night. The deck outlives it.
+
+That leaves the diagnosis from B3b standing and now tested from a second direction: **the missing
+sink is large-scale subsidence**, which warms and dries by compression on the timescale a night
+actually has, and which a limited-area model does not generate — it receives it from its parent.
+That is Phase C's to supply, and the acceptance bar's third clause is carried there with it rather
+than being chased with a term invented inside the nest to stand in for it.
+
+The late timing has its own separate cause, already recorded: surface relative humidity **falls**
+all day because `humidity_scale_height` does not do what its documentation says, so a column has to
+be pushed to its condensation level rather than starting near it.
+
+### Phase C — Global core and climatology — *in progress*
+
+#### C1 — large-scale vertical motion, and the clause B3e carried here — **shipped**
+
+B3e closed with one acceptance clause open and a named cause: an evening deck grew through the
+night instead of decaying, because a saturated layer aloft has no sink at all — too thin to rain,
+the mixed layer that fed it collapsed, and nothing dries it. The candidate was **large-scale
+subsidence**, which a limited-area model receives from its parent rather than generating. This
+section is that candidate, built and tested.
+
+**It is the first term the nest receives that is not a boundary condition.** The three parent
+anomalies feed the Davies zone; this is applied across the whole domain, because a 384 km window
+has no way to know it is sitting under a thousand-kilometre high. In `atmosphere_forces.comp` it is
+vertical advection of potential temperature and vapour against the *total* profile — subsidence
+warms by compression and dries by bringing down air from where there is less water — with a shape
+that rises from zero at the ground to the supplied value near the boundary-layer top and decays to
+zero at the tropopause.
+
+**Where it comes from: Ekman pumping, and `SynopticLayer` already had it.** Its geostrophic wind
+carries a 25° surface-friction turn that relaxes with altitude, and *that turn is the
+cross-isobaric flow*. Air spirals inward toward a low and outward from a high, so the convergence
+has to go somewhere and where it goes is up. Taken as the divergence of the near-surface wind over
+the Ekman layer, `w = −h·∇·V`, numerically from four neighbouring samples rather than analytically
+— the analytic wind already *has* the friction in it, and re-deriving the divergence in closed form
+would be a second expression of the same thing, free to drift from the first. Measured: **1.0 cm/s
+in the mean and ±5.5 cm/s at the centres of a 20 hPa pair**, which is the textbook synoptic value,
+and it falls out of the friction angle rather than out of a constant chosen to produce it.
+
+**The acceptance re-run.** Same 24 h diurnal case as B3e, mean sky coverage:
+
+| hour | sun | no subsidence | −0.5 cm/s | −1 cm/s | −2 cm/s |
+|---|---|---|---|---|---|
+| 01:30 | +0.38 | 0.126 | 0.125 | 0.123 | 0.119 |
+| 04:30 | +0.92 | 0.033 | 0.014 | 0.010 | 0.010 |
+| 07:30 | +0.92 | 0.128 | 0.071 | 0.026 | 0.019 |
+| 10:30 | +0.38 | 0.503 | 0.446 | 0.360 | 0.119 |
+| **12:00** | 0.00 | 0.592 | **0.524** | 0.425 | 0.183 |
+| 15:00 | −0.71 | 0.599 | 0.429 | 0.303 | 0.126 |
+| 18:00 | −1.00 | 0.604 | 0.353 | 0.274 | 0.092 |
+| **24:00** | 0.00 | **0.614** | **0.315** | 0.248 | 0.140 |
+
+Without subsidence the deck grows monotonically to dawn. With half a centimetre a second it peaks
+at sunset and **falls 40 % overnight**. The column water says the same thing: 13.31 → 16.54 kg/m²
+with no sink, against 13.31 → peak 15.58 → 14.93 with one. The sun switches off in both runs, so
+the difference is the sink and nothing else — **the diagnosis was right**.
+
+Phase B's bar now reads: morning clear ✓, midday cumulus ✓ *in kind* and still late in timing,
+evening decay ✓. The remaining timing gap is `humidity_scale_height`, recorded above and
+deliberately not fixed.
+
+*Named limit.* Two centimetres a second suppresses the afternoon cumulus almost entirely (0.028 at
+09:00). The value is not a tuning knob here — it is whatever the pressure field produces — but a
+scene parked under a strong high will be clear, which is correct and worth knowing before it is
+reported as a bug.
+
+#### The synoptic wind was 735× too fast, and nothing had ever measured it
+
+Found while deriving the pumping, where it showed as the vertical motion saturating its own 10 cm/s
+cap *everywhere* — not a subtle symptom.
+
+`V = ∇p/(ρf)` wants pressure in pascals; `pressure_gradient` returns hectopascals per metre. The
+conversion is therefore 100/1.225 = **81.6**. The constant was **6.0 × 10⁴**, beside a comment
+reading *"tuned so a ~30 hPa deepening low reads ~15-20 m/s"*. Measured, the shipped `FrontPassage`
+preset produced a **15 534 m/s** boundary wind; after the fix it produces 26 m/s. The comment
+described the intent exactly and the number never matched it.
+
+**Why it survived**, which is the part worth generalising: the test covering this field asserted
+that the wind was *non-uniform* — that a front had something to advect it — and a 15 km/s field
+satisfies that perfectly. Structure was checked and magnitude never was. Both are now asserted, and
+the scale is written as `PASCALS_PER_HECTOPASCAL / AIR_DENSITY` so there is no number left to tune.
+
+#### The rest of Phase C
 
 T0 assets sourced and baked. T1's 2-layer moist QG core replaces `SynopticLayer`; Davies
 relaxation nesting into T2; `Astro::Ephemeris` as the single solar authority. Editor
@@ -1352,7 +1988,8 @@ Stated here so they are decisions rather than discoveries:
 | File | Disposition |
 |---|---|
 | `synoptic_weather.hpp` | Deleted (Phase C). Its editor affordance becomes vorticity injection into T1. |
-| `regional_weather_grid.hpp` | **Deleted (Phase B2).** Replaced by the GPU nest. The policy-object decomposition is not what the GPU form wanted — a stage is a compute shader plus its parameters, so `AtmosphereParameters` carries the data and the ten shaders carry the schemes; `ISurfaceModel`/`IRadiationModel` arrive in B3 with implementations rather than as stubs. |
+| `regional_weather_grid.hpp` | **Deleted (Phase B2).** Replaced by the GPU nest. The policy-object decomposition is not what the GPU form wanted — a stage is a compute shader plus its parameters, so `AtmosphereParameters` carries the data and the eleven shaders carry the schemes. |
+| `ISurfaceModel` / `IRadiationModel` | **Never introduced, and B3 is where that was settled rather than deferred again.** Both arrived as *stages*: `atmosphere_surface.comp` is the surface model and the radiation is the shortwave and longwave terms inside it. Neither is a swappable policy object, because on the GPU a "model" is a shader plus a parameter group and there is exactly one of each — an interface with one implementation forever is a stub wearing a vtable. The seam that *would* earn its keep is a **provider of surface properties**, so a terrain or ocean system could publish a real land/sea mask, and that one is blocked on the same terrain field Phase D is (§15). See B3c. |
 | `weather_cloudscape_compiler.hpp` | Kept, narrowed (Phase B1). The genus choice moved to §7.4's classifier (`Render::classify_cloud_genus`, shared with the GPU bake); what remains produces the label and the medium. |
 | `weather_provider.hpp` | Reshaped (Phase A) into `IAtmosphereSource` / `IAtmosphereField` / `IAtmosphereQuery` / `IAtmosphereAuthoring`. |
 | `weather_types.hpp` | Replaced (Phase E) by `AtmosphereProfile` / `AtmosphereDiagnostics`. |

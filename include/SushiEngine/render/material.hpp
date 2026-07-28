@@ -249,6 +249,20 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief What the atmosphere's last step cost on the GPU, per stage.
+                 *
+                 * Beside the mirror because it answers the other half of "is the atmosphere
+                 * healthy": the mirror says what the weather *is*, this says whether the tier
+                 * can afford to produce it. An implementation with no atmosphere, or a device
+                 * without timestamp queries, answers with `measured == false` — which a reader
+                 * must distinguish from a step that cost nothing.
+                 */
+                virtual AtmosphereStepCost atmosphere_step_cost() const noexcept
+                {
+                    return AtmosphereStepCost{};
+                }
+
+                /**
                  * @brief Loads an image file and registers it as a sampled texture.
                  *
                  * A full mip chain is generated on the GPU. Loading the same path twice

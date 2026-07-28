@@ -305,6 +305,16 @@ namespace SushiEngine
 
                 check(vkEndCommandBuffer(frame.cmd), "vkEndCommandBuffer");
 
+                // The one place in a frame that is after every scene view has submitted, which
+                // is exactly what the atmosphere's step has to be ordered behind: it overwrites
+                // fields those views sample, and it costs ~13 ms, so running it before them put
+                // a whole step of weather in the frame's critical path. Stepping here instead
+                // leaves this frame reading the previous step — one nest step of staleness, a
+                // couple of seconds of game time, against a medium whose own time scale is
+                // minutes.
+                if (assets_)
+                    assets_->flush_atmosphere();
+
                 const VkPipelineStageFlags wait_stage =
                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
                 VkSubmitInfo submit{};

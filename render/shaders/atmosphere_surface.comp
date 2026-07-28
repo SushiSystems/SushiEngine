@@ -1,0 +1,217 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// The surface energy balance: the ground's own temperature, and the sensible and latent heat it
+// hands to the air.
+//
+// docs/slop/atmosphere_system.md §6's `ISurfaceModel`, Phase B3. This replaces three authored
+// numbers — a peak sensible flux, a peak latent flux and a night-time cooling rate, each scaled
+// by the sine of the sun's elevation — and the difference is not that the old form was crude. It
+// is that a prescribed flux is not a *balance*, so nothing in it could close:
+//
+//   * The fluxes peaked exactly at solar noon, because there was no heat capacity to lag them.
+//     A real surface peaks an hour or two later, and the whole shape of a convective afternoon
+//     hangs off that lag.
+//   * The ground could not respond to the air. Air warms, the temperature difference driving the
+//     sensible flux shrinks, the flux falls — that negative feedback is what makes a boundary
+//     layer settle at a depth instead of growing forever, and a prescribed flux has none of it.
+//   * The Bowen ratio was fixed by construction. A drying surface kept moistening the air at the
+//     rate it did when it was wet.
+//
+// What is here instead is the textbook slab, integrated over one column:
+//
+//     C dT_s/dt = S(1-a) + L_down - e sigma T_s^4 - H - LE
+//     H  = rho c_p C_H |U| (T_s - T_air)
+//     LE = rho L   C_H |U| beta (q_s(T_s) - q_v_air)
+//
+// One dispatch per *column* rather than per cell, which is why it is 2-D and cheap: at the
+// shipped tier it is 37 000 invocations against the 1.8 million every other stage runs.
+//
+// The balance itself mirrors `Render::atmosphere_surface_balance` and the insolation mirrors
+// `Render::atmosphere_clear_sky_shortwave`, both in include/SushiEngine/render/atmosphere_nest.hpp
+// — GLSL cannot include a C++ header, so the formulas are stated twice and the numbers once.
+// Neither copy is edited alone, and `test_atmosphere_nest.cpp` pins what they must agree on.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "atmosphere_nest_common.glsl"
+
+// Read and written in place: one invocation owns one column's surface and touches nothing else,
+// so there is no race for a second buffer to break. (The double buffer this field carries exists
+// for the *shift*, which moves every texel at once.)
+layout(set = 0, binding = 1, rgba32f) uniform image2D surface;
+layout(set = 0, binding = 2) uniform sampler3D theta;
+layout(set = 0, binding = 3) uniform sampler3D moisture;
+layout(set = 0, binding = 4) uniform sampler3D wind_x;
+layout(set = 0, binding = 5) uniform sampler3D wind_z;
+// This column's cloud, as the extinction stage left it at the end of the previous frame:
+// r = cell-mean optical depth, g = the fraction it is spread over.
+layout(set = 0, binding = 6) uniform sampler2D cloud_shade;
+
+layout(push_constant) uniform Params
+{
+    // The seed's frame: the nest's low corner in world metres, wrapped onto the seed lattice's
+    // period by the host, and the clock this step begins at.
+    vec2 seed_origin;
+    float seed_seconds;
+} push;
+
+const float STEFAN_BOLTZMANN = 5.670374e-8;
+
+void main()
+{
+    ivec2 column = ivec2(gl_GlobalInvocationID.xy);
+    if (column.x >= nest.cells_x || column.y >= nest.cells_z)
+        return;
+
+    ivec3 cell = ivec3(column.x, 0, column.y);
+    float altitude = nest_level_altitude(0.0);
+    float pressure = nest_base_pressure(altitude);
+    float exner = nest_exner(altitude);
+    float density = nest_base_density(altitude);
+
+    // The air the surface exchanges with: the lowest level, which is the ~54 m the bulk transfer
+    // coefficient was written for.
+    float air_temperature = (nest_base_theta(altitude) + texelFetch(theta, cell, 0).r) * exner;
+    float air_vapour = texelFetch(moisture, cell, 0).x / MOISTURE_UNIT;
+
+    float u = 0.5 * (texelFetch(wind_x, cell, 0).r +
+                     texelFetch(wind_x, nest_clamp(cell + ivec3(1, 0, 0)), 0).r);
+    float v = 0.5 * (texelFetch(wind_z, cell, 0).r +
+                     texelFetch(wind_z, nest_clamp(cell + ivec3(0, 0, 1)), 0).r);
+
+    vec4 state = imageLoad(surface, column);
+    // A fresh nest arrives with zeros here (the shift seeds it from the base state, but a clear
+    // beats it on the very first frame); zero kelvin would make the first longwave term absurd.
+    float skin = state.r > 1.0 ? state.r : nest_base_temperature(0.0);
+
+    // ---- Shortwave ------------------------------------------------------------------
+    //
+    // The sun the sky is drawn with, through a slant path: transmittance to the power of the air
+    // mass, so a low sun is dimmed by far more than its elevation alone. That is what makes the
+    // morning and evening shoulders steeper than a cosine, and why the ground starts warming so
+    // much later than the sky lights up.
+    float mu = max(nest.solar_elevation_sine, 0.0);
+    float shortwave = 0.0;
+    if (mu > 0.0)
+    {
+        float transmittance = pow(clamp(nest.clear_sky_transmittance, 0.01, 1.0),
+                                  1.0 / max(mu, 0.05));
+        shortwave = nest.solar_constant * mu * transmittance;
+
+        // **Cloud shades the ground it came from.** The negative feedback that closes the
+        // convective loop: a cumulus forms, its own shadow cuts the heating that lifted it, the
+        // updraft weakens. Without it a heated afternoon has nothing telling it to stop, and the
+        // surface keeps warming under a sky it built.
+        //
+        // Cover and depth are separate for the same reason they are separate in the readback: a
+        // tenth-covered column must let nine tenths of the sun straight through, not attenuate
+        // all of it by a tenth of the optical depth. The slant path is `1/mu` through the *same*
+        // column, which places every shadow directly under its cloud — right at a high sun and
+        // wrong at a low one, where the shadow really falls kilometres downsun. That error grows
+        // exactly as the flux being shaded shrinks, which is what makes it affordable; a real
+        // one is a shadow march across neighbours, and it is not worth a march.
+        vec2 shade = texelFetch(cloud_shade, column, 0).rg;
+        float cover = clamp(shade.g, 0.0, 1.0);
+        if (cover > 0.0)
+        {
+            float in_cloud = shade.r / max(cover, 1e-3);
+            shortwave *= (1.0 - cover) + cover * exp(-in_cloud / max(mu, 0.05));
+        }
+    }
+    // Patchy ground, applied to the *absorbed* shortwave — which is where surface heterogeneity
+    // physically is (cover, slope, aspect, soil moisture, all lumped) and is why this moved here
+    // out of the flux block in `atmosphere_forces.comp`. Bounded below by zero for any amplitude,
+    // because the shortwave it scales is: a heated surface is heated more here and less there,
+    // never refrigerated. See `nest_thermal_seed` for why the field is correlated in space and
+    // time, and what an uncorrelated one measured.
+    //
+    // **Tried and rejected: driving the moisture availability from the same field.** The story was
+    // good — damp ground is darker *and* evaporates freely, so one field would give neighbouring
+    // patches different Bowen ratios, and that contrast rather than temperature alone is what
+    // drives a sea breeze. Measured over hours 3-6, domain coverage roughness: shortwave only
+    // **0.0678**, shortwave and moisture together 0.0519, moisture alone 0.0409. It goes the wrong
+    // way, and the reason is visible once measured: a wetter patch absorbs more *and* evaporates
+    // more, so the two effects cancel in the skin temperature, and it is the thermal contrast that
+    // organises convection. Condensate rises slightly (0.0186 → 0.0213) and structure falls by 40 %.
+    // The change is not made; the measurement is kept.
+    vec2 seed_world = push.seed_origin + (vec2(column) + 0.5) * nest.spacing;
+    float patchiness = max(1.0 + nest.thermal_seed_amplitude *
+                                     nest_thermal_seed(seed_world, push.seed_seconds),
+                           0.0);
+    float absorbed = shortwave * (1.0 - clamp(nest.surface_albedo, 0.0, 1.0)) * patchiness;
+
+    // ---- Longwave, both ways ----------------------------------------------------------
+    //
+    // Brutsaert (1975) for the clear-sky emissivity of the air: it goes as the seventh root of
+    // the vapour pressure over the temperature, so a humid night radiates far more back down
+    // than a dry one — which is the whole reason a desert freezes after dark and a coast does
+    // not. This is what *ends* convection in the evening rather than merely starving it, and it
+    // is a term the old prescribed form had to fake with a constant.
+    float vapour_pressure = max(air_vapour * pressure / (0.622 + air_vapour), 1.0);
+    float air_emissivity = clamp(1.24 * pow(vapour_pressure * 0.01 / max(air_temperature, 1.0),
+                                            1.0 / 7.0),
+                                 0.5, 1.0);
+    float emissivity = clamp(nest.surface_emissivity, 0.0, 1.0);
+    float longwave_down = air_emissivity * STEFAN_BOLTZMANN * pow(air_temperature, 4.0);
+    float longwave_up = emissivity * STEFAN_BOLTZMANN * pow(skin, 4.0);
+    float net_radiation = absorbed + emissivity * longwave_down - longwave_up;
+
+    // ---- Turbulent fluxes, and the slab that closes on them ---------------------------
+    //
+    // The exchange velocity, and it is *not* just |U|. A bulk flux proportional to the mean wind
+    // goes to zero on a calm morning, which is precisely when free convection carries the most
+    // heat — the model would have a stable fixed point at "no wind, no flux, no convection, no
+    // wind". Beljaars (1995) is the standard remedy and what every operational scheme uses: add
+    // the convective velocity scale in quadrature, so an unstable calm surface still ventilates.
+    //
+    // Gated on the surface actually being warmer than the air, because a nocturnal inversion has
+    // no free convection to add and adding it anyway would ventilate away the very stability that
+    // ends the day's convection. `surface_minimum_wind` remains under both as the floor for the
+    // stable case.
+    //
+    // Measured without it: a fixed overhead sun drove the skin 23 K above the 54 m level it was
+    // exchanging with, because 0.005 x 1 m/s is 6 W/m²/K and moving 144 W/m² through 6 W/m²/K
+    // takes 24 K. Real superadiabatic surface layers run a few kelvin.
+    const float FREE_CONVECTION_FACTOR = 1.2;
+    float free = skin > air_temperature
+                     ? FREE_CONVECTION_FACTOR * max(nest.boundary_layer_velocity_scale, 0.0)
+                     : 0.0;
+    float wind = max(sqrt(u * u + v * v + free * free),
+                     max(nest.surface_minimum_wind, 0.01));
+    float exchange = max(nest.surface_exchange_coefficient, 0.0) * wind * density;
+    float beta = clamp(nest.surface_moisture_availability, 0.0, 1.0);
+    float sensible = exchange * nest.specific_heat_pressure * (skin - air_temperature);
+    float skin_saturation = nest_saturation_mixing_ratio(skin, pressure);
+    float latent = exchange * nest.latent_heat_vaporization * beta *
+                   max(skin_saturation - air_vapour, 0.0);
+
+    // **Semi-implicit**, and this is not a refinement. Every term above stiffens as the skin
+    // warms: the longwave as 4 e sigma T^3, the sensible linearly, the latent through the
+    // Clausius-Clapeyron slope of q_s — together some 85 W/m^2/K, against a soil slab of 1e5
+    // J/m^2/K. That is a 20-minute relaxation time, and an explicit update would need a step
+    // under twice it to stay stable; a user authoring a thin slab (a road, a rock face) would
+    // walk straight into an oscillation that looks like a physics bug and is an integrator bug.
+    // Linearising the fluxes about the current skin and solving costs one divide and is
+    // unconditionally stable at any step length: the increment is the residual over C + dt*lambda
+    // rather than over C, so the step cannot outrun the response opposing it. It is *not* exact
+    // in one step and not monotone either -- q_s is exponential in the skin, so a step is one
+    // Newton iteration, and a very large one overshoots before converging from the other side.
+    // Stability is what is bought here, and it is all that is claimed.
+    float saturation_slope = skin_saturation * nest.latent_heat_vaporization /
+                             (nest.gas_constant_vapour * max(skin * skin, 1.0));
+    float stiffness = 4.0 * emissivity * STEFAN_BOLTZMANN * pow(skin, 3.0) +
+                      exchange * nest.specific_heat_pressure +
+                      exchange * nest.latent_heat_vaporization * beta * saturation_slope;
+    float capacity = max(nest.surface_heat_capacity, 1.0);
+    float residual = net_radiation - sensible - latent;
+    float delta = residual * nest.dt / (capacity + nest.dt * stiffness);
+    skin += delta;
+
+    // Report the fluxes at the temperature the step *ends* at, so what the air is handed and what
+    // the ground paid for it are the same number to first order.
+    sensible += exchange * nest.specific_heat_pressure * delta;
+    latent += exchange * nest.latent_heat_vaporization * beta * saturation_slope * delta;
+
+    imageStore(surface, column, vec4(skin, sensible, latent, net_radiation));
+}
