@@ -23,7 +23,10 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/physics/core/body_flags.hpp>
 
 namespace SushiEngine
 {
@@ -55,7 +58,79 @@ namespace SushiEngine
             Vector3T<T> inv_inertia;
             T inv_mass = 0;
             T drag_coefficient = 0; /**< Quadratic drag k: -k|v|v acceleration each predict; 0 disables. */
+
+            /**
+             * @brief Offset from the body's authored origin to its centre of mass.
+             *
+             * `position` is the centre of mass — that is what a rigid body rotates
+             * about, and the projection above assumes it. An authored model's origin
+             * is rarely there (a car's origin is between its wheels, its centre of
+             * mass is not), so the two are related by this offset and
+             * @ref body_origin converts. Keeping the solver in centre-of-mass space
+             * and converting at the boundary is what stops every projection from
+             * having to know the difference.
+             */
+            Vector3T<T> center_of_mass_local;
+
+            /** @brief Index into the scene's material table; 0 is the default material. */
+            std::uint32_t material_index = 0;
+
+            /** @brief `BodyFlags` bits: kinematic, static, sleeping, trigger, and so on. */
+            std::uint32_t flags = BodyFlags::dynamic_body;
+
+            /**
+             * @brief Exponentially-smoothed motion, the metric sleeping reads.
+             *
+             * Smoothed rather than instantaneous because a body at the top of a
+             * bounce is momentarily still without having settled, and a raw speed
+             * test would put it to sleep in mid-air.
+             */
+            T motion_measure = 0;
+
+            /** @brief Seconds this body has been below the sleep threshold. */
+            T sleep_timer = 0;
+
+            /** @brief The island this body was assigned to this tick; 0 when unassigned. */
+            std::uint32_t island_index = 0;
+
+            /** @brief Padding so the struct's size is the same in every translation unit. */
+            std::uint32_t reserved_ = 0;
         };
+
+        /**
+         * @brief The body's authored origin, derived from its centre-of-mass pose.
+         *
+         * The inverse of what the scene does when it admits a body: the simulation
+         * stores the centre of mass, the renderer and the ECS want the origin the
+         * artist authored. Both directions live next to each other so they cannot
+         * drift apart.
+         *
+         * @tparam T The scalar element type.
+         * @param body The body whose origin is wanted.
+         * @return The world-space position of the body's authored origin.
+         */
+        template <typename T>
+        inline Vector3T<T> body_origin(const RigidBodyT<T>& body) noexcept
+        {
+            return body.position - rotate(body.orientation, body.center_of_mass_local);
+        }
+
+        /**
+         * @brief The centre-of-mass position for a body placed at @p origin.
+         *
+         * @tparam T The scalar element type.
+         * @param origin              The authored origin's world position.
+         * @param orientation         The body's orientation.
+         * @param center_of_mass_local The body-local centre-of-mass offset.
+         * @return The world-space centre of mass to store in `position`.
+         */
+        template <typename T>
+        inline Vector3T<T> center_of_mass_position(
+            const Vector3T<T>& origin, const QuaternionT<T>& orientation,
+            const Vector3T<T>& center_of_mass_local) noexcept
+        {
+            return origin + rotate(orientation, center_of_mass_local);
+        }
 
         /**
          * @brief The boundary rigid body: `RigidBodyT` fixed to `Scalar`.
@@ -99,7 +174,9 @@ namespace SushiEngine
          * half of XPBD: external forces integrate into velocity, velocity integrates into
          * a predicted pose, and the pre-predict pose is stashed for the velocity update
          * afterward. A body with `inv_mass == 0` (or a zero `inv_inertia` axis) does not
-         * move along that degree of freedom, matching a pinned/fixed body.
+         * move along that degree of freedom, matching a pinned/fixed body; a body
+         * flagged static or sleeping is skipped entirely, which is the difference
+         * between "infinitely heavy" and "not simulated".
          *
          * @tparam T The scalar element type.
          * @param body                 The body to predict; updated in place.
@@ -109,6 +186,13 @@ namespace SushiEngine
         template <typename T>
         inline void predict(RigidBodyT<T>& body, Vector3T<T> linear_acceleration, T h) noexcept
         {
+            // A static or sleeping body is not integrated at all. Returning before
+            // the previous-pose stash matters: leaving prev_* alone is what makes a
+            // later update_velocity on the same body a no-op rather than a
+            // spurious zero-velocity write.
+            if (!is_simulated(body.flags))
+                return;
+
             body.prev_position = body.position;
             body.prev_orientation = body.orientation;
 
@@ -146,13 +230,16 @@ namespace SushiEngine
          * scalar part is non-negative).
          *
          * @tparam T The scalar element type.
+         * A static or sleeping body is skipped, matching @ref predict: it was never
+         * integrated, so there is no pose delta to read a velocity out of.
+         *
          * @param body The body whose pose was just solved; velocities updated in place.
          * @param h    Sub-step duration, in seconds (> 0).
          */
         template <typename T>
         inline void update_velocity(RigidBodyT<T>& body, T h) noexcept
         {
-            if (h <= T(0))
+            if (h <= T(0) || !is_simulated(body.flags))
                 return;
 
             body.velocity = (body.position - body.prev_position) * (T(1) / h);

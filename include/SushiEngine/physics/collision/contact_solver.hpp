@@ -44,9 +44,9 @@
 #include <cstddef>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/broadphase.hpp>
-#include <SushiEngine/physics/collision.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
+#include <SushiEngine/physics/collision/broadphase.hpp>
+#include <SushiEngine/physics/collision/narrowphase.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
 
 namespace SushiEngine
 {
@@ -394,6 +394,16 @@ namespace SushiEngine
          * The plane is immovable, so the body absorbs the whole correction — but it
          * absorbs it at the contact point, so a box that lands on a corner rotates
          * toward lying flat instead of being lifted rigidly.
+         *
+         * This is the *same* projection @ref resolve_contact_bodies applies, with the
+         * plane contributing no generalized mass. It did not used to be: the impulse
+         * carried an extra `inv_mass / w` factor, chosen to reproduce the older
+         * purely-positional behaviour. That reproduced it only for a body of unit
+         * inverse mass — a heavier body cleared a fraction of its penetration per
+         * sweep and a lighter one overshot it — and the angular share did not
+         * conserve the correction, so a plane contact and a body-pair contact on the
+         * same geometry disagreed. One projection, used twice, cannot disagree with
+         * itself.
          */
         template <typename T>
         inline void resolve_contact_body_plane(ContactBody<T>& body,
@@ -414,9 +424,7 @@ namespace SushiEngine
             const T w = contact_generalized_mass(body, lever, contact.normal);
             if (w <= T(0))
                 return;
-            // Scaled so the centre-of-mass motion still clears the penetration exactly
-            // when there is no angular share, matching the previous behaviour.
-            const Vector3T<T> impulse = contact.normal * (contact.depth * body.inv_mass / w);
+            const Vector3T<T> impulse = contact.normal * (contact.depth / w);
             apply_contact_impulse(body, impulse, lever, T(1));
         }
     } // namespace Physics

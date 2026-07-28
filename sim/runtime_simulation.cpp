@@ -53,7 +53,7 @@
 #include <SushiEngine/astro/scene_frame.hpp>
 #include <SushiEngine/astro/surface_frame.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
-#include <SushiEngine/physics/cloth.hpp>
+#include <SushiEngine/physics/soft/cloth.hpp>
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>

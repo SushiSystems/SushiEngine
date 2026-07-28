@@ -28,10 +28,10 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/physics/physics_world.hpp>
-#include <SushiEngine/physics/soft_body.hpp>
-#include <SushiEngine/physics/xpbd_constraint.hpp>
-#include <SushiEngine/physics/xpbd_solver.hpp>
+#include <SushiEngine/physics/scene/physics_world.hpp>
+#include <SushiEngine/physics/soft/soft_body.hpp>
+#include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
+#include <SushiEngine/physics/solver/xpbd_solver.hpp>
 
 #include "test_helpers.hpp"
 

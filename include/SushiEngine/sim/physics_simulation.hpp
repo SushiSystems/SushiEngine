@@ -47,13 +47,13 @@
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/cloth.hpp>
-#include <SushiEngine/physics/collision.hpp>
-#include <SushiEngine/physics/contact_solver.hpp>
-#include <SushiEngine/physics/physics_world.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
-#include <SushiEngine/physics/xpbd_constraint.hpp>
-#include <SushiEngine/physics/xpbd_solver.hpp>
+#include <SushiEngine/physics/soft/cloth.hpp>
+#include <SushiEngine/physics/collision/narrowphase.hpp>
+#include <SushiEngine/physics/collision/contact_solver.hpp>
+#include <SushiEngine/physics/scene/physics_world.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
+#include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
+#include <SushiEngine/physics/solver/xpbd_solver.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine

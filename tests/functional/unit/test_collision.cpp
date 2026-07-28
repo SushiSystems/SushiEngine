@@ -29,9 +29,9 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/physics/collision.hpp>
-#include <SushiEngine/physics/contact_solver.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
+#include <SushiEngine/physics/collision/narrowphase.hpp>
+#include <SushiEngine/physics/collision/contact_solver.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Physics;
@@ -262,4 +262,47 @@ TEST(Unit_Collision, DroppedParticleRestsOnGround)
     // It should be sitting exactly on the ground (centre one radius up) and at rest.
     EXPECT_NEAR(double(body.position.y), 0.5, 1e-2);
     EXPECT_LT(std::fabs(double(body.velocity.y)), 0.2);
+}
+
+TEST(Unit_Collision, SphereInsideBoxPushesOutOfTheNearestFace)
+{
+    // Deep penetration: the sphere centre is inside the box, so clamping to the surface
+    // returns the centre itself and there is no closest-point direction. The old code
+    // picked +Y unconditionally, which pushed a body sideways through the box it was
+    // inside whenever another face was nearer.
+    BoxCollider<Scalar> box{Vector3{0, 0, 0}, Vector3{Scalar(2), Scalar(2), Scalar(0.5)}};
+
+    // Nearest face is +Z: the centre is 0.4 from it and 2.0 from the others.
+    SphereCollider<Scalar> sphere{Vector3{0, 0, Scalar(0.1)}, Scalar(0.25)};
+    const Contact<Scalar> contact = collide_box_sphere(box, sphere);
+    ASSERT_TRUE(contact.hit);
+    EXPECT_NEAR(double(contact.normal.z), 1.0, 1e-9);
+    EXPECT_NEAR(double(contact.normal.y), 0.0, 1e-9);
+    // Radius plus how far in the centre is: 0.25 + (0.5 - 0.1).
+    EXPECT_NEAR(double(contact.depth), 0.65, 1e-9);
+
+    // The mirrored case must pick the opposite face, not the same one.
+    SphereCollider<Scalar> below{Vector3{0, 0, Scalar(-0.1)}, Scalar(0.25)};
+    const Contact<Scalar> mirrored = collide_box_sphere(box, below);
+    ASSERT_TRUE(mirrored.hit);
+    EXPECT_NEAR(double(mirrored.normal.z), -1.0, 1e-9);
+}
+
+TEST(Unit_Collision, SphereInsideOrientedBoxPushesOutOfTheNearestFace)
+{
+    // The oriented counterpart, and the reason it is tested separately: the normal is
+    // chosen in the box's local frame and rotated back out, so a wrong frame would
+    // still produce a unit normal and only be visible as a wrong direction.
+    const double half_pi = 3.14159265358979323846 * 0.5;
+    const Scalar s = Scalar(std::sin(half_pi * 0.5));
+    const Scalar c = Scalar(std::cos(half_pi * 0.5));
+    // A quarter turn about X maps the box's local +Z onto world +Y.
+    OrientedBox<Scalar> box{Vector3{0, 0, 0}, Vector3{Scalar(2), Scalar(2), Scalar(0.5)},
+                            Quaternion{s, 0, 0, c}};
+
+    SphereCollider<Scalar> sphere{Vector3{0, Scalar(0.1), 0}, Scalar(0.25)};
+    const Contact<Scalar> contact = collide_obb_sphere(box, sphere);
+    ASSERT_TRUE(contact.hit);
+    EXPECT_NEAR(double(contact.normal.y), 1.0, 1e-6);
+    EXPECT_NEAR(double(contact.depth), 0.65, 1e-6);
 }

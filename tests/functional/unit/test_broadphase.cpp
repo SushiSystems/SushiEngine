@@ -33,7 +33,7 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/physics/broadphase.hpp>
+#include <SushiEngine/physics/collision/broadphase.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Physics;

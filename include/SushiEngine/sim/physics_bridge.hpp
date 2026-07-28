@@ -47,8 +47,8 @@
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/entity.hpp>
 #include <SushiEngine/ecs/world.hpp>
-#include <SushiEngine/physics/physics_world.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
+#include <SushiEngine/physics/scene/physics_world.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/sim/components.hpp>
 
 namespace SushiEngine

@@ -32,8 +32,8 @@
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/constraint.hpp>
-#include <SushiEngine/physics/graph_coloring.hpp>
+#include <SushiEngine/physics/constraints/constraint.hpp>
+#include <SushiEngine/physics/solver/graph_coloring.hpp>
 
 namespace SushiEngine
 {

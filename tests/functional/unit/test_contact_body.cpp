@@ -31,8 +31,8 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/physics/collision.hpp>
-#include <SushiEngine/physics/contact_solver.hpp>
+#include <SushiEngine/physics/collision/narrowphase.hpp>
+#include <SushiEngine/physics/collision/contact_solver.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Physics;
@@ -273,4 +273,43 @@ TEST(Unit_ContactBody, ZeroInverseInertiaReproducesThePurelyPositionalSplit)
     resolve_contact_bodies(a, b); // overlap 0.5, weights 1 and 3
     EXPECT_NEAR(double(left.x), -0.125, 1e-9);
     EXPECT_NEAR(double(right.x), 1.875, 1e-9);
+}
+
+TEST(Unit_ContactBody, PlaneContactClearsThePenetrationWhateverTheMass)
+{
+    // The plane path used to carry an extra inv_mass / w factor, which reproduced the
+    // older purely-positional behaviour only for a body of unit inverse mass. A heavier
+    // body cleared a fraction of its penetration per sweep and a lighter one overshot.
+    // One sweep, no rotational freedom: the body must land exactly on the surface for
+    // any inverse mass, because a plane is immovable and absorbs none of the correction.
+    const double masses[3] = {0.25, 1.0, 4.0};
+    for (double inv_mass : masses)
+    {
+        Vector3 position{0, Scalar(0.3), 0};
+        ContactBody<Scalar> body = sphere_body(position, Scalar(0.5), Scalar(inv_mass));
+        resolve_contact_body_plane(body, PlaneCollider<Scalar>{});
+        EXPECT_NEAR(double(position.y), 0.5, 1e-12)
+            << "inverse mass " << inv_mass << " must not change how far a plane pushes";
+    }
+}
+
+TEST(Unit_ContactBody, PlaneAndPairProjectionsAgreeOnTheSameGeometry)
+{
+    // A plane is the limit of a pair whose second body has no mobility at all, so the
+    // two paths must move the first body identically. They did not: the plane path used
+    // a different formula, so the same overlap resolved differently depending on whether
+    // the ground was modelled as a half-space or as an immovable body.
+    Vector3 plane_position{0, Scalar(0.3), 0};
+    ContactBody<Scalar> against_plane = sphere_body(plane_position, Scalar(0.5), Scalar(0.25));
+    resolve_contact_body_plane(against_plane, PlaneCollider<Scalar>{});
+
+    // The same sphere against an enormous immovable sphere approximating the ground.
+    const Scalar ground_radius = Scalar(1e6);
+    Vector3 falling_position{0, Scalar(0.3), 0};
+    Vector3 ground_position{0, -ground_radius, 0};
+    ContactBody<Scalar> falling = sphere_body(falling_position, Scalar(0.5), Scalar(0.25));
+    ContactBody<Scalar> ground = sphere_body(ground_position, ground_radius, Scalar(0));
+    resolve_contact_bodies(ground, falling);
+
+    EXPECT_NEAR(double(falling_position.y), double(plane_position.y), 1e-6);
 }

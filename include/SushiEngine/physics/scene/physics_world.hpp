@@ -44,8 +44,8 @@
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
-#include <SushiEngine/physics/xpbd_solver.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
+#include <SushiEngine/physics/solver/xpbd_solver.hpp>
 
 namespace SushiEngine
 {

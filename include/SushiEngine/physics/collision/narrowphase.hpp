@@ -23,74 +23,31 @@
 #pragma once
 
 /**
- * @file collision.hpp
+ * @file narrowphase.hpp
  * @brief The collision narrowphase: pure contact-generation between primitive shapes.
  *
- * Each function takes two shapes and returns a `Contact` describing how they overlap
- * — the contact normal, the penetration depth, and a representative point — or a
- * miss. They are pure and free of any runtime, ECS, or solver dependency, so the
- * geometry is unit-tested directly; `physics/contact_solver.hpp` consumes the
- * contacts to push bodies apart. Shapes and contacts are element-parametric (`T` is
- * `float` or `double`), matching the templated rigid-body physics.
+ * Each function takes two shapes and returns a `Contact` describing how they
+ * overlap — the contact normal, the penetration depth, and a representative point
+ * — or a miss. They are pure and free of any runtime, ECS, or solver dependency, so
+ * the geometry is unit-tested directly; `collision/contact_solver.hpp` consumes the
+ * contacts to push bodies apart.
  *
- * Convention: a `Contact`'s `normal` points from the first shape toward the second
- * and is unit length; `depth` is the (positive) overlap along that normal. Resolving
- * moves the first shape by `-normal` and the second by `+normal`, weighted by inverse
- * mass, until `depth` reaches zero.
+ * The shape value types themselves live one layer down in
+ * `physics/geometry/shapes.hpp`, because a shape is meaningful without a second
+ * shape to test it against and `physics/geometry` is the module that owns single
+ * shapes (§3.2). What lives here is exactly the *pair* logic.
  */
 
 #include <cmath>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/physics/collision/contact.hpp>
+#include <SushiEngine/physics/geometry/shapes.hpp>
 
 namespace SushiEngine
 {
     namespace Physics
     {
-        /** @brief A solid sphere: a centre and a radius. */
-        template <typename T>
-        struct SphereCollider
-        {
-            Vector3T<T> center;
-            T radius = 1;
-        };
-
-        /**
-         * @brief A half-space plane: points with `dot(normal, x) >= offset` are outside.
-         *
-         * `normal` is unit length and points away from the solid side; `offset` is the
-         * plane's signed distance from the origin along `normal`. A ground plane at
-         * height `h` is `{normal = (0, 1, 0), offset = h}`.
-         */
-        template <typename T>
-        struct PlaneCollider
-        {
-            Vector3T<T> normal{Vector3T<T>{T(0), T(1), T(0)}};
-            T offset = 0;
-        };
-
-        /** @brief An axis-aligned box: a centre and per-axis half-extents. */
-        template <typename T>
-        struct BoxCollider
-        {
-            Vector3T<T> center;
-            Vector3T<T> half_extents{Vector3T<T>{T(0.5), T(0.5), T(0.5)}};
-        };
-
-        /**
-         * @brief The result of a narrowphase test: whether, where, and how deep two shapes overlap.
-         *
-         * `hit` is false for a miss, in which case the other fields are unspecified.
-         */
-        template <typename T>
-        struct Contact
-        {
-            bool hit = false;
-            Vector3T<T> normal;  /**< Unit contact normal, from the first shape to the second. */
-            T depth = 0;         /**< Positive penetration depth along @ref normal. */
-            Vector3T<T> point;   /**< A representative contact point in world space. */
-        };
-
         /**
          * @brief Contact between a sphere and a half-space plane.
          * @param sphere The sphere.
@@ -142,9 +99,12 @@ namespace SushiEngine
         /**
          * @brief Contact between a sphere and an axis-aligned box (sphere as the second shape).
          *
-         * Uses the box's closest surface point to the sphere centre; the sphere-inside-box
-         * degenerate case pushes out along the +Y axis rather than picking the nearest
-         * face, which is enough for the resting-on-a-surface cases this supports today.
+         * Uses the box's closest surface point to the sphere centre. When the sphere
+         * centre is *inside* the box, clamping returns the centre itself and there is
+         * no closest-surface direction to normalize, so the shortest way out — the
+         * nearest face — is used instead. Picking a fixed axis there would push a
+         * deeply-penetrating body sideways through the box it is inside, and which
+         * way it went would depend only on which axis the code happened to name.
          *
          * @param box    The box.
          * @param sphere The sphere.
@@ -169,13 +129,30 @@ namespace SushiEngine
                                       clamp(sphere.center.z, min.z, max.z)};
             const Vector3T<T> delta = sphere.center - closest;
             const T distance = length(delta);
+
+            // Inside the box: `closest` is the centre itself, so `delta` is null and
+            // carries no direction. Push out of the face the centre is nearest to,
+            // and add how far in it is to the radius — the sphere's surface is that
+            // much past the face.
+            if (distance <= T(1e-8))
+            {
+                const Vector3T<T> local = sphere.center - box.center;
+                const Vector3T<T> normal = nearest_face_normal(local, box.half_extents);
+                Contact<T> contact;
+                contact.hit = true;
+                contact.normal = normal;
+                contact.depth =
+                    sphere.radius + nearest_face_distance(local, box.half_extents);
+                contact.point = sphere.center;
+                return contact;
+            }
+
             const T depth = sphere.radius - distance;
             if (depth <= T(0))
                 return Contact<T>{};
             Contact<T> contact;
             contact.hit = true;
-            contact.normal = distance > T(1e-8) ? delta * (T(1) / distance)
-                                                : Vector3T<T>{T(0), T(1), T(0)};
+            contact.normal = delta * (T(1) / distance);
             contact.depth = depth;
             contact.point = closest;
             return contact;
@@ -205,59 +182,6 @@ namespace SushiEngine
             contact.depth = depth;
             contact.point = box.center - plane.normal * signed_distance;
             return contact;
-        }
-
-        /**
-         * @brief An oriented box (OBB): a centre, per-axis half-extents, and a rotation.
-         *
-         * Unlike `BoxCollider` (axis-aligned), this carries the body's orientation, so a
-         * tumbling rigid body collides as the box it looks like rather than its bounding
-         * sphere. Its three local axes are the rotation applied to the world basis.
-         */
-        template <typename T>
-        struct OrientedBox
-        {
-            Vector3T<T> center;
-            Vector3T<T> half_extents{Vector3T<T>{T(0.5), T(0.5), T(0.5)}};
-            QuaternionT<T> orientation{QuaternionT<T>{T(0), T(0), T(0), T(1)}};
-        };
-
-        /** @brief The three world-space axes (columns of the rotation) of an oriented box. */
-        template <typename T>
-        inline void obb_axes(const OrientedBox<T>& box, Vector3T<T> axes[3]) noexcept
-        {
-            axes[0] = rotate(box.orientation, Vector3T<T>{T(1), T(0), T(0)});
-            axes[1] = rotate(box.orientation, Vector3T<T>{T(0), T(1), T(0)});
-            axes[2] = rotate(box.orientation, Vector3T<T>{T(0), T(0), T(1)});
-        }
-
-        /**
-         * @brief The box's furthest point along @p direction (its support point).
-         *
-         * Steps out from the centre along each local axis by that axis's half-extent,
-         * signed to follow @p direction. Contact resolution needs this rather than the
-         * centre: the lever arm from the centre of mass to where a body is actually
-         * touched is what turns a push into a torque.
-         *
-         * @tparam T The scalar element type.
-         * @param box       The box to query.
-         * @param direction The (not necessarily unit) direction to support along.
-         * @return The world-space corner furthest along @p direction.
-         */
-        template <typename T>
-        inline Vector3T<T> obb_support_point(const OrientedBox<T>& box,
-                                             const Vector3T<T>& direction) noexcept
-        {
-            Vector3T<T> axes[3];
-            obb_axes(box, axes);
-            const T extents[3] = {box.half_extents.x, box.half_extents.y, box.half_extents.z};
-            Vector3T<T> point = box.center;
-            for (int i = 0; i < 3; ++i)
-            {
-                const T sign = dot(axes[i], direction) < T(0) ? T(-1) : T(1);
-                point = point + axes[i] * (extents[i] * sign);
-            }
-            return point;
         }
 
         /**
@@ -296,7 +220,8 @@ namespace SushiEngine
          *
          * Works in the box's local frame: the sphere centre is rotated into box space,
          * clamped to the box, and the closest point gives the normal — the oriented
-         * counterpart of @ref collide_box_sphere.
+         * counterpart of @ref collide_box_sphere, including its nearest-face handling
+         * of a sphere centre inside the box.
          *
          * @return The contact if they overlap, else a miss (normal points box → sphere).
          */
@@ -313,11 +238,27 @@ namespace SushiEngine
                                       clamp(local.z, -box.half_extents.z, box.half_extents.z)};
             const Vector3T<T> delta = local - closest;
             const T distance = length(delta);
+
+            // The oriented counterpart of the inside-the-box case in
+            // @ref collide_box_sphere, and for the same reason: no direction exists,
+            // so the nearest face supplies one.
+            if (distance <= T(1e-8))
+            {
+                const Vector3T<T> normal_local =
+                    nearest_face_normal(local, box.half_extents);
+                Contact<T> contact;
+                contact.hit = true;
+                contact.normal = rotate(box.orientation, normal_local);
+                contact.depth =
+                    sphere.radius + nearest_face_distance(local, box.half_extents);
+                contact.point = sphere.center;
+                return contact;
+            }
+
             const T depth = sphere.radius - distance;
             if (depth <= T(0))
                 return Contact<T>{};
-            const Vector3T<T> normal_local =
-                distance > T(1e-8) ? delta * (T(1) / distance) : Vector3T<T>{T(0), T(1), T(0)};
+            const Vector3T<T> normal_local = delta * (T(1) / distance);
             Contact<T> contact;
             contact.hit = true;
             contact.normal = rotate(box.orientation, normal_local);

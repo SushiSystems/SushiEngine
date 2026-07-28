@@ -42,9 +42,9 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/physics_world.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
-#include <SushiEngine/physics/xpbd_constraint.hpp>
+#include <SushiEngine/physics/scene/physics_world.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
+#include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 
 namespace SushiEngine
 {

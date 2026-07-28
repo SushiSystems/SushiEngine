@@ -32,9 +32,9 @@
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/graph_coloring.hpp>
-#include <SushiEngine/physics/rigid_body.hpp>
-#include <SushiEngine/physics/xpbd_constraint.hpp>
+#include <SushiEngine/physics/solver/graph_coloring.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
+#include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 
 namespace SushiEngine
 {

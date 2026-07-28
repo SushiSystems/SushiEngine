@@ -32,8 +32,8 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/physics/constraint.hpp>
-#include <SushiEngine/physics/graph_coloring.hpp>
+#include <SushiEngine/physics/constraints/constraint.hpp>
+#include <SushiEngine/physics/solver/graph_coloring.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Physics;
