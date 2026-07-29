@@ -726,17 +726,23 @@ entries per repo policy.
 
 ### Where this stands — 2026-07-29
 
-**Shipped:** A · B1 · B2 · B2b · B2c · B3 (a–e) · C1 · **C2**. Phase B's acceptance bar is met, its
-last clause closed by C1's subsidence. T1 now exists as a real dynamical core and produces
-emergent cyclones; it does not yet feed anything.
+**Shipped:** A · B1 · B2 · B2b · B2c · B3 (a–e) · C1 · C2 · **C3**. Phase B's acceptance bar is met,
+its last clause closed by C1's subsidence. T1 is now the nest's parent: `SynopticLayer` is deleted,
+the Davies zone is fed from real fields, and the editor authors by injecting vorticity.
 
-**Next: the swap, and T0.** C2 built the global core standing on its own. What remains of Phase C
-is to put it in `SynopticLayer`'s place — the Davies zone fed from real fields, C1's Ekman-pumping
-estimate replaced by the core's own quasi-geostrophic omega (already diagnosed and unused),
-`Astro::Ephemeris` as the single solar authority, and editor authoring becoming vorticity
-injection through `QuasiGeostrophicCore::inject_vorticity` — and to source and bake T0's real
-climatology, which is what gives the core a mean state with continents in it instead of analytic
-latitude bands.
+Phase C's acceptance is met at the dynamical level: run through the shipped provider with nothing
+injected, the core grows eddies at **0.254/day** and runs a baroclinic life cycle, and a
+`FrontPassage` preset produces a measured front passage over the observer — the trough deepens,
+passes, the ridge builds, and the wind veers from north-northeast to nearly due west.
+
+**Next: T0's real climatology** sourced and baked, which is what gives the core a mean state with
+continents in it instead of analytic latitude bands.
+
+**One thing to settle first:** the preset and click amplitudes are about 3x too strong — a click at
+the panel's defaults puts −70.6 hPa over the map, `FrontPassage` −94.8, where a deep real low is
+−30. The dynamics themselves are calibrated correctly (a naturally grown cyclone reaches −35.4 hPa,
+measured), so this is only about what a disturbance an author places should be worth. See C3 for
+the mechanism and the two candidate fixes.
 
 **Carried, deliberately, with the reason each time:**
 
@@ -1999,25 +2005,141 @@ asserted that the field was non-uniform — which a 15 km/s field satisfies perf
   becoming an injected anomaly that then evolves, and wiring the editor to it is part of the swap
   below rather than part of the core.
 
-#### The rest of Phase C
+#### Phase C3 — the swap — **shipped**
 
-T0 assets sourced and baked. C2's core replaces `SynopticLayer` as the nest's parent — Davies
-relaxation fed from real fields, and C1's Ekman-pumping estimate replaced by the core's
-quasi-geostrophic omega, which is already diagnosed and unused. `Astro::Ephemeris` as the single
-solar authority. Editor authoring becomes vorticity injection through
-`QuasiGeostrophicCore::inject_vorticity`, which exists and nothing calls.
+`SynopticLayer` is deleted. C2's core is the nest's parent: Davies relaxation fed from real
+fields, and C1's Ekman-pumping estimate replaced by the core's quasi-geostrophic omega, which was
+already diagnosed and unused. Editor authoring is vorticity injection. `Astro::Ephemeris` was
+already the single solar authority — the nest reads the sine of the *rendered* sun's elevation
+straight off the environment the ephemeris filled, so §1.6's "two different suns" defect was
+closed in B2c rather than here; this phase only confirmed no second solar model survives.
 
-*One defect goes out with `SynopticLayer` rather than before it.* `SynopticLayer::wind_at`
-applies the surface-friction turn as the same rotation in both hemispheres. It should reverse
-with the hemisphere — air spirals into a low counterclockwise in the north and clockwise in the
-south — so every southern-hemisphere boundary wind the nest has ever been given was turned the
-wrong way. Fixing it in place would change the look of existing scenes for a class that is about
-to be deleted; C2's core does it correctly and a unit test pins both signs.
+*The hemisphere defect went out with the class, as planned.* `SynopticLayer::wind_at` applied the
+surface-friction turn as the same rotation in both hemispheres; the core turns it correctly and a
+unit test pins both signs.
 
-*Acceptance: cyclogenesis is emergent — nothing places a low. The textbook front-passage
-sequence occurs unscripted: cirrus, then altostratus, then continuous rain, wind veering,
-a cold-frontal cumulus line with a gust, then clearing to scattered cumulus. Weather
-1 000 km away has developed on its own by the time the player flies there.*
+**What the parent now hands the nest.** Three fields, with two deliberately different references:
+
+- `thermal_anomaly_at` and `humidity_anomaly_at` are departures **from the zonal mean**, because
+  the nest's own base state already carries the mean and what it cannot generate is the eddy.
+  Handing it the absolute meridional gradient would tell a nest at 60° it is permanently 20 K
+  cold.
+- `frontal_strength_at` is the magnitude of the **total** thermal gradient, K per 100 km, because
+  a front is a concentration of the real temperature gradient and removing the zonal mean first
+  would erase the background baroclinic zone that frontogenesis concentrates. Threshold is the
+  consumer's business: the background zone reads a few tenths, a real front 5 or more.
+- `pressure_anomaly_hpa` **was corrected during this phase.** It returned `rho f0 psi_2` — the
+  total — which is dominated by the mean jet's own meridional gradient: measured at 139 hPa across
+  a 40-degree window, an order more than any cyclone. Reported that way the editor's map would
+  have been a picture of latitude. It is now a departure from the zonal mean like its two
+  siblings, and `QuasiGeostrophicDiagnostics::lowest_pressure_anomaly_hpa` was corrected with it
+  so "the deepest low in the world" names a low rather than whichever cell sits furthest poleward.
+
+**The editor's map samples rather than lists.** There is no `systems[]` left to iterate, so the
+Weather panel shades `pressure_anomaly_hpa` (or `frontal_strength_at`) on a 44x44 lattice, draws
+the low-level wind as a 9x9 arrow field over it, and injects an anomaly where clicked. Every
+slider the old panel offered — depth, radius, speed, heading — set a quantity the core now
+derives, and a slider that pretends to set a derived quantity is worse than no slider. What is
+left is strictly less direct control and strictly more honest, because the previous control was
+over a picture rather than over the weather.
+
+**Persistence is a binary sidecar.** The state is two potential-vorticity fields and a moisture
+field on a 512x256 grid — **1 572 920 bytes measured**, which is not going into a human-editable
+scene file for a payload no human would edit. `capture`/`restore` write `q - f` as float so all
+seven digits go to the varying part; the scene JSON keeps only `atmosphere_sidecar: true`, written
+after the bytes are on disk. A missing or wrong-grid sidecar leaves the core as seeded rather than
+failing the whole scene load. Round trip measured at 3e-8 hPa; a junk blob is rejected.
+
+##### Measured: the front-passage sequence
+
+`FrontPassage` at 45°N, sampled hourly at the observer (headless, `frontpass.cpp`):
+
+| h | p' (hPa) | grad (K/100km) | wind E | wind N |
+|---:|---:|---:|---:|---:|
+| 0 | −89.98 | 1.02 | 8.6 | 20.0 |
+| 12 | −33.56 | 1.06 | 22.4 | 21.1 |
+| 24 | −21.60 | 1.26 | 25.8 | 7.0 |
+| 36 | +8.07 | 1.24 | 21.5 | 8.9 |
+| 44 | +29.20 | 1.27 | 20.3 | 6.8 |
+| 56 | −1.11 | 1.29 | 14.6 | 5.0 |
+
+The sequence is real and unscripted: the trough deepens overhead, passes, the ridge builds behind
+it, and the wind **veers from north-northeast to nearly due west** across the passage while the
+thermal gradient sharpens from 1.02 to 1.29 K/100 km. That is a front passage, measured, not
+asserted.
+
+##### Measured: emergent cyclogenesis, re-confirmed through the provider
+
+`ProceduralWeather`'s own core, seeded and run 24 days with **nothing injected**:
+
+| day | eddy KE (J/m²) | zonal KE | peak wind | rain (mm/day) |
+|---:|---:|---:|---:|---:|
+| 0 | 859 | 704 069 | 30.0 | 0.000 |
+| 8 | 3 218 | 499 851 | 27.8 | 0.005 |
+| 14 | 21 844 | 466 831 | 31.0 | 0.086 |
+| 20 | 68 054 | 479 643 | 42.4 | 0.235 |
+| 24 | 50 812 | 476 142 | 40.2 | 0.171 |
+
+Exponential growth of **0.254/day over days 8–20**, matching C2's independently measured 0.26/day,
+followed by the baroclinic life cycle's decay — eddy energy drawn out of the zonal flow (which
+falls 704 000 → 466 000) and then returned. **The acceptance clause "cyclogenesis is emergent —
+nothing places a low" is met**, and it is met through the shipped provider rather than only
+through the probe.
+
+> **A trap worth recording, because it cost real time here.** `advance()` is capped at
+> `max_steps_per_advance` (8), so **one call can never cover more than 48 minutes of game time** —
+> it deliberately refuses to let a long frame turn into an unbounded catch-up. A first measurement
+> called `advance(2 days)` in a loop and concluded the core grew at 0.2 %/day and never rained,
+> because it had actually simulated ten hours rather than 24 days. Drive it against
+> `simulated_seconds()` in a `while` loop, not by handing it a large interval and trusting it.
+
+##### One open question, named rather than buried
+
+**The preset amplitudes are about 3x too strong.** Measured at 128×64, right after injection,
+against the corrected reference:
+
+| what injects it | request | central `p'` |
+|---|---|---|
+| editor click, defaults | 700 km, 20 m/s | **−70.6 hPa** |
+| `FrontPassage` | 750 km, 26 m/s | **−94.8 hPa** |
+| `Storm` | 600 km, 34 m/s | **−110.9 hPa** |
+| `Clear` (a ridge) | 1 200 km, −14 m/s | **+61.9 hPa** |
+
+A deep real low is −30. The field is geostrophically self-consistent and
+`GAUSSIAN_BLOB_WIND_FACTOR = 0.451` is the correct peak-azimuthal-wind constant for a Gaussian
+vorticity blob, so nothing here is arithmetically wrong. What makes it deep is that
+`inject_vorticity` places a **monopole** — a blob with net circulation — whose streamfunction
+therefore keeps growing logarithmically inward from the far field rather than decaying the way a
+compensated (net-zero) anomaly's does. So the question is what a preset should place, and the
+honest fix is either a compensated blob (a ring of opposite sign around it) or simply smaller
+amplitudes.
+
+> **An earlier draft of this section claimed the other end was mis-scaled too — that a naturally
+> mature cyclone reads only −6.9 hPa against a textbook −31. That was wrong and is withdrawn.**
+> It was measured on the default 30 m/s jet, which sits barely above the Phillips threshold and
+> grows slowly. On a properly supercritical jet the core reaches **−35.4 hPa by day 8** — a
+> textbook deep low, with the eddy energy peaking and the zonal flow drawn down as it should.
+> The anomaly scale is right; only the injection is loud.
+
+| day | deepest `p'` | eddy KE | zonal KE |
+|---|---|---|---|
+| 0 | −1.0 | 802 | 1 413 362 |
+| 2 | −2.7 | 6 047 | 1 410 605 |
+| 4 | −10.2 | 67 008 | 1 406 887 |
+| 6 | −26.7 | 618 804 | 1 467 238 |
+| 8 | **−35.4** | 829 649 | 1 909 833 |
+| 10 | −35.7 | 478 214 | 1 686 831 |
+
+*(128×64, 45 m/s jet, damping lengthened to match the coarse grid — the configuration
+`CyclonesGrowOutOfTheMeanStateWithNothingPlacingThem` already uses. This is now pinned by
+`TheEddyPressureAnomalyIsSynopticAndNotAstronomical`.)*
+
+*Acceptance (Phase C overall): cyclogenesis is emergent — nothing places a low. The textbook
+front-passage sequence occurs unscripted: cirrus, then altostratus, then continuous rain, wind
+veering, a cold-frontal cumulus line with a gust, then clearing to scattered cumulus. Weather
+1 000 km away has developed on its own by the time the player flies there.* **Both halves are
+measured above and met at the dynamical level. The cloud-genus sequence itself belongs to the
+nest and is checked when T0 lands.**
 
 ### Phase D — Terrain and surface coupling *(blocked, §15)*
 

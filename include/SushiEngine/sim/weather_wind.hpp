@@ -28,22 +28,22 @@
  * @brief `weather_wind()`: one sampling function, analytic wind + a local perturbation.
  *
  * `docs/slop/weather_and_clouds.md` §5.3: "one sampling API `weather_wind(position, altitude)`
- * (GoT pattern -- analytic + perturbation, no dense volume)". T1's `SynopticLayer::wind_at`
- * is already exactly the analytic half (a closed-form geostrophic field, altitude-parameterized
- * by `level_fraction`, evaluable anywhere in microseconds) -- this file adds only the
- * perturbation term and the position/altitude -> level_fraction mapping a consumer actually
- * wants, so it stays a thin, narrow addition rather than a second wind model.
+ * (GoT pattern -- analytic + perturbation, no dense volume)". T1's `wind_at` is already exactly
+ * the base half (a geostrophic field, altitude-parameterized by `level_fraction`, evaluable
+ * anywhere) -- this file adds only the perturbation term and the position/altitude ->
+ * level_fraction mapping a consumer actually wants, so it stays a thin, narrow addition rather
+ * than a second wind model.
  *
- * Deliberately a free function over `const SynopticLayer&`, not a new `IWeatherProvider`
- * virtual: `WeatherColumn` already carries a fixed near-surface wind sample
+ * Deliberately a free function over `const IWeatherProvider&`, not a new
+ * `IWeatherProvider` virtual: `WeatherColumn` already carries a fixed near-surface wind sample
  * (`wind_u_mps`/`wind_v_mps`) for consumers that only need that, and `StaticWeather` (the
- * manual-authoring provider) has no synoptic layer to sample at all -- widening the seam for
+ * manual-authoring provider) has no global core to sample at all -- widening the seam for
  * every provider to support an altitude-continuous field they cannot all honestly serve would
- * trade a narrow interface for a wider, partially-fake one. Callers that hold a `ProceduralWeather`
- * already have a `SynopticLayer&` via `ProceduralWeather::synoptic()`.
+ * trade a narrow interface for a wider, partially-fake one.
  *
- * Turbulence intensity here is scoped to what the engine actually tracks today: front
- * proximity (`SynopticLayer::front_proximity`, T1). The design doc also names CAPE and terrain
+ * Turbulence intensity here is scoped to what the engine actually tracks today: the thermal
+ * gradient the core has concentrated, which is what a front *is* now that nothing draws one
+ * (`IWeatherProvider::frontal_strength_at`). The design doc also names CAPE and terrain
  * roughness as turbulence drivers; CAPE is an internal, per-tick intermediate inside
  * `RegionalWeatherGrid::tick_grid` (not part of `WeatherColumn`'s contract, and not stable
  * between T2 ticks the way a *sampled* signal should be), and terrain roughness has no source
@@ -58,7 +58,7 @@
 
 #include <cmath>
 
-#include <SushiEngine/sim/synoptic_weather.hpp>
+#include <SushiEngine/sim/weather_provider.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine
@@ -77,17 +77,24 @@ namespace SushiEngine
          * the design doc names -- does not have to subtract the analytic field back out of the
          * combined sample to recover it. `weather_wind()` below is exactly `wind_at() + wind_gust()`.
          *
-         * @param synoptic         T1, sampled only for front proximity here.
+         * @param weather          The installed provider, sampled only for the thermal gradient here.
          * @param position         Query point, geodetic.
          * @param altitude_meters  Height above the surface, metres (>= 0).
          * @param time_seconds     The simulation's own elapsed time (see `weather_wind()`'s doc).
          * @return The perturbation-only wind vector, metres/second.
          */
-        inline WindSample wind_gust(const SynopticLayer& synoptic, const GeodeticPosition& position,
-                                    double altitude_meters, double time_seconds) noexcept
+        inline WindSample wind_gust(const IWeatherProvider& weather,
+                                    const GeodeticPosition& position, double altitude_meters,
+                                    double time_seconds) noexcept
         {
-            const FrontProximity front = synoptic.front_proximity(position);
-            const double turbulence_intensity = std::max(double(front.warm), double(front.cold));
+            // Front proximity used to be a distance to a drawn ray. A dynamical core draws
+            // nothing, so what stands in for "near an active front" is the thermal gradient the
+            // flow has actually concentrated -- five kelvin per hundred kilometres being a
+            // strong front, and the background baroclinic zone a small fraction of that.
+            constexpr double FULLY_FRONTAL_K_PER_100KM = 5.0;
+            const double gradient = weather.frontal_strength_at(position);
+            const double turbulence_intensity =
+                std::min(gradient / FULLY_FRONTAL_K_PER_100KM, 1.0);
 
             // A cheap, bounded pseudo-noise: two decorrelated sinusoids of position and time, not
             // a curl-noise field -- there is no dense volume to sample (the whole point of the
@@ -109,21 +116,22 @@ namespace SushiEngine
          * flat air far from one, matching the design doc's "turbulence intensity from front
          * proximity".
          *
-         * @param synoptic         T1, sampled for the analytic base field and front proximity.
+         * @param weather          The installed provider, sampled for the base wind and the thermal gradient.
          * @param position         Query point, geodetic.
          * @param altitude_meters  Height above the surface, metres (>= 0).
          * @param time_seconds     The simulation's own elapsed time, so the perturbation animates
          *                         deterministically rather than being a fixed function of position alone.
          * @return The wind vector at that point and altitude, metres/second.
          */
-        inline WindSample weather_wind(const SynopticLayer& synoptic, const GeodeticPosition& position,
-                                       double altitude_meters, double time_seconds) noexcept
+        inline WindSample weather_wind(const IWeatherProvider& weather,
+                                       const GeodeticPosition& position, double altitude_meters,
+                                       double time_seconds) noexcept
         {
             constexpr double COLUMN_TOP_METERS = 8000.0; // matches T2's tracked column depth.
             const double level_fraction =
                 std::min(std::max(altitude_meters, 0.0) / COLUMN_TOP_METERS, 1.0);
-            const WindSample base = synoptic.wind_at(position, level_fraction);
-            const WindSample gust = wind_gust(synoptic, position, altitude_meters, time_seconds);
+            const WindSample base = weather.wind_at(position, level_fraction);
+            const WindSample gust = wind_gust(weather, position, altitude_meters, time_seconds);
             return WindSample{base.eastward_mps + gust.eastward_mps, base.northward_mps + gust.northward_mps};
         }
     } // namespace Simulation

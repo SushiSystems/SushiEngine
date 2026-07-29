@@ -55,6 +55,13 @@ namespace SushiEngine
             double longitude_radians = 0.0; /**< East longitude, any range (wrapped as needed). */
         };
 
+        /** @brief Wind at a point: eastward/northward components, metres per second. */
+        struct WindSample
+        {
+            double eastward_mps = 0.0;
+            double northward_mps = 0.0;
+        };
+
         /**
          * @brief The three WMO vertical étages T2 tracks per grid column.
          *

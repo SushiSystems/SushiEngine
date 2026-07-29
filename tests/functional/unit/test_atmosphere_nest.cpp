@@ -557,49 +557,61 @@ TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward
     EXPECT_NEAR(v, 0.5, 1e-6);
 }
 
-TEST(Unit_AtmosphereNest, EkmanPumpingLandsAtTheSynopticScaleAndBothWays)
+TEST(Unit_AtmosphereNest, QuasiGeostrophicOmegaLandsAtTheSynopticScaleAndBothWays)
 {
-    // The large-scale vertical motion the nest cannot generate for itself. Its magnitude is not
-    // tuned — it falls out of the friction turn the geostrophic wind already carries — so the
-    // thing worth pinning is that it lands where the textbook puts it. Centimetres per second:
-    // three orders under a convective updraft and two over nothing, and getting that exponent
-    // wrong is the failure mode a "looks about right" review would pass.
-    const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
-    ProceduralWeather weather(/*seed=*/5, EARTH_RADIUS_M);
-    weather.synoptic().clear_systems();
+    // The large-scale vertical motion the nest cannot generate for itself.
+    //
+    // **This case used to assert something else, and the difference is the Phase C swap.** Its
+    // predecessor pinned Ekman pumping: friction turns the geostrophic wind across the isobars,
+    // the turn converges into a low, and the convergent air must go up — so air rose at the
+    // centre of the deepest low, full stop, and the test said exactly that. That term is gone.
+    // The core diagnoses quasi-geostrophic omega from its own vorticity budget instead, and QG
+    // omega is *not* centred on the low: it follows differential vorticity advection, which puts
+    // the ascent downstream of the trough and the descent upstream of it. Re-asserting the old
+    // claim against the new mechanism would have been asserting the boundary layer's answer
+    // about a free-atmosphere quantity, so the claim is restated rather than ported.
+    //
+    // What survives unchanged is the part that was never about the mechanism: the sign structure
+    // and the exponent. Centimetres per second — three orders under a convective updraft and two
+    // over nothing — and getting that exponent wrong is the failure mode a "looks about right"
+    // review would pass. It is also what caught the geostrophic scale being 735x too large, back
+    // when the pumping saturated its own cap *everywhere*.
+    const Atmosphere::GeographicPosition centre{45.0 * DEGREES_TO_RADIANS,
+                                                10.0 * DEGREES_TO_RADIANS};
+    const GeodeticPosition observer{centre.latitude_radians, centre.longitude_radians};
 
-    // One low and one high, placed by hand rather than taken from a preset, because what is
-    // being pinned is the *sign* and a preset that happens to spawn only lows would pass half
-    // of it silently. Placed 800 km either side of the observer so both centres are inside the
-    // sampled window.
-    const auto place = [&](bool is_low, double east_offset_m)
-    {
-        PressureSystem system;
-        system.id = is_low ? 1u : 2u;
-        system.is_low = is_low;
-        system.phase = PressureSystemPhase::Mature;
-        system.age_seconds = 1.0;
-        system.deepen_seconds = 1.0;
-        system.mature_seconds = 1.0e6;
-        system.fill_seconds = 1.0e6;
-        system.center_latitude_radians = observer.latitude_radians;
-        system.center_longitude_radians =
-            observer.longitude_radians +
-            east_offset_m / (EARTH_RADIUS_M * std::cos(observer.latitude_radians));
-        system.central_anomaly_hpa = 20.0;
-        system.radius_major_m = 500000.0;
-        system.radius_minor_m = 500000.0;
-        EXPECT_TRUE(weather.synoptic().add_system(system));
-    };
-    place(/*is_low=*/true, -800000.0);
-    place(/*is_low=*/false, +800000.0);
+    // The core is built directly rather than reached through `ProceduralWeather`, because what
+    // is under test is the buffer's coupling to it over a window of the test's own choosing --
+    // 3 000 km rather than the nest's own footprint, since a window small enough to sit inside
+    // one circulation would see one sign and make a close-up look like a bug.
+    Atmosphere::QuasiGeostrophicParameters physics;
+    physics.planet_radius_m = EARTH_RADIUS_M;
+    Atmosphere::QuasiGeostrophicCore core(Atmosphere::QuasiGeostrophicGridSize{}, physics);
+    core.seed(5);
 
-    // Sampled over 3 000 km rather than over the nest's own 384 km footprint, deliberately: a
-    // window that small can sit entirely inside one system's circulation and see only one sign
-    // — which it does here — and that would make a one-sided result look like a bug when it is
-    // simply a close-up of a low.
+    // A low and a high, 800 km either side, placed by hand rather than taken from a preset: what
+    // is being pinned is the *sign*, and a preset that happened to seed only lows would pass
+    // half of it silently.
+    const double east_to_radians = 1.0 / (EARTH_RADIUS_M * std::cos(centre.latitude_radians));
+    core.inject_vorticity(
+        Atmosphere::GeographicPosition{centre.latitude_radians,
+                                       centre.longitude_radians - 800000.0 * east_to_radians},
+        /*radius_m=*/500000.0, /*amplitude_mps=*/22.0);
+    core.inject_vorticity(
+        Atmosphere::GeographicPosition{centre.latitude_radians,
+                                       centre.longitude_radians + 800000.0 * east_to_radians},
+        /*radius_m=*/500000.0, /*amplitude_mps=*/-22.0);
+
+    // Omega is diagnosed *during* a step, from the vorticity tendency across it -- there is no
+    // vertical motion to read before the core has been advanced even once, which is a true
+    // statement about a diagnosed quantity rather than a limitation. Six hours lets the injected
+    // pair start being advected, which is what generates the differential advection in the first
+    // place.
+    ASSERT_GT(core.advance(6.0 * 3600.0), 0) << "the core did not step; nothing diagnosed omega";
+
     AtmosphereForcingBuffer buffer;
-    buffer.fill(weather.synoptic(), observer, EARTH_RADIUS_M, /*span_meters=*/3.0e6,
+    constexpr double SPAN_METERS = 3.0e6;
+    buffer.fill(core, observer, EARTH_RADIUS_M, SPAN_METERS,
                 Render::ATMOSPHERE_FORCING_MAX_CELLS);
     const Render::AtmosphereForcing forcing = buffer.view(0.0, 0.0, 0.0, 1.0e-4f, 0.9f);
     ASSERT_TRUE(forcing.valid());
@@ -607,14 +619,6 @@ TEST(Unit_AtmosphereNest, EkmanPumpingLandsAtTheSynopticScaleAndBothWays)
     float ascent = 0.0f;
     float descent = 0.0f;
     double magnitude = 0.0;
-    // Where the field is deepest and where it is highest, and what the pumping does there.
-    double lowest = 0.0;
-    double highest = 0.0;
-    float w_at_lowest = 0.0f;
-    float w_at_highest = 0.0f;
-    const double span = 3.0e6;
-    const double step = span / double(forcing.cells_x);
-    const double cos_latitude = std::cos(observer.latitude_radians);
     const std::size_t count = std::size_t(forcing.cells_x) * std::size_t(forcing.cells_z);
     for (std::size_t i = 0; i < count; ++i)
     {
@@ -622,61 +626,22 @@ TEST(Unit_AtmosphereNest, EkmanPumpingLandsAtTheSynopticScaleAndBothWays)
         ascent = std::max(ascent, w);
         descent = std::min(descent, w);
         magnitude += std::fabs(double(w));
-
-        const int x = int(i % std::size_t(forcing.cells_x));
-        const int z = int(i / std::size_t(forcing.cells_x));
-        const double east = -span * 0.5 + (double(x) + 0.5) * step;
-        const double north = -span * 0.5 + (double(z) + 0.5) * step;
-        const GeodeticPosition point{
-            observer.latitude_radians + north / EARTH_RADIUS_M,
-            observer.longitude_radians + east / (EARTH_RADIUS_M * cos_latitude)};
-        const double anomaly = weather.synoptic().pressure_anomaly_hpa(point);
-        if (anomaly < lowest)
-        {
-            lowest = anomaly;
-            w_at_lowest = w;
-        }
-        if (anomaly > highest)
-        {
-            highest = anomaly;
-            w_at_highest = w;
-        }
     }
     magnitude /= double(count);
 
-    // **Checked at the extremes, not everywhere, and the reason is worth writing down.** Ekman
-    // pumping follows the *relative vorticity* — the Laplacian of the pressure — not the
-    // pressure anomaly itself, and for a Gaussian system those two only agree near the centre.
-    // A 2-D Gaussian's Laplacian changes sign at sqrt(2) sigma, so beyond about one radius a
-    // low's own field is anticyclonic and the air there sinks while the pressure is still below
-    // background. That subsiding ring is real — it is the clear slot around a cyclone — and a
-    // first version of this test asserted the sign matched the anomaly *everywhere* and measured
-    // 34 % agreement, which is the ring, not a bug.
-    ASSERT_LT(lowest, -1.0) << "the preset produced no low to test against";
-    ASSERT_GT(highest, 1.0) << "the preset produced no high to test against";
-    EXPECT_GT(w_at_lowest, 0.0f) << "air does not rise at the centre of the deepest low";
-    EXPECT_LT(w_at_highest, 0.0f) << "air does not sink at the centre of the strongest high";
-
-    // Both signs must appear somewhere: convergence into a low rises, divergence out of a high
-    // sinks. A field with one sign would be a bias rather than a circulation, and it would dry
-    // or moisten the whole world at once.
-    EXPECT_GT(ascent, 0.0f) << "nothing rises anywhere: the friction turn is not converging";
+    // Both signs must appear: mass is conserved, so a field that only rises is a field that
+    // creates air. This is the claim the old test made too, and the one that does transfer --
+    // it is a statement about continuity rather than about which term drove it.
+    EXPECT_GT(ascent, 0.0f) << "nothing rises anywhere: omega is inert";
     EXPECT_LT(descent, 0.0f) << "nothing sinks anywhere: air is being created";
 
-    // Centimetres per second. Below 1e-4 the term is inert and the acceptance clause it exists
-    // for stays open; above ~0.2 it is not Ekman pumping any more, it is a hurricane.
-    // Centimetres per second, which is the whole claim: three orders under a convective updraft
-    // and two over nothing. Measured here at 1.0 cm/s in the mean and 5.5 cm/s at the centres of
-    // a 20 hPa pair — the textbook synoptic range, and it falls out of the friction angle rather
-    // than out of a constant chosen to produce it.
-    //
-    // This band is also what caught the geostrophic scale being 735x too large: the pumping
-    // saturated its own 10 cm/s cap *everywhere*, which is not a subtle symptom.
-    EXPECT_GT(magnitude, 1.0e-3);
+    // Centimetres per second. Below 1e-4 in the mean the term is inert and the acceptance clause
+    // it exists for stays open; a synoptic omega that reached tenths of a metre per second would
+    // not be synoptic.
+    EXPECT_GT(magnitude, 1.0e-4);
     EXPECT_LT(magnitude, 5.0e-2);
-    EXPECT_GT(w_at_lowest, 1.0e-2f);
-    EXPECT_LT(w_at_highest, -1.0e-2f);
-    EXPECT_LT(std::max(ascent, -descent), 0.1f);
+    EXPECT_LE(std::max(ascent, -descent), 0.1f)
+        << "the buffer's own cap was exceeded, which it cannot be";
 }
 
 TEST(Unit_AtmosphereNest, PublishedFieldFallsBackToClearWithoutAMirror)

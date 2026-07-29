@@ -60,7 +60,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include <SushiEngine/sim/synoptic_weather.hpp>
+#include <SushiEngine/sim/weather_provider.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 #include <SushiEngine/sim/weather_wind.hpp>
 
@@ -121,16 +121,17 @@ namespace SushiEngine
          * future flight model could threshold ("light chop" vs "moderate") or feed straight into
          * a camera-shake/control-surface-buffet term.
          *
-         * @param synoptic         T1, sampled for the gust perturbation (see `wind_gust()`).
+         * @param weather          The installed provider, sampled for the gust perturbation (see `wind_gust()`).
          * @param position         Query point, geodetic.
          * @param altitude_meters  Height above the surface, metres (>= 0).
          * @param time_seconds     The simulation's own elapsed time (see `weather_wind()`'s doc).
          * @return Turbulence intensity, [0, 1].
          */
-        inline float turbulence_intensity(const SynopticLayer& synoptic, const GeodeticPosition& position,
-                                          double altitude_meters, double time_seconds) noexcept
+        inline float turbulence_intensity(const IWeatherProvider& weather,
+                                          const GeodeticPosition& position, double altitude_meters,
+                                          double time_seconds) noexcept
         {
-            const WindSample gust = wind_gust(synoptic, position, altitude_meters, time_seconds);
+            const WindSample gust = wind_gust(weather, position, altitude_meters, time_seconds);
             const double magnitude =
                 std::sqrt(gust.eastward_mps * gust.eastward_mps + gust.northward_mps * gust.northward_mps);
             return float(std::clamp(magnitude / WIND_GUST_CEILING_MPS, 0.0, 1.0));

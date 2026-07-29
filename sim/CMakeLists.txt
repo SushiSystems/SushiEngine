@@ -14,7 +14,11 @@
 # ============================================================================
 
 add_library(sushi_sim STATIC runtime_simulation.cpp)
-target_link_libraries(sushi_sim PUBLIC SushiEngine)
+# sushi_atmosphere is PUBLIC because the global dynamical core is not an
+# implementation detail of this library: ProceduralWeather holds one by value in a
+# header (sim/weather_provider.hpp), so every consumer of sushi_sim compiles that
+# type and must link its definitions.
+target_link_libraries(sushi_sim PUBLIC SushiEngine sushi_atmosphere)
 target_include_directories(sushi_sim PUBLIC "${CMAKE_SOURCE_DIR}/include")
 set_target_properties(sushi_sim PROPERTIES
     CXX_STANDARD 17

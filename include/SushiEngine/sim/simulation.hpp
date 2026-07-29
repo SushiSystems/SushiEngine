@@ -751,6 +751,22 @@ namespace SushiEngine
                  */
                 virtual IWeatherAuthoring* weather_authoring() noexcept = 0;
 
+                /**
+                 * @brief The installed weather provider, read-only, or null if none is installed.
+                 *
+                 * The counterpart to @ref weather_authoring, and separate from it for the reason
+                 * the two interfaces are separate at all (ISP, `docs/slop/atmosphere_system.md`
+                 * §3.5): the Weather panel's map *draws* the pressure and thermal fields, which
+                 * is a read, and *injects* an anomaly when clicked, which is a write. Handing the
+                 * panel one object that does both would put the authoring surface in front of
+                 * every consumer that only wants to look at the weather.
+                 *
+                 * Const on purpose: nothing reached through here can change the simulation, so a
+                 * panel, a debug overlay or a test can sample the field without being able to
+                 * disturb it.
+                 */
+                virtual const IWeatherProvider* weather_provider() const noexcept = 0;
+
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
 

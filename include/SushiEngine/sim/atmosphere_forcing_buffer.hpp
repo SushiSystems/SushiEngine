@@ -27,19 +27,21 @@
  * @file atmosphere_forcing_buffer.hpp
  * @brief Sim-side storage behind `Render::AtmosphereForcing`, and how it is filled.
  *
- * The parent half of Davies nesting (`docs/slop/atmosphere_system.md` §6): the regional nest
- * is a window onto a larger atmosphere it does not simulate, and its lateral boundary relaxes
+ * The parent half of Davies nesting (`docs/slop/atmosphere_system.md` §6): the regional nest is
+ * a window onto a larger atmosphere it does not simulate, and its lateral boundary relaxes
  * toward whatever this publishes. Owned here for the same reason `WeatherFieldBuffer` is —
  * `Environment` is copied per frame and the payload changes on the nest's own multi-second
  * cadence, so the view across the seam borrows rather than copies.
  *
- * **The parent is the analytic synoptic layer, and that is an interim.** §5 replaces it with a
- * two-layer moist quasi-geostrophic core in phase C, where cyclogenesis is emergent and fronts
- * are diagnosed from the thermal gradient rather than drawn as a ray pair. Until then the wind
- * fed in here is real geostrophic flow around real moving pressure systems — which is enough
- * for the nest to have weather blowing *through* it rather than merely stewing in place — and
- * the temperature and moisture anomalies are shaped by `SynopticLayer::front_proximity`'s
- * stylized frontal mask. Named as an interim rather than presented as nesting.
+ * **The parent is now a dynamical core, and every field here is read rather than shaped.** The
+ * wind is the core's own geostrophic flow around lows nothing placed; the temperature and
+ * moisture anomalies are its eddy fields, taken about the zonal mean because the mean state is
+ * what the nest's base profile already carries; and the vertical motion is the
+ * quasi-geostrophic omega, diagnosed from the core's vorticity budget. Three interim
+ * constructions went out with the analytic layer: a stylized warm/cold sector mask driving the
+ * anomalies, four constants describing how strong that sector was, and an Ekman-pumping
+ * estimate of the vertical motion built out of the analytic wind's friction turn because
+ * nothing better existed. The core supplies all three directly.
  */
 
 #include <algorithm>
@@ -47,8 +49,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/render/atmosphere_nest.hpp>
-#include <SushiEngine/sim/synoptic_weather.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine
@@ -65,16 +67,17 @@ namespace SushiEngine
         {
             public:
                 /**
-                 * @brief Samples the synoptic layer over the nest's footprint.
+                 * @brief Samples the global core over the nest's footprint.
                  *
-                 * @param synoptic        T1, sampled for wind and frontal structure.
+                 * @param core            T1, sampled for wind, eddy anomalies and vertical motion.
                  * @param observer        Where the nest is centred, geodetic.
                  * @param planet_radius_m The body's mean radius, metres.
                  * @param span_meters     The nest's horizontal span, metres.
                  * @param cells           Lattice cells per axis; clamped to the render cap.
                  */
-                void fill(const SynopticLayer& synoptic, const GeodeticPosition& observer,
-                          double planet_radius_m, double span_meters, int cells)
+                void fill(const Atmosphere::QuasiGeostrophicCore& core,
+                          const GeodeticPosition& observer, double planet_radius_m,
+                          double span_meters, int cells)
                 {
                     cells_ = std::clamp(cells, 1, Render::ATMOSPHERE_FORCING_MAX_CELLS);
                     samples_.resize(std::size_t(cells_) * std::size_t(cells_));
@@ -95,30 +98,27 @@ namespace SushiEngine
                         {
                             const double east = origin_east + (double(x) + 0.5) * step;
                             const double north = origin_north + (double(z) + 0.5) * step;
-                            const GeodeticPosition position{
+                            const Atmosphere::GeographicPosition position{
                                 north / radius, east / (radius * cos_latitude)};
 
                             // The near-surface wind: the nest's boundary is where synoptic flow
                             // enters, and that is a lower-tropospheric property.
-                            const WindSample wind = synoptic.wind_at(position, 0.25);
-                            const FrontProximity front = synoptic.front_proximity(position);
+                            const Atmosphere::Wind wind = core.wind_at(position, BOUNDARY_LEVEL);
 
                             Render::AtmosphereForcingSample& sample =
                                 samples_[std::size_t(z) * std::size_t(cells_) + std::size_t(x)];
                             sample.wind_east_mps = static_cast<float>(wind.eastward_mps);
                             sample.wind_north_mps = static_cast<float>(wind.northward_mps);
-                            // A warm sector is warmer and moister than the base state; a cold
-                            // one is colder and drier. Shaping the boundary this way is what
-                            // gives the nest something to build a front out of -- it does not
-                            // draw the front, it lets one form where the gradient is.
+                            // Departures from the core's own zonal mean. A front is where these
+                            // have a gradient; nothing here draws one, and the nest builds a
+                            // front out of the gradient rather than being handed a mask of one.
                             sample.theta_anomaly_k =
-                                static_cast<float>(front.warm * WARM_SECTOR_THETA_K -
-                                                   front.cold * COLD_SECTOR_THETA_K);
+                                static_cast<float>(core.thermal_anomaly_at(position));
                             sample.humidity_anomaly =
-                                static_cast<float>(front.warm * WARM_SECTOR_HUMIDITY -
-                                                   front.cold * COLD_SECTOR_HUMIDITY);
+                                static_cast<float>(core.humidity_anomaly_at(position));
                             sample.vertical_velocity_mps = static_cast<float>(
-                                ekman_pumping(synoptic, position, radius, cos_latitude, step));
+                                std::clamp(core.vertical_velocity_at(position),
+                                           -MAX_VERTICAL_MPS, MAX_VERTICAL_MPS));
                         }
 
                     uv_scale_ = 1.0 / span;
@@ -170,85 +170,24 @@ namespace SushiEngine
                 // `WeatherFieldBuffer` does and for the same reason.
                 static constexpr double MIN_COS_LATITUDE = 0.05;
 
-                // The interim synoptic coupling's own shaping, deliberately *not* fields of
-                // `AtmosphereParameters`: they describe how the analytic front mask is turned
-                // into a boundary anomaly, and they go away with that mask when phase C's real
-                // quasi-geostrophic core replaces it. A few degrees across a frontal zone and a
-                // tenth of the saturation deficit are what the textbook picture of a warm sector
-                // looks like.
-                static constexpr double WARM_SECTOR_THETA_K = 3.0;
-                static constexpr double COLD_SECTOR_THETA_K = 4.5;
-                static constexpr double WARM_SECTOR_HUMIDITY = 0.12;
-                static constexpr double COLD_SECTOR_HUMIDITY = 0.08;
-
-                /** @brief Depth the surface convergence is integrated over, m — the Ekman layer. */
-                static constexpr double EKMAN_LAYER_DEPTH_M = 1000.0;
                 /**
-                 * @brief Cap on the pumped velocity, m/s.
+                 * @brief Level fraction the boundary wind is read at.
                  *
-                 * Ten centimetres a second is already extreme for a synoptic system; the cap is
-                 * here because the analytic pressure field has no lower bound on how tight a
-                 * system can get, and a divergence taken across a Gaussian narrower than the
-                 * sampling step would report a velocity the atmosphere does not have.
+                 * Low in the column, because the boundary the nest relaxes toward is where
+                 * synoptic air actually enters it, and a jet-level wind would blow the nest's
+                 * lateral zone at twice the speed of the air under it.
                  */
-                static constexpr double MAX_PUMPED_MPS = 0.10;
+                static constexpr double BOUNDARY_LEVEL = 0.25;
 
                 /**
-                 * @brief Large-scale vertical motion at a point, m/s. Positive is ascent.
+                 * @brief Cap on the vertical motion handed across, m/s.
                  *
-                 * **Ekman pumping**, and the striking thing is that `SynopticLayer` already had
-                 * everything it needs and nothing read it for this. Its geostrophic wind carries a
-                 * 25-degree surface-friction turn that relaxes with altitude — and that turn *is*
-                 * the cross-isobaric flow. Air spirals inward toward a low and outward from a
-                 * high, so the convergence it produces has to go somewhere, and where it goes is
-                 * up. Ascent under lows, subsidence under highs, and neither is placed by hand.
-                 *
-                 * Taken as the divergence of the near-surface wind over the layer that wind
-                 * occupies:
-                 *
-                 *     w = -h * (du/dx + dv/dy)
-                 *
-                 * Numerically from four neighbouring samples rather than analytically, because
-                 * the analytic wind *already* has the friction in it and re-deriving the
-                 * divergence in closed form would be a second expression of the same thing, free
-                 * to drift from the first. Five evaluations per forcing cell over a 64² lattice
-                 * is 20k analytic evaluations per publish, on the nest's multi-second cadence.
-                 *
-                 * The magnitude is not tuned: a 20 m/s geostrophic wind turned 25 degrees into a
-                 * 500 km low converges at about 3×10⁻⁵ /s, which over a kilometre of Ekman layer
-                 * is three centimetres a second — the textbook synoptic value, and it falls out of
-                 * the friction angle rather than out of a constant chosen to produce it.
+                 * Ten centimetres a second is already extreme for a synoptic system. The core's
+                 * omega is a diagnosed quantity rather than a prognostic one, so a transient in
+                 * the vorticity tendency can spike it for a step; the nest applies this term
+                 * across its whole domain and would carry that spike into every column.
                  */
-                static double ekman_pumping(const SynopticLayer& synoptic,
-                                            const GeodeticPosition& position, double radius,
-                                            double cos_latitude, double step) noexcept
-                {
-                    // A whole forcing cell, so the difference is taken across the scale the field
-                    // is published at rather than across a step small enough to be noise.
-                    const double delta = std::max(step, 1.0);
-                    const double d_lat = delta / radius;
-                    const double d_lon = delta / (radius * cos_latitude);
-
-                    const auto wind = [&](double lat_offset, double lon_offset)
-                    {
-                        return synoptic.wind_at(
-                            GeodeticPosition{position.latitude_radians + lat_offset,
-                                             position.longitude_radians + lon_offset},
-                            0.0);
-                    };
-                    // Level fraction 0: the *surface* wind, which is the one carrying the full
-                    // friction turn. Sampling it aloft would find the geostrophic flow, whose
-                    // divergence is zero by construction and would report no pumping at all.
-                    const double east_plus = wind(0.0, d_lon).eastward_mps;
-                    const double east_minus = wind(0.0, -d_lon).eastward_mps;
-                    const double north_plus = wind(d_lat, 0.0).northward_mps;
-                    const double north_minus = wind(-d_lat, 0.0).northward_mps;
-
-                    const double divergence = (east_plus - east_minus) / (2.0 * delta) +
-                                              (north_plus - north_minus) / (2.0 * delta);
-                    return std::clamp(-EKMAN_LAYER_DEPTH_M * divergence, -MAX_PUMPED_MPS,
-                                      MAX_PUMPED_MPS);
-                }
+                static constexpr double MAX_VERTICAL_MPS = 0.10;
 
                 std::vector<Render::AtmosphereForcingSample> samples_;
                 int cells_ = 0;

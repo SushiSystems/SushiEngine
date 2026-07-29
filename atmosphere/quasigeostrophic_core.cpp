@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstring>
 
 #include <SushiEngine/atmosphere/fourier_transform.hpp>
 
@@ -134,6 +135,28 @@ namespace SushiEngine
             std::vector<double> water;
             std::vector<double> omega;
             std::vector<double> precipitation;
+            /**
+             * @brief Departures from the zonal mean, as fields rather than as a mean to subtract.
+             *
+             * Kept whole so that a query interpolates them exactly the way it interpolates every
+             * other field — subtracting a per-row mean at sample time would need that mean
+             * interpolated in latitude too, by a second rule that could disagree with the first.
+             */
+            std::vector<double> thermal_anomaly;
+            std::vector<double> humidity_anomaly;
+            /**
+             * @brief Surface pressure departure from the zonal mean, hPa.
+             *
+             * Taken about the same reference as the two above, and the reason is worth stating:
+             * the lower streamfunction contains the mean westerly jet, whose meridional gradient
+             * is worth well over a hundred hectopascals from the tropics to the pole. Reporting
+             * that as an "anomaly" would drown every cyclone in the planetary temperature
+             * gradient — measured at 139 hPa across a 40-degree window while a deep low is
+             * perhaps 30 — and would make the editor's map a picture of latitude.
+             */
+            std::vector<double> pressure_anomaly;
+            /** @brief Magnitude of the total thermal gradient, K per 100 km — frontal zones. */
+            std::vector<double> frontal_strength;
 
             std::vector<double> initial_vorticity[2];
             std::vector<double> stage_vorticity[2];
@@ -185,6 +208,10 @@ namespace SushiEngine
                 water.assign(std::size_t(cells), 0.0);
                 omega.assign(std::size_t(cells), 0.0);
                 precipitation.assign(std::size_t(cells), 0.0);
+                thermal_anomaly.assign(std::size_t(cells), 0.0);
+                humidity_anomaly.assign(std::size_t(cells), 0.0);
+                pressure_anomaly.assign(std::size_t(cells), 0.0);
+                frontal_strength.assign(std::size_t(cells), 0.0);
                 barotropic.assign(std::size_t(cells), 0.0);
                 baroclinic.assign(std::size_t(cells), 0.0);
                 upper_relative_vorticity.assign(std::size_t(cells), 0.0);
@@ -905,6 +932,104 @@ namespace SushiEngine
                 }
             }
 
+            /**
+             * @brief Refreshes the two anomaly fields the regional nest is forced with.
+             *
+             * The layer difference is a thickness, and a thickness is a temperature by the
+             * hypsometric relation — so the thermal anomaly is not an independent field that
+             * could drift out of step with the wind, it is the same field read in another unit.
+             * Both are taken about the zonal mean, because the mean state is what a nest already
+             * has and the eddy is what it cannot make.
+             */
+            void update_anomalies()
+            {
+                const double thermal_scale = parameters.reference_coriolis *
+                                             parameters.reference_temperature_kelvin /
+                                             std::max(parameters.gravity_mps2 *
+                                                          parameters.layer_depth_m, 1e-9);
+                const double* upper = streamfunction[0].data();
+                const double* lower = streamfunction[1].data();
+                const double* column_water = water.data();
+
+                // The hydrostatic conversion from a lower-layer streamfunction to a surface
+                // pressure: psi is a geostrophic streamfunction, so rho*f0*psi is the pressure it
+                // is in balance with.
+                const double pressure_scale = parameters.air_density_kg_per_m3 *
+                                              parameters.reference_coriolis /
+                                              PASCALS_PER_HECTOPASCAL;
+
+                for (int j = 0; j < latitude_cells; ++j)
+                {
+                    double mean_shear = 0.0;
+                    double mean_water = 0.0;
+                    double mean_lower = 0.0;
+                    for (int i = 0; i < longitude_cells; ++i)
+                    {
+                        const int c = index(j, i);
+                        mean_shear += upper[c] - lower[c];
+                        mean_water += column_water[c];
+                        mean_lower += lower[c];
+                    }
+                    mean_shear /= double(longitude_cells);
+                    mean_water /= double(longitude_cells);
+                    mean_lower /= double(longitude_cells);
+
+                    const double saturated = std::max(saturation[std::size_t(j)], 1e-6);
+                    for (int i = 0; i < longitude_cells; ++i)
+                    {
+                        const int c = index(j, i);
+                        thermal_anomaly[std::size_t(c)] =
+                            thermal_scale * ((upper[c] - lower[c]) - mean_shear);
+                        humidity_anomaly[std::size_t(c)] =
+                            (column_water[c] - mean_water) / saturated;
+                        pressure_anomaly[std::size_t(c)] =
+                            pressure_scale * (lower[c] - mean_lower);
+                    }
+                }
+
+                // The frontal measure is taken of the *total* thermal field, not of the anomaly
+                // above: a front is a concentration of the real temperature gradient, and
+                // removing the zonal mean first would erase the background baroclinic zone that
+                // frontogenesis concentrates. The two readings are wanted for opposite reasons —
+                // one is what the nest is missing, the other is what is actually there.
+                const double radius = parameters.planet_radius_m;
+                const double per_hundred_kilometres = 1.0e5;
+                for (int j = 0; j < latitude_cells; ++j)
+                {
+                    const double zonal_step =
+                        radius * cosine[std::size_t(j)] * delta_longitude * 2.0;
+                    const double meridional_step = radius * delta_latitude * 2.0;
+                    for (int i = 0; i < longitude_cells; ++i)
+                    {
+                        const int c = index(j, i);
+                        const double east = shear_at(upper, lower, j, wrap_longitude(i + 1));
+                        const double west = shear_at(upper, lower, j, wrap_longitude(i - 1));
+                        const double north = shear_across_pole(upper, lower, j + 1, i);
+                        const double south = shear_across_pole(upper, lower, j - 1, i);
+                        const double zonal_gradient = (east - west) / zonal_step;
+                        const double meridional_gradient = (north - south) / meridional_step;
+                        frontal_strength[std::size_t(c)] =
+                            thermal_scale * per_hundred_kilometres *
+                            std::sqrt(zonal_gradient * zonal_gradient +
+                                      meridional_gradient * meridional_gradient);
+                    }
+                }
+            }
+
+            /** @brief The layer difference — a thickness, and therefore a temperature — at a cell. */
+            double shear_at(const double* upper, const double* lower, int row, int i) const noexcept
+            {
+                const int c = index(row, i);
+                return upper[c] - lower[c];
+            }
+
+            /** @brief The same, for a row that may lie beyond a pole. */
+            double shear_across_pole(const double* upper, const double* lower, int row,
+                                     int i) const noexcept
+            {
+                return across_pole(upper, row, i) - across_pole(lower, row, i);
+            }
+
             /** @brief Limited cubic interpolation of @p field at fractional grid indices. */
             double interpolate(const double* field, double x, double y) const noexcept
             {
@@ -1065,6 +1190,7 @@ namespace SushiEngine
             // differ by whatever the discrete inversion's own null space absorbed.
             s.invert(s.potential_vorticity, s.streamfunction);
             s.diagnose_winds();
+            s.update_anomalies();
         }
 
         void QuasiGeostrophicCore::step(double dt_seconds)
@@ -1113,6 +1239,7 @@ namespace SushiEngine
             s.diagnose_vertical_velocity(dt_seconds);
             s.diagnose_winds();
             s.step_moisture(dt_seconds);
+            s.update_anomalies();
 
             s.simulated_seconds += dt_seconds;
             ++s.steps;
@@ -1141,6 +1268,137 @@ namespace SushiEngine
             if (s.pending_seconds >= length)
                 s.pending_seconds = std::fmod(s.pending_seconds, length);
             return taken;
+        }
+
+        namespace
+        {
+            /** @brief Identifies a global-core blob; a scene sidecar is otherwise unlabelled bytes. */
+            constexpr char CAPTURE_MAGIC[4] = {'S', 'E', 'Q', 'G'};
+
+            /** @brief Blob layout version. A reader that does not know it declines rather than guesses. */
+            constexpr std::uint32_t CAPTURE_VERSION = 1;
+
+            /** @brief Appends @p value's bytes to @p blob. Little-endian, as every target here is. */
+            template <typename T> void append(std::vector<std::uint8_t>& blob, const T& value)
+            {
+                const auto* bytes = reinterpret_cast<const std::uint8_t*>(&value);
+                blob.insert(blob.end(), bytes, bytes + sizeof(T));
+            }
+
+            /** @brief Reads @p value from @p blob at @p cursor, advancing it. False if short. */
+            template <typename T>
+            bool take(const std::vector<std::uint8_t>& blob, std::size_t& cursor, T& value)
+            {
+                if (cursor + sizeof(T) > blob.size())
+                    return false;
+                std::memcpy(&value, blob.data() + cursor, sizeof(T));
+                cursor += sizeof(T);
+                return true;
+            }
+        } // namespace
+
+        std::vector<std::uint8_t> QuasiGeostrophicCore::capture() const
+        {
+            const State& s = *state_;
+            std::vector<std::uint8_t> blob;
+            if (!s.valid)
+                return blob;
+
+            blob.reserve(64 + std::size_t(s.cells) * 3 * sizeof(float));
+            blob.insert(blob.end(), CAPTURE_MAGIC, CAPTURE_MAGIC + 4);
+            append(blob, CAPTURE_VERSION);
+            append(blob, std::int32_t(s.longitude_cells));
+            append(blob, std::int32_t(s.latitude_cells));
+            append(blob, s.steps);
+            append(blob, s.simulated_seconds);
+            append(blob, s.pending_seconds);
+            append(blob, s.rng.s0);
+            append(blob, s.rng.s1);
+
+            for (int layer = 0; layer < 2; ++layer)
+            {
+                const double* source = s.potential_vorticity[layer].data();
+                for (int j = 0; j < s.latitude_cells; ++j)
+                {
+                    const double f = s.coriolis[std::size_t(j)];
+                    for (int i = 0; i < s.longitude_cells; ++i)
+                        append(blob, float(source[s.index(j, i)] - f));
+                }
+            }
+            for (int c = 0; c < s.cells; ++c)
+                append(blob, float(s.water[std::size_t(c)]));
+            return blob;
+        }
+
+        bool QuasiGeostrophicCore::restore(const std::vector<std::uint8_t>& blob)
+        {
+            State& s = *state_;
+            if (!s.valid || blob.size() < 4)
+                return false;
+            if (std::memcmp(blob.data(), CAPTURE_MAGIC, 4) != 0)
+                return false;
+
+            std::size_t cursor = 4;
+            std::uint32_t version = 0;
+            std::int32_t longitudes = 0;
+            std::int32_t latitudes = 0;
+            std::uint64_t steps = 0;
+            double simulated = 0.0;
+            double pending = 0.0;
+            Loop::RngState rng{};
+            if (!take(blob, cursor, version) || version != CAPTURE_VERSION)
+                return false;
+            if (!take(blob, cursor, longitudes) || !take(blob, cursor, latitudes))
+                return false;
+            if (longitudes != s.longitude_cells || latitudes != s.latitude_cells)
+                return false;
+            if (!take(blob, cursor, steps) || !take(blob, cursor, simulated) ||
+                !take(blob, cursor, pending) || !take(blob, cursor, rng.s0) ||
+                !take(blob, cursor, rng.s1))
+                return false;
+            if (blob.size() - cursor != std::size_t(s.cells) * 3 * sizeof(float))
+                return false;
+
+            // Read into the fields only once every header check has passed, so a rejected blob
+            // leaves a running atmosphere running rather than half-overwritten.
+            for (int layer = 0; layer < 2; ++layer)
+            {
+                double* target = s.potential_vorticity[layer].data();
+                for (int j = 0; j < s.latitude_cells; ++j)
+                {
+                    const double f = s.coriolis[std::size_t(j)];
+                    for (int i = 0; i < s.longitude_cells; ++i)
+                    {
+                        float value = 0.0f;
+                        take(blob, cursor, value);
+                        target[s.index(j, i)] = double(value) + f;
+                    }
+                }
+            }
+            for (int c = 0; c < s.cells; ++c)
+            {
+                float value = 0.0f;
+                take(blob, cursor, value);
+                s.water[std::size_t(c)] = double(value);
+            }
+
+            s.steps = steps;
+            s.simulated_seconds = simulated;
+            s.pending_seconds = pending;
+            s.rng = rng;
+            std::fill(s.omega.begin(), s.omega.end(), 0.0);
+            std::fill(s.precipitation.begin(), s.precipitation.end(), 0.0);
+
+            // The vertical velocity is diagnosed from a tendency across a step, so it is the one
+            // published field a restore cannot reconstruct without taking one. It comes back on
+            // the first step; until then the nest is told the air is not moving vertically,
+            // which is a truthful description of an atmosphere that has not been stepped.
+            s.invert(s.potential_vorticity, s.streamfunction);
+            s.relative_vorticity(s.potential_vorticity, s.streamfunction, 0,
+                                 s.upper_relative_vorticity.data());
+            s.diagnose_winds();
+            s.update_anomalies();
+            return true;
         }
 
         void QuasiGeostrophicCore::inject_vorticity(const GeographicPosition& position,
@@ -1185,6 +1443,7 @@ namespace SushiEngine
 
             s.invert(s.potential_vorticity, s.streamfunction);
             s.diagnose_winds();
+            s.update_anomalies();
         }
 
         Wind QuasiGeostrophicCore::wind_at(const GeographicPosition& position,
@@ -1220,16 +1479,31 @@ namespace SushiEngine
         double QuasiGeostrophicCore::pressure_anomaly_hpa(const GeographicPosition& position) const
         {
             const State& s = *state_;
-            if (!s.valid)
-                return 0.0;
-            return s.parameters.air_density_kg_per_m3 * s.parameters.reference_coriolis *
-                   s.sample(s.streamfunction[1], position) / PASCALS_PER_HECTOPASCAL;
+            return s.valid ? s.sample(s.pressure_anomaly, position) : 0.0;
         }
 
         double QuasiGeostrophicCore::precipitable_water_at(const GeographicPosition& position) const
         {
             const State& s = *state_;
             return s.valid ? s.sample(s.water, position) : 0.0;
+        }
+
+        double QuasiGeostrophicCore::thermal_anomaly_at(const GeographicPosition& position) const
+        {
+            const State& s = *state_;
+            return s.valid ? s.sample(s.thermal_anomaly, position) : 0.0;
+        }
+
+        double QuasiGeostrophicCore::humidity_anomaly_at(const GeographicPosition& position) const
+        {
+            const State& s = *state_;
+            return s.valid ? s.sample(s.humidity_anomaly, position) : 0.0;
+        }
+
+        double QuasiGeostrophicCore::frontal_strength_at(const GeographicPosition& position) const
+        {
+            const State& s = *state_;
+            return s.valid ? s.sample(s.frontal_strength, position) : 0.0;
         }
 
         double QuasiGeostrophicCore::vertical_velocity_at(const GeographicPosition& position) const
@@ -1322,12 +1596,11 @@ namespace SushiEngine
                 for (int i = 0; i < s.longitude_cells; ++i)
                 {
                     const int c = s.index(j, i);
-                    const double pressure = s.parameters.air_density_kg_per_m3 *
-                                            s.parameters.reference_coriolis *
-                                            s.streamfunction[1][std::size_t(c)] /
-                                            PASCALS_PER_HECTOPASCAL;
-                    result.lowest_pressure_anomaly_hpa =
-                        std::min(result.lowest_pressure_anomaly_hpa, pressure);
+                    // The eddy field, not the total: the same reference `pressure_anomaly_hpa`
+                    // reports at, so "the deepest low in the world" is a low rather than
+                    // whichever cell sits furthest poleward down the mean jet's own gradient.
+                    result.lowest_pressure_anomaly_hpa = std::min(
+                        result.lowest_pressure_anomaly_hpa, s.pressure_anomaly[std::size_t(c)]);
                     result.peak_ascent_mps =
                         std::max(result.peak_ascent_mps, s.omega[std::size_t(c)]);
                 }

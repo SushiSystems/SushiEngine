@@ -24,16 +24,17 @@
 // Unit_WeatherWorldCoupling: docs/slop/weather_and_clouds.md §5.3/W5's world-coupling bridge
 // (WeatherWorldCoupling, weather_wind(), and WeatherCloudscapeCompiler's cloud-base
 // darkening addition), in isolation from T1/T2 -- hand-built WeatherColumns and a bare
-// SynopticLayer, exercising exactly the pure functions RuntimeSimulation::extract() calls.
+// provider, exercising exactly the pure functions RuntimeSimulation::extract() calls.
 // Pure host maths; no SushiRuntime needed, same reasoning as the other weather tests.
 
+#include <algorithm>
 #include <cmath>
 
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/synoptic_weather.hpp>
 #include <SushiEngine/sim/weather_cloudscape_compiler.hpp>
+#include <SushiEngine/sim/weather_provider.hpp>
 #include <SushiEngine/sim/weather_wind.hpp>
 #include <SushiEngine/sim/weather_world_coupling.hpp>
 
@@ -146,60 +147,86 @@ TEST(Unit_WeatherCloudscapeCompiler, PrecipitationDarkensOnlyTheLowDeck)
         << "mid deck should be unaffected by the low band's own rain";
 }
 
-TEST(Unit_WeatherWind, MatchesTheAnalyticFieldWhenNoFrontIsNearby)
+// The two wind cases below were written against a `SynopticLayer` whose fronts were drawn rays
+// from a placed low's centre, which meant a test could put a point *on* a front by solving the
+// ray's geometry. A dynamical core draws nothing: a front is wherever the flow has concentrated
+// a thermal gradient, and where that is depends on the flow. Both cases are restated to assert
+// the relation `wind_gust` actually implements -- the perturbation is proportional to the local
+// gradient, bounded by the ceiling -- which is the property the drawn-front construction was
+// only ever a way of reaching.
+namespace
 {
-    // Far from any system, front proximity is ~0, so the perturbation term should vanish and
-    // weather_wind() should reduce to T1's own analytic wind_at() exactly.
-    SynopticLayer synoptic;
-    synoptic.seed(1234ull);
+    constexpr double WIND_DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
+    constexpr double WIND_EARTH_RADIUS_M = 6371000.0;
 
-    constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
-    const GeodeticPosition far_from_everything{-60.0 * DEGREES_TO_RADIANS, 170.0 * DEGREES_TO_RADIANS};
+    /** @brief Mean perturbation magnitude at a point, averaged over the gust's own phase. */
+    double mean_gust_magnitude(const IWeatherProvider& weather, const GeodeticPosition& position)
+    {
+        // Averaged over time rather than sampled once, because the perturbation is two
+        // sinusoids of a position/time phase: a single sample can land near a zero crossing at
+        // a strongly frontal point and read lower than a quiet one, which would make an honest
+        // comparison fail for a reason that has nothing to do with fronts.
+        double total = 0.0;
+        constexpr int SAMPLES = 64;
+        for (int i = 0; i < SAMPLES; ++i)
+        {
+            const WindSample gust = wind_gust(weather, position, 500.0, double(i) * 3.7);
+            total += std::sqrt(gust.eastward_mps * gust.eastward_mps +
+                               gust.northward_mps * gust.northward_mps);
+        }
+        return total / double(SAMPLES);
+    }
+} // namespace
 
-    const WindSample analytic = synoptic.wind_at(far_from_everything, /*level_fraction*/ 0.2);
-    const WindSample sampled = weather_wind(synoptic, far_from_everything, /*altitude_meters*/ 1600.0,
+TEST(Unit_WeatherWind, PerturbationIsBoundedByTheLocalThermalGradient)
+{
+    // `weather_wind()` is exactly `wind_at() + wind_gust()`, and the gust is the ceiling scaled
+    // by the gradient as a fraction of a full front. So the departure from the provider's own
+    // wind can never exceed that fraction of the ceiling -- which is the invariant the old
+    // "reduces to the analytic field far from any system" case was really asserting, now stated
+    // as the bound it always was rather than as an equality that depended on there being
+    // somewhere with no weather at all.
+    ProceduralWeather weather(/*seed=*/1234, WIND_EARTH_RADIUS_M);
+
+    const GeodeticPosition position{-60.0 * WIND_DEGREES_TO_RADIANS,
+                                    170.0 * WIND_DEGREES_TO_RADIANS};
+
+    constexpr double COLUMN_TOP_METERS = 8000.0;
+    const WindSample base = weather.wind_at(position, 1600.0 / COLUMN_TOP_METERS);
+    const WindSample sampled = weather_wind(weather, position, /*altitude_meters*/ 1600.0,
                                             /*time_seconds*/ 42.0);
 
-    EXPECT_NEAR(sampled.eastward_mps, analytic.eastward_mps, 1e-9);
-    EXPECT_NEAR(sampled.northward_mps, analytic.northward_mps, 1e-9);
+    const double du = sampled.eastward_mps - base.eastward_mps;
+    const double dv = sampled.northward_mps - base.northward_mps;
+    const double departure = std::sqrt(du * du + dv * dv);
+
+    constexpr double FULLY_FRONTAL_K_PER_100KM = 5.0; // mirrors weather_wind.hpp's own constant.
+    const double fraction =
+        std::min(weather.frontal_strength_at(position) / FULLY_FRONTAL_K_PER_100KM, 1.0);
+    // sqrt(2) because the two components are independent sinusoids of the same amplitude.
+    const double bound = WIND_GUST_CEILING_MPS * fraction * 1.4142135623730951 + 1e-9;
+
+    EXPECT_LE(departure, bound);
 }
 
-TEST(Unit_WeatherWind, GustsIntensifyNearAFront)
+TEST(Unit_WeatherWind, GustsIntensifyWhereTheThermalGradientIsSharper)
 {
-    SynopticLayer synoptic;
-    synoptic.seed(1ull);
+    ProceduralWeather weather(/*seed=*/1, WIND_EARTH_RADIUS_M);
 
-    constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
-    PressureSystem low;
-    low.is_low = true;
-    low.center_latitude_radians = 45.0 * DEGREES_TO_RADIANS;
-    low.center_longitude_radians = 0.0;
-    low.heading_radians = 1.5707963267948966; // due east
-    low.speed_mps = 15.0;
-    low.central_anomaly_hpa = 28.0;
-    low.radius_major_m = 700000.0;
-    low.radius_minor_m = 500000.0;
-    low.deepen_seconds = 0.0;
-    low.mature_seconds = 60.0 * 3600.0;
-    low.fill_seconds = 20.0 * 3600.0;
-    ASSERT_TRUE(synoptic.add_system(low));
+    // Mid-latitudes with an injected disturbance against the deep tropics. The core's own mean
+    // state already puts its baroclinic zone at the former and near-nothing at the latter, and
+    // twelve hours of evolution lets the injected anomaly deform the temperature field rather
+    // than remain the symmetric blob it was injected as.
+    const GeodeticPosition frontal{45.0 * WIND_DEGREES_TO_RADIANS, 0.0};
+    const GeodeticPosition quiet{2.0 * WIND_DEGREES_TO_RADIANS,
+                                 170.0 * WIND_DEGREES_TO_RADIANS};
+    weather.inject_vorticity(frontal, /*radius_m=*/700000.0, /*amplitude_mps=*/28.0);
+    weather.tick(12.0 * 3600.0, frontal, 2451545.0);
 
-    // A point constructed to sit exactly on the cold front ray (see synoptic_weather.hpp's
-    // front_proximity: a fixed-angle ray from the low's centre along its heading), 30% of the
-    // way along it -- geometry worked out from the same formula, not a guess, so the proximity
-    // assertion below is a sanity check on the construction rather than the real assertion.
-    const GeodeticPosition on_front{47.1372 * DEGREES_TO_RADIANS, -3.0217 * DEGREES_TO_RADIANS};
-    const GeodeticPosition clear_air{-60.0 * DEGREES_TO_RADIANS, 170.0 * DEGREES_TO_RADIANS};
-    ASSERT_GT(synoptic.front_proximity(on_front).cold, 0.9f) << "test point must actually sit near the front";
+    // The premise, asserted rather than assumed: if the core did not actually concentrate a
+    // gradient here the comparison below would be measuring noise.
+    ASSERT_GT(weather.frontal_strength_at(frontal), weather.frontal_strength_at(quiet))
+        << "no sharper gradient at the disturbed point; the comparison has no premise";
 
-    const auto gust_magnitude = [&](const GeodeticPosition& position)
-    {
-        const WindSample analytic = synoptic.wind_at(position, 0.1);
-        const WindSample sampled = weather_wind(synoptic, position, 500.0, 10.0);
-        const double du = sampled.eastward_mps - analytic.eastward_mps;
-        const double dv = sampled.northward_mps - analytic.northward_mps;
-        return std::sqrt(du * du + dv * dv);
-    };
-
-    EXPECT_GT(gust_magnitude(on_front), gust_magnitude(clear_air));
+    EXPECT_GT(mean_gust_magnitude(weather, frontal), mean_gust_magnitude(weather, quiet));
 }

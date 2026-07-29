@@ -2760,18 +2760,23 @@ free to be nondeterministic. T3 (`CloudscapeCompilePass`, §5.1 above) and T4 (t
 render pipeline) predate this section and are untouched by it; this section documents the
 new sim-domain half and the seam that connects it.
 
-**T1 — the synoptic layer** (`include/SushiEngine/sim/synoptic_weather.hpp`,
-`SynopticLayer`) is analytic and global: up to eight moving elliptical Gaussian pressure
-systems (the DCS dynamic-weather pattern), each with a life cycle (Deepening -> Mature ->
-Filling), genesis weighted by a coarse latitude/season climate prior, geostrophic wind
-(`k_hat x grad(p)`, hemisphere-signed, with surface-friction turning and a jet-band
-altitude bias), and warm/cold front proximity fields (a stylized fixed-angle ray pair from
-each low's center along its heading). It is a pure function of `double` state, evaluated
-anywhere on the body in microseconds — `tick()` only needs to advance system kinematics
-and life-cycle phase and occasionally spawn/retire a system, so it is cheap enough to run
-every fixed step. Every stochastic decision draws from a `Loop::RngState` carried in the
-trivially-copyable `SynopticState`, the same guard rail `PhysicsSimulation` (§4) already
-uses — no `RngState` anywhere in the engine is ever seeded from wall-clock time.
+**T1 — the global dynamical core** (`include/SushiEngine/atmosphere/quasigeostrophic_core.hpp`,
+`Atmosphere::QuasiGeostrophicCore`) is a two-layer moist quasi-geostrophic model on a
+512x256 latitude/longitude grid. Potential vorticity and column water are the only
+prognostic variables; wind, pressure, vertical motion, fronts and the jet are all
+*diagnosed* from them. Cyclogenesis is emergent — the initial state is a zonal jet plus a
+perturbation of a hundredth of its speed, and what grows is whatever the mean state is
+unstable to, measured at 0.254/day. One step costs ~36 ms of one core and is due once per
+six minutes of game time, so `advance()` carries the remainder itself and is capped at
+eight steps per call, which means **one call covers at most 48 minutes of game time**.
+
+This replaced `SynopticLayer`, an analytic layer of up to eight moving elliptical Gaussian
+pressure systems with life-cycle timers and stylized fixed-angle front rays. It was never a
+simulation and did not claim to be: it translated authored shapes, so nothing could form,
+deepen or decay that had not been placed. `docs/slop/atmosphere_system.md` §1 records the
+audit and §11's Phase C the swap. The state that used to be a trivially-copyable
+`SynopticState` is now megabytes of field, which is why the editor persists it to a binary
+sidecar beside the scene rather than into the scene JSON.
 
 **T2 — the regional grid** (`include/SushiEngine/sim/regional_weather_grid.hpp`,
 `RegionalWeatherGrid`) is a camera(observer)-centered grid of columns — wind, temperature
@@ -2896,15 +2901,17 @@ CPU particle path is unaffected; it is gameplay, not a quality knob") — ambien
 is squarely cosmetic. Rain only: `WeatherColumn` carries no temperature signal, so there is
 no honest basis to pick snow over rain (a named scope-down, not a fabricated phase test).
 
-**`Simulation::weather_wind(synoptic, position, altitude, time)`** (`sim/weather_wind.hpp`)
+**`Simulation::weather_wind(weather, position, altitude, time)`** (`sim/weather_wind.hpp`)
 is the design doc's "one sampling API... GoT pattern: analytic + perturbation, no dense
-volume". The analytic half is exactly T1's existing `SynopticLayer::wind_at` (already
-altitude-parameterized via `level_fraction`); this file adds only the position/altitude ->
-level_fraction mapping and a deterministic, stateless pseudo-noise perturbation scaled by
-`SynopticLayer::front_proximity` ("turbulence intensity from front proximity"). A free
-function over `const SynopticLayer&`, not a new `IWeatherProvider` virtual — `StaticWeather`
-has no synoptic layer to honestly serve an altitude-continuous field from, so widening the
-seam for every provider would trade a narrow interface for a partially-fake one. The
+volume". The base half is `IWeatherProvider::wind_at` (altitude-parameterized via
+`level_fraction`); this file adds only the position/altitude -> level_fraction mapping and a
+deterministic, stateless pseudo-noise perturbation. That perturbation used to be scaled by
+the distance to a *drawn* front; since Phase C it is scaled by
+`IWeatherProvider::frontal_strength_at`, the thermal gradient the flow has actually
+concentrated (5 K/100 km being a strong front), because a dynamical core draws nothing. A free
+function over `const IWeatherProvider&`, not a new virtual — the provider already answers
+everything it needs, and adding a virtual would widen the seam every provider must satisfy for
+arithmetic none of them differ on. The
 concrete W5 consumer is the rain emitter's lateral drift (fed through the emitter's gravity
 module, scaled well down since rain falls in ~2 s); cloth and the CPU-deterministic particle
 path are named, unbuilt follow-up scope below.
@@ -3312,11 +3319,13 @@ answers from the base state: a clear sky with the synoptic wind. Honest rather t
 nothing has been simulated, so there is no condensate to report, and inventing a coverage there
 is precisely the fabricated signal the design doc's §1 audit was written about.
 
-**What T1 still is.** `SynopticLayer` survives as the parent solution the Davies relaxation zone
-nudges toward — real geostrophic flow around real moving pressure systems, with its stylized
-frontal mask shaping the boundary's temperature and moisture anomalies. Named as an interim: §5's
-two-layer quasi-geostrophic core replaces it in phase C, where cyclogenesis is emergent and
-fronts are diagnosed from the thermal gradient rather than drawn from a ray pair.
+**What T1 is.** The parent solution the Davies relaxation zone nudges toward is
+`Atmosphere::QuasiGeostrophicCore` (phase C): real geostrophic flow around lows nothing placed,
+with the boundary's temperature and moisture anomalies taken as departures from the core's own
+zonal mean — the nest's base state already carries the mean, so what the parent must supply is
+the eddy. The interim that stood here, `SynopticLayer`'s stylized frontal mask, is gone;
+cyclogenesis is emergent and fronts are diagnosed from the thermal gradient rather than drawn
+from a ray pair.
 
 **Retired here.** `regional_weather_grid.hpp` (the design doc's own disposition table) and
 `test_weather_determinism.cpp` — bit-exact replay of the weather is given up deliberately (§0,

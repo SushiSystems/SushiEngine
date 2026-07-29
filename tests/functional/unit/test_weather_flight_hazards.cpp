@@ -23,7 +23,7 @@
 
 // Unit_WeatherFlightHazards: W6's icing_risk()/turbulence_intensity() query API
 // (docs/slop/weather_and_clouds.md §7 W6) in isolation -- hand-built WeatherColumns and a bare
-// SynopticLayer, the same style test_weather_world_coupling.cpp already uses for the pure
+// provider, the same style test_weather_world_coupling.cpp already uses for the pure
 // functions W5 added. Pure host maths; no SushiRuntime needed.
 
 #include <cmath>
@@ -31,8 +31,8 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/synoptic_weather.hpp>
 #include <SushiEngine/sim/weather_flight_hazards.hpp>
+#include <SushiEngine/sim/weather_provider.hpp>
 #include <SushiEngine/sim/weather_wind.hpp>
 
 using namespace SushiEngine;
@@ -121,65 +121,72 @@ TEST(Unit_WeatherFlightHazards, IcingRiskUsesTheAltitudesOwnLevelBucket)
     EXPECT_FLOAT_EQ(icing_risk(column, 9000.0), 0.0f);
 }
 
+// The three cases below used to build a `SynopticLayer` and hand it around directly. They now
+// go through `IWeatherProvider`, which is not a cosmetic change: the turbulence signal used to
+// be scaled by the distance to a *drawn* front (`front_proximity`), and is now scaled by the
+// thermal gradient the flow has actually concentrated (`frontal_strength_at`). The assertions
+// are about the arithmetic that surrounds that signal, so they transfer unchanged; what could
+// not transfer is a test that placed a front where it wanted one.
+namespace
+{
+    constexpr double HAZARD_DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
+    constexpr double HAZARD_EARTH_RADIUS_M = 6371000.0;
+} // namespace
+
 TEST(Unit_WeatherFlightHazards, TurbulenceIntensityIsTheGustMagnitudeNormalized)
 {
-    SynopticLayer synoptic;
-    synoptic.seed(99ull);
+    ProceduralWeather weather(/*seed=*/99, HAZARD_EARTH_RADIUS_M);
 
-    constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
-    const GeodeticPosition position{40.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
+    const GeodeticPosition position{40.0 * HAZARD_DEGREES_TO_RADIANS,
+                                    10.0 * HAZARD_DEGREES_TO_RADIANS};
 
-    const WindSample gust = wind_gust(synoptic, position, 800.0, 12.0);
+    const WindSample gust = wind_gust(weather, position, 800.0, 12.0);
     const double expected_magnitude =
         std::sqrt(gust.eastward_mps * gust.eastward_mps + gust.northward_mps * gust.northward_mps);
     const float expected = float(std::min(1.0, expected_magnitude / WIND_GUST_CEILING_MPS));
 
-    EXPECT_NEAR(turbulence_intensity(synoptic, position, 800.0, 12.0), expected, 1e-6f);
+    EXPECT_NEAR(turbulence_intensity(weather, position, 800.0, 12.0), expected, 1e-6f);
 }
 
 TEST(Unit_WeatherFlightHazards, TurbulenceIntensityStaysBounded)
 {
-    SynopticLayer synoptic;
-    synoptic.seed(7ull);
+    ProceduralWeather weather(/*seed=*/7, HAZARD_EARTH_RADIUS_M);
 
-    constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
-    PressureSystem low;
-    low.is_low = true;
-    low.center_latitude_radians = 45.0 * DEGREES_TO_RADIANS;
-    low.center_longitude_radians = 0.0;
-    low.heading_radians = 1.5707963267948966;
-    low.speed_mps = 15.0;
-    low.central_anomaly_hpa = 30.0;
-    low.radius_major_m = 700000.0;
-    low.radius_minor_m = 500000.0;
-    low.deepen_seconds = 0.0;
-    low.mature_seconds = 60.0 * 3600.0;
-    low.fill_seconds = 20.0 * 3600.0;
-    ASSERT_TRUE(synoptic.add_system(low));
+    // Mid-latitudes, where the core's own baroclinic zone lives, plus a strong injected
+    // disturbance to sharpen the gradient near it. Twelve hours so the disturbance has been
+    // deformed by the flow rather than still being the symmetric blob it was injected as --
+    // a symmetric vortex has a circulation but not much of a temperature gradient.
+    const GeodeticPosition position{45.0 * HAZARD_DEGREES_TO_RADIANS, 0.0};
+    weather.inject_vorticity(position, /*radius_m=*/700000.0, /*amplitude_mps=*/30.0);
+    weather.tick(12.0 * 3600.0, position, 2451545.0);
 
-    const GeodeticPosition on_front{47.1372 * DEGREES_TO_RADIANS, -3.0217 * DEGREES_TO_RADIANS};
-    ASSERT_GT(synoptic.front_proximity(on_front).cold, 0.9f);
+    // Without this the loop below would be vacuously true: zero gradient gives zero gust gives
+    // zero intensity, which is inside [0, 1] and proves nothing.
+    ASSERT_GT(weather.frontal_strength_at(position), 0.0)
+        << "no thermal gradient here, so the bound below would be trivially satisfied";
 
     for (double t = 0.0; t < 100.0; t += 7.0)
     {
-        const float intensity = turbulence_intensity(synoptic, on_front, 500.0, t);
+        const float intensity = turbulence_intensity(weather, position, 500.0, t);
         EXPECT_GE(intensity, 0.0f);
         EXPECT_LE(intensity, 1.0f);
     }
 }
 
-TEST(Unit_WeatherFlightHazards, WeatherWindIsExactlyAnalyticPlusGust)
+TEST(Unit_WeatherFlightHazards, WeatherWindIsExactlyTheProvidersWindPlusGust)
 {
-    SynopticLayer synoptic;
-    synoptic.seed(55ull);
+    ProceduralWeather weather(/*seed=*/55, HAZARD_EARTH_RADIUS_M);
 
-    constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
-    const GeodeticPosition position{-20.0 * DEGREES_TO_RADIANS, 55.0 * DEGREES_TO_RADIANS};
+    const GeodeticPosition position{-20.0 * HAZARD_DEGREES_TO_RADIANS,
+                                    55.0 * HAZARD_DEGREES_TO_RADIANS};
 
-    const WindSample analytic = synoptic.wind_at(position, 0.35);
-    const WindSample gust = wind_gust(synoptic, position, 2800.0, 30.0);
-    const WindSample combined = weather_wind(synoptic, position, 2800.0, 30.0);
+    // 2 800 m of the 8 000 m column weather_wind() maps altitude onto; spelled out rather than
+    // hard-coded to 0.35 so the two halves cannot silently disagree about the column depth.
+    constexpr double COLUMN_TOP_METERS = 8000.0;
+    const WindSample base = weather.wind_at(position, 2800.0 / COLUMN_TOP_METERS);
+    const WindSample gust = wind_gust(weather, position, 2800.0, 30.0);
+    const WindSample combined = weather_wind(weather, position, 2800.0, 30.0);
 
-    EXPECT_NEAR(combined.eastward_mps, analytic.eastward_mps + gust.eastward_mps, 1e-9);
-    EXPECT_NEAR(combined.northward_mps, analytic.northward_mps + gust.northward_mps, 1e-9);
+    EXPECT_NEAR(combined.eastward_mps, base.eastward_mps + gust.eastward_mps, 1e-9);
+    EXPECT_NEAR(combined.northward_mps, base.northward_mps + gust.northward_mps, 1e-9);
 }

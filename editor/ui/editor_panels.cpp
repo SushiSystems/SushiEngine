@@ -4205,17 +4205,18 @@ namespace SushiEngine
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(
-                        "Procedural: moving synoptic pressure systems and a regional grid "
-                        "drive the sky; presets seed a starting scenario rather than setting "
-                        "deck parameters directly, and the sky then evolves on its own.");
+                        "Procedural: a global dynamical core and a regional grid drive the sky; "
+                        "presets seed a starting scenario rather than setting deck parameters "
+                        "directly, and the sky then evolves on its own.");
 
                 const SushiEngine::Simulation::GeodeticPosition weather_observer{
                     environment.observer.latitude_radians, environment.observer.longitude_radians};
 
                 // Presets: in Manual mode, one click sets the whole sky (which decks, which
                 // genera, medium tuning) as before. In Procedural mode the same buttons instead
-                // seed T1's synoptic systems (design doc §6) -- the sky is not snapped to a
-                // fixed look, it evolves from the seeded scenario over the following minutes.
+                // inject an anomaly upstream in the global flow (design doc §6) -- the sky is not
+                // snapped to a fixed look, it evolves from that disturbance over the following
+                // minutes, and what arrives is whatever the disturbance grows into.
                 ImGui::SeparatorText("Preset");
                 for (int p = 0; p < SushiEngine::Render::WEATHER_PRESET_COUNT; ++p)
                 {
@@ -4239,10 +4240,13 @@ namespace SushiEngine
                     }
                 }
 
-                if (procedural && world->weather_authoring() != nullptr)
+                if (procedural && world->weather_authoring() != nullptr &&
+                    world->weather_provider() != nullptr)
                 {
-                    SushiEngine::Simulation::SynopticLayer& synoptic =
-                        world->weather_authoring()->synoptic();
+                    SushiEngine::Simulation::IWeatherAuthoring& authoring =
+                        *world->weather_authoring();
+                    const SushiEngine::Simulation::IWeatherProvider& weather =
+                        *world->weather_provider();
 
                     // Time-scrub coupled to the ephemeris clock (design doc §6): only the
                     // time-of-day fraction of the master epoch, not the calendar date -- the
@@ -4258,118 +4262,209 @@ namespace SushiEngine
                         changed = true;
                     }
 
-                    // Synoptic map overlay (design doc §6): pressure systems drawn from live T1
-                    // state, the observer at the map's centre, blue = low / orange = high, the
-                    // short tick is each system's heading. Scoped down from the doc's literal
-                    // "place/drag a low" to click-to-select + slider editing below -- an
-                    // in-viewport drag manipulator is real interaction-model work judged too
-                    // risky to add on top of everything else this phase already touches.
+                    // Synoptic map overlay (design doc §6), rebuilt on the global core.
+                    //
+                    // **This used to draw a list and now it samples a field**, which is the whole
+                    // Phase C swap made visible in one panel. There is no longer a `systems[]` to
+                    // iterate: a low is a closed contour in a pressure field, not an ellipse with
+                    // a heading, so the map asks `pressure_anomaly_hpa` (or
+                    // `frontal_strength_at`) at every cell of a lattice and shades what comes
+                    // back. Everything the old panel offered as a slider — depth, radius, speed,
+                    // heading — was authored data the core now *derives*, and a slider that
+                    // pretends to set a derived quantity is worse than no slider.
+                    //
+                    // What replaces the sliders is a click: the author disturbs the flow and the
+                    // dynamics take it from there. Strictly less direct control, and strictly
+                    // more honest, because the previous control was over a picture rather than
+                    // over the weather.
                     ImGui::SeparatorText("Synoptic Map");
+
+                    // Two fields worth looking at, sharing one lattice. Pressure is what an
+                    // author navigates by; the thermal gradient is what actually decides whether
+                    // there is weather at a point, and having it on the same map is what lets
+                    // "the front arrives" be watched rather than assumed.
+                    static int map_field = 0;
+                    ImGui::RadioButton("Pressure", &map_field, 0);
+                    ImGui::SameLine();
+                    ImGui::RadioButton("Fronts", &map_field, 1);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled(map_field == 0 ? "(hPa anomaly)" : "(K / 100 km)");
+
+                    static float map_span_degrees = 45.0f;
+                    ImGui::SliderFloat("Map Span", &map_span_degrees, 10.0f, 180.0f, "%.0f deg");
+
                     constexpr float MAP_SIZE_PX = 220.0f;
-                    constexpr double MAP_SPAN_DEGREES = 20.0;
+                    constexpr int MAP_CELLS = 44;
                     constexpr double DEG = 3.14159265358979323846 / 180.0;
+                    constexpr double HALF_PI = 3.14159265358979323846 * 0.5;
+                    const double map_half_span_rad = double(map_span_degrees) * 0.5 * DEG;
+
                     ImGui::InvisibleButton("##synoptic_map", ImVec2(MAP_SIZE_PX, MAP_SIZE_PX));
+                    const bool map_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
                     ImDrawList* map_draw_list = ImGui::GetWindowDrawList();
                     const ImVec2 map_origin = ImGui::GetItemRectMin();
                     const ImVec2 map_center(map_origin.x + MAP_SIZE_PX * 0.5f,
                                             map_origin.y + MAP_SIZE_PX * 0.5f);
-                    map_draw_list->AddRectFilled(
-                        map_origin, ImVec2(map_origin.x + MAP_SIZE_PX, map_origin.y + MAP_SIZE_PX),
-                        IM_COL32(20, 26, 36, 255));
+
+                    // Map pixel -> geodetic. A plate-carree window centred on the observer:
+                    // longitude wraps freely (the core wraps it again itself), latitude clamps at
+                    // the poles because there is nothing past them to sample.
+                    const double cell_span_rad = 2.0 * map_half_span_rad / double(MAP_CELLS);
+                    auto map_position_at = [&](double u, double v) {
+                        const double lat = weather_observer.latitude_radians +
+                                           (0.5 - v) * 2.0 * map_half_span_rad;
+                        const double lon = weather_observer.longitude_radians +
+                                           (u - 0.5) * 2.0 * map_half_span_rad;
+                        return SushiEngine::Simulation::GeodeticPosition{
+                            lat > HALF_PI ? HALF_PI : (lat < -HALF_PI ? -HALF_PI : lat), lon};
+                    };
+
+                    // One pass to sample, one to draw, because the colour scale is normalized
+                    // against the extremum actually present rather than a fixed range: a quiet
+                    // flow and a deep cyclone both read clearly, and the legend below reports
+                    // the number the scale was normalized to so the picture stays quantitative.
+                    static float map_samples[MAP_CELLS * MAP_CELLS];
+                    float map_extremum = 0.0f;
+                    for (int cy = 0; cy < MAP_CELLS; ++cy)
+                    {
+                        for (int cx = 0; cx < MAP_CELLS; ++cx)
+                        {
+                            const SushiEngine::Simulation::GeodeticPosition p = map_position_at(
+                                (double(cx) + 0.5) / double(MAP_CELLS),
+                                (double(cy) + 0.5) / double(MAP_CELLS));
+                            const double value = map_field == 0 ? weather.pressure_anomaly_hpa(p)
+                                                                : weather.frontal_strength_at(p);
+                            const float sample = static_cast<float>(value);
+                            map_samples[cy * MAP_CELLS + cx] = sample;
+                            const float magnitude = sample < 0.0f ? -sample : sample;
+                            if (magnitude > map_extremum)
+                                map_extremum = magnitude;
+                        }
+                    }
+                    const float map_scale = map_extremum > 1e-4f ? 1.0f / map_extremum : 0.0f;
+
+                    const float cell_px = MAP_SIZE_PX / float(MAP_CELLS);
+                    for (int cy = 0; cy < MAP_CELLS; ++cy)
+                    {
+                        for (int cx = 0; cx < MAP_CELLS; ++cx)
+                        {
+                            const float t = map_samples[cy * MAP_CELLS + cx] * map_scale;
+                            // Pressure is signed and gets a diverging scale (blue trough / orange
+                            // ridge, the convention every surface chart uses). The frontal
+                            // gradient is a magnitude and gets a sequential one -- shading its
+                            // sign would be inventing a distinction it does not have.
+                            int r = 20, g = 26, b = 36;
+                            if (map_field == 0)
+                            {
+                                const float m = t < 0.0f ? -t : t;
+                                if (t < 0.0f)
+                                {
+                                    r = 20 + int(30.0f * m);
+                                    g = 26 + int(120.0f * m);
+                                    b = 36 + int(200.0f * m);
+                                }
+                                else
+                                {
+                                    r = 20 + int(225.0f * m);
+                                    g = 26 + int(120.0f * m);
+                                    b = 36 + int(20.0f * m);
+                                }
+                            }
+                            else
+                            {
+                                const float m = t < 0.0f ? -t : t;
+                                r = 20 + int(200.0f * m);
+                                g = 26 + int(210.0f * m);
+                                b = 36 + int(90.0f * m);
+                            }
+                            const ImVec2 lo(map_origin.x + float(cx) * cell_px,
+                                            map_origin.y + float(cy) * cell_px);
+                            map_draw_list->AddRectFilled(
+                                lo, ImVec2(lo.x + cell_px + 1.0f, lo.y + cell_px + 1.0f),
+                                IM_COL32(r, g, b, 255));
+                        }
+                    }
+
+                    // Wind arrows on a much coarser lattice, low in the column (0.25) because
+                    // that is the wind an author is placing weather relative to. They are what
+                    // turns a shaded blob into a circulation: the rotation around a low, and the
+                    // direction the whole pattern is steered, are both only legible as flow.
+                    constexpr int WIND_CELLS = 9;
+                    for (int wy = 0; wy < WIND_CELLS; ++wy)
+                    {
+                        for (int wx = 0; wx < WIND_CELLS; ++wx)
+                        {
+                            const double u = (double(wx) + 0.5) / double(WIND_CELLS);
+                            const double v = (double(wy) + 0.5) / double(WIND_CELLS);
+                            const SushiEngine::Simulation::WindSample wind =
+                                weather.wind_at(map_position_at(u, v), 0.25);
+                            const double speed = std::sqrt(wind.eastward_mps * wind.eastward_mps +
+                                                           wind.northward_mps * wind.northward_mps);
+                            if (speed < 0.5)
+                                continue;
+                            // Fixed arrow length, so the arrows read as direction and the shading
+                            // reads as magnitude -- two signals, one each, rather than both
+                            // competing for the same channel.
+                            constexpr double ARROW_PX = 9.0;
+                            const float ax = map_origin.x + float(u) * MAP_SIZE_PX;
+                            const float ay = map_origin.y + float(v) * MAP_SIZE_PX;
+                            const float dx = static_cast<float>(wind.eastward_mps / speed * ARROW_PX);
+                            const float dy = static_cast<float>(-wind.northward_mps / speed * ARROW_PX);
+                            const ImU32 arrow = IM_COL32(230, 235, 245, 170);
+                            map_draw_list->AddLine(ImVec2(ax - dx, ay - dy), ImVec2(ax + dx, ay + dy),
+                                                   arrow, 1.0f);
+                            map_draw_list->AddCircleFilled(ImVec2(ax + dx, ay + dy), 1.6f, arrow);
+                        }
+                    }
+
                     map_draw_list->AddRect(
                         map_origin, ImVec2(map_origin.x + MAP_SIZE_PX, map_origin.y + MAP_SIZE_PX),
                         IM_COL32(90, 100, 120, 255));
-                    map_draw_list->AddCircleFilled(map_center, 3.0f, IM_COL32(255, 255, 255, 255));
-                    const double map_cos_lat = std::cos(weather_observer.latitude_radians);
-                    const double px_per_degree = (double(MAP_SIZE_PX) * 0.5) / MAP_SPAN_DEGREES;
-                    const SushiEngine::Simulation::SynopticState& synoptic_state = synoptic.state();
-                    for (int i = 0; i < synoptic_state.system_count; ++i)
-                    {
-                        const SushiEngine::Simulation::PressureSystem& system = synoptic_state.systems[i];
-                        const double dlat_deg =
-                            (system.center_latitude_radians - weather_observer.latitude_radians) / DEG;
-                        const double dlon_deg =
-                            (system.center_longitude_radians - weather_observer.longitude_radians) / DEG;
-                        const float x =
-                            map_center.x + static_cast<float>(dlon_deg * map_cos_lat * px_per_degree);
-                        const float y = map_center.y - static_cast<float>(dlat_deg * px_per_degree);
-                        float radius_px = static_cast<float>(system.radius_major_m / 60000.0);
-                        radius_px = radius_px < 4.0f ? 4.0f : (radius_px > MAP_SIZE_PX * 0.4f
-                                                                    ? MAP_SIZE_PX * 0.4f
-                                                                    : radius_px);
-                        const ImU32 color = system.is_low ? IM_COL32(90, 160, 255, 220)
-                                                           : IM_COL32(255, 170, 90, 220);
-                        map_draw_list->AddCircle(ImVec2(x, y), radius_px, color, 24, 2.0f);
-                        const float dir_x = static_cast<float>(std::sin(system.heading_radians));
-                        const float dir_y = static_cast<float>(std::cos(system.heading_radians));
-                        map_draw_list->AddLine(ImVec2(x, y), ImVec2(x + dir_x * 14.0f, y - dir_y * 14.0f),
-                                               color, 2.0f);
-                    }
-                    ImGui::TextDisabled("Blue = low, orange = high; the tick shows heading.");
+                    map_draw_list->AddCircleFilled(map_center, 3.5f, IM_COL32(255, 255, 255, 255));
+                    map_draw_list->AddCircle(map_center, 6.0f, IM_COL32(255, 255, 255, 160), 12, 1.5f);
 
-                    ImGui::SeparatorText("Pressure Systems");
-                    if (ImGui::Button("Add Low Upstream"))
+                    ImGui::TextDisabled(map_field == 0
+                                            ? "Blue = trough, orange = ridge; arrows are the "
+                                              "low-level wind."
+                                            : "Brighter = sharper thermal gradient; arrows are "
+                                              "the low-level wind.");
+                    ImGui::Text(map_field == 0 ? "Peak anomaly: %.1f hPa"
+                                               : "Peak gradient: %.2f K/100km",
+                                double(map_extremum));
+
+                    // Placing weather: click the map. The parameters below are the two a
+                    // dynamical core can actually honour -- how big the disturbance is and how
+                    // hard it spins. Everything else about the resulting low (how deep it gets,
+                    // where it goes, whether it grows a front at all) is the core's answer, not
+                    // the author's setting, which is exactly the trade this phase makes.
+                    ImGui::SeparatorText("Inject Anomaly");
+                    static float inject_radius_km = 700.0f;
+                    static float inject_amplitude_mps = 20.0f;
+                    static int inject_sign = 0;
+                    ImGui::RadioButton("Low", &inject_sign, 0);
+                    ImGui::SameLine();
+                    ImGui::RadioButton("High", &inject_sign, 1);
+                    ImGui::SliderFloat("Radius", &inject_radius_km, 200.0f, 2000.0f, "%.0f km");
+                    ImGui::SliderFloat("Strength", &inject_amplitude_mps, 2.0f, 45.0f, "%.0f m/s");
+                    ImGui::TextDisabled("Click the map to place one; it then evolves on its own.");
+
+                    if (map_clicked)
                     {
-                        SushiEngine::Simulation::PressureSystem system;
-                        system.is_low = true;
-                        system.center_latitude_radians = weather_observer.latitude_radians;
-                        system.center_longitude_radians = weather_observer.longitude_radians - 6.0 * DEG;
-                        system.heading_radians = 1.5707963267948966;
-                        system.speed_mps = 12.0;
-                        system.central_anomaly_hpa = 20.0;
-                        system.radius_major_m = 700000.0;
-                        system.radius_minor_m = 525000.0;
-                        system.mature_seconds = 48.0 * 3600.0;
-                        system.fill_seconds = 24.0 * 3600.0;
-                        synoptic.add_system(system);
+                        const ImVec2 mouse = ImGui::GetIO().MousePos;
+                        const double u = double(mouse.x - map_origin.x) / double(MAP_SIZE_PX);
+                        const double v = double(mouse.y - map_origin.y) / double(MAP_SIZE_PX);
+                        authoring.inject_vorticity(
+                            map_position_at(u, v), double(inject_radius_km) * 1000.0,
+                            inject_sign == 0 ? double(inject_amplitude_mps)
+                                             : -double(inject_amplitude_mps));
                     }
 
-                    int remove_system_index = -1;
-                    for (int i = 0; i < synoptic_state.system_count; ++i)
-                    {
-                        SushiEngine::Simulation::PressureSystem system = synoptic_state.systems[i];
-                        ImGui::PushID(i);
-                        char system_header[48];
-                        std::snprintf(system_header, sizeof(system_header), "System %d (%s)",
-                                     static_cast<int>(system.id), system.is_low ? "Low" : "High");
-                        bool system_edited = false;
-                        if (ImGui::TreeNode(system_header))
-                        {
-                            float depth_hpa = static_cast<float>(system.central_anomaly_hpa);
-                            if (ImGui::SliderFloat("Depth (hPa)", &depth_hpa, 2.0f, 50.0f))
-                            {
-                                system.central_anomaly_hpa = double(depth_hpa);
-                                system_edited = true;
-                            }
-                            float radius_km = static_cast<float>(system.radius_major_m / 1000.0);
-                            if (ImGui::SliderFloat("Radius (km)", &radius_km, 100.0f, 2000.0f))
-                            {
-                                system.radius_major_m = double(radius_km) * 1000.0;
-                                system.radius_minor_m = system.radius_major_m * 0.75;
-                                system_edited = true;
-                            }
-                            float speed_mps = static_cast<float>(system.speed_mps);
-                            if (ImGui::SliderFloat("Speed (m/s)", &speed_mps, 0.0f, 30.0f))
-                            {
-                                system.speed_mps = double(speed_mps);
-                                system_edited = true;
-                            }
-                            float heading_deg = static_cast<float>(system.heading_radians / DEG);
-                            if (ImGui::SliderFloat("Heading (deg)", &heading_deg, -180.0f, 180.0f))
-                            {
-                                system.heading_radians = double(heading_deg) * DEG;
-                                system_edited = true;
-                            }
-                            if (ImGui::Button("Remove"))
-                                remove_system_index = i;
-                            ImGui::TreePop();
-                        }
-                        if (system_edited)
-                            synoptic.set_system(i, system);
-                        ImGui::PopID();
-                    }
-                    if (remove_system_index >= 0)
-                        synoptic.remove_system(remove_system_index);
+                    // The resolution the map is actually reading the core at, so a span slid out
+                    // to hemispheric is visibly a coarser look at the same field rather than a
+                    // different field. Aliasing here is a property of the view, not the core.
+                    ImGui::TextDisabled("Sampling ~%.0f km per map cell.",
+                                        cell_span_rad * world->environment().planet.mean_radius() /
+                                            1000.0);
                 }
 
                 if (ImGui::TreeNode("Advanced"))

@@ -23,8 +23,10 @@
 
 #include "scene_serializer.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -430,16 +432,38 @@ namespace SushiEngine
                 return sky;
             }
 
-            // W4's procedural weather state (docs/slop/weather_and_clouds.md §5): only T1
-            // (the synoptic system list, its RNG, and its clock) is captured. T2's regional
-            // grid is deliberately not serialized cell-by-cell -- it reseeds deterministically
-            // from the restored synoptic state and the current observer on the next tick, which
-            // resumes a visually consistent sky rather than the exact bit-pattern of transient
-            // grid cells. The acceptance bar this phase must meet is tick-to-tick replay
-            // determinism (see test_weather_determinism.cpp), not save/load byte-fidelity of
-            // internal simulation state, so this is a scoped, named simplification rather than
-            // a silent gap.
-            json weather_to_json(IWorldEditor& world)
+            /**
+             * @brief Where the atmosphere's prognostic field lives for a given scene file.
+             *
+             * Appended rather than extension-substituted so the mapping is total: every scene
+             * path, whatever it is named and whether or not it has an extension at all, has
+             * exactly one sidecar path and no two scenes share one.
+             */
+            std::string atmosphere_sidecar_path(const std::string& scene_path)
+            {
+                return scene_path + ".atmos";
+            }
+
+            /**
+             * @brief W4's procedural weather state, as of the Phase C swap.
+             *
+             * **The system list is gone because the systems are gone.** What used to be written
+             * here was a dozen ellipses with headings and radii — an object model that could be
+             * spelled in JSON because it was authored data pretending to be weather. The global
+             * core has no such objects: its state is two potential-vorticity fields and a
+             * moisture field on a 512x256 grid, several megabytes of numbers that mean nothing
+             * individually. Writing that into the scene JSON would bloat a human-editable text
+             * file past the point of being human-editable, for a payload no human would ever
+             * edit, so it goes to a binary sidecar beside the scene and the JSON keeps only the
+             * fact that one exists.
+             *
+             * T2's regional grid is still deliberately not captured: it reseeds from the
+             * restored parent solution and the current observer on the next tick. That was a
+             * named simplification before and it remains one, but it is a much smaller claim
+             * now — the parent it reseeds from is the *actual* restored flow rather than a
+             * reconstruction from a system list.
+             */
+            json weather_to_json(IWorldEditor& world, const std::string& scene_path)
             {
                 json j;
                 j["procedural_enabled"] = world.procedural_weather_enabled();
@@ -447,40 +471,27 @@ namespace SushiEngine
                 if (weather == nullptr)
                     return j;
 
-                const SushiEngine::Simulation::SynopticState& state = weather->synoptic().state();
-                j["rng_s0"] = state.rng.s0;
-                j["rng_s1"] = state.rng.s1;
-                j["next_system_id"] = state.next_system_id;
-                j["elapsed_seconds"] = state.elapsed_seconds;
-                j["seconds_to_next_genesis"] = state.seconds_to_next_genesis;
+                const std::vector<std::uint8_t> blob = weather->capture_state();
+                if (blob.empty())
+                    return j;
 
-                json systems = json::array();
-                for (int i = 0; i < state.system_count; ++i)
-                {
-                    const SushiEngine::Simulation::PressureSystem& s = state.systems[i];
-                    systems.push_back(json{
-                        {"id", s.id},
-                        {"is_low", s.is_low},
-                        {"phase", static_cast<std::uint32_t>(s.phase)},
-                        {"age_seconds", s.age_seconds},
-                        {"deepen_seconds", s.deepen_seconds},
-                        {"mature_seconds", s.mature_seconds},
-                        {"fill_seconds", s.fill_seconds},
-                        {"center_latitude_radians", s.center_latitude_radians},
-                        {"center_longitude_radians", s.center_longitude_radians},
-                        {"heading_radians", s.heading_radians},
-                        {"curvature_radians_per_second", s.curvature_radians_per_second},
-                        {"speed_mps", s.speed_mps},
-                        {"central_anomaly_hpa", s.central_anomaly_hpa},
-                        {"radius_major_m", s.radius_major_m},
-                        {"radius_minor_m", s.radius_minor_m},
-                        {"orientation_radians", s.orientation_radians}});
-                }
-                j["systems"] = systems;
+                const std::string sidecar = atmosphere_sidecar_path(scene_path);
+                std::ofstream out(sidecar, std::ios::binary);
+                if (!out)
+                    return j;
+                out.write(reinterpret_cast<const char*>(blob.data()),
+                          static_cast<std::streamsize>(blob.size()));
+                if (!out)
+                    return j;
+
+                // Written only after the bytes are actually on disk, so the flag is a claim the
+                // file can back up rather than an intention.
+                j["atmosphere_sidecar"] = true;
                 return j;
             }
 
-            void weather_from_json(const json& j, IWorldEditor& world)
+            void weather_from_json(const json& j, IWorldEditor& world,
+                                   const std::string& scene_path)
             {
                 if (!j.is_object())
                     return;
@@ -491,48 +502,19 @@ namespace SushiEngine
                 SushiEngine::Simulation::IWeatherAuthoring* weather = world.weather_authoring();
                 if (weather == nullptr)
                     return;
+                if (!j.value("atmosphere_sidecar", false))
+                    return;
 
-                SushiEngine::Simulation::SynopticState state;
-                state.rng.s0 = j.value("rng_s0", state.rng.s0);
-                state.rng.s1 = j.value("rng_s1", state.rng.s1);
-                state.next_system_id = j.value("next_system_id", state.next_system_id);
-                state.elapsed_seconds = j.value("elapsed_seconds", state.elapsed_seconds);
-                state.seconds_to_next_genesis =
-                    j.value("seconds_to_next_genesis", state.seconds_to_next_genesis);
-
-                if (j.contains("systems") && j["systems"].is_array())
-                {
-                    for (const json& sj : j["systems"])
-                    {
-                        if (state.system_count >= SushiEngine::Simulation::MAX_SYNOPTIC_SYSTEMS)
-                            break;
-                        SushiEngine::Simulation::PressureSystem system;
-                        system.id = sj.value("id", system.id);
-                        system.is_low = sj.value("is_low", system.is_low);
-                        system.phase = static_cast<SushiEngine::Simulation::PressureSystemPhase>(
-                            sj.value("phase", static_cast<std::uint32_t>(system.phase)));
-                        system.age_seconds = sj.value("age_seconds", system.age_seconds);
-                        system.deepen_seconds = sj.value("deepen_seconds", system.deepen_seconds);
-                        system.mature_seconds = sj.value("mature_seconds", system.mature_seconds);
-                        system.fill_seconds = sj.value("fill_seconds", system.fill_seconds);
-                        system.center_latitude_radians =
-                            sj.value("center_latitude_radians", system.center_latitude_radians);
-                        system.center_longitude_radians =
-                            sj.value("center_longitude_radians", system.center_longitude_radians);
-                        system.heading_radians = sj.value("heading_radians", system.heading_radians);
-                        system.curvature_radians_per_second = sj.value(
-                            "curvature_radians_per_second", system.curvature_radians_per_second);
-                        system.speed_mps = sj.value("speed_mps", system.speed_mps);
-                        system.central_anomaly_hpa =
-                            sj.value("central_anomaly_hpa", system.central_anomaly_hpa);
-                        system.radius_major_m = sj.value("radius_major_m", system.radius_major_m);
-                        system.radius_minor_m = sj.value("radius_minor_m", system.radius_minor_m);
-                        system.orientation_radians =
-                            sj.value("orientation_radians", system.orientation_radians);
-                        state.systems[state.system_count++] = system;
-                    }
-                }
-                weather->synoptic().set_state(state, world.environment().planet.mean_radius());
+                std::ifstream in(atmosphere_sidecar_path(scene_path), std::ios::binary);
+                if (!in)
+                    return;
+                const std::vector<std::uint8_t> blob{std::istreambuf_iterator<char>(in),
+                                                     std::istreambuf_iterator<char>()};
+                // A missing, truncated, or wrong-grid sidecar leaves the core exactly as the
+                // provider seeded it -- a real atmosphere, just not the saved one. Failing the
+                // whole scene load over it would be the worse answer: the entities, the
+                // environment and the sky are all still perfectly good.
+                (void)weather->restore_state(blob);
             }
 
             SushiEngine::Quaternion quaternion_from_json(const json& j)
@@ -1070,7 +1052,7 @@ namespace SushiEngine
             json root;
             root["entities"] = capture_scene(world);
             root["environment"] = environment_to_json(world.environment());
-            root["weather"] = weather_to_json(world);
+            root["weather"] = weather_to_json(world, path);
             if (sky != nullptr)
                 root["sky"] = sky_to_json(*sky);
 
@@ -1139,7 +1121,7 @@ namespace SushiEngine
             if (root.contains("environment"))
                 world.set_environment(environment_from_json(root["environment"], world.environment()));
             if (root.contains("weather"))
-                weather_from_json(root["weather"], world);
+                weather_from_json(root["weather"], world, path);
             if (sky != nullptr && root.contains("sky"))
                 *sky = sky_from_json(root["sky"], *sky);
             return true;

@@ -28,7 +28,7 @@
  * @brief The `IWeatherProvider` seam and its implementations, plus the authoring capability.
  *
  * `IWeatherProvider` names one thing — the weather, as a point query and as a field — and
- * nothing about how it got there. `ProceduralWeather` wraps the synoptic layer and the
+ * nothing about how it got there. `ProceduralWeather` wraps the global dynamical core and the
  * GPU regional nest behind it; `StaticWeather` wraps a fixed, author-set `Render::Cloudscape`
  * (manual authoring as a legitimate, substitutable provider rather than a special case the
  * host branches on); `IngestedWeather` (`sim/ingested_weather.hpp`) fills the same contract
@@ -46,11 +46,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
+#include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
 #include <SushiEngine/sim/weather_field_buffer.hpp>
-#include <SushiEngine/sim/synoptic_weather.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine
@@ -61,8 +62,8 @@ namespace SushiEngine
          * @brief The seam the renderer's cloud bridge consumes: "the weather at a point".
          *
          * ISP-narrow on purpose (design doc §9): a consumer that only needs to compile a
-         * `Render::Cloudscape` (see `WeatherCloudscapeCompiler`) never sees a synoptic
-         * system, a grid cell, or an RNG — only this.
+         * `Render::Cloudscape` (see `WeatherCloudscapeCompiler`) never sees a potential
+         * vorticity, a grid cell, or an RNG — only this.
          */
         class IWeatherProvider
         {
@@ -133,6 +134,59 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Wind at a point and level, m/s.
+                 *
+                 * On this interface for the same reason @ref publish_field is: every provider
+                 * can answer it honestly. A fixed authored sky has one wind at every altitude,
+                 * which is the whole truth about a fixed authored sky and not a stub.
+                 *
+                 * @param position       Query point, geodetic.
+                 * @param level_fraction 0 at the surface through 1 at the tropopause.
+                 * @return The wind, metres per second.
+                 */
+                virtual WindSample wind_at(const GeodeticPosition& position,
+                                           double level_fraction) const
+                {
+                    (void)position;
+                    (void)level_fraction;
+                    return WindSample{};
+                }
+
+                /**
+                 * @brief Surface pressure anomaly at a point, hPa about the zonal mean.
+                 *
+                 * The zonal mean rather than a global one, because the mean meridional gradient
+                 * is worth an order more than any cyclone (see
+                 * `Atmosphere::QuasiGeostrophicCore::pressure_anomaly_hpa`, which states the
+                 * measurement) and a consumer asking this wants the low, not the latitude. A
+                 * provider with no horizontal structure answers zero, which is true of it.
+                 *
+                 * @param position Query point, geodetic.
+                 * @return Departure from the zonal-mean surface pressure, hectopascals.
+                 */
+                virtual double pressure_anomaly_hpa(const GeodeticPosition& position) const
+                {
+                    (void)position;
+                    return 0.0;
+                }
+
+                /**
+                 * @brief Strength of the thermal gradient at a point, K per 100 km.
+                 *
+                 * "Is there a front here", asked of the field rather than of a list of drawn
+                 * fronts. A provider with no horizontal thermal structure answers zero, which is
+                 * true of it.
+                 *
+                 * @param position Query point, geodetic.
+                 * @return Magnitude of the horizontal temperature gradient, K/100 km.
+                 */
+                virtual double frontal_strength_at(const GeodeticPosition& position) const
+                {
+                    (void)position;
+                    return 0.0;
+                }
+
+                /**
                  * @brief Binds the renderer's asynchronous readback of the nest.
                  *
                  * The one thing that flows renderer → simulation (§3.2). Bound once by the host
@@ -164,19 +218,47 @@ namespace SushiEngine
             public:
                 virtual ~IWeatherAuthoring() = default;
 
-                /** @brief The synoptic layer, mutable — place, edit, or remove a system. */
-                virtual SynopticLayer& synoptic() noexcept = 0;
-
-                /** @brief The synoptic layer, read-only — the map overlay and serialization. */
-                virtual const SynopticLayer& synoptic() const noexcept = 0;
+                /**
+                 * @brief Adds a rotating anomaly to the global flow, which then evolves on its own.
+                 *
+                 * **The replacement for handing the editor a list of pressure systems to drag.**
+                 * There is no longer a list: a low is a feature of a field, not an object, and
+                 * what an author can do to a field is disturb it. What is injected is vorticity,
+                 * so the disturbance deepens, tilts, sheds a front and moves with the steering
+                 * flow instead of translating as a rigid shape — which is strictly more useful
+                 * authoring as well as the only kind a dynamical core can honour.
+                 *
+                 * Cyclonic in whichever hemisphere it lands in, so "place a low" means a low on
+                 * either side of the equator.
+                 *
+                 * @param position      Where to centre it, geodetic.
+                 * @param radius_m      e-folding radius, metres. Synoptic scale is 500-1500 km.
+                 * @param amplitude_mps Peak rotational wind to scale it to; positive for a low,
+                 *                      negative for a high.
+                 */
+                virtual void inject_vorticity(const GeodeticPosition& position, double radius_m,
+                                              double amplitude_mps) = 0;
 
                 /**
-                 * @brief Seeds a named scenario, replacing the live systems.
+                 * @brief Seeds a named scenario as a starting condition, not as an outcome.
                  * @param preset   Which named scenario to seed.
                  * @param observer Where the scenario is centred.
                  */
                 virtual void apply_preset(Render::WeatherPreset preset,
                                           const GeodeticPosition& observer) = 0;
+
+                /**
+                 * @brief Serializes the evolving state for a scene save.
+                 * @return An opaque blob, or empty if this provider has no state worth keeping.
+                 */
+                virtual std::vector<std::uint8_t> capture_state() const = 0;
+
+                /**
+                 * @brief Restores a blob from @ref capture_state.
+                 * @param blob The bytes to adopt.
+                 * @return Whether it was accepted; false leaves the current state untouched.
+                 */
+                virtual bool restore_state(const std::vector<std::uint8_t>& blob) = 0;
         };
 
         /**
@@ -254,18 +336,25 @@ namespace SushiEngine
         /**
          * @brief T1 plus the GPU regional nest, wrapped as an `IWeatherProvider`.
          *
-         * Owns a `SynopticLayer` (T1, ticked every call — analytic and microseconds-cheap) and
-         * publishes the forcing that drives T2. It no longer owns T2 itself: the nest is a
-         * device-level GPU service (`render/atmosphere/atmosphere_nest.hpp`), because the model
+         * Owns the global dynamical core (`Atmosphere::QuasiGeostrophicCore`, §5) and publishes
+         * the forcing that drives T2. It no longer owns T2 itself: the nest is a device-level
+         * GPU service (`render/atmosphere/atmosphere_nest.hpp`), because the model
          * `docs/slop/atmosphere_system.md` §6 asks for — anelastic dynamics with a pressure
          * solve, monotone transport at Courant ≈ 1, Kessler microphysics — is not worth writing
-         * for a CPU, and the design doc says so outright.
+         * for a CPU, and the design doc says so outright. T1 is, for the mirror-image reason
+         * (§3.3): every consumer of it is on this side of the seam.
+         *
+         * **The two tiers are stepped on different clocks and neither is the frame.** The core
+         * takes a step per six minutes of game time and carries the remainder itself, so
+         * @ref tick may hand it a whole simulation step and have nothing happen — which is
+         * correct, and is why the core exposes `advance` rather than `step`.
          *
          * What crosses back is @ref set_atmosphere_mirror's asynchronous readback, two or three
-         * frames stale, which every query below is answered from. Before the first readback —
-         * and in a host that never binds one — the answers come from the base state instead: a
-         * clear sky with the synoptic wind, which is a truthful description of an atmosphere
-         * that has not been simulated yet rather than a guess dressed up as data.
+         * frames stale, which every column query below is answered from. Before the first
+         * readback — and in a host that never binds one — the answers come from the base state
+         * instead: a clear sky with the core's own wind, which is a truthful description of an
+         * atmosphere whose *regional* detail has not been simulated yet rather than a guess
+         * dressed up as data.
          */
         class ProceduralWeather final : public IWeatherProvider, public IWeatherAuthoring
         {
@@ -276,13 +365,19 @@ namespace SushiEngine
                  * @param planet_radius_m The dominant body's mean radius, metres.
                  */
                 explicit ProceduralWeather(std::uint64_t seed, double planet_radius_m)
-                    : planet_radius_m_(planet_radius_m)
+                    : planet_radius_m_(planet_radius_m), core_(grid_for(), physics_for(planet_radius_m))
                 {
-                    synoptic_.seed(seed, planet_radius_m);
+                    core_.seed(seed);
                 }
 
                 /**
                  * @brief Advances T1. The nest advances itself, on the renderer's own clock.
+                 *
+                 * The core's step is six minutes of game time, so most calls advance nothing and
+                 * only accumulate; `advance` owns that remainder rather than making the caller
+                 * track it. The Julian date is not passed on: the core's mean state is a
+                 * climatology, and the season enters through T0 rather than through the tick.
+                 *
                  * @param dt_seconds  Fixed step duration; never wall-clock.
                  * @param observer    Where the simulation is centred.
                  * @param julian_date Epoch, for climate/diurnal terms.
@@ -291,7 +386,8 @@ namespace SushiEngine
                           double julian_date) override
                 {
                     (void)observer;
-                    synoptic_.tick(dt_seconds, julian_date);
+                    (void)julian_date;
+                    core_.advance(dt_seconds);
                 }
 
                 WeatherColumn sample_column(const GeodeticPosition& position) const override
@@ -335,7 +431,7 @@ namespace SushiEngine
                                      AtmosphereForcingBuffer& out) const override
                 {
                     (void)total_seconds;
-                    out.fill(synoptic_, observer, planet_radius_m_, FORCING_SPAN_METERS,
+                    out.fill(core_, observer, planet_radius_m_, FORCING_SPAN_METERS,
                              Render::ATMOSPHERE_FORCING_MAX_CELLS);
                 }
 
@@ -344,17 +440,55 @@ namespace SushiEngine
                     mirror_ = mirror;
                 }
 
-                /** @brief T1, read-only — the editor's synoptic map overlay reads this. */
-                const SynopticLayer& synoptic() const noexcept override { return synoptic_; }
-                /** @brief T1, mutable — editor authoring (add/remove/edit a system). */
-                SynopticLayer& synoptic() noexcept override { return synoptic_; }
+                void inject_vorticity(const GeodeticPosition& position, double radius_m,
+                                      double amplitude_mps) override
+                {
+                    core_.inject_vorticity(
+                        Atmosphere::GeographicPosition{position.latitude_radians,
+                                                       position.longitude_radians},
+                        radius_m, amplitude_mps);
+                }
+
+                double pressure_anomaly_hpa(const GeodeticPosition& position) const override
+                {
+                    return core_.pressure_anomaly_hpa(Atmosphere::GeographicPosition{
+                        position.latitude_radians, position.longitude_radians});
+                }
+
+                double frontal_strength_at(const GeodeticPosition& position) const override
+                {
+                    return core_.frontal_strength_at(Atmosphere::GeographicPosition{
+                        position.latitude_radians, position.longitude_radians});
+                }
+
+                WindSample wind_at(const GeodeticPosition& position,
+                                   double level_fraction) const override
+                {
+                    const Atmosphere::Wind wind = core_.wind_at(
+                        Atmosphere::GeographicPosition{position.latitude_radians,
+                                                       position.longitude_radians},
+                        level_fraction);
+                    return WindSample{wind.eastward_mps, wind.northward_mps};
+                }
+
+                std::vector<std::uint8_t> capture_state() const override { return core_.capture(); }
+
+                bool restore_state(const std::vector<std::uint8_t>& blob) override
+                {
+                    return core_.restore(blob);
+                }
 
                 /**
-                 * @brief Seeds a named scenario (editor preset buttons), replacing the live systems.
+                 * @brief Seeds a named scenario (editor preset buttons) as a starting condition.
                  *
-                 * Each preset places (or omits) one `PressureSystem` relative to @p observer so
-                 * the resulting sky then evolves on its own, rather than snapping to a fixed deck
-                 * mix the way `Render::cloud_weather_preset` still does for manual authoring.
+                 * **A preset is now an initial condition rather than a script.** It injects an
+                 * anomaly upstream of @p observer and the dynamics take it from there, so what
+                 * arrives is whatever that disturbance grows into — which is the point of having
+                 * a dynamical core, and also means the sky a preset produces is not identical
+                 * every time the preset is pressed on a different flow.
+                 *
+                 * Upstream means west: the core's mean state is a westerly jet, so a disturbance
+                 * placed to the west is a disturbance that will arrive.
                  *
                  * @param preset   Which named scenario to seed.
                  * @param observer Where the scenario is centered (the current sky observer).
@@ -362,26 +496,28 @@ namespace SushiEngine
                 void apply_preset(Render::WeatherPreset preset,
                                   const GeodeticPosition& observer) override
                 {
-                    synoptic_.clear_systems();
                     switch (preset)
                     {
                     case Render::WeatherPreset::Clear:
+                        // Subsidence, and nothing arriving: a high overhead rather than the
+                        // absence of weather, because the absence of weather is not something a
+                        // dynamical core can be asked for.
+                        inject_upstream(observer, 0.0, 1200000.0, -14.0);
                         break;
                     case Render::WeatherPreset::FairWeather:
-                        synoptic_.add_system(scenario_system(observer, false, 8.0, 900000.0, 0.0));
+                        inject_upstream(observer, 0.0, 900000.0, -8.0);
                         break;
                     case Render::WeatherPreset::Overcast:
-                        synoptic_.add_system(scenario_system(observer, true, 14.0, 1100000.0, 0.0));
+                        inject_upstream(observer, 0.0, 1100000.0, 14.0);
                         break;
                     case Render::WeatherPreset::FrontPassage:
-                        // Already mature and several hundred km upstream, heading toward the
-                        // observer -- the acceptance-bar demo: the front is formed and
-                        // approaching, not yet arrived, so it visibly crosses over the following
-                        // authored minutes rather than being present immediately.
-                        synoptic_.add_system(scenario_system(observer, true, 26.0, 750000.0, -6.0));
+                        // Placed several hundred kilometres upstream so it visibly *arrives*
+                        // over the following authored minutes rather than being present
+                        // immediately — the acceptance-bar demo.
+                        inject_upstream(observer, -6.0, 750000.0, 26.0);
                         break;
                     case Render::WeatherPreset::Storm:
-                        synoptic_.add_system(scenario_system(observer, true, 34.0, 600000.0, -2.0));
+                        inject_upstream(observer, -2.0, 600000.0, 34.0);
                         break;
                     default:
                         break;
@@ -411,41 +547,63 @@ namespace SushiEngine
                  * A clear sky with the synoptic wind. Honest rather than convenient: nothing has
                  * been simulated yet, so there is no condensate to report, and inventing a
                  * coverage here would be exactly the fabricated signal the audit in §1 was
-                 * written about. The wind is real — T1 is analytic and answers immediately.
+                 * written about. The wind is real: T1 has a flow from the moment it is seeded —
+                 * the mean jet, before any eddy has grown — so this is the *regional* detail
+                 * being absent, not the weather.
                  */
                 WeatherColumn base_state_column(const GeodeticPosition& position) const
                 {
                     WeatherColumn column{};
-                    const WindSample wind = synoptic_.wind_at(position, 0.25);
+                    const WindSample wind = wind_at(position, BASE_STATE_LEVEL);
                     column.wind_u_mps = static_cast<float>(wind.eastward_mps);
                     column.wind_v_mps = static_cast<float>(wind.northward_mps);
                     return column;
                 }
 
-                static PressureSystem scenario_system(const GeodeticPosition& observer, bool is_low,
-                                                       double anomaly_hpa, double radius_m,
-                                                       double longitude_offset_deg)
+                /** @brief Injects an anomaly @p longitude_offset_deg from @p observer. */
+                void inject_upstream(const GeodeticPosition& observer, double longitude_offset_deg,
+                                     double radius_m, double amplitude_mps)
                 {
                     constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
-                    PressureSystem system;
-                    system.is_low = is_low;
-                    system.center_latitude_radians = observer.latitude_radians;
-                    system.center_longitude_radians =
-                        observer.longitude_radians + longitude_offset_deg * DEGREES_TO_RADIANS;
-                    system.heading_radians = 1.5707963267948966; // due east.
-                    system.speed_mps = 12.0;
-                    system.central_anomaly_hpa = anomaly_hpa;
-                    system.radius_major_m = radius_m;
-                    system.radius_minor_m = radius_m * 0.75;
-                    system.orientation_radians = 0.0;
-                    system.deepen_seconds = 0.0; // scenarios start already formed, not mid-genesis.
-                    system.mature_seconds = 48.0 * 3600.0;
-                    system.fill_seconds = 24.0 * 3600.0;
-                    return system;
+                    inject_vorticity(
+                        GeodeticPosition{observer.latitude_radians,
+                                         observer.longitude_radians +
+                                             longitude_offset_deg * DEGREES_TO_RADIANS},
+                        radius_m, amplitude_mps);
                 }
 
-                SynopticLayer synoptic_;
+                /**
+                 * @brief The core's grid.
+                 *
+                 * Not resolved from the render quality tier, and deliberately: §11's C2 measured
+                 * that below about 128 latitudes the grid-scale damping eats the most unstable
+                 * baroclinic mode and the core stops producing weather at all. A tier that
+                 * halved this twice would not be a cheaper atmosphere, it would be no
+                 * atmosphere, so the one resolution that works is the one that is built.
+                 */
+                static Atmosphere::QuasiGeostrophicGridSize grid_for() noexcept
+                {
+                    return Atmosphere::QuasiGeostrophicGridSize{};
+                }
+
+                /** @brief The core's physics, with the body's own radius substituted in. */
+                static Atmosphere::QuasiGeostrophicParameters physics_for(double planet_radius_m)
+                {
+                    Atmosphere::QuasiGeostrophicParameters parameters;
+                    parameters.planet_radius_m = planet_radius_m;
+                    return parameters;
+                }
+
+                /**
+                 * @brief Level fraction the base-state wind is reported at.
+                 *
+                 * Low in the column: this answers "what is the wind where the player is", and
+                 * the jet is not where the player is.
+                 */
+                static constexpr double BASE_STATE_LEVEL = 0.25;
+
                 double planet_radius_m_ = 6371000.0;
+                Atmosphere::QuasiGeostrophicCore core_;
                 // Borrowed, never owned: the renderer outlives any single provider install, and
                 // a null here is a legal state meaning "answer from the base state".
                 const Render::IAtmosphereMirror* mirror_ = nullptr;

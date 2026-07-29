@@ -337,21 +337,58 @@ TEST(Unit_QuasiGeostrophicCore, ThePrescribedJetComesBackAtThePrescribedSpeed)
                 -parameters.surface_friction_radians, 1e-6);
 }
 
-TEST(Unit_QuasiGeostrophicCore, TheJetsPressureAnomalyIsSynopticAndNotAstronomical)
+// The two cases below were one case, and it asserted that a purely zonal state has a pressure
+// anomaly of tens of hectopascals. It did, and the number was real -- but it was the mean
+// westerly jet's own meridional gradient, not weather. `pressure_anomaly_hpa` reported the total
+// `rho f0 psi_2` then; measured across a forty-degree window that came to 139 hPa, while a deep
+// cyclone is perhaps 30, so a consumer asking "how deep is the low here" was handed a reading
+// dominated by how far north it stood, and the editor's map would have been a picture of
+// latitude. The reference is now the zonal mean, matching the thermal and humidity anomalies it
+// sits beside. That splits the old claim in two, and both halves are worth pinning separately:
+// the mean state must contribute nothing, and what is left must still be synoptic.
+
+TEST(Unit_QuasiGeostrophicCore, TheMeanJetContributesNothingToThePressureAnomaly)
 {
     QuasiGeostrophicParameters parameters;
-    parameters.seed_perturbation_mps = 0.0;
+    parameters.seed_perturbation_mps = 0.0; // an exactly zonal state: the jet, and nothing else
     QuasiGeostrophicCore core(small_grid(), parameters);
     ASSERT_TRUE(core.valid());
     core.seed(1);
 
+    // Not "small": zero to round-off. A zonally symmetric field has no zonal-mean departure by
+    // construction, so any residual here is the reference leaking the mean state back in -- which
+    // is exactly the defect this replaced, and it would show up as hundreds of hectopascals.
     const QuasiGeostrophicDiagnostics measured = core.diagnostics();
-    // A hemispheric pressure contrast is tens of hectopascals. Both bounds matter: a system
-    // that is too weak reads as no weather, and one that is too strong reads as no weather
-    // either, because everything downstream saturates.
+    EXPECT_NEAR(measured.lowest_pressure_anomaly_hpa, 0.0, 1.0e-9);
+    EXPECT_NEAR(measured.jet_speed_mps, parameters.upper_jet_speed_mps, 1.0);
+}
+
+TEST(Unit_QuasiGeostrophicCore, TheEddyPressureAnomalyIsSynopticAndNotAstronomical)
+{
+    // Measured on a flow that has actually gone unstable, because the eddy field is the subject
+    // and at seed time there is barely one. Same configuration as the cyclogenesis case below
+    // (see its comment for why the jet and the damping are retuned at this resolution).
+    QuasiGeostrophicParameters parameters;
+    parameters.grid_scale_damping_seconds = 8.0 * 3600.0;
+    parameters.upper_jet_speed_mps = 45.0;
+    parameters.lower_jet_speed_mps = 0.0;
+
+    QuasiGeostrophicCore core(small_grid(), parameters);
+    ASSERT_TRUE(core.valid());
+    core.seed(5);
+
+    // `step` rather than `advance`: `advance` is capped at `max_steps_per_advance` steps per
+    // call, so a loop that asks it for a day at a time simulates minutes and reports success.
+    for (int day = 0; day < 8; ++day)
+        for (int i = 0; i < 240; ++i)
+            core.step(360.0);
+
+    // A deep mid-latitude cyclone is a few tens of hectopascals below the surrounding flow.
+    // Both bounds matter: a system that is too weak reads as no weather, and one that is too
+    // strong reads as no weather either, because everything downstream saturates.
+    const QuasiGeostrophicDiagnostics measured = core.diagnostics();
     EXPECT_LT(measured.lowest_pressure_anomaly_hpa, -5.0);
     EXPECT_GT(measured.lowest_pressure_anomaly_hpa, -100.0);
-    EXPECT_NEAR(measured.jet_speed_mps, parameters.upper_jet_speed_mps, 1.0);
 }
 
 TEST(Unit_QuasiGeostrophicCore, FreeAdvectionConservesWhatTheJacobianClaimsTo)
@@ -507,6 +544,108 @@ TEST(Unit_QuasiGeostrophicCore, TheSameSeedProducesTheSameWeather)
     for (int i = 0; i < 60; ++i)
         other.step(360.0);
     EXPECT_NE(first.streamfunction(0), other.streamfunction(0));
+}
+
+TEST(Unit_QuasiGeostrophicCore, ACapturedCoreResumesWhereItLeftOff)
+{
+    // What a scene sidecar has to buy: reopening a saved scene continues the weather rather
+    // than restarting it. The check is not that the restored fields match — single precision
+    // guarantees they will not exactly — but that the two cores *stay* together as they step,
+    // which is the property a divergent restore would fail within a day.
+    QuasiGeostrophicCore original(small_grid(), QuasiGeostrophicParameters());
+    ASSERT_TRUE(original.valid());
+    original.seed(99);
+    for (int i = 0; i < 120; ++i)
+        original.step(360.0);
+
+    const std::vector<std::uint8_t> blob = original.capture();
+    ASSERT_GT(blob.size(), static_cast<std::size_t>(64));
+
+    QuasiGeostrophicCore resumed(small_grid(), QuasiGeostrophicParameters());
+    ASSERT_TRUE(resumed.restore(blob));
+    EXPECT_EQ(resumed.step_count(), original.step_count());
+    EXPECT_NEAR(resumed.simulated_seconds(), original.simulated_seconds(), 1e-9);
+
+    for (int i = 0; i < 120; ++i)
+    {
+        original.step(360.0);
+        resumed.step(360.0);
+    }
+
+    const std::vector<double>& expected = original.streamfunction(0);
+    const std::vector<double>& measured = resumed.streamfunction(0);
+    ASSERT_EQ(expected.size(), measured.size());
+    double worst = 0.0;
+    double scale = 0.0;
+    for (std::size_t k = 0; k < expected.size(); ++k)
+    {
+        worst = std::max(worst, std::fabs(expected[k] - measured[k]));
+        scale = std::max(scale, std::fabs(expected[k]));
+    }
+    EXPECT_LT(worst, 1e-4 * scale);
+}
+
+TEST(Unit_QuasiGeostrophicCore, ARestoreRefusesABlobItCannotHonour)
+{
+    QuasiGeostrophicCore core(small_grid(), QuasiGeostrophicParameters());
+    ASSERT_TRUE(core.valid());
+    core.seed(1);
+    const std::vector<double> before = core.streamfunction(0);
+
+    // A grid that does not match. Resampling one atmosphere onto another grid would be a
+    // silent lie about what was saved; refusing is what lets the caller restart it visibly.
+    QuasiGeostrophicGridSize other;
+    other.longitude_cells = 64;
+    other.latitude_cells = 32;
+    QuasiGeostrophicCore small(other, QuasiGeostrophicParameters());
+    small.seed(1);
+    EXPECT_FALSE(core.restore(small.capture()));
+
+    EXPECT_FALSE(core.restore(std::vector<std::uint8_t>()));
+    EXPECT_FALSE(core.restore(std::vector<std::uint8_t>(200, 0)));
+    // A rejected blob leaves a running atmosphere running.
+    EXPECT_EQ(core.streamfunction(0), before);
+}
+
+TEST(Unit_QuasiGeostrophicCore, TheThermalAnomalyIsAnEddyAndIsAFewKelvin)
+{
+    // What the regional nest is handed as its boundary temperature. It must be a *departure
+    // from the zonal mean* — so a purely zonal state has none at all — and once eddies exist it
+    // must be the few kelvin a frontal zone actually spans, not the tens the pole-to-equator
+    // gradient would give if the mean had been left in.
+    QuasiGeostrophicParameters zonal;
+    zonal.seed_perturbation_mps = 0.0;
+    QuasiGeostrophicCore quiet(small_grid(), zonal);
+    ASSERT_TRUE(quiet.valid());
+    quiet.seed(1);
+    for (int j = 0; j < quiet.size().latitude_cells; ++j)
+        EXPECT_NEAR(quiet.thermal_anomaly_at(GeographicPosition{quiet.latitude_of(j), 1.0}), 0.0,
+                    1e-9);
+
+    QuasiGeostrophicParameters lively;
+    lively.grid_scale_damping_seconds = 8.0 * 3600.0;
+    lively.upper_jet_speed_mps = 45.0;
+    lively.lower_jet_speed_mps = 0.0;
+    QuasiGeostrophicCore core(small_grid(), lively);
+    core.seed(5);
+    for (int day = 0; day < 8; ++day)
+        for (int i = 0; i < 240; ++i)
+            core.step(360.0);
+
+    double strongest = 0.0;
+    double wettest = 0.0;
+    for (int j = 0; j < core.size().latitude_cells; ++j)
+        for (int i = 0; i < core.size().longitude_cells; ++i)
+        {
+            const GeographicPosition position{core.latitude_of(j), core.longitude_of(i)};
+            strongest = std::max(strongest, std::fabs(core.thermal_anomaly_at(position)));
+            wettest = std::max(wettest, std::fabs(core.humidity_anomaly_at(position)));
+        }
+
+    EXPECT_GT(strongest, 1.0);
+    EXPECT_LT(strongest, 25.0);
+    EXPECT_GT(wettest, 0.01);
+    EXPECT_LT(wettest, 1.0);
 }
 
 TEST(Unit_QuasiGeostrophicCore, MoistureTransportInventsNoWater)

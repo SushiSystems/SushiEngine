@@ -619,6 +619,11 @@ namespace SushiEngine
                         return weather_authoring_;
                     }
 
+                    const IWeatherProvider* weather_provider() const noexcept override
+                    {
+                        return weather_provider_.get();
+                    }
+
                     bool has_renderer(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -2914,15 +2919,15 @@ namespace SushiEngine
                             const GeodeticPosition local =
                                 geodetic_at_scene(double(scene_.camera.position.x),
                                                   double(scene_.camera.position.z));
-                            // weather_wind(): the synoptic field plus a local perturbation, near
-                            // the surface; lateral drift only, scaled down below. Only an
-                            // authorable provider carries a synoptic layer to sample -- an
-                            // ingested one has no such field, and its rain simply falls straight.
-                            WindSample wind{};
-                            if (weather_authoring_ != nullptr)
-                                wind = weather_wind(weather_authoring_->synoptic(), local,
-                                                    /*altitude_meters=*/50.0,
-                                                    julian_date_ * 86400.0);
+                            // weather_wind(): the provider's own wind plus a local perturbation,
+                            // near the surface; lateral drift only, scaled down below. Asked
+                            // through the provider seam, so every provider answers -- an ingested
+                            // sky drifts its rain with the wind it was handed, and a static one
+                            // answers zero, which is the truth about a static sky rather than a
+                            // capability it lacks.
+                            const WindSample wind =
+                                weather_wind(*weather_provider_, local, /*altitude_meters=*/50.0,
+                                             julian_date_ * 86400.0);
 
                             Vfx::CompiledEmitter& rain = weather_rain_emitter_;
                             rain = Vfx::CompiledEmitter{};

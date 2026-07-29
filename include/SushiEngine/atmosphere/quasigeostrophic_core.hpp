@@ -139,6 +139,19 @@ namespace SushiEngine
             /** @brief Density the streamfunction is converted to a pressure anomaly with, kg/m^3. */
             double air_density_kg_per_m3 = 1.225;
 
+            /** @brief Gravitational acceleration, m/s^2 — the hypsometric conversion's numerator. */
+            double gravity_mps2 = 9.80665;
+
+            /**
+             * @brief Mean temperature of the layer the two streamfunctions straddle, K.
+             *
+             * Only the thermal anomaly reads it. The difference between the layers *is* a
+             * thickness, and a thickness is a temperature by the hypsometric relation; turning
+             * one into the other needs the temperature that thickness is measured about, and
+             * mid-troposphere is about 250 K.
+             */
+            double reference_temperature_kelvin = 250.0;
+
             /**
              * @brief The constant Coriolis parameter the streamfunction is defined against, 1/s.
              *
@@ -314,7 +327,7 @@ namespace SushiEngine
             double jet_latitude_radians = 0.0;
             /** @brief Fastest wind anywhere in either layer, m/s. */
             double peak_wind_mps = 0.0;
-            /** @brief Deepest surface pressure anomaly anywhere, hPa (negative). */
+            /** @brief Deepest surface pressure anomaly anywhere, hPa about the zonal mean (negative). */
             double lowest_pressure_anomaly_hpa = 0.0;
             /** @brief Area-weighted mean column water, kg/m^2. */
             double mean_precipitable_water_kg_per_m2 = 0.0;
@@ -401,6 +414,37 @@ namespace SushiEngine
                 int advance(double elapsed_seconds);
 
                 /**
+                 * @brief Serializes the prognostic state to a self-describing byte blob.
+                 *
+                 * Everything needed to resume: the two layers' vorticity, the column water, the
+                 * clock, and the generator. Not the parameters — those are authored data and
+                 * live in the scene beside every other authored value.
+                 *
+                 * **The vorticity is stored with the planetary part removed and single
+                 * precision costs nothing for it.** `q` is dominated by `f`, which is a known
+                 * function of latitude and identical in every core; storing `q - f` spends all
+                 * seven of a float's digits on the part that varies, and the restore adds `f`
+                 * back from the same table the step uses. At 512×256 the blob is 1.5 MB, against
+                 * the ten minutes of stepping that reproducing seventy simulated days from a
+                 * seed would take.
+                 *
+                 * @return The blob, or empty if the core is not @ref valid.
+                 */
+                std::vector<std::uint8_t> capture() const;
+
+                /**
+                 * @brief Restores a state previously produced by @ref capture.
+                 *
+                 * Rejects a blob whose grid does not match this core's rather than resampling
+                 * one: a scene saved at one quality tier and reopened at another should restart
+                 * its weather visibly, not silently interpolate a different atmosphere.
+                 *
+                 * @param blob Bytes from @ref capture.
+                 * @return Whether the blob was accepted. On false the core is left untouched.
+                 */
+                bool restore(const std::vector<std::uint8_t>& blob);
+
+                /**
                  * @brief Adds a Gaussian potential-vorticity anomaly to both layers.
                  *
                  * §5's replacement for "place a low here": what is injected is vorticity, which
@@ -427,14 +471,21 @@ namespace SushiEngine
                 Wind wind_at(const GeographicPosition& position, double level_fraction) const;
 
                 /**
-                 * @brief Surface pressure anomaly at a point, hPa about the mean.
+                 * @brief Surface pressure anomaly at a point, hPa about the zonal mean.
                  *
-                 * `p' = rho f0 psi_2`, the geostrophic relation the streamfunction is defined by,
-                 * so this is the same field the wind is and not an independent one that could
-                 * disagree with it.
+                 * `p' = rho f0 (psi_2 - <psi_2>)`, the geostrophic relation the streamfunction is
+                 * defined by, so this is the same field the wind is and not an independent one
+                 * that could disagree with it.
+                 *
+                 * **About the zonal mean, like @ref thermal_anomaly_at and
+                 * @ref humidity_anomaly_at, and for the same reason.** The lower streamfunction
+                 * carries the mean westerly jet, whose own meridional gradient is worth over a
+                 * hundred hectopascals from the tropics to the pole — an order more than any
+                 * cyclone. Reported against a global mean, this query would answer "how far north
+                 * are you" and a low would be an invisible ripple on it.
                  *
                  * @param position Query point.
-                 * @return Departure from the mean surface pressure, hectopascals.
+                 * @return Departure from the zonal-mean surface pressure, hectopascals.
                  */
                 double pressure_anomaly_hpa(const GeographicPosition& position) const;
 
@@ -444,6 +495,58 @@ namespace SushiEngine
                  * @return The column's water content.
                  */
                 double precipitable_water_at(const GeographicPosition& position) const;
+
+                /**
+                 * @brief Mid-tropospheric temperature anomaly at a point, K.
+                 *
+                 * **The departure from the zonal mean, not from a standard atmosphere.** A
+                 * limited-area nest already carries the mean state in its own base profile; what
+                 * it cannot generate, and therefore what its parent has to supply, is the
+                 * synoptic eddy — the warm sector and the cold air behind the front. Handing it
+                 * the absolute meridional gradient instead would tell a nest at 60° that it is
+                 * twenty kelvin colder than its own base state, permanently.
+                 *
+                 * The difference between the two streamfunctions is a layer thickness, and a
+                 * thickness is a temperature by the hypsometric relation. That is the whole
+                 * conversion; there is no separate temperature field to disagree with.
+                 *
+                 * @param position Query point.
+                 * @return Departure from the zonal mean temperature, kelvin.
+                 */
+                double thermal_anomaly_at(const GeographicPosition& position) const;
+
+                /**
+                 * @brief Column humidity anomaly at a point, as a fraction of saturation.
+                 *
+                 * The moisture counterpart of @ref thermal_anomaly_at and departing from the
+                 * same reference for the same reason. Expressed against the column's saturation
+                 * rather than in kilograms so that a warm moist tropical anomaly and a cold moist
+                 * polar one read as comparable numbers, which is what the nest's relative
+                 * humidity wants.
+                 *
+                 * @param position Query point.
+                 * @return Departure from the zonal mean, in units of column saturation.
+                 */
+                double humidity_anomaly_at(const GeographicPosition& position) const;
+
+                /**
+                 * @brief Strength of the thermal gradient at a point, K per 100 km.
+                 *
+                 * **What replaces asking where the fronts were drawn.** The analytic layer
+                 * carried a fixed-angle ray pair from each low's centre and reported proximity
+                 * to it; a dynamical core has no such object, because a front is not a thing it
+                 * places — it is a place where the temperature gradient has been concentrated by
+                 * the flow. So this measures the gradient rather than looking anything up, and a
+                 * consumer that wants "is there a front here" thresholds it.
+                 *
+                 * The scale is physical and discriminates on its own: the background baroclinic
+                 * zone runs a few tenths of a kelvin per hundred kilometres, and a genuine
+                 * frontal zone runs five or more.
+                 *
+                 * @param position Query point.
+                 * @return Magnitude of the horizontal temperature gradient, K/100 km.
+                 */
+                double frontal_strength_at(const GeographicPosition& position) const;
 
                 /**
                  * @brief Mid-level vertical velocity at a point, m/s. Positive is ascent.
