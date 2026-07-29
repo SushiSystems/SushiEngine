@@ -57,6 +57,9 @@ add_executable(se_functional_tests
     # Resolving one: non-penetration, static friction positionally, and the
     # velocity pass that finally makes restitution expressible (P1, §7.4).
     functional/unit/test_contact_projection.cpp
+    # The XPBD distance constraint, measured against a conservation law rather than
+    # against a transcription of itself — which is what let a frame error survive.
+    functional/unit/test_distance_projection.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp

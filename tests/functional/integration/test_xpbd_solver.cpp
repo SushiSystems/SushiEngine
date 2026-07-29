@@ -56,7 +56,24 @@ namespace
     constexpr Scalar        GY         = Scalar(-9.8);
     constexpr Scalar        DT         = Scalar(0.016);
 
-    // Byte-for-byte host mirror of XpbdDistanceProjection::operator().
+    // `I_world^-1 v`, written out longhand: rotate into the body frame, scale by the
+    // stored diagonal, rotate back. The rotation *back* is the step this mirror once
+    // dropped, faithfully, because the implementation dropped it — which is the limit
+    // of what a transcription can check. Whether the formula is right is measured
+    // against a conservation law in unit/test_distance_projection.cpp; what this
+    // mirror checks is only that the device computes what the host does.
+    Vector3 mirror_world_inverse_inertia(const RigidBody& body, const Vector3& world_vector)
+    {
+        const Vector3 local = rotate(conjugate(body.orientation), world_vector);
+        const Vector3 scaled{local.x * body.inv_inertia.x, local.y * body.inv_inertia.y,
+                             local.z * body.inv_inertia.z};
+        return rotate(body.orientation, scaled);
+    }
+
+    // Byte-for-byte host mirror of XpbdDistanceProjection::operator(). The order of
+    // operations matters as much as the formula: it has to be the *same* sequence of
+    // roundings, or the comparison is a tolerance test wearing a byte-equality
+    // costume.
     void project_host(const XpbdDistanceConstraint& c, std::vector<RigidBody>& bodies,
                       Scalar& lambda, Scalar h)
     {
@@ -74,16 +91,19 @@ namespace
         const Vector3 n = d * (Scalar(1) / len);
         const Scalar error = len - c.rest_length;
 
-        const Vector3 rxn_a = rotate(conjugate(body_a.orientation), cross(anchor_a, n));
-        const Vector3 rxn_b = rotate(conjugate(body_b.orientation), cross(anchor_b, n));
-
-        const Vector3 iixn_a{body_a.inv_inertia.x * rxn_a.x, body_a.inv_inertia.y * rxn_a.y,
-                          body_a.inv_inertia.z * rxn_a.z};
-        const Vector3 iixn_b{body_b.inv_inertia.x * rxn_b.x, body_b.inv_inertia.y * rxn_b.y,
-                          body_b.inv_inertia.z * rxn_b.z};
-
-        const Scalar w = body_a.inv_mass + body_b.inv_mass + dot(rxn_a, iixn_a) +
-                         dot(rxn_b, iixn_b);
+        // Generalized inverse mass: the linear share plus the angular share the
+        // lever arm exposes, `inv_mass + (r x n) . I^-1 (r x n)`, in world space.
+        const Vector3 torque_axis_a = cross(anchor_a, n);
+        const Vector3 torque_axis_b = cross(anchor_b, n);
+        // Summed per body and then added, not accumulated left to right: the two
+        // groupings differ in the last bits, and this comparison is measured in bits.
+        const Scalar w_a =
+            body_a.inv_mass +
+            dot(torque_axis_a, mirror_world_inverse_inertia(body_a, torque_axis_a));
+        const Scalar w_b =
+            body_b.inv_mass +
+            dot(torque_axis_b, mirror_world_inverse_inertia(body_b, torque_axis_b));
+        const Scalar w = w_a + w_b;
         if (w <= Scalar(0))
             return;
 
@@ -92,13 +112,18 @@ namespace
         lambda += delta_lambda;
 
         const Vector3 impulse = n * delta_lambda;
-        body_a.position = body_a.position - impulse * body_a.inv_mass;
-        body_b.position = body_b.position + impulse * body_b.inv_mass;
 
-        body_a.orientation =
-            apply_angular_correction(body_a.orientation, iixn_a * (-delta_lambda));
-        body_b.orientation =
-            apply_angular_correction(body_b.orientation, iixn_b * delta_lambda);
+        body_a.position = body_a.position + impulse * (Scalar(-1) * body_a.inv_mass);
+        const Vector3 rotation_a =
+            mirror_world_inverse_inertia(body_a, cross(anchor_a, impulse * Scalar(-1)));
+        if (dot(rotation_a, rotation_a) > Scalar(0))
+            body_a.orientation = apply_angular_correction(body_a.orientation, rotation_a);
+
+        body_b.position = body_b.position + impulse * (Scalar(1) * body_b.inv_mass);
+        const Vector3 rotation_b =
+            mirror_world_inverse_inertia(body_b, cross(anchor_b, impulse * Scalar(1)));
+        if (dot(rotation_b, rotation_b) > Scalar(0))
+            body_b.orientation = apply_angular_correction(body_b.orientation, rotation_b);
     }
 }
 

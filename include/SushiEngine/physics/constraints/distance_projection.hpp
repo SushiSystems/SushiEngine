@@ -60,6 +60,20 @@ namespace SushiEngine
          * independent of iteration count and step size. `compliance == 0` recovers
          * an infinitely stiff (hard) constraint — the rigid-body generalization of
          * `DistanceProjection`. A captureless functor, so it is device-copyable.
+         *
+         * The generalized inverse mass and both impulses go through
+         * `core/rigid_body.hpp`'s shared helpers rather than being spelled out here.
+         * That is not tidying: this projection used to carry its own copy, and the
+         * copy applied its angular correction as a **body-local** vector while
+         * `apply_angular_correction` left-multiplies and therefore expects a
+         * world-frame one. The correct delta is `R (I_local^-1 R^T (r x p))`; the
+         * missing rotation back left every rotated body turning about the wrong
+         * axis, so a distance constraint on a tumbling body did not conserve angular
+         * momentum. It was invisible to cloth and particles, whose inverse inertia is
+         * zero, and invisible to the conformance suite, because both implementations
+         * shared the one wrong formula. One formulation, used everywhere, cannot
+         * disagree with itself — which is the same argument §1.3 made for unifying
+         * the plane and pair contact paths.
          */
         template <typename T>
         struct XpbdDistanceProjectionT
@@ -89,24 +103,8 @@ namespace SushiEngine
                 const Vector3T<T> n = d * (T(1) / len);
                 const T error = len - c.rest_length;
 
-                // r x n, expressed in each body's own local frame (see rotate()'s
-                // doc comment: R(a x b) = (Ra) x (Rb), so rotating the world cross
-                // product back by the body's own orientation gives the same result
-                // as crossing the local anchor with the locally-expressed normal).
-                const Vector3T<T> rxn_a =
-                    rotate(conjugate(body_a.orientation), cross(anchor_a, n));
-                const Vector3T<T> rxn_b =
-                    rotate(conjugate(body_b.orientation), cross(anchor_b, n));
-
-                const Vector3T<T> iixn_a{body_a.inv_inertia.x * rxn_a.x,
-                                  body_a.inv_inertia.y * rxn_a.y,
-                                  body_a.inv_inertia.z * rxn_a.z};
-                const Vector3T<T> iixn_b{body_b.inv_inertia.x * rxn_b.x,
-                                  body_b.inv_inertia.y * rxn_b.y,
-                                  body_b.inv_inertia.z * rxn_b.z};
-
-                const T w = body_a.inv_mass + body_b.inv_mass +
-                                 dot(rxn_a, iixn_a) + dot(rxn_b, iixn_b);
+                const T w = generalized_inverse_mass(body_a, anchor_a, n) +
+                            generalized_inverse_mass(body_b, anchor_b, n);
                 if (w <= T(0))
                     return;
 
@@ -115,13 +113,8 @@ namespace SushiEngine
                 lambda += delta_lambda;
 
                 const Vector3T<T> impulse = n * delta_lambda;
-                body_a.position = body_a.position - impulse * body_a.inv_mass;
-                body_b.position = body_b.position + impulse * body_b.inv_mass;
-
-                body_a.orientation = apply_angular_correction(
-                    body_a.orientation, iixn_a * (-delta_lambda));
-                body_b.orientation = apply_angular_correction(
-                    body_b.orientation, iixn_b * delta_lambda);
+                apply_positional_impulse(body_a, impulse, anchor_a, T(-1));
+                apply_positional_impulse(body_b, impulse, anchor_b, T(1));
             }
         };
 
