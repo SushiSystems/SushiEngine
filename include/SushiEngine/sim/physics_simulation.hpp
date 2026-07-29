@@ -49,8 +49,10 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
+#include <SushiEngine/physics/collision/bvh_broadphase.hpp>
 #include <SushiEngine/physics/collision/narrowphase.hpp>
 #include <SushiEngine/physics/collision/contact_solver.hpp>
+#include <SushiEngine/physics/collision/scene_query.hpp>
 #include <SushiEngine/physics/scene/physics_world.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
@@ -97,6 +99,8 @@ namespace SushiEngine
                     rigid_radii_.clear();
                     rigid_is_box_.clear();
                     rigid_half_extents_.clear();
+                    rigid_entities_.clear();
+                    query_dirty_ = true;
                     if (bodies.empty())
                         return;
 
@@ -125,6 +129,9 @@ namespace SushiEngine
                         rigid_radii_.push_back(T(desc.radius));
                         rigid_is_box_.push_back(desc.box);
                         rigid_half_extents_.push_back(to_vector(desc.half_extents));
+                        // Parallel to the body buffer as well, so a query can report
+                        // the entity it hit rather than an index into the solver.
+                        rigid_entities_.push_back(desc.id);
                         body_ids_.emplace(desc.id, world->add_body(body));
                     }
                     world->finalize(iterations, T(substep_dt), Projection{});
@@ -177,6 +184,7 @@ namespace SushiEngine
                     body.prev_orientation = body.orientation;
                     body.velocity = Vector3T<T>{T(0), T(0), T(0)};
                     body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
+                    query_dirty_ = true;
                 }
 
                 void set_cloth_grids(const std::vector<ClothDesc>& grids,
@@ -249,6 +257,7 @@ namespace SushiEngine
                 {
                     planes_.clear();
                     planes_.reserve(planes.size());
+                    query_dirty_ = true;
                     for (const PlaneDesc& desc : planes)
                     {
                         const Vector3T<T> normal = normalize(to_vector(desc.normal));
@@ -299,12 +308,101 @@ namespace SushiEngine
                     }
 
                     refresh_statistics(substeps);
+                    // Everything moved; the next query rebuilds before it answers.
+                    query_dirty_ = true;
                 }
 
                 /** @copydoc IPhysicsStepper::statistics */
                 const Physics::PhysicsStatistics& statistics() const noexcept override
                 {
                     return statistics_;
+                }
+
+                // -- ICollisionQueryService (§7.7) ---------------------------------
+                //
+                // Queries run against their own hierarchy rather than against the
+                // contact pass's pair list, and that is deliberate: a query asks
+                // about geometry that is not moving toward anything, so it has no
+                // use for swept bounds, and the contact pass's candidate pairs are
+                // a different question with a different answer. The index is
+                // rebuilt when the world has moved and reused when it has not, so a
+                // system firing twenty rays in one frame pays for one build.
+
+                SceneRayHit raycast_closest(const Vector3& origin, const Vector3& direction,
+                                            Scalar max_distance,
+                                            const SceneQueryFilter& filter) const override
+                {
+                    refresh_query_index();
+                    const Physics::RayHit<T> hit = Physics::raycast_closest<T>(
+                        query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
+                        to_vector(origin), normalize(to_vector(direction)), T(max_distance),
+                        to_query_filter(filter));
+                    return from_hit(hit);
+                }
+
+                std::vector<SceneRayHit> raycast_all(
+                    const Vector3& origin, const Vector3& direction, Scalar max_distance,
+                    const SceneQueryFilter& filter) const override
+                {
+                    refresh_query_index();
+                    const std::vector<Physics::RayHit<T>> hits = Physics::raycast_all<T>(
+                        query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
+                        to_vector(origin), normalize(to_vector(direction)), T(max_distance),
+                        to_query_filter(filter));
+                    std::vector<SceneRayHit> converted;
+                    converted.reserve(hits.size());
+                    for (const Physics::RayHit<T>& hit : hits)
+                        converted.push_back(from_hit(hit));
+                    return converted;
+                }
+
+                std::vector<EntityId> overlap_sphere(
+                    const Vector3& center, Scalar radius,
+                    const SceneQueryFilter& filter) const override
+                {
+                    refresh_query_index();
+                    const std::vector<Physics::ProxyId> found = Physics::overlap_shape<T>(
+                        query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
+                        Physics::make_sphere_shape<T>(to_vector(center), T(radius)),
+                        to_query_filter(filter));
+                    std::vector<EntityId> entities;
+                    entities.reserve(found.size());
+                    for (const Physics::ProxyId id : found)
+                        entities.push_back(query_entities_[query_index_.proxy(id).payload]);
+                    return entities;
+                }
+
+                SceneRayHit sweep_sphere(const Vector3& center, Scalar radius,
+                                         const Vector3& direction, Scalar distance,
+                                         const SceneQueryFilter& filter) const override
+                {
+                    refresh_query_index();
+                    const Physics::RayHit<T> hit = Physics::sweep_shape<T>(
+                        query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
+                        Physics::make_sphere_shape<T>(to_vector(center), T(radius)),
+                        normalize(to_vector(direction)), T(distance), to_query_filter(filter));
+                    return from_hit(hit);
+                }
+
+                SceneRayHit closest_point(const Vector3& point, Scalar max_distance,
+                                          const SceneQueryFilter& filter) const override
+                {
+                    refresh_query_index();
+                    // A point is a sphere of no radius, which is why there is no
+                    // separate point path anywhere in the geometry below this.
+                    const Physics::ClosestResult<T> result = Physics::closest_point<T>(
+                        query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
+                        Physics::make_sphere_shape<T>(to_vector(point), T(0)), T(max_distance),
+                        to_query_filter(filter));
+                    SceneRayHit hit;
+                    if (!result.found)
+                        return hit;
+                    hit.hit = true;
+                    hit.entity = query_entities_[result.payload];
+                    hit.point = from_vector(result.point_on_shape);
+                    hit.normal = from_vector(result.normal * T(-1));
+                    hit.distance = Scalar(result.distance);
+                    return hit;
                 }
 
             private:
@@ -334,6 +432,100 @@ namespace SushiEngine
                 /** @brief Contact sweeps per sub-step, enough to settle modest stacks. */
                 static constexpr std::size_t CONTACT_ITERATIONS = 2;
 
+                /** @brief The shape a query proxy stands for. */
+                Physics::CollisionShape<T> query_shape(Physics::ProxyId id) const
+                {
+                    return query_shapes_[query_index_.proxy(id).payload];
+                }
+
+                /** @brief The boundary filter, in the collision layer's own vocabulary. */
+                Physics::QueryFilter<T> to_query_filter(const SceneQueryFilter& filter) const
+                {
+                    Physics::QueryFilter<T> converted;
+                    converted.layer_mask = filter.layer_mask;
+                    if (!filter.include_triggers)
+                        converted.reject_flags = Physics::BodyFlags::trigger;
+                    if (filter.exclude != NULL_ENTITY)
+                    {
+                        const EntityId excluded = filter.exclude;
+                        const std::vector<EntityId>* entities = &query_entities_;
+                        converted.predicate = [excluded, entities](Physics::ProxyId,
+                                                                   std::uint32_t payload)
+                        { return (*entities)[payload] != excluded; };
+                    }
+                    return converted;
+                }
+
+                /** @brief A physics-layer hit, at the boundary precision. */
+                SceneRayHit from_hit(const Physics::RayHit<T>& hit) const
+                {
+                    SceneRayHit converted;
+                    if (!hit.hit)
+                        return converted;
+                    converted.hit = true;
+                    converted.entity = query_entities_[hit.payload];
+                    converted.point = from_vector(hit.point);
+                    converted.normal = from_vector(hit.normal);
+                    converted.distance = Scalar(hit.distance);
+                    return converted;
+                }
+
+                /**
+                 * @brief Rebuilds the query hierarchy if the world has moved since the last one.
+                 *
+                 * A full rebuild rather than a persistent tree, and that is the
+                 * honest state of it: the bodies here are re-seated wholesale on
+                 * every `set_rigid_bodies`, so a persistent index would spend its
+                 * life being invalidated. It becomes persistent when the contact
+                 * pass moves into the solve graph and the world stops being rebuilt
+                 * around it (§13.2's "persistent everything").
+                 */
+                void refresh_query_index() const
+                {
+                    if (!query_dirty_)
+                        return;
+                    query_dirty_ = false;
+                    query_index_ = Physics::BvhBroadphase<T>{};
+                    query_shapes_.clear();
+                    query_entities_.clear();
+
+                    if (rigid_)
+                    {
+                        const std::size_t count = rigid_->body_count();
+                        for (std::size_t i = 0; i < count && i < rigid_radii_.size(); ++i)
+                        {
+                            const Body& body = rigid_->body(static_cast<Physics::BodyId>(i));
+                            const Physics::CollisionShape<T> shape =
+                                rigid_is_box_[i]
+                                    ? Physics::make_box_shape<T>(body.position,
+                                                                 rigid_half_extents_[i],
+                                                                 body.orientation)
+                                    : Physics::make_sphere_shape<T>(body.position,
+                                                                    rigid_radii_[i]);
+                            add_query_proxy(shape, i < rigid_entities_.size()
+                                                       ? rigid_entities_[i]
+                                                       : NULL_ENTITY,
+                                            body.inv_mass > T(0) ? 0u
+                                                                 : Physics::BodyFlags::static_body);
+                        }
+                    }
+                    for (const Physics::PlaneCollider<T>& plane : planes_)
+                        add_query_proxy(Physics::make_plane_shape<T>(plane.normal, plane.offset),
+                                        NULL_ENTITY, Physics::BodyFlags::static_body);
+                }
+
+                /** @brief Records one shape and gives the hierarchy a proxy for it. */
+                void add_query_proxy(const Physics::CollisionShape<T>& shape, EntityId entity,
+                                     std::uint32_t flags) const
+                {
+                    const std::uint32_t payload =
+                        static_cast<std::uint32_t>(query_shapes_.size());
+                    query_shapes_.push_back(shape);
+                    query_entities_.push_back(entity);
+                    query_index_.create_proxy(Physics::shape_world_bounds(shape),
+                                              Physics::CollisionFilter{}, flags, payload);
+                }
+
                 /**
                  * @brief Rebuilds the unified body view (rigid + cloth) for this sub-step.
                  *
@@ -359,7 +551,7 @@ namespace SushiEngine
                             entry.is_box = rigid_is_box_[i];
                             entry.half_extents = rigid_half_extents_[i];
                             entry.radius = rigid_radii_[i];
-                            entry.is_cloth = false;
+                            entry.filter.layer = Physics::CollisionLayers::default_layer;
                             contact_bodies_.push_back(entry);
                             // Recorded alongside the view because the broadphase runs
                             // once per tick now and has to know how far each entry can
@@ -377,7 +569,10 @@ namespace SushiEngine
                             entry.position = &body.position;
                             entry.inv_mass = body.inv_mass;
                             entry.radius = cloth_radii_[i];
-                            entry.is_cloth = true;
+                            // Cloth has no self-collision yet, and that is now said
+                            // by its filter rather than by a flag the solver reads.
+                            entry.filter = Physics::self_excluding_filter(
+                                Physics::CollisionLayers::cloth);
                             contact_bodies_.push_back(entry);
                             contact_speeds_.push_back(length(body.velocity));
                         }
@@ -492,6 +687,16 @@ namespace SushiEngine
                 std::vector<Physics::Aabb<T>> aabbs_;
                 std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs_;
                 Physics::PhysicsStatistics statistics_{};
+                // The query side. `mutable` because a query is a const operation on
+                // the world that may still have to notice the world moved — the
+                // alternative is a non-const raycast, which would make every
+                // gameplay system that reads the scene hold a mutable reference to
+                // it.
+                std::vector<EntityId> rigid_entities_;
+                mutable Physics::BvhBroadphase<T> query_index_;
+                mutable std::vector<Physics::CollisionShape<T>> query_shapes_;
+                mutable std::vector<EntityId> query_entities_;
+                mutable bool query_dirty_ = true;
         };
 
         /**

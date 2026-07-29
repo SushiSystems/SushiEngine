@@ -77,6 +77,17 @@ namespace SushiEngine
             Vector3 world_position;
             Quaternion world_orientation;
 
+            /**
+             * @brief The entity's own scale, and its scale after the hierarchy.
+             *
+             * Here for the same reason the two transforms are: a rigid body seeds
+             * from its own transform and a static plane is placed by its world one,
+             * and scale follows whichever of those the shape follows. Until now the
+             * physics was never handed either, which is §1.2 item 5.
+             */
+            Vector3 local_scale{Vector3{1, 1, 1}};
+            Vector3 world_scale{Vector3{1, 1, 1}};
+
             bool has_physics_body = false;
             PhysicsBodyParams physics_params;
 
@@ -88,42 +99,44 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The collider an entity collides as, at its scale.
+         *
+         * Its collider if it has one, else its visual shape, else a unit sphere —
+         * the same precedence as before, now producing a `Collider` rather than a
+         * bare radius, and now with the entity's scale applied. That last clause is
+         * the whole of §1.2 item 5: doubling a crate in the editor used to double
+         * the drawing and leave the physics colliding as the authored half-extents.
+         *
+         * @param entity The entity to resolve.
+         * @return Its scaled collider.
+         */
+        inline Collider resolve_collider(const PhysicsSourceEntity& entity) noexcept
+        {
+            Collider collider;
+            if (entity.has_collider)
+                collider = collider_from_params(entity.collider_params);
+            else if (entity.has_shape)
+                collider = collider_from_params(
+                    ColliderParams{entity.shape_params.kind, entity.shape_params.params});
+            else
+                collider.shape = ColliderShape::Sphere;
+            return scaled_collider(collider, entity.local_scale);
+        }
+
+        /**
          * @brief The radius a body collides as, when it collides as a sphere.
          *
-         * Taken from the entity's collider if it has one, else its visual shape, else
-         * a unit default. A box or cylinder reports its *smallest* half-extent, so it
-         * rests on the ground at about the right height instead of hovering by its
-         * bounding radius — a deliberate under-approximation, and the reason a
-         * cylinder currently behaves like a small sphere rather than a cylinder.
+         * Kept as a named function because the contact path still has a sphere
+         * fallback and because the awkward cases were worth having a test each; it
+         * is now @ref resolve_collider followed by a measurement, so it can no
+         * longer disagree with the shape the body actually collides as.
          *
          * @param entity The entity to measure.
          * @return Its collision radius.
          */
         inline Scalar collision_radius(const PhysicsSourceEntity& entity) noexcept
         {
-            const auto radius_of = [](PrimitiveKind kind, const Vector3& p) -> Scalar
-            {
-                switch (kind)
-                {
-                    case PrimitiveKind::Sphere:
-                        return p.x;
-                    case PrimitiveKind::Cylinder:
-                        return p.x;
-                    case PrimitiveKind::Box:
-                    {
-                        const Scalar xy = p.x < p.y ? p.x : p.y;
-                        return xy < p.z ? xy : p.z;
-                    }
-                    case PrimitiveKind::Plane:
-                        return Scalar(0.25);
-                }
-                return Scalar(0.5);
-            };
-            if (entity.has_collider)
-                return radius_of(entity.collider_params.kind, entity.collider_params.params);
-            if (entity.has_shape)
-                return radius_of(entity.shape_params.kind, entity.shape_params.params);
-            return Scalar(0.5);
+            return collider_sphere_radius(resolve_collider(entity));
         }
 
         /**
@@ -135,8 +148,16 @@ namespace SushiEngine
          *
          * A box collider (or, absent a collider, a box visual) collides as an
          * oriented box; anything else falls back to a sphere of @ref collision_radius.
-         * That fallback is why a cylinder collider silently simulates as a sphere,
-         * and it stays visible here rather than buried in a world rebuild.
+         * Both are now read off the *scaled* collider, so the three shape fields and
+         * the collider cannot describe different objects.
+         *
+         * **Mass.** When the body authors a positive density, its inverse mass and
+         * inverse inertia are derived from the scaled shape and that density, and
+         * the hand-authored numbers are ignored. When it does not — the default —
+         * the authored numbers are used exactly as before. A silent switch would be
+         * worse than either: an author who typed an inverse mass and got a
+         * different one has no way to tell what happened, so opting in is a field
+         * they set. This is P0 carry-over 2.
          *
          * @param entities The scene's entities, in the order bodies should be added.
          * @return One descriptor per rigid-body entity, in that same order.
@@ -157,16 +178,18 @@ namespace SushiEngine
                 desc.inv_mass = entity.physics_params.inv_mass;
                 desc.inv_inertia = entity.physics_params.inv_inertia;
                 desc.drag_coefficient = entity.physics_params.drag_coefficient;
-                desc.radius = collision_radius(entity);
-                if (entity.has_collider)
+
+                desc.collider = resolve_collider(entity);
+                desc.radius = collider_sphere_radius(desc.collider);
+                desc.box = desc.collider.shape == ColliderShape::Box;
+                desc.half_extents = desc.collider.half_extents;
+
+                const Physics::MassProperties<Scalar> mass =
+                    collider_mass_properties(desc.collider, entity.physics_params.density);
+                if (mass.mass > Scalar(0))
                 {
-                    desc.box = entity.collider_params.kind == PrimitiveKind::Box;
-                    desc.half_extents = entity.collider_params.params;
-                }
-                else if (entity.has_shape)
-                {
-                    desc.box = entity.shape_params.kind == PrimitiveKind::Box;
-                    desc.half_extents = entity.shape_params.params;
+                    desc.inv_mass = Physics::inverse_mass(mass.mass);
+                    desc.inv_inertia = Physics::to_inverse(mass.inertia);
                 }
                 descs.push_back(desc);
             }

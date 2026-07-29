@@ -104,25 +104,9 @@ namespace SushiEngine
             {
                 const CollisionShape<T> placed =
                     place_compound_part(parts[i], body_center, body_orientation);
-                Aabb<T> part_bounds{placed.center, placed.center};
-                switch (placed.type)
-                {
-                    case ShapeType::sphere:
-                        part_bounds = world_bounds(ShapeTraits<T, SphereCollider<T>>::from(placed));
-                        break;
-                    case ShapeType::oriented_box:
-                        part_bounds = world_bounds(ShapeTraits<T, OrientedBox<T>>::from(placed));
-                        break;
-                    case ShapeType::capsule:
-                        part_bounds =
-                            world_bounds(ShapeTraits<T, CapsuleCollider<T>>::from(placed));
-                        break;
-                    case ShapeType::convex_hull:
-                        part_bounds = world_bounds(ShapeTraits<T, ConvexHullView<T>>::from(placed));
-                        break;
-                    default:
-                        continue; // a half-space has no bounds worth taking a union with
-                }
+                if (placed.type == ShapeType::plane)
+                    continue; // a half-space has no bounds worth taking a union with
+                const Aabb<T> part_bounds = shape_world_bounds(placed);
                 bounds = i == 0 ? part_bounds : aabb_union(bounds, part_bounds);
             }
             return bounds;

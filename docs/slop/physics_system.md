@@ -1584,8 +1584,8 @@ progress is recorded.
 | Phase | Deliverable | Acceptance | Status |
 |---|---|---|---|
 | **P0** | **Foundations.** Neutral `geometry/` module + the distance-baker move (§3.4). `physics/` restructured into §3.1's modules. `IPhysicsSimulation` split per §4.3. **`RuntimeGraphBuilder`: the single adapter naming `SushiRuntime::`, the solver migrated to the `Dynamic` `add()` form, the substep loop unrolled into one composition, predict/derive moved off the host, device residency for the hot columns (with the four-byte count slots left `Shared`), the rebalancer switched off, and the accumulation paths wired to the runtime's segmented fixed-order reduce rather than a hand-built one (§6.6, §12.2, §18).** Mutable world with generational handles, fixed-capacity buffers, and incremental recolouring (§6.4). `PhysicsMaterial`, body flags, `center_of_mass_local`. Deterministic contact ordering. `PhysicsStatistics` + profiler wiring (§13.3). Substepping schedule (§6.1, §6.2). The §1.3 correctness fixes. | Existing tests stay green; a body can be added and removed mid-simulation without a rebuild; **one `run()` per tick and a `compose_count()` that stops climbing**; statistics appear in the editor. | **Complete** — see §16.1 |
-| **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | Not started |
-| **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | Not started |
+| **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Partly done** — the manifold, warm-starting and friction machinery is built and tested; wiring it into the live `sim/` tick is open. See §16.4 |
+| **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4 |
 | **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | Not started |
 | **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | Not started |
 | **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | Not started |
@@ -1712,6 +1712,98 @@ assembly scenario as early as it can be landed (confirmed in §17.3), since it d
 solver, not on cooking. P4 must precede P5 and P6 because both consume cooked distance fields and
 tetrahedral meshes. P7 composes P3, P5, and P6, and cannot come earlier. P8 optimizes a correct system
 rather than a moving one, which is the only order that works.
+
+### 16.4 P2, and where it leaves P1
+
+**P2 closed on 2026-07-29.** Its acceptance is met for everything P2 owns, with one scope
+statement made explicitly below rather than buried. 192 tests cover the physics modules and
+pass; every header is clean under `-fsycl -Wall -Wextra -Werror -pedantic`.
+
+**What exists and is tested.**
+
+- **Shapes.** Capsule, cooked convex hull, triangle mesh with a hierarchy and the
+  internal-edge correction, height field, compound. One GJK/EPA routine collides every
+  convex pairing; an ordered-`ShapeType`-pair table of function pointers dispatches, filled
+  by folding a type list rather than written out.
+- **Scale.** `sim/collider.hpp` holds §5.5's `Collider` record: the extract resolves a
+  collider from the authoring component, applies the entity's scale, and derives mass and
+  inertia from the *scaled* shape and a density. That is **P0 carry-over 2, closed** — and
+  the reason it waited is the word "scaled": deriving mass from the authored shape would
+  have given a doubled crate the mass of a single one, which is worse than a hand-typed
+  number because it looks derived. A density of zero, the default, keeps the authored mass
+  exactly, so nothing changes under an author who did not ask for it. `ColliderParams`
+  remains the authoring surface until the cooked `CollisionAsset` it should be able to name
+  exists (P4); `Collider` already carries the asset identifier.
+- **Broadphase.** `IBroadphase` with two implementations — the sweep, kept as the reference
+  and small-scene path, and a two-tree bounding-volume hierarchy — held by a shared
+  conformance suite to the *same sorted pair set* through motion, removal and identifier
+  reuse. Fat bounds with hysteresis, refit-and-rebalance on the insertion path, swept bounds
+  for continuous bodies, a separate static tree, and an `added`/`persisted`/`removed` pair
+  cache, which is what lets a manifold and its warm-start impulses survive a tick.
+  One decision worth recording: everything that decides *which boxes are tested* — the
+  enlargement, the hysteresis, the filter rules — lives in the shared base, and only *how
+  the overlaps are found* belongs to an implementation. Left to the implementations, the
+  hierarchy's remembered box and the sweep's freshly computed one would differ by a tick of
+  motion and the suite would be asserting something neither should have to promise.
+- **Filters and layers.** Honoured by the broadphase and the contact pass, and
+  **`ContactBody::is_cloth` is deleted** (P0 carry-over 3): cloth is a body on the cloth
+  layer whose mask excludes that layer, which is one line of initialization instead of a
+  branch every routine touching the type had to know about.
+- **Queries.** `ICollisionQueryService` joins the §4.3 split and `PhysicsSimulation`
+  implements it. Closed-form rays for sphere, plane, oriented box and triangle; one
+  conservative-advancement routine for everything else, which needs only a support function
+  and so covers the capsule, the cooked hull and every convex shape not yet written. Sweeps,
+  overlaps and closest points on the same tree. Hits are ordered by distance with ties broken
+  by proxy, never by traversal order — a tree's traversal order is a function of its
+  insertion history, and a gameplay system reading `hits[0]` must not be reading a history.
+- **Islands and sleeping.** `physics/scene/islands.hpp`. Static bodies conduct nothing, so a
+  warehouse is not one island. An island's key is the lowest body index in it and islands are
+  numbered in ascending key order, because §6.6 derives cross-region edges in that order. A
+  revision counter advances on genuine sleep/wake transitions and on nothing else. Sleeping
+  is now enforced in one place — `generalized_inverse_mass` reports zero for a body that is
+  not simulated, and the impulse appliers return early — so "asleep" means the same thing to
+  the distance constraint, the contact solve and every joint P3 adds.
+
+**The measured numbers**, on this machine, at `-O2`, for everything P2 owns — proxy updates,
+the hierarchy's repair, the pair search and its cache, the narrowphase over every produced
+pair, and the island partition:
+
+| Scene | Measured | §13.1 target |
+|---|---|---|
+| 1 000 mixed-shape bodies, 25 stacks of 40, 975 contacts | **1.37 ms/tick** | ≤ 2 ms (whole tick) |
+| 10 000 settled bodies, 10 000 sleeping islands | **0.27 ms/tick** | ≤ 0.5 ms |
+
+**What that does and does not measure.** It does not include the constraint solve, which is
+on the device behind SushiRuntime; these are the collision and island halves of the tick.
+Stated plainly because a number whose scope is vague is a number nobody can act on.
+
+Two things the measurement changed, and both are worth keeping. The 10 000-body scene first
+came out at **6.7 ms**, thirteen times over target, for two reasons that only a measurement
+finds. The island decision was never reaching the broadphase, so the hierarchy kept
+descending from ten thousand leaves whose bodies had been asleep for a minute — sleeping
+that nothing is told about saves nothing. And the partition sorted its bodies every tick;
+since an island's key *is* its lowest body index, walking bodies in ascending order meets
+each island's key exactly when it first appears, so the partition is two linear passes and
+no comparison sort at all.
+
+**What P2 did not do.** One item, deliberately: **one `DynamicGraph` region per island is
+not wired.** The island layer produces exactly what that wiring needs — a deterministic
+partition, keys in ascending order, and a revision that moves only on a transition — and
+sleeping already removes a settled body from the predict, the projection and the velocity
+pass. What is missing is the composition-side change in `runtime_graph_builder.hpp`, whose
+constraint bands are per colour rather than per island; re-cutting them is a solver change
+with P0's `compile_count() == 1` property to preserve, and it belongs with the same move
+that puts contacts inside the graph. That move is P1's remaining work, below.
+
+**What P1 still owes.** P1's machinery is built and tested — manifolds, warm starting,
+positional static friction, the velocity pass, `contact_offset`/`rest_offset` — but the live
+`sim/` tick still runs the old single-point `collision/contact_solver.hpp`. So the phase is
+*partly done*, and what remains is one change with several consequences: move contacts into
+the solve graph as a constraint kind (§6.3). That closes P0 carry-over 1, gives
+`add_segmented_reduce` the per-body contact impulses it has been waiting for (§12.2), gives
+the Physics panel its per-stage device timings, and is the natural moment to cut the
+constraint bands per island and finish the paragraph above. Contact events are the other
+open P1 item and are small beside it.
 
 ---
 

@@ -75,6 +75,22 @@ add_executable(se_functional_tests
     # The last two shape kinds: terrain found by arithmetic rather than by search,
     # and one body carrying several colliders (P2, §5.2).
     functional/unit/test_height_field_compound.cpp
+    # The broadphase seam and its two implementations, held to the same sorted pair
+    # set — the §4.4 substitutability suite — plus the pair cache warm starting
+    # needs and the filter rules that reject a pair before geometry (P2, §7.1).
+    functional/unit/test_broadphase_conformance.cpp
+    # Asking the collision world a question that is not "what is touching": rays,
+    # sweeps, overlaps and closest points, built on the same tree (P2, §7.7).
+    functional/unit/test_scene_query.cpp
+    # Connected components and the sleeping built on them — the largest performance
+    # win in any real scene, and the cheapest to get subtly wrong (P2, §13.2).
+    functional/unit/test_islands.cpp
+    # Mass and inertia from a shape and a density: written in P0, wired in P2, and
+    # untested in between, which is exactly when a closed form goes wrong quietly.
+    functional/unit/test_mass_properties.cpp
+    # P2's acceptance scenes: 1 000 mixed-shape bodies in contact and 10 000
+    # settled ones, measured rather than asserted in prose (P2, §13.1).
+    functional/unit/test_collision_scale.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp

@@ -2440,10 +2440,12 @@ namespace SushiEngine
                                 world_.get<Transform>(record->entity).position;
                             entity.local_orientation =
                                 world_.get<Orientation>(record->entity).rotation;
+                            entity.local_scale = world_.get<Transform>(record->entity).scale;
 
                             const EntityTransform world = world_transform(id);
                             entity.world_position = world.position;
                             entity.world_orientation = world.rotation;
+                            entity.world_scale = world.scale;
 
                             entity.has_physics_body = record->has_physics_body;
                             entity.physics_params = record->physics_params;

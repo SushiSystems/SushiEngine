@@ -103,6 +103,105 @@ namespace SushiEngine
                 Vector3T<T>{box.max.x + margin, box.max.y + margin, box.max.z + margin}};
         }
 
+        /** @brief Whether @p outer encloses @p inner entirely. */
+        template <typename T>
+        inline bool aabb_contains(const Aabb<T>& outer, const Aabb<T>& inner) noexcept
+        {
+            return outer.min.x <= inner.min.x && outer.min.y <= inner.min.y &&
+                   outer.min.z <= inner.min.z && outer.max.x >= inner.max.x &&
+                   outer.max.y >= inner.max.y && outer.max.z >= inner.max.z;
+        }
+
+        /**
+         * @brief A box's surface area — the cost a hierarchy's insertion minimizes.
+         *
+         * Surface area rather than volume because the quantity that matters is the
+         * probability that a random ray or a random neighbouring box meets this one,
+         * and for a convex body that probability is proportional to its surface area.
+         * A flat box has almost no volume and is not remotely free to traverse.
+         */
+        template <typename T>
+        inline T aabb_surface_area(const Aabb<T>& box) noexcept
+        {
+            const Vector3T<T> size = box.max - box.min;
+            const T x = size.x > T(0) ? size.x : T(0);
+            const T y = size.y > T(0) ? size.y : T(0);
+            const T z = size.z > T(0) ? size.z : T(0);
+            return T(2) * (x * y + y * z + z * x);
+        }
+
+        /**
+         * @brief The component-wise reciprocal a slab test wants, with no infinities.
+         *
+         * A zero component becomes a large finite number rather than an infinity, so
+         * the slab arithmetic downstream can never form `0 * infinity` — which is the
+         * one case that turns an axis-parallel ray, the most common kind an editor
+         * ever casts, into a not-a-number and a silently missed hit.
+         */
+        template <typename T>
+        inline Vector3T<T> ray_inverse_direction(const Vector3T<T>& direction) noexcept
+        {
+            constexpr T huge = T(1e30);
+            const auto reciprocal = [](T value) noexcept -> T
+            {
+                if (value > T(0))
+                    return value > T(1) / huge ? T(1) / value : huge;
+                if (value < T(0))
+                    return value < T(-1) / huge ? T(1) / value : -huge;
+                return huge;
+            };
+            return Vector3T<T>{reciprocal(direction.x), reciprocal(direction.y),
+                               reciprocal(direction.z)};
+        }
+
+        /**
+         * @brief Whether a ray meets a box within @p max_distance, by slabs.
+         *
+         * The direction arrives as its reciprocal because a query tests one ray
+         * against hundreds of boxes: the division belongs to the query, not to the
+         * node. Use @ref ray_inverse_direction to form it.
+         *
+         * @param box               The box to test.
+         * @param origin            The ray's origin.
+         * @param inverse_direction Component-wise `1 / direction`.
+         * @param max_distance      How far along the ray to look.
+         * @return True when the ray is inside the box somewhere before @p max_distance.
+         */
+        template <typename T>
+        inline bool ray_hits_aabb(const Aabb<T>& box, const Vector3T<T>& origin,
+                                  const Vector3T<T>& inverse_direction, T max_distance) noexcept
+        {
+            T near_distance = T(0);
+            T far_distance = max_distance;
+
+            const T origin_components[3] = {origin.x, origin.y, origin.z};
+            const T inverse_components[3] = {inverse_direction.x, inverse_direction.y,
+                                             inverse_direction.z};
+            const T min_components[3] = {box.min.x, box.min.y, box.min.z};
+            const T max_components[3] = {box.max.x, box.max.y, box.max.z};
+
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                T entry = (min_components[axis] - origin_components[axis]) *
+                          inverse_components[axis];
+                T exit = (max_components[axis] - origin_components[axis]) *
+                         inverse_components[axis];
+                if (entry > exit)
+                {
+                    const T swap = entry;
+                    entry = exit;
+                    exit = swap;
+                }
+                if (entry > near_distance)
+                    near_distance = entry;
+                if (exit < far_distance)
+                    far_distance = exit;
+                if (near_distance > far_distance)
+                    return false;
+            }
+            return true;
+        }
+
         /** @brief A solid sphere: a centre and a radius. */
         template <typename T>
         struct SphereCollider

@@ -275,6 +275,17 @@ namespace SushiEngine
             Scalar inv_mass = Scalar(1);  /**< Inverse mass; 0 pins the body in place. */
             Vector3 inv_inertia{0, 0, 0};    /**< Diagonal body-local inverse inertia; 0 = no rotation response. */
             Scalar drag_coefficient = Scalar(0); /**< Quadratic drag: acceleration -k|v|v, m⁻¹; 0 disables. */
+            /**
+             * @brief Mass per unit volume; zero keeps the hand-authored mass above.
+             *
+             * The opt-in that closes P0 carry-over 2. Almost nobody can write a
+             * correct inverse inertia tensor for anything but a sphere, and getting
+             * it wrong produces a body that tumbles plausibly enough that the error
+             * is never traced back — so with a density set, both numbers above are
+             * derived from the *scaled* collider instead (see `sim/collider.hpp`).
+             * Steel is about 7800, oak about 700, water 1000.
+             */
+            Scalar density = Scalar(0);
         };
 
         /**

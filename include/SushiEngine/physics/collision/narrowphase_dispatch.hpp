@@ -241,6 +241,36 @@ namespace SushiEngine
             }
         };
 
+        /**
+         * @brief A type-erased shape's world bounds, whatever kind it is.
+         *
+         * The one place the shape kinds are enumerated for bounds, so a broadphase,
+         * a compound, and a query all agree about how big a shape is. A half-space
+         * reports a huge finite box rather than an infinity: every caller is about
+         * to intersect it with something finite, and an infinity there turns a
+         * subtraction into a not-a-number.
+         */
+        template <typename T>
+        inline Aabb<T> shape_world_bounds(const CollisionShape<T>& shape) noexcept
+        {
+            switch (shape.type)
+            {
+                case ShapeType::sphere:
+                    return world_bounds(ShapeTraits<T, SphereCollider<T>>::from(shape));
+                case ShapeType::box:
+                case ShapeType::oriented_box:
+                    return world_bounds(ShapeTraits<T, OrientedBox<T>>::from(shape));
+                case ShapeType::capsule:
+                    return world_bounds(ShapeTraits<T, CapsuleCollider<T>>::from(shape));
+                case ShapeType::convex_hull:
+                    return world_bounds(ShapeTraits<T, ConvexHullView<T>>::from(shape));
+                default:
+                    break;
+            }
+            constexpr T huge = T(1e18);
+            return Aabb<T>{Vector3T<T>{-huge, -huge, -huge}, Vector3T<T>{huge, huge, huge}};
+        }
+
         /** @brief A list of types, for folding over. */
         template <typename... Shapes>
         struct TypeList

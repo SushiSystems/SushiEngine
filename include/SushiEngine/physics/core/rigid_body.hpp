@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
@@ -203,6 +204,13 @@ namespace SushiEngine
          * mass unchanged, so the angular path is a strict extension of the purely
          * linear one rather than a separate case.
          *
+         * A body that is not simulated presents *none*: a static body is immovable
+         * by definition, and a sleeping one is immovable by decision (§13.2). Saying
+         * so here rather than in each projection is what makes "asleep" mean the
+         * same thing to the distance constraint, the contact solve and every joint
+         * P3 adds — and what stops a settled stack being quietly pushed around by a
+         * constraint that never asked whether its bodies were awake.
+         *
          * @tparam T The scalar element type.
          * @param body      The body.
          * @param lever     World-space vector from the centre of mass to the point.
@@ -212,6 +220,8 @@ namespace SushiEngine
         inline T generalized_inverse_mass(const RigidBodyT<T>& body, const Vector3T<T>& lever,
                                           const Vector3T<T>& direction) noexcept
         {
+            if (!is_simulated(body.flags))
+                return T(0);
             const Vector3T<T> torque_axis = cross(lever, direction);
             return body.inv_mass + dot(torque_axis, apply_world_inverse_inertia(body, torque_axis));
         }
@@ -232,6 +242,8 @@ namespace SushiEngine
         inline void apply_positional_impulse(RigidBodyT<T>& body, const Vector3T<T>& impulse,
                                              const Vector3T<T>& lever, T sign) noexcept
         {
+            if (!is_simulated(body.flags))
+                return;
             body.position = body.position + impulse * (sign * body.inv_mass);
             const Vector3T<T> rotation =
                 apply_world_inverse_inertia(body, cross(lever, impulse * sign));
@@ -256,6 +268,8 @@ namespace SushiEngine
         inline void apply_velocity_impulse(RigidBodyT<T>& body, const Vector3T<T>& impulse,
                                            const Vector3T<T>& lever, T sign) noexcept
         {
+            if (!is_simulated(body.flags))
+                return;
             body.velocity = body.velocity + impulse * (sign * body.inv_mass);
             body.angular_velocity =
                 body.angular_velocity +
@@ -355,6 +369,62 @@ namespace SushiEngine
             const QuaternionT<T> delta = mul(body.orientation, conjugate(body.prev_orientation));
             const T sign = delta.w < T(0) ? T(-1) : T(1);
             body.angular_velocity = Vector3T<T>{delta.x, delta.y, delta.z} * (sign * T(2) / h);
+        }
+
+        /**
+         * @brief Updates the smoothed motion the sleeping decision reads.
+         *
+         * Smoothed rather than instantaneous, because the quantity wanted is "has
+         * this settled" and not "is it moving right now": a body at the apex of a
+         * bounce is momentarily still, a body in a stack jitters about zero, and an
+         * unsmoothed test puts the first to sleep in mid-air and never puts the
+         * second to sleep at all.
+         *
+         * The measure combines linear speed with rotational speed scaled by a
+         * length, so a body spinning on the spot is not mistaken for a still one.
+         * The length is the body's own radius of gyration, recovered from its
+         * inertia — which is exactly the number that says how far its mass is from
+         * its axis, so a long plank rotating slowly reads as the substantial motion
+         * it is and a marble doing the same does not.
+         *
+         * The blend is `exp(-dt / tau)`, so the smoothing is a time constant rather
+         * than a per-call fraction: a scene that changes its substep count does not
+         * thereby change when its bodies fall asleep, which would make the sleeping
+         * decision depend on the quality dial (§6.2).
+         *
+         * @tparam T The scalar element type.
+         * @param body The body to measure.
+         * @param dt   Time since the last update, in seconds.
+         * @param tau  The smoothing time constant, in seconds.
+         */
+        template <typename T>
+        inline void update_motion_measure(RigidBodyT<T>& body, T dt, T tau = T(0.1)) noexcept
+        {
+            if (dt <= T(0))
+                return;
+
+            const T linear = std::sqrt(dot(body.velocity, body.velocity));
+            const T angular = std::sqrt(dot(body.angular_velocity, body.angular_velocity));
+
+            // Radius of gyration from the smallest non-zero inverse inertia: r^2 =
+            // I / m, and the *largest* inertia is the axis that most resists being
+            // turned, so it is the one that says how big this body effectively is.
+            T gyration = T(0);
+            if (body.inv_mass > T(0))
+            {
+                const T inverse[3] = {body.inv_inertia.x, body.inv_inertia.y, body.inv_inertia.z};
+                T smallest_inverse = T(0);
+                for (int axis = 0; axis < 3; ++axis)
+                    if (inverse[axis] > T(0) &&
+                        (smallest_inverse <= T(0) || inverse[axis] < smallest_inverse))
+                        smallest_inverse = inverse[axis];
+                if (smallest_inverse > T(0))
+                    gyration = std::sqrt(body.inv_mass / smallest_inverse);
+            }
+
+            const T motion = linear + angular * gyration;
+            const T blend = std::exp(-dt / (tau > T(0) ? tau : T(1)));
+            body.motion_measure = body.motion_measure * blend + motion * (T(1) - blend);
         }
     } // namespace Physics
 } // namespace SushiEngine

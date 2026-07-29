@@ -85,20 +85,26 @@ TEST(Unit_PhysicsExtract, TheDescriptorOrderFollowsTheEntityOrder)
 
 TEST(Unit_PhysicsExtract, OnlyABoxCollidesAsABox)
 {
-    // The fallback that makes a Cylinder collider silently simulate as a sphere. It
-    // is a real limitation of the current narrowphase, and pinning it here means the
-    // day it changes, this test says so rather than a scene quietly behaving better.
     const std::vector<RigidBodyDesc> boxes =
         extract_rigid_bodies({body_with_collider(1, PrimitiveKind::Box, Vector3{2, 3, 4})});
     ASSERT_EQ(boxes.size(), 1u);
     EXPECT_TRUE(boxes[0].box);
     EXPECT_DOUBLE_EQ(double(boxes[0].half_extents.y), 3.0);
+    EXPECT_EQ(boxes[0].collider.shape, ColliderShape::Box);
 
+    // A cylinder is a *capsule* now, not a sphere (§1.2 item 4). Still an
+    // approximation — a capsule has round ends — but one that stands on the ground
+    // and rolls about the right axis, which the bounding sphere did neither of.
+    // The two shape fields the old contact path reads still say "sphere of radius
+    // two", because that path has no capsule; the collider is what the manifold
+    // path will read, and it says capsule.
     const std::vector<RigidBodyDesc> cylinders = extract_rigid_bodies(
         {body_with_collider(1, PrimitiveKind::Cylinder, Vector3{2, 3, 4})});
     ASSERT_EQ(cylinders.size(), 1u);
     EXPECT_FALSE(cylinders[0].box);
     EXPECT_DOUBLE_EQ(double(cylinders[0].radius), 2.0);
+    EXPECT_EQ(cylinders[0].collider.shape, ColliderShape::Capsule);
+    EXPECT_DOUBLE_EQ(double(cylinders[0].collider.half_height), 1.0) << "3 tall minus a 2 cap";
 }
 
 TEST(Unit_PhysicsExtract, ABoxCollidesAtItsSmallestHalfExtent)
@@ -177,4 +183,91 @@ TEST(Unit_PhysicsExtract, ARigidBodySeedsFromItsLocalTransform)
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_DOUBLE_EQ(double(bodies[0].position.x), 1.0);
     EXPECT_DOUBLE_EQ(double(bodies[0].position.z), 3.0);
+}
+
+// ---------------------------------------------------------------------------
+// Scale, and the mass derived from it (§1.2 item 5, P0 carry-over 2)
+// ---------------------------------------------------------------------------
+
+TEST(Unit_PhysicsExtract, ScalingAnEntityScalesWhatItCollidesAs)
+{
+    // The bug in one assertion: this crate is drawn twice as wide and used to
+    // collide as if it were not.
+    PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 1, 1});
+    entity.local_scale = Vector3{Scalar(2), Scalar(3), Scalar(0.5)};
+
+    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    ASSERT_EQ(bodies.size(), 1u);
+    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.x), 2.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.y), 3.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.z), 0.5);
+    EXPECT_DOUBLE_EQ(double(bodies[0].radius), 0.5) << "still the smallest half-extent";
+}
+
+TEST(Unit_PhysicsExtract, ANonUniformlyScaledSphereTakesItsLargestAxis)
+{
+    // A sphere under a non-uniform scale is an ellipsoid, which the narrowphase
+    // does not have. Of the two available answers, the larger keeps the drawing
+    // inside the collider rather than poking out of it.
+    PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Sphere, Vector3{1, 1, 1});
+    entity.local_scale = Vector3{Scalar(2), Scalar(5), Scalar(3)};
+
+    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    ASSERT_EQ(bodies.size(), 1u);
+    EXPECT_DOUBLE_EQ(double(bodies[0].radius), 5.0);
+}
+
+TEST(Unit_PhysicsExtract, AMirroredEntityCollidesAsItsMirrorImage)
+{
+    PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 2, 3});
+    entity.local_scale = Vector3{Scalar(-1), Scalar(-1), Scalar(-1)};
+
+    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    ASSERT_EQ(bodies.size(), 1u);
+    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.x), 1.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.z), 3.0);
+}
+
+TEST(Unit_PhysicsExtract, WithoutADensityTheAuthoredMassIsKeptExactly)
+{
+    PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 1, 1});
+    entity.physics_params.inv_mass = Scalar(0.25);
+    entity.physics_params.inv_inertia = Vector3{Scalar(7), Scalar(8), Scalar(9)};
+
+    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    ASSERT_EQ(bodies.size(), 1u);
+    EXPECT_DOUBLE_EQ(double(bodies[0].inv_mass), 0.25);
+    EXPECT_DOUBLE_EQ(double(bodies[0].inv_inertia.y), 8.0);
+}
+
+TEST(Unit_PhysicsExtract, ADensityDerivesMassFromTheScaledShape)
+{
+    // Two metres on a side at 1000 kg/m^3 is eight tonnes, and the inertia is the
+    // box formula about its own centre. Deriving from the *unscaled* shape would
+    // give one tonne — a failure that looks derived, which is worse than the typed
+    // number it replaced.
+    PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 1, 1});
+    entity.local_scale = Vector3{Scalar(2), Scalar(2), Scalar(2)};
+    entity.physics_params.density = Scalar(1000);
+    entity.physics_params.inv_mass = Scalar(1); // ignored
+
+    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    ASSERT_EQ(bodies.size(), 1u);
+    const double mass = 4.0 * 4.0 * 4.0 * 1000.0;
+    EXPECT_NEAR(double(bodies[0].inv_mass), 1.0 / mass, 1e-12);
+    const double inertia = (mass / 3.0) * (2.0 * 2.0 + 2.0 * 2.0);
+    EXPECT_NEAR(double(bodies[0].inv_inertia.x), 1.0 / inertia, 1e-12);
+}
+
+TEST(Unit_PhysicsExtract, ADensityOnASphereMatchesTheClosedForm)
+{
+    PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Sphere, Vector3{2, 2, 2});
+    entity.physics_params.density = Scalar(500);
+
+    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    ASSERT_EQ(bodies.size(), 1u);
+    const double pi = 3.14159265358979323846;
+    const double mass = (4.0 / 3.0) * pi * 8.0 * 500.0;
+    EXPECT_NEAR(double(bodies[0].inv_mass), 1.0 / mass, 1e-12);
+    EXPECT_NEAR(double(bodies[0].inv_inertia.z), 1.0 / (0.4 * mass * 4.0), 1e-12);
 }

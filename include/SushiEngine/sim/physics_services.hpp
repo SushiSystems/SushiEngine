@@ -48,6 +48,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/sim/collider.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine
@@ -66,6 +67,17 @@ namespace SushiEngine
             Scalar radius = Scalar(0.5); /**< Collision radius when the body collides as a sphere. */
             bool box = false;            /**< Collide as an oriented box (else a sphere). */
             Vector3 half_extents{Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)}}; /**< Box half-extents. */
+
+            /**
+             * @brief The full collider, scaled (§5.5).
+             *
+             * The three fields above are what today's single-point contact path
+             * reads, and they are *derived from this one* rather than authored
+             * beside it — so a body cannot collide as a box of one size and report
+             * a radius from another. They go when the manifold path takes over the
+             * live simulation, and this stays.
+             */
+            Collider collider{};
         };
 
         /** @brief A cloth grid to (re)build, addressed by its owning entity. */
@@ -224,6 +236,107 @@ namespace SushiEngine
                 virtual void set_static_planes(const std::vector<PlaneDesc>& planes) = 0;
         };
 
+        /**
+         * @brief What a scene query hit, in boundary precision.
+         *
+         * `entity` rather than a body handle, because the caller of a query is a
+         * gameplay system and what it wants back is the thing it already names.
+         */
+        struct SceneRayHit
+        {
+            bool hit = false;
+            EntityId entity = NULL_ENTITY;
+            Vector3 point;                    /**< The world point of impact. */
+            Vector3 normal{Vector3{0, 1, 0}}; /**< The outward surface normal there. */
+            Scalar distance = 0;              /**< Along the ray, from its origin. */
+        };
+
+        /**
+         * @brief Which entities a query is willing to see.
+         *
+         * The layer mask is the same word bodies carry, so "the camera ignores the
+         * player" is authored once and honoured by contacts and queries alike. The
+         * exclusion is the common special case of §7.7's optional predicate, kept
+         * as data so this header stays free of a callback type in a struct that
+         * crosses a precision boundary.
+         */
+        struct SceneQueryFilter
+        {
+            std::uint32_t layer_mask = 0xFFFFFFFFu;
+            /** @brief Skipped whatever its layer — usually the body that fired the query. */
+            EntityId exclude = NULL_ENTITY;
+            /** @brief Whether shapes flagged as triggers answer this query. */
+            bool include_triggers = true;
+        };
+
+        /**
+         * @brief Asking the collision world a question that is not "what is touching".
+         *
+         * §7.7's service. A weapon, a camera, a footstep probe, a placement tool and
+         * a line of sight are all this interface, and none of them has any business
+         * depending on the stepper or on rigid-body lifecycle to get an answer —
+         * which is the whole argument of §4.3 restated for the one service that most
+         * of a game actually calls.
+         */
+        class ICollisionQueryService
+        {
+            public:
+                virtual ~ICollisionQueryService() = default;
+
+                /**
+                 * @brief The nearest thing a ray hits.
+                 * @param origin       Where the ray starts, in world space.
+                 * @param direction    Its direction; normalized by the implementation.
+                 * @param max_distance How far to look, in metres.
+                 * @param filter       Which entities to consider.
+                 * @return The nearest hit, or one with `hit == false`.
+                 */
+                virtual SceneRayHit raycast_closest(const Vector3& origin,
+                                                    const Vector3& direction, Scalar max_distance,
+                                                    const SceneQueryFilter& filter) const = 0;
+
+                /** @brief Everything a ray hits, nearest first. */
+                virtual std::vector<SceneRayHit> raycast_all(
+                    const Vector3& origin, const Vector3& direction, Scalar max_distance,
+                    const SceneQueryFilter& filter) const = 0;
+
+                /**
+                 * @brief Every entity whose shape a sphere actually overlaps.
+                 *
+                 * "Actually" is the difference between this and a bounding-box test,
+                 * and it is what a trigger volume needs: one that fired on boxes is
+                 * one that fires in the doorway next to it.
+                 */
+                virtual std::vector<EntityId> overlap_sphere(
+                    const Vector3& center, Scalar radius,
+                    const SceneQueryFilter& filter) const = 0;
+
+                /**
+                 * @brief Moves a sphere until something stops it.
+                 * @param center       Where the sphere starts.
+                 * @param radius       Its radius.
+                 * @param direction    Direction of travel; normalized by the implementation.
+                 * @param distance     How far to try to move.
+                 * @param filter       Which entities to consider.
+                 * @return The first blocking hit; `distance` is the travel before contact.
+                 */
+                virtual SceneRayHit sweep_sphere(const Vector3& center, Scalar radius,
+                                                 const Vector3& direction, Scalar distance,
+                                                 const SceneQueryFilter& filter) const = 0;
+
+                /**
+                 * @brief The nearest surface point to @p point, within @p max_distance.
+                 * @param point        The world point to measure from.
+                 * @param max_distance How far to search.
+                 * @param filter       Which entities to consider.
+                 * @return The hit, whose `point` and `normal` are on the found surface
+                 *         and whose `distance` is the gap; `hit` is false if nothing is
+                 *         in range.
+                 */
+                virtual SceneRayHit closest_point(const Vector3& point, Scalar max_distance,
+                                                  const SceneQueryFilter& filter) const = 0;
+        };
+
         /** @brief Advancing time, and reporting what that cost. */
         class IPhysicsStepper
         {
@@ -269,6 +382,7 @@ namespace SushiEngine
         class IPhysicsScene : public IRigidBodyService,
                               public IClothService,
                               public IStaticGeometryService,
+                              public ICollisionQueryService,
                               public IPhysicsStepper
         {
             public:

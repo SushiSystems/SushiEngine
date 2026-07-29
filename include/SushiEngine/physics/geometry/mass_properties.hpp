@@ -138,6 +138,47 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Mass properties of a solid capsule about its local Y axis.
+         *
+         * A cylinder with a hemisphere on each end, integrated as exactly that: the
+         * cylinder's own inertia plus each hemisphere's, shifted to the capsule's
+         * centre by the parallel-axis theorem. The shift is where this gets got
+         * wrong — a hemisphere's centre of mass sits three-eighths of a radius from
+         * its flat face, not at the face — and the resulting cross term
+         * (`3/4 · m · h · r` across the pair) is what makes a long capsule
+         * appreciably harder to tumble than the sphere-plus-cylinder sum suggests.
+         *
+         * @tparam T The scalar element type.
+         * @param radius      The capsule's radius.
+         * @param half_height Half the *segment*, excluding the caps.
+         * @param density     Mass per unit volume.
+         * @return Its mass, centre (its own), and diagonal inertia.
+         */
+        template <typename T>
+        inline MassProperties<T> capsule_mass_properties(T radius, T half_height,
+                                                         T density) noexcept
+        {
+            const T pi = T(3.14159265358979323846);
+            const T radius_squared = radius * radius;
+            const T cylinder_mass = pi * radius_squared * (half_height * T(2)) * density;
+            const T cap_mass = (T(2) / T(3)) * pi * radius_squared * radius * density;
+
+            // Along the axis the caps are just hemispheres about their own centre.
+            const T axial = T(0.5) * cylinder_mass * radius_squared +
+                            T(2) * (T(2) / T(5)) * cap_mass * radius_squared;
+            // Across it: the cylinder's rod term, and each hemisphere shifted out.
+            const T radial =
+                cylinder_mass * (radius_squared / T(4) +
+                                 (half_height * T(2)) * (half_height * T(2)) / T(12)) +
+                T(2) * cap_mass *
+                    (T(0.4) * radius_squared + half_height * half_height +
+                     T(0.375) * half_height * radius * T(2));
+
+            return MassProperties<T>{cylinder_mass + T(2) * cap_mass, Vector3T<T>{},
+                                     Vector3T<T>{radial, axial, radial}};
+        }
+
+        /**
          * @brief Moves a diagonal inertia from the centre of mass to a parallel axis.
          *
          * The parallel-axis theorem, restricted to the diagonal. A compound body's
@@ -243,6 +284,34 @@ namespace SushiEngine
         {
             MassProperties<T> properties = box_mass_properties(box.half_extents, density);
             properties.center_of_mass = box.center;
+            return properties;
+        }
+
+        /**
+         * @brief Mass properties of a capsule collider at a density.
+         *
+         * Completes the overload set for the shapes P2 added — which is the third
+         * of §4.2's three obligations for a new shape, and the one most easily
+         * forgotten, because a shape with no mass function still *collides* and
+         * only misbehaves once something spins it.
+         *
+         * A cooked convex hull has no overload here on purpose: its mass properties
+         * are integrated over its faces, the cooker is what produces faces, and so
+         * they arrive in the asset itself rather than being recomputed per instance
+         * at load (§5.4, §8.4).
+         *
+         * @tparam T The scalar element type.
+         * @param capsule The collider.
+         * @param density Mass per unit volume.
+         * @return Its mass properties, with the centre at the collider's centre.
+         */
+        template <typename T>
+        inline MassProperties<T> mass_properties_of(const CapsuleCollider<T>& capsule,
+                                                    T density) noexcept
+        {
+            MassProperties<T> properties =
+                capsule_mass_properties(capsule.radius, capsule.half_height, density);
+            properties.center_of_mass = capsule.center;
             return properties;
         }
     } // namespace Physics

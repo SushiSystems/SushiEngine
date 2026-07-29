@@ -180,15 +180,17 @@ TEST(Unit_ContactBody, ClothParticlesDoNotSelfCollide)
     Vector3 right{Scalar(0.5), 0, 0};
     ContactBody<Scalar> a = sphere_body(left, Scalar(1), Scalar(1));
     ContactBody<Scalar> b = sphere_body(right, Scalar(1), Scalar(1));
-    a.is_cloth = true;
-    b.is_cloth = true;
+    // Said as data now, not as a type tag: both particles are on the cloth layer,
+    // and the cloth layer does not accept itself (§4.4, §1.2 item 15).
+    a.filter = self_excluding_filter(CollisionLayers::cloth);
+    b.filter = a.filter;
 
     resolve_contact_bodies(a, b);
     EXPECT_NEAR(double(left.x), 0.0, 1e-9);
     EXPECT_NEAR(double(right.x), 0.5, 1e-9);
 
     // A cloth particle against a rigid body still resolves — only self-collision is off.
-    b.is_cloth = false;
+    b.filter = CollisionFilter{};
     resolve_contact_bodies(a, b);
     EXPECT_LT(double(left.x), -1e-6);
 }
@@ -201,7 +203,7 @@ TEST(Unit_ContactBody, ClothPushesBackOnARigidBody)
     Vector3 rigid_position{Scalar(1.5), 0, 0};
     ContactBody<Scalar> cloth = sphere_body(cloth_position, Scalar(1), Scalar(10));
     ContactBody<Scalar> rigid = sphere_body(rigid_position, Scalar(1), Scalar(1));
-    cloth.is_cloth = true;
+    cloth.filter = self_excluding_filter(CollisionLayers::cloth);
 
     resolve_contact_bodies(cloth, rigid);
     EXPECT_LT(double(cloth_position.x), -1e-6);  // the light one moves most

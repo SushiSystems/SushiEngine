@@ -122,6 +122,33 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The layers the engine itself knows the meaning of.
+         *
+         * Two, and both exist because something in the engine has to name them:
+         * everything authored lands on @ref default_layer, and cloth needs a layer
+         * of its own so that "cloth particles do not collide with each other" can be
+         * *stated as data* rather than asked as `if (a.is_cloth && b.is_cloth)`.
+         * That flag was §1.2 item 15, and its replacement is one line of
+         * initialization — which is the whole argument of §4.4 in miniature: a
+         * behaviour difference expressed as a type tag has to be tested for
+         * everywhere the type goes, and the same difference expressed as data is
+         * tested once, by the code that already tests every other pair.
+         *
+         * Game layers start above these and are the author's to name.
+         */
+        namespace CollisionLayers
+        {
+            /** @brief Where a body lands when nobody said otherwise. */
+            constexpr std::uint32_t default_layer = 1u << 0;
+
+            /** @brief Cloth particles, which collide with everything except each other. */
+            constexpr std::uint32_t cloth = 1u << 1;
+
+            /** @brief The first layer a game is free to define. */
+            constexpr std::uint32_t first_user_layer = 1u << 2;
+        } // namespace CollisionLayers
+
+        /**
          * @brief Whether two filters admit a contact between their bodies.
          * @param a The first body's filter.
          * @param b The second body's filter.
@@ -131,6 +158,24 @@ namespace SushiEngine
                                     const CollisionFilter& b) noexcept
         {
             return (a.collides_with & b.layer) != 0u && (b.collides_with & a.layer) != 0u;
+        }
+
+        /**
+         * @brief A filter for a body that collides with everything but its own kind.
+         *
+         * Self-collision is the exception a great many body kinds want turned off —
+         * cloth today, hair and rope later — and every one of them would otherwise
+         * arrive as another boolean on another value type.
+         *
+         * @param layer The body's layer.
+         * @return A filter on @p layer that excludes @p layer.
+         */
+        inline CollisionFilter self_excluding_filter(std::uint32_t layer) noexcept
+        {
+            CollisionFilter filter;
+            filter.layer = layer;
+            filter.collides_with = ~layer;
+            return filter;
         }
     } // namespace Physics
 } // namespace SushiEngine

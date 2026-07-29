@@ -210,7 +210,12 @@ namespace SushiEngine
          * straight into the owning buffer's body (a correction updates the real body),
          * `inv_mass` and `inv_inertia` weight how much of a contact this body absorbs
          * linearly and angularly, and the shape is either an oriented box or a sphere.
-         * `is_cloth` lets the pass skip cloth-cloth pairs (no self-collision yet).
+         * `filter` says which bodies this one is willing to touch — and it is what
+         * cloth's lack of self-collision is expressed with, since a cloth particle is
+         * a body on the cloth layer whose mask excludes that layer (§4.4). The
+         * `is_cloth` boolean this replaced was §1.2 item 15: a behaviour difference
+         * carried as a type tag, which every routine touching the type then had to
+         * know about.
          *
          * `orientation` may be null for a body that has no meaningful rotation (a cloth
          * particle), in which case it reads as identity and never rotates. A zero
@@ -228,7 +233,7 @@ namespace SushiEngine
             bool is_box = false;
             Vector3T<T> half_extents{Vector3T<T>{T(0.5), T(0.5), T(0.5)}}; /**< Box shape. */
             T radius = T(0.5); /**< Sphere shape. */
-            bool is_cloth = false;
+            CollisionFilter filter{}; /**< Which bodies this one is willing to touch. */
         };
 
         /** @brief A contact body's orientation, or identity when it carries none. */
@@ -368,7 +373,7 @@ namespace SushiEngine
         template <typename T>
         inline void resolve_contact_bodies(ContactBody<T>& a, ContactBody<T>& b) noexcept
         {
-            if (a.is_cloth && b.is_cloth)
+            if (!filters_collide(a.filter, b.filter))
                 return;
             if (a.inv_mass + b.inv_mass <= T(0))
                 return;
