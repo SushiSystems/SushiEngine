@@ -18,6 +18,7 @@
 # ============================================================================
 
 add_library(sushi_atmosphere STATIC
+    climatology.cpp
     fourier_transform.cpp
     quasigeostrophic_core.cpp)
 

@@ -376,18 +376,98 @@ Not simulated.
 | Field | Resolution | Source | Used by |
 |---|---|---|---|
 | Terrain elevation | 1–2 km | engine terrain system (**blocker, §15**) | T2 orography, surface model |
-| Land/sea mask + surface type | 5 km | MODIS/Natural Earth class | surface fluxes, albedo, roughness |
-| Monthly SST | 1° | ERA5/OISST monthly climatology | surface moisture and heat flux |
-| Zonal-mean thermal wind / jet profile | 1° × month | ERA5 monthly means | T1's baroclinic mean state |
-| Monthly precipitable water | 1° | ERA5 | T1 moisture relaxation, ITCZ band |
+| Land/sea fraction | 1° | Natural Earth 1:50m vector, area-averaged | surface fluxes, albedo, roughness |
+| Monthly SST | 1° | NOAA OISST v2 1981–2010 monthly climatology | surface moisture and heat flux |
+| Zonal-mean thermal wind / jet profile | 1° × month | NCEP-NCAR R1 monthly LTM, 250/850 hPa | T1's baroclinic mean state |
+| Saturated column water | 1° × month | NCEP-NCAR R1 temperature, Tetens integral | T1 moisture relaxation, ITCZ band |
 | Soil moisture / vegetation | 5 km | seasonal climatology | latent vs. sensible flux partition |
+
+**Two corrections to this table, both deliberate.**
+
+*ERA5 became NCEP-NCAR Reanalysis 1.* ERA5 is behind the Copernicus CDS, which requires an
+account, and an asset nobody else can reproduce is an asset nobody else can check. NCEP R1's
+monthly long-term means are on a public HTTP endpoint at NOAA PSL and need no credentials,
+so `se climatology bake` downloads and computes rather than trusting a number typed in from
+a figure. The cost is resolution — 2.5° against ERA5's 0.25° — which is irrelevant here,
+because every field taken from it is a *zonal mean* and is one-dimensional by the time it
+reaches the asset.
+
+*"Precipitable water" became "saturated column water".* The core does not relax moisture
+toward observed water; it evaporates toward a fraction of a ceiling and condenses above it
+(§5), so a field of observed precipitable water fed into that slot would be a ceiling about
+30 % too low everywhere and it would rain continuously. The bake integrates saturation
+specific humidity over the reanalysis' own temperature profile instead, which is the
+ceiling the scheme actually means. Observed precipitable water is still downloaded, and is
+still never written: it is divided by the derived saturation to report the implied column
+relative humidity, which comes out at 0.58 in the tropics and dips to 0.42 in the
+subtropics — the descending branch of the Hadley cell, reproduced by a derivation that was
+never told it exists. That is the check that the thermodynamics is right.
 
 For a non-Earth body, T0 degrades to analytic latitude bands driven by `PlanetParams` and
 the body's obliquity/rotation rate — the system stays functional, just less specific.
 
+**Why the surface fields are 1° and not 5 km.** The earlier 5 km figure assumed T0's mask
+was what told T2 where the shoreline is. It is not, and it cannot be: a nest cell is 2 km
+across over a 384 km footprint (§6), so a global raster fine enough to place a coastline
+inside one nest cell would be 200 M cells — and the scene's own terrain already carries
+that shoreline at metre resolution, from the same heightfield the renderer draws. What T0's
+surface fields are actually for is the *global, synoptic* question — what is normally under
+this column, and how warm is the water — and 1° (111 km) resolves every continent and every
+basin-scale SST pattern. It is also OISST's native grid, so the SST is stored with no
+reduction and no interpolation error at all. The one thing genuinely lost is the sharpness
+of western-boundary fronts (Gulf Stream, Kuroshio), which matter for a mesoscale
+ocean–atmosphere coupling this engine does not model.
+
+The field is a *fraction*, not a boolean, precisely so the 1° cell keeps the subgrid
+information: Natural Earth's vector coastline is supersampled and area-averaged, so a cell
+that is a third of Anatolia reads 0.33 rather than rounding to land.
+
+None of this is baked into the format. The surface grid is a header field and `adopt()`
+validates whatever dimensions arrive, so the day a T2 surface-flux task measures a need for
+finer, the bake tool changes a default and no reader changes at all.
+
+### 4.1 What the real mean state did to T1 (measured)
+
+`atmosphere_global_probe --climatology assets/atmosphere/climatology.set0`, 512×256, 60 days,
+against the same probe on the analytic bands:
+
+| | analytic bands | baked climatology (January) |
+|---|---|---|
+| Eddy energy growth | 0.2600 /day | **0.2098 /day** |
+| Amplitude e-folding | 7.69 days | 9.53 days |
+| Peak vertical shear | 20 m/s at 45° (by construction) | 34 m/s at 29°N |
+| Jet latitude reported | 45° | **29–31°N** |
+| Zonal KE | ~4.2 × 10⁵ J/m² | ~1.0 × 10⁶ J/m² |
+| Eddy KE at saturation | ~1.1 × 10⁵ J/m² | ~2.9 × 10⁵ J/m² |
+| Global mean rain | 0.235 mm/day | **1.5 – 2.4 mm/day** |
+
+**No retuning was needed, which was not the expectation.** The prediction going in was that a
+mean state with nearly twice the shear would grow much faster and would push
+`grid_scale_damping_seconds` off its calibration. It grows *slower* — 0.21 against 0.26 — and the
+life cycle is intact: exponential growth through day 38, saturation at day 48, decay, and a second
+cycle beginning at day 58. The reason the extra shear does not buy extra growth is that the real
+jet is narrow and sits at 29°N rather than broad at 45°, and β is larger there, so the Phillips
+threshold it has to clear is higher. The damping parameter is untouched.
+
+The jet latitude is the result worth pointing at: nothing tells the core where to put a jet. It
+reports 29–31°N because that is where January's subtropical jet is in the reanalysis it is
+relaxing toward.
+
+**Named limit: the moisture cycles too slowly, and the ceiling is not what is wrong.** Global mean
+column water settles at 31.3 kg/m² against an observed ~25, while global mean rain reaches
+1.5–2.4 mm/day against an observed ~2.7. Those two miss in *opposite* directions, so no value of
+`evaporation_relative_humidity` fixes both — a lower ceiling would bring the water down and push
+the rain further away. What that pattern indicates is the condensation and evaporation
+*timescales*, not the saturation profile. `evaporation_relative_humidity` is therefore left at
+0.75 deliberately, rather than moved to the observed 0.55 because a single number happened to
+match. (It is worth noting how much closer the rain already is: the analytic mean state produced
+0.235 mm/day, an order of magnitude low.)
+
 Licensing note: ERA5 (CDS), ETOPO, Natural Earth, and MODIS land cover are all
 redistributable under attribution-class terms; sourcing and baking them into engine
-assets is a task of Phase C, not an afterthought.
+assets is a task of Phase C, not an afterthought. The provenance travels *inside* the
+asset (a length-prefixed string every reader can show) rather than in a sidecar that can be
+separated from the data it describes.
 
 ---
 

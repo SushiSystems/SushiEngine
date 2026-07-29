@@ -176,8 +176,28 @@ namespace SushiEngine
             double pending_seconds = 0.0;
             std::uint64_t steps = 0;
 
-            State(const QuasiGeostrophicGridSize& grid, const QuasiGeostrophicParameters& physics)
-                : size(grid), parameters(physics), transform(grid.longitude_cells)
+            /**
+             * @brief The mean state this core relaxes toward (T0, §4).
+             *
+             * Held by value rather than borrowed: it is a few kilobytes of profiles, it is read
+             * on every rebuild of the tables, and a core outliving the object that configured it
+             * is not a failure mode worth having.
+             */
+            Climatology climatology;
+
+            /**
+             * @brief Where in the year the mean state is read at, [0, 1).
+             *
+             * The analytic bands have no season, so this changes nothing until a bake is
+             * adopted -- which is why it can be a plain member here rather than a parameter
+             * threaded through every table build.
+             */
+            double year_fraction = 0.0;
+
+            State(const QuasiGeostrophicGridSize& grid, const QuasiGeostrophicParameters& physics,
+                  const Climatology& mean_state)
+                : size(grid), parameters(physics), transform(grid.longitude_cells),
+                  climatology(mean_state)
             {
                 if (!power_of_two(grid.longitude_cells) || grid.latitude_cells < 4 ||
                     (grid.latitude_cells % 2) != 0 || !transform.valid())
@@ -315,14 +335,11 @@ namespace SushiEngine
                     lower_coefficient[std::size_t(j)] = edge_cosine[std::size_t(j)] * scale;
                     upper_coefficient[std::size_t(j)] = edge_cosine[std::size_t(j + 1)] * scale;
 
-                    // A latitudinal surface temperature, then Clausius-Clapeyron as a single
-                    // e-folding. T0 proper (§4) replaces this with monthly precipitable water;
-                    // until then this is the analytic latitude band §4 degrades to.
-                    const double sine = std::sin(latitude);
-                    const double cooling = parameters.equator_to_pole_kelvin * sine * sine;
+                    // T0 (§4). With no baked asset this is the analytic latitude band the
+                    // climatology degrades to, which is bit-for-bit what stood inline here
+                    // before T0 existed -- so a core with no asset reproduces C2's numbers.
                     saturation[std::size_t(j)] =
-                        parameters.equatorial_saturation_kg_per_m2 *
-                        std::exp(-cooling / parameters.saturation_lapse_kelvin);
+                        climatology.saturation_kg_per_m2(latitude, year_fraction);
                 }
             }
 
@@ -436,19 +453,18 @@ namespace SushiEngine
                 for (int layer = 0; layer < 2; ++layer)
                 {
                     climatological_streamfunction[layer].assign(std::size_t(latitude_cells), 0.0);
-                    const double speed = layer == 0 ? parameters.upper_jet_speed_mps
-                                                    : parameters.lower_jet_speed_mps;
                     // psi = -a * integral(u dlatitude), accumulated from the southern pole.
                     double accumulated = 0.0;
                     for (int j = 0; j < latitude_cells; ++j)
                     {
                         const double latitude = -0.5 * PI + (double(j) + 0.5) * delta_latitude;
-                        const double north =
-                            (latitude - parameters.jet_latitude_radians) / parameters.jet_width_radians;
-                        const double south =
-                            (latitude + parameters.jet_latitude_radians) / parameters.jet_width_radians;
+                        // T0 supplies the wind per layer; the *difference* between the two is
+                        // the shear, and the shear is what decides whether this mean state
+                        // makes storms at all.
                         const double wind =
-                            speed * (std::exp(-north * north) + std::exp(-south * south));
+                            layer == 0
+                                ? climatology.upper_zonal_wind_mps(latitude, year_fraction)
+                                : climatology.lower_zonal_wind_mps(latitude, year_fraction);
                         accumulated -= radius * wind * delta_latitude;
                         climatological_streamfunction[layer][std::size_t(j)] = accumulated;
                     }
@@ -1081,9 +1097,15 @@ namespace SushiEngine
         };
 
         QuasiGeostrophicCore::QuasiGeostrophicCore(const QuasiGeostrophicGridSize& size,
-                                                   const QuasiGeostrophicParameters& parameters)
-            : state_(new State(size, parameters))
+                                                   const QuasiGeostrophicParameters& parameters,
+                                                   const Climatology& climatology)
+            : state_(new State(size, parameters, climatology))
         {
+        }
+
+        const Climatology& QuasiGeostrophicCore::climatology() const noexcept
+        {
+            return state_->climatology;
         }
 
         QuasiGeostrophicCore::~QuasiGeostrophicCore() = default;
@@ -1114,9 +1136,10 @@ namespace SushiEngine
             for (int k = 0; k < count; ++k)
                 phase[std::size_t(k)] = Loop::next_unit(s.rng) * 2.0 * PI;
 
+            const AnalyticClimatology& bands = s.climatology.analytic_bands();
             const double amplitude = s.parameters.seed_perturbation_mps *
                                      s.parameters.planet_radius_m *
-                                     s.parameters.jet_width_radians / std::max(double(count), 1.0);
+                                     bands.jet_width_radians / std::max(double(count), 1.0);
 
             for (int layer = 0; layer < 2; ++layer)
             {
@@ -1125,10 +1148,14 @@ namespace SushiEngine
                 for (int j = 0; j < s.latitude_cells; ++j)
                 {
                     const double latitude = -0.5 * PI + (double(j) + 0.5) * s.delta_latitude;
-                    const double north = (latitude - s.parameters.jet_latitude_radians) /
-                                         s.parameters.jet_width_radians;
-                    const double south = (latitude + s.parameters.jet_latitude_radians) /
-                                         s.parameters.jet_width_radians;
+                    // The perturbation's latitude envelope, from the analytic bands rather
+                    // than from a bake: this only decides *where the initial noise is put*,
+                    // and the mid-latitudes are where a baroclinic disturbance can grow on
+                    // any climatology. A bake changes what grows, not where to shake it.
+                    const double north = (latitude - bands.jet_latitude_radians) /
+                                         bands.jet_width_radians;
+                    const double south = (latitude + bands.jet_latitude_radians) /
+                                         bands.jet_width_radians;
                     const double envelope = std::exp(-north * north) + std::exp(-south * south);
                     const double mean = s.climatological_streamfunction[layer][std::size_t(j)];
                     for (int i = 0; i < s.longitude_cells; ++i)

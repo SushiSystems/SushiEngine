@@ -74,25 +74,14 @@
 #include <memory>
 #include <vector>
 
+#include <SushiEngine/atmosphere/climatology.hpp>
+#include <SushiEngine/atmosphere/geographic_position.hpp>
 #include <SushiEngine/loop/rng.hpp>
 
 namespace SushiEngine
 {
     namespace Atmosphere
     {
-        /**
-         * @brief A point on the body, in radians.
-         *
-         * Spelled here rather than reused from `Simulation::GeodeticPosition` so that this
-         * module keeps depending on nothing. The two are the same two numbers and the
-         * simulation-side adapter converts in a line.
-         */
-        struct GeographicPosition
-        {
-            double latitude_radians = 0.0;  /**< [-pi/2, pi/2]. */
-            double longitude_radians = 0.0; /**< East longitude; any range, wrapped on use. */
-        };
-
         /** @brief A horizontal wind vector, metres per second. */
         struct Wind
         {
@@ -184,26 +173,6 @@ namespace SushiEngine
              */
             double maximum_deformation_radius_m = 5.0e6;
 
-            /** @brief Peak upper-layer zonal wind of the climatological jet, m/s. */
-            double upper_jet_speed_mps = 30.0;
-
-            /**
-             * @brief Peak lower-layer zonal wind of the climatological jet, m/s.
-             *
-             * The *difference* from @ref upper_jet_speed_mps is the vertical shear, and the
-             * shear is what makes the mean state unstable. Phillips' criterion puts the
-             * critical shear near `beta * L_d^2`, about 8 m/s at these settings, so the
-             * default 20 m/s shear is comfortably supercritical — deliberately, because a
-             * marginally unstable core takes simulated weeks to produce a storm.
-             */
-            double lower_jet_speed_mps = 10.0;
-
-            /** @brief Latitude the climatological jet is centred on, radians (both hemispheres). */
-            double jet_latitude_radians = 0.7853981633974483; // 45 degrees
-
-            /** @brief Half-width of the jet's Gaussian latitude envelope, radians. */
-            double jet_width_radians = 0.2617993877991494; // 15 degrees
-
             /**
              * @brief Time scale the flow is relaxed back toward the climatological state, s.
              *
@@ -253,21 +222,6 @@ namespace SushiEngine
              * south, so the rotation is not the same rotation on both sides of the equator.
              */
             double surface_friction_radians = 0.4363323129985824; // 25 degrees
-
-            /** @brief Column water an equatorial column holds at saturation, kg/m^2. */
-            double equatorial_saturation_kg_per_m2 = 60.0;
-
-            /** @brief Equator-to-pole surface temperature contrast, K — shapes the saturation profile. */
-            double equator_to_pole_kelvin = 45.0;
-
-            /**
-             * @brief Temperature change that alters saturation by a factor of e, K.
-             *
-             * Clausius-Clapeyron, as one number: about 7 % of the saturation vapour pressure
-             * per kelvin makes this roughly 15 K. It is what puts the water in the tropics
-             * without a radiation scheme having to be run to find out.
-             */
-            double saturation_lapse_kelvin = 15.0;
 
             /** @brief Time scale surface evaporation moistens a dry column on, s. */
             double evaporation_seconds = 259200.0; // 3 days
@@ -361,7 +315,8 @@ namespace SushiEngine
                  *                   factorization above is derived from part of it.
                  */
                 QuasiGeostrophicCore(const QuasiGeostrophicGridSize& size,
-                                     const QuasiGeostrophicParameters& parameters);
+                                     const QuasiGeostrophicParameters& parameters,
+                                     const Climatology& climatology = Climatology());
                 ~QuasiGeostrophicCore();
 
                 QuasiGeostrophicCore(const QuasiGeostrophicCore&) = delete;
@@ -582,6 +537,16 @@ namespace SushiEngine
 
                 /** @brief The physics the core was built with. */
                 const QuasiGeostrophicParameters& parameters() const noexcept;
+
+                /**
+                 * @brief The mean state the core relaxes toward (T0, §4).
+                 *
+                 * Exposed because "which climatology is this weather a departure from" is a
+                 * question the editor has to be able to answer: a scene running on the analytic
+                 * latitude bands when somebody meant it to run on a real bake is otherwise
+                 * invisible until the jet turns up in the wrong place.
+                 */
+                const Climatology& climatology() const noexcept;
 
                 /** @brief Centre latitude of row @p index, radians. */
                 double latitude_of(int index) const noexcept;

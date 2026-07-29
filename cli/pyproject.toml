@@ -14,6 +14,17 @@ dependencies = [
     "tomli>=2.0; python_version < '3.11'",
 ]
 
+# `se climatology bake` reads NetCDF reanalysis and rasterises coastline vectors. Those
+# are heavy wheels (netCDF4 carries HDF5) and the bake is a rare, developer-only step
+# whose output is committed — so every other `se` command stays installable without them,
+# and the bake fails with this install line rather than an ImportError traceback.
+[project.optional-dependencies]
+climatology = [
+    "numpy>=1.24",
+    "requests>=2.28",
+    "netCDF4>=1.6",
+]
+
 # sushicli (shared CLI presentation layer, see D:/Projects/sushicli) is
 # intentionally NOT listed above: it isn't published to any index, so a bare
 # "sushicli>=0.1.0" dependency can't be resolved by pip/pipx from a clean

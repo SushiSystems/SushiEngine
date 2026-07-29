@@ -55,6 +55,7 @@
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
 #include <SushiEngine/sim/physics_extract.hpp>
+#include <SushiEngine/sim/climatology_asset.hpp>
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/physics_simulation.hpp>
 #include <SushiEngine/sim/simulation.hpp>
@@ -592,8 +593,14 @@ namespace SushiEngine
                             // The scene planet's mean radius anchors T1/T2's tangent-plane math to
                             // whichever body is dominant, matching Environment::planet already.
                             constexpr std::uint64_t DEFAULT_WEATHER_SEED = 1;
+                            // The mean state comes off disk if it is there. When it is not, the
+                            // core runs on analytic latitude bands, which is the mean state every
+                            // measurement before T0 existed was taken against -- a working
+                            // atmosphere, not a degraded one, and the same one a non-Earth body
+                            // gets. Nothing here fails over a missing asset.
                             auto provider = std::make_unique<ProceduralWeather>(
-                                DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius());
+                                DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius(),
+                                load_climatology());
                             // Bound now rather than at the host's convenience: the mirror may
                             // have been installed long before this provider existed, and a
                             // provider that never learns about it would answer from the base

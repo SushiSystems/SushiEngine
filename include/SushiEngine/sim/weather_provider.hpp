@@ -48,6 +48,7 @@
 #include <cstdint>
 #include <vector>
 
+#include <SushiEngine/atmosphere/climatology.hpp>
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
@@ -361,13 +362,36 @@ namespace SushiEngine
             public:
                 /**
                  * @brief Creates a procedural weather provider seeded for reproducible evolution.
+                 *
+                 * The climatology is taken by value rather than read from a path here: this class
+                 * owns the dynamics, and which mean state they run on is the caller's decision —
+                 * a test wants analytic bands, the editor wants the baked asset, and a body that
+                 * is not Earth wants neither. `Simulation::load_climatology` is the one place that
+                 * turns a file into one of these.
+                 *
                  * @param seed            Any 64-bit seed; identical seeds reproduce identical T1 evolution.
                  * @param planet_radius_m The dominant body's mean radius, metres.
+                 * @param climatology     The mean state T1 relaxes toward; analytic bands by default.
                  */
-                explicit ProceduralWeather(std::uint64_t seed, double planet_radius_m)
-                    : planet_radius_m_(planet_radius_m), core_(grid_for(), physics_for(planet_radius_m))
+                explicit ProceduralWeather(std::uint64_t seed, double planet_radius_m,
+                                           const Atmosphere::Climatology& climatology =
+                                               Atmosphere::Climatology())
+                    : planet_radius_m_(planet_radius_m),
+                      core_(grid_for(), physics_for(planet_radius_m), climatology)
                 {
                     core_.seed(seed);
+                }
+
+                /**
+                 * @brief The mean state this weather is a departure from.
+                 *
+                 * Exposed so a host can say *which* climatology is running. A scene on analytic
+                 * bands when somebody meant it to run on the baked asset is otherwise invisible
+                 * until the jet turns out to be in the wrong place.
+                 */
+                const Atmosphere::Climatology& climatology() const noexcept
+                {
+                    return core_.climatology();
                 }
 
                 /**

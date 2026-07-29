@@ -44,15 +44,30 @@
 #include <vector>
 
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
+// Header-only, and it depends on nothing but the atmosphere library it is reading an asset for.
+// Reused rather than reimplemented here so there is exactly one statement in the tree of what a
+// missing climatology means.
+#include <SushiEngine/sim/climatology_asset.hpp>
 
 namespace
 {
+    using SushiEngine::Atmosphere::AnalyticClimatology;
+    using SushiEngine::Atmosphere::Climatology;
     using SushiEngine::Atmosphere::QuasiGeostrophicCore;
     using SushiEngine::Atmosphere::QuasiGeostrophicDiagnostics;
     using SushiEngine::Atmosphere::QuasiGeostrophicGridSize;
     using SushiEngine::Atmosphere::QuasiGeostrophicParameters;
 
     constexpr double SECONDS_PER_DAY = 86400.0;
+
+    /**
+     * @brief Consecutive rising samples after which a fall is read as the peak, not as noise.
+     *
+     * Below this the window restarts instead of closing, because the early samples belong to the
+     * seed shaking down rather than to any growing mode. Four is short enough to leave most of a
+     * real growth phase inside the fit and long enough that the shake-down cannot fake it.
+     */
+    constexpr std::size_t MIN_GROWTH_SAMPLES = 4;
 
     /** @brief Everything the run is parameterized by; all of it settable from the command line. */
     struct Options
@@ -66,6 +81,24 @@ namespace
         double lower_jet_mps = 10.0;
         double perturbation_mps = 1.0;
         std::string series_path;     /**< CSV of one line per sample; empty = none. */
+
+        /**
+         * @brief Baked climatology to run on; empty runs the analytic bands.
+         *
+         * The two are not interchangeable and the run says which it got: the baked mean state
+         * is not smooth in latitude and its shear is nearly twice the analytic default's, so a
+         * growth rate measured on one is not a growth rate on the other.
+         */
+        std::string climatology_path;
+
+        /**
+         * @brief Grid-scale damping, hours; <= 0 keeps the core's own default.
+         *
+         * The parameter §11 found is calibrated against the two-cell wave and has to move with
+         * the grid. It also has to be re-examined against a mean state this much more unstable,
+         * which is what this option is for.
+         */
+        double damping_hours = 0.0;
     };
 
     bool parse(int argc, char** argv, Options& options)
@@ -94,13 +127,21 @@ namespace
                 options.perturbation_mps = std::atof(value());
             else if (std::strcmp(argument, "--series") == 0 && has_value)
                 options.series_path = value();
+            else if (std::strcmp(argument, "--climatology") == 0 && has_value)
+                options.climatology_path = value();
+            else if (std::strcmp(argument, "--damping-hours") == 0 && has_value)
+                options.damping_hours = std::atof(value());
             else
             {
                 std::printf(
                     "usage: atmosphere_global_probe [--days N] [--sample-hours N] [--seed N]\n"
                     "                               [--longitudes N] [--latitudes N]\n"
                     "                               [--upper-jet M] [--lower-jet M]\n"
-                    "                               [--perturbation M] [--series PATH]\n");
+                    "                               [--perturbation M] [--series PATH]\n"
+                    "                               [--climatology PATH] [--damping-hours H]\n"
+                    "\n"
+                    "  --upper-jet/--lower-jet describe the *analytic* mean state and are\n"
+                    "  ignored once --climatology supplies a real one.\n");
                 return false;
             }
         }
@@ -152,11 +193,33 @@ int main(int argc, char** argv)
     size.latitude_cells = options.latitude_cells;
 
     QuasiGeostrophicParameters parameters;
-    parameters.upper_jet_speed_mps = options.upper_jet_mps;
-    parameters.lower_jet_speed_mps = options.lower_jet_mps;
     parameters.seed_perturbation_mps = options.perturbation_mps;
+    if (options.damping_hours > 0.0)
+        parameters.grid_scale_damping_seconds = options.damping_hours * 3600.0;
 
-    QuasiGeostrophicCore core(size, parameters);
+    // The jet is the *mean state*, so it is set on T0 rather than on the physics (§4). The
+    // analytic bands are the sweepable case -- the probe's whole job is to vary the shear and
+    // watch the growth rate, and a baked climatology is a fixed shear it cannot sweep -- so
+    // they stay the default and a real climatology is asked for by name.
+    AnalyticClimatology bands;
+    bands.upper_jet_speed_mps = options.upper_jet_mps;
+    bands.lower_jet_speed_mps = options.lower_jet_mps;
+
+    Climatology climatology(bands);
+    if (!options.climatology_path.empty())
+    {
+        climatology = SushiEngine::Simulation::load_climatology(options.climatology_path);
+        if (!climatology.baked())
+        {
+            // Refused rather than run: a sweep that silently fell back to analytic bands would
+            // report a growth rate for a mean state nobody asked for, and it would look fine.
+            std::printf("could not read a climatology from '%s'\n",
+                        options.climatology_path.c_str());
+            return 1;
+        }
+    }
+
+    QuasiGeostrophicCore core(size, parameters, climatology);
     if (!core.valid())
     {
         std::printf("global core rejected the grid: %d x %d (longitudes must be a power of two,\n"
@@ -169,9 +232,35 @@ int main(int argc, char** argv)
     const double deformation_radius =
         std::sqrt(parameters.reduced_gravity_mps2 * parameters.layer_depth_m) /
         parameters.reference_coriolis;
+    if (climatology.baked())
+    {
+        // The shear the mean state actually carries, not the one the analytic options describe:
+        // a baked profile's peak shear is a property of the data and is what a reader needs in
+        // order to compare this run against §11's analytic numbers at all.
+        double peak_shear = 0.0;
+        double peak_latitude = 0.0;
+        for (int degree = -89; degree <= 89; ++degree)
+        {
+            const double latitude = double(degree) * 3.14159265358979323846 / 180.0;
+            const double shear = climatology.upper_zonal_wind_mps(latitude, 0.0) -
+                                 climatology.lower_zonal_wind_mps(latitude, 0.0);
+            if (std::fabs(shear) > std::fabs(peak_shear))
+            {
+                peak_shear = shear;
+                peak_latitude = double(degree);
+            }
+        }
+        std::printf("mean state: baked climatology, peak shear %.1f m/s at %+.0f deg\n",
+                    peak_shear, peak_latitude);
+    }
+    else
+    {
+        std::printf("mean state: analytic latitude bands\n");
+    }
+    std::printf("grid-scale damping %.1f h\n", parameters.grid_scale_damping_seconds / 3600.0);
     std::printf("global core %d x %d, deformation radius %.0f km, shear %.1f m/s\n",
                 size.longitude_cells, size.latitude_cells, deformation_radius / 1000.0,
-                parameters.upper_jet_speed_mps - parameters.lower_jet_speed_mps);
+                bands.upper_jet_speed_mps - bands.lower_jet_speed_mps);
     std::printf("%8s %12s %12s %9s %9s %10s %9s %9s %9s\n", "day", "eddy_KE", "zonal_KE", "jet_m/s",
                 "jet_lat", "peak_wind", "low_hPa", "water", "rain_mmd");
 
@@ -219,18 +308,34 @@ int main(int argc, char** argv)
                        << measured.peak_ascent_mps * 100.0 << ','
                        << measured.potential_enstrophy << '\n';
 
-            // The fit window: opens once the seeded perturbation has shaken down into the mode
-            // that is actually going to grow, and **closes the first time the energy falls**.
-            // Closing it matters as much as opening it — the equilibrated state is a life cycle
-            // that spends as much time decaying as growing, and a fit spanning both reports a
-            // rate near zero for a core that is demonstrably unstable.
+            // The fit window: it must contain the exponential growth and nothing else.
+            //
+            // **Closing it matters as much as opening it** — the equilibrated state is a life
+            // cycle that spends as much time decaying as growing, so a fit spanning both reports
+            // a rate near zero for a core that is demonstrably unstable.
+            //
+            // **Opening it cannot be a fixed day.** It used to be "day >= 2", which held only
+            // because the analytic mean state happened to be growing by then. A real climatology
+            // is not smooth in latitude, so the seeded perturbation spends its first few days
+            // shedding the part of itself that no mode wants before the unstable mode takes over
+            // — energy *falls* first, and a window opened at a fixed day closes again one sample
+            // later and reports nothing. So a fall is read as "still shaking down" and restarts
+            // the window, until enough growth has accumulated that a fall can only be the peak.
             if (fit_open && day >= 2.0)
             {
-                if (!fit_energy.empty() &&
-                    measured.eddy_kinetic_energy_j_per_m2 < fit_energy.back())
+                const bool falling = !fit_energy.empty() &&
+                                     measured.eddy_kinetic_energy_j_per_m2 < fit_energy.back();
+                if (falling && fit_energy.size() >= MIN_GROWTH_SAMPLES)
+                {
                     fit_open = false;
+                }
                 else
                 {
+                    if (falling)
+                    {
+                        fit_day.clear();
+                        fit_energy.clear();
+                    }
                     fit_day.push_back(day);
                     fit_energy.push_back(measured.eddy_kinetic_energy_j_per_m2);
                 }

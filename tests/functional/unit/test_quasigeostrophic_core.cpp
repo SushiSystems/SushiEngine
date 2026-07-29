@@ -64,6 +64,21 @@ namespace
         return output;
     }
 
+    /**
+     * @brief A mean state comfortably unstable at the coarse test resolution.
+     *
+     * 45 m/s over a motionless lower layer, against a Phillips critical shear near 8 m/s. The
+     * default 20 m/s shear is supercritical too, but only just, and a marginally unstable core
+     * takes simulated weeks to produce the storm several cases below need in eight days.
+     */
+    AnalyticClimatology supercritical_jet()
+    {
+        AnalyticClimatology bands;
+        bands.upper_jet_speed_mps = 45.0;
+        bands.lower_jet_speed_mps = 0.0;
+        return bands;
+    }
+
     /** @brief A grid small enough to step many times, large enough to resolve the physics. */
     QuasiGeostrophicGridSize small_grid()
     {
@@ -304,18 +319,22 @@ TEST(Unit_QuasiGeostrophicCore, ThePrescribedJetComesBackAtThePrescribedSpeed)
     // come back.
     QuasiGeostrophicParameters parameters;
     parameters.seed_perturbation_mps = 0.0; // an exactly zonal state
-    parameters.upper_jet_speed_mps = 30.0;
-    parameters.lower_jet_speed_mps = 10.0;
+
+    // The jet is T0's, not the physics': it is what the atmosphere relaxes *toward*, and it is
+    // the thing an ERA5 bake replaces one for one.
+    AnalyticClimatology bands;
+    bands.upper_jet_speed_mps = 30.0;
+    bands.lower_jet_speed_mps = 10.0;
 
     QuasiGeostrophicGridSize size;
     size.longitude_cells = 64;
     size.latitude_cells = 256; // the jet's width is what needs resolving, not its length
 
-    QuasiGeostrophicCore core(size, parameters);
+    QuasiGeostrophicCore core(size, parameters, Climatology(bands));
     ASSERT_TRUE(core.valid());
     core.seed(1);
 
-    const GeographicPosition centre{parameters.jet_latitude_radians, 1.0};
+    const GeographicPosition centre{bands.jet_latitude_radians, 1.0};
     const Wind aloft = core.wind_at(centre, 1.0);
     const Wind surface = core.wind_at(centre, 0.0);
 
@@ -331,7 +350,7 @@ TEST(Unit_QuasiGeostrophicCore, ThePrescribedJetComesBackAtThePrescribedSpeed)
                 parameters.surface_friction_radians, 1e-6);
 
     // And the turn reverses across the equator, because the rotation the friction opposes does.
-    const GeographicPosition southern{-parameters.jet_latitude_radians, 1.0};
+    const GeographicPosition southern{-bands.jet_latitude_radians, 1.0};
     const Wind southern_surface = core.wind_at(southern, 0.0);
     EXPECT_NEAR(std::atan2(southern_surface.northward_mps, southern_surface.eastward_mps),
                 -parameters.surface_friction_radians, 1e-6);
@@ -360,7 +379,7 @@ TEST(Unit_QuasiGeostrophicCore, TheMeanJetContributesNothingToThePressureAnomaly
     // is exactly the defect this replaced, and it would show up as hundreds of hectopascals.
     const QuasiGeostrophicDiagnostics measured = core.diagnostics();
     EXPECT_NEAR(measured.lowest_pressure_anomaly_hpa, 0.0, 1.0e-9);
-    EXPECT_NEAR(measured.jet_speed_mps, parameters.upper_jet_speed_mps, 1.0);
+    EXPECT_NEAR(measured.jet_speed_mps, AnalyticClimatology().upper_jet_speed_mps, 1.0);
 }
 
 TEST(Unit_QuasiGeostrophicCore, TheEddyPressureAnomalyIsSynopticAndNotAstronomical)
@@ -370,10 +389,8 @@ TEST(Unit_QuasiGeostrophicCore, TheEddyPressureAnomalyIsSynopticAndNotAstronomic
     // (see its comment for why the jet and the damping are retuned at this resolution).
     QuasiGeostrophicParameters parameters;
     parameters.grid_scale_damping_seconds = 8.0 * 3600.0;
-    parameters.upper_jet_speed_mps = 45.0;
-    parameters.lower_jet_speed_mps = 0.0;
 
-    QuasiGeostrophicCore core(small_grid(), parameters);
+    QuasiGeostrophicCore core(small_grid(), parameters, Climatology(supercritical_jet()));
     ASSERT_TRUE(core.valid());
     core.seed(5);
 
@@ -439,15 +456,18 @@ TEST(Unit_QuasiGeostrophicCore, AVorticityBlobDriftsWestwardBecauseOfBeta)
     // magnitude is bounded rather than equated, because a localized blob is a packet of
     // wavenumbers and not one of them.
     QuasiGeostrophicParameters parameters = inviscid();
-    parameters.upper_jet_speed_mps = 0.0;
-    parameters.lower_jet_speed_mps = 0.0;
     parameters.seed_perturbation_mps = 0.0;
+
+    // No mean flow at all, so the only thing that can move the blob is beta.
+    AnalyticClimatology bands;
+    bands.upper_jet_speed_mps = 0.0;
+    bands.lower_jet_speed_mps = 0.0;
 
     QuasiGeostrophicGridSize size;
     size.longitude_cells = 128;
     size.latitude_cells = 64;
 
-    QuasiGeostrophicCore core(size, parameters);
+    QuasiGeostrophicCore core(size, parameters, Climatology(bands));
     ASSERT_TRUE(core.valid());
     core.seed(1);
 
@@ -624,9 +644,7 @@ TEST(Unit_QuasiGeostrophicCore, TheThermalAnomalyIsAnEddyAndIsAFewKelvin)
 
     QuasiGeostrophicParameters lively;
     lively.grid_scale_damping_seconds = 8.0 * 3600.0;
-    lively.upper_jet_speed_mps = 45.0;
-    lively.lower_jet_speed_mps = 0.0;
-    QuasiGeostrophicCore core(small_grid(), lively);
+    QuasiGeostrophicCore core(small_grid(), lively, Climatology(supercritical_jet()));
     core.seed(5);
     for (int day = 0; day < 8; ++day)
         for (int i = 0; i < 240; ++i)
@@ -686,10 +704,8 @@ TEST(Unit_QuasiGeostrophicCore, CyclonesGrowOutOfTheMeanStateWithNothingPlacingT
     // default damping is calibrated for a grid where it is twelve.
     QuasiGeostrophicParameters parameters;
     parameters.grid_scale_damping_seconds = 8.0 * 3600.0;
-    parameters.upper_jet_speed_mps = 45.0;
-    parameters.lower_jet_speed_mps = 0.0;
 
-    QuasiGeostrophicCore core(small_grid(), parameters);
+    QuasiGeostrophicCore core(small_grid(), parameters, Climatology(supercritical_jet()));
     ASSERT_TRUE(core.valid());
     core.seed(5);
 

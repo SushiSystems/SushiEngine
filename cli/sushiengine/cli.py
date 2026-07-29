@@ -6,11 +6,13 @@ layer in ``sushiengine.services``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Optional
 
 import typer
 
 from .services import audio as audio_svc
+from .services import climatology as climatology_svc
 from .services import diag as diag_svc
 from .services import docker as docker_svc
 from .services import editor as editor_svc
@@ -29,6 +31,10 @@ app = typer.Typer(
 docker_app = typer.Typer(help="Build and run the containerized dev environment.",
                          no_args_is_help=True)
 app.add_typer(docker_app, name="docker")
+
+climatology_app = typer.Typer(help="Bake and inspect the T0 climatology asset.",
+                              no_args_is_help=True)
+app.add_typer(climatology_app, name="climatology")
 
 
 # --------------------------------------------------------------------------- #
@@ -157,6 +163,42 @@ def audio(
     device (a no-op on a headless host).
     """
     raise typer.Exit(audio_svc.build_and_run(run=not no_run))
+
+
+# --------------------------------------------------------------------------- #
+# climatology
+# --------------------------------------------------------------------------- #
+@climatology_app.command("bake")
+def climatology_bake(
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Re-download the sources instead of using the cache."),
+    bands: int = typer.Option(
+        climatology_svc.DEFAULT_BANDS, "--bands", min=2,
+        help="Latitude bands for the zonal profiles (one degree by default)."),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Where to write; defaults to assets/atmosphere/climatology.set0."),
+):
+    """Bake T0's climatology from public reanalysis and coastline data.
+
+    Downloads about 15 MB once (NCEP-NCAR Reanalysis 1, NOAA OISST V2, Natural Earth —
+    no credentials), derives the three zonal profiles the global core relaxes toward plus
+    the two surface fields, and writes the asset with its provenance inside it. Prints an
+    audit of everything it read and derived, and refuses to write if the land total, the
+    implied humidity, or the round trip disagrees.
+
+    Needs the optional extras: pip install -e cli[climatology]
+    """
+    raise typer.Exit(climatology_svc.bake(refresh=refresh, bands=bands, output=output))
+
+
+@climatology_app.command("inspect")
+def climatology_inspect(
+    path: Optional[Path] = typer.Argument(
+        None, help="Asset to read; defaults to assets/atmosphere/climatology.set0."),
+):
+    """Print a baked asset's grid, extremes, and provenance."""
+    raise typer.Exit(climatology_svc.inspect(path))
 
 
 # --------------------------------------------------------------------------- #
