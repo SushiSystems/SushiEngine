@@ -51,6 +51,9 @@ add_executable(se_functional_tests
     functional/unit/test_collision.cpp
     functional/unit/test_broadphase.cpp
     functional/unit/test_contact_body.cpp
+    # Contact manifolds: the several points two shapes touch at, which is what a
+    # box needs to rest rather than rock (P1, §7.3).
+    functional/unit/test_manifold.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp
