@@ -63,6 +63,9 @@ add_executable(se_functional_tests
     # The general convex narrowphase: one GJK/EPA routine that collides every
     # convex shape with every other, so a new shape is a support function (P2, §7.2).
     functional/unit/test_gjk.cpp
+    # And turning its single deepest point into the patch two shapes rest on, so a
+    # cooked hull settles the way a primitive box already does (P2, §7.3).
+    functional/unit/test_convex_manifold.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp
