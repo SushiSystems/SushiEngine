@@ -21,6 +21,8 @@
 
 #include "animation_panel.hpp"
 
+#include "../ui/panel_widgets.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -49,37 +51,6 @@ namespace SushiEngine
             using SushiEngine::Simulation::EntityTransform;
             using SushiEngine::Simulation::IWorldEditor;
             using SushiEngine::Simulation::NULL_ENTITY;
-
-            struct AnimationState
-            {
-                float time = 0.0f;
-                float sample_rate = 30.0f;
-                float length = 3.0f;
-                bool playing = false;
-                bool recording = false;
-                char save_path[256] = "clip.sushianim";
-                std::string status;
-
-                EntityId target = NULL_ENTITY; /**< The Hierarchy entity being animated. */
-                std::string target_name;
-                JointChannels channels; /**< Position/rotation/scale curves of the target transform. */
-                bool have_last = false;
-                EntityTransform last_seen{}; /**< The transform read last frame (change detection). */
-
-                int selected_row = 0;
-                int selected_key = -1;
-            };
-
-            AnimationState& state()
-            {
-                static AnimationState instance;
-                return instance;
-            }
-
-            IWorldEditor* world_of(EditorContext& context)
-            {
-                return context.simulation != nullptr ? &context.simulation->world() : nullptr;
-            }
 
             bool has_keys(const AnimationState& s)
             {
@@ -329,7 +300,7 @@ namespace SushiEngine
             }
         } // namespace
 
-        void draw_animation_panel(EditorContext& context)
+        void draw_animation_panel(EditorContext& context, AnimationState& panel_state)
         {
             if (!context.panels.animation)
                 return;
@@ -339,7 +310,7 @@ namespace SushiEngine
                 return;
             }
 
-            AnimationState& s = state();
+            AnimationState& s = panel_state;
             IWorldEditor* world = world_of(context);
             const EntityId id = context.selected_entity;
             const bool has_target =

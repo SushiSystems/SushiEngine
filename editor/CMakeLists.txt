@@ -56,6 +56,20 @@ target_compile_features(sushi_imgui PUBLIC cxx_std_17)
 add_executable(se_editor
     main.cpp
     ui/editor_panels.cpp
+    ui/panel_widgets.cpp
+    atmosphere/meteorology_panel.cpp
+    environment/weather_panel.cpp
+    vfx/particle_panel.cpp
+    render/lighting_panel.cpp
+    render/render_settings_panels.cpp
+    project/project_panel.cpp
+    scene/scene_commands.cpp
+    scene/hierarchy_panel.cpp
+    scene/inspector_panel.cpp
+    scripting/script_panel.cpp
+    ui/modals.cpp
+    core/preferences_window.cpp
+    input/input_manager_window.cpp
     ui/material_inspector.cpp
     window/sdl_window.cpp
     ui/imgui_backend.cpp

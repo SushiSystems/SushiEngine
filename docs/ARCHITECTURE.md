@@ -315,7 +315,7 @@ gates drawing on `has_shape` **and** `has_renderer` together, because the mesh
 (Shape) is now a feature of the Renderer rather than an independent component: the
 Inspector edits the mesh kind and dimensions inside the Renderer header, adding a
 Renderer attaches a default Box mesh, and removing the Renderer takes the mesh with
-it (`editor_panels.cpp`). `create()` makes a truly empty entity — a plain
+it (`editor/scene/inspector_panel.cpp`). `create()` makes a truly empty entity — a plain
 `Transform`/`Orientation` with no Renderer and no mesh — so a bare "Create Entity"
 draws nothing, matching Unity's empty GameObject; the mesh kind is also now editable
 (Box↔Sphere↔Cylinder) rather than fixed at creation. The Vulkan scene view (`vulkan_scene_view.cpp`) builds a unit sphere and
@@ -327,7 +327,7 @@ Box still renders as the historical unit cube.
 
 Entity creation ("Create Empty Entity", Camera, and the Box/Sphere/Cylinder/Terrain
 `Objects` submenu) lives in one place, `draw_create_object_menu_items` in
-`editor_panels.cpp`, called by the Entity menu and every Hierarchy context menu
+`editor/scene/scene_commands.cpp`, called by the Entity menu and every Hierarchy context menu
 (row, filtered-search row, empty space) so they can never drift apart. Copy/Cut/
 Paste follow the same pattern via `draw_clipboard_menu_items`: Copy snapshots the
 selection through `IWorldEditor`'s getters into `EditorContext::ClipboardEntity`
@@ -503,7 +503,7 @@ applies the live-effective ones (theme, camera speed). The precision setting sel
 physics-solve precision of §6 (a live runtime choice that rebuilds the running
 simulation from a scene snapshot); the boundary `Scalar` itself is always double.
 
-The **Project panel** (`editor/editor_panels.cpp`) is a two-pane file browser over the
+The **Project panel** (`editor/project/project_panel.cpp`) is a two-pane file browser over the
 on-disk project: a recursive folder tree and a searchable icon-grid of the current
 folder, supporting create/rename/delete, "Show in Explorer", and double-click open
 (text extensions open in the built-in text editor; anything else opens via the OS
@@ -548,7 +548,7 @@ can compare against a stashed value without diffing snapshots. `EditorContext` s
 it as `saved_scene_revision` on every successful New/Open/Save; `scene_is_dirty()`
 (`editor_context.hpp`) is just the inequality of the two, and backs both the status
 bar's `*` on the scene name and the close-confirm prompt below. Ctrl+S and
-`File ▸ Save Scene` both go through `save_current_scene()` (`editor_panels.*`), which
+`File ▸ Save Scene` both go through `save_current_scene()` (`editor/scene/scene_commands.*`), which
 saves straight to `scene_path` if set or opens the existing Save-As prompt if the
 scene has never been saved, so all three save entry points (menu, shortcut,
 close-confirm) agree on when the scene becomes clean. Closing the window (the title
@@ -1619,15 +1619,44 @@ differently between runs.
   the editor window; live simulation state enters as the opaque sink node of §5.
 - **Editor host shell.** The editor as a host application that runs the game as a
   scene, with play/pause and inspection panels. The `se_editor` shell (SDL2 window +
-  Dear ImGui presenting through the Vulkan renderer, `editor/`) currently hosts a
-  Unity-style panel set — Hierarchy (with drag-and-drop reparenting, rename, and
-  filtering), Inspector, Project browser, a tabbed Text Editor, a fixed Play/Pause/Step
-  toolbar strip, a Console, and a Statistics panel, the windows toggled from a
-  domain-grouped Window menu — over an
-  editor-owned `Scene` model (`scene_model.hpp`, `editor_context.hpp`), decoupled from
-  the runtime behind the windowing, presentation, and ImGui-adapter seams of §5.
-  Wiring these panels onto a live World, plus
-  a viewport and play/pause, is the remaining work.
+  Dear ImGui presenting through the Vulkan renderer, `editor/`) hosts a Unity-style
+  panel set — Hierarchy (with drag-and-drop reparenting, rename, and filtering),
+  Inspector, Project browser, a tabbed Text Editor, a fixed Play/Pause/Step toolbar
+  strip, a Console, and a Statistics panel, the windows toggled from a domain-grouped
+  Window menu — over the **live World** itself: there is no editor-side scene model,
+  because a second copy of the truth is a second thing to keep in sync. Panels read
+  and write through `Simulation::IWorldEditor`, and `EditorContext`
+  (`core/editor_context.hpp`) carries only what is genuinely the editor's: the
+  selection, the undo history, the panel set, and each panel's between-frame scratch
+  (`core/panel_state.hpp`). The runtime stays behind the windowing, presentation, and
+  ImGui-adapter seams of §5.
+  - **One directory per domain, one panel per translation unit.** `scene/`
+    (hierarchy, inspector, the New/Open/Save/clipboard commands), `render/`
+    (the `RenderSettings` panels, lighting), `environment/` and `atmosphere/`
+    (the sky and the weather simulation that drives it), `project/` (the browser and
+    the documents it opens), `vfx/`, `animation/`, `audio/`, `physics/`,
+    `scripting/`, `input/`. `ui/editor_panels.cpp` keeps only what is genuinely the
+    shell: the menu bar, the toolbar strip, the Console, Statistics, the status bar,
+    the theme, and the default dock layout. The vocabulary those panels share —
+    undo-aware fields, the `Scalar`↔float round trip, the inline rename, the
+    environment-edit bracket, the component-section header — lives once in
+    `ui/panel_widgets.hpp`.
+  - **The Inspector edits the selection, not an entity.** `ui/component_editor.hpp`
+    names a component field by a pointer-to-member, which is what lets one mechanism
+    read that field from every selected entity to decide whether they agree and write
+    an edit back to all of them, for any component, without knowing which. The
+    alternative — diffing the component's bytes before and after the widgets run — is
+    exhaustive for free and unsound: nudging a float from 1.0 to 1.0000001 changes only
+    its low bytes, and copying those into another entity's 5.0 leaves 5.000-something.
+    A field is the unit of an edit, so a field is what the mechanism addresses. Where a
+    widget can render indeterminacy it does (a checkbox through ImGui's mixed-value
+    flag, a numeric field as a dash); where it cannot, the row is labelled `mixed`
+    rather than quietly showing one entity's value as if it were all of theirs. The
+    same class scopes to a single entity (`OneEntity`) for the list views — the Lighting
+    panel's light list edits the row you clicked, not the Hierarchy's selection — and
+    each component's *field list* lives with its domain (`draw_light_fields` in
+    `render/lighting_panel.hpp`, the VFX and audio sections likewise), so a component
+    authored in two windows cannot offer two different sets of fields.
 
 ## 11. UI (retained ECS canvas)
 
@@ -2835,7 +2864,7 @@ second suite proves the visible half of the acceptance bar — a hand-placed low
 front measurably sweeps past a fixed point over simulated hours and the compiled
 `Cloudscape` reacts at the moment it does.
 
-**Editor integration.** The Environment panel's Clouds section (`editor/ui/editor_panels.cpp`)
+**Editor integration.** The Environment panel's Clouds section (`editor/environment/weather_panel.cpp`)
 gained a Manual/Procedural mode radio, a synoptic map overlay drawn from live T1 state, a
 per-system authoring list (add/remove, depth/radius/speed/heading sliders), and a
 time-of-day scrub tied to the master epoch; the existing preset buttons now seed a
@@ -3386,7 +3415,7 @@ at sixteen texels of whichever window is being baked. The near window's floor is
 every genus is above it, so the near field is untouched and the far field draws cloud clusters
 instead of a slab.
 
-**The Meteorology panel** (`editor/ui/editor_panels.cpp`) is the tuning and logging surface for
+**The Meteorology panel** (`editor/atmosphere/meteorology_panel.cpp`) is the tuning and logging surface for
 all of this: the sky's animation rate against the rate the nest can actually step, the solar
 forcing, the observer's column, and a CSV log sampled on the *nest's* clock rather than the wall
 clock so runs at different time scales stay comparable. When the column is empty it names which

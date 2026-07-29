@@ -57,7 +57,18 @@
 #include "core/autosave.hpp"
 #include "core/editor_context.hpp"
 #include "core/game_view_render_policy.hpp"
+#include "atmosphere/meteorology_panel.hpp"
+#include "environment/weather_panel.hpp"
+#include "render/lighting_panel.hpp"
+#include "project/project_panel.hpp"
+#include "render/render_settings_panels.hpp"
+#include "core/preferences_window.hpp"
+#include "input/input_manager_window.hpp"
+#include "scene/hierarchy_panel.hpp"
+#include "scene/inspector_panel.hpp"
+#include "scene/scene_commands.hpp"
 #include "ui/editor_panels.hpp"
+#include "ui/modals.hpp"
 #include "ui/imgui_backend.hpp"
 #include "core/preferences.hpp"
 #include "serialization/effect_serializer.hpp"
@@ -319,6 +330,11 @@ int main(int argc, char** argv)
         animated_mesh_preview.load_gltf("examples/assets/rigged_arm_anim.gltf", *context.assets);
         context.animated_mesh_preview = &animated_mesh_preview;
 
+        // The two animation-authoring documents, owned here for the same reason the previews
+        // are: they outlive a frame, and exactly one of each should exist.
+        SushiEngine::Editor::AnimationState animation_state;
+        SushiEngine::Editor::GraphState animator_graph;
+
         // The editor opens with no scene, which is the "new scene" state — so the world
         // starts from the user's default environment. A scene opened later brings its
         // own: the environment is scene content, loaded and saved with the file.
@@ -366,6 +382,7 @@ int main(int argc, char** argv)
                 std::chrono::steady_clock::now();
             const SushiEngine::Scalar real_delta_seconds =
                 std::chrono::duration<SushiEngine::Scalar>(frame_time - last_frame_time).count();
+            context.console.uptime_seconds += static_cast<double>(real_delta_seconds);
             last_frame_time = frame_time;
 
             // Advance the VFX preview and rebuild this frame's emitter views, clamped so a
@@ -504,6 +521,7 @@ int main(int argc, char** argv)
             // hijacked — the old `!WantTextInput` guard, centralized.
             if (simulation != nullptr)
             {
+                using EditorContextType = SushiEngine::Editor::EditorContext;
                 const SushiEngine::Input::ActionSnapshot& actions = input.snapshot();
                 SushiEngine::Simulation::IWorldEditor& editor_world = simulation->world();
                 if (actions.pressed("Undo") && context.history.undo(editor_world))
@@ -513,11 +531,15 @@ int main(int argc, char** argv)
                 else if (actions.pressed("Save"))
                     SushiEngine::Editor::save_current_scene(context);
                 else if (actions.pressed("Copy"))
-                    SushiEngine::Editor::copy_selection(context);
+                    context.pending_entity_command = EditorContextType::EntityCommand::Copy;
                 else if (actions.pressed("Cut"))
-                    SushiEngine::Editor::cut_selection(context);
+                    context.pending_entity_command = EditorContextType::EntityCommand::Cut;
                 else if (actions.pressed("Paste"))
-                    SushiEngine::Editor::paste_clipboard(context);
+                    context.pending_entity_command = EditorContextType::EntityCommand::Paste;
+                else if (actions.pressed("Duplicate"))
+                    context.pending_entity_command = EditorContextType::EntityCommand::Duplicate;
+                else if (actions.pressed("Delete"))
+                    context.pending_entity_command = EditorContextType::EntityCommand::Delete;
                 else if (actions.pressed("NewScene"))
                     SushiEngine::Editor::request_new_scene(context);
                 if (actions.pressed("SceneFullscreen"))
@@ -811,26 +833,38 @@ int main(int argc, char** argv)
                 // Unity's Shift+Space maximize, through the same fullscreen state
                 // machine the Game view's checkbox drives.
                 scene_view.set_fullscreen(context.scene_view_fullscreen);
-                gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
-                                               instances.size(), environment, selected, true,
-                                               gizmo_target, context.gizmo_mode, gizmo_space,
-                                               &snap, nullptr, strands.data(), strands.size(),
-                                               scene.lights.data(), scene.lights.size(),
-                                               scene.decals.data(), scene.decals.size(),
-                                               &scene_ui, context.preferences.grid_visible, nullptr,
-                                               // The Scene view shows the world's own emitters,
-                                               // which are entities. The previewed effect is drawn
-                                               // here only when the author asks for it, since it
-                                               // belongs to nothing and cannot be selected.
-                                               false,
-                                               particle_preview.scene_preview() ? &particle_preview
-                                                                                : nullptr,
-                                               particle_billboards.data(),
-                                               particle_billboards.size(), &animated_mesh_preview,
-                                               scene_emitters, scene_emitter_count,
-                                               /*ik_gizmo=*/true, /*preview_controls=*/false,
-                                               nullptr, scene.skinned_instances.data(),
-                                               scene.skinned_instances.size());
+                SushiEngine::Editor::ViewportFrameInputs scene_inputs;
+                scene_inputs.instances = instances.data();
+                scene_inputs.instance_count = instances.size();
+                scene_inputs.pickable = true;
+                scene_inputs.gizmo_target = gizmo_target;
+                scene_inputs.gizmo_mode = context.gizmo_mode;
+                scene_inputs.gizmo_space = gizmo_space;
+                scene_inputs.gizmo_snap = &snap;
+                scene_inputs.strands = strands.data();
+                scene_inputs.strand_count = strands.size();
+                scene_inputs.lights = scene.lights.data();
+                scene_inputs.light_count = scene.lights.size();
+                scene_inputs.decals = scene.decals.data();
+                scene_inputs.decal_count = scene.decals.size();
+                scene_inputs.ui_overlay = &scene_ui;
+                scene_inputs.show_grid = context.preferences.grid_visible;
+                scene_inputs.skeleton_names = false;
+                // The Scene view shows the world's own emitters, which are entities. The
+                // previewed effect is drawn here only when the author asks for it, since it
+                // belongs to nothing and cannot be selected.
+                scene_inputs.particle_preview =
+                    particle_preview.scene_preview() ? &particle_preview : nullptr;
+                scene_inputs.billboards = particle_billboards.data();
+                scene_inputs.billboard_count = particle_billboards.size();
+                scene_inputs.animated_mesh = &animated_mesh_preview;
+                scene_inputs.emitters = scene_emitters;
+                scene_inputs.emitter_count = scene_emitter_count;
+                scene_inputs.ik_gizmo = true;
+                scene_inputs.scene_skinned = scene.skinned_instances.data();
+                scene_inputs.scene_skinned_count = scene.skinned_instances.size();
+                gizmo_edited = scene_view.draw(context.panels.scene_view, environment, selected,
+                                               scene_inputs);
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
@@ -857,18 +891,28 @@ int main(int argc, char** argv)
                     // Game view; it is not pickable here so nothing writes this back.
                     std::uint32_t no_selection = 0;
                     game_view.set_render_settings(context.render_settings);
-                    game_view.draw(context.panels.game_view, instances.data(), instances.size(),
-                                   environment, no_selection, false, nullptr,
-                                   SushiEngine::Editor::GizmoMode::Translate,
-                                   SushiEngine::Editor::GizmoSpace::World, nullptr, &selector,
-                                   strands.data(), strands.size(), scene.lights.data(),
-                                   scene.lights.size(), scene.decals.data(), scene.decals.size(),
-                                   &game_ui, false, nullptr, true, nullptr,
-                                   particle_billboards.data(), particle_billboards.size(),
-                                   &animated_mesh_preview, scene_emitters, scene_emitter_count,
-                                   /*ik_gizmo=*/false, /*preview_controls=*/false,
-                                   &context.game_view_settings, scene.skinned_instances.data(),
-                                   scene.skinned_instances.size());
+                    SushiEngine::Editor::ViewportFrameInputs game_inputs;
+                    game_inputs.instances = instances.data();
+                    game_inputs.instance_count = instances.size();
+                    game_inputs.pickable = false;
+                    game_inputs.display = &selector;
+                    game_inputs.strands = strands.data();
+                    game_inputs.strand_count = strands.size();
+                    game_inputs.lights = scene.lights.data();
+                    game_inputs.light_count = scene.lights.size();
+                    game_inputs.decals = scene.decals.data();
+                    game_inputs.decal_count = scene.decals.size();
+                    game_inputs.ui_overlay = &game_ui;
+                    game_inputs.billboards = particle_billboards.data();
+                    game_inputs.billboard_count = particle_billboards.size();
+                    game_inputs.animated_mesh = &animated_mesh_preview;
+                    game_inputs.emitters = scene_emitters;
+                    game_inputs.emitter_count = scene_emitter_count;
+                    game_inputs.game_view = &context.game_view_settings;
+                    game_inputs.scene_skinned = scene.skinned_instances.data();
+                    game_inputs.scene_skinned_count = scene.skinned_instances.size();
+                    game_view.draw(context.panels.game_view, environment, no_selection,
+                                   game_inputs);
                 }
                 else
                 {
@@ -890,13 +934,16 @@ int main(int argc, char** argv)
                 // property of this surface rather than a separate window per kind of thing.
                 std::uint32_t no_selection = 0;
                 preview_view.set_render_settings(context.render_settings);
-                preview_view.draw(context.panels.preview, nullptr, 0, environment, no_selection,
-                                  false, nullptr, SushiEngine::Editor::GizmoMode::Translate,
-                                  SushiEngine::Editor::GizmoSpace::World, nullptr, nullptr, nullptr,
-                                  0, nullptr, 0, nullptr, 0, nullptr,
-                                  context.preferences.grid_visible, nullptr, false,
-                                  &particle_preview, nullptr, 0, &animated_mesh_preview, nullptr, 0,
-                                  /*ik_gizmo=*/true, /*preview_controls=*/true);
+                SushiEngine::Editor::ViewportFrameInputs preview_inputs;
+                preview_inputs.pickable = false;
+                preview_inputs.show_grid = context.preferences.grid_visible;
+                preview_inputs.skeleton_names = false;
+                preview_inputs.particle_preview = &particle_preview;
+                preview_inputs.animated_mesh = &animated_mesh_preview;
+                preview_inputs.ik_gizmo = true;
+                preview_inputs.preview_controls = true;
+                preview_view.draw(context.panels.preview, environment, no_selection,
+                                  preview_inputs);
             }
 
             // Copy each visible viewport's per-pass GPU times out for the Statistics
@@ -1050,8 +1097,8 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);
             SushiEngine::Editor::draw_statistics_panel(context);
-            SushiEngine::Editor::draw_animation_panel(context);
-            SushiEngine::Editor::draw_animator_graph_panel(context);
+            SushiEngine::Editor::draw_animation_panel(context, animation_state);
+            SushiEngine::Editor::draw_animator_graph_panel(context, animator_graph);
             SushiEngine::Editor::draw_animator_preview_panel(context);
             SushiEngine::Editor::draw_audio_mixer_panel(context, audio_system);
             SushiEngine::Editor::draw_audio_profiler_panel(context, audio_system);
@@ -1063,6 +1110,12 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_save_scene_as_modal(context, running);
             SushiEngine::Editor::draw_exit_confirm_modal(context, running);
             SushiEngine::Editor::draw_scene_action_confirm_modal(context);
+
+            // Copy/Cut/Paste/Duplicate/Delete run here, after every panel has drawn: each
+            // of them creates or destroys entities, and the Hierarchy offers them from
+            // inside a walk over its own copy of the entity list. Acting where the gesture
+            // happens would leave the rest of that walk holding stale ids.
+            SushiEngine::Editor::run_pending_entity_command(context);
 
             // Persist preferences once per frame after any edit, and apply the fields
             // that take effect live (the camera speed; theme is applied on change).

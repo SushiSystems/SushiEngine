@@ -24,12 +24,44 @@
 #ifndef SUSHIENGINE_EDITOR_ANIMATION_PANEL_HPP
 #define SUSHIENGINE_EDITOR_ANIMATION_PANEL_HPP
 
+#include <string>
+
+#include <SushiEngine/animation/keyframe.hpp>
+
 #include "../core/editor_context.hpp"
 
 namespace SushiEngine
 {
     namespace Editor
     {
+        /**
+         * @brief The Animation window's document: the clip being authored, and the transport.
+         *
+         * Held by the caller rather than as a static inside the panel, so the clip under
+         * authoring is inspectable state with one owner instead of a hidden process-global
+         * that no second view or reset could ever reach.
+         */
+        struct AnimationState
+        {
+            float time = 0.0f;         /**< Playhead position, in seconds. */
+            float sample_rate = 30.0f; /**< Bake rate, in samples per second. */
+            float length = 3.0f;       /**< Clip length, in seconds. */
+            bool playing = false;      /**< Transport is running. */
+            bool recording = false;    /**< Moving the target keys it at the playhead. */
+            char save_path[256] = "clip.sushianim"; /**< Bake destination. */
+            std::string status;                     /**< Result of the last bake. */
+
+            Simulation::EntityId target = Simulation::NULL_ENTITY; /**< The entity being animated. */
+            std::string target_name;
+            /** Position/rotation/scale curves of the target's transform. */
+            Animation::JointChannels channels;
+            bool have_last = false;                    /**< Whether `last_seen` holds a reading. */
+            Simulation::EntityTransform last_seen{};   /**< Last frame's transform (change detection). */
+
+            int selected_row = 0;  /**< Highlighted track in the timeline. */
+            int selected_key = -1; /**< Highlighted key, or -1 for none. */
+        };
+
         /**
          * @brief Draw the Animation window: record and key the selected Hierarchy object.
          *
@@ -39,12 +71,12 @@ namespace SushiEngine
          * off, scrubbing or playing evaluates the curves and drives the object live in the Scene
          * view. A transport, an autokey timeline of draggable key diamonds (click to add,
          * right-click to delete), and Bake, which resamples to a dense `.sushianim` on disk. With
-         * nothing selected it falls back to abstract named scalar tracks. The panel owns its
-         * document in file-static state, like the other panels' widget state.
+         * nothing selected it falls back to abstract named scalar tracks.
          *
          * @param context Shared editor state; the selected entity, the world editor, the visibility flag.
+         * @param state   The clip being authored and the transport driving it, owned by the caller.
          */
-        void draw_animation_panel(EditorContext& context);
+        void draw_animation_panel(EditorContext& context, AnimationState& state);
     } // namespace Editor
 } // namespace SushiEngine
 

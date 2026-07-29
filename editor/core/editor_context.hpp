@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -42,9 +43,11 @@
 #include <SushiEngine/sim/simulation_settings.hpp>
 
 #include "command_history.hpp"
+#include "console.hpp"
 #include "../gizmo/gizmo_controller.hpp"
 #include "game_view_settings.hpp"
 #include "meteorology_log.hpp"
+#include "panel_state.hpp"
 #include "panel_visibility.hpp"
 #include "preferences.hpp"
 
@@ -148,6 +151,22 @@ namespace SushiEngine
             bool has_ui = false;
             SushiEngine::Simulation::UIElementParams ui_params;
             std::vector<SushiEngine::Simulation::ScriptComponent> scripts;
+        };
+
+        /**
+         * @brief One component's authored values, remembered by Copy Values.
+         *
+         * Type-erased behind the component's display name, and it is that name which gates
+         * the cast back on paste (see `component_editor.hpp`): a Light's values can only
+         * ever be read back as a Light's. Erasing rather than enumerating keeps this one
+         * field instead of a variant that has to grow a member per component — and lets it
+         * hold the components whose parameters are not trivially copyable, like the Decal's
+         * map paths.
+         */
+        struct ComponentValueClipboard
+        {
+            std::string component;       /**< Display name of the component the values came from. */
+            std::shared_ptr<void> values; /**< A copy of that component's parameter aggregate. */
         };
 
         /** @brief One render pass's GPU time, copied out of a scene view for display. */
@@ -263,6 +282,25 @@ namespace SushiEngine
             PendingSceneAction pending_scene_action = PendingSceneAction::None;
             std::string pending_scene_open_path;
 
+            // A command against the selection, parked until the frame's panels have all
+            // been drawn. Every one of these creates or destroys entities, and the surfaces
+            // that offer them (the Hierarchy's row menus, its empty-space menu, the Edit
+            // menu, the keyboard shortcuts) are drawn while a local copy of the entity list
+            // is being walked — so acting immediately leaves the rest of that walk holding
+            // ids of entities that no longer exist. Deferring is not a nicety here; it is
+            // the difference between a correct frame and reading a destroyed entity.
+            // Resolved once per frame by `run_pending_entity_command`.
+            enum class EntityCommand
+            {
+                None,
+                Copy,
+                Cut,
+                Paste,
+                Duplicate,
+                Delete
+            };
+            EntityCommand pending_entity_command = EntityCommand::None;
+
             // Project panel state: the single selected file/folder (full path, empty if
             // none), the path currently in inline rename, and the name-search filter
             // applied to the current folder's contents.
@@ -270,10 +308,28 @@ namespace SushiEngine
             std::string renaming_project_path;
             std::string project_filter;
 
+            // Scratch state for the shared inline-rename field (`inline_rename_field`),
+            // which the Hierarchy's tree rows, its filtered search rows, and the Project
+            // tiles all draw. Held here rather than as a static inside each panel so the
+            // three renames cannot fight over one buffer, and so the state is inspectable.
+            // `rename_target` is the opaque key of the row being renamed (an entity id or a
+            // path), used only to detect when the target changed and the buffer needs
+            // re-seeding; empty means no rename field is live.
+            std::string rename_target;
+            std::string rename_buffer;
+
             std::vector<Document> documents;
             int active_document = -1;
 
+            // Index of the document whose close was requested while it still had unsaved
+            // changes, or -1 when no prompt is up. The tab stays open until the prompt is
+            // answered, so closing a dirty buffer can no longer discard it silently.
+            int closing_document = -1;
+
             PanelVisibility panels;
+
+            // Between-frame scratch for the panels that keep any (see panel_state.hpp).
+            PanelState panel_state;
 
             // One-shot request from Window ▸ Reset Layout: the main loop rebuilds the
             // default dock layout and resets `panels` to defaults on the frame it is
@@ -352,7 +408,13 @@ namespace SushiEngine
 
             std::vector<ClipboardEntity> clipboard;
 
-            std::vector<std::string> console_lines;
+            // The last Copy Values from a component header, replayed by Paste Values on a
+            // header of the same component. Deliberately separate from `clipboard`: copying
+            // a Rigid Body's tuning to another entity must not destroy the entities the user
+            // had on the entity clipboard, and Ctrl+V must not paste half an entity.
+            ComponentValueClipboard component_clipboard;
+
+            Console console;
 
             std::size_t world_entity_count = 0;
 
@@ -491,24 +553,19 @@ namespace SushiEngine
          * @brief Append one line to the editor console log.
          *
          * A tiny free function rather than a method so panels depend only on the data
-         * aggregate, not on a logging interface; the console panel renders whatever has
-         * accumulated. Older lines are trimmed to keep the buffer bounded.
+         * aggregate, not on a logging interface. The level defaults to Info so the ~150
+         * existing call sites keep meaning what they meant; anything that reports a problem
+         * should pass Warning or Error, because a console where everything is Info is a
+         * console nobody can filter.
          *
-         * @param context Editor state whose console buffer receives the line.
+         * @param context Editor state whose console receives the line.
          * @param message Text to record.
+         * @param level How much attention the line wants.
          */
-        inline void editor_log(EditorContext& context, const std::string& message)
+        inline void editor_log(EditorContext& context, const std::string& message,
+                               LogLevel level = LogLevel::Info)
         {
-            context.console_lines.push_back(message);
-            constexpr std::size_t MAX_CONSOLE_LINES = 1000;
-            if (context.console_lines.size() > MAX_CONSOLE_LINES)
-            {
-                context.console_lines.erase(
-                    context.console_lines.begin(),
-                    context.console_lines.begin() +
-                        static_cast<std::ptrdiff_t>(context.console_lines.size() -
-                                                    MAX_CONSOLE_LINES));
-            }
+            context.console.append(level, message);
         }
 
         /**

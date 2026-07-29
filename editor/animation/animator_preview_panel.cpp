@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include "animated_mesh_preview.hpp"
 
@@ -227,14 +228,14 @@ namespace SushiEngine
             // The character loader: type or paste a rigged .gltf/.glb path — or
             // double-click one in the Project panel, which routes here. This replaced the
             // hard-coded demo asset as the only way a character ever reached the preview.
-            static char character_path[512] = "examples/assets/rigged_arm_anim.gltf";
+            std::string& character_path = context.panel_state.character_path;
             ImGui::SetNextItemWidth(340.0f);
-            ImGui::InputText("##character_path", character_path, sizeof(character_path));
+            ImGui::InputText("##character_path", &character_path);
             ImGui::SameLine();
             ImGui::BeginDisabled(context.assets == nullptr);
             if (ImGui::Button("Load Character"))
             {
-                if (preview->load_gltf(character_path, *context.assets))
+                if (preview->load_gltf(character_path.c_str(), *context.assets))
                     context.panels.preview = true;
             }
             ImGui::EndDisabled();

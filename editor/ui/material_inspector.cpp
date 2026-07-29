@@ -23,6 +23,8 @@
 
 #include "material_inspector.hpp"
 
+#include "panel_widgets.hpp"
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -68,11 +70,11 @@ namespace SushiEngine
                 char buffer[512];
                 std::snprintf(buffer, sizeof(buffer), "%s", path.c_str());
 
-                ImGui::SetNextItemWidth(-140.0f);
-                if (ImGui::InputText(label, buffer, sizeof(buffer),
-                                     ImGuiInputTextFlags_EnterReturnsTrue))
+                // Loading the slot from whatever `path` now holds — the one place the id is
+                // swapped, so a typed path, a Load click and a dropped file cannot diverge
+                // in how they release the previous texture.
+                const auto reload = [&]()
                 {
-                    path = buffer;
                     const TextureId loaded = path.empty()
                                                  ? INVALID_TEXTURE
                                                  : assets.load_texture(path.c_str(), color_space);
@@ -80,24 +82,32 @@ namespace SushiEngine
                         assets.release_texture(texture);
                     texture = loaded;
                     changed = true;
+                };
+
+                ImGui::SetNextItemWidth(-140.0f);
+                if (ImGui::InputText(label, buffer, sizeof(buffer),
+                                     ImGuiInputTextFlags_EnterReturnsTrue))
+                {
+                    path = buffer;
+                    reload();
                 }
                 else if (path != buffer)
                 {
                     path = buffer;
                     changed = true;
                 }
+                // Dropping a file from the Project browser onto the field is the same edit as
+                // typing its path and pressing Enter, which is why it goes through `reload`.
+                std::string dropped;
+                if (accept_asset_drop(dropped))
+                {
+                    path = dropped;
+                    reload();
+                }
 
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Load"))
-                {
-                    const TextureId loaded = path.empty()
-                                                 ? INVALID_TEXTURE
-                                                 : assets.load_texture(path.c_str(), color_space);
-                    if (texture != INVALID_TEXTURE)
-                        assets.release_texture(texture);
-                    texture = loaded;
-                    changed = true;
-                }
+                    reload();
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Clear") && texture != INVALID_TEXTURE)
                 {

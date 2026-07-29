@@ -1,6 +1,12 @@
 # Editor UX Overhaul — from a pile of panels to a Unity-class editor
 
-Status: **Audit + engineering plan.** Companion to
+Status: **Implemented — UX0 through UX6, as of 2026-07-30.** One item is still owed, an
+`se editor` first-run check on a clean profile; see §6.1 and UX6's last bullet. The audit
+and plan below are kept as written so the reasoning behind each phase stays readable
+alongside the tree it produced; each phase records what shipped, what was deliberately not
+done, and why.
+
+Companion to
 [editor_feature_sync_gaps.md](editor_feature_sync_gaps.md) — this document absorbs and
 supersedes that file's two "Deferred" sections (§2.4 here carries every item forward with
 a verdict), while its "Fixed this pass" log remains historical record.
@@ -714,6 +720,51 @@ reason.
 
 ### UX4 — Monolith decomposition + widget library  *(velocity for everything after)*
 
+**Status: shipped (2026-07-30).** `editor_panels.cpp`: **7,157 → 725 lines**. Every
+step landed; deviations from the letter of the plan, and why:
+
+- **The table below is superseded by what actually shipped** — the line ranges were
+  measured against a 6,616-line file and UX1–UX3 had grown it to 7,157. Fourteen units
+  came out rather than the tabulated eleven: the plan's step 4 split into
+  `render/render_settings_panels` (Rendering, Post Process, GPU Culling — one object,
+  one reason, one shared tier readout) and `render/lighting_panel` (the scene's lights,
+  a different concern that would have bloated the settings unit); Preferences got
+  `core/preferences_window` beside the store it edits, which the plan never assigned;
+  and the Text Editor joined `project/project_panel`, because it and the browser share
+  the open/save document commands and are two views of one thing.
+- **`scene_commands` kept the two `draw_*_menu_items` helpers**, which are UI. The
+  alternative was the Hierarchy depending on the shell for its own context menus. They
+  are the shared *entry points* to the commands, four surfaces offer them, and a menu
+  that lived in one panel would drift from the others.
+- **The plan's "shared sun editor" was already moot** — UX2 collapsed the duplicated
+  sun block to a single owner, so there was nothing left to share.
+- **The field-helper set stayed narrower than "siblings for float, angle, color, combo,
+  checkbox."** The ~30 call sites genuinely differ (clamping, `Scalar` conversion,
+  different widget kinds); what they *share* is the undo bracket, so
+  `track_item_undo` encapsulates exactly that and the call sites keep spelling their
+  own clamp. A field-per-type family would have been a wrapper per widget with a
+  parameter for every difference — more code hiding less.
+- **The statics migration split by dependency direction.** The dependency-free scratch
+  went into one `PanelState` on `EditorContext` (`core/panel_state.hpp`); the two
+  animation panels' authoring documents did not, because their structs speak in
+  `Animation::` and ImGui types and putting them in core would have inverted the
+  dependency. Those moved to their own headers with `main` owning the instances, the
+  pattern already used for `EffectPreview`/`AnimatedMeshPreview`.
+- **The `ViewportFrameInputs` conversion found a real defect**: the Scene view's
+  comment explaining when the previewed effect is drawn sat two positions above the
+  argument it described (it annotated `skeleton_names`). Both are now named fields.
+- **Verification.** All 36 editor translation units compile with the project's real
+  flags (`-Wall -Wextra -Werror -pedantic`), and a symbol cross-check over the whole
+  object set reports **zero unresolved `SushiEngine::Editor` symbols** — which is what
+  actually validates a decomposition, since a mis-fenced anonymous namespace is a link
+  error and not a compile error. ⚠ The final `se_editor` **link was not run**: a
+  concurrent session has `include/SushiEngine/physics/solver/runtime_graph_builder.hpp`
+  mid-edit (a `joints_store_` member missing from its base), which stops `sushi_sim`
+  and therefore the editor's link. Nothing in that break is UX4's; the editor's own
+  compile is clean. No new tests: this phase changed no behavior, and the test suite
+  compiles only `serialization/`, `command_history` and `preferences`, none of which
+  moved.
+
 Extraction order (each is a pure move + include fix, no behavior change, verified by
 clean build):
 
@@ -739,26 +790,164 @@ console, statistics, status bar, theme, layout).
 
 ### UX5 — Interaction parity  *(the Unity muscle-memory set)*
 
-Duplicate (Ctrl+D) + Delete key; drag-drop: Project→Hierarchy, Project→Inspector
-asset slots (decal texture path field replaced), Project→viewport; recursive Project
-search; structured Console (severity, filter, collapse, timestamps; `editor_log`
-gains a level parameter); component-header context menus (Reset / Copy / Paste
-values / Remove); filtered-Hierarchy context menu gains the missing Unparent; text
-editor close prompts on dirty tabs; multi-object Inspector editing for the common
-components (Transform first) — scoped per §4's decision.
+**Status: shipped (2026-07-30).**
+
+**Landed:**
+- **Duplicate (Ctrl+D) and the Delete key.** Copy/paste split into a reusable
+  `snapshot_selection` + `instantiate_entities` pair, so a duplicate carries exactly the
+  components a paste does; duplicate deliberately bypasses the clipboard, because a
+  Ctrl+D that replaced what the user had copied would destroy state the gesture never
+  claimed to touch.
+- **One deferred command path.** Copy/Cut/Paste/Duplicate/Delete all park in
+  `EditorContext::pending_entity_command` and run once per frame after every panel has
+  drawn. This *fixed a real defect*: Cut and Paste from a Hierarchy row's context menu
+  created or destroyed entities in the middle of a walk over that panel's own copy of the
+  entity list, leaving the rest of the walk holding stale ids. Only Delete had been
+  deferred, and only by a local bool.
+- **Live shortcut labels everywhere.** `menu_item_for_action` (in `panel_widgets`)
+  replaced the menu bar's private lambdas, so the Hierarchy's context menus stopped
+  advertising hard-coded chords.
+- **Structured Console** (`core/console.hpp`): severity, editor-uptime timestamp,
+  per-level toggles that double as counts, a text filter, and collapse of identical
+  consecutive runs — in the *view* only. The store keeps every line, so the toggle is
+  reversible and the repeat count reports what happened rather than what survived the
+  filter. The failure paths that mattered now log Error/Warning; a console where
+  everything is Info is a console nothing can be filtered out of.
+- **Recursive Project search** (capped at 400 results, with the path relative to the
+  browsed folder on hover, since a truncated filename is ambiguous the moment two
+  subfolders hold the same name) and **asset drag-and-drop** into the material texture
+  slots and the decal Albedo/ORM maps, through a named `ASSET_PATH_PAYLOAD` contract in
+  `panel_widgets` — a drop is routed through the same reload path as typing the path and
+  pressing Enter, so the three entry points cannot diverge.
+- **Dirty-tab close prompt** and the filtered Hierarchy's missing **Unparent**.
+
+**Deliberately not done, with the reason:**
+- **Project→Hierarchy and Project→viewport drop targets.** In Unity that gesture means
+  "instantiate this asset", and `IWorldEditor` offers no way to create an entity from a
+  mesh asset — only the fixed `create_box`/`create_sphere`/… primitives. Giving the same
+  gesture a different meaning (open the scene, load the character) would ship a control
+  that looks like Unity's and does something else, which §2.4's policy rules out more
+  firmly than it rules out a missing feature. Unblocked by engine-side asset
+  instantiation, not by editor work.
+
+- **Multi-object Inspector editing, for every common component** — §4's locked decision, in
+  full. `ui/component_editor.hpp` names a field by a *pointer-to-member*, and that is the
+  whole design: the same mechanism can then read the field from every selected entity to
+  decide whether they agree, and write an edit back to all of them, for any component,
+  without knowing which one it is. Each field method also absorbs what the call site used to
+  spell — the `Scalar`/float narrowing, the undo bracket, the unit format, the tooltip — so a
+  section now reads as a list of the component's fields rather than a list of ImGui calls.
+
+  The tempting shortcut was rejected on purpose: diffing the component's bytes before and
+  after the widgets run would be exhaustive for free, and it is wrong. Nudging a float from
+  1.0 to 1.0000001 changes only its low bytes, and copying those into another entity's 5.0
+  leaves 5.000-something rather than 1.0000001 — a wrong value that looks plausible. A field
+  is the unit of an edit, so a field is what the mechanism addresses.
+
+  Mixed values are shown, not hidden. A checkbox uses ImGui's own mixed-value flag (the one
+  widget that supports it); a numeric field, a vector row and a combo display a dash; a
+  colour swatch — which has no way to mean "no colour" — draws the primary's colour with a
+  `mixed` label beside it. Where a *branch* depends on a mixed field the section stops
+  instead of guessing: a selection mixing spot and point lights hides the cone angles and
+  says why, rather than offering to edit a field most of the selection does not have.
+
+  Deliberate carve-outs, each for the same reason: a material's and a decal's texture ids
+  are references the asset library counts, so fanning one entity's ids out to three more
+  would let the first release free a texture the others are still drawing with. Those, and a
+  particle system's effect, stay authored on the primary selection, and the panel says so
+  rather than leaving the user to discover it.
+- **Component-header context menus** — Reset, Copy Values, Paste Values, Remove Component,
+  on every section, through one `component_header` that also replaced eleven hand-written
+  `bool keep = true` headers. The value clipboard is type-erased behind the component's
+  display name, and it is that name which gates the cast back on paste, so one field on
+  `EditorContext` serves every component — including the ones whose parameters are not
+  trivially copyable. Two sections opt out of the value actions honestly rather than
+  offering them as no-ops: Surface Anchor has no authored fields at all, and the Renderer
+  carries a shape of its own (colour + mesh, material excluded for the refcount reason
+  above).
 
 ### UX6 — Visual identity + polish
 
-Theme pass over `apply_theme` (`editor_panels.cpp:6164`): consistent spacing/rounding
-scale, hover/active states, disabled-state clarity; icon set for panel tabs and the
-toolbar (play/pause/step/gizmo); widget-rule sweep (§2.5) across every panel; unit
-suffixes and tooltips on every physical quantity (the atmosphere panels' tooltip
-discipline — e.g. `:4636-4642` — extended everywhere); status-bar content review;
-`se editor` first-run experience check on a clean profile.
+**Status: shipped (2026-07-30), with one item owed — see the last bullet.**
+
+- **One geometry scale, one accent.** `apply_theme` now applies the base palette (the user's
+  light/classic/dark choice) and then the shell's own measurements over it, so the parts of
+  the look that are the editor's identity rather than a preference do not fork three ways.
+  Every padding and gap is a multiple of four pixels; there are two corner radii; docked
+  panels are square, because a rounded corner inside a dock node draws a notch against its
+  neighbour. Hover and active are *derived* from each surface's base colour rather than
+  spelled as nine separate values, which is what keeps the three steps distinguishable
+  across a theme swap. `DisabledAlpha` dropped from ImGui's 0.6 to 0.45: at 0.6 a disabled
+  control reads as a rendering artifact rather than as a state. One accent hue carries every
+  affirmative state — checked, grabbed, selected tab, nav cursor, drop target — chosen
+  green-with-blue-in-it so it never competes with the console's amber and red.
+- **Drawn icons, not a font.** The playback and transform-tool buttons are triangles, bars
+  and lines painted with `ImDrawList`, laid out from a shared centre and radius so they read
+  as equal weight beside each other. An icon font would have been a binary asset to ship,
+  license and keep in step with the build, for eight shapes this size. Their names live in
+  tooltips that quote the *live* binding, so a rebind is reflected there too, and the tooltip
+  shows even while the button is disabled — which is exactly when a user wants to know what
+  it would have done. **Panel-tab icons were not done**: a tab's identity is its window title
+  string, and the shell loads no font with glyphs beyond Latin-1, so tab icons genuinely do
+  need the font asset the toolbar turned out not to.
+- **Units in the value, not the label.** §2.5's rule, applied: `"Distance (m)"` with format
+  `"%.0f"` became `"Shadow Distance"` with `"%.0f m"`, fourteen times over, so the unit
+  travels with the number into the drag's inline edit instead of sitting in a heading. The
+  Inspector's fields carry theirs through `ComponentEditor`'s format argument, which is also
+  where the widget-selection rule ended up encoded: `fraction()` is a slider (a normalized
+  range, where the handle position *is* the value) and `number()` is a clamped drag. That is
+  a deliberate deviation from §2.5's literal wording — a slider across a far plane's
+  1–10 000 m cannot resolve a metre, so "bounded means slider" holds only for bounded
+  *normalized* quantities.
+- **Tooltips on the opaque quantities.** Thirty-six sliders across Rendering, Post Process
+  and GPU Culling gained an explanation of what the setting does and what moving it costs,
+  through a `hint()` helper that keeps the text on the line after the range it explains. The
+  Inspector's fields carry theirs as a `ComponentEditor` argument. The sweep also surfaced a
+  rigid body's `density`, which the engine has read for derived mass and inertia all along
+  while the Inspector never offered it — and which now disables the two fields it overrides
+  rather than leaving them editable and ignored.
+- **Status bar.** Now reports the selection *count* when there is more than one (the number a
+  user wants confirmed before dragging a field that writes to all of them), frame cost, and a
+  clickable warning/error tally that opens the Console — an error logged while the Console
+  sits behind another tab was otherwise invisible until something else went wrong.
+- **`se editor` first-run check on a clean profile: not done.** It needs a run, and this
+  session was asked not to build. It is the one UX6 item still owed, and it is a check rather
+  than work: launch with the config directory moved aside and confirm the baked layout, the
+  visible Console, and the theme's first impression.
+
+**One structural side effect worth naming.** The punctual light was authored in two windows
+with two copies of the same six widgets — the Lighting panel's per-light list and the
+Inspector's Light section — and they had already drifted. Both now call one
+`draw_light_fields`, which lives with the lights rather than with either view, matching how
+the VFX and audio units already own their component sections. The Lighting panel's rows use
+`ComponentEditor`'s single-entity scope, because a list is a list of individual things and
+editing the row you clicked must not reach the Hierarchy's selection.
 
 **Dependencies:** UX0 → none (do first). UX1 ⟂ UX2 (parallelizable). UX3 depends on
 UX2 for the settings items only. UX4 any time after UX0, ideally after UX2 so moved
 panels move once. UX5/UX6 last.
+
+**Where the code lives after UX4** (the map UX5 and UX6 work against):
+
+| Unit | Holds |
+|---|---|
+| `ui/editor_panels.cpp` (1,013) | Menu bar, toolbar strip (drawn icons), Console, Statistics, status bar, the theme's metric/accent pass, `build_default_layout` |
+| `ui/panel_widgets.{hpp,cpp}` | The shared vocabulary: `track_item_undo`, `push_if_changed`, `inline_rename_field`, `vector3_field`/`scalar_field`, `component_header`, `icon_button`, `shortcut_for_action`, `to_lower`, `world_of`, `to_float`/`to_scalar`, quaternion↔Euler, `commit_environment_edit`/`finish_environment_edit` |
+| `ui/component_editor.hpp` | `ComponentAccess`/`ComponentEditor`: pointer-to-member component fields that detect a mixed selection and fan an edit out to all of it, plus the value clipboard behind the header menus |
+| `ui/modals.{hpp,cpp}` | Save-As, close-confirm, replace-scene-confirm |
+| `scene/scene_commands.{hpp,cpp}` | New/Open/Save, recent scenes, clipboard, the shared create/clipboard menu items, sky-state capture |
+| `scene/hierarchy_panel.{hpp,cpp}` | The Hierarchy tree, selection, drag-reparent, filter |
+| `scene/inspector_panel.{hpp,cpp}` | One section per component |
+| `scripting/script_panel.{hpp,cpp}` | Script fields, the New Script modal, definition registration |
+| `render/render_settings_panels.{hpp,cpp}` | Rendering, Post Process, GPU Culling |
+| `render/lighting_panel.{hpp,cpp}` | Punctual lights, IBL, shadow quality |
+| `environment/weather_panel.{hpp,cpp}` | Sun, sky, fog, GI, surface, stars, cloud decks, weather |
+| `atmosphere/meteorology_panel.{hpp,cpp}` | Atmosphere tier, nest physics, mirror diagnostics |
+| `project/project_panel.{hpp,cpp}` | Browser, Text Editor, document open/save, the shell hand-offs |
+| `vfx/particle_panel.{hpp,cpp}` | The Particle System component section |
+| `core/preferences_window.{hpp,cpp}` | The Preferences window |
+| `core/panel_state.hpp` | Every panel's between-frame scratch, on `EditorContext` |
+| `input/input_manager_window.{hpp,cpp}` | Bindings list, rebind flow, `input_binding_label` |
 
 ---
 
@@ -795,16 +984,94 @@ panels move once. UX5/UX6 last.
 
 ---
 
-## 6. Handoff — for the next agent (written 2026-07-29, end of the UX0–UX3 session)
+## 6. Handoff — for the next agent
+
+### 6.1 As of 2026-07-30 (end of the UX5/UX6 session)
+
+**Where things stand.** **UX0 through UX6 are implemented.** The overhaul is complete except
+for one owed check, called out in UX6's last bullet: `se editor` on a clean profile, which
+needs a run this session was asked not to make.
+
+Against §5's acceptance bar:
+
+1. *Nothing lies.* Held through this tranche, and it decided several things rather than
+   merely surviving them: the Renderer and Decal headers restrict their value actions to
+   what a texture refcount lets them carry, Surface Anchor offers none because it has no
+   fields, a mixed spot/point selection hides the cone angles instead of showing one
+   entity's, and Project-to-Hierarchy drops are still absent because the engine has no
+   asset instantiation to give them meaning.
+2. *Nothing is lost.* Unchanged. Multi-edit writes through the same `IWorldEditor` setters
+   and the same whole-world snapshot history, so a fan-out across twelve entities is one
+   undo step.
+3. *One owner per setting.* Improved: the punctual light had two divergent widget copies and
+   now has one field list, owned by the lighting domain and called from both views.
+4. *A fresh install looks like an editor.* The layout side has held since UX1; the theme now
+   has a deliberate geometry scale and accent. **This is the criterion the owed first-run
+   check covers** — the baked layout and the first impression are exactly what it verifies.
+5. *The muscle memory works.* Complete for everything the engine can honour.
+
+**Verification state.** All 36 editor translation units compile clean with the project's
+flags (`-Wall -Wextra -Werror -pedantic`), and a partial link of the whole object set
+resolves **every** `SushiEngine::Editor` symbol — 429 names remain undefined and all of them
+are ImGui, SDL, the engine libraries, or the CRT, which is what a link without those inputs
+means. That is the check that matters for work of this shape, since a mis-fenced anonymous
+namespace or a header-only template that never gets instantiated is a link error rather than
+a compile error.
+
+The `se_editor` **link and run are still unverified**, for two reasons that are not this
+work's: the session was asked not to build, and a concurrent session has
+`include/SushiEngine/physics/solver/runtime_graph_builder.hpp` mid-edit, which breaks
+`sushi_sim` and with it the editor's link. `se build` with tests additionally fails on two of
+that session's physics tests (`test_contact_projection.cpp:51` unused `PI`,
+`test_convex_manifold.cpp:195` unused `crate` — the second looks like a test missing an
+assertion, worth telling them). Run `se editor --no-run`, then `se editor`, once their tree
+compiles; that same run is the first-run check if you move the config directory aside first.
+
+**Test coverage, honestly.** The editor's test lane compiles only `serialization/*`,
+`core/command_history.cpp` and `core/preferences.cpp`, none of which this tranche touched, so
+the suite is unaffected and also does not cover any of it. Everything UX5 and UX6 added is
+ImGui-bound behaviour with no headless seam; the mechanism that *could* be tested without one
+is `ComponentEditor`'s mixed-detection and single-field fan-out, which is a pure function of
+an `IWorldEditor` and a pointer-to-member and would want a stub world to test against. That
+is the gap, and it is a real one.
+
+**Concurrent-session caution still applies.** They own `include/SushiEngine/physics/**`,
+`sim/runtime_simulation.cpp`, and the root/tests `CMakeLists.txt` entries for their joint
+work. This tranche touched only `editor/` plus `docs/{ARCHITECTURE,CHANGELOG}.md` and this
+file — never `git add -A`.
+
+### 6.2 As of 2026-07-30 (end of the UX4 session)
+
+**Where things stand.** UX0–UX4 are implemented, and UX5 is partially shipped — see
+its section for exactly what landed, what was deliberately skipped and why, and the two
+items still open (multi-object Inspector editing, which is the locked §4 decision and
+the only remaining piece with real design weight, and the component-header context
+menus). **UX6** (visual polish) is untouched. The post-UX4 file map above is the layout to work
+against; anything UX5 adds to a panel goes in that panel's own unit, and anything two
+panels would both need goes in `ui/panel_widgets.hpp`.
+
+**Verification state.** The editor's 36 translation units compile clean with the
+project flags, and a whole-object-set symbol cross-check finds no unresolved
+`SushiEngine::Editor` symbol. The `se_editor` **link is unverified**: a concurrent
+session has `runtime_graph_builder.hpp` mid-edit, which breaks `sushi_sim` and with it
+the editor's link — and `se build` with tests additionally fails on two of that
+session's physics tests (`test_contact_projection.cpp:51` unused `PI`,
+`test_convex_manifold.cpp:195` unused `crate` — the second looks like a test missing
+an assertion, worth telling them). Neither break is this overhaul's; run `se editor
+--no-run` once their tree compiles.
+
+**Concurrent-session caution still applies.** They own `include/SushiEngine/physics/**`
+and `sim/runtime_simulation.cpp` right now. UX4 touched only `editor/` plus
+`docs/{ARCHITECTURE,CHANGELOG}.md` and this file — never `git add -A`.
+
+### 6.3 As of 2026-07-29 (end of the UX0–UX3 session)
 
 **Where things stand.** UX0 (data loss), UX1 (layout), UX2 (settings domain
 separation), and UX3 (wire-or-remove) are implemented, plus two out-of-plan user
 items: Scene-view fullscreen (Shift+Space, `ViewportPanel::set_fullscreen`) and the
 Scene-resize image-loss fix (`resize_to` frees ImGui descriptor sets only *after*
 the view's idle-waiting rebuild; `request_resize` debounces a live drag ~6 frames).
-Remaining phases: **UX4** (monolith decomposition + `panel_widgets.hpp`), **UX5**
-(interaction parity — multi-edit must cover ALL common components, per the locked
-decision in §4), **UX6** (visual polish).
+Remaining phases at the time: UX4, UX5, UX6 — see §6.1 for what is left now.
 
 **Verification state — read this before trusting the tree.**
 - Everything up to and including UX3's *first* tranche was syntax-checked with the

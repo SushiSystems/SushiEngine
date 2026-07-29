@@ -61,37 +61,6 @@ namespace SushiEngine
             ImVec2 operator+(const ImVec2& a, const ImVec2& b) { return ImVec2(a.x + b.x, a.y + b.y); }
             ImVec2 operator-(const ImVec2& a, const ImVec2& b) { return ImVec2(a.x - b.x, a.y - b.y); }
 
-            struct GraphState
-            {
-                ControllerDesc controller;
-                int layer = 0;
-                std::vector<ImVec2> positions;       /**< One per state in the current layer. */
-                std::vector<std::string> clip_paths; /**< Per-state `.sushianim` motion path. */
-                int positions_layer = -1;
-                ImVec2 pan{40.0f, 40.0f};
-                float zoom = 1.0f;               /**< Canvas zoom (scroll wheel), clamped. */
-                ImVec2 entry_pos{20.0f, 20.0f};  /**< Entry node graph position. */
-                ImVec2 exit_pos{560.0f, 20.0f};  /**< Exit node graph position. */
-                int selected_state = -1;
-                int selected_transition_state = -1; /**< Source state, or -2 for Any-State. */
-                int selected_transition = -1;
-                bool linking = false;
-                bool link_from_drag = false; /**< The wire is being dragged from an output nub. */
-                int link_source = -1; /**< Source state index, or -2 for Any-State. */
-                ImVec2 context_menu_pos{0.0f, 0.0f}; /**< Graph-space point of the last canvas right-click. */
-                char new_state[64] = "New State";
-                char new_param[64] = "param";
-                char io_path[256] = "controller.json";
-                std::string status;
-                bool seeded = false;
-            };
-
-            GraphState& state()
-            {
-                static GraphState instance;
-                return instance;
-            }
-
             void seed(GraphState& g)
             {
                 if (g.seeded)
@@ -436,11 +405,10 @@ namespace SushiEngine
                         g.link_source = g.selected_state;
                     }
                     ImGui::DragFloat("Speed", &s.speed, 0.01f, 0.0f, 10.0f);
-                    static std::string empty_path;
                     std::string& clip_path =
                         g.selected_state < static_cast<int>(g.clip_paths.size())
                             ? g.clip_paths[g.selected_state]
-                            : empty_path;
+                            : g.fallback_clip_path;
                     draw_motion(s, g.controller, clip_path);
                 }
 
@@ -880,7 +848,7 @@ namespace SushiEngine
             }
         } // namespace
 
-        void draw_animator_graph_panel(EditorContext& context)
+        void draw_animator_graph_panel(EditorContext& context, GraphState& graph)
         {
             if (!context.panels.animator_graph)
                 return;
@@ -890,7 +858,7 @@ namespace SushiEngine
                 return;
             }
 
-            GraphState& g = state();
+            GraphState& g = graph;
             seed(g);
 
             // The graph's one live consumer today: the preview character. Scene entities

@@ -456,32 +456,13 @@ namespace SushiEngine
             ImGui::End();
         }
 
-        bool ViewportPanel::draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
-                                 std::size_t count,
+        bool ViewportPanel::draw(bool& open,
                                  const SushiEngine::Render::Environment& environment,
-                                 std::uint32_t& selected_id, bool pickable,
-                                 SushiEngine::Simulation::EntityTransform* gizmo_target,
-                                 GizmoMode gizmo_mode, GizmoSpace gizmo_space,
-                                 const GizmoSnap* gizmo_snap, const DisplaySelector* display,
-                                 const SushiEngine::Render::ClothStrandView* strands,
-                                 std::size_t strand_count,
-                                 const SushiEngine::Render::PunctualLight* lights,
-                                 std::size_t light_count,
-                                 const SushiEngine::Render::Decal* decals,
-                                 std::size_t decal_count, UIOverlay* ui, bool show_grid,
-                                 const SkeletonPreview* skeleton, bool skeleton_names,
-                                 EffectPreview* particle_preview,
-                                 const SushiEngine::Render::ParticleBillboard* billboards,
-                                 std::size_t billboard_count,
-                                 AnimatedMeshPreview* animated_mesh,
-                                 const SushiEngine::Render::ParticleEmitterView* emitters_in,
-                                 std::size_t emitter_count_in, bool ik_gizmo,
-                                 bool preview_controls, GameViewSettings* game_view,
-                                 const SushiEngine::Render::SkinnedInstance* scene_skinned,
-                                 std::size_t scene_skinned_count)
+                                 std::uint32_t& selected_id,
+                                 const ViewportFrameInputs& inputs)
         {
             const ImGuiWindowFlags window_flags = apply_fullscreen_transition(
-                fullscreen_requested_ || (game_view != nullptr && game_view->fullscreen));
+                fullscreen_requested_ || (inputs.game_view != nullptr && inputs.game_view->fullscreen));
 
             if (!ImGui::Begin(title_, &open, window_flags))
             {
@@ -491,32 +472,32 @@ namespace SushiEngine
 
             // Game view toolbar: aspect/orientation/fullscreen, drawn before the display
             // selector so the row reads left-to-right the way Unity's Game view does.
-            if (game_view != nullptr)
-                draw_game_view_toolbar(*game_view);
+            if (inputs.game_view != nullptr)
+                draw_game_view_toolbar(*inputs.game_view);
 
             // Display selector (Game view): a combo over the resolved displays. Drawn before
             // the image so it takes its own strip and the image keeps the correct aspect.
-            if (display != nullptr && display->displays != nullptr && display->selected != nullptr &&
-                display->count > 0)
+            if (inputs.display != nullptr && inputs.display->displays != nullptr && inputs.display->selected != nullptr &&
+                inputs.display->count > 0)
             {
-                if (game_view != nullptr)
+                if (inputs.game_view != nullptr)
                     ImGui::SameLine();
                 int current = 0;
-                for (std::size_t i = 0; i < display->count; ++i)
-                    if (display->displays[i] == *display->selected)
+                for (std::size_t i = 0; i < inputs.display->count; ++i)
+                    if (inputs.display->displays[i] == *inputs.display->selected)
                         current = static_cast<int>(i);
                 char label[32];
-                std::snprintf(label, sizeof(label), "Display %u", display->displays[current]);
+                std::snprintf(label, sizeof(label), "Display %u", inputs.display->displays[current]);
                 ImGui::SetNextItemWidth(160.0f);
                 if (ImGui::BeginCombo("##display", label))
                 {
-                    for (std::size_t i = 0; i < display->count; ++i)
+                    for (std::size_t i = 0; i < inputs.display->count; ++i)
                     {
                         char item[32];
-                        std::snprintf(item, sizeof(item), "Display %u", display->displays[i]);
+                        std::snprintf(item, sizeof(item), "Display %u", inputs.display->displays[i]);
                         const bool selected = static_cast<int>(i) == current;
                         if (ImGui::Selectable(item, selected))
-                            *display->selected = display->displays[i];
+                            *inputs.display->selected = inputs.display->displays[i];
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }
@@ -538,9 +519,9 @@ namespace SushiEngine
             float image_w = available_w;
             float image_h = available_h;
             float aspect_ratio = 0.0f;
-            const bool constrained = game_view != nullptr &&
-                                     resolve_game_view_aspect_ratio(game_view->aspect,
-                                                                    game_view->orientation,
+            const bool constrained = inputs.game_view != nullptr &&
+                                     resolve_game_view_aspect_ratio(inputs.game_view->aspect,
+                                                                    inputs.game_view->orientation,
                                                                     aspect_ratio);
             if (constrained)
             {
@@ -622,36 +603,36 @@ namespace SushiEngine
             // The world's cosmetic emitters, plus the previewed effect's when this surface is
             // showing one. A preview belongs to no entity, so it is concatenated rather than
             // given a channel — the renderer cannot tell the two apart and has no reason to.
-            const SushiEngine::Render::ParticleEmitterView* emitters = emitters_in;
-            std::size_t emitter_count = emitter_count_in;
+            const SushiEngine::Render::ParticleEmitterView* emitters = inputs.emitters;
+            std::size_t emitter_count = inputs.emitter_count;
             std::vector<SushiEngine::Render::ParticleEmitterView> merged_emitters;
             const std::size_t preview_emitters =
-                particle_preview != nullptr ? particle_preview->view_count() : 0;
+                inputs.particle_preview != nullptr ? inputs.particle_preview->view_count() : 0;
             if (preview_emitters > 0)
             {
-                merged_emitters.reserve(emitter_count_in + preview_emitters);
-                merged_emitters.insert(merged_emitters.end(), emitters_in,
-                                       emitters_in + emitter_count_in);
-                merged_emitters.insert(merged_emitters.end(), particle_preview->views(),
-                                       particle_preview->views() + preview_emitters);
+                merged_emitters.reserve(inputs.emitter_count + preview_emitters);
+                merged_emitters.insert(merged_emitters.end(), inputs.emitters,
+                                       inputs.emitters + inputs.emitter_count);
+                merged_emitters.insert(merged_emitters.end(), inputs.particle_preview->views(),
+                                       inputs.particle_preview->views() + preview_emitters);
                 emitters = merged_emitters.data();
                 emitter_count = merged_emitters.size();
             }
             // World crowd characters (design §12.3/§12.4) plus whatever single character is
             // being previewed — the same "world content plus the authored subject" merge
-            // billboards/emitters already do for their own kinds, just below.
+            // the billboards and emitters already do for their own kinds, just below.
             const SushiEngine::Render::SkinnedInstance* preview_skinned =
-                animated_mesh != nullptr ? animated_mesh->skinned() : nullptr;
+                inputs.animated_mesh != nullptr ? inputs.animated_mesh->skinned() : nullptr;
             const std::size_t preview_skinned_count =
-                animated_mesh != nullptr ? animated_mesh->skinned_count() : 0;
+                inputs.animated_mesh != nullptr ? inputs.animated_mesh->skinned_count() : 0;
             const SushiEngine::Render::SkinnedInstance* skinned = preview_skinned;
             std::size_t skinned_count = preview_skinned_count;
             std::vector<SushiEngine::Render::SkinnedInstance> merged_skinned;
-            if (scene_skinned_count > 0)
+            if (inputs.scene_skinned_count > 0)
             {
-                merged_skinned.reserve(scene_skinned_count + preview_skinned_count);
-                merged_skinned.insert(merged_skinned.end(), scene_skinned,
-                                      scene_skinned + scene_skinned_count);
+                merged_skinned.reserve(inputs.scene_skinned_count + preview_skinned_count);
+                merged_skinned.insert(merged_skinned.end(), inputs.scene_skinned,
+                                      inputs.scene_skinned + inputs.scene_skinned_count);
                 if (preview_skinned_count > 0)
                     merged_skinned.insert(merged_skinned.end(), preview_skinned,
                                           preview_skinned + preview_skinned_count);
@@ -662,18 +643,18 @@ namespace SushiEngine
             // The deterministic preview simulates on the CPU and hands over finished particles, the
             // same channel the sim's own deterministic emitters use, so the two are concatenated
             // rather than given a channel of their own.
-            const SushiEngine::Render::ParticleBillboard* all_billboards = billboards;
-            std::size_t all_billboard_count = billboard_count;
+            const SushiEngine::Render::ParticleBillboard* all_billboards = inputs.billboards;
+            std::size_t all_billboard_count = inputs.billboard_count;
             std::vector<SushiEngine::Render::ParticleBillboard> merged_billboards;
             const std::size_t preview_billboards =
-                particle_preview != nullptr ? particle_preview->billboard_count() : 0;
+                inputs.particle_preview != nullptr ? inputs.particle_preview->billboard_count() : 0;
             if (preview_billboards > 0)
             {
-                merged_billboards.reserve(billboard_count + preview_billboards);
-                merged_billboards.insert(merged_billboards.end(), billboards,
-                                         billboards + billboard_count);
-                merged_billboards.insert(merged_billboards.end(), particle_preview->billboards(),
-                                         particle_preview->billboards() + preview_billboards);
+                merged_billboards.reserve(inputs.billboard_count + preview_billboards);
+                merged_billboards.insert(merged_billboards.end(), inputs.billboards,
+                                         inputs.billboards + inputs.billboard_count);
+                merged_billboards.insert(merged_billboards.end(), inputs.particle_preview->billboards(),
+                                         inputs.particle_preview->billboards() + preview_billboards);
                 all_billboards = merged_billboards.data();
                 all_billboard_count = merged_billboards.size();
             }
@@ -686,16 +667,16 @@ namespace SushiEngine
             // frame's image origin, which is not yet known for this one; a frame of latency on
             // a hover tint is not perceptible, and it is the only thing that depends on it.
             SushiEngine::Render::UiView ui_view;
-            if (ui != nullptr && ui->count > 0)
+            if (inputs.ui_overlay != nullptr && inputs.ui_overlay->count > 0)
             {
                 std::vector<ImVec4> local_rects;
-                compute_ui_rects(*ui, ImVec4(0.0f, 0.0f, static_cast<float>(width),
+                compute_ui_rects(*inputs.ui_overlay, ImVec4(0.0f, 0.0f, static_cast<float>(width),
                                              static_cast<float>(height)),
                                  local_rects);
                 const ImVec2 mouse = ImGui::GetIO().MousePos;
                 const ImVec2 local_mouse(mouse.x - last_image_origin_.x,
                                          mouse.y - last_image_origin_.y);
-                build_ui_draw_list(*ui, local_rects, local_mouse,
+                build_ui_draw_list(*inputs.ui_overlay, local_rects, local_mouse,
                                    ImGui::IsMouseDown(ImGuiMouseButton_Left), ui_draw_list_);
                 ui_view.rects = ui_draw_list_.rects.data();
                 ui_view.rect_count = ui_draw_list_.rects.size();
@@ -705,8 +686,8 @@ namespace SushiEngine
                 ui_view.height = static_cast<float>(height);
             }
 
-            view_->render(camera_view, environment, instances, count, selected_id, strands,
-                          strand_count, lights, light_count, decals, decal_count, show_grid,
+            view_->render(camera_view, environment, inputs.instances, inputs.instance_count, selected_id, inputs.strands,
+                          inputs.strand_count, inputs.lights, inputs.light_count, inputs.decals, inputs.decal_count, inputs.show_grid,
                           skinned, skinned_count, emitters, emitter_count, all_billboards,
                           all_billboard_count, ui_view.empty() ? nullptr : &ui_view);
 
@@ -714,27 +695,27 @@ namespace SushiEngine
             // because "the thing being authored, playing or paused" is a property of the surface;
             // the deeper authoring (an effect's modules, an animator's layers and IK) stays in the
             // component or panel that owns it.
-            if (preview_controls)
+            if (inputs.preview_controls)
             {
-                if (particle_preview != nullptr)
+                if (inputs.particle_preview != nullptr)
                 {
-                    const bool playing = particle_preview->playing();
+                    const bool playing = inputs.particle_preview->playing();
                     if (ImGui::Button(playing ? "Pause Effect" : "Play Effect"))
-                        particle_preview->set_playing(!playing);
+                        inputs.particle_preview->set_playing(!playing);
                     ImGui::SameLine();
                     if (ImGui::Button("Restart Effect"))
-                        particle_preview->restart();
+                        inputs.particle_preview->restart();
                 }
-                if (animated_mesh != nullptr && animated_mesh->loaded())
+                if (inputs.animated_mesh != nullptr && inputs.animated_mesh->loaded())
                 {
-                    if (particle_preview != nullptr)
+                    if (inputs.particle_preview != nullptr)
                         ImGui::SameLine();
-                    const bool playing = animated_mesh->playing();
+                    const bool playing = inputs.animated_mesh->playing();
                     if (ImGui::Button(playing ? "Pause Animation" : "Play Animation"))
-                        animated_mesh->set_playing(!playing);
+                        inputs.animated_mesh->set_playing(!playing);
                     ImGui::SameLine();
                     if (ImGui::Button("Restart Animation"))
-                        animated_mesh->restart();
+                        inputs.animated_mesh->restart();
                 }
             }
 
@@ -751,27 +732,27 @@ namespace SushiEngine
             // corner handle to resize (writing back into the element's params).
             bool ui_consumed = false;
             std::vector<ImVec4> ui_rects;
-            if (ui != nullptr && ui->count > 0)
+            if (inputs.ui_overlay != nullptr && inputs.ui_overlay->count > 0)
             {
                 const ImVec4 root(image_origin.x, image_origin.y, static_cast<float>(width),
                                   static_cast<float>(height));
-                compute_ui_rects(*ui, root, ui_rects);
-                paint_ui_overlay(ImGui::GetWindowDrawList(), *ui, ui_rects);
+                compute_ui_rects(*inputs.ui_overlay, root, ui_rects);
+                paint_ui_overlay(ImGui::GetWindowDrawList(), *inputs.ui_overlay, ui_rects);
 
-                if (ui->edit_mode)
+                if (inputs.ui_overlay->edit_mode)
                 {
                     using Kind = SushiEngine::Simulation::UIElementKind;
                     const float dx = io.MouseDelta.x;
                     const float dy = io.MouseDelta.y;
 
                     // Continue an in-progress drag: move the body or resize by a corner.
-                    if (ui_drag_index_ >= 0 && ui_drag_index_ < static_cast<int>(ui->count) &&
+                    if (ui_drag_index_ >= 0 && ui_drag_index_ < static_cast<int>(inputs.ui_overlay->count) &&
                         ImGui::IsMouseDown(ImGuiMouseButton_Left))
                     {
                         ui_consumed = true;
-                        const int parent = ui->elements[ui_drag_index_].parent;
+                        const int parent = inputs.ui_overlay->elements[ui_drag_index_].parent;
                         const ImVec4 parent_rect =
-                            (parent >= 0 && parent < static_cast<int>(ui->count)) ? ui_rects[parent]
+                            (parent >= 0 && parent < static_cast<int>(inputs.ui_overlay->count)) ? ui_rects[parent]
                                                                                   : root;
                         ImVec4 rect = ui_rects[ui_drag_index_];
                         if (ui_drag_handle_ == 0)
@@ -793,8 +774,8 @@ namespace SushiEngine
                             if (y1 - y0 < 4.0f) y1 = y0 + 4.0f;
                             rect = ImVec4(x0, y0, x1 - x0, y1 - y0);
                         }
-                        ui_apply_screen_rect(ui->elements[ui_drag_index_].params, parent_rect, rect);
-                        ui->edited_index = ui_drag_index_;
+                        ui_apply_screen_rect(inputs.ui_overlay->elements[ui_drag_index_].params, parent_rect, rect);
+                        inputs.ui_overlay->edited_index = ui_drag_index_;
                     }
                     else
                     {
@@ -810,10 +791,10 @@ namespace SushiEngine
                         int hit = -1;
                         int handle = -1;
                         // A grabbed corner of the already-selected element resizes it.
-                        for (std::size_t i = 0; i < ui->count; ++i)
+                        for (std::size_t i = 0; i < inputs.ui_overlay->count; ++i)
                         {
-                            if (ui->elements[i].id != ui->selected_id ||
-                                ui->elements[i].params.kind == Kind::Canvas)
+                            if (inputs.ui_overlay->elements[i].id != inputs.ui_overlay->selected_id ||
+                                inputs.ui_overlay->elements[i].params.kind == Kind::Canvas)
                                 continue;
                             ImVec2 corners[4];
                             ui_corners(ui_rects[i], corners);
@@ -831,9 +812,9 @@ namespace SushiEngine
                         // and moved; a canvas is never picked by its body so it does not
                         // swallow clicks meant for the scene behind it.
                         if (hit < 0)
-                            for (int i = static_cast<int>(ui->count) - 1; i >= 0; --i)
+                            for (int i = static_cast<int>(inputs.ui_overlay->count) - 1; i >= 0; --i)
                             {
-                                if (ui->elements[i].params.kind == Kind::Canvas)
+                                if (inputs.ui_overlay->elements[i].params.kind == Kind::Canvas)
                                     continue;
                                 const ImVec4& r = ui_rects[i];
                                 if (mouse.x >= r.x && mouse.x <= r.x + r.z && mouse.y >= r.y &&
@@ -846,7 +827,7 @@ namespace SushiEngine
                             }
                         if (hit >= 0)
                         {
-                            ui->picked_id = ui->elements[hit].id;
+                            inputs.ui_overlay->picked_id = inputs.ui_overlay->elements[hit].id;
                             ui_drag_index_ = hit;
                             ui_drag_handle_ = handle;
                             ui_consumed = true;
@@ -860,7 +841,7 @@ namespace SushiEngine
             // gizmo uses. A read-only developer aid — it never consumes input, and it is
             // drawn before the gizmo so the handles sit on top. Only in an authoring
             // (pickable) viewport; the played Game view shows none of it.
-            if (pickable)
+            if (inputs.pickable)
             {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 const SushiEngine::Mat4 vp =
@@ -887,9 +868,9 @@ namespace SushiEngine
 
                 if (selected_id != SushiEngine::Render::NO_PICK)
                 {
-                    for (std::size_t i = 0; i < count; ++i)
+                    for (std::size_t i = 0; i < inputs.instance_count; ++i)
                     {
-                        const SushiEngine::Render::MeshInstance& inst = instances[i];
+                        const SushiEngine::Render::MeshInstance& inst = inputs.instances[i];
                         if (inst.id != selected_id)
                             continue;
                         using Kind = SushiEngine::Render::MeshKind;
@@ -933,17 +914,17 @@ namespace SushiEngine
                                                    : (v > SushiEngine::Scalar(1) ? SushiEngine::Scalar(1) : v);
                     return static_cast<int>(v * SushiEngine::Scalar(255));
                 };
-                for (std::size_t i = 0; i < light_count; ++i)
+                for (std::size_t i = 0; i < inputs.light_count; ++i)
                 {
                     const SushiEngine::Vector3 lp{
-                        static_cast<SushiEngine::Scalar>(lights[i].position.x),
-                        static_cast<SushiEngine::Scalar>(lights[i].position.y),
-                        static_cast<SushiEngine::Scalar>(lights[i].position.z)};
+                        static_cast<SushiEngine::Scalar>(inputs.lights[i].position.x),
+                        static_cast<SushiEngine::Scalar>(inputs.lights[i].position.y),
+                        static_cast<SushiEngine::Scalar>(inputs.lights[i].position.z)};
                     ImVec2 s;
                     if (!project(lp, s))
                         continue;
-                    const ImU32 col = IM_COL32(to255(lights[i].color.x), to255(lights[i].color.y),
-                                               to255(lights[i].color.z), 230);
+                    const ImU32 col = IM_COL32(to255(inputs.lights[i].color.x), to255(inputs.lights[i].color.y),
+                                               to255(inputs.lights[i].color.z), 230);
                     const float r = 6.0f;
                     dl->AddQuad(ImVec2(s.x, s.y - r), ImVec2(s.x + r, s.y), ImVec2(s.x, s.y + r),
                                 ImVec2(s.x - r, s.y), col, 1.5f);
@@ -952,15 +933,15 @@ namespace SushiEngine
 
             // Skeleton preview: draw the rest pose of a loaded rigged glTF over the scene
             // (A0's "see its rest pose"), before the gizmo so handles stay on top.
-            if (skeleton != nullptr && skeleton->loaded())
-                draw_skeleton_overlay(*skeleton, camera_view, image_origin,
+            if (inputs.skeleton != nullptr && inputs.skeleton->loaded())
+                draw_skeleton_overlay(*inputs.skeleton, camera_view, image_origin,
                                       static_cast<float>(width), static_cast<float>(height),
-                                      ImGui::GetWindowDrawList(), skeleton_names);
+                                      ImGui::GetWindowDrawList(), inputs.skeleton_names);
 
             // Particle emitter gizmo: mark where the previewed effect spawns, before the
             // transform gizmo so its handles stay on top.
-            if (particle_preview != nullptr)
-                draw_emitter_gizmo(*particle_preview, camera_view, image_origin,
+            if (inputs.particle_preview != nullptr)
+                draw_emitter_gizmo(*inputs.particle_preview, camera_view, image_origin,
                                    static_cast<float>(width), static_cast<float>(height),
                                    ImGui::GetWindowDrawList());
 
@@ -969,21 +950,21 @@ namespace SushiEngine
             // object space each frame (the solver's `target` field is object-space; the gizmo
             // manipulates a world-space EntityTransform, the same type the selection gizmo
             // edits, so this reuses that math rather than a bespoke drag implementation).
-            // Scene-view only — ik_gizmo is false for the Game view, mirroring the
-            // gizmo_target/pickable split above.
-            if (ik_gizmo && animated_mesh != nullptr && animated_mesh->loaded())
+            // Scene-view only — `ik_gizmo` is false for the Game view, mirroring the
+            // gizmo-target/pickable split above.
+            if (inputs.ik_gizmo && inputs.animated_mesh != nullptr && inputs.animated_mesh->loaded())
             {
-                const SushiEngine::Mat4& character_world = animated_mesh->world();
+                const SushiEngine::Mat4& character_world = inputs.animated_mesh->world();
                 SushiEngine::Simulation::EntityTransform ik_transform;
                 ik_transform.position =
-                    transform_point(character_world, animated_mesh->two_bone_ik().target);
+                    transform_point(character_world, inputs.animated_mesh->two_bone_ik().target);
                 static const GizmoSnap no_snap;
                 const GizmoController::Result ik_result = ik_gizmo_.manipulate(
                     GizmoMode::Translate, GizmoSpace::World, ik_transform, camera_view,
                     image_origin, static_cast<float>(width), static_cast<float>(height),
                     image_hovered, no_snap);
                 if (ik_result.modified)
-                    animated_mesh->set_ik_target(transform_point(
+                    inputs.animated_mesh->set_ik_target(transform_point(
                         SushiEngine::affine_inverse(character_world), ik_transform.position));
             }
 
@@ -991,22 +972,22 @@ namespace SushiEngine
             // for the active mode. Handled before picking so grabbing a handle never
             // reselects the entity under the cursor.
             GizmoController::Result gizmo{};
-            if (gizmo_target != nullptr)
+            if (inputs.gizmo_target != nullptr)
             {
                 static const GizmoSnap no_snap;
-                gizmo = gizmo_.manipulate(gizmo_mode, gizmo_space, *gizmo_target, camera_view,
+                gizmo = gizmo_.manipulate(inputs.gizmo_mode, inputs.gizmo_space, *inputs.gizmo_target, camera_view,
                                           image_origin, static_cast<float>(width),
                                           static_cast<float>(height), image_hovered,
-                                          gizmo_snap != nullptr ? *gizmo_snap : no_snap);
+                                          inputs.gizmo_snap != nullptr ? *inputs.gizmo_snap : no_snap);
             }
 
             // Left-click in the viewport picks the entity under the cursor (right mouse is
             // reserved for navigation), unless the click grabbed a gizmo handle. The image
             // is drawn 1:1 with the target, so the local pixel is the cursor offset.
-            if (ui != nullptr)
-                ui->consumed_click = ui_consumed;
+            if (inputs.ui_overlay != nullptr)
+                inputs.ui_overlay->consumed_click = ui_consumed;
 
-            if (pickable && !gizmo.consumed_click && !ui_consumed && image_hovered &&
+            if (inputs.pickable && !gizmo.consumed_click && !ui_consumed && image_hovered &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
                 const ImVec2 mouse = ImGui::GetIO().MousePos;

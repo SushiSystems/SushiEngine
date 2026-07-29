@@ -66,6 +66,12 @@ namespace SushiEngine
             context.add_button("Copy").bind(Key::C, Key::LeftControl).bind(Key::C, Key::RightControl);
             context.add_button("Cut").bind(Key::X, Key::LeftControl).bind(Key::X, Key::RightControl);
             context.add_button("Paste").bind(Key::V, Key::LeftControl).bind(Key::V, Key::RightControl);
+            context.add_button("Duplicate")
+                .bind(Key::D, Key::LeftControl)
+                .bind(Key::D, Key::RightControl);
+            // Unmodified, so it must not fire while a text field has focus; the shell gates
+            // it on ImGui's keyboard capture the same way it gates the W/E/R tool keys.
+            context.add_button("Delete").bind(Key::Delete);
             context.add_button("PlayToggle")
                 .bind(Key::P, Key::LeftControl)
                 .bind(Key::P, Key::RightControl);
