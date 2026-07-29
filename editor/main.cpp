@@ -342,6 +342,12 @@ int main(int argc, char** argv)
                 context.input_snapshot = &input.snapshot();
             }
 
+            // The Physics panel's profiling request rides the panel's visibility: the
+            // per-stage timings cost timestamps on the dispatch hot path, so they are
+            // collected only while someone is looking (the flag is consumed when the
+            // solve graph is next built — see IPhysicsStepper::set_profiling_requested).
+            simulation->set_physics_profiling(context.panels.physics);
+
             // Tick the world on the runtime only while playing, so the toolbar's
             // Play/Pause gates motion; then take the fresh snapshot to draw. Step
             // advances exactly one fixed step (via a zero-length real delta plus a

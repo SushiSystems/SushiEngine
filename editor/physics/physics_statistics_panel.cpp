@@ -107,10 +107,13 @@ namespace SushiEngine
             if (stats.timings.total_ms <= Scalar(0))
             {
                 // Not an error state: the timings come from the runtime's per-node
-                // measurements, which are collected only when the scene was created
-                // with profiling on. Saying so beats drawing a row of zeros that
-                // reads as "the physics is free".
-                ImGui::TextDisabled("Profiling off — no per-stage timings");
+                // measurements, which are collected only when the solve graph was built
+                // with profiling on. Opening this panel requests it; the request is
+                // consumed when physics next (re)builds its graph. Saying so beats
+                // drawing a row of zeros that reads as "the physics is free".
+                ImGui::TextDisabled("No per-stage timings yet. Profiling engages when the");
+                ImGui::TextDisabled("physics graph is next built with this panel open —");
+                ImGui::TextDisabled("reload the scene (or re-add the first physics body).");
             }
             else
             {

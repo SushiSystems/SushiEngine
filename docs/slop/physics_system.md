@@ -1989,6 +1989,82 @@ reports nothing at all, a trigger that is reported with zero impulse while the b
 falls straight through it, and five bodies landing out of order whose events still
 arrive in scene order. **P1 is complete.**
 
+### 16.7 Where this stands, and what to pick up next
+
+Written on **2026-07-29**, at the end of the session that closed P1. This is the
+handover: what is true now, what the next person should not have to re-derive, and
+what the next move is.
+
+**Phase state.** P0, P1 and P2 are **complete**. P3 (joints and assemblies) is the
+next phase and nothing blocks it. Every P0 carry-over is closed.
+
+**The tick, as it actually runs today.** One `IConstraintSolver`
+(`RuntimeGraphBuilder`) holds every body — rigid and cloth alike — and every
+constraint kind. Per tick: the poses come to the host in one bulk transfer, the
+gravity field is sampled per body into `RigidBodyT::external_acceleration`, one
+bounding-volume hierarchy over rigid colliders, cloth particles and static planes
+yields the candidate pairs, a manifold is generated per pair and warm-started from
+last tick's, the whole set is submitted as the per-tick constraint kind, and **one
+`run()`** advances everything. Then the solved manifolds come back, the touching-pair
+lists are merged, and the contact events fall out of that merge.
+
+**Four things worth not re-deriving.**
+
+1. **The substep count is derived; the caller's `substeps` is a floor.** Raising the
+   floor is how a scene of tall stacks buys quality; the motion measure is how a fast
+   scene buys it. Neither lowers the other.
+2. **The gravity field is per body per tick.** Not a compromise — `predict` runs on
+   the device inside one composition, so no host sampler can be called inside the
+   substep loop at all.
+3. **Warm-start keys are proxy indices**, so the contact proxy list is renumbered
+   only when the *membership* changes, never merely because something moved. A list
+   rebuilt every tick would silently restart every impulse from zero, and the symptom
+   would be a stack that creeps rather than anything that looks like a bug.
+4. **Contact events are a merge of two key-sorted lists, not three tests.** The sort
+   is what makes the sequence a function of the scene rather than of the broadphase's
+   insertion history, and a listener that spawns an effect observes the sequence.
+
+**The reduction, and the rule it taught.** `Graph::add_reduce` and `API::Maximum` do
+not exist in the runtime (see the correction in §18). The fold operators now live
+where the engine's math lives — `core/blas_placeholder.hpp`, alongside `dot` and
+`cross`, re-exported through `core/types.hpp`, and moving to SushiBLAS with the rest
+of it: `Sum`, `Product`, `Minimum`, `Maximum`, and `fold_range` as the sequential
+reference. The *order* is deliberately not in them, because order is not arithmetic —
+`runtime_graph_builder.hpp` builds its own from two ordinary nodes, one work-item per
+256-slot segment folding ascending, then one work-item folding the partials, also
+ascending. Both orders are functions of the capacity and the segment size, both fixed
+at construction, so the substep count derived from the result cannot depend on the
+worker count or the steal pattern (§12.1). If the runtime ever ships WP-4, adopting it
+is deleting those two nodes.
+
+**What is still on the host, and where it will move from.** Broadphase, manifold
+generation and the warm-start cache, all inside `physics_simulation.hpp`. §6.6 puts
+all three in the graph. The single bulk read of the bodies at the top of the tick
+exists *because* of them — the host needs the poses to find contacts — so that
+transfer and those three stages retire together, not separately.
+
+**The next three moves, in the order the dependencies fall.**
+
+1. **P3: joints.** The constraint-kind dimension is built and has two kinds in it
+   (§6.3); a joint is a third, and `IConstraintSolver` needs no new shape to admit
+   one. This is the phase with the least in its way.
+2. **One `DynamicGraph` region per island.** Unblocked rather than done: the island
+   layer produces a deterministic partition with keys in ascending order, and the
+   solve graph now has *both* kinds banded per colour. Cutting the bands per island
+   is one change that serves both, where doing it earlier would have meant doing it
+   twice. It needs R3 from the runtime, which is not reachable — see §18.
+3. **Collision detection into the graph** (§6.6), which is what retires the per-tick
+   transfer pair above and feeds the editor its per-stage device timings from real
+   nodes instead of a host clock.
+
+**One seam landed alongside this and is worth knowing about.** The Physics panel's
+profiling request now rides `IPhysicsStepper::set_profiling_requested`, wired from
+`editor/main.cpp` through `ISimulation::set_physics_profiling`. Profiling is a
+*construction-time* property of the solve graph — with it off the hot path carries no
+timestamping at all — so the request is consumed when the solver is next built rather
+than toggling a running one. Recreating a live solver to honour a checkbox would
+discard every body's velocity to answer a question about timing.
+
 ---
 
 ## §17 Risks, open questions, and scope
@@ -2066,10 +2142,29 @@ its public API, not bolted onto the engine."* This section is the engine-side re
 needs from below; the runtime-side engineering request, with `file:line` evidence, lives in
 `sushiruntime/docs/slop/PHYSICS_SUBSTRATE_REQUIREMENTS.md`.
 
-**Four of the seven have since been built** on the runtime's `feature/physics-substrate-seams` branch,
-which changes what this plan has to carry itself. Each row states what was asked, what landed, and —
-for the three still open — what the physics does **without** it, because no phase may be blocked on
-another repo.
+**Four of the seven were recorded here as built** on the runtime's `feature/physics-substrate-seams`
+branch. Each row states what was asked, what landed, and — for those still open — what the physics
+does **without** it, because no phase may be blocked on another repo.
+
+> **Correction, 2026-07-29 — that branch is not reachable, and this section was believed until it
+> was checked.** `C:/Projects/sushiruntime` has `main` and one unrelated fix branch; there is no
+> `feature/physics-substrate-seams`, on the working tree or on `origin`. None of
+> `sized_from_device`, `add_reduce`, `add_segmented_reduce` or `add_untracked` appears anywhere in
+> the runtime's headers. So **R1, R2, R3 and R5 must be read as *open*** until that branch turns up
+> or is rebuilt, and this table's "Built" is a record of what was agreed, not of what a build can
+> link against.
+>
+> The cost of believing it was real and specific. `runtime_graph_builder.hpp` was written calling
+> `Graph::add_reduce(..., API::Maximum<T>{}, ...)`, which compiles for as long as nobody
+> *instantiates* the template — a dependent call is not looked up until instantiation, so header
+> syntax checks and every test that only names the type stayed green. It came down the moment the
+> live tick moved onto the solver and `sim/runtime_simulation.cpp` finally built one. **The lesson
+> is a build rule, not a scolding:** an engine-side claim about a runtime API is only tested by a
+> translation unit that instantiates it, so at least one must exist for every runtime seam the
+> physics leans on.
+>
+> R2 is closed engine-side in the meantime — see §16.7 — and closed in a way that is one deletion
+> away from using the runtime primitive if it does arrive.
 
 | # | Ask | Status | What the physics does |
 |---|---|---|---|

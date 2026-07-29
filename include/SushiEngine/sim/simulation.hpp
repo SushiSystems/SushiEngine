@@ -1429,6 +1429,20 @@ namespace SushiEngine
                  */
                 virtual const Physics::PhysicsStatistics& physics_statistics() const noexcept = 0;
 
+                /**
+                 * @brief Requests per-stage physics timings (the profiler panel's seam).
+                 *
+                 * Forwards to the physics stepper's request: profiling is a
+                 * construction-time property of the solve graph (off, the dispatch hot
+                 * path reads no timestamps), so the request takes effect when the
+                 * solver is next built — open the panel before physics first steps and
+                 * the timings flow. Virtual with a no-op default so a headless or
+                 * physics-less implementation ignores it harmlessly.
+                 *
+                 * @param enabled Whether solvers built from now on collect timings.
+                 */
+                virtual void set_physics_profiling(bool enabled) { (void)enabled; }
+
                 /** @brief The editor's read/write surface onto this world. */
                 virtual IWorldEditor& world() noexcept = 0;
 

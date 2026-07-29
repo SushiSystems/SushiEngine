@@ -464,6 +464,20 @@ namespace SushiEngine
                  * @return The statistics for the most recent step.
                  */
                 virtual const Physics::PhysicsStatistics& statistics() const noexcept = 0;
+
+                /**
+                 * @brief Requests per-stage timing collection (the profiler panel's seam).
+                 *
+                 * Profiling is part of the solver's *construction*
+                 * (`PhysicsConfiguration::profiling` — off, the dispatch hot path reads
+                 * no timestamps at all), so this is a request consumed when the solver
+                 * is next built, not a live toggle on a running one: open the panel
+                 * before the scene's physics first steps and the timings flow. Default
+                 * implementation ignores the request, for steppers with nothing to time.
+                 *
+                 * @param enabled Whether solvers built from now on should collect timings.
+                 */
+                virtual void set_profiling_requested(bool enabled) { (void)enabled; }
         };
 
         /**

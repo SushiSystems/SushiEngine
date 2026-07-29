@@ -163,6 +163,14 @@ namespace SushiEngine
                         return physics_ != nullptr ? physics_->statistics() : NONE;
                     }
 
+                    void set_physics_profiling(bool enabled) override
+                    {
+                        // The stepper latches the request and consumes it when its solve
+                        // graph is next built (profiling is construction-time state).
+                        if (physics_ != nullptr)
+                            physics_->set_profiling_requested(enabled);
+                    }
+
                     IWorldEditor& world() noexcept override { return *this; }
 
                     double julian_date() const noexcept override { return julian_date_; }

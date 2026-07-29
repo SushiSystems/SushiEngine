@@ -428,6 +428,12 @@ namespace SushiEngine
                     return statistics_;
                 }
 
+                /** @copydoc IPhysicsStepper::set_profiling_requested */
+                void set_profiling_requested(bool enabled) override
+                {
+                    profiling_requested_ = enabled;
+                }
+
                 // -- IContactEventService ------------------------------------------
 
                 /** @copydoc IContactEventService::contact_events */
@@ -656,6 +662,10 @@ namespace SushiEngine
                     configuration.capacities.colors = 16;
                     configuration.substeps.minimum = 4;
                     configuration.substeps.maximum = 16;
+                    // The profiler panel's request, consumed here because profiling is a
+                    // construction-time property of the solve graph (off = no timestamps
+                    // on the hot path at all — configuration.hpp).
+                    configuration.profiling = profiling_requested_;
                     solver_.reset(new Solver(runtime_, configuration));
                     bodies_.assign(configuration.capacities.bodies, Body{});
                     bodies_dirty_ = true;
@@ -1201,6 +1211,14 @@ namespace SushiEngine
                 std::unordered_set<EntityId> seen_;
 
                 T substep_dt_ = T(1) / T(240);
+
+                // Requested by the profiler panel, consumed when the solver is built.
+                // Profiling is a construction-time property of the solve graph — with
+                // it off the hot path carries no timestamping at all — so a request
+                // that arrives after the solver exists applies to the next one, not
+                // to this one. Recreating a live solver to honour a checkbox would
+                // discard every body's velocity to answer a question about timing.
+                bool profiling_requested_ = false;
 
                 // The contact side: proxies numbered once per membership change, the
                 // hierarchy refreshed in place every tick, and the manifolds keyed by
