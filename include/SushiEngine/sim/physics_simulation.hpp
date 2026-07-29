@@ -388,6 +388,7 @@ namespace SushiEngine
                     if (!solver_ || (rigid_.empty() && cloth_.empty()))
                     {
                         statistics_ = Physics::PhysicsStatistics{};
+                        events_.clear();
                         return;
                     }
 
@@ -412,6 +413,10 @@ namespace SushiEngine
 
                     bodies_dirty_ = true;
                     refresh_bodies();
+                    // After the solve and after the poses came back, so an event
+                    // reports where the contact ended up and what impulse it took —
+                    // not where it was predicted to be before anything was resolved.
+                    build_contact_events();
                     refresh_statistics();
                     // Everything moved; the next query rebuilds before it answers.
                     query_dirty_ = true;
@@ -421,6 +426,14 @@ namespace SushiEngine
                 const Physics::PhysicsStatistics& statistics() const noexcept override
                 {
                     return statistics_;
+                }
+
+                // -- IContactEventService ------------------------------------------
+
+                /** @copydoc IContactEventService::contact_events */
+                const std::vector<ContactEvent>& contact_events() const noexcept override
+                {
+                    return events_;
                 }
 
                 // -- ICollisionQueryService (§7.7) ---------------------------------
@@ -550,8 +563,39 @@ namespace SushiEngine
                     /** @brief The body slot, or `null_contact_body` for static geometry. */
                     std::uint32_t slot = Physics::null_contact_body;
                     Physics::ProxyId id = Physics::null_proxy;
+                    /** @brief Who to report this as; `NULL_ENTITY` for anything unowned. */
+                    EntityId entity = NULL_ENTITY;
                     Physics::CollisionFilter filter{};
                     std::uint32_t flags = 0;
+                    /** @brief Detected and reported, never resolved. */
+                    bool trigger = false;
+                };
+
+                /**
+                 * @brief One pair that touched, kept so the next tick can compare.
+                 *
+                 * Held in a vector sorted by @ref key rather than in a hash map, and
+                 * the reason is the events: begin, persist and end are the three
+                 * outcomes of a merge between last tick's list and this one's, and a
+                 * merge needs an order. A hash map would give the same *set* and a
+                 * different *sequence* on a different machine, which is exactly what
+                 * §12.1 forbids for anything gameplay can observe — and a listener
+                 * that spawns an effect observes it.
+                 */
+                struct ContactRecord
+                {
+                    std::uint64_t key = 0;
+                    std::uint32_t a_slot = Physics::null_contact_body;
+                    std::uint32_t b_slot = Physics::null_contact_body;
+                    EntityId a_entity = NULL_ENTITY;
+                    EntityId b_entity = NULL_ENTITY;
+                    bool trigger = false;
+                    Physics::ContactManifold<T> manifold;
+
+                    bool operator<(const ContactRecord& other) const noexcept
+                    {
+                        return key < other.key;
+                    }
                 };
 
                 static Vector3T<T> to_vector(const Vector3& v) noexcept
@@ -672,9 +716,11 @@ namespace SushiEngine
                     // The warm-start keys are built from proxy indices, and those are
                     // about to be renumbered. Impulses inherited across a renumbering
                     // would be attached to the wrong pairs, which is worse than
-                    // inheriting nothing for one tick.
-                    manifolds_.clear();
-                    previous_manifolds_.clear();
+                    // inheriting nothing for one tick. The contact events go with
+                    // them: an `End` derived from a stale numbering would name a pair
+                    // that never touched.
+                    current_.clear();
+                    previous_.clear();
                 }
 
                 /** @brief Brings the solver's bodies to the host mirror, if they moved. */
@@ -800,9 +846,14 @@ namespace SushiEngine
                         proxy.slot = std::uint32_t(slot);
                         proxy.shape = shape_for_slot(proxy.slot);
                         proxy.filter = entry.filter;
+                        proxy.entity = entry.entity;
+                        proxy.trigger = (entry.collider.flags &
+                                         Physics::BodyFlags::trigger) != 0u;
                         proxy.flags = bodies_[slot].inv_mass > T(0)
                                           ? 0u
                                           : Physics::BodyFlags::static_body;
+                        if (proxy.trigger)
+                            proxy.flags |= Physics::BodyFlags::trigger;
                         add_contact_proxy(proxy);
                     }
                     for (const ClothEntry& entry : cloth_)
@@ -819,6 +870,7 @@ namespace SushiEngine
                             // filter rather than by a flag every routine has to know.
                             proxy.filter = Physics::self_excluding_filter(
                                 Physics::CollisionLayers::cloth);
+                            proxy.entity = entry.entity;
                             proxy.flags = bodies_[slot].inv_mass > T(0)
                                               ? 0u
                                               : Physics::BodyFlags::static_body;
@@ -867,8 +919,8 @@ namespace SushiEngine
                 void submit_contacts(T delta_time, std::size_t floor)
                 {
                     solver_->begin_contacts();
-                    previous_manifolds_.swap(manifolds_);
-                    manifolds_.clear();
+                    previous_.swap(current_);
+                    current_.clear();
 
                     const T substep = delta_time / T(floor > 0 ? floor : 1);
                     Physics::ContactSolveParams<T> params;
@@ -902,26 +954,56 @@ namespace SushiEngine
                         if (lhs.slot == Physics::null_contact_body)
                             continue; // two pieces of static geometry; nothing to move
 
-                        Contact contact;
-                        contact.a = lhs.slot;
-                        contact.b = rhs.slot;
-                        contact.key = pair_key(flip ? second : first, flip ? first : second);
-                        contact.params = params;
-                        contact.manifold = Physics::generate_shape_manifold<T>(
+                        ContactRecord record;
+                        record.key = pair_key(flip ? second : first, flip ? first : second);
+                        record.a_slot = lhs.slot;
+                        record.b_slot = rhs.slot;
+                        record.a_entity = lhs.entity;
+                        record.b_entity = rhs.entity;
+                        record.trigger = lhs.trigger || rhs.trigger;
+                        record.manifold = Physics::generate_shape_manifold<T>(
                             lhs.shape, rhs.shape, CONTACT_OFFSET);
-                        if (contact.manifold.point_count == 0)
+                        if (record.manifold.point_count == 0)
                             continue;
 
                         // Last tick's impulses, matched point by point on the feature
                         // ids the clipper stamped. Without this a box on a ramp has no
                         // friction cone until one builds, and creeps for the substep
                         // it takes to build it.
-                        const auto previous = previous_manifolds_.find(contact.key);
-                        if (previous != previous_manifolds_.end())
-                            Physics::warm_start_manifold(contact.manifold, previous->second);
+                        const ContactRecord* was = find_previous(record.key);
+                        if (was != nullptr)
+                            Physics::warm_start_manifold(record.manifold, was->manifold);
 
+                        current_.push_back(record);
+                        if (record.trigger)
+                            continue; // reported, never resolved
+
+                        Contact contact;
+                        contact.a = lhs.slot;
+                        contact.b = rhs.slot;
+                        contact.key = record.key;
+                        contact.params = params;
+                        contact.manifold = record.manifold;
                         solver_->add_contact(contact);
                     }
+
+                    // The broadphase emits its pairs in proxy order, which is a
+                    // function of its insertion history rather than of the scene. The
+                    // event merge below needs an order that is a function of the
+                    // scene alone, so it is imposed here and not inherited.
+                    std::sort(current_.begin(), current_.end());
+                }
+
+                /** @brief Last tick's record for @p key, or null; @ref previous_ is sorted. */
+                const ContactRecord* find_previous(std::uint64_t key) const
+                {
+                    ContactRecord probe;
+                    probe.key = key;
+                    const auto it =
+                        std::lower_bound(previous_.begin(), previous_.end(), probe);
+                    if (it == previous_.end() || it->key != key)
+                        return nullptr;
+                    return &*it;
                 }
 
                 /** @brief Takes the solved manifolds back, for the next tick to inherit. */
@@ -933,8 +1015,85 @@ namespace SushiEngine
                         Contact contact;
                         if (!solver_->read_contact(i, contact))
                             continue;
-                        manifolds_[contact.key] = contact.manifold;
+                        ContactRecord probe;
+                        probe.key = contact.key;
+                        const auto it =
+                            std::lower_bound(current_.begin(), current_.end(), probe);
+                        if (it != current_.end() && it->key == contact.key)
+                            it->manifold = contact.manifold;
                     }
+                }
+
+                /**
+                 * @brief Diffs last tick's touching pairs against this tick's.
+                 *
+                 * A linear merge of two sorted lists, which is the same shape the
+                 * broadphase's pair cache uses for the same reason: the three
+                 * outcomes — a pair only in the new list, in both, or only in the old
+                 * — *are* begin, persist and end, and deriving them any other way
+                 * means deciding twice what "still touching" means.
+                 */
+                void build_contact_events()
+                {
+                    events_.clear();
+                    std::size_t i = 0;
+                    std::size_t j = 0;
+                    while (i < previous_.size() || j < current_.size())
+                    {
+                        if (j >= current_.size() ||
+                            (i < previous_.size() && previous_[i].key < current_[j].key))
+                        {
+                            events_.push_back(
+                                make_event(previous_[i], ContactPhase::End));
+                            ++i;
+                            continue;
+                        }
+                        if (i >= previous_.size() || current_[j].key < previous_[i].key)
+                        {
+                            events_.push_back(
+                                make_event(current_[j], ContactPhase::Begin));
+                            ++j;
+                            continue;
+                        }
+                        events_.push_back(make_event(current_[j], ContactPhase::Persist));
+                        ++i;
+                        ++j;
+                    }
+                }
+
+                /** @brief One record, as the event a gameplay system reads. */
+                ContactEvent make_event(const ContactRecord& record, ContactPhase phase) const
+                {
+                    ContactEvent event;
+                    event.a = record.a_entity;
+                    event.b = record.b_entity;
+                    event.phase = phase;
+                    event.trigger = record.trigger;
+                    event.normal = from_vector(record.manifold.normal);
+
+                    // The deepest point, because that is the one a sound, a decal or a
+                    // damage number is about. Averaging the four would put the point
+                    // in the middle of a face the body only touched at one corner.
+                    std::size_t deepest = 0;
+                    for (std::size_t p = 1; p < record.manifold.point_count; ++p)
+                        if (record.manifold.points[p].separation <
+                            record.manifold.points[deepest].separation)
+                            deepest = p;
+
+                    T impulse = T(0);
+                    for (std::size_t p = 0; p < record.manifold.point_count; ++p)
+                        impulse += record.manifold.points[p].normal_lambda;
+                    event.impulse = Scalar(record.trigger ? T(0) : impulse);
+
+                    if (record.a_slot < bodies_.size() && record.manifold.point_count > 0)
+                    {
+                        const Body& body = bodies_[record.a_slot];
+                        event.point = from_vector(
+                            body.position +
+                            rotate(body.orientation,
+                                   record.manifold.points[deepest].anchor_a_local));
+                    }
+                    return event;
                 }
 
                 /** @brief An order-stable key for the pair of proxies @p a and @p b. */
@@ -1051,9 +1210,9 @@ namespace SushiEngine
                 std::vector<ContactProxy> contact_proxies_;
                 std::vector<T> cloth_radius_;
                 std::unordered_map<std::uint32_t, Collider> collider_of_slot_;
-                std::unordered_map<std::uint64_t, Physics::ContactManifold<T>> manifolds_;
-                std::unordered_map<std::uint64_t, Physics::ContactManifold<T>>
-                    previous_manifolds_;
+                std::vector<ContactRecord> current_;
+                std::vector<ContactRecord> previous_;
+                std::vector<ContactEvent> events_;
                 bool proxies_dirty_ = true;
 
                 Physics::PhysicsStatistics statistics_{};

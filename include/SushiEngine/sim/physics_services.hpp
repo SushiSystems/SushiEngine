@@ -267,6 +267,87 @@ namespace SushiEngine
             bool include_triggers = true;
         };
 
+        /** @brief Where in a contact's life an event was reported. */
+        enum class ContactPhase : std::uint8_t
+        {
+            /** @brief The two surfaces met this tick and were not touching last tick. */
+            Begin,
+            /** @brief They were touching last tick and still are. */
+            Persist,
+            /** @brief They were touching last tick and are not now. */
+            End
+        };
+
+        /**
+         * @brief One thing touching another, reported to gameplay.
+         *
+         * Reported per *pair of colliders*, not per contact point: a crate landing
+         * flat on the ground produces four points and one event, because "the crate
+         * landed" is one thing that happened. The point and normal are the manifold's
+         * deepest point, which is the one a sound, a decal or a damage number wants.
+         *
+         * A pair against static geometry has `b == NULL_ENTITY`. That is not a
+         * missing value — static geometry is not an entity, and inventing one so the
+         * field is never null would mean every listener filtering out a fiction.
+         */
+        struct ContactEvent
+        {
+            EntityId a = NULL_ENTITY;
+            EntityId b = NULL_ENTITY;
+            ContactPhase phase = ContactPhase::Begin;
+
+            /** @brief The manifold's deepest point, in world space. */
+            Vector3 point;
+
+            /** @brief Unit normal, pointing from @ref a toward @ref b. */
+            Vector3 normal{Vector3{0, 1, 0}};
+
+            /**
+             * @brief Total normal impulse the contact carried, in newton-seconds.
+             *
+             * What separates a scrape from a crash, and the reason the solved
+             * manifolds are read back off the device at all. Zero on a trigger
+             * overlap, which is detected and never resolved, and on an `End`, which
+             * reports the impulse the contact carried on its last live tick.
+             */
+            Scalar impulse = 0;
+
+            /**
+             * @brief Whether one side was a trigger, so the pair was reported and not resolved.
+             *
+             * A separate flag rather than a separate event stream: a listener that
+             * wants both — a damage volume that also pushes — should not have to
+             * subscribe twice and correlate, and one that wants only triggers has a
+             * one-line filter.
+             */
+            bool trigger = false;
+        };
+
+        /**
+         * @brief What touched what this tick.
+         *
+         * Its own service for §4.3's reason: a door that opens when something stands
+         * on a pressure plate, an impact sound, a damage volume and a checkpoint
+         * trigger are all this interface and none of them has any business depending
+         * on rigid-body lifecycle or on the stepper to get an answer.
+         *
+         * The list is rebuilt every tick and is ordered deterministically — by the
+         * colliders involved, never by the order the broadphase happened to find
+         * them — because a listener that spawns an effect must not spawn it in a
+         * different order on a different machine (§12.1).
+         */
+        class IContactEventService
+        {
+            public:
+                virtual ~IContactEventService() = default;
+
+                /**
+                 * @brief This tick's contact events, valid until the next @ref
+                 *        IPhysicsStepper::step.
+                 */
+                virtual const std::vector<ContactEvent>& contact_events() const noexcept = 0;
+        };
+
         /**
          * @brief Asking the collision world a question that is not "what is touching".
          *
@@ -381,6 +462,7 @@ namespace SushiEngine
                               public IClothService,
                               public IStaticGeometryService,
                               public ICollisionQueryService,
+                              public IContactEventService,
                               public IPhysicsStepper
         {
             public:

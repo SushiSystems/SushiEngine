@@ -1584,7 +1584,7 @@ progress is recorded.
 | Phase | Deliverable | Acceptance | Status |
 |---|---|---|---|
 | **P0** | **Foundations.** Neutral `geometry/` module + the distance-baker move (§3.4). `physics/` restructured into §3.1's modules. `IPhysicsSimulation` split per §4.3. **`RuntimeGraphBuilder`: the single adapter naming `SushiRuntime::`, the solver migrated to the `Dynamic` `add()` form, the substep loop unrolled into one composition, predict/derive moved off the host, device residency for the hot columns (with the four-byte count slots left `Shared`), the rebalancer switched off, and the accumulation paths wired to the runtime's segmented fixed-order reduce rather than a hand-built one (§6.6, §12.2, §18).** Mutable world with generational handles, fixed-capacity buffers, and incremental recolouring (§6.4). `PhysicsMaterial`, body flags, `center_of_mass_local`. Deterministic contact ordering. `PhysicsStatistics` + profiler wiring (§13.3). Substepping schedule (§6.1, §6.2). The §1.3 correctness fixes. | Existing tests stay green; a body can be added and removed mid-simulation without a rebuild; **one `run()` per tick and a `compose_count()` that stops climbing**; statistics appear in the editor. | **Complete** — see §16.1 |
-| **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Nearly complete** — manifolds, warm starting and friction are built and tested; **contacts are a constraint kind inside the solve graph** (§6.3, §16.5); and **the live `sim/` tick runs on one `IConstraintSolver`** (§16.6). Only contact events remain. |
+| **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Complete** — manifolds, warm starting and friction; **contacts as a constraint kind inside the solve graph** (§6.3, §16.5); **the live `sim/` tick on one `IConstraintSolver`**; and contact events (§16.6). |
 | **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4 |
 | **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | Not started |
 | **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | Not started |
@@ -1955,7 +1955,39 @@ bulk transfer per tick precisely because of it — the host needs the poses to f
 contacts — and written back the same way. One pair of transfers, not one per body,
 and it is the honest remaining cost of host-side collision detection.
 
-**What P1 still owes: contact events.** That is the whole of it.
+**Contact events, and P1 closed.** The last item. `IContactEventService` joins the
+§4.3 split — its own interface, because a pressure plate, an impact sound, a damage
+volume and a checkpoint trigger are all this one question and none of them has any
+business depending on rigid-body lifecycle to ask it.
+
+- **Reported per pair of colliders, not per contact point.** A crate landing flat
+  produces four points and one event, because "the crate landed" is one thing that
+  happened. The point and normal are the manifold's *deepest* point: averaging the
+  four would put the point in the middle of a face the body only touched at a corner.
+- **Begin, persist and end are a merge, not three tests.** The touching pairs are
+  kept in a list sorted by pair key rather than in a hash map, and this tick's list
+  is merged against last tick's; a pair only in the new list, in both, or only in the
+  old *is* the three phases. Deriving them any other way means deciding twice what
+  "still touching" means. The sort is also what makes the sequence a function of the
+  scene rather than of the broadphase's insertion history — and a listener that
+  spawns an effect observes the sequence, so §12.1 applies to it.
+- **The impulse is real.** Total normal impulse over the manifold, in newton-seconds,
+  which is what separates a scrape from a crash — and it is the reason the solved
+  manifolds are read back off the device at all. Zero on a trigger, which is detected
+  and never resolved, and on an `End`, which reports what the contact carried on its
+  last live tick.
+- **A trigger is a flag on the event, not a second stream.** A listener that wants
+  both — a damage volume that also pushes — should not have to subscribe twice and
+  correlate; one that wants only triggers has a one-line filter.
+- **Static geometry reports `b == NULL_ENTITY`.** Not a missing value: static
+  geometry is not an entity, and inventing one so the field is never null would mean
+  every listener filtering out a fiction.
+
+Four integration scenes cover it and pass: a box that begins **once** and then
+persists with a positive impulse, a body lifted clear that ends exactly once and then
+reports nothing at all, a trigger that is reported with zero impulse while the body
+falls straight through it, and five bodies landing out of order whose events still
+arrive in scene order. **P1 is complete.**
 
 ---
 
