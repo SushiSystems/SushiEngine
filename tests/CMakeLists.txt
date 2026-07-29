@@ -72,6 +72,9 @@ add_executable(se_functional_tests
     # Static triangle-mesh geometry: the cooked hierarchy and the internal-edge
     # correction that stops a crate tripping on the seams (P2, §7.2).
     functional/unit/test_mesh_collision.cpp
+    # The last two shape kinds: terrain found by arithmetic rather than by search,
+    # and one body carrying several colliders (P2, §5.2).
+    functional/unit/test_height_field_compound.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp

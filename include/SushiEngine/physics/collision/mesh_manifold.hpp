@@ -118,21 +118,35 @@ namespace SushiEngine
          * separations come out measured against the surface rather than against
          * whatever feature GJK happened to converge on.
          *
-         * @param shape          The convex shape.
-         * @param mesh           The placed mesh.
-         * @param triangle_index Which triangle, in the mesh's own indexing.
-         * @param center         The shape's body centre, for the anchor frame.
-         * @param orientation    The shape's body orientation.
-         * @param contact_offset Contacts are generated out to this separation (§7.6).
-         * @param face_tolerance How flush a feature must be to count as touching.
+         * The triangle arrives as a value and its shared edges as three flags,
+         * rather than as an index into a mesh. Every surface built out of triangles
+         * needs exactly this routine — a triangle mesh, a height field, and the
+         * soft-body surfaces of P6 — and they disagree only about where the
+         * triangles come from and which of their edges are interior. Handing those
+         * in keeps one implementation of the correction rule instead of one per
+         * surface kind, each drifting.
+         *
+         * @param shape               The convex shape.
+         * @param triangle            The triangle, in world space.
+         * @param shared_edge         Per edge (a-b, b-c, c-a): does the surface
+         *                            continue across it?
+         * @param center              The shape's body centre, for the anchor frame.
+         * @param orientation         The shape's body orientation.
+         * @param surface_center      The surface body's centre.
+         * @param surface_orientation The surface body's orientation.
+         * @param feature_base        Identifies this triangle within its surface, so
+         *                            warm starting does not confuse two of them.
+         * @param contact_offset      Contacts are generated out to this separation (§7.6).
+         * @param face_tolerance      How flush a feature must be to count as touching.
          */
         template <typename T, typename Shape>
         inline ContactManifold<T> generate_convex_triangle_manifold(
-            const Shape& shape, const TriangleMeshView<T>& mesh, std::uint32_t triangle_index,
+            const Shape& shape, const TriangleCollider<T>& triangle, const bool shared_edge[3],
             const Vector3T<T>& center, const QuaternionT<T>& orientation,
-            T contact_offset = T(0), T face_tolerance = T(1e-3)) noexcept
+            const Vector3T<T>& surface_center, const QuaternionT<T>& surface_orientation,
+            std::uint32_t feature_base, T contact_offset = T(0),
+            T face_tolerance = T(1e-3)) noexcept
         {
-            const TriangleCollider<T> triangle = mesh_triangle(mesh, triangle_index);
             const Vector3T<T> face_normal = triangle_normal(triangle);
             if (dot(face_normal, face_normal) <= T(0))
                 return ContactManifold<T>{}; // a degenerate triangle is not a surface
@@ -165,11 +179,7 @@ namespace SushiEngine
                 int edge = 0;
                 const T edge_distance = nearest_triangle_edge(triangle, contact.point_b, edge);
                 const bool on_edge = edge_distance <= face_tolerance * T(10);
-                const bool shared =
-                    mesh.adjacency != nullptr &&
-                    mesh.adjacency[3u * triangle_index + static_cast<std::uint32_t>(edge)] !=
-                        no_adjacent_triangle;
-                if (!(on_edge && shared))
+                if (!(on_edge && shared_edge[edge]))
                 {
                     // A genuine boundary edge or corner. The shape really is caught
                     // on it, GJK's normal is the truth, and there is no patch to
@@ -180,13 +190,11 @@ namespace SushiEngine
                     // an edge contact it answers zero — the shape is beside the
                     // surface, not above it — and a contact that reports no
                     // penetration resolves to nothing.
-                    return make_point_manifold(contact.normal, contact.point_a, contact.point_b,
-                                               contact.separation, center, orientation,
-                                               mesh.center, mesh.orientation,
-                                               make_feature_id(triangle_index & 0xFu,
-                                                               (triangle_index >> 4) & 0xFu,
-                                                               static_cast<std::uint32_t>(edge),
-                                                               true));
+                    return make_point_manifold(
+                        contact.normal, contact.point_a, contact.point_b, contact.separation,
+                        center, orientation, surface_center, surface_orientation,
+                        make_feature_id(feature_base & 0xFu, (feature_base >> 4) & 0xFu,
+                                        static_cast<std::uint32_t>(edge), true));
                 }
             }
 
@@ -214,8 +222,9 @@ namespace SushiEngine
             }
             if (clipped_count == 0)
                 return make_point_manifold(normal, contact.point_a, contact.point_b,
-                                           contact.separation, center, orientation, mesh.center,
-                                           mesh.orientation, make_feature_id(0, 0, 0, false));
+                                           contact.separation, center, orientation,
+                                           surface_center, surface_orientation,
+                                           make_feature_id(0, 0, 0, false));
 
             const T plane_offset = dot(face_normal, triangle.a);
             ClippedPoint<T> kept[max_clipped_points];
@@ -248,16 +257,16 @@ namespace SushiEngine
                 const Vector3T<T> on_surface = point.position + normal * separation;
                 ContactPoint<T>& out = manifold.points[i];
                 out.anchor_a_local = to_local_anchor(center, orientation, point.position);
-                out.anchor_b_local = to_local_anchor(mesh.center, mesh.orientation, on_surface);
+                out.anchor_b_local =
+                    to_local_anchor(surface_center, surface_orientation, on_surface);
                 out.separation = separation;
                 out.normal_lambda = T(0);
                 out.tangent_lambda[0] = T(0);
                 out.tangent_lambda[1] = T(0);
                 // The triangle index is part of the identity: two triangles under the
                 // same shape are two contacts, and warm starting must not confuse them.
-                out.feature_id =
-                    make_feature_id(triangle_index & 0xFu, (triangle_index >> 4) & 0xFu,
-                                    point.vertex_id, false);
+                out.feature_id = make_feature_id(feature_base & 0xFu, (feature_base >> 4) & 0xFu,
+                                                 point.vertex_id, false);
             }
             return manifold;
         }
@@ -290,9 +299,19 @@ namespace SushiEngine
             query_mesh_bvh(mesh, bounds,
                            [&](std::uint32_t triangle_index) noexcept
                            {
+                               const bool shared[3] = {
+                                   mesh.adjacency != nullptr &&
+                                       mesh.adjacency[3u * triangle_index] != no_adjacent_triangle,
+                                   mesh.adjacency != nullptr &&
+                                       mesh.adjacency[3u * triangle_index + 1u] !=
+                                           no_adjacent_triangle,
+                                   mesh.adjacency != nullptr &&
+                                       mesh.adjacency[3u * triangle_index + 2u] !=
+                                           no_adjacent_triangle};
                                const ContactManifold<T> manifold =
                                    generate_convex_triangle_manifold<T>(
-                                       shape, mesh, triangle_index, center, orientation,
+                                       shape, mesh_triangle(mesh, triangle_index), shared, center,
+                                       orientation, mesh.center, mesh.orientation, triangle_index,
                                        contact_offset, face_tolerance);
                                if (manifold.point_count > 0)
                                    emit(manifold, triangle_index);
