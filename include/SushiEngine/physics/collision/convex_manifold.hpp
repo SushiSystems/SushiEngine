@@ -460,5 +460,68 @@ namespace SushiEngine
             }
             return manifold;
         }
+
+        /**
+         * @brief The manifold between any convex shape and a static half-space plane.
+         *
+         * A plane is not a bounded convex shape — its support function runs off to
+         * infinity — so it cannot go through GJK, and it does not need to: the
+         * normal is known in advance, so the contact face is the only thing to
+         * find, and extraction already does that. The result is that a plane needs
+         * *one* routine rather than one per shape, and a new convex shape gains
+         * ground contact from the same `contact_face()` overload that gave it
+         * everything else.
+         *
+         * The plane is body `b`, so the normal runs from the shape toward the plane
+         * and resolving pushes the shape out along `+plane.normal` — the pair
+         * convention, rather than a sign rule that only plane contacts obey (§1.3
+         * recorded what that costs). Its anchors are world points, because a
+         * half-space has no frame to be local to.
+         */
+        template <typename T, typename Shape>
+        inline ContactManifold<T> generate_convex_plane_manifold(
+            const Shape& shape, const PlaneCollider<T>& plane, const Vector3T<T>& center,
+            const QuaternionT<T>& orientation, T contact_offset = T(0),
+            T face_tolerance = T(1e-3)) noexcept
+        {
+            const ContactFace<T> face = contact_face(shape, plane.normal * T(-1), face_tolerance);
+
+            ClippedPoint<T> kept[max_clipped_points];
+            T separations[max_clipped_points];
+            std::size_t kept_count = 0;
+            for (std::size_t i = 0; i < face.count; ++i)
+            {
+                const T separation = dot(plane.normal, face.points[i].position) - plane.offset;
+                if (separation > contact_offset)
+                    continue;
+                kept[kept_count] = face.points[i];
+                separations[kept_count] = separation;
+                ++kept_count;
+            }
+            if (kept_count == 0)
+                return ContactManifold<T>{};
+
+            std::size_t chosen[max_manifold_points];
+            const std::size_t chosen_count =
+                reduce_manifold_points(kept, separations, kept_count, chosen, face_tolerance);
+
+            ContactManifold<T> manifold;
+            manifold.normal = plane.normal * T(-1);
+            manifold.point_count = static_cast<std::uint8_t>(chosen_count);
+            for (std::size_t i = 0; i < chosen_count; ++i)
+            {
+                const ClippedPoint<T>& point = kept[chosen[i]];
+                const T separation = separations[chosen[i]];
+                ContactPoint<T>& out = manifold.points[i];
+                out.anchor_a_local = to_local_anchor(center, orientation, point.position);
+                out.anchor_b_local = point.position - plane.normal * separation;
+                out.separation = separation;
+                out.normal_lambda = T(0);
+                out.tangent_lambda[0] = T(0);
+                out.tangent_lambda[1] = T(0);
+                out.feature_id = make_feature_id(0, 0, point.vertex_id, false);
+            }
+            return manifold;
+        }
     } // namespace Physics
 } // namespace SushiEngine

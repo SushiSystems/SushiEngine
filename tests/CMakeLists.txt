@@ -66,6 +66,9 @@ add_executable(se_functional_tests
     # And turning its single deepest point into the patch two shapes rest on, so a
     # cooked hull settles the way a primitive box already does (P2, §7.3).
     functional/unit/test_convex_manifold.cpp
+    # And the table that says which routine collides which pair, so a new shape is a
+    # registration rather than a branch (P2, §4.2).
+    functional/unit/test_narrowphase_dispatch.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp
