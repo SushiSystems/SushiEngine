@@ -476,6 +476,89 @@ namespace SushiEngine
             return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
         }
 
+        // -- Fold operators ---------------------------------------------------
+        //
+        // The combining half of a reduction, and nothing else. A reduction has two
+        // parts — *what* combines two values, and *in what order* the values are
+        // combined — and only the first is arithmetic. The order is a scheduling
+        // property and belongs to whoever owns the schedule; keeping it out of here
+        // is what lets one fold operator serve a host loop, a device kernel and a
+        // graph node without any of them learning about the others.
+        //
+        // Trivially copyable and stateless by construction, so a device kernel can
+        // capture one by value. They take and return by value for the same reason:
+        // a reference parameter is not free to a kernel argument.
+        //
+        // The identity is deliberately *not* a member. `Maximum<T>`'s identity is
+        // the lowest representable T, and a placeholder that claimed to know that
+        // for every T a caller might instantiate would be claiming more than it can
+        // deliver. The caller passes the identity it means, which is also the one
+        // place a caller might legitimately mean something other than the obvious
+        // (a fold over speeds whose identity is zero because negative speed is not a
+        // value the domain has).
+
+        /** @brief Folds two values to their sum. */
+        template <typename T>
+        struct Sum
+        {
+            T operator()(T a, T b) const noexcept { return a + b; }
+        };
+
+        /** @brief Folds two values to their product. */
+        template <typename T>
+        struct Product
+        {
+            T operator()(T a, T b) const noexcept { return a * b; }
+        };
+
+        /**
+         * @brief Folds two values to the smaller.
+         *
+         * `b < a ? b : a` rather than `std::min`, so the operator is usable in
+         * device code without dragging `<algorithm>` into a kernel, and so a NaN on
+         * either side propagates the same way it does in @ref Maximum instead of
+         * depending on which argument the standard library happened to test.
+         */
+        template <typename T>
+        struct Minimum
+        {
+            T operator()(T a, T b) const noexcept { return b < a ? b : a; }
+        };
+
+        /** @brief Folds two values to the larger; see @ref Minimum on the comparison. */
+        template <typename T>
+        struct Maximum
+        {
+            T operator()(T a, T b) const noexcept { return a < b ? b : a; }
+        };
+
+        /**
+         * @brief Folds `[first, last)` in ascending index order, from @p identity.
+         *
+         * The sequential reference fold. Ascending index order is the whole point:
+         * floating-point addition is not associative, so a reduction's answer is a
+         * function of its combination order, and an order that is a function of the
+         * *data layout* is reproducible where one that follows the schedule is not
+         * (`docs/slop/physics_system.md` §12.1). Anything parallel that claims to
+         * agree with a reduction must agree with this.
+         *
+         * @param values   The array to fold.
+         * @param first    First index, inclusive.
+         * @param last     Last index, exclusive.
+         * @param identity The value an empty range folds to.
+         * @param op       The fold operator.
+         * @return The folded value.
+         */
+        template <typename T, typename Op>
+        inline T fold_range(const T* values, std::size_t first, std::size_t last, T identity,
+                            Op op) noexcept
+        {
+            T accumulated = identity;
+            for (std::size_t i = first; i < last; ++i)
+                accumulated = op(accumulated, values[i]);
+            return accumulated;
+        }
+
         /**
          * @brief Componentwise linear interpolation of two vectors.
          * @param a Value at @p t == 0.

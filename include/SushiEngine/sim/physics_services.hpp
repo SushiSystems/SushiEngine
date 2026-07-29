@@ -110,9 +110,15 @@ namespace SushiEngine
          * The seam through which the live world hands the physics a *field* rather than one
          * scene-wide vector (dependency inversion — the solver names this abstraction, never
          * the astronomy behind it). Boundary `Scalar` in and out; the host samples the true
-         * per-body field (falling off with altitude, curving toward the attractor) and the
-         * solver evaluates it once per body per sub-step. A uniform field is just a sampler
-         * that ignores its argument.
+         * per-body field (falling off with altitude, curving toward the attractor) into each
+         * body's own external acceleration. A uniform field is just a sampler that ignores
+         * its argument.
+         *
+         * Sampled **once per body per tick**, not per sub-step. That is forced rather than
+         * chosen: the prediction step runs on the device inside one composition, so there is
+         * no point inside the sub-step loop at which a host sampler could be called at all.
+         * A body travels at most the sub-step schedule's motion budget in a tick, over which
+         * any field smooth enough to be worth sampling has not meaningfully changed.
          */
         using GravitySampler = std::function<Vector3(const Vector3& position)>;
 
@@ -128,16 +134,19 @@ namespace SushiEngine
                 virtual ~IRigidBodyService() = default;
 
                 /**
-                 * @brief Rebuilds the rigid-body world from @p bodies.
+                 * @brief Reconciles the rigid-body world with @p bodies.
                  *
-                 * A body-count change needs a fresh solve graph, so this rebuilds
-                 * wholesale, but preserves each persisting entity's live velocity and
-                 * pose (matched by `id`) so toggling one body does not reset the others
-                 * already in motion; a newly added body seeds from its descriptor pose,
-                 * at rest. Call only when the set of bodies actually changes.
+                 * A diff, not a rebuild: an entity that was already here keeps its
+                 * body and its live velocity, one that has gone is removed with its
+                 * constraints, and a new one seeds from its descriptor pose, at rest.
+                 * The solve graph does not change shape for any of it — that is what
+                 * the mutable world is for. Call whenever the set of bodies changes.
                  *
                  * @param bodies     The full set of rigid bodies after the change.
-                 * @param iterations Gauss-Seidel sweeps per sub-step.
+                 * @param iterations Ignored. The sub-step schedule subsumes it: this
+                 *                   solver takes small steps rather than many
+                 *                   iterations, and honouring both would be two dials
+                 *                   controlling one quantity.
                  * @param substep_dt The fixed sub-step duration, in seconds.
                  */
                 virtual void set_rigid_bodies(const std::vector<RigidBodyDesc>& bodies,
@@ -423,17 +432,24 @@ namespace SushiEngine
                 virtual ~IPhysicsStepper() = default;
 
                 /**
-                 * @brief Advances rigid and cloth by one outer step, resolving contacts.
+                 * @brief Advances everything by one tick.
                  *
-                 * Each sub-step, after the constraint solve, rigid bodies are separated
-                 * from each other and pushed out of the static planes, and cloth
-                 * particles are pushed out of the planes and out of the rigid bodies
-                 * (snapshotted as sphere obstacles) — so rigid bodies rest and stack and
-                 * cloth drapes over them.
+                 * Rigid bodies and cloth are one body set in one solver, so there is
+                 * no ordering between them to get right: contacts — body to body,
+                 * body to cloth, and against static geometry — are constraints
+                 * resolved inside the sub-step loop alongside every other kind.
                  *
-                 * @param gravity  The per-body gravitational field, sampled at each body's
-                 *                 position every sub-step.
-                 * @param substeps Number of sub-steps this step.
+                 * @param gravity  The per-body gravitational field, sampled at each
+                 *                 body's position once this tick.
+                 * @param substeps A **floor** under the sub-step count, not the count
+                 *                 itself. The count is derived from simulation state,
+                 *                 because a caller setting it outright would make the
+                 *                 simulation depend on something outside its own
+                 *                 state; what a caller legitimately knows is the
+                 *                 quality it is willing to pay for whatever the state
+                 *                 says. State may raise the count, the caller may
+                 *                 raise the floor, and neither lowers what the other
+                 *                 asked for.
                  */
                 virtual void step(const GravitySampler& gravity, std::size_t substeps) = 0;
 

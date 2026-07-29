@@ -436,6 +436,19 @@ namespace SushiEngine
 
             private:
                 /**
+                 * @brief How many body slots one work-item of the reduction's first pass folds.
+                 *
+                 * The one number that decides the reduction's combination order, so
+                 * it is a constant rather than a tuning knob: changing it changes the
+                 * answer in the last bits, and a number that can change between two
+                 * builds of the same scene is not a fixed order. 256 leaves a
+                 * 16 384-slot scene with 64 partials, which the second pass folds
+                 * sequentially — short enough not to matter, long enough that the
+                 * first pass still has real width.
+                 */
+                static constexpr std::size_t MOTION_SEGMENT = 256;
+
+                /**
                  * @brief Allocates every buffer once, at capacity.
                  *
                  * The hot columns are device-resident; the two host-touched slots —
@@ -468,6 +481,13 @@ namespace SushiEngine
                         contacts > 0 ? contacts : 1, device, Residency::Device));
                     motion_.emplace(runtime_.buffer<T>(bodies > 0 ? bodies : 1, device,
                                                        Residency::Device));
+                    // One partial per segment of the motion column. Device-resident:
+                    // the host never looks at a partial, only at the one value the
+                    // second pass folds them into.
+                    const std::size_t segments =
+                        (body_slots_.capacity() + MOTION_SEGMENT - 1) / MOTION_SEGMENT;
+                    segments_.emplace(runtime_.buffer<T>(segments > 0 ? segments : 1, device,
+                                                         Residency::Device));
                     uniforms_.emplace(runtime_.buffer<StepUniforms<T>>(
                         1, device, Residency::Shared));
                     motion_maximum_.emplace(
@@ -671,13 +691,54 @@ namespace SushiEngine
                                                     : T(0);
                                 });
 
-                    // Fixed-order, so the maximum is a function of the element layout
-                    // alone and not of the worker count or the steal pattern. The
-                    // whole capacity is folded: retired slots hold zero, which is the
-                    // identity, so a varying live count needs no varying fold.
-                    graph_->add_reduce(*motion_, *motion_maximum_,
-                                       body_slots_.capacity(),
-                                       SushiRuntime::API::Maximum<T>{}, T(0));
+                    // The reduction, in two fixed-order passes.
+                    //
+                    // Fixed order is the requirement, not an implementation detail:
+                    // the maximum must be a function of the element layout alone and
+                    // not of the worker count or the steal pattern, or the derived
+                    // substep count — and therefore the whole simulation — depends on
+                    // how the scheduler felt that frame (§12.1). A plain device
+                    // `reduce` does not promise that, which is why this is built out
+                    // of ordinary nodes rather than asked for.
+                    //
+                    // Pass one: one work-item per segment, folding its slice in
+                    // ascending index order. Pass two: one work-item folding the
+                    // segment results, again ascending. Both orders are functions of
+                    // the capacity and the segment size, both of which are fixed at
+                    // construction, so the answer is reproducible across runs and
+                    // across machines of the same architecture.
+                    //
+                    // The whole capacity is folded rather than the live count: a
+                    // retired slot holds zero, which is the identity, so a varying
+                    // live count needs no varying fold — and a fold whose *extent*
+                    // varied would be a fold whose order varied.
+                    //
+                    // This belongs in SushiRuntime, behind its WP-4 "deterministic
+                    // reduction primitives". Until that header exists it lives here,
+                    // in the one file the physics layer is allowed to name the
+                    // runtime from, and moving it is deleting these two nodes.
+                    T* segments = segments_->data();
+                    T* folded = motion_maximum_->data();
+                    const std::size_t capacity = body_slots_.capacity();
+                    const std::size_t segment_count = segments_->size();
+
+                    graph_->add(Reads(*motion_), Writes(*segments_), segment_count,
+                                [motion, segments, capacity](std::size_t s)
+                                {
+                                    const std::size_t first = s * MOTION_SEGMENT;
+                                    std::size_t last = first + MOTION_SEGMENT;
+                                    if (last > capacity)
+                                        last = capacity;
+                                    segments[s] =
+                                        fold_range(motion, first, last, T(0), Maximum<T>{});
+                                });
+
+                    graph_->add(Reads(*segments_), Writes(*motion_maximum_), std::size_t(1),
+                                [segments, folded, segment_count](std::size_t)
+                                {
+                                    folded[0] = fold_range(segments, std::size_t(0),
+                                                           segment_count, T(0), Maximum<T>{});
+                                });
                 }
 
                 // The four providers below are returned as lambdas rather than as
@@ -1036,6 +1097,7 @@ namespace SushiEngine
                 std::optional<SushiRuntime::API::Buffer<T>> lambdas_;
                 std::optional<SushiRuntime::API::Buffer<Contact>> contacts_;
                 std::optional<SushiRuntime::API::Buffer<T>> motion_;
+                std::optional<SushiRuntime::API::Buffer<T>> segments_;
                 std::optional<SushiRuntime::API::Buffer<StepUniforms<T>>> uniforms_;
                 std::optional<SushiRuntime::API::Buffer<T>> motion_maximum_;
                 std::optional<SushiRuntime::API::Graph> graph_;

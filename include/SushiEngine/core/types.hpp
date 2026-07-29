@@ -102,6 +102,7 @@ namespace SushiEngine
     using placeholder::cross;
     using placeholder::decompose_transform;
     using placeholder::dot;
+    using placeholder::fold_range;
     using placeholder::from_floating_origin;
     using placeholder::length;
     using placeholder::lerp;
@@ -118,4 +119,12 @@ namespace SushiEngine
     using placeholder::slerp;
     using placeholder::to_floating_origin;
     using placeholder::translation;
+
+    // The fold operators. Class templates, so they are re-exported by name rather
+    // than folded into the function list above; same reasoning, same one-file swap
+    // when SushiBLAS lands.
+    using placeholder::Maximum;
+    using placeholder::Minimum;
+    using placeholder::Product;
+    using placeholder::Sum;
 } // namespace SushiEngine
