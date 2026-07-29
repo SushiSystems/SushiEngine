@@ -42,27 +42,16 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+// `Aabb` and `aabb_overlap` live in `physics/geometry` with the rest of the
+// single-shape value types (§3.2): a bounding box is meaningful without a second
+// box to test it against, and the mesh hierarchy one layer down needs them too.
+// They are used unqualified here, exactly as when they were declared in this file.
+#include <SushiEngine/physics/geometry/shapes.hpp>
 
 namespace SushiEngine
 {
     namespace Physics
     {
-        /** @brief An axis-aligned bounding box: its minimum and maximum corners. */
-        template <typename T>
-        struct Aabb
-        {
-            Vector3T<T> min;
-            Vector3T<T> max;
-        };
-
-        /** @brief Whether two AABBs overlap on all three axes. */
-        template <typename T>
-        inline bool aabb_overlap(const Aabb<T>& a, const Aabb<T>& b) noexcept
-        {
-            return a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y &&
-                   b.min.y <= a.max.y && a.min.z <= b.max.z && b.min.z <= a.max.z;
-        }
-
         /**
          * @brief Emits every overlapping AABB pair via sweep-and-prune on the X axis.
          *

@@ -69,6 +69,9 @@ add_executable(se_functional_tests
     # And the table that says which routine collides which pair, so a new shape is a
     # registration rather than a branch (P2, §4.2).
     functional/unit/test_narrowphase_dispatch.cpp
+    # Static triangle-mesh geometry: the cooked hierarchy and the internal-edge
+    # correction that stops a crate tripping on the seams (P2, §7.2).
+    functional/unit/test_mesh_collision.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp

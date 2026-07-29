@@ -66,6 +66,43 @@ namespace SushiEngine
             count
         };
 
+        /** @brief An axis-aligned bounding box: its minimum and maximum corners. */
+        template <typename T>
+        struct Aabb
+        {
+            Vector3T<T> min;
+            Vector3T<T> max;
+        };
+
+        /** @brief Whether two AABBs overlap on all three axes. */
+        template <typename T>
+        inline bool aabb_overlap(const Aabb<T>& a, const Aabb<T>& b) noexcept
+        {
+            return a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y &&
+                   b.min.y <= a.max.y && a.min.z <= b.max.z && b.min.z <= a.max.z;
+        }
+
+        /** @brief The smallest box containing both. */
+        template <typename T>
+        inline Aabb<T> aabb_union(const Aabb<T>& a, const Aabb<T>& b) noexcept
+        {
+            return Aabb<T>{Vector3T<T>{a.min.x < b.min.x ? a.min.x : b.min.x,
+                                       a.min.y < b.min.y ? a.min.y : b.min.y,
+                                       a.min.z < b.min.z ? a.min.z : b.min.z},
+                           Vector3T<T>{a.max.x > b.max.x ? a.max.x : b.max.x,
+                                       a.max.y > b.max.y ? a.max.y : b.max.y,
+                                       a.max.z > b.max.z ? a.max.z : b.max.z}};
+        }
+
+        /** @brief A box grown by @p margin on every side. */
+        template <typename T>
+        inline Aabb<T> aabb_expand(const Aabb<T>& box, T margin) noexcept
+        {
+            return Aabb<T>{
+                Vector3T<T>{box.min.x - margin, box.min.y - margin, box.min.z - margin},
+                Vector3T<T>{box.max.x + margin, box.max.y + margin, box.max.z + margin}};
+        }
+
         /** @brief A solid sphere: a centre and a radius. */
         template <typename T>
         struct SphereCollider
@@ -166,6 +203,41 @@ namespace SushiEngine
              */
             T convex_radius = 0;
         };
+
+        /**
+         * @brief One triangle of a mesh, in world space.
+         *
+         * A triangle is a convex set, so it needs no narrowphase of its own: it gets
+         * a `support()` overload like every other convex shape and collides against
+         * spheres, boxes, capsules and hulls through the one general routine. That
+         * is what makes "convex versus triangle mesh" (§7.2) a *traversal* problem
+         * rather than a geometry problem — the hierarchy names the candidate
+         * triangles and the existing machinery does the rest.
+         */
+        template <typename T>
+        struct TriangleCollider
+        {
+            Vector3T<T> a;
+            Vector3T<T> b;
+            Vector3T<T> c;
+        };
+
+        /**
+         * @brief The triangle's plane normal, unit length, by right-hand winding.
+         *
+         * Returns a zero vector for a degenerate triangle, which the caller must
+         * treat as "no face here" rather than normalizing into a direction that
+         * means nothing.
+         */
+        template <typename T>
+        inline Vector3T<T> triangle_normal(const TriangleCollider<T>& triangle) noexcept
+        {
+            const Vector3T<T> normal = cross(triangle.b - triangle.a, triangle.c - triangle.a);
+            const T length_squared = dot(normal, normal);
+            if (length_squared <= T(1e-24))
+                return Vector3T<T>{T(0), T(0), T(0)};
+            return normal * (T(1) / std::sqrt(length_squared));
+        }
 
         /** @brief The two endpoints of a capsule's segment, in world space. */
         template <typename T>
@@ -347,6 +419,104 @@ namespace SushiEngine
             const Vector3T<T>& furthest =
                 dot(end, direction) >= dot(start, direction) ? end : start;
             return furthest + safe_normalize(direction) * capsule.radius;
+        }
+
+        // ------------------------------------------------------------------------
+        // World bounds. Another overload set, for the same reason: the broadphase
+        // and the mesh hierarchy both need a shape's box, and neither should have
+        // to know what kinds of shape exist.
+        // ------------------------------------------------------------------------
+
+        /** @brief The world-space box enclosing a sphere. */
+        template <typename T>
+        inline Aabb<T> world_bounds(const SphereCollider<T>& sphere) noexcept
+        {
+            const Vector3T<T> extent{sphere.radius, sphere.radius, sphere.radius};
+            return Aabb<T>{sphere.center - extent, sphere.center + extent};
+        }
+
+        /** @brief The world-space box enclosing an oriented box. */
+        template <typename T>
+        inline Aabb<T> world_bounds(const OrientedBox<T>& box) noexcept
+        {
+            Vector3T<T> axes[3];
+            obb_axes(box, axes);
+            const T extents[3] = {box.half_extents.x, box.half_extents.y, box.half_extents.z};
+            Vector3T<T> extent{T(0), T(0), T(0)};
+            for (int i = 0; i < 3; ++i)
+            {
+                extent.x += std::abs(axes[i].x) * extents[i];
+                extent.y += std::abs(axes[i].y) * extents[i];
+                extent.z += std::abs(axes[i].z) * extents[i];
+            }
+            return Aabb<T>{box.center - extent, box.center + extent};
+        }
+
+        /** @brief The world-space box enclosing a capsule. */
+        template <typename T>
+        inline Aabb<T> world_bounds(const CapsuleCollider<T>& capsule) noexcept
+        {
+            Vector3T<T> start;
+            Vector3T<T> end;
+            capsule_segment(capsule, start, end);
+            const Vector3T<T> radius{capsule.radius, capsule.radius, capsule.radius};
+            const Vector3T<T> low{start.x < end.x ? start.x : end.x,
+                                  start.y < end.y ? start.y : end.y,
+                                  start.z < end.z ? start.z : end.z};
+            const Vector3T<T> high{start.x > end.x ? start.x : end.x,
+                                   start.y > end.y ? start.y : end.y,
+                                   start.z > end.z ? start.z : end.z};
+            return Aabb<T>{low - radius, high + radius};
+        }
+
+        /** @brief The world-space box enclosing a triangle. */
+        template <typename T>
+        inline Aabb<T> world_bounds(const TriangleCollider<T>& triangle) noexcept
+        {
+            Aabb<T> bounds;
+            bounds.min = Vector3T<T>{
+                std::min(triangle.a.x, std::min(triangle.b.x, triangle.c.x)),
+                std::min(triangle.a.y, std::min(triangle.b.y, triangle.c.y)),
+                std::min(triangle.a.z, std::min(triangle.b.z, triangle.c.z))};
+            bounds.max = Vector3T<T>{
+                std::max(triangle.a.x, std::max(triangle.b.x, triangle.c.x)),
+                std::max(triangle.a.y, std::max(triangle.b.y, triangle.c.y)),
+                std::max(triangle.a.z, std::max(triangle.b.z, triangle.c.z))};
+            return bounds;
+        }
+
+        /** @brief The world-space box enclosing a convex hull. */
+        template <typename T>
+        inline Aabb<T> world_bounds(const ConvexHullView<T>& hull) noexcept
+        {
+            if (hull.vertices == nullptr || hull.vertex_count == 0)
+                return Aabb<T>{hull.center, hull.center};
+            Vector3T<T> low = rotate(hull.orientation, hull.vertices[0]);
+            Vector3T<T> high = low;
+            for (std::uint32_t i = 1; i < hull.vertex_count; ++i)
+            {
+                const Vector3T<T> world = rotate(hull.orientation, hull.vertices[i]);
+                low = Vector3T<T>{std::min(low.x, world.x), std::min(low.y, world.y),
+                                  std::min(low.z, world.z)};
+                high = Vector3T<T>{std::max(high.x, world.x), std::max(high.y, world.y),
+                                   std::max(high.z, world.z)};
+            }
+            const Vector3T<T> inflation{hull.convex_radius, hull.convex_radius,
+                                        hull.convex_radius};
+            return Aabb<T>{hull.center + low - inflation, hull.center + high + inflation};
+        }
+
+        /** @brief The triangle's furthest vertex along @p direction. */
+        template <typename T>
+        inline Vector3T<T> support(const TriangleCollider<T>& triangle,
+                                   const Vector3T<T>& direction) noexcept
+        {
+            const T pa = dot(triangle.a, direction);
+            const T pb = dot(triangle.b, direction);
+            const T pc = dot(triangle.c, direction);
+            if (pa >= pb && pa >= pc)
+                return triangle.a;
+            return pb >= pc ? triangle.b : triangle.c;
         }
 
         /**
