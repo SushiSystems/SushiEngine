@@ -56,6 +56,7 @@
 #include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
 
@@ -119,6 +120,9 @@ namespace SushiEngine
                 /** @brief The per-tick constraint kind this solver admits (§6.3). */
                 using Contact = ContactConstraintT<T>;
 
+                /** @brief The articulated persistent kind this solver admits (§10.1). */
+                using Joint = JointConstraintT<T>;
+
                 virtual ~IConstraintSolver() = default;
 
                 /**
@@ -158,6 +162,65 @@ namespace SushiEngine
                  * @return True when a live constraint was removed by this call.
                  */
                 virtual bool remove_constraint(ConstraintHandle handle) = 0;
+
+                /**
+                 * @brief Admits a joint between two live bodies.
+                 *
+                 * Its own entry point rather than an overload of @ref add_constraint,
+                 * because a joint is a different *kind* in the solver's §6.3 sense: it
+                 * takes its colour from the same union but lives in its own band, is
+                 * projected by its own node, and is read back every tick for the load
+                 * it carried. An overload would hide that a joint costs more than a
+                 * distance constraint, which is the one thing a caller sizing a scene
+                 * needs to know.
+                 *
+                 * @param joint The joint; its `a`/`b` are body slot indices, both of
+                 *              which must name live bodies. An immovable endpoint is a
+                 *              body with zero inverse mass, not a missing one — which
+                 *              keeps every joint two-sided and stops a one-sided
+                 *              projection existing to disagree with the two-sided one.
+                 * @return A handle to it, or an invalid handle when the joint capacity
+                 *         or the colour ceiling is exhausted.
+                 */
+                virtual JointHandle add_joint(const Joint& joint) = 0;
+
+                /**
+                 * @brief Removes a joint. What a joint breaking actually does.
+                 * @param handle The joint to remove.
+                 * @return True when a live joint was removed by this call.
+                 */
+                virtual bool remove_joint(JointHandle handle) = 0;
+
+                /**
+                 * @brief Reads a joint back, including the load the last tick left on it.
+                 *
+                 * The reason a joint is transferred off the device at all: §10.4's
+                 * force recovery happens inside the projection, so the multipliers it
+                 * settled on are on the device and a break threshold, a load readout,
+                 * and a motor-effort gauge are all the same readback.
+                 *
+                 * @param handle The joint to read.
+                 * @param joint  Receives the joint; untouched when the handle is stale.
+                 * @return True when @p handle named a live joint.
+                 */
+                virtual bool read_joint(JointHandle handle, Joint& joint) const = 0;
+
+                /**
+                 * @brief Overwrites a joint — a motor target, a limit, a broken flag.
+                 *
+                 * The whole descriptor rather than a field at a time, because the
+                 * alternative is one virtual per authored parameter and a seam that
+                 * grows every time a joint kind gains one. A caller reads, edits, and
+                 * writes back.
+                 *
+                 * @param handle The joint to write.
+                 * @param joint  The descriptor to store.
+                 * @return True when @p handle named a live joint.
+                 */
+                virtual bool write_joint(JointHandle handle, const Joint& joint) = 0;
+
+                /** @brief The fixed number of joint slots this solver was built with. */
+                virtual std::size_t joint_capacity() const noexcept = 0;
 
                 /**
                  * @brief Discards last tick's contacts and opens a fresh submission.

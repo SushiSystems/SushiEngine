@@ -115,6 +115,40 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Takes @p color for a constraint on @p a and @p b, without choosing it.
+                 *
+                 * @ref assign picks the lowest free colour and takes it in one step,
+                 * which is right when *any* free colour will do. It is not right when
+                 * the caller has a second constraint on the choice — a colour whose
+                 * storage band is full is free to the colourer and useless to the
+                 * store — so the caller reads @ref mask_of, applies its own rule, and
+                 * takes the colour it settled on through this.
+                 *
+                 * @param a     The first body's slot index.
+                 * @param b     The second body's slot index.
+                 * @param color The colour to take; must be free on both bodies.
+                 * @return False when either index is out of range or @p color is past
+                 *         the limit, in which case nothing was taken.
+                 */
+                bool take(std::uint32_t a, std::uint32_t b, std::uint32_t color) noexcept
+                {
+                    if (!tracks(a) || !tracks(b) || color >= color_limit_)
+                        return false;
+                    const std::uint64_t bit = std::uint64_t(1) << color;
+                    used_colors_[a] |= bit;
+                    used_colors_[b] |= bit;
+                    if (color >= highest_used_)
+                        highest_used_ = color + 1;
+                    return true;
+                }
+
+                /** @brief Whether @p index names a body slot this colourer tracks. */
+                bool tracks(std::uint32_t index) const noexcept
+                {
+                    return index < used_colors_.size();
+                }
+
+                /**
                  * @brief Gives back the colour a constraint on @p a and @p b held.
                  *
                  * @ref highest_used deliberately does not shrink here. Recomputing it

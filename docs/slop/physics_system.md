@@ -1225,17 +1225,33 @@ express "where and how these two bodies are attached."
 | Joint | Removes | Authored parameters |
 |---|---|---|
 | `FixedJoint` | 6 degrees of freedom | Compliance (a "welded but it can flex" seam is just a compliant fixed joint). |
-| `BallJoint` | 3 translational | Swing and twist limits, cone angle. |
+| `BallJoint` | 3 translational | Compliance. The pure spherical joint — see the note below. |
 | `HingeJoint` | 3 translational + 2 rotational | Axis, lower/upper angle limits, motor, friction. **The car door.** |
 | `SliderJoint` | 3 rotational + 2 translational | Axis, travel limits, motor. **Suspension travel.** |
 | `DistanceJoint` | Range along a line | Minimum/maximum, compliance. Already exists, generalized. |
 | `ConeTwistJoint` | 3 translational, limits rotation | Swing cone + twist range. **Ragdolls.** |
-| `GearJoint` / `RackJoint` | Couples two rotations | Ratio. **Differentials, steering rack.** |
+| `GearJoint` / `RackJoint` | Couples two rotations | Ratio. **Differentials, steering rack.** Deferred to §11.4 — see the note below. |
 | `SixDegreeOfFreedomJoint` | Configurable | Per-axis free/limited/locked, with per-axis drives. The general case. |
 
-**Limits** are inequality constraints projected only when violated. **Motors** are target-position or
-target-velocity drives with a maximum force, expressed as compliant constraints so they inherit XPBD's
-step-size independence.
+**The frame convention, fixed once:** a joint frame's **local x axis is its primary axis** — the hinge's
+rotation axis, the slider's travel axis, the cone-twist's twist axis. The whole angular vocabulary is a
+swing/twist decomposition about one named axis, and a convention that varied per kind would mean each
+kind re-deriving which of three axes it meant.
+
+**Limits** are inequality constraints projected only when violated. `lower == upper` locks the axis and a
+disabled limit leaves it free, so free/limited/locked are three readings of one range rather than a mode
+word that could disagree with the numbers. **Motors** are target-position or target-velocity drives with
+a maximum force; the position drive is a positional row so its stiffness is step-size independent like
+everything else here, and the rate drive is velocity-level because a rate is not a position. A rate drive
+with a target of zero and a small force limit *is* joint friction — which is how §10.2's "it does not
+swing free" is expressed.
+
+**Two entries above were refined when the library was built (§16.8).** A ball joint *with* limits is a
+cone-twist, so `BallJoint` carries none: two kinds differing only in whether an author remembered to
+enable a limit are two names for one thing. And `GearJoint`/`RackJoint` couple two *accumulated*
+rotations, which needs an unwrapped angle carried across ticks that no other joint needs — and §10.5
+already rules that a drivetrain is solved as an independent one-dimensional chain, so the gear belongs
+with the powertrain rather than in the three-dimensional solver.
 
 ### 10.2 The assembly asset
 
@@ -1280,10 +1296,18 @@ XPBD gives Lagrange multipliers, not forces. The recovery is exact and cheap:
   force  = λ · direction / h²          torque = λ_angular · axis / h²
 ```
 
-accumulated per joint per substep and exposed as `IJointService::joint_force(handle)` /
-`joint_torque(handle)`. That single quantity delivers: break thresholds, the "how much load is this
-mount carrying" readout that is the rigid-body half of *mukavemet*, motor-effort feedback for a
-drivetrain, and a diagnostic overlay showing which joint in an assembly is the one about to fail.
+accumulated per joint per substep and exposed as `IJointService::joint_state(id)`. That single quantity
+delivers: break thresholds, the "how much load is this mount carrying" readout that is the rigid-body
+half of *mukavemet*, motor-effort feedback for a drivetrain, and a diagnostic overlay showing which joint
+in an assembly is the one about to fail.
+
+**Two accumulations, not one, and the distinction decides whether break thresholds work at all.** The
+*mean* over the tick's substeps — a vector — is the load readout: which way and how hard the mount is
+being pulled. The *peak* single-substep magnitude is what a break threshold reads. §16.8 records why:
+an impact is a large correction followed by an almost equally large one the other way, so the mean of a
+hard hit is nearly its resting load while the substeps either side of it carry a thousand times that.
+Averaging a load whose direction reverses measures the net pull, and what tears a mount out is the
+magnitude.
 
 ### 10.5 When XPBD is not enough
 
@@ -1585,13 +1609,13 @@ progress is recorded.
 |---|---|---|---|
 | **P0** | **Foundations.** Neutral `geometry/` module + the distance-baker move (§3.4). `physics/` restructured into §3.1's modules. `IPhysicsSimulation` split per §4.3. **`RuntimeGraphBuilder`: the single adapter naming `SushiRuntime::`, the solver migrated to the `Dynamic` `add()` form, the substep loop unrolled into one composition, predict/derive moved off the host, device residency for the hot columns (with the four-byte count slots left `Shared`), the rebalancer switched off, and the accumulation paths wired to the runtime's segmented fixed-order reduce rather than a hand-built one (§6.6, §12.2, §18).** Mutable world with generational handles, fixed-capacity buffers, and incremental recolouring (§6.4). `PhysicsMaterial`, body flags, `center_of_mass_local`. Deterministic contact ordering. `PhysicsStatistics` + profiler wiring (§13.3). Substepping schedule (§6.1, §6.2). The §1.3 correctness fixes. | Existing tests stay green; a body can be added and removed mid-simulation without a rebuild; **one `run()` per tick and a `compose_count()` that stops climbing**; statistics appear in the editor. | **Complete** — see §16.1 |
 | **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Complete** — manifolds, warm starting and friction; **contacts as a constraint kind inside the solve graph** (§6.3, §16.5); **the live `sim/` tick on one `IConstraintSolver`**; and contact events (§16.6). |
-| **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4 |
-| **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | Not started |
+| **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4, and §16.10 for the half of it that had been built without being connected: the island partition and sleeping reached only their own unit tests until 2026-07-30. |
+| **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | **Complete but for the editor.** The joint library, force/torque recovery, breakable joints and `IJointService` (§16.8); the `PhysicsAssembly` asset, its blob and its instancing, and the ragdoll wired to `RagdollBlend` (§16.9). The §14 assembly editor is the one item outstanding, and §16.10 sizes it honestly: it needs §5.5's `PhysicsJoint` component, its serialization and an `ISimulation` surface for joints before it can be a panel at all, because `ISimulation` deliberately does not expose the physics boundary. |
 | **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | Not started |
 | **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | Not started |
 | **P6** | **FEM soft bodies and strength.** The neo-Hookean two-constraint model (§9.1), `SoftBodyMaterial` and presets, stress readout and heat map (§9.3), plasticity (§9.4), fracture (§9.5), soft-vs-rigid and soft-vs-soft collision (§9.6), levels of detail (§9.7), and **the mesh binding of §8.6 driven end to end** — the embedding kernel, deformed normals, and `ClothStrandView` generalized to `DeformableMeshView`. Cloth gains bending. Cosmetic bodies gain the `float` column (§6.5). | **The cantilever-deflection test matches theory**; a body past yield keeps a permanent dent; a fractured body's render mesh follows correctly; 20 000 tetrahedra at the §13.1 target. | Not started |
 | **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | Not started |
-| **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping. Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | Not started |
+| **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | Not started |
 | **P9** | **Gameplay surface.** Kinematic bodies, character controller, the full event stream into gameplay/audio/VFX through `IPhysicsEventSink`, rollback integration and its snapshot, and the networking validation harness. | Snapshot-rollback-replay byte equality across 10 000 ticks including contacts and fracture; impact events drive audio and VFX in a demo scene. | Not started |
 
 ### 16.1 P0, item by item
@@ -1603,7 +1627,7 @@ says, so this is what is actually done and what is not.
 |---|---|
 | `physics/` restructured into §3.1's modules | **Done.** `core/`, `geometry/`, `collision/`, `constraints/`, `solver/`, `soft/`, `scene/`. `collision.hpp` split: the shape value types went down to `geometry/shapes.hpp`, the pair logic stayed in `collision/narrowphase.hpp`, and `Contact` moved to `collision/contact.hpp` so the solver can name a contact without naming a shape. |
 | `physics/core` | **Done.** Generational `BodyHandle`/`ConstraintHandle` over a fixed-capacity `HandleTable`, `PhysicsMaterial` with combine modes, `BodyFlags` + `CollisionFilter`, `PhysicsConfiguration`, `PhysicsStatistics`, and `RigidBodyT`'s new columns (`center_of_mass_local`, `material_index`, `flags`, `motion_measure`, `sleep_timer`, `island_index`). |
-| Mass properties (§1.2 item 6) | **Done.** `geometry/mass_properties.hpp`: closed forms for sphere, box and cylinder, the parallel-axis shift for compounds, and the inversion that keeps zero meaning "cannot rotate about this axis". Not yet wired into the extract, so an author still types an inverse mass. |
+| Mass properties (§1.2 item 6) | **Done, and wired.** `geometry/mass_properties.hpp`: closed forms for sphere, box, cylinder and capsule, the parallel-axis shift for compounds, and the inversion that keeps zero meaning "cannot rotate about this axis". `sim/physics_extract.hpp` derives a body's inverse mass and inverse inertia from its scaled shape whenever it authors a positive density, and keeps the authored values otherwise — this row read "not yet wired into the extract" for a phase after it was. |
 | The §1.3 correctness fixes | **Done.** Both. A sphere centre inside a box now leaves through the nearest face instead of always through +Y, and the plane contact uses the same projection as the pair contact — it used to carry an extra `inv_mass / w` factor that was only right for a body of unit inverse mass. |
 | Mutable world (§6.4) | **Done.** `add_body`/`remove_body`/`add_constraint`/`remove_constraint`, valid immediately, no `finalize()`. Fixed-capacity buffers, generational handles, per-colour bands kept dense by swap-remove, and incremental recolouring over a 64-bit per-body colour mask. Removing a body removes its constraints. |
 | `RuntimeGraphBuilder` (§6.6) | **Done for the rigid distance solver.** One file names `SushiRuntime::`; `IConstraintSolver` is the seam. The whole substep loop is unrolled into one composition and the tick issues one `run()`. Every node is late-bound, so a world that changes every tick keeps `compile_count() == 1`. Predict, projection and the velocity derivation are graph nodes; the hot columns are `Residency::Device` and the host reaches them only through `read_range`/`write_range`. The rebalancer is switched off and every allocation is pinned to one `DeviceIndex`. |
@@ -1613,9 +1637,9 @@ says, so this is what is actually done and what is not.
 | The extract (§4.1) | **Done.** `gather_rigid_descs`, `gather_static_planes` and `collision_radius` left `RuntimeSimulation` for `sim/physics_extract.hpp`, which takes a flat list of source entities and returns descriptors. `RuntimeSimulation` now owes it only what needs a world: who is alive, in what order, and where the hierarchy puts them. Nine unit tests cover the cases that used to be unreachable — a cylinder collapsing to a sphere, a collider overriding a visual, a plane that is also a rigid body. |
 | Deterministic contact ordering (§12.1) | **Done for the host pass.** The candidate pairs are sorted by body index before resolution, so the Gauss-Seidel order is a function of simulation state rather than of whatever order the sweep's axis sort happened to produce. The pass is still on the host; moving it into the graph is what §12.2 waits on. |
 | Broadphase once per tick (§6.1) | **Done.** It ran twice per sub-step — sorting the whole scene tens of times a tick to learn something that barely changes, and the single reason a large sub-step count was unaffordable. It now runs once, against bounds swept by how far a body can travel over the whole tick, which is what makes once-per-tick sound rather than merely cheaper. |
-| Segmented accumulation (§12.2) | **Not started**, and blocked on the item above rather than merely unscheduled. `add_segmented_reduce` folds per-body contact impulses; there are no per-body contact impulses to fold until the contact pass is inside the graph. The plain fixed-order `add_reduce` *is* in use, for the substep schedule's motion maximum. |
+| Segmented accumulation (§12.2) | **Closed by the other route, and the route matters.** The ask was for accumulation paths to use the runtime's fixed-order reduce rather than a hand-built one. The physics has exactly one accumulation path — the substep schedule's motion maximum — and it now uses `Graph::add_reduce` (§16.10), the hand-built pair of nodes deleted. There is no *segmented* path, because contacts resolve by colouring rather than by folding per-body impulses: §17.5 records the colouring alternative as the fallback and it is the one in use. `add_segmented_reduce` is the right primitive for P6's soft-body vertex accumulation and is where it will be reached from. |
 | Conformance suite (§4.4) | **Done.** `HostXpbdSolver` is a second `IConstraintSolver`, and `test_solver_conformance.cpp` runs the same scenes against both. The two share the layout (`ConstraintStore`) and the arithmetic (`XpbdDistanceProjectionT`, moved out of the runtime-including header for the purpose), so what the suite actually measures is the claim colouring makes: that projecting a colour in parallel equals projecting it in sequence. It earned its place immediately — see below. |
-| `PhysicsStatistics` wiring (§13.3) | **Partial.** Populated by both the solver and the `sim/` boundary, reported through `IPhysicsStepper::statistics()`, and asserted by tests. Two gaps remain: nothing surfaces them in the editor, and the per-stage timings are a single total rather than a breakdown, because the contact pass is still outside the graph and has no device timings to read. |
+| `PhysicsStatistics` wiring (§13.3) | **Done.** Populated by the solver and the `sim/` boundary, reported through `IPhysicsStepper::statistics()`, asserted by tests, and surfaced by `editor/physics/physics_statistics_panel.cpp`. The per-stage timings are real as of §16.10: the host stages from a host clock that is not read when profiling is off, the device half from the run report. The one thing not broken out is the composition's internals, which needs a node label the runtime's public `add()` does not carry (§18 R8) — recorded as an ask rather than estimated. |
 
 **What P0 did not do, deliberately.** Contacts still resolve in a host pass rather than
 inside the solve graph, so there are no per-body contact impulses for
@@ -1786,8 +1810,10 @@ since an island's key *is* its lowest body index, walking bodies in ascending or
 each island's key exactly when it first appears, so the partition is two linear passes and
 no comparison sort at all.
 
-**What P2 did not do.** One item, deliberately: **one `DynamicGraph` region per island is
-not wired.** The island layer produces exactly what that wiring needs — a deterministic
+**What P2 did not do.** One item deliberately, and — as §16.10 records — one item that was
+not noticed at all: the island layer below was never called by the live tick, and stayed a
+library with a benchmark until 2026-07-30. The deliberate one: **one `DynamicGraph` region
+per island is not wired**, and it has since moved to P8. The island layer produces exactly what that wiring needs — a deterministic
 partition, keys in ascending order, and a revision that moves only on a transition — and
 sleeping already removes a settled body from the predict, the projection and the velocity
 pass. What is missing is the composition-side change in `runtime_graph_builder.hpp`, whose
@@ -2065,6 +2091,422 @@ timestamping at all — so the request is consumed when the solver is next built
 than toggling a running one. Recreating a live solver to honour a checkbox would
 discard every body's velocity to answer a question about timing.
 
+### 16.8 The joint library, and the door that comes off
+
+**Done on 2026-07-30.** P3's acceptance criterion passes: a 35 kg door on a hinge
+about its local +Y, limited to `[0°, 68°]`, with 4 N·m of friction so it does not
+swing free, hung off a chassis, reporting its load, and tearing off above 12 kN. It
+is driven through `IJointService` on the live `PhysicsSimulation` rather than
+through the solver, so what the acceptance test measures is the whole path.
+
+**A joint is the third constraint kind, and it cost the solver nothing new.**
+§6.3's kind dimension was built for exactly this: joints take their colour from the
+same union, live in their own fixed per-colour bands, and get one node per (kind,
+colour) per substep — a positional node and a velocity node. `compile_count()` is
+still one through a tick set that adds and removes joints every frame, and a test
+asserts it. `IConstraintSolver` gained `add_joint` / `remove_joint` / `read_joint` /
+`write_joint`, and both implementations satisfy them.
+
+**Seven kinds, one descriptor, one registration line.**
+
+- **`constraints/joint.hpp`** — one POD for every kind. §4.2 requires that a new
+  joint touch nothing that exists; it does *not* require a buffer per kind, and a
+  buffer per kind would have multiplied the compiled node count eightfold to express
+  a difference that lives in eight lines of arithmetic. So the kinds share a
+  descriptor and a band and diverge inside one kernel. The cost is stated rather than
+  hidden: a ball joint carries a linear limit it never reads, and a joint descriptor
+  is a few hundred bytes in a scene that holds hundreds of them.
+- **`constraints/joint_primitives.hpp`** — the four rows every kind is built from
+  (Müller et al. 2020 §3.3–3.4): one positional, one angular, and their velocity-level
+  counterparts. Each takes a **world-space violation vector** and treats it as the
+  constraint function whose gradient acts along `+v̂` on body *b* and `−v̂` on body *a*
+  — identical to `XpbdDistanceProjectionT`, deliberately, because a joint row and a
+  distance constraint that disagreed about the sense of a correction would be two
+  formulations of the same thing and §1.3 records what that costs. A caller's whole
+  job is to produce a `v` whose reduction satisfies the joint; the sign lives in its
+  direction.
+- **`constraints/joint_projection.hpp`** — the seven kinds as traits structs, a
+  `JointKinds` type list as the registration, and a fold that turns the list into the
+  dispatch. A fold rather than the function-pointer table `narrowphase_dispatch.hpp`
+  uses, and that is not a stylistic difference: the narrowphase runs on the host,
+  a joint projection runs **inside the solve graph** on the device, and SYCL device
+  code has no indirect calls. A pointer table would work on the CPU backend and fail
+  on a GPU. The fold compiles to a chain of compares against a compile-time constant.
+- **The angular vocabulary is one swing/twist decomposition.** A hinge is "swing must
+  vanish"; a cone-twist is "swing is bounded and twist is ranged"; a fixed joint is
+  both bounded at zero; the general joint adds per-axis offset limits. Deriving them
+  all from one exact decomposition of one relative rotation is why each kind is a
+  three-line list of shared rows.
+
+**Two refinements to §10.1, stated rather than quietly made.**
+
+1. **`BallJoint` has no limits.** §10.1's table gives it "swing and twist limits,
+   cone angle", which is exactly `ConeTwistJoint`'s row. Two kinds that differ only in
+   whether the author remembered to enable a limit are two names for one thing, so
+   `Ball` is the pure spherical joint and a ball joint with limits *is* a cone-twist.
+   The library is one kind smaller and no capability is lost.
+2. **`GearJoint` and `RackJoint` are deferred to P7, not dropped.** They couple two
+   *accumulated* rotations, which means carrying an unwrapped angle across ticks —
+   state no other joint needs — and their use is the differential and the steering
+   rack. §10.5 has already ruled that a drivetrain is solved as an independent
+   one-dimensional chain coupled through a torque constraint, precisely because
+   forcing it through the three-dimensional solver is slower and less accurate. So the
+   gear belongs with the powertrain in §11.4, and building it here would be building
+   the tool §10.5 says not to use.
+
+**Three defects the tests found, all worth recording.**
+
+1. **A hinge diverged to two meganewtons in twenty substeps**, and the cause was one
+   shared frame resolution. An angular correction rotates a body about its centre of
+   mass, which *moves the attachment point* by the lever arm. The linear rows then
+   read frames resolved before that rotation and corrected a gap already partly
+   closed — over-correcting by the lever-arm share every substep, which the next
+   substep's angular row dutifully fixed, which the linear row over-corrected again.
+   The loop gain is the positional row's angular share, about three quarters for a
+   door-shaped body, on top of a full angular correction: above one. The fix is
+   **re-resolving the frames between the angular group and the linear group**, and it
+   is load-bearing rather than tidiness. Within a group staleness is harmless, and
+   that is a property of the groups rather than luck: a swing lock and a twist limit
+   act about perpendicular axes, and the general joint's three offset limits act along
+   perpendicular ones.
+2. **A break threshold on the mean load never fires.** The plan said mean rather than
+   peak, on the reasoning that a single substep's multiplier during a stiff transient
+   is noise. That reasoning is wrong in the one case that matters. A hard impact is a
+   large separation the constraint closes in one substep and then overshoots, so the
+   next substep's correction points the other way and is very nearly as large: a door
+   yanked two metres off its hinge and snapped back reported **344 N** — its own
+   resting weight — while the substeps either side of the snap carried **sixteen
+   meganewtons**. Averaging a load whose direction reverses measures the *net pull*,
+   and what tears a mount out is the magnitude. So the descriptor now carries both:
+   the vector sums give the mean, which is the load readout and the rigid-body half of
+   *mukavemet*, and `peak_force` / `peak_torque` give the worst instant, which is what
+   the threshold reads. The worry that a peak would be noisy at rest does not hold up —
+   a resting hinge's peak and mean differ by about a newton in three hundred, because
+   nothing in a settled joint spikes.
+3. **`ConstraintStore::place` gave up when the *assigned* colour's band was full**
+   rather than trying the next free colour. Equivalent for a cloth lattice, whose
+   constraints share bodies and therefore spread across colours by construction. Not
+   equivalent for constraints on *disjoint* pairs, which is what joints almost always
+   are: a hundred car doors on a hundred chassis each see every colour as free, so
+   every one is offered colour 0 and only `capacity / colors` of them can ever be
+   placed — the rest reported as a capacity overflow with the buffer mostly empty.
+   `ContactStore::place` had the right rule from the start, for the same reason
+   (contacts against one ground plane are disjoint too). Fixed for both persistent
+   kinds; `IncrementalColoring` gained `take()` so a caller can apply its own
+   constraint on the choice and then take the colour it settled on.
+
+**The force recovery is exact, and that is checkable.** §10.4's `force = λ n̂ / h²`
+costs nothing beyond the addition, so every row folds its share. A door of mass *m*
+hung from a hinge and at rest has one external force and an angular row that carries
+pure torque, so the hinge's reaction must be exactly *mg* and its torque exactly
+*mg·r*. It reports **343.35 N** and **171.67 N·m** for a 35 kg door on a 0.5 m lever —
+statics, not a tolerance.
+
+**The boundary.** `IJointService` joins the §4.3 split with its own vocabulary
+(`JointDesc`, `JointLimitDesc`, `JointMotorDesc`, `JointState`, `JointBrokenEvent`) so
+a mechanism that creates a hinge does not thereby depend on the solver that projects
+one. Two decisions inside it:
+
+- **A joint's endpoints are both bodies.** An immovable endpoint is a body with zero
+  inverse mass, not a missing one — which keeps every joint two-sided and stops a
+  one-sided projection existing to disagree with the two-sided one, the mistake §1.3
+  recorded for plane contacts.
+- **Breaking is evaluated on the host, at the step boundary.** Not a compromise:
+  removing a joint is a topology change, and a topology change never happens against a
+  running graph (§6.6). The load it is tested against came off the device with the
+  joint, which is why joints are read back at all.
+
+**What was measured.** 25 unit tests over the frame algebra, the seven kinds, the
+limits, the drives, the force recovery and the lifetime through the seam — including a
+static assertion that every `JointKind` has registered traits, so an unregistered kind
+is a build error rather than a joint the solver silently declines to project. Four new
+conformance scenes (a hinged door, a cone-twist chain across colours, all three kinds
+on one body, and a joint set rebuilt every tick), which take the shared
+`IConstraintSolver` suite to 15 and all 15 pass. Six integration scenes for the
+acceptance criterion.
+
+**Two build-lane repairs came with it, neither of them physics.** `se build`
+(editor off, tests on) could not link: `sushi_sim` was only added as a subdirectory
+for the editor, while the test suite links it for the scene-serializer round-trip, and
+the two glTF importers it calls live under `render/` although neither touches Vulkan.
+The root `CMakeLists.txt` now adds `sim` for either consumer, and the test target
+compiles the two importer translation units directly rather than dragging a graphics
+stack into the tests lane. Two committed test files also failed `-Werror` on unused
+locals.
+
+**What P3 still owes.** The `PhysicsAssembly` asset (§5.4, §10.2) and its editor
+surface (§14), and the ragdoll wired to `Animation::RagdollBlend`. Both are
+composition over machinery that now exists: an assembly is parts, joints and filter
+groups instanced as a unit, and a ragdoll is a cone-twist chain with limits an
+animator authors. Neither needs a new constraint kind, and the cone-twist chain the
+conformance suite already runs is the ragdoll's solver half. The assembly asset is the
+one item that would benefit from waiting on P4, since a part naming a cooked
+`CollisionAsset` is the shape §10.2 writes out — `Collider` already carries the asset
+identifier for it.
+
+### 16.9 The assembly asset, and the ragdoll that finally reaches `RagdollBlend`
+
+**Done on 2026-07-30.** P3's other two items: `PhysicsAssembly` with its blob and its
+instancing, and the ragdoll wiring. §14's assembly editor is the phase's one remaining
+piece and is deliberately not in this slice — the editor tree is being reworked
+concurrently, and a panel written against the shell it is moving away from would land on
+a moving target. Everything that panel needs at runtime exists.
+
+**The asset lives at the `sim/` boundary, not under `physics/`.** Its parts are described
+by `Collider`, which is already the boundary record: authored, scaled, carrying the
+cooked-asset identifier P4 will fill, and already what the extract hands the physics. An
+assembly expressed in physics-layer shape types would be a second description of the same
+thing, which is §5.5's argument against `ColliderParams`'s flattened copies applied one
+layer out.
+
+**A correction to §4.3, stated rather than quietly made.** §4.3 sketched an
+`IAssemblyService { instantiate(PhysicsAssembly) / release / part_body }`. That shape does
+not survive contact with how the world runs: `set_rigid_bodies` is a **diff driven by the
+ECS every tick** and removes any body whose entity is not in the list it was handed, so a
+body the physics created behind the ECS's back is destroyed a frame later. §10.2 already
+says the right thing — *"one entity carries the `AssemblyInstance`; child entities carry
+the parts"* — so the ECS owns them, and what is left for this side is exactly the shape
+§4.1 blessed for `PhysicsExtract`: a **pure translation** in one unit, tested on its own.
+`instantiate_assembly` turns an asset plus a root pose plus one caller-supplied entity per
+part into the `RigidBodyDesc` list and the `JointDesc` list the caller already knows how
+to feed. Nothing holds state, so there is nothing to release; releasing an assembly is
+destroying its entities, which the ECS already knows how to do.
+
+**`JointDesc` split into endpoints plus `JointParams`.** A joint is two bodies and what is
+held between them, and the second half is authored where the first is not yet known: an
+assembly describes its joints against *part indices* and only learns which entities those
+became when instanced. Factoring the parameters out is what lets the asset carry the joint
+vocabulary rather than a copy of it — and a copy is how a parameter added to one ends up
+honoured by a hand-built joint and silently ignored by an assembled one.
+
+**The filter matrix is authoritative.** Each part names a group; the asset carries one
+mask per group; instancing resolves that into the part's `Collider::filter`, overwriting
+whatever the authored collider held. §10.2's "part 0 and part 1 do not collide with each
+other" is a statement about the *assembly*, and a per-part filter that could disagree with
+the matrix would be a second place the same question is answered.
+
+**The blob refuses what its loader would refuse.** A joint naming a part that does not
+exist is rejected at write time *and* on load — the second because a blob may come from an
+older writer or be edited by hand, and its unchecked symptom is a joint silently projected
+against part 0. That double check is what lets `instantiate_assembly` index the parts
+without bounds-testing them again.
+
+**The ragdoll: a capsule per bone, a cone-twist per joint, mass by volume.**
+`Animation::RagdollBlend` is deliberately the blend and not the physics — it takes
+per-joint object-space transforms "a caller already resolved from XPBD bodies". Nothing
+resolved them and nothing built the bodies, so it has been complete and unreachable since
+§12.4. Both halves now exist: `build_ragdoll_rig` turns a cooked skeleton into a
+`PhysicsAssembly` plus part-to-joint bindings, and `resolve_ragdoll_targets` reads the
+solved poses back as `RagdollJointTarget`s in the character's object space.
+
+Four decisions inside it worth reading:
+
+- **One part per joint that has children; leaves get none.** A bone is the segment from a
+  joint to its children, so a joint with no children has no bone to be a capsule of.
+  Fingertips, the top of the head and the end of every chain therefore get no part — and
+  that is the answer rather than a gap, because `RagdollBlend`'s `recompose()` regenerates
+  every affected joint *and its descendants*, so a leaf keeps its animated local pose
+  relative to a physics-driven parent. A finger that stays curled while the arm falls is
+  what a ragdoll should look like, and twenty finger capsules would be worse in both cost
+  and appearance.
+- **The bone is the segment to the *mean* of the children.** A hip or a chest has several,
+  and picking the first would aim the torso's capsule down a leg.
+- **The binding carries a bind offset, and it is load-bearing.** A capsule's segment runs
+  along its own local +Y, so a part's orientation is the direction of its bone and *not*
+  the joint's. The binding therefore stores the joint's pose in the part's local frame,
+  measured at bind, and resolving a target is `part_world * offset` — so the capsule's
+  axis convention never reaches the answer. `Collider` has no local rotation to hide the
+  difference in, and adding one to make the two coincide would be reshaping a record to
+  avoid storing six numbers.
+- **Mass is spread by volume at one uniform density**, not by bone length. That is the
+  physical model rather than an approximation of one: a thick torso comes out heavier than
+  a thin forearm because it is bigger. It is also why no per-part mass is authored — a
+  per-part mass is exactly what an author cannot get right by hand.
+
+**A defect the rig found in its own limits, and it is the interesting one.** Both of a
+joint's frames are derived by the shortest rotation onto the same world axis but **in each
+part's own local space**, so they generally differ by a rotation *about* that axis — which
+is a non-zero twist at the bind pose. A twist range of `[-t, +t]` is therefore centred
+somewhere the rig has never been, and the limit fights the rest pose from the first
+substep: a chain built that way pumps itself apart inside a second. The range is now
+centred on the bind twist, computed exactly as the solver will compute it. The *swing*
+needs no such correction and that is not luck — both axes are the same world direction at
+bind, so the relative rotation is a pure twist and the swing is zero by construction.
+
+**What was measured.** 19 unit tests over the blob (round trip, names, every refusal
+including a hand-edited dangling joint), instancing (placement under a rotated root, the
+filter matrix overriding the collider, density-derived versus authored mass, refusing a
+partial instance) and the rig (a part per bone and none per leaf, capsules spanning their
+bones and aimed down them, the authored total mass reached by volume, the bind offset
+recovering the pose it was measured from, object space surviving a character placed
+elsewhere in the world, the twist range centred on the bind twist, every part hanging from
+the nearest ancestor with one). Two integration scenes join the acceptance file: the §10.2
+car instanced from an asset rather than hand-written, and a ragdoll built from a skeleton
+that falls under gravity without coming apart.
+
+**The functional suite is 725 tests and all of them pass.** It stood at 703 before P3's
+two slices.
+
+**A third defect, and it was in a test rather than in the engine.** The conformance scene
+for "all three kinds on one body" asserted that the contact took a third colour, and it
+did not — because the tether it used held the crate 0.1 m clear of the ground, and a
+manifold is only generated inside the 0.03 contact offset. There was no third kind at all.
+It is the same failure §16.2 recorded for the first draft of that suite, which passed
+against a deliberately broken solver because its constraints were laid out already
+satisfied: a scene that does not exercise the thing it names will assert about it happily.
+The tether now wants the crate *below* the ground so both are working, and the scene
+asserts the contact exists before claiming anything about its colour.
+
+### 16.10 Closing out P0 to P3 — the debt that was not in the roadmap
+
+**Done on 2026-07-30**, in a session whose brief was the opposite of a feature: *no
+technical debt and no unimplemented feature outside P4–P9*. That reframing is what found
+most of what follows, because the roadmap's status column records phases and the debt was
+not in phases — it was in rows of §16.1 that said "Partial", in a risk row nobody had
+turned into a test, and in one case in a library that had been built, measured, documented
+as complete, and never connected to anything.
+
+**The audit's finding, first, because it is the uncomfortable one. P2's islands and
+sleeping were not running.** `physics/scene/islands.hpp` was reached by two unit tests and
+by nothing else. `sim/PhysicsSimulation` never partitioned a scene, nothing on the live
+path ever set `BodyFlags::sleeping`, `update_motion_measure` was called nowhere at all, and
+`RuntimeGraphBuilder` reported `sleeping_bodies = 0` as a literal while `islands` and
+`largest_island` were written by no one. §16.4's 10 000-body measurement — 0.27 ms/tick
+against a 0.5 ms target — was taken against the island layer *directly*, which is a fair
+benchmark of that layer and not evidence that a scene ever benefited from it.
+
+The lesson is about how the phase was reported rather than about the code. §16.4 says
+"Islands and sleeping. `physics/scene/islands.hpp`" and then describes the design, which is
+all true; what it never says is which caller invokes it. **A module's status is a property
+of its call sites, not of its contents**, and the tell was available all along: the same
+section's honest paragraph about what P2 did not do lists the graph regions and not the
+wiring, because the wiring was assumed to be the easy half that had obviously happened.
+
+So it now runs. The partition is built at the end of the tick, not the start, because the
+eligibility test reads a body's smoothed motion and that is a statement about the tick that
+just finished — deciding at the top would put a body to sleep on last tick's evidence and
+then solve it anyway. The edges are the things that actually transmit a disturbance and each
+one is something the scene already owns rather than something the solver is asked for: this
+tick's resolved contacts, the joints, and each cloth lattice, joined at one particle
+because a lattice is connected by construction and produces the same component either way.
+Waking is immediate and asymmetric — `set_rigid_pose`, a parameter change and a new joint
+all call `wake_island`, so a crate teleported into a settled stack does not leave that stack
+hanging in the air.
+
+**Two consequences that had to be decided rather than discovered.**
+
+1. **A sleeping pair stays a touching pair.** A settled stack that fell asleep has not
+   stopped touching itself. If its contacts left the current list, every one of them would
+   report `End` and then `Begin` again on waking, and §16.6's "begins once, then persists"
+   would be false for every stack that ever settles. So the manifold is still generated and
+   still listed; what it no longer does is get submitted, because both projections early-out
+   on a body that is not simulated and a contact between two sleeping bodies would spend a
+   slot and a colour band computing nothing.
+2. **A sleeping joint keeps its last measured load.** This one arrived as two failing
+   tests, and it is the more interesting of the pair. `JointProjectionT` cleared its load
+   accumulators on the tick's first substep and then early-outed on non-simulated bodies —
+   so the moment a door settled and its island slept, the hinge reported carrying
+   *nothing*. A hanging door reporting zero load is not a missing measurement, it is a
+   wrong answer, and it is exactly what a §14 load readout would have shown. The joint is
+   now skipped entirely when neither body is simulated, accumulators included, so the last
+   live measurement survives — the same rule §16.6 already applies to a contact `End`,
+   which reports what the contact carried on its last live tick.
+
+**The dead flag, and per-stage timings.** `PhysicsConfiguration::profiling` was written by
+`sim/` and read by nobody; the editor's Physics panel drew every timing field and every
+field was structurally zero. Both halves are now real. The host stages — broadphase,
+narrowphase, the island pass, and the two bulk transfers — are measured with a host clock
+that is not read at all when the flag is off, which is the shape §13.3 asks for. The device
+half is the run report's own wall clock, which *is* the solve's cost because the composition
+holds nothing but physics stages.
+
+What is deliberately **not** there is a breakdown inside that number, and the reason is
+worth recording because it is a runtime ask rather than a shortcut. The runtime reports
+device time per node and names each one, but its public `add()` surface carries no label,
+so every physics node arrives as `unnamed_task`; the only handle on a specific node is its
+plan index, which is a compile-time internal. Splitting predict from the projection sweeps
+from the velocity derivation therefore needs one small thing from below — see §18 R8 — and
+inventing it here would mean making an engine-side claim about a runtime detail, which is
+the specific mistake §18's correction exists to record. `PhysicsStageTimings` lost its
+`velocity_ms` field for the same reason: **a field that is structurally always zero is the
+same failure as a made-up timing wearing the opposite mask.**
+
+**The reduction is the runtime's now.** `runtime_graph_builder.hpp` hand-built its
+fixed-order maximum out of two ordinary nodes, with a comment saying that adopting
+`Graph::add_reduce` would be deleting them. It has been: the runtime's version folds
+contiguous tiles of at most 256 left to right and folds the partials the same way, which is
+the same order and the same guarantee, and it owns its own intermediate levels so the
+partial column is gone too. §16.7's paragraph about building the order out of two nodes is
+now history rather than description.
+
+**The risk row that became a test, and what writing it found.** §17.5 has carried
+"incremental recolouring diverges from a full recolour and breaks determinism" since P0,
+with the mitigation named as a test that nobody wrote — a risk row is not a feature, so it
+never came up for scheduling. Writing it forced the claim to be stated precisely, and the
+precise version is not the one the row implies: incremental colouring **does** diverge from
+a full recolour, necessarily, because greedy over an insertion order is not greedy over a
+final set, and asserting equality would be asserting that the order a scene was built in
+leaves no trace. What determinism needs is weaker and testable, and is what the four new
+tests assert: the colouring is valid, it is a function of the sequence rather than of the
+container or the worker count, it stays inside greedy's bound, and a removal releases its
+colour.
+
+The test's first run failed, and what it caught was itself. It reported the incremental
+colouring using 32 colours where a rebuild needed 25 — which looked exactly like the drift
+the risk row warns about, and was not. `place()` skips a colour whose band is *full* as well
+as one that is taken (§16.8's third defect), so at 512 slots over 32 colours a band holds 16
+and the store climbs to the ceiling without a single conflict having forced it there. **The
+measurement was of band capacity, not of colouring quality**, and a test that cannot tell
+those apart cannot support the claim it exists to support. With capacity ample enough that no
+band can fill, the property holds.
+
+**And a correction to §16.9's own record.** The unused `crate` in
+`test_convex_manifold.cpp` was reported there as a test that had lost an assertion. It had
+not: at the origin that tilted hull's lowest corner sits at about y = −0.79 while the ground
+box spans y ∈ [−1, 0], so the origin placement is deeply penetrating rather than clear, and
+asserting no contact against it fails correctly. `crate` was a plain leftover. The test *did*
+lack the negative case its own comment claims — "the alignment test is what keeps it from
+reporting a face that is not touching" — so that assertion is now written against a
+placement where it means something: the same hull lifted half a metre clear produces no
+manifold.
+
+**The layering fix, finished properly.** §16.9 recorded the tests lane being repaired by
+compiling three of the renderer's translation units into the test target, and called it a
+stopgap. It is now a module: `import/` holds both glTF importers and cgltf's single
+implementation unit, links nothing at all — the same rule `geometry/` follows — and the
+renderer links *it* rather than owning the parser. The importers never touched a device;
+they read a glTF file and write an `Animation::SkeletonBlob` or a `ClipBlob`. The cost of
+the misplacement was concrete rather than theoretical: a lane that wanted a skeleton could
+not link one without bringing up a graphics stack.
+
+**Where this leaves the two remaining items, and both are named rather than quietly
+carried.**
+
+- **One `DynamicGraph` region per island is reclassified into P8**, where its sibling
+  already lives. The audit that ran while wiring the islands changed the case for it: every
+  node in the composition is `when(...).and_sized(live count)`, so an empty colour is not
+  dispatched at all and a live one is dispatched at its live width. Regions would therefore
+  not reduce the node count and would not reduce a dispatch width — the two benefits that
+  remain are per-island substep counts and cross-island overlap, and P8's deliverable list
+  already reads "Per-island substepping". The prerequisite the item was really waiting on
+  was the wiring above, and that is done, so it is a scale item now rather than a blocked
+  one.
+- **The §14 assembly editor is the one P3 item still open, and it needs a seam that does
+  not exist.** `ISimulation` deliberately does not expose the physics boundary —
+  `simulation.hpp` includes the statistics type and says so explicitly — so the editor has
+  no path to `IJointService` at all. An assembly editor is therefore not a panel: it is
+  §5.5's `PhysicsJoint` component, its serialization, an `ISimulation` surface for creating
+  and reading joints, and only then the parts list, the filter matrix, the load readout and
+  the draggable hinge arcs. Sizing it honestly is what this entry is for; it was previously
+  recorded as held back on the editor rework, which was true and also not the whole reason.
+
+**On verification, stated plainly.** The tree builds clean. The suite was at **727 of 729**
+when the two joint-assembly scenes failed on the sleeping-hinge load described above; the
+fix for it compiles but **the suite has not been re-run since**, so those two scenes are
+diagnosed and repaired rather than observed green. Everything else here was run: the four
+new colouring tests pass, and the convex-manifold file passes at 8 of 8 with its restored
+negative case.
+
 ---
 
 ## §17 Risks, open questions, and scope
@@ -2124,7 +2566,7 @@ not assumed.
 | Risk | Mitigation |
 |---|---|
 | ~~**The island-per-region mapping (§6.6) is serialized by whole-allocation cross-region ordering.**~~ **Closed.** The runtime's boundary layer now carries each pin's byte intervals and tests interval overlap (§18, R3), so two islands writing disjoint slices of one body column gain no edge. | Nothing to mitigate. The `when()`-gated fallback is retired and per-island allocations are not needed. What remains is a *layout* requirement on us: an island must be a set of index ranges the solver can name with `Buffer::region({offset, count})`, which the incremental recolouring in §6.4 already produces. |
-| Incremental recolouring diverges from a full recolour and breaks determinism (§6.4). | A test asserting the incremental colouring equals the full recolour for a randomized add/remove sequence; if it cannot be made to hold, fall back to a deterministic scheduled full recolour with the divergence recorded in the snapshot. |
+| ~~Incremental recolouring diverges from a full recolour and breaks determinism (§6.4).~~ **Closed, with the claim restated.** | Four tests over a randomized add/remove sequence (§16.10). Equality with a full recolour is *not* asserted, because greedy over an insertion order is not greedy over a final set and equality would mean the build order left no trace. What is asserted is what determinism needs: the colouring is valid, it is a function of the sequence rather than of the container or the worker count, it stays inside greedy's degree bound and within one colour of a rebuild's depth, and a removal releases its colour. The scheduled-full-recolour fallback is not needed. |
 | Tetrahedralization quality is too poor for a correct finite-element solve (§17.2). | The cooker reports worst element quality and fails loudly at a threshold; the decision point is scheduled with test evidence. |
 | Device-resident collision (P8) cannot be made deterministic at acceptable cost (§12.2). | The host implementation stays behind the same seam and remains the reference. Determinism wins over throughput; that is the standing rule. |
 | The runtime's API moves under us — it is explicitly unstable and this plan leans on `Dynamic`, `DynamicGraph`, residency, and sub-region tracking. | One adapter names `SushiRuntime::` (§6.6), restoring the runtime's own L12 decision. A move costs one file plus a conformance run, not a rewrite. |
@@ -2142,7 +2584,7 @@ its public API, not bolted onto the engine."* This section is the engine-side re
 needs from below; the runtime-side engineering request, with `file:line` evidence, lives in
 `sushiruntime/docs/slop/PHYSICS_SUBSTRATE_REQUIREMENTS.md`.
 
-**Four of the seven were recorded here as built** on the runtime's `feature/physics-substrate-seams`
+**Four of the eight were recorded here as built** on the runtime's `feature/physics-substrate-seams`
 branch. Each row states what was asked, what landed, and — for those still open — what the physics
 does **without** it, because no phase may be blocked on another repo.
 
@@ -2165,6 +2607,23 @@ does **without** it, because no phase may be blocked on another repo.
 >
 > R2 is closed engine-side in the meantime — see §16.7 — and closed in a way that is one deletion
 > away from using the runtime primitive if it does arrive.
+>
+> **Second correction, 2026-07-30 — the correction above was about a path, not about the
+> runtime.** This project is worked on from two machines and the sibling checkout is not at the
+> same place on both: `C:/Projects/sushiruntime` on the one that correction was written from,
+> `D:/Projects/sushiruntime` here. On *this* checkout `sized_from_device`, `add_reduce`,
+> `add_segmented_reduce`, `add_untracked`, `DynamicGraph::region` and boundary pins carrying
+> `Core::ResourceRegion` byte intervals are all present in the runtime's headers. So **R1, R2,
+> R3 and R5 are built, and the four "Built" rows below can be linked against** — from here.
+>
+> Both corrections are kept rather than one replacing the other, because together they are the
+> actual lesson and neither is alone. The first one's build rule stands unchanged and is what
+> caught this: *an engine-side claim about a runtime API is only tested by a translation unit
+> that instantiates it.* What the second adds is that a claim about a repository is only tested
+> by the machine you are standing on, and "I checked and it is not there" is a statement with a
+> hostname in it. The hand-built reduction the first correction produced has now been deleted in
+> favour of `Graph::add_reduce` (§16.10) — which is the only way to find out which correction
+> was right.
 
 | # | Ask | Status | What the physics does |
 |---|---|---|---|
@@ -2175,6 +2634,7 @@ does **without** it, because no phase may be blocked on another repo.
 | **R4** | **Asynchronous run** — `run()` blocks, so a tick cannot overlap with the render or audio extract. | **Open** | The simulation thread blocks for the tick, as today. Costs overlap, not correctness. |
 | **R6** | **A late-bound base offset** alongside `sized()`, so a colour slice whose offset shifts between ticks needs no indirection buffer. | **Open** | An index-indirection buffer read on the device. One extra load per element. |
 | **R7** | Closing the **`ThreadLocalMagazine` teardown** correctness item (#29). | **Open** | Nothing the engine can do. It is a long-running-process risk and sits on the runtime's own v1 list. |
+| **R8** | **A node label on the ordinary `add()` overloads.** `RunReport::NodeTiming` already carries a name and the engine already reads the report, but only `add_offload` lets a caller set one — so every physics node arrives as `unnamed_task` and per-stage device timing cannot be attributed. | **Open** (raised 2026-07-30) | The Physics panel reports the whole composition as one `solve_ms` and says so, rather than splitting it by plan index — which is a compile-time internal, and guessing at it is the mistake this section's first correction exists to record (§16.10). |
 
 #### R1: the answer was better than any of the three options
 

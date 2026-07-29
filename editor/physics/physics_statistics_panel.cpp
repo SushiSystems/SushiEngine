@@ -106,25 +106,25 @@ namespace SushiEngine
             ImGui::TextDisabled("Timings");
             if (stats.timings.total_ms <= Scalar(0))
             {
-                // Not an error state: the timings come from the runtime's per-node
-                // measurements, which are collected only when the solve graph was built
-                // with profiling on. Opening this panel requests it; the request is
-                // consumed when physics next (re)builds its graph. Saying so beats
-                // drawing a row of zeros that reads as "the physics is free".
-                ImGui::TextDisabled("No per-stage timings yet. Profiling engages when the");
-                ImGui::TextDisabled("physics graph is next built with this panel open —");
-                ImGui::TextDisabled("reload the scene (or re-add the first physics body).");
+                // Not an error state: measuring is switched off unless this panel asks
+                // for it, so that the tick carries no timestamping at all when nobody
+                // is looking. Saying so beats drawing a row of zeros that reads as
+                // "the physics is free".
+                ImGui::TextDisabled("No per-stage timings yet. Profiling engages on the");
+                ImGui::TextDisabled("next tick while this panel is open.");
             }
             else
             {
                 ImGui::Text("%-22s %.3f ms", "Broadphase", double(stats.timings.broadphase_ms));
                 ImGui::Text("%-22s %.3f ms", "Narrowphase", double(stats.timings.narrowphase_ms));
                 ImGui::Text("%-22s %.3f ms", "Islands", double(stats.timings.island_build_ms));
-                ImGui::Text("%-22s %.3f ms", "Solve", double(stats.timings.solve_ms));
-                ImGui::Text("%-22s %.3f ms", "Velocity", double(stats.timings.velocity_ms));
+                ImGui::Text("%-22s %.3f ms", "Solve (device)", double(stats.timings.solve_ms));
                 ImGui::Text("%-22s %.3f ms", "Write back", double(stats.timings.write_back_ms));
                 ImGui::Separator();
                 ImGui::Text("%-22s %.3f ms", "Total", double(stats.timings.total_ms));
+                // The solve is one composition and the runtime's public add() carries
+                // no node label, so it cannot honestly be split further here.
+                ImGui::TextDisabled("Solve is one composition: predict, every colour, velocity.");
             }
 
             ImGui::End();

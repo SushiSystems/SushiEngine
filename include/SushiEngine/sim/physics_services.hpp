@@ -358,6 +358,255 @@ namespace SushiEngine
         };
 
         /**
+         * @brief Which degrees of freedom a joint removes, at the boundary.
+         *
+         * A mirror of `Physics::JointKind` rather than a using-declaration of it, for
+         * the reason `RigidBodyDesc` is not `Physics::RigidBodyT`: this header is the
+         * boundary vocabulary and names no solver type, so a gameplay system that
+         * creates a hinge does not thereby depend on the solver that projects one.
+         */
+        enum class JointType : std::uint8_t
+        {
+            Fixed = 0,               /**< All six degrees; a compliant one is a flexible weld. */
+            Ball = 1,                /**< Attached, rotation free. Limits make it a cone-twist. */
+            Hinge = 2,               /**< One surviving rotation, limited and drivable. A door. */
+            Slider = 3,              /**< One surviving translation. Suspension travel. */
+            Distance = 4,            /**< A range along the line between the anchors. A rope. */
+            ConeTwist = 5,           /**< Attached, with a swing cone and a twist range. Ragdolls. */
+            SixDegreeOfFreedom = 6   /**< Every axis free, limited, or locked. The general case. */
+        };
+
+        /** @brief What a joint's drive holds: nothing, a coordinate, or its rate. */
+        enum class JointMotorType : std::uint8_t
+        {
+            Disabled = 0,
+            /** @brief A servo on the coordinate. */
+            Position = 1,
+            /** @brief A rate drive; with a target of zero and a small limit, joint friction. */
+            Velocity = 2
+        };
+
+        /**
+         * @brief A bound on one of a joint's degrees of freedom.
+         *
+         * `lower == upper` locks the axis and a disabled limit leaves it free, so
+         * free/limited/locked are three readings of one range rather than a mode word
+         * that could disagree with the numbers.
+         */
+        struct JointLimitDesc
+        {
+            Scalar lower = 0;      /**< Radians for an angle, metres for a translation. */
+            Scalar upper = 0;
+            Scalar compliance = 0; /**< Zero is a rigid stop; positive is a bumper. */
+            bool enabled = false;
+        };
+
+        /** @brief A drive on a joint's primary axis, with a saturation limit. */
+        struct JointMotorDesc
+        {
+            JointMotorType type = JointMotorType::Disabled;
+            Scalar target = 0;     /**< A coordinate, or a rate, per @ref type. */
+            /** @brief N or N·m; at or below zero is an unsaturated, ideal drive. */
+            Scalar max_force = 0;
+            Scalar compliance = 0;
+        };
+
+        /**
+         * @brief What is held between a joint's two endpoints, whoever they turn out to be.
+         *
+         * Split from the endpoints deliberately. A joint is *two bodies plus what is
+         * held between them*, and the second half is authored in places that do not yet
+         * know the first: an assembly asset (§10.2) describes its joints against **part
+         * indices** and only learns which entities those parts became when it is
+         * instanced. Keeping the parameters in their own value is what lets the asset
+         * carry the joint vocabulary rather than a copy of it — and a copy is how a new
+         * parameter ends up honoured by a hand-built joint and silently ignored by an
+         * assembled one.
+         *
+         * The two axes are the joint's *primary* axis in each body's local space: the
+         * hinge's rotation axis, the slider's travel axis, the cone-twist's twist axis.
+         * The frame each implies is the shortest rotation onto that axis, computed the
+         * same way on both sides, so a joint whose bodies are in their authored relative
+         * pose reads a twist angle of zero — which is what an author means by "the door
+         * is shut".
+         */
+        struct JointParams
+        {
+            JointType type = JointType::Fixed;
+
+            Vector3 anchor_a;                    /**< Attachment point on the first body, local. */
+            Vector3 anchor_b;                    /**< Attachment point on the second body, local. */
+            Vector3 axis_a{Vector3{1, 0, 0}};    /**< Primary axis on the first body, local. */
+            Vector3 axis_b{Vector3{1, 0, 0}};    /**< Primary axis on the second body, local. */
+
+            /** @brief Compliance of the structural rows; zero is rigid. */
+            Scalar compliance = 0;
+
+            /** @brief Travel along the primary axis (slider), or the anchor range (distance). */
+            JointLimitDesc linear_limit;
+
+            /** @brief Rotation about the primary axis (hinge angle, cone-twist twist). */
+            JointLimitDesc twist_limit;
+
+            /** @brief The cone half-angle the primary axis may stray by; only `upper` is read. */
+            JointLimitDesc swing_limit;
+
+            /** @brief The drive on the primary axis. */
+            JointMotorDesc motor;
+
+            /** @brief Force (N) above which the joint breaks; zero is unbreakable. */
+            Scalar break_force = 0;
+
+            /** @brief Torque (N·m) above which the joint breaks; zero is unbreakable. */
+            Scalar break_torque = 0;
+        };
+
+        /**
+         * @brief A joint to create between two entities that already own rigid bodies.
+         *
+         * Both endpoints are bodies. An immovable endpoint is a body with zero inverse
+         * mass, not a missing one — which keeps every joint two-sided and stops a
+         * one-sided projection existing to disagree with the two-sided one.
+         */
+        struct JointDesc
+        {
+            EntityId body_a = NULL_ENTITY;
+            EntityId body_b = NULL_ENTITY;
+
+            /** @brief What is held between them. */
+            JointParams params;
+        };
+
+        /** @brief An opaque identity for a live joint; zero names none. */
+        using JointId = std::uint32_t;
+
+        /** @brief The joint identity that never names a joint. */
+        inline constexpr JointId NULL_JOINT = 0;
+
+        /**
+         * @brief What a joint is carrying, read back after a step.
+         *
+         * The rigid-body half of *mukavemet*: XPBD settles on Lagrange multipliers and
+         * §10.4's recovery turns them into a force and a torque exactly, so "how much
+         * load is this mount carrying" is a readout rather than an estimate. The mean
+         * over the tick's substeps, not a peak — a single substep's multiplier during a
+         * stiff transient is noise.
+         */
+        struct JointState
+        {
+            Vector3 force;   /**< Mean over the tick, in newtons, world space. */
+            Vector3 torque;  /**< Mean over the tick, in newton-metres, world space. */
+
+            /**
+             * @brief The worst single substep's force magnitude, in newtons.
+             *
+             * What a break threshold is measured against, and what tells a scrape from
+             * a crash. Reported alongside the mean rather than instead of it because
+             * the two answer different questions: the mean says which way and how hard
+             * the mount is being pulled, and the peak says what the worst instant was.
+             * An impact's mean is nearly zero — the correction reverses direction the
+             * substep after the hit — so a listener that watched only the mean would
+             * never see the hit at all.
+             */
+            Scalar peak_force = 0;
+
+            /** @brief The worst single substep's torque magnitude, in newton-metres. */
+            Scalar peak_torque = 0;
+        };
+
+        /**
+         * @brief A joint that exceeded a break threshold and is gone.
+         *
+         * Reported once, on the tick it broke, after which the joint no longer exists
+         * and its bodies are free. The load it was carrying is included because that is
+         * what a listener wants: how hard the impact was, not merely that there was one.
+         */
+        struct JointBrokenEvent
+        {
+            JointId joint = NULL_JOINT;
+            EntityId a = NULL_ENTITY;
+            EntityId b = NULL_ENTITY;
+            /** @brief The peak force magnitude that broke it, in newtons. */
+            Scalar force = 0;
+            /** @brief The peak torque magnitude that broke it, in newton-metres. */
+            Scalar torque = 0;
+        };
+
+        /**
+         * @brief Joints: what is attached to what, how hard it is being pulled, and when it gives.
+         *
+         * Its own service because a mechanism, a vehicle, a ragdoll and a destructible
+         * mount are all this interface and none of them needs the stepper, the
+         * broadphase, or cloth to ask it anything. A door that reports its hinge load
+         * and tears off above a threshold depends on this and on nothing else.
+         */
+        class IJointService
+        {
+            public:
+                virtual ~IJointService() = default;
+
+                /**
+                 * @brief Creates a joint between two entities that already own bodies.
+                 *
+                 * @param desc What to create.
+                 * @return Its identity, or @ref NULL_JOINT when either entity has no
+                 *         body or the joint budget is exhausted — a budget being
+                 *         exceeded, counted in the statistics, not an error.
+                 */
+                virtual JointId create_joint(const JointDesc& desc) = 0;
+
+                /**
+                 * @brief Destroys a joint. What breaking one actually does.
+                 * @param joint The joint to destroy.
+                 * @return True when a live joint was destroyed by this call.
+                 */
+                virtual bool destroy_joint(JointId joint) = 0;
+
+                /**
+                 * @brief The load the last step left on a joint.
+                 * @param joint The joint to read.
+                 * @param out   Receives the load when @p joint is live.
+                 * @return True when @p joint named a live joint.
+                 */
+                virtual bool joint_state(JointId joint, JointState& out) const = 0;
+
+                /**
+                 * @brief Replaces a joint's drive, live.
+                 * @param joint The joint to change.
+                 * @param motor The drive to install.
+                 * @return True when @p joint named a live joint.
+                 */
+                virtual bool set_joint_motor(JointId joint, const JointMotorDesc& motor) = 0;
+
+                /**
+                 * @brief Replaces a joint's three limits, live.
+                 *
+                 * All three at once rather than one call per limit: they are one
+                 * statement about what the joint allows, and a seam with three setters
+                 * is a seam where two of them can be forgotten.
+                 *
+                 * @param joint  The joint to change.
+                 * @param linear The travel or range limit.
+                 * @param twist  The rotation limit about the primary axis.
+                 * @param swing  The cone limit off the primary axis.
+                 * @return True when @p joint named a live joint.
+                 */
+                virtual bool set_joint_limits(JointId joint, const JointLimitDesc& linear,
+                                              const JointLimitDesc& twist,
+                                              const JointLimitDesc& swing) = 0;
+
+                /**
+                 * @brief The joints that broke during the last step.
+                 *
+                 * Valid until the next @ref IPhysicsStepper::step, and ordered by
+                 * joint identity so a listener that spawns an effect observes the same
+                 * sequence on every machine (§12.1).
+                 */
+                virtual const std::vector<JointBrokenEvent>& joint_broken_events()
+                    const noexcept = 0;
+        };
+
+        /**
          * @brief Asking the collision world a question that is not "what is touching".
          *
          * §7.7's service. A weapon, a camera, a footstep probe, a placement tool and
@@ -483,13 +732,15 @@ namespace SushiEngine
         /**
          * @brief Every physics service at once, for the object that owns the simulation.
          *
-         * The live world holds one of these because it genuinely does all four jobs.
-         * Nothing else should: a system that raycasts wants a query service, a panel
-         * that draws a graph wants a stepper, and depending on this instead is how the
-         * split gets undone one call site at a time.
+         * The live world holds one of these because it genuinely does every one of these
+         * jobs. Nothing else should: a system that raycasts wants a query service, a
+         * panel that draws a graph wants a stepper, a mechanism wants the joint
+         * service, and depending on this instead is how the split gets undone one call
+         * site at a time.
          */
         class IPhysicsScene : public IRigidBodyService,
                               public IClothService,
+                              public IJointService,
                               public IStaticGeometryService,
                               public ICollisionQueryService,
                               public IContactEventService,

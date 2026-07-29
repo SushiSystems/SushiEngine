@@ -65,6 +65,20 @@ namespace SushiEngine
             /** @brief Maximum simultaneously live constraints of all kinds. */
             std::size_t constraints = 16384;
 
+            /**
+             * @brief Maximum simultaneously live joints.
+             *
+             * Its own budget rather than a share of @ref constraints because the two
+             * are different orders of magnitude and different in kind: a soft-body
+             * lattice spends distance constraints by the ten thousand, while joints
+             * are authored one at a time and a scene full of vehicles and ragdolls
+             * still counts them in hundreds. Sizing one buffer for both would mean a
+             * joint descriptor — several times larger than a distance constraint —
+             * allocated sixteen thousand times over for a scene that will never hold
+             * a hundred of them.
+             */
+            std::size_t joints = 1024;
+
             /** @brief Maximum contacts retained in one tick. */
             std::size_t contacts = 16384;
 
@@ -79,9 +93,10 @@ namespace SushiEngine
              * soft-body lattice links each interior vertex to eighteen neighbours,
              * and a ceiling below that would reject an ordinary soft body.
              *
-             * The solve graph is built with one node per colour per substep, so this
-             * multiplies the compiled node count directly. Raising it is not free
-             * even when the extra colours stay empty.
+             * The solve graph is built with one node *per kind* per colour per
+             * substep, so this multiplies the compiled node count directly and by a
+             * factor that grows as kinds are added. Raising it is not free even when
+             * the extra colours stay empty.
              *
              * Bounded at 64 by the colour mask the incremental colourer keeps per
              * body; a larger value is rejected rather than silently truncated.

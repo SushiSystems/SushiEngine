@@ -378,6 +378,13 @@ add_subdirectory(geometry)
 # stays in render/atmosphere.
 add_subdirectory(atmosphere)
 
+# The engine-neutral asset importers (import/): glTF in, engine blob out, linking
+# nothing — and the one translation unit that defines cgltf's implementation. Before
+# the renderer for the same reason geometry is: the renderer reads it, and a target
+# that only wants to load a skeleton must not have to bring up a graphics stack to
+# find `import_gltf_skeleton` (docs/slop/physics_system.md §3.4).
+add_subdirectory(import)
+
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
 # (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.
 if(SE_BUILD_RENDER)
@@ -385,8 +392,14 @@ if(SE_BUILD_RENDER)
 endif()
 
 # The live world behind the ISimulation seam: a SYCL static library owning the
-# runtime, world, and schedule. The editor links it to tick and draw a real world.
-if(SE_BUILD_EDITOR)
+# runtime, world, and schedule. The editor links it to tick and draw a real world,
+# and so does the test suite — the scene-serializer round-trip drives the real
+# simulation through IWorldEditor, which is the whole point of that test. So the
+# condition is either consumer, not just the editor: with tests on and the editor
+# off the target went missing and the test binary failed to link against a library
+# nothing had been asked to build. It needs no renderer (it links SushiEngine and
+# sushi_atmosphere only), so building it in the tests lane costs one static library.
+if(SE_BUILD_EDITOR OR SE_BUILD_TESTS)
     add_subdirectory(sim)
 endif()
 

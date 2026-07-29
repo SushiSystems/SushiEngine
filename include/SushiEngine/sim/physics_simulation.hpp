@@ -80,6 +80,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -96,9 +97,11 @@
 #include <SushiEngine/physics/collision/manifold.hpp>
 #include <SushiEngine/physics/collision/narrowphase_dispatch.hpp>
 #include <SushiEngine/physics/collision/scene_query.hpp>
+#include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/core/configuration.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
+#include <SushiEngine/physics/scene/islands.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
 #include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
@@ -113,7 +116,7 @@ namespace SushiEngine
         /**
          * @brief The `IPhysicsScene` implementation; the XPBD solve runs in `double`.
          *
-         * It implements all four services because it genuinely does all four jobs.
+         * It implements every service because it genuinely does every one of those jobs.
          * Consumers should not: the split exists so a caller depends on the one
          * service it uses, and naming this class instead is how that gets undone.
          */
@@ -167,6 +170,10 @@ namespace SushiEngine
                         rigid_.erase(rigid_.begin() + std::ptrdiff_t(i));
                     }
                     reindex_rigid();
+                    // `remove_body` already took every joint naming the freed slot; this
+                    // drops the host records that named it, so a stale identity cannot
+                    // be read back or destroyed twice.
+                    prune_joints();
 
                     for (const RigidBodyDesc& desc : bodies)
                     {
@@ -207,6 +214,7 @@ namespace SushiEngine
                     const auto it = rigid_index_.find(id);
                     if (it == rigid_index_.end())
                         return;
+                    wake_body(rigid_[it->second].handle);
                     Body body;
                     if (!solver_->read_body(rigid_[it->second].handle, body))
                         return;
@@ -244,6 +252,9 @@ namespace SushiEngine
                     const auto it = rigid_index_.find(id);
                     if (it == rigid_index_.end())
                         return;
+                    // Before the read, so the body this call is about comes back awake
+                    // and the write below is not undone by a stale flag word.
+                    wake_body(rigid_[it->second].handle);
                     Body body;
                     if (!solver_->read_body(rigid_[it->second].handle, body))
                         return;
@@ -360,6 +371,134 @@ namespace SushiEngine
                     note_membership_changed();
                 }
 
+                // -- IJointService (§10) -------------------------------------------
+
+                /**
+                 * @copydoc IJointService::create_joint
+                 *
+                 * Both endpoints must already own bodies, and the joint names their
+                 * *slots* rather than their handles: the solver colours and projects by
+                 * slot, and the handle is the host's lifetime bookkeeping. A body
+                 * removed later takes its joints with it inside the solver, and the
+                 * record here is pruned in the same pass.
+                 */
+                JointId create_joint(const JointDesc& desc) override
+                {
+                    ensure_solver();
+                    const auto a = rigid_index_.find(desc.body_a);
+                    const auto b = rigid_index_.find(desc.body_b);
+                    if (a == rigid_index_.end() || b == rigid_index_.end())
+                        return NULL_JOINT;
+
+                    Physics::JointConstraintT<T> joint;
+                    joint.a = std::uint32_t(solver_->body_slot(rigid_[a->second].handle));
+                    joint.b = std::uint32_t(solver_->body_slot(rigid_[b->second].handle));
+                    if (joint.a >= solver_->body_capacity() || joint.b >= solver_->body_capacity())
+                        return NULL_JOINT;
+
+                    const JointParams& params = desc.params;
+                    joint.kind = to_joint_kind(params.type);
+                    joint.flags = Physics::JointFlags::enabled;
+                    joint.local_anchor_a = to_vector(params.anchor_a);
+                    joint.local_anchor_b = to_vector(params.anchor_b);
+                    joint.local_basis_a =
+                        Physics::joint_frame_from_axis(to_vector(params.axis_a));
+                    joint.local_basis_b =
+                        Physics::joint_frame_from_axis(to_vector(params.axis_b));
+                    joint.compliance = T(params.compliance);
+                    joint.linear_limit = to_joint_limit(params.linear_limit);
+                    joint.twist_limit = to_joint_limit(params.twist_limit);
+                    joint.swing_limit = to_joint_limit(params.swing_limit);
+                    joint.motor = to_joint_motor(params.motor);
+                    joint.break_force = T(params.break_force);
+                    joint.break_torque = T(params.break_torque);
+
+                    const Physics::JointHandle handle = solver_->add_joint(joint);
+                    if (!handle.valid())
+                        return NULL_JOINT;
+
+                    JointEntry entry;
+                    entry.id = next_joint_id_++;
+                    entry.handle = handle;
+                    entry.a = desc.body_a;
+                    entry.b = desc.body_b;
+                    joints_.push_back(entry);
+                    // A new joint is a disturbance: it can be holding two settled bodies
+                    // apart at a distance neither of them currently is, and a joint whose
+                    // bodies are asleep would resolve nothing until something else woke
+                    // them. Both ends, because either may be the sleeping one.
+                    wake_body(rigid_[a->second].handle);
+                    wake_body(rigid_[b->second].handle);
+                    return entry.id;
+                }
+
+                /** @copydoc IJointService::destroy_joint */
+                bool destroy_joint(JointId joint) override
+                {
+                    for (std::size_t i = 0; i < joints_.size(); ++i)
+                    {
+                        if (joints_[i].id != joint)
+                            continue;
+                        if (solver_)
+                            solver_->remove_joint(joints_[i].handle);
+                        joints_.erase(joints_.begin() + std::ptrdiff_t(i));
+                        return true;
+                    }
+                    return false;
+                }
+
+                /** @copydoc IJointService::joint_state */
+                bool joint_state(JointId joint, JointState& out) const override
+                {
+                    const JointEntry* entry = find_joint(joint);
+                    if (entry == nullptr || !solver_)
+                        return false;
+                    Physics::JointConstraintT<T> solved;
+                    if (!solver_->read_joint(entry->handle, solved))
+                        return false;
+                    out.force = from_vector(Physics::joint_force(solved));
+                    out.torque = from_vector(Physics::joint_torque(solved));
+                    out.peak_force = Scalar(solved.peak_force);
+                    out.peak_torque = Scalar(solved.peak_torque);
+                    return true;
+                }
+
+                /** @copydoc IJointService::set_joint_motor */
+                bool set_joint_motor(JointId joint, const JointMotorDesc& motor) override
+                {
+                    const JointEntry* entry = find_joint(joint);
+                    if (entry == nullptr || !solver_)
+                        return false;
+                    Physics::JointConstraintT<T> stored;
+                    if (!solver_->read_joint(entry->handle, stored))
+                        return false;
+                    stored.motor = to_joint_motor(motor);
+                    return solver_->write_joint(entry->handle, stored);
+                }
+
+                /** @copydoc IJointService::set_joint_limits */
+                bool set_joint_limits(JointId joint, const JointLimitDesc& linear,
+                                      const JointLimitDesc& twist,
+                                      const JointLimitDesc& swing) override
+                {
+                    const JointEntry* entry = find_joint(joint);
+                    if (entry == nullptr || !solver_)
+                        return false;
+                    Physics::JointConstraintT<T> stored;
+                    if (!solver_->read_joint(entry->handle, stored))
+                        return false;
+                    stored.linear_limit = to_joint_limit(linear);
+                    stored.twist_limit = to_joint_limit(twist);
+                    stored.swing_limit = to_joint_limit(swing);
+                    return solver_->write_joint(entry->handle, stored);
+                }
+
+                /** @copydoc IJointService::joint_broken_events */
+                const std::vector<JointBrokenEvent>& joint_broken_events() const noexcept override
+                {
+                    return joint_events_;
+                }
+
                 // -- IPhysicsStepper -----------------------------------------------
 
                 /**
@@ -389,17 +528,27 @@ namespace SushiEngine
                     {
                         statistics_ = Physics::PhysicsStatistics{};
                         events_.clear();
+                        joint_events_.clear();
                         return;
                     }
 
                     const std::size_t floor = substeps > 0 ? substeps : 1;
                     const T delta_time = T(floor) * substep_dt_;
 
+                    // Measuring is off unless something asked, so a tick nobody is
+                    // profiling reads no clock at all (§13.3). The host stages are timed
+                    // here because this is where they run; the device half is the
+                    // solver's own measurement and arrives with its statistics.
+                    StageTimer timer(profiling_requested_);
+
                     bodies_dirty_ = true;
                     refresh_bodies();
                     apply_gravity_field(gravity);
+                    timer.lap(stage_timings_.write_back_ms);
                     refresh_contact_index(delta_time);
+                    timer.lap(stage_timings_.broadphase_ms);
                     submit_contacts(delta_time, floor);
+                    timer.lap(stage_timings_.narrowphase_ms);
 
                     Physics::StepParameters<T> parameters;
                     parameters.delta_time = delta_time;
@@ -408,15 +557,35 @@ namespace SushiEngine
                     parameters.gravity = Vector3T<T>{T(0), T(0), T(0)};
                     parameters.substep_floor = floor;
                     solver_->step(parameters);
+                    // Discarded rather than recorded: the solve's cost is the solver's
+                    // own measurement, and a host clock around a `run()` would also be
+                    // timing the dispatch this side of it.
+                    timer.lap();
 
                     collect_contacts();
+                    // Break thresholds are evaluated here, on the host, between steps.
+                    // Not a compromise: removing a joint is a topology change, and a
+                    // topology change never happens against a running graph (§6.6).
+                    // The load it is tested against came off the device with the joint.
+                    break_overloaded_joints();
 
                     bodies_dirty_ = true;
                     refresh_bodies();
+                    // The second half of the tick's transfer cost, added to the first:
+                    // §16.6's honest remaining price of host-side collision detection is
+                    // one number, not two.
+                    timer.lap(stage_timings_.write_back_ms, StageTimer::Accumulate);
+                    // The partition and the sleep decision, on this tick's evidence.
+                    // Its own write-back is counted here rather than above, because it
+                    // is a cost the island pass causes and not one the tick would pay
+                    // without it.
+                    update_islands(delta_time);
+                    timer.lap(stage_timings_.island_build_ms);
                     // After the solve and after the poses came back, so an event
                     // reports where the contact ended up and what impulse it took —
                     // not where it was predicted to be before anything was resolved.
                     build_contact_events();
+                    stage_timings_.total_ms = timer.total();
                     refresh_statistics();
                     // Everything moved; the next query rebuilds before it answers.
                     query_dirty_ = true;
@@ -533,6 +702,71 @@ namespace SushiEngine
                 using Body = Physics::RigidBodyT<T>;
                 using Contact = Physics::ContactConstraintT<T>;
 
+                /**
+                 * @brief Splits one tick into stages with a host clock, or does nothing.
+                 *
+                 * Off is the default and off costs nothing — no clock is read, and every
+                 * `lap` is a branch that returns. That is the shape §13.3 asks for: a
+                 * tick nobody is watching must not pay to be watchable.
+                 *
+                 * `lap` closes the current stage and opens the next, so the stages tile
+                 * the tick exactly and `total` is not the sum of a set of measurements
+                 * that quietly overlap.
+                 */
+                class StageTimer
+                {
+                    public:
+                        /** @brief Whether a lap accumulates into its field or replaces it. */
+                        enum Mode { Replace, Accumulate };
+
+                        /** @brief Starts the tick when @p enabled; otherwise inert. */
+                        explicit StageTimer(bool enabled) noexcept : enabled_(enabled)
+                        {
+                            if (enabled_)
+                                began_ = mark_ = std::chrono::steady_clock::now();
+                        }
+
+                        /** @brief Closes a stage and discards its cost. */
+                        void lap() noexcept
+                        {
+                            if (enabled_)
+                                mark_ = std::chrono::steady_clock::now();
+                        }
+
+                        /**
+                         * @brief Closes a stage into @p field.
+                         * @param field Destination, in milliseconds.
+                         * @param mode  Replace (the default) or add to what is there.
+                         */
+                        void lap(T& field, Mode mode = Replace) noexcept
+                        {
+                            if (!enabled_)
+                                return;
+                            const std::chrono::steady_clock::time_point now =
+                                std::chrono::steady_clock::now();
+                            const T elapsed =
+                                T(std::chrono::duration<double, std::milli>(now - mark_)
+                                      .count());
+                            field = mode == Accumulate ? field + elapsed : elapsed;
+                            mark_ = now;
+                        }
+
+                        /** @brief The whole tick so far, in milliseconds; zero when off. */
+                        T total() const noexcept
+                        {
+                            if (!enabled_)
+                                return T(0);
+                            return T(std::chrono::duration<double, std::milli>(
+                                         std::chrono::steady_clock::now() - began_)
+                                         .count());
+                        }
+
+                    private:
+                        bool enabled_ = false;
+                        std::chrono::steady_clock::time_point began_{};
+                        std::chrono::steady_clock::time_point mark_{};
+                };
+
                 /** @brief One rigid body: who owns it, where it lives, what it collides as. */
                 struct RigidEntry
                 {
@@ -540,6 +774,21 @@ namespace SushiEngine
                     Physics::BodyHandle handle;
                     Collider collider{};
                     Physics::CollisionFilter filter{};
+                };
+
+                /**
+                 * @brief One joint: its boundary identity and the solver handle behind it.
+                 *
+                 * The two entities are kept so a broken-joint event can name them
+                 * *after* the joint is gone — the solver's descriptor holds body slots,
+                 * and a slot is not an identity a listener can act on.
+                 */
+                struct JointEntry
+                {
+                    JointId id = NULL_JOINT;
+                    Physics::JointHandle handle;
+                    EntityId a = NULL_ENTITY;
+                    EntityId b = NULL_ENTITY;
                 };
 
                 /** @brief One cloth grid and the shape of it. */
@@ -646,10 +895,16 @@ namespace SushiEngine
                  *
                  * The colour ceiling is 16 rather than the configuration default of
                  * 32 because the solve graph holds a node per colour per substep per
-                 * *kind*, and with contacts that is now four kinds of node; 32
-                 * colours would quadruple a compile that happens while a scene is
+                 * *kind*, and with contacts and joints that is now six kinds of node;
+                 * 32 colours would double a compile that happens while a scene is
                  * loading. Sixteen clears a cloth grid's busiest vertex, which links
                  * to eight neighbours.
+                 *
+                 * The joint budget is small beside the constraint budget on purpose.
+                 * Joints are authored one at a time — a mechanism, a ragdoll, a
+                 * vehicle's suspension — while distance constraints are spent by the
+                 * ten thousand on cloth and lattices, and a joint descriptor is several
+                 * times the size of a distance constraint.
                  */
                 void ensure_solver()
                 {
@@ -658,6 +913,7 @@ namespace SushiEngine
                     Physics::PhysicsConfigurationT<T> configuration;
                     configuration.capacities.bodies = 16384;
                     configuration.capacities.constraints = 65536;
+                    configuration.capacities.joints = 2048;
                     configuration.capacities.contacts = 16384;
                     configuration.capacities.colors = 16;
                     configuration.substeps.minimum = 4;
@@ -668,7 +924,111 @@ namespace SushiEngine
                     configuration.profiling = profiling_requested_;
                     solver_.reset(new Solver(runtime_, configuration));
                     bodies_.assign(configuration.capacities.bodies, Body{});
+                    // The sleep thresholds are kept rather than re-derived: the island
+                    // pass runs on the host, outside the solver, and a second copy of
+                    // these two numbers is how the tick and the solver come to disagree
+                    // about what "settled" means.
+                    sleep_motion_threshold_ = configuration.sleep_motion_threshold;
+                    sleep_delay_ = configuration.sleep_delay;
                     bodies_dirty_ = true;
+                }
+
+                /** @brief The boundary joint type, as the solver's kind. */
+                static Physics::JointKind to_joint_kind(JointType type) noexcept
+                {
+                    // A cast rather than a switch, and the two enumerations are kept in
+                    // the same order for it. A switch here would be a function every
+                    // new joint kind has to edit, which is the §4.2 violation the
+                    // projection dispatch exists to avoid; a boundary that reintroduced
+                    // it would undo that one file further out.
+                    return static_cast<Physics::JointKind>(static_cast<std::uint32_t>(type));
+                }
+
+                /** @brief The boundary limit, in the solver's precision. */
+                static Physics::JointLimitT<T> to_joint_limit(const JointLimitDesc& limit) noexcept
+                {
+                    Physics::JointLimitT<T> out;
+                    out.lower = T(limit.lower);
+                    out.upper = T(limit.upper);
+                    out.compliance = T(limit.compliance);
+                    out.enabled = limit.enabled;
+                    return out;
+                }
+
+                /** @brief The boundary drive, in the solver's precision. */
+                static Physics::JointMotorT<T> to_joint_motor(const JointMotorDesc& motor) noexcept
+                {
+                    Physics::JointMotorT<T> out;
+                    out.target = T(motor.target);
+                    out.max_force = T(motor.max_force);
+                    out.compliance = T(motor.compliance);
+                    out.mode = static_cast<Physics::JointMotorMode>(
+                        static_cast<std::uint32_t>(motor.type));
+                    return out;
+                }
+
+                /** @brief The record for @p joint, or null. */
+                const JointEntry* find_joint(JointId joint) const noexcept
+                {
+                    for (const JointEntry& entry : joints_)
+                        if (entry.id == joint)
+                            return &entry;
+                    return nullptr;
+                }
+
+                /** @brief Drops joint records whose bodies are gone; the solver already has. */
+                void prune_joints()
+                {
+                    for (std::size_t i = joints_.size(); i-- > 0;)
+                    {
+                        if (rigid_index_.count(joints_[i].a) != 0 &&
+                            rigid_index_.count(joints_[i].b) != 0)
+                            continue;
+                        // No `remove_joint` here: `remove_body` already took every
+                        // joint naming the freed slot with it, and asking the solver
+                        // again would be asking it about a handle it has retired.
+                        joints_.erase(joints_.begin() + std::ptrdiff_t(i));
+                    }
+                }
+
+                /**
+                 * @brief Destroys the joints whose load passed a break threshold.
+                 *
+                 * Ordered by joint identity because a listener that spawns an effect
+                 * observes the sequence, and identities are handed out in creation
+                 * order — so the sequence is a function of the scene rather than of
+                 * whatever order the records happen to sit in (§12.1). The walk is
+                 * downward so an erase does not skip the next candidate.
+                 */
+                void break_overloaded_joints()
+                {
+                    joint_events_.clear();
+                    if (!solver_)
+                        return;
+
+                    for (std::size_t i = joints_.size(); i-- > 0;)
+                    {
+                        Physics::JointConstraintT<T> solved;
+                        if (!solver_->read_joint(joints_[i].handle, solved))
+                            continue;
+                        if (!Physics::joint_should_break(solved))
+                            continue;
+
+                        JointBrokenEvent event;
+                        event.joint = joints_[i].id;
+                        event.a = joints_[i].a;
+                        event.b = joints_[i].b;
+                        event.force = Scalar(solved.peak_force);
+                        event.torque = Scalar(solved.peak_torque);
+                        joint_events_.push_back(event);
+
+                        solver_->remove_joint(joints_[i].handle);
+                        joints_.erase(joints_.begin() + std::ptrdiff_t(i));
+                    }
+
+                    std::sort(joint_events_.begin(), joint_events_.end(),
+                              [](const JointBrokenEvent& lhs, const JointBrokenEvent& rhs)
+                              { return lhs.joint < rhs.joint; });
                 }
 
                 /** @brief Rebuilds the entity-to-index map after the vector moved. */
@@ -775,22 +1135,163 @@ namespace SushiEngine
                             to_vector(gravity(from_vector(bodies_[slot].position)));
                         bodies_[slot].external_acceleration = sampled;
                     }
-                    // Written back through the handles rather than by slot, because a
-                    // slot the scene does not own is not this scene's to write.
-                    for (const RigidEntry& entry : rigid_)
-                        write_field(entry.handle);
-                    for (const ClothEntry& entry : cloth_)
-                        for (const Physics::BodyHandle handle : entry.grid.bodies)
-                            write_field(handle);
+                    write_every_body();
                     bodies_dirty_ = false;
                 }
 
-                /** @brief Sends one body's sampled acceleration back to the solver. */
+                /** @brief Sends the host mirror's copy of one body back to the solver. */
                 void write_field(Physics::BodyHandle handle)
                 {
                     const std::size_t slot = solver_->body_slot(handle);
                     if (slot < bodies_.size())
                         solver_->write_body(handle, bodies_[slot]);
+                }
+
+                /**
+                 * @brief Wakes a body and everything its island is resting against.
+                 *
+                 * Called by every entry point that disturbs a body from outside the
+                 * tick. The asymmetry is deliberate and is what makes sleeping safe:
+                 * falling asleep is a decision a whole island has to earn, and waking is
+                 * immediate and needs no decision at all. A crate teleported into a
+                 * settled stack must not leave that stack hanging in the air until
+                 * something re-derives the partition.
+                 *
+                 * The whole scene is written back rather than the island's members
+                 * alone: a wake is a rare, caller-driven event, and picking out the
+                 * members would mean trusting an island index that the wake itself is
+                 * evidence has gone stale.
+                 *
+                 * @param handle The body to wake.
+                 */
+                void wake_body(Physics::BodyHandle handle)
+                {
+                    refresh_bodies();
+                    const std::size_t slot = solver_->body_slot(handle);
+                    if (slot >= bodies_.size())
+                        return;
+                    Physics::wake_island(bodies_.data(), live_slot_count(),
+                                         std::uint32_t(slot), islands_);
+                    write_every_body();
+                }
+
+                /**
+                 * @brief How many of this scene's body slots are awake.
+                 *
+                 * Counted from the host mirror rather than from the partition's
+                 * `awake_count`, which counts *islands*. A static body is in no island
+                 * and is neither awake nor asleep in the sense this reports — it is not
+                 * simulated at all — so it is excluded from both halves.
+                 */
+                std::size_t awake_body_count() const
+                {
+                    const std::size_t count = live_slot_count();
+                    std::size_t awake = 0;
+                    for (std::size_t slot = 0; slot < count; ++slot)
+                        if (Physics::is_simulated(bodies_[slot].flags))
+                            ++awake;
+                    return awake;
+                }
+
+                /** @brief How many of this scene's body slots are asleep. */
+                std::size_t sleeping_body_count() const
+                {
+                    const std::size_t count = live_slot_count();
+                    std::size_t sleeping = 0;
+                    for (std::size_t slot = 0; slot < count; ++slot)
+                        if (Physics::has_any_flag(bodies_[slot].flags,
+                                                  Physics::BodyFlags::sleeping))
+                            ++sleeping;
+                    return sleeping;
+                }
+
+                /** @brief Sends every body this scene owns back to the solver. */
+                void write_every_body()
+                {
+                    // Through the handles rather than by slot, because a slot this scene
+                    // does not own is not this scene's to write.
+                    for (const RigidEntry& entry : rigid_)
+                        write_field(entry.handle);
+                    for (const ClothEntry& entry : cloth_)
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                            write_field(handle);
+                }
+
+                /**
+                 * @brief Partitions the scene into islands and decides which of them sleep.
+                 *
+                 * Run at the end of the tick rather than the start, and that is the
+                 * whole design: the eligibility test reads a body's smoothed motion,
+                 * which is a statement about the tick that just happened. Deciding
+                 * before the solve would put a body to sleep on last tick's evidence
+                 * and then solve it anyway.
+                 *
+                 * The edges are the things that actually transmit a disturbance, and
+                 * every one of them is something this scene owns rather than something
+                 * the solver is asked for: this tick's resolved contacts, the joints,
+                 * and each cloth lattice. A trigger is not an edge — it is detected and
+                 * never resolved, so it moves nothing and must not keep a body awake or
+                 * drag two islands together.
+                 *
+                 * @param delta_time The tick's duration, in seconds.
+                 */
+                void update_islands(T delta_time)
+                {
+                    const std::size_t count = live_slot_count();
+                    if (count == 0)
+                    {
+                        islands_ = Physics::IslandSet{};
+                        return;
+                    }
+
+                    // The smoothed measure the sleep test reads. Host-side because the
+                    // island pass is, and because a body's own history is what is being
+                    // smoothed — the device's motion column is this tick's speed alone,
+                    // which is what the substep schedule wants and not what sleeping does.
+                    for (std::size_t slot = 0; slot < count; ++slot)
+                        Physics::update_motion_measure(bodies_[slot], delta_time);
+
+                    island_builder_.begin(count);
+                    for (const ContactRecord& record : current_)
+                    {
+                        if (record.trigger)
+                            continue;
+                        if (record.b_slot == Physics::null_contact_body)
+                            continue; // static geometry conducts nothing (§16.4)
+                        island_builder_.connect(std::uint32_t(record.a_slot),
+                                                std::uint32_t(record.b_slot),
+                                                bodies_.data());
+                    }
+                    for (const JointEntry& joint : joints_)
+                    {
+                        Physics::JointConstraintT<T> descriptor;
+                        if (!solver_->read_joint(joint.handle, descriptor))
+                            continue;
+                        island_builder_.connect(descriptor.a, descriptor.b, bodies_.data());
+                    }
+                    for (const ClothEntry& entry : cloth_)
+                    {
+                        // Every particle joined to the first rather than to its lattice
+                        // neighbours: a lattice is connected by construction, so the
+                        // component this produces is the same one the edges would, at a
+                        // pass instead of four per particle.
+                        if (entry.grid.bodies.empty())
+                            continue;
+                        const std::uint32_t first =
+                            std::uint32_t(solver_->body_slot(entry.grid.bodies.front()));
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                            island_builder_.connect(
+                                first, std::uint32_t(solver_->body_slot(handle)),
+                                bodies_.data());
+                    }
+
+                    island_builder_.finish(bodies_.data(), count, delta_time,
+                                           sleep_motion_threshold_, sleep_delay_,
+                                           islands_);
+                    // The decision only exists once the solver has it: `finish` wrote it
+                    // onto the host mirror's flags, timers and island indices, and the
+                    // solve that must skip a sleeping body runs from the device's copy.
+                    write_every_body();
                 }
 
                 /**
@@ -812,6 +1313,15 @@ namespace SushiEngine
                     for (ContactProxy& proxy : contact_proxies_)
                     {
                         if (proxy.slot == Physics::null_contact_body)
+                            continue;
+                        // A sleeping body has not moved, so its proxy is already right
+                        // and refreshing it costs a hierarchy descent to learn nothing.
+                        // This is where §16.4's ten-thousand-body measurement came from
+                        // — the island decision reaching the broadphase — and it is why
+                        // the proxy is left in the tree rather than removed: something
+                        // awake that comes near it still has to find it.
+                        if (Physics::has_any_flag(bodies_[proxy.slot].flags,
+                                                  Physics::BodyFlags::sleeping))
                             continue;
                         proxy.shape = shape_for_slot(proxy.slot);
                         const Vector3T<T> travel =
@@ -988,6 +1498,20 @@ namespace SushiEngine
                         if (record.trigger)
                             continue; // reported, never resolved
 
+                        // A pair with nothing simulated on either side is still a
+                        // *touching* pair and stays in the list above, because a settled
+                        // stack that fell asleep has not stopped touching itself — if it
+                        // left the list, every contact in it would report End and then
+                        // Begin again on waking, and §16.6's "begins once, then persists"
+                        // would be false for every stack that ever settles. What it does
+                        // not need is to be solved: both projections early-out on a body
+                        // that is not simulated, so submitting it would spend a contact
+                        // slot and a colour band to compute nothing.
+                        if (!Physics::is_simulated(bodies_[lhs.slot].flags) &&
+                            (rhs.slot == Physics::null_contact_body ||
+                             !Physics::is_simulated(bodies_[rhs.slot].flags)))
+                            continue;
+
                         Contact contact;
                         contact.a = lhs.slot;
                         contact.b = rhs.slot;
@@ -1117,6 +1641,25 @@ namespace SushiEngine
                 {
                     statistics_ = solver_->statistics();
                     statistics_.broadphase_pairs_produced = contact_index_.pairs().size();
+                    // The solver measured the device half and left the host stages zero;
+                    // fill them in without touching what it reported. Assigned field by
+                    // field rather than by struct copy for exactly that reason.
+                    statistics_.timings.broadphase_ms = stage_timings_.broadphase_ms;
+                    statistics_.timings.narrowphase_ms = stage_timings_.narrowphase_ms;
+                    statistics_.timings.island_build_ms = stage_timings_.island_build_ms;
+                    statistics_.timings.write_back_ms = stage_timings_.write_back_ms;
+                    statistics_.timings.total_ms = stage_timings_.total_ms;
+                    // The partition is the host's, so its four counters are too. The
+                    // solver reports every live slot as awake because from inside the
+                    // solve that is all a slot can be; the scene is what knows better.
+                    statistics_.islands = islands_.islands.size();
+                    statistics_.largest_island = islands_.largest;
+                    statistics_.awake_bodies = awake_body_count();
+                    statistics_.sleeping_bodies = sleeping_body_count();
+                    // Per tick, as the field's name says — so it is this tick's broken
+                    // joints and not a running total. Assigned after the solver's
+                    // statistics are copied in, because that copy would overwrite it.
+                    statistics_.fracture_events = joint_events_.size();
                 }
 
                 // -- The query side ------------------------------------------------
@@ -1219,6 +1762,21 @@ namespace SushiEngine
                 // to this one. Recreating a live solver to honour a checkbox would
                 // discard every body's velocity to answer a question about timing.
                 bool profiling_requested_ = false;
+                // The host stages of the last tick. Kept here rather than assigned
+                // straight onto `statistics_`, because the solver's statistics are
+                // copied wholesale over that struct after the tick and would erase
+                // anything written to it earlier.
+                Physics::PhysicsStageTimings<T> stage_timings_{};
+
+                // The island partition, and the union-find scratch it is built with.
+                // Kept across ticks because the builder owns that scratch and a
+                // per-tick allocation of it is the cost the feature exists to avoid,
+                // and because `wake_island` needs the partition a later tick was
+                // decided against.
+                Physics::IslandBuilder<T> island_builder_;
+                Physics::IslandSet islands_{};
+                T sleep_motion_threshold_ = T(0.01);
+                T sleep_delay_ = T(0.5);
 
                 // The contact side: proxies numbered once per membership change, the
                 // hierarchy refreshed in place every tick, and the manifolds keyed by
@@ -1232,6 +1790,13 @@ namespace SushiEngine
                 std::vector<ContactRecord> previous_;
                 std::vector<ContactEvent> events_;
                 bool proxies_dirty_ = true;
+
+                std::vector<JointEntry> joints_;
+                std::vector<JointBrokenEvent> joint_events_;
+                // Starts at one so that zero is never handed out: `NULL_JOINT` is zero,
+                // and an identity that could equal it would be an identity a caller
+                // could not test.
+                JointId next_joint_id_ = 1;
 
                 Physics::PhysicsStatistics statistics_{};
 

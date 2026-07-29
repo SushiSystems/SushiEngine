@@ -51,10 +51,25 @@ namespace SushiEngine
         /**
          * @brief Per-stage wall-clock timings for one tick, in milliseconds.
          *
-         * Populated from the runtime's per-node timings, which are collected only
-         * when the scene was configured with profiling on. With it off these stay
-         * zero rather than being estimated, because a made-up timing is worse than
-         * an absent one.
+         * Populated only when `PhysicsConfiguration::profiling` is on. With it off
+         * these stay zero rather than being estimated, because a made-up timing is
+         * worse than an absent one — and a field that is *structurally* always zero
+         * is the same failure wearing the opposite mask, which is why there is one
+         * field per stage that can actually be measured and no more.
+         *
+         * The host stages are measured with a host clock, which is honest because
+         * they genuinely run on the host (§16.6): broadphase, narrowphase, the
+         * island partition, and the transfers back. `solve_ms` is the device
+         * composition's own measured cost, from the run report.
+         *
+         * There is deliberately no per-stage breakdown *inside* `solve_ms`. The
+         * runtime reports device time per node and names each one, but its public
+         * `add()` surface carries no label, so every physics node arrives as
+         * `unnamed_task` and the only way to attribute one is its plan index — a
+         * compile-time internal, and exactly the kind of engine-side claim about a
+         * runtime detail that §18 records the cost of making. Splitting predict from
+         * the projection sweeps from the velocity derivation is a runtime ask, not
+         * something to guess at here.
          */
         template <typename T>
         struct PhysicsStageTimings
@@ -62,8 +77,15 @@ namespace SushiEngine
             T broadphase_ms = 0;
             T narrowphase_ms = 0;
             T island_build_ms = 0;
-            T solve_ms = 0;      /**< Every substep's projection sweep, summed. */
-            T velocity_ms = 0;
+            /**
+             * @brief The whole device composition: one `run()`, every substep.
+             *
+             * Predict, every constraint kind's projection sweep, the velocity
+             * derivation, the velocity pass and the motion reduction — all of it,
+             * because that is the granularity the runtime's report gives without
+             * node labels. See this struct's note.
+             */
+            T solve_ms = 0;
             T write_back_ms = 0;
             T total_ms = 0;      /**< The whole tick, including anything not broken out above. */
         };
@@ -102,6 +124,17 @@ namespace SushiEngine
 
             /** @brief Live constraints of every kind. */
             std::size_t constraints = 0;
+
+            /**
+             * @brief Live joints, of the @ref constraints above.
+             *
+             * Broken out rather than merely included because a joint costs a great
+             * deal more than a distance constraint — several constraint rows, a
+             * swing/twist decomposition, and a force readback off the device — so a
+             * tick with four hundred constraints of which four hundred are joints is
+             * a different tick from one with four hundred distance links.
+             */
+            std::size_t joints = 0;
 
             /** @brief Colours the constraint set partitioned into. */
             std::size_t colors = 0;

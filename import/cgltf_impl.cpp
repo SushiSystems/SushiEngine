@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* stb_impl.cpp                                                           */
+/* cgltf_impl.cpp                                                         */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -21,21 +21,15 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// stb_image and stb_truetype are header-only: each needs exactly one translation unit
-// to define its implementation, and this is that unit for both. Nothing else in the
-// renderer may define STB_IMAGE_IMPLEMENTATION or STB_TRUETYPE_IMPLEMENTATION.
+// cgltf is a single-header library: exactly one translation unit in the whole
+// program may define its implementation, and this is that unit. It used to be
+// render/material/stb_impl.cpp, alongside stb_image and stb_truetype — which made
+// the glTF parser a private of the renderer, and meant a target that only wanted to
+// read a skeleton had to link a Vulkan library to get `cgltf_parse_file`.
 //
-// cgltf used to be defined here too, which quietly made the glTF parser a private of
-// the renderer. It now lives in import/cgltf_impl.cpp, beside the importers that are
-// its only reason for existing; this target links `sushi_import` and includes the
-// header for its types.
+// It lives here because the importers do, and they link nothing. Nothing else in the
+// engine may define CGLTF_IMPLEMENTATION; the renderer includes the header for its
+// types and takes the symbols from this target.
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_STDIO_WARNING
-#include <stb_image.h>
-
-// The UI overlay's glyph atlas. Ships in the same vcpkg `Stb` package the image loader
-// already comes from, so the font path costs no new dependency.
-#define STB_TRUETYPE_IMPLEMENTATION
-#include <stb_truetype.h>
-
+#define CGLTF_IMPLEMENTATION
+#include <cgltf.h>

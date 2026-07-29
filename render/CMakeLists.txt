@@ -287,8 +287,6 @@ add_library(sushi_render STATIC
     material/texture_library.cpp
     material/material_system.cpp
     material/gltf_importer.cpp
-    material/gltf_skeleton_importer.cpp
-    material/gltf_animation_importer.cpp
     textures/cloud_noise.cpp
     passes/fullscreen.cpp
     passes/ibl_pass.cpp
@@ -442,6 +440,7 @@ target_compile_definitions(sushi_render PRIVATE
     SUSHI_PIPELINE_CACHE_DIR="${CMAKE_BINARY_DIR}")
 target_link_libraries(sushi_render PUBLIC
     sushi_geometry
+    sushi_import
     Vulkan::Headers
     Vulkan::Loader
     GPUOpen::VulkanMemoryAllocator

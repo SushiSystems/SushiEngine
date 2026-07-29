@@ -49,12 +49,14 @@
  * standing up a device.
  */
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/constraints/distance_projection.hpp>
+#include <SushiEngine/physics/constraints/joint_projection.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/core/body_flags.hpp>
 #include <SushiEngine/physics/core/configuration.hpp>
@@ -85,6 +87,9 @@ namespace SushiEngine
                 /** @brief The per-tick constraint kind this solver admits. */
                 using Contact = ContactConstraintT<T>;
 
+                /** @brief The articulated persistent kind this solver admits. */
+                using Joint = JointConstraintT<T>;
+
                 /**
                  * @brief Creates a solver sized by @p configuration.
                  *
@@ -101,11 +106,15 @@ namespace SushiEngine
                       constraints_store_(configuration.capacities.bodies,
                                          configuration.capacities.constraints,
                                          configuration.capacities.colors),
+                      joints_store_(constraints_store_.shared_coloring(),
+                                    configuration.capacities.joints,
+                                    configuration.capacities.colors),
                       contacts_store_(configuration.capacities.bodies,
                                       configuration.capacities.contacts,
                                       configuration.capacities.colors),
                       constraints_(constraints_store_.band_capacity() *
                                    constraints_store_.color_count()),
+                      joints_(joints_store_.band_capacity() * joints_store_.color_count()),
                       contacts_(contacts_store_.capacity()),
                       bodies_(configuration.capacities.bodies)
                 {
@@ -139,6 +148,7 @@ namespace SushiEngine
                     if (!body_slots_.alive(handle))
                         return false;
                     remove_constraints_touching(handle.index);
+                    remove_joints_touching(handle.index);
 
                     RigidBodyT<T> retired;
                     retired.flags = BodyFlags::static_body;
@@ -174,6 +184,71 @@ namespace SushiEngine
                     if (removal.slot != removal.moved_from)
                         constraints_[removal.slot] = constraints_[removal.moved_from];
                     return true;
+                }
+
+                /** @copydoc IConstraintSolver::add_joint */
+                JointHandle add_joint(const Joint& joint) override
+                {
+                    const ConstraintPlacement placement =
+                        joints_store_.place(joint.a, joint.b);
+                    if (!placement.handle.valid())
+                    {
+                        ++statistics_.capacity_overflows;
+                        return JointHandle{};
+                    }
+                    joints_[placement.slot] = joint;
+                    return JointHandle{placement.handle.index, placement.handle.generation};
+                }
+
+                /** @copydoc IConstraintSolver::remove_joint */
+                bool remove_joint(JointHandle handle) override
+                {
+                    const ConstraintHandle stored{handle.index, handle.generation};
+                    const std::size_t slot = joints_store_.slot_of(stored);
+                    if (slot >= joints_.size())
+                        return false;
+                    const Joint removed = joints_[slot];
+                    const ConstraintRemoval removal =
+                        joints_store_.remove(stored, removed.a, removed.b);
+                    if (!removal.removed)
+                        return false;
+                    if (removal.slot != removal.moved_from)
+                        joints_[removal.slot] = joints_[removal.moved_from];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::read_joint */
+                bool read_joint(JointHandle handle, Joint& joint) const override
+                {
+                    const ConstraintHandle stored{handle.index, handle.generation};
+                    const std::size_t slot = joints_store_.slot_of(stored);
+                    if (slot >= joints_.size())
+                        return false;
+                    joint = joints_[slot];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::write_joint */
+                bool write_joint(JointHandle handle, const Joint& joint) override
+                {
+                    const ConstraintHandle stored{handle.index, handle.generation};
+                    const std::size_t slot = joints_store_.slot_of(stored);
+                    if (slot >= joints_.size())
+                        return false;
+                    joints_[slot] = joint;
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::joint_capacity */
+                std::size_t joint_capacity() const noexcept override
+                {
+                    return joints_store_.capacity();
+                }
+
+                /** @brief Live joints in colour @p color. */
+                std::size_t joint_color_size(std::size_t color) const noexcept
+                {
+                    return joints_store_.band_size(color);
                 }
 
                 /** @copydoc IConstraintSolver::begin_contacts */
@@ -266,6 +341,13 @@ namespace SushiEngine
                  */
                 void step(const StepParameters<T>& parameters) override
                 {
+                    // The reference implementation measures its own solve for the same
+                    // reason it exists at all: a number from one solver that the other
+                    // cannot produce is a number nobody can compare.
+                    const std::chrono::steady_clock::time_point began =
+                        configuration_.profiling ? std::chrono::steady_clock::now()
+                                                 : std::chrono::steady_clock::time_point{};
+
                     live_substeps_ = derive_substep_count(parameters.delta_time,
                                                          parameters.substep_floor);
                     const T h =
@@ -302,6 +384,15 @@ namespace SushiEngine
                             }
                         }
 
+                        // After the distance constraints and before the contacts: a
+                        // joint is a structural constraint and a contact is a reactive
+                        // one, so the assembly is assembled before it is pushed on.
+                        for_each_joint([&](Joint& joint)
+                                       {
+                                           JointProjectionT<T> projection;
+                                           projection(joint, bodies_.data(), h, substep == 0);
+                                       });
+
                         // After the persistent kinds, because both correct positions
                         // and a substep's positional projections belong together;
                         // separately from them, because the two kinds have their own
@@ -315,9 +406,16 @@ namespace SushiEngine
                         for (std::size_t i = 0; i < body_high_water_; ++i)
                             update_velocity(bodies_[i], h);
 
-                        // Last, because dynamic friction and restitution are statements
-                        // about a velocity that does not exist until the pose change
-                        // has been read back as one.
+                        // The velocity pass, in the same order as the positional one:
+                        // joint rate drives and friction, then contact dynamic friction
+                        // and restitution. Both are statements about a velocity that
+                        // does not exist until the pose change has been read back as one.
+                        for_each_joint([&](Joint& joint)
+                                       {
+                                           JointVelocityProjectionT<T> projection;
+                                           projection(joint, bodies_.data(), h);
+                                       });
+
                         for_each_contact([&](Contact& contact)
                                          {
                                              ContactVelocityProjectionT<T> projection;
@@ -327,6 +425,13 @@ namespace SushiEngine
 
                     measure_motion();
                     refresh_statistics();
+
+                    if (configuration_.profiling)
+                    {
+                        const std::chrono::duration<double, std::milli> elapsed =
+                            std::chrono::steady_clock::now() - began;
+                        statistics_.timings.solve_ms = T(elapsed.count());
+                    }
                 }
 
                 /** @copydoc IConstraintSolver::statistics */
@@ -391,6 +496,49 @@ namespace SushiEngine
                         const std::size_t live = contacts_store_.band_size(color);
                         for (std::size_t offset = 0; offset < live; ++offset)
                             visit(contacts_[base + offset]);
+                    }
+                }
+
+                /**
+                 * @brief Applies @p visit to every live joint, in solve order.
+                 *
+                 * Colour ascending, then slot within the band — the graph's order, for
+                 * the same reason @ref for_each_contact walks that order rather than
+                 * insertion order.
+                 *
+                 * @param visit A callable taking `Joint&`.
+                 */
+                template <typename Visit>
+                void for_each_joint(Visit visit)
+                {
+                    for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = joints_store_.band_base(color);
+                        const std::size_t live = joints_store_.band_size(color);
+                        for (std::size_t offset = 0; offset < live; ++offset)
+                            visit(joints_[base + offset]);
+                    }
+                }
+
+                /** @brief Removes every live joint naming body slot @p body. */
+                void remove_joints_touching(std::uint32_t body)
+                {
+                    for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = joints_store_.band_base(color);
+                        std::size_t offset = joints_store_.band_size(color);
+                        while (offset > 0)
+                        {
+                            --offset;
+                            const std::size_t slot = base + offset;
+                            const Joint& joint = joints_[slot];
+                            if (joint.a != body && joint.b != body)
+                                continue;
+                            const ConstraintRemoval removal = joints_store_.remove(
+                                joints_store_.handle_at(slot), joint.a, joint.b);
+                            if (removal.removed && removal.slot != removal.moved_from)
+                                joints_[removal.slot] = joints_[removal.moved_from];
+                        }
                     }
                 }
 
@@ -474,7 +622,9 @@ namespace SushiEngine
                 void refresh_statistics()
                 {
                     statistics_.awake_bodies = body_slots_.live_count();
-                    statistics_.constraints = constraints_store_.live_count();
+                    statistics_.joints = joints_store_.live_count();
+                    statistics_.constraints =
+                        constraints_store_.live_count() + statistics_.joints;
                     statistics_.colors = constraints_store_.colors_used();
                     statistics_.substeps = live_substeps_;
 
@@ -505,8 +655,13 @@ namespace SushiEngine
                 PhysicsConfigurationT<T> configuration_;
                 HandleTable<BodyTag> body_slots_;
                 ConstraintStore constraints_store_;
+                // Colours into the constraint store's colourer, so the two persistent
+                // kinds colour over their union (§6.3). Declared after it because the
+                // sharing is a reference taken at construction.
+                ConstraintStore joints_store_;
                 ContactStore contacts_store_;
                 std::vector<Constraint> constraints_;
+                std::vector<Joint> joints_;
                 std::vector<Contact> contacts_;
                 std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> bodies_;

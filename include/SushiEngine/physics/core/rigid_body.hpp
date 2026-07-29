@@ -271,6 +271,81 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The generalized inverse mass a body presents to a pure rotation about @p axis.
+         *
+         * `axis . I^-1 axis` — the angular half of @ref generalized_inverse_mass with
+         * no lever arm, because an angular constraint does not act at a point. A
+         * hinge holding two bodies' axes parallel, a twist limit, and a motor driving
+         * a door open are all this quantity, and every one of them divides by the sum
+         * of it over the two bodies for the same reason a positional row does: so the
+         * body that is easier to turn takes more of the correction.
+         *
+         * Reports zero for a body that is not simulated, matching
+         * @ref generalized_inverse_mass, so "asleep" and "static" mean the same thing
+         * to an angular row as they do to a positional one.
+         *
+         * @tparam T The scalar element type.
+         * @param body The body.
+         * @param axis Unit world-space rotation axis.
+         */
+        template <typename T>
+        inline T angular_inverse_mass(const RigidBodyT<T>& body,
+                                      const Vector3T<T>& axis) noexcept
+        {
+            if (!is_simulated(body.flags))
+                return T(0);
+            return dot(axis, apply_world_inverse_inertia(body, axis));
+        }
+
+        /**
+         * @brief Applies a pure angular positional impulse to a body's orientation.
+         *
+         * The angular counterpart of @ref apply_positional_impulse: no lever arm, so
+         * the body turns without translating. @p sign is +1 for one body of a pair
+         * and -1 for the other, exactly as it is there, so a joint's angular row is
+         * two calls sharing one impulse vector.
+         *
+         * @tparam T The scalar element type.
+         * @param body    The body to turn; orientation updated in place.
+         * @param impulse The world-space angular impulse (an axis times a magnitude).
+         * @param sign    +1 or -1.
+         */
+        template <typename T>
+        inline void apply_angular_impulse(RigidBodyT<T>& body, const Vector3T<T>& impulse,
+                                          T sign) noexcept
+        {
+            if (!is_simulated(body.flags))
+                return;
+            const Vector3T<T> rotation =
+                apply_world_inverse_inertia(body, impulse * sign);
+            if (dot(rotation, rotation) > T(0))
+                body.orientation = apply_angular_correction(body.orientation, rotation);
+        }
+
+        /**
+         * @brief Applies a pure angular velocity impulse to a body.
+         *
+         * What a velocity-mode motor and joint friction spend: an impulse that
+         * changes only the angular velocity, saturated by the drive's force limit
+         * before it gets here.
+         *
+         * @tparam T The scalar element type.
+         * @param body    The body; angular velocity updated in place.
+         * @param impulse The world-space angular impulse.
+         * @param sign    +1 or -1.
+         */
+        template <typename T>
+        inline void apply_angular_velocity_impulse(RigidBodyT<T>& body,
+                                                   const Vector3T<T>& impulse,
+                                                   T sign) noexcept
+        {
+            if (!is_simulated(body.flags))
+                return;
+            body.angular_velocity =
+                body.angular_velocity + apply_world_inverse_inertia(body, impulse * sign);
+        }
+
+        /**
          * @brief Applies a velocity impulse to a body at a lever arm.
          *
          * The velocity-level counterpart of @ref apply_positional_impulse, and the

@@ -192,8 +192,6 @@ TEST(Unit_ConvexManifold, CornerContactStaysOnePoint)
     // Tipped about two axes, so no face and no edge is flush with the ground.
     const Quaternion tilt = mul(quaternion_axis_angle(Vector3{0.0, 0.0, 1.0}, 0.6),
                                 quaternion_axis_angle(Vector3{1.0, 0.0, 0.0}, 0.5));
-    const ConvexHullView<Scalar> crate = hull_of(corners, Vector3{0.0, 0.0, 0.0}, tilt);
-
     // Lower it until its lowest corner is just below the ground.
     Scalar lowest = 1e30;
     for (const Vector3& corner : corners)
@@ -205,6 +203,17 @@ TEST(Unit_ConvexManifold, CornerContactStaysOnePoint)
 
     ASSERT_EQ(manifold.point_count, 1);
     EXPECT_NEAR(manifold.points[0].separation, -0.01, 1e-4);
+
+    // The other half of the comment above, and the half that holds the alignment test
+    // to something: lifted clear, the same tilted hull must produce *nothing*. Without
+    // it the test is satisfied by an extraction that reports a face whenever it is
+    // asked — which is the failure mode the comment names, and which the one-point
+    // assertion above cannot see.
+    const ConvexHullView<Scalar> clear =
+        hull_of(corners, Vector3{0.0, -lowest + 0.5, 0.0}, tilt);
+    const ContactManifold<Scalar> nothing = generate_convex_manifold<Scalar>(
+        ground, clear, ground.center, ground.orientation, clear.center, clear.orientation, 0.0);
+    EXPECT_EQ(nothing.point_count, 0);
 }
 
 // Shapes further apart than the contact offset produce nothing; shapes within it

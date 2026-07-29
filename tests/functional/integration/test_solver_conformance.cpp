@@ -652,6 +652,264 @@ TEST(Integration_SolverConformance, ContactsAndConstraintsShareOneColouring)
         << "a body under both a contact and a constraint diverged";
 }
 
+TEST(Integration_SolverConformance, AHingedDoorAgrees)
+{
+    // The joint kind, in the configuration it exists for. A hinge runs four positional
+    // rows and a velocity row against two bodies, in two groups with the frames
+    // re-resolved between them -- so it is the kind with the most internal ordering to
+    // get wrong, and the one where a device node projecting a colour in parallel has
+    // the most room to disagree with a host loop projecting it in sequence.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    IConstraintSolver<Scalar>* solvers[2] = {&(*host), &(*runtime)};
+    std::vector<BodyHandle> doors(2);
+    for (int s = 0; s < 2; ++s)
+    {
+        RigidBody chassis = point_body(Vector3{0, Scalar(2), 0});
+        chassis.inv_mass = 0;
+        const BodyHandle pinned = solvers[s]->add_body(chassis);
+
+        RigidBody door = spinning_body(Vector3{Scalar(0.5), Scalar(2), 0});
+        door.inv_mass = Scalar(1) / Scalar(35);
+        door.inv_inertia = Vector3{Scalar(1) / Scalar(3), Scalar(1) / Scalar(3),
+                                   Scalar(1) / Scalar(3)};
+        door.angular_velocity = Vector3{0, Scalar(1.5), 0};
+        doors[std::size_t(s)] = solvers[s]->add_body(door);
+
+        JointConstraint hinge;
+        hinge.a = std::uint32_t(solvers[s]->body_slot(pinned));
+        hinge.b = std::uint32_t(solvers[s]->body_slot(doors[std::size_t(s)]));
+        hinge.kind = JointKind::Hinge;
+        hinge.local_anchor_b = Vector3{Scalar(-0.5), 0, 0};
+        hinge.local_basis_a = joint_frame_from_axis(Vector3{0, Scalar(1), 0});
+        hinge.local_basis_b = hinge.local_basis_a;
+        hinge.twist_limit.enabled = true;
+        hinge.twist_limit.lower = 0;
+        hinge.twist_limit.upper = Scalar(1.18682);  // 68 degrees
+        hinge.motor.mode = JointMotorMode::Velocity;
+        hinge.motor.target = 0;
+        hinge.motor.max_force = Scalar(4);
+        ASSERT_TRUE(solvers[s]->add_joint(hinge).valid());
+    }
+
+    for (int tick = 0; tick < 120; ++tick)
+    {
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+    }
+
+    EXPECT_EQ((*host).statistics().joints, (*runtime).statistics().joints);
+
+    RigidBody from_host;
+    RigidBody from_runtime;
+    ASSERT_TRUE((*host).read_body(doors[0], from_host));
+    ASSERT_TRUE((*runtime).read_body(doors[1], from_runtime));
+    EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE) << "the hinged door diverged";
+    // And it has to have gone somewhere, or the agreement is an agreement about
+    // nothing: the limit stops the swing well short of a full turn.
+    EXPECT_GT(double(from_host.orientation.y), 1e-3);
+}
+
+TEST(Integration_SolverConformance, AChainOfJointsAgreesAcrossEveryColour)
+{
+    // A ragdoll's shape: cone-twist joints in a chain, so consecutive joints share a
+    // body and must land in different colours. This is the joint kind's version of
+    // `AChainAgreesAcrossEveryColour`, and it is what proves the joint bands are
+    // coloured rather than merely stored.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    IConstraintSolver<Scalar>* solvers[2] = {&(*host), &(*runtime)};
+    std::vector<std::vector<BodyHandle>> limbs(2);
+    for (int s = 0; s < 2; ++s)
+    {
+        for (int i = 0; i < 6; ++i)
+        {
+            RigidBody limb = spinning_body(Vector3{0, Scalar(3) - Scalar(i) * Scalar(0.5), 0});
+            if (i == 0)
+            {
+                limb.inv_mass = 0;
+                limb.inv_inertia = Vector3{0, 0, 0};
+            }
+            limbs[std::size_t(s)].push_back(solvers[s]->add_body(limb));
+        }
+
+        for (std::size_t i = 0; i + 1 < limbs[std::size_t(s)].size(); ++i)
+        {
+            JointConstraint joint;
+            joint.a = std::uint32_t(solvers[s]->body_slot(limbs[std::size_t(s)][i]));
+            joint.b = std::uint32_t(solvers[s]->body_slot(limbs[std::size_t(s)][i + 1]));
+            joint.kind = JointKind::ConeTwist;
+            joint.local_anchor_a = Vector3{0, Scalar(-0.25), 0};
+            joint.local_anchor_b = Vector3{0, Scalar(0.25), 0};
+            joint.local_basis_a = joint_frame_from_axis(Vector3{0, Scalar(1), 0});
+            joint.local_basis_b = joint.local_basis_a;
+            joint.swing_limit.enabled = true;
+            joint.swing_limit.upper = Scalar(0.35);
+            joint.twist_limit.enabled = true;
+            joint.twist_limit.lower = Scalar(-0.2);
+            joint.twist_limit.upper = Scalar(0.2);
+            ASSERT_TRUE(solvers[s]->add_joint(joint).valid());
+        }
+    }
+
+    // A sideways field, so the chain is driven against its swing cones rather than
+    // hanging straight down where no limit is ever reached.
+    parameters.gravity = Vector3{Scalar(6), Scalar(-9.81), 0};
+    for (int tick = 0; tick < 150; ++tick)
+    {
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+    }
+
+    EXPECT_GT((*host).statistics().colors, std::size_t(1))
+        << "a chain that took one colour was not a chain";
+
+    for (std::size_t i = 0; i < limbs[0].size(); ++i)
+    {
+        RigidBody from_host;
+        RigidBody from_runtime;
+        ASSERT_TRUE((*host).read_body(limbs[0][i], from_host));
+        ASSERT_TRUE((*runtime).read_body(limbs[1][i], from_runtime));
+        EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE)
+            << "limb " << i << " diverged between implementations";
+    }
+}
+
+TEST(Integration_SolverConformance, JointsAndContactsAndConstraintsShareOneColouring)
+{
+    // All three kinds on one body at once. The two persistent kinds share a colourer,
+    // and the contacts are layered on top of it, so a body carrying a joint, a tether
+    // and a ground contact must see three different colours. Two kinds landing on one
+    // colour would run their nodes concurrently against the same body, which the
+    // sequential host solver cannot reproduce.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    IConstraintSolver<Scalar>* solvers[2] = {&(*host), &(*runtime)};
+    std::vector<std::vector<BodyHandle>> crates(2);
+    for (int s = 0; s < 2; ++s)
+    {
+        RigidBody anchor = contact_cube(Vector3{0, Scalar(3), 0});
+        anchor.inv_mass = 0;
+        anchor.inv_inertia = Vector3{0, 0, 0};
+        const BodyHandle pinned = solvers[s]->add_body(anchor);
+
+        const BodyHandle crate =
+            solvers[s]->add_body(contact_cube(Vector3{0, Scalar(0.6), 0}));
+        crates[std::size_t(s)].push_back(crate);
+
+        // The tether wants the crate at y = 0.4 and the ground will not let it below
+        // 0.5, so both are working the whole time. That matters: the first draft used a
+        // rest length that held the crate 0.1 m clear of the ground, and since a
+        // manifold is only generated inside the 0.03 contact offset there was no third
+        // kind at all — the test passed its colour assertions by asserting about a
+        // contact that did not exist.
+        solvers[s]->add_constraint(link(solvers[s]->body_slot(pinned),
+                                        solvers[s]->body_slot(crate), Scalar(2.6)));
+
+        JointConstraint joint;
+        joint.a = std::uint32_t(solvers[s]->body_slot(pinned));
+        joint.b = std::uint32_t(solvers[s]->body_slot(crate));
+        joint.kind = JointKind::Distance;
+        joint.linear_limit.enabled = true;
+        joint.linear_limit.lower = 0;
+        // Slack at the pose the other two settle on, so the joint is coloured but not
+        // fighting them — colouring is what this scene is about, not activity.
+        joint.linear_limit.upper = Scalar(2.8);
+        ASSERT_TRUE(solvers[s]->add_joint(joint).valid());
+    }
+
+    for (int tick = 0; tick < 90; ++tick)
+    {
+        for (int s = 0; s < 2; ++s)
+        {
+            submit_ground_contacts(*solvers[s], crates[std::size_t(s)], false);
+            solvers[s]->step(parameters);
+        }
+    }
+
+    // There is a contact at all, asserted before anything is claimed about its colour.
+    ASSERT_EQ((*host).statistics().manifolds, std::size_t(1))
+        << "no contact was generated, so nothing below is a claim about three kinds";
+    ASSERT_EQ((*runtime).statistics().manifolds, std::size_t(1));
+
+    // The two *persistent* kinds took different colours: they share one colourer, so
+    // the tether and the joint on the same body pair cannot both be colour 0. Two
+    // independent colourers would report one colour here.
+    EXPECT_EQ((*host).statistics().colors, std::size_t(2))
+        << "the tether and the joint on one body pair must not share a colour";
+
+    // And the contact was layered on top of both, so it took a third. `statistics()`
+    // reports the persistent colouring only — the contact colouring is per tick and
+    // lives in its own store — so this is asked of the store directly rather than
+    // inferred from a number that does not include it.
+    EXPECT_EQ(host.solver->contact_color_size(0), std::size_t(0));
+    EXPECT_EQ(host.solver->contact_color_size(1), std::size_t(0));
+    EXPECT_EQ(host.solver->contact_color_size(2), std::size_t(1))
+        << "a contact on a body already holding two kinds must take a third colour";
+
+    RigidBody from_host;
+    RigidBody from_runtime;
+    ASSERT_TRUE((*host).read_body(crates[0][0], from_host));
+    ASSERT_TRUE((*runtime).read_body(crates[1][0], from_runtime));
+    EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE)
+        << "a body under a joint, a constraint and a contact diverged";
+}
+
+TEST(Integration_SolverConformance, AChangingJointSetNeverRecomposes)
+{
+    // The late-binding property, for the joint kind. Joints come and go as an assembly
+    // is damaged and parts tear off, and the graph must be compiled once regardless.
+    const PhysicsConfiguration configuration = conformance_scene();
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+
+    std::vector<BodyHandle> bodies;
+    for (int i = 0; i < 6; ++i)
+        bodies.push_back(
+            (*runtime).add_body(spinning_body(Vector3{Scalar(i) * Scalar(0.5), Scalar(4), 0})));
+
+    std::vector<JointHandle> joints;
+    for (std::size_t i = 0; i + 1 < bodies.size(); ++i)
+    {
+        JointConstraint joint;
+        joint.a = std::uint32_t((*runtime).body_slot(bodies[i]));
+        joint.b = std::uint32_t((*runtime).body_slot(bodies[i + 1]));
+        joint.kind = JointKind::Ball;
+        joints.push_back((*runtime).add_joint(joint));
+        for (int tick = 0; tick < 5; ++tick)
+            (*runtime).step(parameters);
+    }
+    ASSERT_EQ((*runtime).statistics().joints, joints.size());
+
+    while (!joints.empty())
+    {
+        ASSERT_TRUE((*runtime).remove_joint(joints.back()));
+        joints.pop_back();
+        for (int tick = 0; tick < 5; ++tick)
+            (*runtime).step(parameters);
+    }
+
+    EXPECT_EQ((*runtime).statistics().joints, 0u);
+    EXPECT_EQ((*runtime).statistics().compile_count, 1u)
+        << "a tick whose joint set changed recompiled the graph";
+}
+
 TEST(Integration_SolverConformance, AChangingContactCountNeverRecomposes)
 {
     // The property the whole late-binding design exists to deliver, and the one a

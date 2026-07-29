@@ -48,7 +48,6 @@ using namespace SushiEngine::Physics;
 
 namespace
 {
-    constexpr double PI = 3.14159265358979323846;
     constexpr Scalar GRAVITY = 9.81;
 
     /** @brief A unit-mass cube of the given half-extent, at rest at @p position. */

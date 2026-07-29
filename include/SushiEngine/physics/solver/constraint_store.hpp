@@ -54,6 +54,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <SushiEngine/physics/core/handle.hpp>
@@ -126,7 +128,8 @@ namespace SushiEngine
                 ConstraintStore(std::size_t body_capacity, std::size_t constraint_capacity,
                                 std::size_t color_limit)
                     : slots_(constraint_capacity),
-                      coloring_(body_capacity, color_limit),
+                      owned_(std::in_place, body_capacity, color_limit),
+                      coloring_(&*owned_),
                       color_count_(clamped_color_count(color_limit)),
                       band_capacity_(constraint_capacity /
                                      (color_count_ > 0 ? color_count_ : 1)),
@@ -138,13 +141,73 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Creates a store that colours into @p shared rather than its own.
+                 *
+                 * §6.3 requires the colouring to run over the **union** of the
+                 * constraint kinds, and a union is one colourer rather than two that
+                 * happen to agree. The persistent kinds — distance constraints and
+                 * joints — therefore share one, so a hinge and a rope on the same body
+                 * pair cannot both take colour 0.
+                 *
+                 * That is stricter than this solver's execution strictly needs: the
+                 * kinds are separate graph nodes and every node writes the whole body
+                 * buffer, so the tracker serializes them whatever colours they hold.
+                 * The strictness is kept anyway, because it is the invariant
+                 * `contact_store.hpp` layers on and the property that makes merging
+                 * two kinds into one node a scheduling decision rather than a
+                 * correctness one.
+                 *
+                 * Bands are still this store's own: sharing a colour space is not
+                 * sharing storage, and a joint descriptor and a distance constraint
+                 * are different sizes.
+                 *
+                 * @param shared              The colouring to assign from and release into.
+                 * @param constraint_capacity How many constraints may be live at once.
+                 * @param color_limit         The colour ceiling; must match @p shared's.
+                 */
+                ConstraintStore(IncrementalColoring& shared, std::size_t constraint_capacity,
+                                std::size_t color_limit)
+                    : slots_(constraint_capacity),
+                      owned_(),
+                      coloring_(&shared),
+                      color_count_(clamped_color_count(color_limit)),
+                      band_capacity_(constraint_capacity /
+                                     (color_count_ > 0 ? color_count_ : 1)),
+                      band_live_(color_count_, 0),
+                      handle_of_slot_(band_capacity_ * color_count_, 0),
+                      slot_of_handle_(constraint_capacity, 0),
+                      color_of_handle_(constraint_capacity, 0)
+                {
+                }
+
+                // Neither copyable nor movable: a store that shares a colouring holds
+                // a pointer to it, and a copy would either alias the source's own
+                // colourer or silently stop sharing. Both solvers hold their stores as
+                // direct members and neither is copyable itself, so nothing is lost.
+                ConstraintStore(const ConstraintStore&) = delete;
+                ConstraintStore& operator=(const ConstraintStore&) = delete;
+                ConstraintStore(ConstraintStore&&) = delete;
+                ConstraintStore& operator=(ConstraintStore&&) = delete;
+
+                /**
                  * @brief Finds a colour and a slot for a constraint between @p a and @p b.
                  *
-                 * The colour is the lowest one free on both bodies; the slot is the
-                 * next free position in that colour's band. Either can fail, and both
-                 * failures unwind cleanly — in particular a full band gives the colour
-                 * back, or the bodies would carry a colour no constraint holds and the
-                 * next assignment would skip it for ever.
+                 * The colour is the lowest one that is free on both bodies **and whose
+                 * band has room**, and the slot is the next free position in it.
+                 *
+                 * That second condition is not a refinement, it is the difference
+                 * between a usable budget and a hundredth of one. Asking the colourer
+                 * for the lowest free colour and giving up if its band is full looks
+                 * equivalent, and is — for a cloth lattice, where constraints share
+                 * bodies and therefore spread across colours by construction. It is not
+                 * equivalent for constraints on *disjoint* pairs, which is what joints
+                 * almost always are: a hundred car doors on a hundred chassis are a
+                 * hundred constraints that each see every colour as free, so every one
+                 * of them is offered colour 0 and only `capacity / colors` of them can
+                 * ever be placed. The rest were reported as a capacity overflow while
+                 * the buffer sat mostly empty. `ContactStore::place` had the right rule
+                 * from the start, for the same reason: contacts against one ground
+                 * plane are disjoint too.
                  *
                  * @param a The first body's slot index.
                  * @param b The second body's slot index.
@@ -153,35 +216,41 @@ namespace SushiEngine
                 ConstraintPlacement place(std::uint32_t a, std::uint32_t b)
                 {
                     ConstraintPlacement placement;
-
-                    const std::uint32_t color = coloring_.assign(a, b);
-                    if (color == IncrementalColoring::NO_COLOR)
+                    if (!coloring_->tracks(a) || !coloring_->tracks(b))
                         return placement;
 
-                    if (band_live_[color] >= band_capacity_)
+                    const std::uint64_t taken =
+                        coloring_->mask_of(a) | coloring_->mask_of(b);
+
+                    for (std::uint32_t color = 0; color < color_count_; ++color)
                     {
-                        coloring_.release(a, b, color);
+                        const std::uint64_t bit = std::uint64_t(1) << color;
+                        if ((taken & bit) != 0)
+                            continue;
+                        if (band_live_[color] >= band_capacity_)
+                            continue;
+
+                        // The handle last, so a failure to get one leaves the colouring
+                        // untouched: a colour taken by no constraint would be skipped
+                        // by every later assignment for ever.
+                        const ConstraintHandle handle = slots_.allocate();
+                        if (!handle.valid())
+                            return placement;
+                        coloring_->take(a, b, color);
+
+                        const std::size_t slot =
+                            std::size_t(color) * band_capacity_ + band_live_[color];
+                        ++band_live_[color];
+
+                        slot_of_handle_[handle.index] = std::uint32_t(slot);
+                        color_of_handle_[handle.index] = color;
+                        handle_of_slot_[slot] = handle.index;
+
+                        placement.handle = handle;
+                        placement.color = color;
+                        placement.slot = slot;
                         return placement;
                     }
-
-                    const ConstraintHandle handle = slots_.allocate();
-                    if (!handle.valid())
-                    {
-                        coloring_.release(a, b, color);
-                        return placement;
-                    }
-
-                    const std::size_t slot = std::size_t(color) * band_capacity_ +
-                                             band_live_[color];
-                    ++band_live_[color];
-
-                    slot_of_handle_[handle.index] = std::uint32_t(slot);
-                    color_of_handle_[handle.index] = color;
-                    handle_of_slot_[slot] = handle.index;
-
-                    placement.handle = handle;
-                    placement.color = color;
-                    placement.slot = slot;
                     return placement;
                 }
 
@@ -205,7 +274,7 @@ namespace SushiEngine
                     const std::size_t base = std::size_t(color) * band_capacity_;
                     const std::size_t last = base + band_live_[color] - 1;
 
-                    coloring_.release(a, b, color);
+                    coloring_->release(a, b, color);
 
                     if (slot != last)
                     {
@@ -288,12 +357,23 @@ namespace SushiEngine
                  * short-lived colourer reads what this one has taken and never writes
                  * to it.
                  */
-                const IncrementalColoring& coloring() const noexcept { return coloring_; }
+                const IncrementalColoring& coloring() const noexcept { return *coloring_; }
+
+                /**
+                 * @brief The same colouring, mutable, for a peer store to share.
+                 *
+                 * The one non-const handout, and it exists for exactly one caller: a
+                 * second persistent kind constructed against this store's colourer so
+                 * the two colour over their union. Named for that purpose rather than
+                 * offered as a general accessor, because anything else writing this
+                 * would be assigning colours no band accounts for.
+                 */
+                IncrementalColoring& shared_coloring() noexcept { return *coloring_; }
 
                 /** @brief How many colours have been used since the last full recolour. */
                 std::size_t colors_used() const noexcept
                 {
-                    return coloring_.highest_used();
+                    return coloring_->highest_used();
                 }
 
             private:
@@ -308,7 +388,8 @@ namespace SushiEngine
                 }
 
                 HandleTable<ConstraintTag> slots_;
-                IncrementalColoring coloring_;
+                std::optional<IncrementalColoring> owned_;
+                IncrementalColoring* coloring_;
                 std::size_t color_count_;
                 std::size_t band_capacity_;
                 std::vector<std::size_t> band_live_;

@@ -85,11 +85,25 @@ namespace SushiEngine
         /** @brief Tag type naming a constraint slot. Never instantiated. */
         struct ConstraintTag;
 
+        /**
+         * @brief Tag type naming a joint slot. Never instantiated.
+         *
+         * Its own tag rather than a reuse of @ref ConstraintTag, even though a joint
+         * *is* a constraint: the two kinds have separate slot tables, so a joint's
+         * index 3 and a distance constraint's index 3 name different things, and a
+         * handle that could be passed to either table would resolve to whichever one
+         * the call site happened to reach.
+         */
+        struct JointTag;
+
         /** @brief A generational handle to a rigid body in a scene. */
         using BodyHandle = Handle<BodyTag>;
 
         /** @brief A generational handle to a constraint in a scene. */
         using ConstraintHandle = Handle<ConstraintTag>;
+
+        /** @brief A generational handle to a joint in a scene. */
+        using JointHandle = Handle<JointTag>;
 
         /**
          * @brief Allocates and recycles slots, tracking each slot's generation.

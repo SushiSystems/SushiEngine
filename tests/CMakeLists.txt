@@ -86,6 +86,14 @@ add_executable(se_functional_tests
     # Asking the collision world a question that is not "what is touching": rays,
     # sweeps, overlaps and closest points, built on the same tree (P2, §7.7).
     functional/unit/test_scene_query.cpp
+    # The joint library in isolation: the frame algebra, the seven registered kinds,
+    # their limits and drives, and the force recovery every one of them folds. The
+    # static assertion in here is what makes an unregistered joint kind a build error.
+    functional/unit/test_joint_projection.cpp
+    # The PhysicsAssembly asset and the ragdoll built on it, as translation: the blob
+    # round trip, world placement, mass by volume, and the bind offset that recovers a
+    # joint's pose from the capsule standing in for its bone.
+    functional/unit/test_physics_assembly.cpp
     # Connected components and the sleeping built on them — the largest performance
     # win in any real scene, and the cheapest to get subtly wrong (P2, §13.2).
     functional/unit/test_islands.cpp
@@ -256,6 +264,10 @@ add_executable(se_functional_tests
     # The shared IConstraintSolver conformance suite: the same scenes against every
     # implementation, which is what lets a device solver replace a host one.
     functional/integration/test_solver_conformance.cpp
+    # P3's acceptance criterion: the chassis-plus-hinged-door scene end to end,
+    # driven through IJointService on the live simulation rather than through the
+    # solver, because the claim is about the whole path and not the arithmetic.
+    functional/integration/test_joint_assembly.cpp
     functional/integration/test_rollback.cpp
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp
@@ -279,6 +291,10 @@ add_executable(se_functional_tests
     # Save/Load, Undo/Redo, and the Play→Stop restore all ride this one seam, so a
     # component it forgets is destroyed by all four. Compiled from the editor tree
     # (serialization + command history are UI-free translation units).
+    # (`sushi_sim` imports a glTF skeleton and its animations to build a live world;
+    # the importers it needs are `sushi_import`, linked below, and no longer three of
+    # render/'s translation units compiled in by hand.)
+
     ../editor/serialization/scene_serializer.cpp
     ../editor/serialization/effect_serializer.cpp
     ../editor/serialization/environment_serializer.cpp
@@ -305,6 +321,10 @@ target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
 # editor-relative paths.
 target_link_libraries(se_functional_tests PRIVATE sushi_sim)
 target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/editor")
+# The glTF importers `sushi_sim` needs, as a module that links nothing rather than as
+# three of the renderer's translation units compiled in by hand. It carries cgltf's
+# include directory and its one implementation unit with it, so neither is named here.
+target_link_libraries(se_functional_tests PRIVATE sushi_import)
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second
