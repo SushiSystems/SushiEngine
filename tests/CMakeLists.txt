@@ -60,6 +60,9 @@ add_executable(se_functional_tests
     # The XPBD distance constraint, measured against a conservation law rather than
     # against a transcription of itself — which is what let a frame error survive.
     functional/unit/test_distance_projection.cpp
+    # The general convex narrowphase: one GJK/EPA routine that collides every
+    # convex shape with every other, so a new shape is a support function (P2, §7.2).
+    functional/unit/test_gjk.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp

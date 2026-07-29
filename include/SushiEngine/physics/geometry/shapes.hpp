@@ -38,6 +38,9 @@
  * `double`), so a shape crosses into device code untouched.
  */
 
+#include <cmath>
+#include <cstdint>
+
 #include <SushiEngine/core/types.hpp>
 
 namespace SushiEngine
@@ -58,6 +61,8 @@ namespace SushiEngine
             plane,
             box,
             oriented_box,
+            capsule,
+            convex_hull,
             count
         };
 
@@ -105,6 +110,73 @@ namespace SushiEngine
             Vector3T<T> half_extents{Vector3T<T>{T(0.5), T(0.5), T(0.5)}};
             QuaternionT<T> orientation{QuaternionT<T>{T(0), T(0), T(0), T(1)}};
         };
+
+        /**
+         * @brief A capsule: a line segment swept by a sphere.
+         *
+         * The segment runs along the shape's **local Y axis**, from
+         * `-half_height` to `+half_height`, and every point within `radius` of it is
+         * inside. Stated as a swept sphere rather than as a cylinder with two caps
+         * because that is what makes it cheap: every query reduces to the
+         * corresponding sphere query against the closest point on the segment, and
+         * its support function is the segment's support plus `radius` — no faces, no
+         * edges, no special cases at the seam.
+         *
+         * The shape a character controller and a limb are, and the reason it is the
+         * first shape P2 adds.
+         */
+        template <typename T>
+        struct CapsuleCollider
+        {
+            Vector3T<T> center;
+            QuaternionT<T> orientation{QuaternionT<T>{T(0), T(0), T(0), T(1)}};
+            T half_height = T(0.5); /**< Half the segment's length, excluding the caps. */
+            T radius = T(0.5);
+        };
+
+        /**
+         * @brief A borrowed view of a convex hull's vertices, posed in the world.
+         *
+         * A *view*, not an owner: the vertex array is cooked (§5.4) and shared by
+         * every instance of the asset, so a shape stays small and trivially
+         * copyable and a thousand crates do not hold a thousand vertex arrays. The
+         * vertices are in the hull's own frame; @ref center and @ref orientation
+         * place it.
+         *
+         * Only vertices are needed, because everything the narrowphase asks of a
+         * convex shape goes through its support function, and a support function
+         * needs no faces, no edges, and no adjacency. Faces arrive with the cooker
+         * (P4) for the contact-patch path; the general convex routine does not wait
+         * for them.
+         */
+        template <typename T>
+        struct ConvexHullView
+        {
+            const Vector3T<T>* vertices = nullptr;
+            std::uint32_t vertex_count = 0;
+            Vector3T<T> center;
+            QuaternionT<T> orientation{QuaternionT<T>{T(0), T(0), T(0), T(1)}};
+            /**
+             * @brief A small inflation applied to the hull, in metres.
+             *
+             * The standard trick (§5.2): closest-point routines are numerically
+             * fragile on exactly-touching flat features, and a hull that is a hair
+             * fatter than its vertices never has to resolve that case. The cooker
+             * shrinks the vertices by the same amount, so the *shape* is unchanged.
+             */
+            T convex_radius = 0;
+        };
+
+        /** @brief The two endpoints of a capsule's segment, in world space. */
+        template <typename T>
+        inline void capsule_segment(const CapsuleCollider<T>& capsule, Vector3T<T>& start,
+                                    Vector3T<T>& end) noexcept
+        {
+            const Vector3T<T> axis =
+                rotate(capsule.orientation, Vector3T<T>{T(0), T(1), T(0)}) * capsule.half_height;
+            start = capsule.center - axis;
+            end = capsule.center + axis;
+        }
 
         /**
          * @brief The three world-space axes (columns of the rotation) of an oriented box.
@@ -216,6 +288,103 @@ namespace SushiEngine
                 if (gap[i] < smallest)
                     smallest = gap[i];
             return smallest < T(0) ? T(0) : smallest;
+        }
+
+        // ------------------------------------------------------------------------
+        // Support functions.
+        //
+        // A convex shape's support function returns its furthest point along a
+        // direction, and it is the *only* thing the general convex narrowphase
+        // (GJK/EPA, `geometry/gjk.hpp`) ever asks of a shape. That is the Open/Closed
+        // payoff §4.2 promises, made concrete: a new convex shape adds one overload
+        // of `support` here and gains hull-hull, hull-box, hull-capsule and every
+        // other convex pairing for free, without a line changing anywhere else.
+        //
+        // Overloads rather than a switch on ShapeType, deliberately. A switch is a
+        // file every new shape has to edit, which is the violation; an overload set
+        // is resolved at the call site and a new one joins it by existing.
+        // ------------------------------------------------------------------------
+
+        /** @brief A unit vector along @p direction, or a fixed axis when it has no length. */
+        template <typename T>
+        inline Vector3T<T> safe_normalize(const Vector3T<T>& direction) noexcept
+        {
+            const T length_squared = dot(direction, direction);
+            if (length_squared <= T(1e-24))
+                return Vector3T<T>{T(1), T(0), T(0)};
+            return direction * (T(1) / std::sqrt(length_squared));
+        }
+
+        /** @brief The sphere's furthest point along @p direction. */
+        template <typename T>
+        inline Vector3T<T> support(const SphereCollider<T>& sphere,
+                                   const Vector3T<T>& direction) noexcept
+        {
+            return sphere.center + safe_normalize(direction) * sphere.radius;
+        }
+
+        /** @brief The oriented box's furthest point along @p direction. */
+        template <typename T>
+        inline Vector3T<T> support(const OrientedBox<T>& box,
+                                   const Vector3T<T>& direction) noexcept
+        {
+            return obb_support_point(box, direction);
+        }
+
+        /**
+         * @brief The capsule's furthest point along @p direction.
+         *
+         * The segment's furthest endpoint, pushed out by the radius: a swept sphere's
+         * support is the sweep path's support plus the sphere's. No cap/side case.
+         */
+        template <typename T>
+        inline Vector3T<T> support(const CapsuleCollider<T>& capsule,
+                                   const Vector3T<T>& direction) noexcept
+        {
+            Vector3T<T> start;
+            Vector3T<T> end;
+            capsule_segment(capsule, start, end);
+            const Vector3T<T>& furthest =
+                dot(end, direction) >= dot(start, direction) ? end : start;
+            return furthest + safe_normalize(direction) * capsule.radius;
+        }
+
+        /**
+         * @brief The hull's furthest vertex along @p direction, plus its convex radius.
+         *
+         * Linear in the vertex count. A hill-climb over face adjacency would be
+         * logarithmic, and it is deliberately not done here: adjacency is cooked data
+         * this shape does not carry yet (P4), and the cooker's piece budget keeps a
+         * hull at a few dozen vertices, where the scan wins on cache behaviour
+         * anyway. Revisit when a hull is measured to be large enough to care.
+         *
+         * A hull with no vertices supports its own centre, so a malformed asset
+         * behaves as a point rather than reading past the end of nothing.
+         */
+        template <typename T>
+        inline Vector3T<T> support(const ConvexHullView<T>& hull,
+                                   const Vector3T<T>& direction) noexcept
+        {
+            const Vector3T<T> inflation = safe_normalize(direction) * hull.convex_radius;
+            if (hull.vertices == nullptr || hull.vertex_count == 0)
+                return hull.center + inflation;
+
+            // Rotate the query into the hull's frame rather than every vertex into
+            // the world's: one rotation instead of N.
+            const Vector3T<T> local_direction =
+                rotate(conjugate(hull.orientation), direction);
+            std::uint32_t best = 0;
+            T best_projection = dot(hull.vertices[0], local_direction);
+            for (std::uint32_t i = 1; i < hull.vertex_count; ++i)
+            {
+                const T projection = dot(hull.vertices[i], local_direction);
+                if (projection > best_projection)
+                {
+                    best_projection = projection;
+                    best = i;
+                }
+            }
+            return hull.center + rotate(hull.orientation, hull.vertices[best]) + inflation;
         }
     } // namespace Physics
 } // namespace SushiEngine
