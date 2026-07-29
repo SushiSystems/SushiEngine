@@ -26,7 +26,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <unordered_map>
 
 #include <imgui.h>
 
@@ -46,34 +45,26 @@ namespace SushiEngine
             using SushiEngine::Render::TextureWrap;
 
             /**
-             * @brief The path last typed into each texture slot.
-             *
-             * The material stores an opaque id, not a path, so the text the user typed
-             * has to live somewhere for the field to keep showing it. Keyed by the
-             * widget's ImGui id, which is unique per slot per inspected entity.
-             */
-            std::unordered_map<ImGuiID, std::string>& slot_paths()
-            {
-                static std::unordered_map<ImGuiID, std::string> paths;
-                return paths;
-            }
-
-            /**
              * @brief Draws one texture slot: a path field, a load button, and a clear.
+             *
+             * The typed path is written back into @p path — the entity's persistent
+             * record of the slot's source — so it survives selection changes, undo
+             * snapshots, and the scene file, where a load from disk re-resolves the
+             * id from it.
+             *
              * @param label       Slot name shown to the user.
              * @param texture     The slot's texture id, edited in place.
+             * @param path        The slot's source path, edited in place.
              * @param assets      Library the path is loaded through.
              * @param color_space How the file's values are to be interpreted.
              * @return true when the slot changed.
              */
-            bool texture_slot(const char* label, TextureId& texture, IAssetLibrary& assets,
-                              TextureColorSpace color_space)
+            bool texture_slot(const char* label, TextureId& texture, std::string& path,
+                              IAssetLibrary& assets, TextureColorSpace color_space)
             {
                 ImGui::PushID(label);
                 bool changed = false;
 
-                const ImGuiID id = ImGui::GetID(label);
-                std::string& path = slot_paths()[id];
                 char buffer[512];
                 std::snprintf(buffer, sizeof(buffer), "%s", path.c_str());
 
@@ -90,9 +81,10 @@ namespace SushiEngine
                     texture = loaded;
                     changed = true;
                 }
-                else
+                else if (path != buffer)
                 {
                     path = buffer;
+                    changed = true;
                 }
 
                 ImGui::SameLine();
@@ -170,7 +162,9 @@ namespace SushiEngine
             }
         } // namespace
 
-        bool draw_material_editor(SushiEngine::Render::Material& material, IAssetLibrary& assets)
+        bool draw_material_editor(SushiEngine::Render::Material& material,
+                                  SushiEngine::Simulation::MaterialTexturePaths& paths,
+                                  IAssetLibrary& assets)
         {
             bool changed = false;
 
@@ -179,22 +173,23 @@ namespace SushiEngine
             changed |= transform_rows("Main Maps", material.main_transform);
             ImGui::Separator();
 
-            changed |= texture_slot("Albedo", material.albedo_map, assets,
+            changed |= texture_slot("Albedo", material.albedo_map, paths.albedo_map, assets,
                                     TextureColorSpace::Srgb);
             changed |= color_row("Base Color", material.albedo, false);
             changed |= ImGui::SliderFloat("Alpha", &material.base_alpha, 0.0f, 1.0f);
 
-            changed |= texture_slot("Metallic-Roughness", material.metallic_roughness_map, assets,
+            changed |= texture_slot("Metallic-Roughness", material.metallic_roughness_map,
+                                    paths.metallic_roughness_map, assets,
                                     TextureColorSpace::Linear);
             changed |= ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f);
             changed |= ImGui::SliderFloat("Roughness", &material.roughness, 0.045f, 1.0f);
             changed |= ImGui::Checkbox("Packed Occlusion (ORM)", &material.packed_occlusion);
 
-            changed |= texture_slot("Normal", material.normal_map, assets,
+            changed |= texture_slot("Normal", material.normal_map, paths.normal_map, assets,
                                     TextureColorSpace::Linear);
             changed |= ImGui::SliderFloat("Normal Scale", &material.normal_scale, 0.0f, 4.0f);
 
-            changed |= texture_slot("Height", material.height_map, assets,
+            changed |= texture_slot("Height", material.height_map, paths.height_map, assets,
                                     TextureColorSpace::Linear);
             changed |= ImGui::SliderFloat("Height Scale", &material.height_scale, 0.0f, 0.2f,
                                           "%.4f");
@@ -208,16 +203,16 @@ namespace SushiEngine
             ImGui::SameLine();
             changed |= ImGui::Checkbox("Silhouette Clip", &material.parallax_silhouette_clip);
 
-            changed |= texture_slot("Occlusion", material.occlusion_map, assets,
-                                    TextureColorSpace::Linear);
+            changed |= texture_slot("Occlusion", material.occlusion_map, paths.occlusion_map,
+                                    assets, TextureColorSpace::Linear);
             changed |= ImGui::SliderFloat("Occlusion Strength", &material.occlusion_strength, 0.0f,
                                           1.0f);
 
             changed |= ImGui::Checkbox("Emission", &material.emissive_enabled);
             if (material.emissive_enabled)
             {
-                changed |= texture_slot("Emissive", material.emissive_map, assets,
-                                        TextureColorSpace::Srgb);
+                changed |= texture_slot("Emissive", material.emissive_map, paths.emissive_map,
+                                        assets, TextureColorSpace::Srgb);
                 changed |= color_row("Emissive Color", material.emissive, true);
                 changed |= ImGui::DragFloat("Emissive Intensity", &material.emissive_intensity,
                                             0.05f, 0.0f, 100.0f);
@@ -226,11 +221,14 @@ namespace SushiEngine
             if (ImGui::TreeNode("Detail"))
             {
                 changed |= transform_rows("Detail Maps", material.detail_transform);
-                changed |= texture_slot("Detail Albedo", material.detail_albedo_map, assets,
+                changed |= texture_slot("Detail Albedo", material.detail_albedo_map,
+                                        paths.detail_albedo_map, assets,
                                         TextureColorSpace::Srgb);
-                changed |= texture_slot("Detail Normal", material.detail_normal_map, assets,
+                changed |= texture_slot("Detail Normal", material.detail_normal_map,
+                                        paths.detail_normal_map, assets,
                                         TextureColorSpace::Linear);
-                changed |= texture_slot("Detail Mask", material.detail_mask_map, assets,
+                changed |= texture_slot("Detail Mask", material.detail_mask_map,
+                                        paths.detail_mask_map, assets,
                                         TextureColorSpace::Linear);
                 changed |= ImGui::SliderFloat("Detail Normal Scale",
                                               &material.detail_normal_scale, 0.0f, 4.0f);
@@ -293,9 +291,10 @@ namespace SushiEngine
                 }
 
                 changed |= ImGui::Checkbox("Cast Shadows", &material.cast_shadows);
-                ImGui::SameLine();
-                changed |= ImGui::Checkbox("Receive Shadows", &material.receive_shadows);
-                changed |= ImGui::Checkbox("GPU Instancing", &material.gpu_instancing);
+                // No "Receive Shadows" / "GPU Instancing" checkboxes: the passes do not
+                // read those Material fields yet, and a checkbox that changes nothing is
+                // a false promise, not a placeholder (docs/slop/editor_ux_overhaul.md
+                // §2.4). They return together with their consumers.
 
                 const char* wrap_names[] = {"Repeat", "Clamp", "Mirror"};
                 int wrap = static_cast<int>(material.wrap_mode);

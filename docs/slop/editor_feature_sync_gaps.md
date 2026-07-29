@@ -1,5 +1,9 @@
 # Editor/feature sync gaps — backlog (2026-07-26)
 
+> **Superseded in part:** the two "Deferred" sections below were absorbed into
+> [editor_ux_overhaul.md](editor_ux_overhaul.md) (§2.4, verdict table), which carries them
+> forward with wire-or-remove decisions. The "Fixed this pass" log remains historical record.
+
 An audit of the editor UI against the engine features it's supposed to expose turned up several
 disconnects. This doc tracks what was fixed in the same pass and what's deferred for later, so the
 deferred items don't get rediscovered from scratch.

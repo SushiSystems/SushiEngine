@@ -592,8 +592,11 @@ as something the Game view renders through. `GameViewRenderPolicy::should_render
 (`editor/core/game_view_render_policy.hpp`) is the one place that gates a render pass on
 `has_active_camera && has_display`; when it says no, the Game window still opens (it no
 longer skips `ImGui::Begin` and disappear) and shows a centered "No cameras rendering"
-placeholder plus its toolbar instead of a render, via `draw_no_camera_game_view`
-(`editor/ui/game_view_toolbar.hpp`). That toolbar — an aspect/resolution preset, a
+placeholder plus its toolbar instead of a render, via `ViewportPanel::draw_no_camera` —
+a method on the same panel object as the render path, so the fullscreen state machine
+(`apply_fullscreen_transition`) is one implementation instead of a member copy and a
+function-static copy that could disagree about the dock slot to restore. That toolbar
+— an aspect/resolution preset, a
 Landscape/Portrait orientation combo, and a Fullscreen checkbox, held in
 `EditorContext::game_view_settings` (`GameViewSettings`,
 `editor/core/game_view_settings.hpp`) — is shared between the no-camera placeholder and
@@ -1618,8 +1621,9 @@ differently between runs.
   scene, with play/pause and inspection panels. The `se_editor` shell (SDL2 window +
   Dear ImGui presenting through the Vulkan renderer, `editor/`) currently hosts a
   Unity-style panel set — Hierarchy (with drag-and-drop reparenting, rename, and
-  filtering), Inspector, Project browser, a tabbed Text Editor, a Play/Pause/Step
-  Toolbar, a Console, and a Statistics panel, all toggled from a Window menu — over an
+  filtering), Inspector, Project browser, a tabbed Text Editor, a fixed Play/Pause/Step
+  toolbar strip, a Console, and a Statistics panel, the windows toggled from a
+  domain-grouped Window menu — over an
   editor-owned `Scene` model (`scene_model.hpp`, `editor_context.hpp`), decoupled from
   the runtime behind the windowing, presentation, and ImGui-adapter seams of §5.
   Wiring these panels onto a live World, plus

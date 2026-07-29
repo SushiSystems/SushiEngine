@@ -35,6 +35,7 @@
 #include <nlohmann/json.hpp>
 
 #include "effect_serializer.hpp"
+#include "environment_serializer.hpp"
 
 namespace SushiEngine
 {
@@ -64,335 +65,6 @@ namespace SushiEngine
             json quaternion_to_json(const SushiEngine::Quaternion& q)
             {
                 return json{{"x", q.x}, {"y", q.y}, {"z", q.z}, {"w", q.w}};
-            }
-
-            // The Environment fields an author edits in the Lighting/Environment panels
-            // (sun, atmosphere, ground, clouds, stars, night lighting, ambient, exposure,
-            // IBL). `bodies`/`sky_stars`/`dominant_*` are excluded: the ephemeris repopulates
-            // those every frame from SceneSkyState and are not author state.
-            json environment_to_json(const SushiEngine::Render::Environment& e)
-            {
-                json decks = json::array();
-                for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
-                {
-                    const SushiEngine::Render::CloudDeck& d = e.clouds.decks[i];
-                    decks.push_back(json{{"enabled", d.enabled},
-                                          {"genus", static_cast<std::uint32_t>(d.genus)},
-                                          {"coverage_bias", d.coverage_bias},
-                                          {"density_scale", d.density_scale}});
-                }
-
-                return json{
-                    {"sun",
-                     json{{"direction", vec3_to_json(e.sun.direction)},
-                          {"color", vec3_to_json(e.sun.color)},
-                          {"intensity", e.sun.intensity}}},
-                    {"planet_surface_style", static_cast<std::uint32_t>(e.planet_surface_style)},
-                    {"atmosphere",
-                     json{{"enabled", e.atmosphere.enabled},
-                          {"height", e.atmosphere.height},
-                          {"rayleigh_coefficient", vec3_to_json(e.atmosphere.rayleigh_coefficient)},
-                          {"mie_coefficient", e.atmosphere.mie_coefficient},
-                          {"mie_anisotropy", e.atmosphere.mie_anisotropy},
-                          {"rayleigh_scale_height", e.atmosphere.rayleigh_scale_height},
-                          {"mie_scale_height", e.atmosphere.mie_scale_height}}},
-                    {"surface",
-                     json{{"ground_albedo", vec3_to_json(e.surface.ground_albedo)},
-                          {"ocean_color", vec3_to_json(e.surface.ocean_color)},
-                          {"roughness", e.surface.roughness}}},
-                    {"clouds",
-                     json{{"enabled", e.clouds.enabled},
-                          {"light_absorption", e.clouds.light_absorption},
-                          {"forward_scattering", e.clouds.forward_scattering},
-                          {"powder_strength", e.clouds.powder_strength},
-                          {"ambient_strength", e.clouds.ambient_strength},
-                          {"ground_shadow_strength", e.clouds.ground_shadow_strength},
-                          {"weather_scale", e.clouds.weather_scale},
-                          {"evolution_rate", e.clouds.evolution_rate},
-                          {"decks", decks}}},
-                    // The regional nest's physics. Every field of AtmosphereParameters is here
-                    // rather than a chosen few, because docs/slop/atmosphere_system.md §13's
-                    // claim -- "every physical constant is serialized with the scene, and
-                    // editable" -- is only true if a scene can actually carry all of them.
-                    {"atmosphere_nest",
-                     json{{"enabled", e.atmosphere_nest.enabled},
-                          {"gas_constant_dry", e.atmosphere_nest.gas_constant_dry},
-                          {"gas_constant_vapour", e.atmosphere_nest.gas_constant_vapour},
-                          {"specific_heat_pressure", e.atmosphere_nest.specific_heat_pressure},
-                          {"latent_heat_vaporization", e.atmosphere_nest.latent_heat_vaporization},
-                          {"gravity", e.atmosphere_nest.gravity},
-                          {"reference_pressure", e.atmosphere_nest.reference_pressure},
-                          {"water_density", e.atmosphere_nest.water_density},
-                          {"surface_temperature", e.atmosphere_nest.surface_temperature},
-                          {"surface_pressure", e.atmosphere_nest.surface_pressure},
-                          {"lapse_rate", e.atmosphere_nest.lapse_rate},
-                          {"tropopause_altitude", e.atmosphere_nest.tropopause_altitude},
-                          {"surface_humidity", e.atmosphere_nest.surface_humidity},
-                          {"humidity_scale_height", e.atmosphere_nest.humidity_scale_height},
-                          {"courant_target", e.atmosphere_nest.courant_target},
-                          {"max_step_seconds", e.atmosphere_nest.max_step_seconds},
-                          {"min_step_seconds", e.atmosphere_nest.min_step_seconds},
-                          {"max_steps_per_frame", e.atmosphere_nest.max_steps_per_frame},
-                          {"eddy_viscosity", e.atmosphere_nest.eddy_viscosity},
-                          {"sponge_depth", e.atmosphere_nest.sponge_depth},
-                          {"sponge_rate", e.atmosphere_nest.sponge_rate},
-                          {"boundary_zone_cells", e.atmosphere_nest.boundary_zone_cells},
-                          {"boundary_relaxation", e.atmosphere_nest.boundary_relaxation},
-                          {"pressure_iterations", e.atmosphere_nest.pressure_iterations},
-                          {"thermal_seed_amplitude", e.atmosphere_nest.thermal_seed_amplitude},
-                          {"thermal_seed_length_m", e.atmosphere_nest.thermal_seed_length_m},
-                          {"thermal_seed_period_s", e.atmosphere_nest.thermal_seed_period_s},
-                          {"convective_velocity_scale", e.atmosphere_nest.convective_velocity_scale},
-                          {"boundary_layer_depth_m", e.atmosphere_nest.boundary_layer_depth_m},
-                          {"boundary_layer_velocity_scale",
-                           e.atmosphere_nest.boundary_layer_velocity_scale},
-                          {"cloud_critical_humidity", e.atmosphere_nest.cloud_critical_humidity},
-                          {"autoconversion_rate", e.atmosphere_nest.autoconversion_rate},
-                          {"autoconversion_threshold", e.atmosphere_nest.autoconversion_threshold},
-                          {"accretion_rate", e.atmosphere_nest.accretion_rate},
-                          {"accretion_exponent", e.atmosphere_nest.accretion_exponent},
-                          {"rain_evaporation_rate", e.atmosphere_nest.rain_evaporation_rate},
-                          {"fall_speed_coefficient", e.atmosphere_nest.fall_speed_coefficient},
-                          {"fall_speed_exponent", e.atmosphere_nest.fall_speed_exponent},
-                          {"droplet_effective_radius", e.atmosphere_nest.droplet_effective_radius},
-                          {"latent_heat_fusion", e.atmosphere_nest.latent_heat_fusion},
-                          {"freezing_temperature", e.atmosphere_nest.freezing_temperature},
-                          {"glaciation_temperature", e.atmosphere_nest.glaciation_temperature},
-                          {"snow_fall_speed_coefficient",
-                           e.atmosphere_nest.snow_fall_speed_coefficient},
-                          {"snow_fall_speed_exponent", e.atmosphere_nest.snow_fall_speed_exponent},
-                          {"glaciated_autoconversion_factor",
-                           e.atmosphere_nest.glaciated_autoconversion_factor},
-                          {"ice_effective_radius", e.atmosphere_nest.ice_effective_radius},
-                          {"coverage_reference_lwc", e.atmosphere_nest.coverage_reference_lwc},
-                          {"solar_constant", e.atmosphere_nest.solar_constant},
-                          {"clear_sky_transmittance", e.atmosphere_nest.clear_sky_transmittance},
-                          {"surface_albedo", e.atmosphere_nest.surface_albedo},
-                          {"surface_emissivity", e.atmosphere_nest.surface_emissivity},
-                          {"surface_heat_capacity", e.atmosphere_nest.surface_heat_capacity},
-                          {"surface_moisture_availability",
-                           e.atmosphere_nest.surface_moisture_availability},
-                          {"surface_exchange_coefficient",
-                           e.atmosphere_nest.surface_exchange_coefficient},
-                          {"surface_minimum_wind", e.atmosphere_nest.surface_minimum_wind}}},
-                    {"stars",
-                     json{{"enabled", e.stars.enabled},
-                          {"brightness", e.stars.brightness},
-                          {"density", e.stars.density}}},
-                    {"night",
-                     json{{"enabled", e.night.enabled},
-                          {"reflected_intensity", e.night.reflected_intensity},
-                          {"star_intensity", e.night.star_intensity}}},
-                    {"ambient", vec3_to_json(e.ambient)},
-                    {"exposure", e.exposure},
-                    {"image_based_lighting", e.image_based_lighting},
-                    {"ibl_intensity", e.ibl_intensity}};
-            }
-
-            // Applies the persisted fields onto `environment`, leaving every field the JSON
-            // omits (including the ephemeris-owned fields never written above) at whatever
-            // value the caller passed in.
-            SushiEngine::Render::Environment environment_from_json(
-                const json& j, SushiEngine::Render::Environment environment)
-            {
-                if (!j.is_object())
-                    return environment;
-
-                if (j.contains("sun") && j["sun"].is_object())
-                {
-                    const json& s = j["sun"];
-                    if (s.contains("direction"))
-                        environment.sun.direction = vec3_from_json(s["direction"]);
-                    if (s.contains("color"))
-                        environment.sun.color = vec3_from_json(s["color"]);
-                    environment.sun.intensity = s.value("intensity", environment.sun.intensity);
-                }
-                environment.planet_surface_style = static_cast<SushiEngine::Render::SurfaceStyle>(
-                    j.value("planet_surface_style",
-                            static_cast<std::uint32_t>(environment.planet_surface_style)));
-                if (j.contains("atmosphere") && j["atmosphere"].is_object())
-                {
-                    const json& a = j["atmosphere"];
-                    environment.atmosphere.enabled = a.value("enabled", environment.atmosphere.enabled);
-                    environment.atmosphere.height = a.value("height", environment.atmosphere.height);
-                    if (a.contains("rayleigh_coefficient"))
-                        environment.atmosphere.rayleigh_coefficient =
-                            vec3_from_json(a["rayleigh_coefficient"]);
-                    environment.atmosphere.mie_coefficient =
-                        a.value("mie_coefficient", environment.atmosphere.mie_coefficient);
-                    environment.atmosphere.mie_anisotropy =
-                        a.value("mie_anisotropy", environment.atmosphere.mie_anisotropy);
-                    environment.atmosphere.rayleigh_scale_height =
-                        a.value("rayleigh_scale_height", environment.atmosphere.rayleigh_scale_height);
-                    environment.atmosphere.mie_scale_height =
-                        a.value("mie_scale_height", environment.atmosphere.mie_scale_height);
-                }
-                if (j.contains("surface") && j["surface"].is_object())
-                {
-                    const json& s = j["surface"];
-                    if (s.contains("ground_albedo"))
-                        environment.surface.ground_albedo = vec3_from_json(s["ground_albedo"]);
-                    if (s.contains("ocean_color"))
-                        environment.surface.ocean_color = vec3_from_json(s["ocean_color"]);
-                    environment.surface.roughness = s.value("roughness", environment.surface.roughness);
-                }
-                if (j.contains("atmosphere_nest") && j["atmosphere_nest"].is_object())
-                {
-                    const json& a = j["atmosphere_nest"];
-                    SushiEngine::Render::AtmosphereParameters& n = environment.atmosphere_nest;
-                    // Every read defaults to the value already in the struct, so a scene written
-                    // before a parameter existed loads with that parameter's own default rather
-                    // than with a zero the physics would divide by.
-                    n.enabled = a.value("enabled", n.enabled);
-                    n.gas_constant_dry = a.value("gas_constant_dry", n.gas_constant_dry);
-                    n.gas_constant_vapour = a.value("gas_constant_vapour", n.gas_constant_vapour);
-                    n.specific_heat_pressure =
-                        a.value("specific_heat_pressure", n.specific_heat_pressure);
-                    n.latent_heat_vaporization =
-                        a.value("latent_heat_vaporization", n.latent_heat_vaporization);
-                    n.gravity = a.value("gravity", n.gravity);
-                    n.reference_pressure = a.value("reference_pressure", n.reference_pressure);
-                    n.water_density = a.value("water_density", n.water_density);
-                    n.surface_temperature = a.value("surface_temperature", n.surface_temperature);
-                    n.surface_pressure = a.value("surface_pressure", n.surface_pressure);
-                    n.lapse_rate = a.value("lapse_rate", n.lapse_rate);
-                    n.tropopause_altitude = a.value("tropopause_altitude", n.tropopause_altitude);
-                    n.surface_humidity = a.value("surface_humidity", n.surface_humidity);
-                    n.humidity_scale_height =
-                        a.value("humidity_scale_height", n.humidity_scale_height);
-                    n.courant_target = a.value("courant_target", n.courant_target);
-                    n.max_step_seconds = a.value("max_step_seconds", n.max_step_seconds);
-                    n.min_step_seconds = a.value("min_step_seconds", n.min_step_seconds);
-                    n.max_steps_per_frame = a.value("max_steps_per_frame", n.max_steps_per_frame);
-                    n.eddy_viscosity = a.value("eddy_viscosity", n.eddy_viscosity);
-                    n.sponge_depth = a.value("sponge_depth", n.sponge_depth);
-                    n.sponge_rate = a.value("sponge_rate", n.sponge_rate);
-                    n.boundary_zone_cells = a.value("boundary_zone_cells", n.boundary_zone_cells);
-                    n.boundary_relaxation = a.value("boundary_relaxation", n.boundary_relaxation);
-                    n.pressure_iterations = a.value("pressure_iterations", n.pressure_iterations);
-                    n.thermal_seed_amplitude =
-                        a.value("thermal_seed_amplitude", n.thermal_seed_amplitude);
-                    // Absent from every scene written before 2026-07-28, and `value` leaving the
-                    // default in place is exactly right for those: the seed used to be white, and
-                    // the default is the correlation it should have had.
-                    n.thermal_seed_length_m =
-                        a.value("thermal_seed_length_m", n.thermal_seed_length_m);
-                    n.thermal_seed_period_s =
-                        a.value("thermal_seed_period_s", n.thermal_seed_period_s);
-                    n.convective_velocity_scale =
-                        a.value("convective_velocity_scale", n.convective_velocity_scale);
-                    n.boundary_layer_depth_m =
-                        a.value("boundary_layer_depth_m", n.boundary_layer_depth_m);
-                    n.boundary_layer_velocity_scale =
-                        a.value("boundary_layer_velocity_scale",
-                                n.boundary_layer_velocity_scale);
-                    n.cloud_critical_humidity =
-                        a.value("cloud_critical_humidity", n.cloud_critical_humidity);
-                    n.autoconversion_rate = a.value("autoconversion_rate", n.autoconversion_rate);
-                    n.autoconversion_threshold =
-                        a.value("autoconversion_threshold", n.autoconversion_threshold);
-                    n.accretion_rate = a.value("accretion_rate", n.accretion_rate);
-                    n.accretion_exponent = a.value("accretion_exponent", n.accretion_exponent);
-                    n.rain_evaporation_rate =
-                        a.value("rain_evaporation_rate", n.rain_evaporation_rate);
-                    n.fall_speed_coefficient =
-                        a.value("fall_speed_coefficient", n.fall_speed_coefficient);
-                    n.fall_speed_exponent = a.value("fall_speed_exponent", n.fall_speed_exponent);
-                    n.droplet_effective_radius =
-                        a.value("droplet_effective_radius", n.droplet_effective_radius);
-                    n.latent_heat_fusion = a.value("latent_heat_fusion", n.latent_heat_fusion);
-                    n.freezing_temperature =
-                        a.value("freezing_temperature", n.freezing_temperature);
-                    n.glaciation_temperature =
-                        a.value("glaciation_temperature", n.glaciation_temperature);
-                    n.snow_fall_speed_coefficient =
-                        a.value("snow_fall_speed_coefficient", n.snow_fall_speed_coefficient);
-                    n.snow_fall_speed_exponent =
-                        a.value("snow_fall_speed_exponent", n.snow_fall_speed_exponent);
-                    n.glaciated_autoconversion_factor =
-                        a.value("glaciated_autoconversion_factor",
-                                n.glaciated_autoconversion_factor);
-                    n.ice_effective_radius =
-                        a.value("ice_effective_radius", n.ice_effective_radius);
-                    n.coverage_reference_lwc =
-                        a.value("coverage_reference_lwc", n.coverage_reference_lwc);
-                    // `surface_sensible_flux` / `surface_latent_flux` / `surface_night_flux`
-                    // were the prescribed fluxes Phase B3 replaced with a solved balance. A
-                    // scene written before it carries them and they are simply not read: what
-                    // they encoded — how hot and how wet the ground is — is now the albedo,
-                    // moisture availability and heat capacity below, and there is no honest
-                    // mapping from a pair of peak fluxes back onto them.
-                    n.solar_constant = a.value("solar_constant", n.solar_constant);
-                    n.clear_sky_transmittance =
-                        a.value("clear_sky_transmittance", n.clear_sky_transmittance);
-                    n.surface_albedo = a.value("surface_albedo", n.surface_albedo);
-                    n.surface_emissivity = a.value("surface_emissivity", n.surface_emissivity);
-                    n.surface_heat_capacity =
-                        a.value("surface_heat_capacity", n.surface_heat_capacity);
-                    n.surface_moisture_availability =
-                        a.value("surface_moisture_availability", n.surface_moisture_availability);
-                    n.surface_exchange_coefficient =
-                        a.value("surface_exchange_coefficient", n.surface_exchange_coefficient);
-                    n.surface_minimum_wind =
-                        a.value("surface_minimum_wind", n.surface_minimum_wind);
-                }
-                if (j.contains("clouds") && j["clouds"].is_object())
-                {
-                    const json& c = j["clouds"];
-                    environment.clouds.enabled = c.value("enabled", environment.clouds.enabled);
-                    environment.clouds.light_absorption =
-                        c.value("light_absorption", environment.clouds.light_absorption);
-                    environment.clouds.forward_scattering =
-                        c.value("forward_scattering", environment.clouds.forward_scattering);
-                    environment.clouds.powder_strength =
-                        c.value("powder_strength", environment.clouds.powder_strength);
-                    environment.clouds.ambient_strength =
-                        c.value("ambient_strength", environment.clouds.ambient_strength);
-                    environment.clouds.ground_shadow_strength =
-                        c.value("ground_shadow_strength", environment.clouds.ground_shadow_strength);
-                    environment.clouds.weather_scale =
-                        c.value("weather_scale", environment.clouds.weather_scale);
-                    environment.clouds.evolution_rate =
-                        c.value("evolution_rate", environment.clouds.evolution_rate);
-                    if (c.contains("decks") && c["decks"].is_array())
-                    {
-                        const json& decks = c["decks"];
-                        for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS &&
-                                        static_cast<std::size_t>(i) < decks.size(); ++i)
-                        {
-                            const json& d = decks[static_cast<std::size_t>(i)];
-                            SushiEngine::Render::CloudDeck& deck = environment.clouds.decks[i];
-                            deck.enabled = d.value("enabled", deck.enabled);
-                            deck.genus = static_cast<SushiEngine::Render::CloudGenus>(
-                                d.value("genus", static_cast<std::uint32_t>(deck.genus)));
-                            deck.coverage_bias = d.value("coverage_bias", deck.coverage_bias);
-                            deck.density_scale = d.value("density_scale", deck.density_scale);
-                        }
-                    }
-                }
-                if (j.contains("stars") && j["stars"].is_object())
-                {
-                    const json& s = j["stars"];
-                    environment.stars.enabled = s.value("enabled", environment.stars.enabled);
-                    environment.stars.brightness = s.value("brightness", environment.stars.brightness);
-                    environment.stars.density = s.value("density", environment.stars.density);
-                }
-                if (j.contains("night") && j["night"].is_object())
-                {
-                    const json& n = j["night"];
-                    environment.night.enabled = n.value("enabled", environment.night.enabled);
-                    environment.night.reflected_intensity =
-                        n.value("reflected_intensity", environment.night.reflected_intensity);
-                    environment.night.star_intensity =
-                        n.value("star_intensity", environment.night.star_intensity);
-                }
-                if (j.contains("ambient"))
-                    environment.ambient = vec3_from_json(j["ambient"]);
-                environment.exposure = j.value("exposure", environment.exposure);
-                environment.image_based_lighting =
-                    j.value("image_based_lighting", environment.image_based_lighting);
-                environment.ibl_intensity = j.value("ibl_intensity", environment.ibl_intensity);
-                return environment;
             }
 
             json sky_to_json(const SceneSkyState& sky)
@@ -613,6 +285,184 @@ namespace SushiEngine
                     }
                 return script;
             }
+
+            json texture_transform_to_json(const SushiEngine::Render::TextureTransform& t)
+            {
+                return json{{"tiling_x", t.tiling_x},
+                            {"tiling_y", t.tiling_y},
+                            {"offset_x", t.offset_x},
+                            {"offset_y", t.offset_y}};
+            }
+
+            SushiEngine::Render::TextureTransform texture_transform_from_json(const json& j)
+            {
+                SushiEngine::Render::TextureTransform t;
+                t.tiling_x = j.value("tiling_x", t.tiling_x);
+                t.tiling_y = j.value("tiling_y", t.tiling_y);
+                t.offset_x = j.value("offset_x", t.offset_x);
+                t.offset_y = j.value("offset_y", t.offset_y);
+                return t;
+            }
+
+            // Texture ids ride along with the scalar fields for the same reason the
+            // particle effect's do (see capture_effect): the in-memory snapshots
+            // undo/redo and play-mode take restore them directly, while a load from
+            // disk re-resolves every id from its path (resolve_scene_textures), so a
+            // stale handle never survives into another session.
+            json material_to_json(const SushiEngine::Render::Material& m)
+            {
+                return json{
+                    {"albedo", vec3_to_json(m.albedo)},
+                    {"base_alpha", m.base_alpha},
+                    {"albedo_map", m.albedo_map},
+                    {"metallic", m.metallic},
+                    {"roughness", m.roughness},
+                    {"metallic_roughness_map", m.metallic_roughness_map},
+                    {"packed_occlusion", m.packed_occlusion},
+                    {"normal_map", m.normal_map},
+                    {"normal_scale", m.normal_scale},
+                    {"height_map", m.height_map},
+                    {"height_scale", m.height_scale},
+                    {"parallax_steps", m.parallax_steps},
+                    {"parallax_shadows", m.parallax_shadows},
+                    {"parallax_silhouette_clip", m.parallax_silhouette_clip},
+                    {"occlusion_map", m.occlusion_map},
+                    {"occlusion_strength", m.occlusion_strength},
+                    {"emissive", vec3_to_json(m.emissive)},
+                    {"emissive_intensity", m.emissive_intensity},
+                    {"emissive_map", m.emissive_map},
+                    {"emissive_enabled", m.emissive_enabled},
+                    {"detail_albedo_map", m.detail_albedo_map},
+                    {"detail_normal_map", m.detail_normal_map},
+                    {"detail_mask_map", m.detail_mask_map},
+                    {"detail_normal_scale", m.detail_normal_scale},
+                    {"main_transform", texture_transform_to_json(m.main_transform)},
+                    {"detail_transform", texture_transform_to_json(m.detail_transform)},
+                    {"anisotropy", m.anisotropy},
+                    {"anisotropy_rotation", m.anisotropy_rotation},
+                    {"clearcoat", m.clearcoat},
+                    {"clearcoat_roughness", m.clearcoat_roughness},
+                    {"sheen_color", vec3_to_json(m.sheen_color)},
+                    {"sheen_roughness", m.sheen_roughness},
+                    {"transmission", m.transmission},
+                    {"subsurface_color", vec3_to_json(m.subsurface_color)},
+                    {"thickness", m.thickness},
+                    {"ior", m.ior},
+                    {"surface_type", static_cast<std::uint32_t>(m.surface_type)},
+                    {"alpha_cutoff", m.alpha_cutoff},
+                    {"cull_mode", static_cast<std::uint32_t>(m.cull_mode)},
+                    {"blend_mode", static_cast<std::uint32_t>(m.blend_mode)},
+                    {"render_queue", m.render_queue},
+                    {"cast_shadows", m.cast_shadows},
+                    {"receive_shadows", m.receive_shadows},
+                    {"gpu_instancing", m.gpu_instancing},
+                    {"anisotropic_filtering", m.anisotropic_filtering},
+                    {"wrap_mode", static_cast<std::uint32_t>(m.wrap_mode)},
+                    {"weather_wettable", m.weather_wettable}};
+            }
+
+            SushiEngine::Render::Material material_from_json(const json& j)
+            {
+                SushiEngine::Render::Material m;
+                if (j.contains("albedo"))
+                    m.albedo = vec3_from_json(j["albedo"]);
+                m.base_alpha = j.value("base_alpha", m.base_alpha);
+                m.albedo_map = j.value("albedo_map", m.albedo_map);
+                m.metallic = j.value("metallic", m.metallic);
+                m.roughness = j.value("roughness", m.roughness);
+                m.metallic_roughness_map =
+                    j.value("metallic_roughness_map", m.metallic_roughness_map);
+                m.packed_occlusion = j.value("packed_occlusion", m.packed_occlusion);
+                m.normal_map = j.value("normal_map", m.normal_map);
+                m.normal_scale = j.value("normal_scale", m.normal_scale);
+                m.height_map = j.value("height_map", m.height_map);
+                m.height_scale = j.value("height_scale", m.height_scale);
+                m.parallax_steps = j.value("parallax_steps", m.parallax_steps);
+                m.parallax_shadows = j.value("parallax_shadows", m.parallax_shadows);
+                m.parallax_silhouette_clip =
+                    j.value("parallax_silhouette_clip", m.parallax_silhouette_clip);
+                m.occlusion_map = j.value("occlusion_map", m.occlusion_map);
+                m.occlusion_strength = j.value("occlusion_strength", m.occlusion_strength);
+                if (j.contains("emissive"))
+                    m.emissive = vec3_from_json(j["emissive"]);
+                m.emissive_intensity = j.value("emissive_intensity", m.emissive_intensity);
+                m.emissive_map = j.value("emissive_map", m.emissive_map);
+                m.emissive_enabled = j.value("emissive_enabled", m.emissive_enabled);
+                m.detail_albedo_map = j.value("detail_albedo_map", m.detail_albedo_map);
+                m.detail_normal_map = j.value("detail_normal_map", m.detail_normal_map);
+                m.detail_mask_map = j.value("detail_mask_map", m.detail_mask_map);
+                m.detail_normal_scale = j.value("detail_normal_scale", m.detail_normal_scale);
+                if (j.contains("main_transform"))
+                    m.main_transform = texture_transform_from_json(j["main_transform"]);
+                if (j.contains("detail_transform"))
+                    m.detail_transform = texture_transform_from_json(j["detail_transform"]);
+                m.anisotropy = j.value("anisotropy", m.anisotropy);
+                m.anisotropy_rotation = j.value("anisotropy_rotation", m.anisotropy_rotation);
+                m.clearcoat = j.value("clearcoat", m.clearcoat);
+                m.clearcoat_roughness = j.value("clearcoat_roughness", m.clearcoat_roughness);
+                if (j.contains("sheen_color"))
+                    m.sheen_color = vec3_from_json(j["sheen_color"]);
+                m.sheen_roughness = j.value("sheen_roughness", m.sheen_roughness);
+                m.transmission = j.value("transmission", m.transmission);
+                if (j.contains("subsurface_color"))
+                    m.subsurface_color = vec3_from_json(j["subsurface_color"]);
+                m.thickness = j.value("thickness", m.thickness);
+                m.ior = j.value("ior", m.ior);
+                m.surface_type = static_cast<SushiEngine::Render::SurfaceType>(
+                    j.value("surface_type", static_cast<std::uint32_t>(m.surface_type)));
+                m.alpha_cutoff = j.value("alpha_cutoff", m.alpha_cutoff);
+                m.cull_mode = static_cast<SushiEngine::Render::MaterialCullMode>(
+                    j.value("cull_mode", static_cast<std::uint32_t>(m.cull_mode)));
+                m.blend_mode = static_cast<SushiEngine::Render::BlendMode>(
+                    j.value("blend_mode", static_cast<std::uint32_t>(m.blend_mode)));
+                m.render_queue = j.value("render_queue", m.render_queue);
+                m.cast_shadows = j.value("cast_shadows", m.cast_shadows);
+                m.receive_shadows = j.value("receive_shadows", m.receive_shadows);
+                m.gpu_instancing = j.value("gpu_instancing", m.gpu_instancing);
+                m.anisotropic_filtering =
+                    j.value("anisotropic_filtering", m.anisotropic_filtering);
+                m.wrap_mode = static_cast<SushiEngine::Render::TextureWrap>(
+                    j.value("wrap_mode", static_cast<std::uint32_t>(m.wrap_mode)));
+                m.weather_wettable = j.value("weather_wettable", m.weather_wettable);
+                return m;
+            }
+
+            json material_paths_to_json(const SushiEngine::Simulation::MaterialTexturePaths& p)
+            {
+                return json{{"albedo_map", p.albedo_map},
+                            {"metallic_roughness_map", p.metallic_roughness_map},
+                            {"normal_map", p.normal_map},
+                            {"height_map", p.height_map},
+                            {"occlusion_map", p.occlusion_map},
+                            {"emissive_map", p.emissive_map},
+                            {"detail_albedo_map", p.detail_albedo_map},
+                            {"detail_normal_map", p.detail_normal_map},
+                            {"detail_mask_map", p.detail_mask_map}};
+            }
+
+            SushiEngine::Simulation::MaterialTexturePaths material_paths_from_json(const json& j)
+            {
+                SushiEngine::Simulation::MaterialTexturePaths p;
+                p.albedo_map = j.value("albedo_map", std::string{});
+                p.metallic_roughness_map = j.value("metallic_roughness_map", std::string{});
+                p.normal_map = j.value("normal_map", std::string{});
+                p.height_map = j.value("height_map", std::string{});
+                p.occlusion_map = j.value("occlusion_map", std::string{});
+                p.emissive_map = j.value("emissive_map", std::string{});
+                p.detail_albedo_map = j.value("detail_albedo_map", std::string{});
+                p.detail_normal_map = j.value("detail_normal_map", std::string{});
+                p.detail_mask_map = j.value("detail_mask_map", std::string{});
+                return p;
+            }
+
+            bool material_paths_empty(const SushiEngine::Simulation::MaterialTexturePaths& p)
+            {
+                return p.albedo_map.empty() && p.metallic_roughness_map.empty() &&
+                       p.normal_map.empty() && p.height_map.empty() &&
+                       p.occlusion_map.empty() && p.emissive_map.empty() &&
+                       p.detail_albedo_map.empty() && p.detail_normal_map.empty() &&
+                       p.detail_mask_map.empty();
+            }
         } // namespace
 
         json capture_scene(IWorldEditor& world)
@@ -655,6 +505,22 @@ namespace SushiEngine
                 entry["has_renderer"] = has_renderer;
                 if (has_renderer)
                     entry["color"] = vec3_to_json(world.color(id));
+
+                // The full PBR surface, but only when it differs from a default
+                // material carrying the entity's tint (the tint itself is the "color"
+                // key above) — plain tinted entities stay one line in the file.
+                {
+                    const SushiEngine::Render::Material material = world.material(id);
+                    SushiEngine::Render::Material reference{};
+                    reference.albedo = material.albedo;
+                    const json material_json = material_to_json(material);
+                    if (material_json != material_to_json(reference))
+                        entry["material"] = material_json;
+                    const SushiEngine::Simulation::MaterialTexturePaths paths =
+                        world.material_texture_paths(id);
+                    if (!material_paths_empty(paths))
+                        entry["material_texture_paths"] = material_paths_to_json(paths);
+                }
 
                 // Not mutually exclusive with camera/renderer, so it is its own field
                 // rather than sharing the if/else above.
@@ -762,6 +628,35 @@ namespace SushiEngine
                                              {"params", vec3_to_json(params.params)}};
                 }
 
+                const bool has_light = world.has_light(id);
+                entry["has_light"] = has_light;
+                if (has_light)
+                {
+                    const auto p = world.light_params(id);
+                    entry["light"] = json{{"color", vec3_to_json(p.color)},
+                                          {"intensity", p.intensity},
+                                          {"range", p.range},
+                                          {"is_spot", p.is_spot},
+                                          {"inner_degrees", p.inner_degrees},
+                                          {"outer_degrees", p.outer_degrees},
+                                          {"casts_shadows", p.casts_shadows}};
+                }
+
+                const bool has_decal = world.has_decal(id);
+                entry["has_decal"] = has_decal;
+                if (has_decal)
+                {
+                    // Ids and paths both, on the material/effect live-handle convention.
+                    const auto p = world.decal_params(id);
+                    entry["decal"] = json{{"color", vec3_to_json(p.color)},
+                                          {"half_extents", vec3_to_json(p.half_extents)},
+                                          {"opacity", p.opacity},
+                                          {"albedo_map", p.albedo_map},
+                                          {"orm_map", p.orm_map},
+                                          {"albedo_map_path", p.albedo_map_path},
+                                          {"orm_map_path", p.orm_map_path}};
+                }
+
                 const bool surface_anchored = world.surface_anchored(id);
                 entry["surface_anchored"] = surface_anchored;
                 if (surface_anchored)
@@ -796,19 +691,39 @@ namespace SushiEngine
                 root.push_back(std::move(entry));
             }
 
-            return root;
+            // The environment rides every capture beside the entities. This is what makes
+            // undo, Save Scene, and Play→Stop agree that lighting/sky/weather physics are
+            // scene content: a snapshot that carried only the entity array could not
+            // restore what its callers claimed it restored (fixed 2026-07-29 — a single
+            // Ctrl+Z used to leave the environment as-is while rewinding the world).
+            json capture;
+            capture["entities"] = std::move(root);
+            capture["environment"] = environment_to_json(world.environment());
+            return capture;
         }
 
         void apply_scene(IWorldEditor& world, const json& root)
         {
+            // A capture is an object {entities, environment}; a bare array is the older
+            // entity-only shape (pre-environment captures, and clipboard-era files) and
+            // simply leaves the environment as it is.
+            const json& entity_list =
+                root.is_object() && root.contains("entities") ? root["entities"] : root;
+            if (root.is_object() && root.contains("environment"))
+                // The live environment is the base, so fields the capture omits — and the
+                // runtime-owned channels the shape never writes (forcing pointers, weather
+                // field, ephemeris output) — ride through unchanged.
+                world.set_environment(
+                    environment_from_json(root["environment"], world.environment()));
+
             // Replace the world wholesale: clear every existing entity before
             // recreating the file's, so a load is never a merge with the prior scene.
             for (const EntityId id : world.entities())
                 world.destroy(id);
 
             std::vector<EntityId> created;
-            created.reserve(root.size());
-            for (const auto& entry : root)
+            created.reserve(entity_list.size());
+            for (const auto& entry : entity_list)
             {
                 const std::string name = entry.value("name", std::string("Entity"));
                 const bool is_camera = entry.value("is_camera", false);
@@ -845,6 +760,12 @@ namespace SushiEngine
                 world.set_has_renderer(id, has_renderer);
                 if (has_renderer && entry.contains("color"))
                     world.set_color(id, vec3_from_json(entry["color"]));
+
+                if (entry.contains("material"))
+                    world.set_material(id, material_from_json(entry["material"]));
+                if (entry.contains("material_texture_paths"))
+                    world.set_material_texture_paths(
+                        id, material_paths_from_json(entry["material_texture_paths"]));
 
                 if (entry.value("has_physics_body", false))
                 {
@@ -991,6 +912,45 @@ namespace SushiEngine
                     }
                 }
 
+                if (entry.value("has_light", false))
+                {
+                    world.set_has_light(id, true);
+                    if (entry.contains("light"))
+                    {
+                        const json& l = entry["light"];
+                        SushiEngine::Simulation::LightParams p;
+                        if (l.contains("color"))
+                            p.color = vec3_from_json(l["color"]);
+                        p.intensity = l.value("intensity", p.intensity);
+                        p.range = l.value("range", p.range);
+                        p.is_spot = l.value("is_spot", p.is_spot);
+                        p.inner_degrees = l.value("inner_degrees", p.inner_degrees);
+                        p.outer_degrees = l.value("outer_degrees", p.outer_degrees);
+                        p.casts_shadows = l.value("casts_shadows", p.casts_shadows);
+                        world.set_light_params(id, p);
+                    }
+                }
+
+                if (entry.value("has_decal", false))
+                {
+                    world.set_has_decal(id, true);
+                    if (entry.contains("decal"))
+                    {
+                        const json& d = entry["decal"];
+                        SushiEngine::Simulation::DecalParams p;
+                        if (d.contains("color"))
+                            p.color = vec3_from_json(d["color"]);
+                        if (d.contains("half_extents"))
+                            p.half_extents = vec3_from_json(d["half_extents"]);
+                        p.opacity = d.value("opacity", p.opacity);
+                        p.albedo_map = d.value("albedo_map", p.albedo_map);
+                        p.orm_map = d.value("orm_map", p.orm_map);
+                        p.albedo_map_path = d.value("albedo_map_path", p.albedo_map_path);
+                        p.orm_map_path = d.value("orm_map_path", p.orm_map_path);
+                        world.set_decal_params(id, p);
+                    }
+                }
+
                 if (entry.value("surface_anchored", false))
                 {
                     world.set_surface_anchored(id, true);
@@ -1035,9 +995,9 @@ namespace SushiEngine
 
             // Parent links are resolved only after every entity exists, since a child
             // can be written before its parent in the array.
-            for (std::size_t i = 0; i < root.size(); ++i)
+            for (std::size_t i = 0; i < entity_list.size(); ++i)
             {
-                const int parent_index = root[i].value("parent", -1);
+                const int parent_index = entity_list[i].value("parent", -1);
                 if (parent_index >= 0 && static_cast<std::size_t>(parent_index) < created.size())
                     world.set_parent(created[i], created[static_cast<std::size_t>(parent_index)]);
             }
@@ -1049,9 +1009,10 @@ namespace SushiEngine
             if (!file)
                 return false;
 
-            json root;
-            root["entities"] = capture_scene(world);
-            root["environment"] = environment_to_json(world.environment());
+            // capture_scene already carries the entities and the environment; the file
+            // adds only what a disk scene has that an in-memory snapshot does not — the
+            // weather sidecar reference and the sky authoring state.
+            json root = capture_scene(world);
             root["weather"] = weather_to_json(world, path);
             if (sky != nullptr)
                 root["sky"] = sky_to_json(*sky);
@@ -1063,24 +1024,86 @@ namespace SushiEngine
         namespace
         {
             /**
-             * @brief Re-resolves every emitter's sprite textures after a load from disk.
+             * @brief Re-resolves every file-backed texture handle after a load from disk.
              *
              * The capture carries both a path and the handle it had when written; only the path
-             * survives a session, so the handles a file was written with are re-derived here. A
-             * post-pass rather than a hook inside `apply_scene` because the in-memory snapshots
-             * that share that function are same-session, where the captured handles are still the
-             * right ones.
+             * survives a session, so the handles a file was written with are re-derived here —
+             * particle sprites, material maps, and decal maps alike, an empty path resolving to
+             * no texture rather than keeping the stale handle. A post-pass rather than a hook
+             * inside `apply_scene` because the in-memory snapshots that share that function are
+             * same-session, where the captured handles are still the right ones.
              */
-            void resolve_scene_effect_textures(IWorldEditor& world,
-                                               SushiEngine::Render::IAssetLibrary& assets)
+            void resolve_scene_textures(IWorldEditor& world,
+                                        SushiEngine::Render::IAssetLibrary& assets)
             {
+                using SushiEngine::Render::INVALID_TEXTURE;
+                using SushiEngine::Render::TextureColorSpace;
+                const auto resolve = [&assets](const std::string& path,
+                                               TextureColorSpace color_space)
+                {
+                    return path.empty() ? INVALID_TEXTURE
+                                        : assets.load_texture(path.c_str(), color_space);
+                };
+
                 for (const EntityId id : world.entities())
                 {
-                    if (!world.has_particle_emitter(id))
-                        continue;
-                    SushiEngine::Vfx::ParticleEffect effect = world.particle_effect_source(id);
-                    resolve_effect_textures(effect, assets);
-                    world.set_particle_effect_source(id, effect);
+                    if (world.has_particle_emitter(id))
+                    {
+                        SushiEngine::Vfx::ParticleEffect effect = world.particle_effect_source(id);
+                        resolve_effect_textures(effect, assets);
+                        world.set_particle_effect_source(id, effect);
+                    }
+
+                    const SushiEngine::Simulation::MaterialTexturePaths paths =
+                        world.material_texture_paths(id);
+                    SushiEngine::Render::Material material = world.material(id);
+                    const bool any_handle =
+                        material.albedo_map != INVALID_TEXTURE ||
+                        material.metallic_roughness_map != INVALID_TEXTURE ||
+                        material.normal_map != INVALID_TEXTURE ||
+                        material.height_map != INVALID_TEXTURE ||
+                        material.occlusion_map != INVALID_TEXTURE ||
+                        material.emissive_map != INVALID_TEXTURE ||
+                        material.detail_albedo_map != INVALID_TEXTURE ||
+                        material.detail_normal_map != INVALID_TEXTURE ||
+                        material.detail_mask_map != INVALID_TEXTURE;
+                    if (any_handle || !material_paths_empty(paths))
+                    {
+                        material.albedo_map =
+                            resolve(paths.albedo_map, TextureColorSpace::Srgb);
+                        material.metallic_roughness_map =
+                            resolve(paths.metallic_roughness_map, TextureColorSpace::Linear);
+                        material.normal_map =
+                            resolve(paths.normal_map, TextureColorSpace::Linear);
+                        material.height_map =
+                            resolve(paths.height_map, TextureColorSpace::Linear);
+                        material.occlusion_map =
+                            resolve(paths.occlusion_map, TextureColorSpace::Linear);
+                        material.emissive_map =
+                            resolve(paths.emissive_map, TextureColorSpace::Srgb);
+                        material.detail_albedo_map =
+                            resolve(paths.detail_albedo_map, TextureColorSpace::Srgb);
+                        material.detail_normal_map =
+                            resolve(paths.detail_normal_map, TextureColorSpace::Linear);
+                        material.detail_mask_map =
+                            resolve(paths.detail_mask_map, TextureColorSpace::Linear);
+                        world.set_material(id, material);
+                    }
+
+                    if (world.has_decal(id))
+                    {
+                        SushiEngine::Simulation::DecalParams decal = world.decal_params(id);
+                        if (decal.albedo_map != INVALID_TEXTURE ||
+                            decal.orm_map != INVALID_TEXTURE ||
+                            !decal.albedo_map_path.empty() || !decal.orm_map_path.empty())
+                        {
+                            decal.albedo_map =
+                                resolve(decal.albedo_map_path, TextureColorSpace::Srgb);
+                            decal.orm_map =
+                                resolve(decal.orm_map_path, TextureColorSpace::Linear);
+                            world.set_decal_params(id, decal);
+                        }
+                    }
                 }
             }
         } // namespace
@@ -1108,18 +1131,18 @@ namespace SushiEngine
             {
                 apply_scene(world, root);
                 if (assets != nullptr)
-                    resolve_scene_effect_textures(world, *assets);
+                    resolve_scene_textures(world, *assets);
                 return true;
             }
 
             if (!root.is_object() || !root.contains("entities") || !root["entities"].is_array())
                 return false;
 
-            apply_scene(world, root["entities"]);
+            // apply_scene restores the entities and the environment together (the same
+            // object shape capture_scene produces); the file-only extras follow.
+            apply_scene(world, root);
             if (assets != nullptr)
-                resolve_scene_effect_textures(world, *assets);
-            if (root.contains("environment"))
-                world.set_environment(environment_from_json(root["environment"], world.environment()));
+                resolve_scene_textures(world, *assets);
             if (root.contains("weather"))
                 weather_from_json(root["weather"], world, path);
             if (sky != nullptr && root.contains("sky"))

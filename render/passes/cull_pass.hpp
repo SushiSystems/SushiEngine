@@ -123,6 +123,8 @@ namespace SushiEngine
                         float delta_eye[4];
                         float hiz[4];   /**< mip count, width, height, near. */
                         float flags[4]; /**< frustum on, occlusion on, min diameter, spare. */
+                        float frozen_view_projection[16]; /**< Latched at the freeze, while frozen. */
+                        float frozen_delta_eye[4]; /**< xyz = eye - frozen eye; w = freeze active. */
                     };
 
                     /** @brief One slot's cull-params UBO, device stats buffer, and readback. */
@@ -151,6 +153,13 @@ namespace SushiEngine
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
                     VkPipeline pipeline_ = VK_NULL_HANDLE;
                     std::array<SlotBuffers, SLOTS> slots_{};
+
+                    // Freeze-frustum debug: the camera-relative view-projection and the eye
+                    // it was relative to, latched the frame `gpu_culling.freeze` turns on
+                    // and cleared when it turns off.
+                    float frozen_view_projection_[16] = {};
+                    double frozen_eye_[3] = {};
+                    bool frozen_valid_ = false;
             };
         } // namespace Passes
     } // namespace Render

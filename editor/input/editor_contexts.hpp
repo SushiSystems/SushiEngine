@@ -46,9 +46,14 @@ namespace SushiEngine
         /**
          * @brief Builds the always-active editor shortcuts into @p context.
          *
-         * Undo/Redo/Save/Copy/Cut/Paste, each chorded on Control. The ImGui capture gate
+         * Undo/Redo/Save/Copy/Cut/Paste plus the playback pair (Unity's Ctrl+P play/stop
+         * and Ctrl+Shift+P pause), each chorded on Control. The ImGui capture gate
          * suppresses these while a text field owns the keyboard, so Ctrl+Z in a rename field is
          * not hijacked — the `!WantTextInput` guard the old polls did by hand, centralized.
+         *
+         * Pressing Ctrl+Shift+P also satisfies the plain Ctrl+P chord (a chord requires
+         * its modifiers, it does not exclude extras), so the toolbar tests "PauseToggle"
+         * before "PlayToggle" — any other consumer of the pair must do the same.
          *
          * @param context The (empty) context to populate; the caller owns it.
          */
@@ -61,6 +66,22 @@ namespace SushiEngine
             context.add_button("Copy").bind(Key::C, Key::LeftControl).bind(Key::C, Key::RightControl);
             context.add_button("Cut").bind(Key::X, Key::LeftControl).bind(Key::X, Key::RightControl);
             context.add_button("Paste").bind(Key::V, Key::LeftControl).bind(Key::V, Key::RightControl);
+            context.add_button("PlayToggle")
+                .bind(Key::P, Key::LeftControl)
+                .bind(Key::P, Key::RightControl);
+            context.add_button("PauseToggle")
+                .bind(Key::P, Key::LeftControl, Key::LeftShift)
+                .bind(Key::P, Key::LeftControl, Key::RightShift)
+                .bind(Key::P, Key::RightControl, Key::LeftShift)
+                .bind(Key::P, Key::RightControl, Key::RightShift);
+            // Unity's maximize: toggles the Scene view between its dock slot and
+            // covering the whole editor viewport.
+            context.add_button("SceneFullscreen")
+                .bind(Key::Space, Key::LeftShift)
+                .bind(Key::Space, Key::RightShift);
+            context.add_button("NewScene")
+                .bind(Key::N, Key::LeftControl)
+                .bind(Key::N, Key::RightControl);
         }
 
         /**

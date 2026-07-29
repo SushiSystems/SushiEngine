@@ -47,16 +47,17 @@
 #include <SushiEngine/input/input_manager.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/sim/simulation_settings.hpp>
 
 #include "input/editor_contexts.hpp"
 #include "sdl/sdl_input_translator.hpp"
 
 #include <memory>
 
+#include "core/autosave.hpp"
 #include "core/editor_context.hpp"
 #include "core/game_view_render_policy.hpp"
 #include "ui/editor_panels.hpp"
-#include "ui/game_view_toolbar.hpp"
 #include "ui/imgui_backend.hpp"
 #include "core/preferences.hpp"
 #include "serialization/effect_serializer.hpp"
@@ -66,6 +67,9 @@
 #include "animation/animation_panel.hpp"
 #include "animation/animator_graph_panel.hpp"
 #include "animation/animator_preview_panel.hpp"
+#include <SushiEngine/audio/authoring.hpp>
+
+#include "audio/audio_authoring_panel.hpp"
 #include "audio/audio_editor_system.hpp"
 #include "audio/audio_panels.hpp"
 #include "physics/physics_statistics_panel.hpp"
@@ -103,11 +107,15 @@ namespace
 {
     // A single dockspace covering the main viewport, so the panels can be dragged,
     // tabbed, and split Unity-style. Rebuilt each frame; ImGui persists the layout
-    // to imgui.ini between runs. On the first run (no persisted node yet) the
-    // caller-provided default layout is applied once via build_default_layout.
+    // to layout.ini in the per-user config directory (io.IniFilename is pinned there
+    // at startup, so the launch directory does not matter). On the first run (no
+    // persisted node yet), or when @p force_default_layout is set (Window ▸ Reset
+    // Layout), the default layout is applied via build_default_layout. Must be
+    // submitted after the menu/toolbar/status side bars so the work area it fills
+    // already excludes them.
     //
-    // @return true on the frame the default layout still needs to be built.
-    bool draw_dockspace()
+    // @return true on the frame the default layout was (re)built.
+    bool draw_dockspace(bool force_default_layout)
     {
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -127,7 +135,8 @@ namespace
         ImGui::PopStyleVar(3);
 
         const ImGuiID dockspace_id = ImGui::GetID("SushiEngineDockSpace");
-        const bool needs_layout = ImGui::DockBuilderGetNode(dockspace_id) == nullptr;
+        const bool needs_layout =
+            force_default_layout || ImGui::DockBuilderGetNode(dockspace_id) == nullptr;
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f),
                          ImGuiDockNodeFlags_PassthruCentralNode);
         if (needs_layout)
@@ -164,6 +173,22 @@ int main(int argc, char** argv)
             SushiEngine::Render::create_window_renderer(desc);
 
         SushiEngine::Editor::ImGuiBackend imgui(window, *renderer);
+
+        // Pin the dock-layout ini beside preferences.json in the per-user config
+        // directory. ImGui's default is a CWD-relative imgui.ini, which silently
+        // forked the layout per launch directory. The path string must outlive the
+        // ImGui context, so it lives in main's scope; the directory is created now
+        // because ImGui writes the file itself and creates nothing.
+        const std::string layout_ini_path =
+            (std::filesystem::path(SushiEngine::Editor::user_config_directory()) /
+             "layout.ini")
+                .string();
+        {
+            std::error_code layout_directory_error;
+            std::filesystem::create_directories(
+                std::filesystem::path(layout_ini_path).parent_path(), layout_directory_error);
+        }
+        ImGui::GetIO().IniFilename = layout_ini_path.c_str();
 
         // The device-abstracted input manager. The SDL translator is registered after ImGui
         // on the window's handler list (so ImGui still sees events first); the editor consumes
@@ -215,6 +240,26 @@ int main(int argc, char** argv)
         context.preferences = preferences_store->load();
         SushiEngine::Editor::apply_theme(context.preferences.theme);
         context.render_settings = context.preferences.render_settings;
+        context.simulation_settings = context.preferences.simulation;
+        // Session state the preferences persist: the open window set, the Game view
+        // toolbar, and the transform tool — so the editor reopens as it was left.
+        context.panels = context.preferences.panels;
+        context.game_view_settings = context.preferences.game_view;
+        context.gizmo_mode = context.preferences.gizmo_mode;
+        context.gizmo_space = context.preferences.gizmo_space;
+
+        // Folds the live session state back into the preferences aggregate; called
+        // before every save so the file and the running editor never disagree about
+        // what the next launch restores.
+        const auto sync_session_preferences = [&context]()
+        {
+            context.preferences.render_settings = context.render_settings;
+            context.preferences.simulation = context.simulation_settings;
+            context.preferences.panels = context.panels;
+            context.preferences.game_view = context.game_view_settings;
+            context.preferences.gizmo_mode = context.gizmo_mode;
+            context.preferences.gizmo_space = context.gizmo_space;
+        };
 
         // Apply any saved binding overrides onto the compiled-in defaults, then push the
         // contexts and expose them (and the manager) to the panels. A stale or partial blob
@@ -259,6 +304,11 @@ int main(int argc, char** argv)
         SushiEngine::Editor::AudioEditorSystem audio_system;
         context.audio = &audio_system;
 
+        // The sound-designer's authoring project (audio phase S9's DAW panel): owned
+        // here like the particle preview — the panel is a view over it, and it bakes
+        // to a runtime bank. Session-scoped until project-file persistence lands.
+        SushiEngine::Audio::AudioAuthoringProject audio_authoring_project;
+
         // The live GPU-skinned character preview: the A1 "load a rigged, animated glTF and see
         // it looping, skinned on the GPU" surface (design `slop/animation_system.md` §12.1) —
         // every earlier animation phase shipped as an isolated, headless-tested component, but
@@ -269,10 +319,10 @@ int main(int argc, char** argv)
         animated_mesh_preview.load_gltf("examples/assets/rigged_arm_anim.gltf", *context.assets);
         context.animated_mesh_preview = &animated_mesh_preview;
 
-        // The Environment/Lighting panels edit a host setting (see Preferences::environment),
-        // not scene data, so it is applied here from preferences rather than read from
-        // whatever scene ends up open.
-        simulation->world().set_environment(context.preferences.environment);
+        // The editor opens with no scene, which is the "new scene" state — so the world
+        // starts from the user's default environment. A scene opened later brings its
+        // own: the environment is scene content, loaded and saved with the file.
+        simulation->world().set_environment(context.preferences.default_environment);
 
 
         // The Project panel's root: the last one the user browsed to, or a
@@ -296,6 +346,9 @@ int main(int argc, char** argv)
         bool running = true;
         bool gizmo_was_dragging = false;
         bool ui_was_dragging = false;
+        // Autosave: the timer accumulates only while a save would be meaningful
+        // (enabled, scene has a file, scene is dirty) — see autosave.hpp for the policy.
+        SushiEngine::Editor::AutosaveTimer autosave_timer;
         // Multi-select drag: every co-selected entity's pose captured at the grab, so a
         // translate drag carries the whole selection rigidly with the primary.
         SushiEngine::Simulation::EntityTransform multi_primary_start;
@@ -445,8 +498,6 @@ int main(int argc, char** argv)
 
             imgui.new_frame();
 
-            draw_dockspace();
-
             // Global undo/redo/save shortcuts, now resolved through the EditorGlobal input
             // context (rebindable, persisted). The mapper's capture gate already suppresses
             // these while a text field owns the keyboard, so Ctrl+Z in a rename field is not
@@ -467,11 +518,30 @@ int main(int argc, char** argv)
                     SushiEngine::Editor::cut_selection(context);
                 else if (actions.pressed("Paste"))
                     SushiEngine::Editor::paste_clipboard(context);
+                else if (actions.pressed("NewScene"))
+                    SushiEngine::Editor::request_new_scene(context);
+                if (actions.pressed("SceneFullscreen"))
+                    context.scene_view_fullscreen = !context.scene_view_fullscreen;
             }
 
+            // The menu bar, toolbar strip, and status bar are viewport side bars, so
+            // they are submitted before the dockspace: each one shrinks the main
+            // viewport's work area and the dockspace fills what remains. Submitting
+            // them after (as before) baked the first frame's default layout against a
+            // work area that still included them.
             SushiEngine::Editor::draw_menu_bar(context);
+            SushiEngine::Editor::draw_toolbar(context);
             SushiEngine::Editor::draw_status_bar(context);
-            SushiEngine::Editor::draw_toolbar_panel(context);
+
+            // Window ▸ Reset Layout (raised by the menu just drawn): rebuild the
+            // default dock arrangement this same frame, with the open set back at
+            // its defaults — the escape hatch for any wedged drag state.
+            const bool reset_layout = context.layout_reset_requested;
+            context.layout_reset_requested = false;
+            if (reset_layout)
+                context.panels = SushiEngine::Editor::PanelVisibility{};
+            draw_dockspace(reset_layout);
+
             // Selection is shared between the viewports and the panels. The scene
             // renderer speaks 32-bit ids; entity ids stay small, so the round-trip is
             // lossless. A left-click in either viewport picks the entity under it.
@@ -540,6 +610,12 @@ int main(int argc, char** argv)
             // mutated and handed to the viewports, so driving the ephemeris never
             // re-extracts the world (unlike set_environment, which does).
             SushiEngine::Render::Environment environment = scene.environment;
+            // The nest grid is a per-user simulation budget, resolved from the atmosphere
+            // tier here and carried to the renderer on the environment — never on the
+            // world's authored environment and never in a scene file.
+            environment.atmosphere_nest_size =
+                SushiEngine::Simulation::resolve_atmosphere_quality(
+                    context.simulation_settings.atmosphere.quality);
             if (context.sky_enabled)
             {
                 // The simulation owns the master epoch: drive its flow from the panel's
@@ -732,6 +808,9 @@ int main(int argc, char** argv)
                 // Pushed before the draw, so a change made in the Environment panel this
                 // frame is the setting the frame is actually rendered with.
                 scene_view.set_render_settings(context.render_settings);
+                // Unity's Shift+Space maximize, through the same fullscreen state
+                // machine the Game view's checkbox drives.
+                scene_view.set_fullscreen(context.scene_view_fullscreen);
                 gizmo_edited = scene_view.draw(context.panels.scene_view, instances.data(),
                                                instances.size(), environment, selected, true,
                                                gizmo_target, context.gizmo_mode, gizmo_space,
@@ -758,6 +837,8 @@ int main(int argc, char** argv)
                 world.set_ui_target_size(scene_view.target_width(), scene_view.target_height());
                 scene_view.render_resolution(context.scene_render_width,
                                              context.scene_render_height);
+                scene_view.cull_statistics(context.scene_cull_drawn,
+                                           context.scene_cull_tested);
             }
             SushiEngine::Editor::GameViewRenderInputs game_view_render_inputs;
             game_view_render_inputs.has_active_camera = scene.has_camera;
@@ -793,9 +874,11 @@ int main(int argc, char** argv)
                 {
                     // No camera to play through (or nothing for it to target): keep the
                     // Game window open with its toolbar, same as Unity's Game view showing
-                    // "Display 1 No cameras rendering" instead of just disappearing.
-                    SushiEngine::Editor::draw_no_camera_game_view(context.panels.game_view,
-                                                                  context.game_view_settings);
+                    // "Display 1 No cameras rendering" instead of just disappearing. The
+                    // same panel object draws it, so the fullscreen state machine is shared
+                    // with the rendering path instead of duplicated in function statics.
+                    game_view.draw_no_camera(context.panels.game_view,
+                                             context.game_view_settings);
                 }
             }
 
@@ -972,6 +1055,8 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_animator_preview_panel(context);
             SushiEngine::Editor::draw_audio_mixer_panel(context, audio_system);
             SushiEngine::Editor::draw_audio_profiler_panel(context, audio_system);
+            SushiEngine::Editor::draw_audio_authoring_panel(audio_authoring_project, audio_system,
+                                                            &context.panels.audio_authoring);
             SushiEngine::Editor::draw_physics_statistics_panel(context);
             SushiEngine::Editor::draw_preferences_window(context);
             SushiEngine::Editor::draw_input_manager_window(context);
@@ -981,10 +1066,23 @@ int main(int argc, char** argv)
 
             // Persist preferences once per frame after any edit, and apply the fields
             // that take effect live (the camera speed; theme is applied on change).
+            // Autosave, after the panels ran (so this frame's edits are already in the
+            // history revision the dirty check reads). Eligibility rather than a bare
+            // timer: an unsaved scene never pops Save-As, a clean scene never rewrites.
+            if (autosave_timer.tick(context.preferences.autosave &&
+                                        !context.scene_path.empty() &&
+                                        SushiEngine::Editor::scene_is_dirty(context),
+                                    real_delta_seconds,
+                                    context.preferences.autosave_interval_seconds))
+            {
+                if (SushiEngine::Editor::save_current_scene(context))
+                    SushiEngine::Editor::editor_log(context, "Autosaved.");
+            }
+
             if (context.preferences_dirty)
             {
                 scene_camera.set_move_speed(context.preferences.camera_move_speed);
-                context.preferences.render_settings = context.render_settings;
+                sync_session_preferences();
                 preferences_store->save(context.preferences);
                 context.preferences_dirty = false;
             }
@@ -1007,7 +1105,7 @@ int main(int argc, char** argv)
             }
         }
 
-        context.preferences.render_settings = context.render_settings;
+        sync_session_preferences();
         preferences_store->save(context.preferences);
         renderer->wait_idle();
         return 0;

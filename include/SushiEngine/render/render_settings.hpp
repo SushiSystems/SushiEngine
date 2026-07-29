@@ -542,8 +542,9 @@ namespace SushiEngine
              * of culling is visible as the camera moves past it. Off in every shipping frame.
              */
             bool freeze = false;
-            /** @brief Whether the editor should read back and show the per-frame cull counts. */
-            bool show_statistics = false;
+            // No show_statistics flag: the readback is always live and nearly free, and
+            // the editor simply displays it — a toggle for "may I look at two integers"
+            // was a control whose only behavior was hiding a label.
         };
 
         /**
@@ -582,7 +583,12 @@ namespace SushiEngine
         {
             RenderQuality quality = RenderQuality::High;
             AntiAliasingMode anti_aliasing = AntiAliasingMode::Temporal;
-            UpscaleMode upscale = UpscaleMode::Temporal;
+            // Note there is deliberately no authored UpscaleMode field: the frame never
+            // consumed one (the temporal path is governed by anti_aliasing and the render
+            // scale), so an authored backend choice was a promise nothing kept. The
+            // IUpscaler seam remains (see render/frame/upscaler.hpp); when a second
+            // backend actually ships, the authored choice returns together with its
+            // consumer.
 
             /**
              * @brief Manual internal render scale per axis, [0.5, 1].

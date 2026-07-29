@@ -133,9 +133,11 @@ namespace SushiEngine
 
             bool RayTracedShadowPass::enabled(const Frame::FrameContext& frame) const noexcept
             {
+                // The tier arrives resolved (quality.ray_traced_shadows), never as the raw
+                // enum: what "Ultra" means is decided in resolve_quality, not per pass.
                 return pipeline_.valid() && frame.settings.shadows.enabled &&
                        frame.settings.shadows.ray_traced &&
-                       frame.settings.quality == RenderQuality::Ultra;
+                       frame.quality.ray_traced_shadows;
             }
 
             void RayTracedShadowPass::register_pass(Graph::RenderGraph& graph,

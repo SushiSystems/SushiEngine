@@ -35,6 +35,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "../serialization/environment_serializer.hpp"
+
 namespace SushiEngine
 {
     namespace Editor
@@ -59,6 +61,164 @@ namespace SushiEngine
                     return fs::path(home) / ".config" / "SushiEngine";
                 return fs::path(".") / "SushiEngine";
     #endif
+            }
+
+            const char* to_string(SushiEngine::Simulation::AtmosphereQuality quality) noexcept
+            {
+                using SushiEngine::Simulation::AtmosphereQuality;
+                switch (quality)
+                {
+                    case AtmosphereQuality::Low:    return "low";
+                    case AtmosphereQuality::Medium: return "medium";
+                    case AtmosphereQuality::Ultra:  return "ultra";
+                    case AtmosphereQuality::High:   return "high";
+                }
+                return "high";
+            }
+
+            SushiEngine::Simulation::AtmosphereQuality
+            atmosphere_quality_from(const std::string& value) noexcept
+            {
+                using SushiEngine::Simulation::AtmosphereQuality;
+                if (value == "low")
+                    return AtmosphereQuality::Low;
+                if (value == "medium")
+                    return AtmosphereQuality::Medium;
+                if (value == "ultra")
+                    return AtmosphereQuality::Ultra;
+                return AtmosphereQuality::High;
+            }
+
+            nlohmann::json simulation_settings_to_json(
+                const SushiEngine::Simulation::SimulationSettings& s)
+            {
+                return nlohmann::json{
+                    {"atmosphere", nlohmann::json{{"quality", to_string(s.atmosphere.quality)}}}};
+            }
+
+            SushiEngine::Simulation::SimulationSettings
+            simulation_settings_from_json(const nlohmann::json& j)
+            {
+                SushiEngine::Simulation::SimulationSettings s;
+                if (!j.is_object())
+                    return s;
+                if (j.contains("atmosphere") && j["atmosphere"].is_object())
+                    s.atmosphere.quality = atmosphere_quality_from(
+                        j["atmosphere"].value("quality", to_string(s.atmosphere.quality)));
+                return s;
+            }
+
+            const char* to_string(GizmoMode mode) noexcept
+            {
+                switch (mode)
+                {
+                    case GizmoMode::Rotate:    return "rotate";
+                    case GizmoMode::Scale:     return "scale";
+                    case GizmoMode::Translate: return "translate";
+                }
+                return "translate";
+            }
+
+            GizmoMode gizmo_mode_from(const std::string& value) noexcept
+            {
+                if (value == "rotate")
+                    return GizmoMode::Rotate;
+                if (value == "scale")
+                    return GizmoMode::Scale;
+                return GizmoMode::Translate;
+            }
+
+            const char* to_string(GizmoSpace space) noexcept
+            {
+                return space == GizmoSpace::Local ? "local" : "world";
+            }
+
+            GizmoSpace gizmo_space_from(const std::string& value) noexcept
+            {
+                return value == "local" ? GizmoSpace::Local : GizmoSpace::World;
+            }
+
+            // The open/closed window set, one key per PanelVisibility flag. Reads are
+            // tolerant like the rest of the store, so a panel added later just keeps
+            // its compiled-in default when an older file omits it.
+            nlohmann::json panels_to_json(const PanelVisibility& p)
+            {
+                return nlohmann::json{{"scene_view", p.scene_view},
+                                      {"game_view", p.game_view},
+                                      {"hierarchy", p.hierarchy},
+                                      {"inspector", p.inspector},
+                                      {"project", p.project},
+                                      {"text_editor", p.text_editor},
+                                      {"console", p.console},
+                                      {"statistics", p.statistics},
+                                      {"animation", p.animation},
+                                      {"animator_graph", p.animator_graph},
+                                      {"animator_preview", p.animator_preview},
+                                      {"environment", p.environment},
+                                      {"rendering", p.rendering},
+                                      {"lighting", p.lighting},
+                                      {"post_process", p.post_process},
+                                      {"meteorology", p.meteorology},
+                                      {"gpu_culling", p.gpu_culling},
+                                      {"physics", p.physics},
+                                      {"preview", p.preview},
+                                      {"audio_mixer", p.audio_mixer},
+                                      {"audio_profiler", p.audio_profiler},
+                                      {"audio_authoring", p.audio_authoring},
+                                      {"preferences", p.preferences},
+                                      {"input_manager", p.input_manager}};
+            }
+
+            PanelVisibility panels_from_json(const nlohmann::json& j)
+            {
+                PanelVisibility p;
+                if (!j.is_object())
+                    return p;
+                p.scene_view = j.value("scene_view", p.scene_view);
+                p.game_view = j.value("game_view", p.game_view);
+                p.hierarchy = j.value("hierarchy", p.hierarchy);
+                p.inspector = j.value("inspector", p.inspector);
+                p.project = j.value("project", p.project);
+                p.text_editor = j.value("text_editor", p.text_editor);
+                p.console = j.value("console", p.console);
+                p.statistics = j.value("statistics", p.statistics);
+                p.animation = j.value("animation", p.animation);
+                p.animator_graph = j.value("animator_graph", p.animator_graph);
+                p.animator_preview = j.value("animator_preview", p.animator_preview);
+                p.environment = j.value("environment", p.environment);
+                p.rendering = j.value("rendering", p.rendering);
+                p.lighting = j.value("lighting", p.lighting);
+                p.post_process = j.value("post_process", p.post_process);
+                p.meteorology = j.value("meteorology", p.meteorology);
+                p.gpu_culling = j.value("gpu_culling", p.gpu_culling);
+                p.physics = j.value("physics", p.physics);
+                p.preview = j.value("preview", p.preview);
+                p.audio_mixer = j.value("audio_mixer", p.audio_mixer);
+                p.audio_profiler = j.value("audio_profiler", p.audio_profiler);
+                p.audio_authoring = j.value("audio_authoring", p.audio_authoring);
+                p.preferences = j.value("preferences", p.preferences);
+                p.input_manager = j.value("input_manager", p.input_manager);
+                return p;
+            }
+
+            nlohmann::json game_view_to_json(const GameViewSettings& g)
+            {
+                return nlohmann::json{{"aspect", static_cast<std::uint32_t>(g.aspect)},
+                                      {"orientation", static_cast<std::uint32_t>(g.orientation)},
+                                      {"fullscreen", g.fullscreen}};
+            }
+
+            GameViewSettings game_view_from_json(const nlohmann::json& j)
+            {
+                GameViewSettings g;
+                if (!j.is_object())
+                    return g;
+                g.aspect = static_cast<GameViewAspectPreset>(
+                    j.value("aspect", static_cast<std::uint32_t>(g.aspect)));
+                g.orientation = static_cast<GameViewOrientation>(
+                    j.value("orientation", static_cast<std::uint32_t>(g.orientation)));
+                g.fullscreen = j.value("fullscreen", g.fullscreen);
+                return g;
             }
 
             const char* to_string(EditorTheme theme) noexcept
@@ -91,7 +251,6 @@ namespace SushiEngine
                 return json{
                     {"quality", static_cast<std::uint32_t>(s.quality)},
                     {"anti_aliasing", static_cast<std::uint32_t>(s.anti_aliasing)},
-                    {"upscale", static_cast<std::uint32_t>(s.upscale)},
                     {"render_scale", s.render_scale},
                     {"shadows",
                      json{{"enabled", s.shadows.enabled},
@@ -193,8 +352,7 @@ namespace SushiEngine
                           {"occlusion", s.gpu_culling.occlusion},
                           {"frustum", s.gpu_culling.frustum},
                           {"min_screen_diameter", s.gpu_culling.min_screen_diameter},
-                          {"freeze", s.gpu_culling.freeze},
-                          {"show_statistics", s.gpu_culling.show_statistics}}},
+                          {"freeze", s.gpu_culling.freeze}}},
                     {"delivery",
                      json{{"async_compute", s.delivery.async_compute},
                           {"frames_in_flight", s.delivery.frames_in_flight},
@@ -212,8 +370,6 @@ namespace SushiEngine
                     json.value("quality", static_cast<std::uint32_t>(s.quality)));
                 s.anti_aliasing = static_cast<SushiEngine::Render::AntiAliasingMode>(
                     json.value("anti_aliasing", static_cast<std::uint32_t>(s.anti_aliasing)));
-                s.upscale = static_cast<SushiEngine::Render::UpscaleMode>(
-                    json.value("upscale", static_cast<std::uint32_t>(s.upscale)));
                 s.render_scale = json.value("render_scale", s.render_scale);
 
                 if (json.contains("shadows") && json["shadows"].is_object())
@@ -395,8 +551,6 @@ namespace SushiEngine
                     s.gpu_culling.min_screen_diameter =
                         j.value("min_screen_diameter", s.gpu_culling.min_screen_diameter);
                     s.gpu_culling.freeze = j.value("freeze", s.gpu_culling.freeze);
-                    s.gpu_culling.show_statistics =
-                        j.value("show_statistics", s.gpu_culling.show_statistics);
                 }
                 if (json.contains("delivery") && json["delivery"].is_object())
                 {
@@ -410,181 +564,6 @@ namespace SushiEngine
                 }
                 return s;
             }
-
-            nlohmann::json vec3_to_json(const SushiEngine::Vector3& v)
-            {
-                return nlohmann::json{{"x", v.x}, {"y", v.y}, {"z", v.z}};
-            }
-
-            SushiEngine::Vector3 vec3_from_json(const nlohmann::json& j)
-            {
-                SushiEngine::Vector3 v;
-                v.x = j.value("x", SushiEngine::Scalar(0));
-                v.y = j.value("y", SushiEngine::Scalar(0));
-                v.z = j.value("z", SushiEngine::Scalar(0));
-                return v;
-            }
-
-            // The Environment fields the Environment/Lighting panels edit. This is a host
-            // (editor) setting, not scene data (see Preferences::environment), so it is
-            // serialized independently of the scene file's own environment block.
-            // `bodies`/`sky_stars`/`dominant_*` are excluded: the ephemeris repopulates
-            // those every frame from SceneSkyState and are not author state.
-            nlohmann::json environment_to_json(const SushiEngine::Render::Environment& e)
-            {
-                using nlohmann::json;
-                json decks = json::array();
-                for (int i = 0; i < SushiEngine::Render::CLOUD_MAX_DECKS; ++i)
-                {
-                    const SushiEngine::Render::CloudDeck& d = e.clouds.decks[i];
-                    decks.push_back(json{{"enabled", d.enabled},
-                                          {"genus", static_cast<std::uint32_t>(d.genus)},
-                                          {"coverage_bias", d.coverage_bias},
-                                          {"density_scale", d.density_scale}});
-                }
-
-                return json{
-                    {"sun",
-                     json{{"direction", vec3_to_json(e.sun.direction)},
-                          {"color", vec3_to_json(e.sun.color)},
-                          {"intensity", e.sun.intensity}}},
-                    {"planet_surface_style", static_cast<std::uint32_t>(e.planet_surface_style)},
-                    {"atmosphere",
-                     json{{"enabled", e.atmosphere.enabled},
-                          {"height", e.atmosphere.height},
-                          {"rayleigh_coefficient", vec3_to_json(e.atmosphere.rayleigh_coefficient)},
-                          {"mie_coefficient", e.atmosphere.mie_coefficient},
-                          {"mie_anisotropy", e.atmosphere.mie_anisotropy},
-                          {"rayleigh_scale_height", e.atmosphere.rayleigh_scale_height},
-                          {"mie_scale_height", e.atmosphere.mie_scale_height}}},
-                    {"surface",
-                     json{{"ground_albedo", vec3_to_json(e.surface.ground_albedo)},
-                          {"ocean_color", vec3_to_json(e.surface.ocean_color)},
-                          {"roughness", e.surface.roughness}}},
-                    {"clouds",
-                     json{{"enabled", e.clouds.enabled},
-                          {"light_absorption", e.clouds.light_absorption},
-                          {"forward_scattering", e.clouds.forward_scattering},
-                          {"powder_strength", e.clouds.powder_strength},
-                          {"ambient_strength", e.clouds.ambient_strength},
-                          {"ground_shadow_strength", e.clouds.ground_shadow_strength},
-                          {"weather_scale", e.clouds.weather_scale},
-                          {"evolution_rate", e.clouds.evolution_rate},
-                          {"decks", decks}}},
-                    {"stars",
-                     json{{"enabled", e.stars.enabled},
-                          {"brightness", e.stars.brightness},
-                          {"density", e.stars.density}}},
-                    {"night",
-                     json{{"enabled", e.night.enabled},
-                          {"reflected_intensity", e.night.reflected_intensity},
-                          {"star_intensity", e.night.star_intensity}}},
-                    {"ambient", vec3_to_json(e.ambient)},
-                    {"exposure", e.exposure},
-                    {"image_based_lighting", e.image_based_lighting},
-                    {"ibl_intensity", e.ibl_intensity}};
-            }
-
-            // Applies the persisted fields onto a default-constructed Environment, leaving
-            // every field the JSON omits (including the ephemeris-owned fields never
-            // written above) at its default.
-            SushiEngine::Render::Environment environment_from_json(const nlohmann::json& j)
-            {
-                SushiEngine::Render::Environment e;
-                if (!j.is_object())
-                    return e;
-
-                if (j.contains("sun") && j["sun"].is_object())
-                {
-                    const nlohmann::json& s = j["sun"];
-                    if (s.contains("direction"))
-                        e.sun.direction = vec3_from_json(s["direction"]);
-                    if (s.contains("color"))
-                        e.sun.color = vec3_from_json(s["color"]);
-                    e.sun.intensity = s.value("intensity", e.sun.intensity);
-                }
-                e.planet_surface_style = static_cast<SushiEngine::Render::SurfaceStyle>(
-                    j.value("planet_surface_style",
-                            static_cast<std::uint32_t>(e.planet_surface_style)));
-                if (j.contains("atmosphere") && j["atmosphere"].is_object())
-                {
-                    const nlohmann::json& a = j["atmosphere"];
-                    e.atmosphere.enabled = a.value("enabled", e.atmosphere.enabled);
-                    e.atmosphere.height = a.value("height", e.atmosphere.height);
-                    if (a.contains("rayleigh_coefficient"))
-                        e.atmosphere.rayleigh_coefficient = vec3_from_json(a["rayleigh_coefficient"]);
-                    e.atmosphere.mie_coefficient =
-                        a.value("mie_coefficient", e.atmosphere.mie_coefficient);
-                    e.atmosphere.mie_anisotropy =
-                        a.value("mie_anisotropy", e.atmosphere.mie_anisotropy);
-                    e.atmosphere.rayleigh_scale_height =
-                        a.value("rayleigh_scale_height", e.atmosphere.rayleigh_scale_height);
-                    e.atmosphere.mie_scale_height =
-                        a.value("mie_scale_height", e.atmosphere.mie_scale_height);
-                }
-                if (j.contains("surface") && j["surface"].is_object())
-                {
-                    const nlohmann::json& s = j["surface"];
-                    if (s.contains("ground_albedo"))
-                        e.surface.ground_albedo = vec3_from_json(s["ground_albedo"]);
-                    if (s.contains("ocean_color"))
-                        e.surface.ocean_color = vec3_from_json(s["ocean_color"]);
-                    e.surface.roughness = s.value("roughness", e.surface.roughness);
-                }
-                if (j.contains("clouds") && j["clouds"].is_object())
-                {
-                    const nlohmann::json& c = j["clouds"];
-                    e.clouds.enabled = c.value("enabled", e.clouds.enabled);
-                    e.clouds.light_absorption = c.value("light_absorption", e.clouds.light_absorption);
-                    e.clouds.forward_scattering =
-                        c.value("forward_scattering", e.clouds.forward_scattering);
-                    e.clouds.powder_strength = c.value("powder_strength", e.clouds.powder_strength);
-                    e.clouds.ambient_strength = c.value("ambient_strength", e.clouds.ambient_strength);
-                    e.clouds.ground_shadow_strength =
-                        c.value("ground_shadow_strength", e.clouds.ground_shadow_strength);
-                    e.clouds.weather_scale = c.value("weather_scale", e.clouds.weather_scale);
-                    e.clouds.evolution_rate = c.value("evolution_rate", e.clouds.evolution_rate);
-                    if (c.contains("decks") && c["decks"].is_array())
-                    {
-                        const nlohmann::json& decks = c["decks"];
-                        for (int i = 0;
-                             i < SushiEngine::Render::CLOUD_MAX_DECKS &&
-                             static_cast<std::size_t>(i) < decks.size();
-                             ++i)
-                        {
-                            const nlohmann::json& d = decks[static_cast<std::size_t>(i)];
-                            SushiEngine::Render::CloudDeck& deck = e.clouds.decks[i];
-                            deck.enabled = d.value("enabled", deck.enabled);
-                            deck.genus = static_cast<SushiEngine::Render::CloudGenus>(
-                                d.value("genus", static_cast<std::uint32_t>(deck.genus)));
-                            deck.coverage_bias = d.value("coverage_bias", deck.coverage_bias);
-                            deck.density_scale = d.value("density_scale", deck.density_scale);
-                        }
-                    }
-                }
-                if (j.contains("stars") && j["stars"].is_object())
-                {
-                    const nlohmann::json& s = j["stars"];
-                    e.stars.enabled = s.value("enabled", e.stars.enabled);
-                    e.stars.brightness = s.value("brightness", e.stars.brightness);
-                    e.stars.density = s.value("density", e.stars.density);
-                }
-                if (j.contains("night") && j["night"].is_object())
-                {
-                    const nlohmann::json& n = j["night"];
-                    e.night.enabled = n.value("enabled", e.night.enabled);
-                    e.night.reflected_intensity =
-                        n.value("reflected_intensity", e.night.reflected_intensity);
-                    e.night.star_intensity = n.value("star_intensity", e.night.star_intensity);
-                }
-                if (j.contains("ambient"))
-                    e.ambient = vec3_from_json(j["ambient"]);
-                e.exposure = j.value("exposure", e.exposure);
-                e.image_based_lighting = j.value("image_based_lighting", e.image_based_lighting);
-                e.ibl_intensity = j.value("ibl_intensity", e.ibl_intensity);
-                return e;
-            }
-
             /**
              * @brief JSON-file implementation of the preferences store.
              *
@@ -631,6 +610,8 @@ namespace SushiEngine
                             json.value("snap_rotate_degrees", preferences.snap_rotate_degrees);
                         preferences.snap_scale = json.value("snap_scale", preferences.snap_scale);
                         preferences.autosave = json.value("autosave", preferences.autosave);
+                        preferences.autosave_interval_seconds = json.value(
+                            "autosave_interval_seconds", preferences.autosave_interval_seconds);
                         preferences.last_project_root =
                             json.value("last_project_root", preferences.last_project_root);
                         if (json.contains("recent_scenes") && json["recent_scenes"].is_array())
@@ -639,8 +620,27 @@ namespace SushiEngine
                         if (json.contains("render_settings"))
                             preferences.render_settings =
                                 render_settings_from_json(json["render_settings"]);
-                        if (json.contains("environment"))
-                            preferences.environment = environment_from_json(json["environment"]);
+                        if (json.contains("simulation_settings"))
+                            preferences.simulation =
+                                simulation_settings_from_json(json["simulation_settings"]);
+                        // The default environment for new scenes, in the same full shape the
+                        // scene file uses (one serializer owns it). "environment" is the key
+                        // this held before it was a *default* — read as a fallback so an
+                        // existing preferences file keeps its authored values.
+                        if (json.contains("default_environment"))
+                            preferences.default_environment = environment_from_json(
+                                json["default_environment"], preferences.default_environment);
+                        else if (json.contains("environment"))
+                            preferences.default_environment = environment_from_json(
+                                json["environment"], preferences.default_environment);
+                        if (json.contains("panels"))
+                            preferences.panels = panels_from_json(json["panels"]);
+                        if (json.contains("game_view"))
+                            preferences.game_view = game_view_from_json(json["game_view"]);
+                        preferences.gizmo_mode = gizmo_mode_from(
+                            json.value("gizmo_mode", to_string(preferences.gizmo_mode)));
+                        preferences.gizmo_space = gizmo_space_from(
+                            json.value("gizmo_space", to_string(preferences.gizmo_space)));
                         // Input bindings are nested as a real object; hold their dumped text so
                         // the Preferences struct stays free of the JSON dependency.
                         if (json.contains("input_bindings") && json["input_bindings"].is_object())
@@ -662,10 +662,17 @@ namespace SushiEngine
                         json["snap_rotate_degrees"] = preferences.snap_rotate_degrees;
                         json["snap_scale"] = preferences.snap_scale;
                         json["autosave"] = preferences.autosave;
+                        json["autosave_interval_seconds"] = preferences.autosave_interval_seconds;
                         json["recent_scenes"] = preferences.recent_scenes;
                         json["last_project_root"] = preferences.last_project_root;
                         json["render_settings"] = render_settings_to_json(preferences.render_settings);
-                        json["environment"] = environment_to_json(preferences.environment);
+                        json["simulation_settings"] = simulation_settings_to_json(preferences.simulation);
+                        json["default_environment"] =
+                            environment_to_json(preferences.default_environment);
+                        json["panels"] = panels_to_json(preferences.panels);
+                        json["game_view"] = game_view_to_json(preferences.game_view);
+                        json["gizmo_mode"] = to_string(preferences.gizmo_mode);
+                        json["gizmo_space"] = to_string(preferences.gizmo_space);
                         // Re-nest the bindings blob as an object when it parses; a corrupt or empty
                         // blob is simply omitted so the next load falls back to defaults.
                         if (!preferences.input_bindings.empty())
@@ -690,9 +697,19 @@ namespace SushiEngine
             };
         } // namespace
 
+        std::string user_config_directory()
+        {
+            return user_config_dir().string();
+        }
+
         std::unique_ptr<IPreferencesStore> create_preferences_store()
         {
             return std::make_unique<JsonPreferencesStore>(user_config_dir() / "preferences.json");
+        }
+
+        std::unique_ptr<IPreferencesStore> create_preferences_store(const std::string& path)
+        {
+            return std::make_unique<JsonPreferencesStore>(fs::path(path));
         }
     } // namespace Editor
 } // namespace SushiEngine

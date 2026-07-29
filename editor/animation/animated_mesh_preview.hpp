@@ -90,6 +90,21 @@ namespace SushiEngine
                 bool load_gltf(const char* path, Render::IAssetLibrary& assets,
                                std::size_t skin_index = 0);
 
+                /**
+                 * @brief Replaces the preview's controller with an externally authored one.
+                 *
+                 * The Animator Graph panel's bridge: the authored @ref
+                 * Animation::ControllerDesc compiles against the loaded character's clip
+                 * set and drives this preview instance. On a failed compile (a state
+                 * naming a clip the loaded glTF does not carry, an empty graph) the
+                 * previous, known-good controller is restored — the preview never goes
+                 * dark to show an error the panel can report instead.
+                 *
+                 * @param desc The authored controller to compile and bind.
+                 * @return True if the controller compiled and now drives the preview.
+                 */
+                bool apply_controller(const Animation::ControllerDesc& desc);
+
                 /** @brief Drops the loaded character, if any, and every added layer. */
                 void clear();
 

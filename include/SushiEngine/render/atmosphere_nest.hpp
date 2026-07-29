@@ -559,8 +559,11 @@ namespace SushiEngine
         };
 
         /**
-         * @brief The nest's discretization at one quality tier.
+         * @brief The nest's discretization at one *atmosphere* quality tier.
          *
+         * Resolved by `resolve_atmosphere_quality` (`SushiEngine/sim/simulation_settings.hpp`)
+         * from the simulation's own tier — never by the render tier, which once carried
+         * this as a stowaway and made "Ultra rendering" silently rebuild the weather.
          * The horizontal *domain* is the same at every tier and only its resolution changes,
          * so raising the tier resolves the same weather more finely instead of simulating a
          * different amount of world — which is what keeps a scene's look consistent across

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* material_inspector.hpp                                                 */
+/* gizmo_state.hpp                                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -21,45 +21,52 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#pragma once
+#ifndef SUSHIENGINE_EDITOR_GIZMO_STATE_HPP
+#define SUSHIENGINE_EDITOR_GIZMO_STATE_HPP
 
 /**
- * @file material_inspector.hpp
- * @brief The material editor, laid out like Unity's Standard shader inspector.
+ * @file gizmo_state.hpp
+ * @brief The gizmo's mode and axis-frame vocabulary, free of the controller.
  *
- * Kept out of editor_panels.cpp because the material is the widest authoring
- * surface in the editor and would otherwise dominate the inspector file. The
- * ordering follows the one an artist expects: tiling and offset at the top, then
- * each map with the scalar or tint that goes with it, then the detail fold-out,
- * then the advanced lobes and the rendering state.
+ * These two enums are shared editor state — the toolbar sets them, the context
+ * holds them, the preferences persist them, and the controller reads them. They
+ * live apart from @c gizmo_controller.hpp so a header that only names the state
+ * (preferences, context) does not inherit the controller's ImGui dependency.
  */
-
-#include <SushiEngine/render/material.hpp>
-#include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine
 {
-    namespace Render
-    {
-        class IAssetLibrary;
-    }
-
     namespace Editor
     {
         /**
-         * @brief Draws the material editor for one surface.
+         * @brief Which transform channel the viewport gizmo manipulates.
          *
-         * Texture slots load through @p assets when a path is entered, so the panel
-         * owns no asset state of its own: the typed path lives in @p paths, the
-         * entity's persistent record of where each texture id came from.
-         *
-         * @param material Edited in place.
-         * @param paths    The per-slot source paths, edited in place alongside the ids.
-         * @param assets   Library texture paths are loaded through.
-         * @return true when any field changed this frame.
+         * Mirrors Unity's W/E/R tools: move, rotate, scale. The active mode is editor
+         * state (shared through the context and the toolbar); the controller only reads
+         * it to pick which handle set to draw and how a drag maps to the transform.
          */
-        bool draw_material_editor(SushiEngine::Render::Material& material,
-                                  SushiEngine::Simulation::MaterialTexturePaths& paths,
-                                  SushiEngine::Render::IAssetLibrary& assets);
+        enum class GizmoMode
+        {
+            Translate,
+            Rotate,
+            Scale
+        };
+
+        /**
+         * @brief Which frame a Translate/Rotate drag resolves its axes against.
+         *
+         * World keeps the handles aligned to the world's fixed X/Y/Z. Local aligns them
+         * to the selection's own orientation, so dragging X always moves/turns the object
+         * along its own facing rather than the world's. Scale always drags in local axes
+         * regardless of this setting — a world-aligned scale on a rotated object would
+         * shear it, which is never what an author wants.
+         */
+        enum class GizmoSpace
+        {
+            Local,
+            World
+        };
     } // namespace Editor
 } // namespace SushiEngine
+
+#endif

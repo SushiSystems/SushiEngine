@@ -55,6 +55,13 @@ namespace SushiEngine
         bool save_current_scene(EditorContext& context);
 
         /**
+         * @brief Requests a new scene, deferring to the unsaved-changes prompt when the
+         * current one is dirty. Shared by File ▸ New Scene and the Ctrl+N shortcut.
+         * @param context Shared editor state.
+         */
+        void request_new_scene(EditorContext& context);
+
+        /**
          * @brief Snapshots the current Hierarchy selection into @ref EditorContext::clipboard.
          *
          * Shared by the Edit > Copy menu item, its Ctrl+C shortcut, and every Hierarchy
@@ -204,14 +211,19 @@ namespace SushiEngine
         void draw_text_editor_panel(EditorContext& context);
 
         /**
-         * @brief Draw the playback toolbar (Play / Pause / Step).
+         * @brief Draw the toolbar: a fixed strip under the menu bar, not a dockable window.
          *
-         * Toggles @ref EditorContext::play_state and logs the transition; with no runtime
-         * wired in the buttons only reflect state, marking the seam a future loop binds to.
+         * Hosts Play/Pause/Step (which snapshot and restore the scene around a play
+         * session), the transform-tool selector, the gizmo axis-frame toggle, and the
+         * derived Overall Quality preset (never stored; writes every domain tier). Also
+         * resolves the playback shortcuts (Ctrl+P play/stop, Ctrl+Shift+P pause) and the
+         * W/E/R tool hotkeys, so every playback and tool entry point lives in one place.
+         * Rendered with `BeginViewportSideBar` like the status bar — always present, no
+         * close button, which is why it no longer has a @ref PanelVisibility flag.
          *
-         * @param context Shared editor state; updates the playback state.
+         * @param context Shared editor state; updates playback and gizmo state.
          */
-        void draw_toolbar_panel(EditorContext& context);
+        void draw_toolbar(EditorContext& context);
 
         /**
          * @brief Draw the Console panel showing accumulated log lines with a clear button.
@@ -234,7 +246,7 @@ namespace SushiEngine
         void draw_status_bar(EditorContext& context);
 
         /**
-         * @brief Draw the modal Preferences window when @c show_preferences is set.
+         * @brief Draw the Preferences window when @ref PanelVisibility::preferences is set.
          *
          * Edits @ref EditorContext::preferences in place across General / Editor / Scene
          * sections. Any change sets @ref EditorContext::preferences_dirty so the loop
@@ -246,7 +258,7 @@ namespace SushiEngine
         void draw_preferences_window(EditorContext& context);
 
         /**
-         * @brief Draw the Edit > Input Manager window when @c show_input_manager is set.
+         * @brief Draw the Edit > Input Manager window when @ref PanelVisibility::input_manager is set.
          *
          * Lists the editor's input contexts and their actions with the current binding, a
          * click-to-rebind flow (via the RebindingListener), a conflict indicator, and a
@@ -308,11 +320,15 @@ namespace SushiEngine
         void apply_theme(EditorTheme theme);
 
         /**
-         * @brief Build the default Unity-style dock layout the first time the editor runs.
+         * @brief Build the default Unity-style dock layout, docking every editor window.
          *
-         * Splits the dockspace into Hierarchy (left), Inspector (right), Project plus the
-         * text editor (bottom), and a central node left empty for a future viewport. Only
-         * applied when no persisted layout exists, so user rearrangement survives restarts.
+         * Splits the dockspace into Hierarchy (left), the Scene/Game/Preview viewport
+         * tabs (centre), Inspector with the settings panels stacked behind it (right),
+         * and Project/Console plus the timeline-shaped tools (bottom). Docks all windows
+         * — open or closed — so any window opened later lands in its home node instead
+         * of floating. Applied when no persisted layout exists (user rearrangement
+         * survives restarts) and again on Window ▸ Reset Layout, which tears the node
+         * tree down and rebuilds this exact arrangement.
          *
          * @param dockspace_id The id of the root dockspace node to partition.
          */

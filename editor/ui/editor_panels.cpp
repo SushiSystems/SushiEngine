@@ -58,7 +58,6 @@
 #include <SushiEngine/input/bindings_json.hpp>
 #include <SushiEngine/input/input_manager.hpp>
 #include <SushiEngine/render/quality_params.hpp>
-#include <SushiEngine/render/upscaler_info.hpp>
 
 #include "../input/editor_contexts.hpp"
 
@@ -77,6 +76,38 @@ namespace SushiEngine
 
         namespace
         {
+            // A rigged character asset: double-clicking one loads it into the animated
+            // preview instead of handing a binary to the text editor or the shell.
+            bool has_character_extension(const fs::path& path)
+            {
+                std::string ext = path.extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(),
+                               [](unsigned char c) { return static_cast<char>(::tolower(c)); });
+                return ext == ".gltf" || ext == ".glb";
+            }
+
+            // Routes a rigged glTF into the animated preview and opens the surfaces that
+            // show the result — the Project panel's share of the character-loading flow
+            // (the Animator panel's Load Character field is the other entry).
+            void open_character_in_preview(EditorContext& context, const fs::path& path)
+            {
+                if (context.animated_mesh_preview == nullptr || context.assets == nullptr)
+                    return;
+                if (context.animated_mesh_preview->load_gltf(path.string().c_str(),
+                                                             *context.assets))
+                {
+                    context.panels.preview = true;
+                    context.panels.animator_preview = true;
+                    editor_log(context, "Loaded character '" + path.string() +
+                                            "' into the preview.");
+                }
+                else
+                {
+                    editor_log(context, "Could not load '" + path.string() +
+                                            "' as a rigged character.");
+                }
+            }
+
             // A file is opened into the text editor only when it looks textual; the
             // browser still lists everything, but double-clicking a binary is a no-op.
             bool has_text_extension(const fs::path& path)
@@ -164,6 +195,16 @@ namespace SushiEngine
                     return name;
                 return name.substr(0, max_chars - 1) + "…";
             }
+
+            // Whether the platform shell verbs (Show in Explorer, open with the default
+            // app) exist on this build. Off Windows the menu items offering them are
+            // disabled with a reason rather than silently doing nothing — a control that
+            // does nothing is a bug, not a placeholder (editor_ux_overhaul.md §2.4).
+#ifdef _WIN32
+            constexpr bool SHELL_INTEGRATION_AVAILABLE = true;
+#else
+            constexpr bool SHELL_INTEGRATION_AVAILABLE = false;
+#endif
 
             // Opens the platform file browser at `path`, selecting it if it's a file.
             // Windows-only for now; the project targets Windows first (see CLAUDE.md).
@@ -518,6 +559,8 @@ namespace SushiEngine
                 entry.color = world->color(id);
                 entry.visible = world->visible(id);
                 entry.has_renderer = world->has_renderer(id);
+                entry.material = world->material(id);
+                entry.material_texture_paths = world->material_texture_paths(id);
                 entry.is_camera = world->is_camera(id);
                 entry.camera_params = world->camera_params(id);
                 entry.has_physics_body = world->has_physics_body(id);
@@ -532,6 +575,21 @@ namespace SushiEngine
                 entry.shape_params = world->shape_params(id);
                 entry.has_collider = world->has_collider(id);
                 entry.collider_params = world->collider_params(id);
+                entry.has_particle_emitter = world->has_particle_emitter(id);
+                if (entry.has_particle_emitter)
+                {
+                    entry.particle_emitter_params = world->particle_emitter_params(id);
+                    entry.particle_effect = world->particle_effect_source(id);
+                }
+                entry.has_audio_emitter = world->has_audio_emitter(id);
+                entry.audio_emitter_params = world->audio_emitter_params(id);
+                entry.has_reverb_zone = world->has_reverb_zone(id);
+                entry.reverb_zone_params = world->reverb_zone_params(id);
+                entry.has_audio_listener = world->has_audio_listener(id);
+                entry.audio_listener_params = world->audio_listener_params(id);
+                entry.surface_anchored = world->surface_anchored(id);
+                entry.surface_local_orientation = world->surface_local_orientation(id);
+                entry.entity_frame = world->entity_frame(id);
                 entry.has_ui = world->has_ui(id);
                 entry.ui_params = world->ui_params(id);
                 for (const std::string& type_name : world->script_components(id))
@@ -576,6 +634,8 @@ namespace SushiEngine
                 world->set_color(id, entry.color);
                 world->set_visible(id, entry.visible);
                 world->set_has_renderer(id, entry.has_renderer);
+                world->set_material(id, entry.material);
+                world->set_material_texture_paths(id, entry.material_texture_paths);
                 world->set_is_camera(id, entry.is_camera);
                 if (entry.is_camera)
                     world->set_camera_params(id, entry.camera_params);
@@ -597,6 +657,25 @@ namespace SushiEngine
                 world->set_has_collider(id, entry.has_collider);
                 if (entry.has_collider)
                     world->set_collider_params(id, entry.collider_params);
+                world->set_has_particle_emitter(id, entry.has_particle_emitter);
+                if (entry.has_particle_emitter)
+                {
+                    world->set_particle_emitter_params(id, entry.particle_emitter_params);
+                    world->set_particle_effect_source(id, entry.particle_effect);
+                }
+                world->set_has_audio_emitter(id, entry.has_audio_emitter);
+                if (entry.has_audio_emitter)
+                    world->set_audio_emitter_params(id, entry.audio_emitter_params);
+                world->set_has_reverb_zone(id, entry.has_reverb_zone);
+                if (entry.has_reverb_zone)
+                    world->set_reverb_zone_params(id, entry.reverb_zone_params);
+                world->set_has_audio_listener(id, entry.has_audio_listener);
+                if (entry.has_audio_listener)
+                    world->set_audio_listener_params(id, entry.audio_listener_params);
+                world->set_entity_frame(id, entry.entity_frame);
+                world->set_surface_anchored(id, entry.surface_anchored);
+                if (entry.surface_anchored)
+                    world->set_surface_local_orientation(id, entry.surface_local_orientation);
                 world->set_has_ui(id, entry.has_ui);
                 if (entry.has_ui)
                     world->set_ui_params(id, entry.ui_params);
@@ -662,6 +741,18 @@ namespace SushiEngine
             }
         } // namespace
 
+        void note_recent_scene(EditorContext& context, const std::string& path)
+        {
+            // Most-recent-first, deduplicated, capped: the File ▸ Open Recent list.
+            std::vector<std::string>& recent = context.preferences.recent_scenes;
+            recent.erase(std::remove(recent.begin(), recent.end(), path), recent.end());
+            recent.insert(recent.begin(), path);
+            constexpr std::size_t RECENT_SCENE_CAP = 10;
+            if (recent.size() > RECENT_SCENE_CAP)
+                recent.resize(RECENT_SCENE_CAP);
+            context.preferences_dirty = true;
+        }
+
         bool save_current_scene(EditorContext& context)
         {
             IWorldEditor* world = world_of(context);
@@ -677,6 +768,7 @@ namespace SushiEngine
             if (save_scene(*world, context.scene_path, &sky))
             {
                 context.saved_scene_revision = context.history.revision();
+                note_recent_scene(context, context.scene_path);
                 editor_log(context, "Saved scene '" + context.scene_path + "'.");
                 return true;
             }
@@ -686,9 +778,23 @@ namespace SushiEngine
 
         namespace
         {
-            // Wipes the live world back to empty. Shared by the immediate path (scene
-            // already clean) and `perform_pending_scene_action` (scene was dirty and the
-            // unsaved-changes prompt just resolved it).
+            // Applies @p environment onto the live world while preserving the channels
+            // the runtime owns and re-publishes (the atmosphere forcing pointers and the
+            // weather field): an authored environment never carries those, and applying
+            // one verbatim would sever the running weather from its own simulation.
+            void set_environment_preserving_runtime(
+                IWorldEditor& world, SushiEngine::Render::Environment environment)
+            {
+                const SushiEngine::Render::Environment& live = world.environment();
+                environment.atmosphere_forcing = live.atmosphere_forcing;
+                environment.weather_field = live.weather_field;
+                world.set_environment(environment);
+            }
+
+            // Wipes the live world back to empty and starts it from the user's default
+            // environment. Shared by the immediate path (scene already clean) and
+            // `perform_pending_scene_action` (scene was dirty and the unsaved-changes
+            // prompt just resolved it).
             void new_scene(EditorContext& context)
             {
                 IWorldEditor* world = world_of(context);
@@ -697,6 +803,12 @@ namespace SushiEngine
                 context.history.record(*world);
                 for (const EntityId id : world->entities())
                     world->destroy(id);
+                // The one place the preferences' default environment applies: a fresh
+                // scene starts from it. A *loaded* scene keeps its own — the environment
+                // is scene content, and the old always-override is what made the scene
+                // file's environment block write-only.
+                set_environment_preserving_runtime(*world,
+                                                   context.preferences.default_environment);
                 context.scene_path.clear();
                 context.saved_scene_revision = context.history.revision();
                 select_only(context, NULL_ENTITY);
@@ -714,18 +826,50 @@ namespace SushiEngine
                 if (load_scene(*world, path, &sky, context.assets))
                 {
                     apply_sky_state(context, sky);
-                    // Environment/Lighting are an editor (host) setting, not scene data, so
-                    // the editor's own value wins over whatever the scene file's (legacy)
-                    // environment block may still contain.
-                    world->set_environment(context.preferences.environment);
                     context.scene_path = path;
                     context.saved_scene_revision = context.history.revision();
+                    note_recent_scene(context, path);
                     select_only(context, NULL_ENTITY);
                     editor_log(context, "Loaded scene '" + path + "'.");
                 }
                 else
                 {
                     editor_log(context, "Failed to load scene '" + path + "'.");
+                }
+            }
+
+            // One undo transaction per environment edit gesture, shared by every panel
+            // that writes the environment (Environment, Lighting, Meteorology). The
+            // history snapshot is taken *before* the write — a drag opens a pending
+            // change on its first divergent frame, a discrete action (a button) records
+            // a single step — so undo restores the pre-edit environment, which is only
+            // possible now that `capture_scene` carries an environment block at all.
+            void commit_environment_edit(EditorContext& context, IWorldEditor& world,
+                                         const SushiEngine::Render::Environment& environment)
+            {
+                if (!context.environment_change_active)
+                {
+                    if (ImGui::IsAnyItemActive())
+                    {
+                        context.history.begin_change(world);
+                        context.environment_change_active = true;
+                    }
+                    else
+                        context.history.record(world);
+                }
+                world.set_environment(environment);
+            }
+
+            // Commits an open environment-change transaction once no widget is active
+            // any more. Called once per frame by each panel that uses
+            // `commit_environment_edit`; the flag is shared, so whichever panel runs
+            // after the release commits it exactly once.
+            void finish_environment_edit(EditorContext& context)
+            {
+                if (context.environment_change_active && !ImGui::IsAnyItemActive())
+                {
+                    context.history.end_change();
+                    context.environment_change_active = false;
                 }
             }
 
@@ -773,6 +917,14 @@ namespace SushiEngine
             }
         }
 
+        namespace
+        {
+            // Defined with the Input Manager's other label helpers near the bottom of
+            // this file; declared here (same unnamed namespace) so the menus can render
+            // the live binding for an action instead of a hard-coded string.
+            std::string input_binding_label(const SushiEngine::Input::Binding& binding);
+        } // namespace
+
         void draw_menu_bar(EditorContext& context)
         {
             if (!ImGui::BeginMainMenuBar())
@@ -780,23 +932,66 @@ namespace SushiEngine
 
             IWorldEditor* world = world_of(context);
 
+            // Shortcut hints come from the live bindings, not hard-coded strings, so a
+            // rebound shortcut is reflected where it is advertised (the old "Ctrl+N" on
+            // New Entity was bound to nothing at all).
+            const auto shortcut_of = [&context](const char* action_name) -> std::string
+            {
+                if (context.editor_global_context == nullptr)
+                    return std::string();
+                SushiEngine::Input::Action* action =
+                    context.editor_global_context->find_action(action_name);
+                if (action == nullptr || action->button_bindings.empty())
+                    return std::string();
+                return input_binding_label(action->button_bindings.front());
+            };
+            const auto menu_item_bound = [&shortcut_of](const char* label,
+                                                        const char* action_name, bool enabled)
+            {
+                const std::string shortcut = shortcut_of(action_name);
+                return ImGui::MenuItem(label, shortcut.empty() ? nullptr : shortcut.c_str(),
+                                       false, enabled);
+            };
+
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("New Entity", "Ctrl+N", false, world != nullptr))
-                {
-                    select_only(context, world->create("Entity"));
-                    editor_log(context, "Created entity 'Entity'.");
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("New Scene", nullptr, false, world != nullptr))
+                if (menu_item_bound("New Scene", "NewScene", world != nullptr))
                     request_new_scene(context);
-                if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, world != nullptr))
+                if (ImGui::MenuItem("Open Scene...", nullptr, false, world != nullptr))
+                {
+                    context.open_scene_path.clear();
+                    context.show_open_scene = true;
+                }
+                if (ImGui::BeginMenu("Open Recent", world != nullptr &&
+                                                        !context.preferences.recent_scenes.empty()))
+                {
+                    // A copy: opening a clean scene runs immediately and reorders the
+                    // recent list mid-iteration otherwise.
+                    const std::vector<std::string> recent = context.preferences.recent_scenes;
+                    for (const std::string& path : recent)
+                        if (ImGui::MenuItem(path.c_str()))
+                            request_open_scene(context, path);
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Clear Recent"))
+                    {
+                        context.preferences.recent_scenes.clear();
+                        context.preferences_dirty = true;
+                    }
+                    ImGui::EndMenu();
+                }
+                if (menu_item_bound("Save Scene", "Save", world != nullptr))
                     (void)save_current_scene(context);
                 if (ImGui::MenuItem("Save Scene As...", nullptr, false, world != nullptr))
                 {
                     context.save_scene_as_name =
                         context.scene_path.empty() ? "Scene.sushiscene" : fs::path(context.scene_path).filename().string();
                     context.show_save_scene_as = true;
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("New Entity", nullptr, false, world != nullptr))
+                {
+                    select_only(context, world->create("Entity"));
+                    editor_log(context, "Created entity 'Entity'.");
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save", nullptr, false,
@@ -818,19 +1013,19 @@ namespace SushiEngine
                 // Undo/redo replaces the world wholesale (see CommandHistory), so entity
                 // ids from before the swap are no longer valid; drop the selection rather
                 // than risk it aliasing an unrelated new entity.
-                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, context.history.can_undo()) &&
+                if (menu_item_bound("Undo", "Undo", context.history.can_undo()) &&
                     world != nullptr && context.history.undo(*world))
                     select_only(context, NULL_ENTITY);
-                if (ImGui::MenuItem("Redo", "Ctrl+Y", false, context.history.can_redo()) &&
+                if (menu_item_bound("Redo", "Redo", context.history.can_redo()) &&
                     world != nullptr && context.history.redo(*world))
                     select_only(context, NULL_ENTITY);
                 ImGui::Separator();
                 draw_clipboard_menu_items(context, world);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Input Manager...", nullptr))
-                    context.show_input_manager = true;
+                    context.panels.input_manager = true;
                 if (ImGui::MenuItem("Preferences...", nullptr))
-                    context.show_preferences = true;
+                    context.panels.preferences = true;
                 ImGui::EndMenu();
             }
 
@@ -849,34 +1044,108 @@ namespace SushiEngine
 
             if (ImGui::BeginMenu("Window"))
             {
-                ImGui::MenuItem("Scene", nullptr, &context.panels.scene_view);
-                ImGui::MenuItem("Game", nullptr, &context.panels.game_view);
-                ImGui::MenuItem("Hierarchy", nullptr, &context.panels.hierarchy);
-                ImGui::MenuItem("Inspector", nullptr, &context.panels.inspector);
-                ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
-                ImGui::MenuItem("Rendering", nullptr, &context.panels.rendering);
-                ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
-                ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
-                ImGui::MenuItem("Meteorology", nullptr, &context.panels.meteorology);
-                ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
-                ImGui::MenuItem("Physics", nullptr, &context.panels.physics);
-                ImGui::MenuItem("Preview", nullptr, &context.panels.preview);
-                ImGui::MenuItem("Project", nullptr, &context.panels.project);
-                ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
-                ImGui::MenuItem("Console", nullptr, &context.panels.console);
-                ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
-                ImGui::MenuItem("Toolbar", nullptr, &context.panels.toolbar);
-                ImGui::MenuItem("Animation", nullptr, &context.panels.animation);
-                ImGui::MenuItem("Animator Graph", nullptr, &context.panels.animator_graph);
-                ImGui::MenuItem("Animator", nullptr, &context.panels.animator_preview);
-                ImGui::MenuItem("Audio Mixer", nullptr, &context.panels.audio_mixer);
-                ImGui::MenuItem("Audio Profiler", nullptr, &context.panels.audio_profiler);
+                // Domain submenus, alphabetized within each group, so 20+ windows stay
+                // scannable and a new panel has one obvious home instead of a flat list
+                // that grows past the screen. Every item toggles its PanelVisibility
+                // flag; a reopened window lands in its dock home (build_default_layout
+                // docks all windows, open or not).
+                if (ImGui::BeginMenu("General"))
+                {
+                    ImGui::MenuItem("Console", nullptr, &context.panels.console);
+                    ImGui::MenuItem("Game", nullptr, &context.panels.game_view);
+                    ImGui::MenuItem("Hierarchy", nullptr, &context.panels.hierarchy);
+                    ImGui::MenuItem("Inspector", nullptr, &context.panels.inspector);
+                    ImGui::MenuItem("Project", nullptr, &context.panels.project);
+                    ImGui::MenuItem("Scene", nullptr, &context.panels.scene_view);
+                    ImGui::Separator();
+                    // Unity's maximize: the Scene view covers the whole editor viewport
+                    // and returns to its dock slot when toggled back.
+                    ImGui::MenuItem("Scene Fullscreen", "Shift+Space",
+                                    &context.scene_view_fullscreen);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Rendering"))
+                {
+                    ImGui::MenuItem("GPU Culling", nullptr, &context.panels.gpu_culling);
+                    ImGui::MenuItem("Lighting", nullptr, &context.panels.lighting);
+                    ImGui::MenuItem("Post Process", nullptr, &context.panels.post_process);
+                    ImGui::MenuItem("Rendering", nullptr, &context.panels.rendering);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("World"))
+                {
+                    ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
+                    ImGui::MenuItem("Meteorology", nullptr, &context.panels.meteorology);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Animation"))
+                {
+                    ImGui::MenuItem("Animation", nullptr, &context.panels.animation);
+                    ImGui::MenuItem("Animator", nullptr, &context.panels.animator_preview);
+                    ImGui::MenuItem("Animator Graph", nullptr, &context.panels.animator_graph);
+                    ImGui::MenuItem("Preview", nullptr, &context.panels.preview);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Audio"))
+                {
+                    ImGui::MenuItem("Audio Authoring", nullptr, &context.panels.audio_authoring);
+                    ImGui::MenuItem("Audio Mixer", nullptr, &context.panels.audio_mixer);
+                    ImGui::MenuItem("Audio Profiler", nullptr, &context.panels.audio_profiler);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Analysis"))
+                {
+                    ImGui::MenuItem("Physics", nullptr, &context.panels.physics);
+                    ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
+                    ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
+                    ImGui::EndMenu();
+                }
                 ImGui::Separator();
+                if (ImGui::MenuItem("Reset Layout"))
+                    context.layout_reset_requested = true;
                 ImGui::MenuItem("ImGui Demo", nullptr, &context.show_imgui_demo);
                 ImGui::EndMenu();
             }
 
             ImGui::EndMainMenuBar();
+
+            // File ▸ Open Scene…: a path prompt rooted at the project, routed through the
+            // same unsaved-changes gate every other scene replacement takes.
+            if (context.show_open_scene)
+            {
+                ImGui::OpenPopup("Open Scene");
+                if (ImGui::BeginPopupModal("Open Scene", &context.show_open_scene,
+                                           ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextDisabled("%s", context.project_root.c_str());
+                    ImGui::SetNextItemWidth(420.0f);
+                    const bool commit =
+                        ImGui::InputText("##open_scene_path", &context.open_scene_path,
+                                         ImGuiInputTextFlags_EnterReturnsTrue);
+                    const bool confirmed = ImGui::Button("Open") || commit;
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel"))
+                        context.show_open_scene = false;
+                    if (confirmed && !context.open_scene_path.empty())
+                    {
+                        fs::path path = context.open_scene_path;
+                        if (path.is_relative())
+                            path = fs::path(context.project_root) / path;
+                        if (path.extension().empty())
+                            path += ".sushiscene";
+                        if (fs::exists(path))
+                        {
+                            request_open_scene(context, path.string());
+                            context.show_open_scene = false;
+                        }
+                        else
+                        {
+                            editor_log(context, "No scene at '" + path.string() + "'.");
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
+            }
         }
 
         namespace
@@ -1765,13 +2034,17 @@ namespace SushiEngine
 
                     // The full PBR surface: maps, scalars, and rendering state, laid out
                     // like Unity's Standard shader. Albedo's tint is the Color row above,
-                    // which the material editor leaves alone.
+                    // which the material editor leaves alone. The texture paths ride with
+                    // the ids so the sources survive undo, save, and reload.
                     SushiEngine::Render::Material material = world->material(id);
+                    SushiEngine::Simulation::MaterialTexturePaths material_paths =
+                        world->material_texture_paths(id);
                     if (context.assets != nullptr &&
-                        draw_material_editor(material, *context.assets))
+                        draw_material_editor(material, material_paths, *context.assets))
                     {
                         context.history.begin_change(*world);
                         world->set_material(id, material);
+                        world->set_material_texture_paths(id, material_paths);
                         context.history.end_change();
                     }
 
@@ -2244,26 +2517,27 @@ namespace SushiEngine
                         context.history.end_change();
 
                     // Optional projected maps, loaded through the asset library exactly as a
-                    // material's are (path field + Load/Clear). The record stores only the
-                    // opaque texture id, so the typed path lives in a UI-side map keyed by
-                    // the widget id.
+                    // material's are (path field + Load/Clear). The typed path lives on the
+                    // decal itself, so it survives selection changes, undo, and the scene
+                    // file, where a load from disk re-resolves the id from it.
                     if (context.assets != nullptr)
                     {
-                        static std::unordered_map<ImGuiID, std::string> decal_paths;
                         const auto map_field =
                             [&](const char* label, SushiEngine::Render::TextureId& tex,
-                                SushiEngine::Render::TextureColorSpace cs)
+                                std::string& stored, SushiEngine::Render::TextureColorSpace cs)
                         {
                             ImGui::PushID(label);
-                            const ImGuiID wid = ImGui::GetID(label);
-                            std::string& stored = decal_paths[wid];
                             char buffer[512] = {};
                             stored.copy(buffer, sizeof(buffer) - 1);
                             ImGui::SetNextItemWidth(-140.0f);
                             const bool enter =
                                 ImGui::InputText(label, buffer, sizeof(buffer),
                                                  ImGuiInputTextFlags_EnterReturnsTrue);
-                            stored = buffer;
+                            if (stored != buffer)
+                            {
+                                stored = buffer;
+                                changed = true;
+                            }
                             ImGui::SameLine();
                             const bool load = ImGui::SmallButton("Load");
                             if (enter || load)
@@ -2294,9 +2568,9 @@ namespace SushiEngine
                                 tex != SushiEngine::Render::INVALID_TEXTURE ? "set" : "none");
                             ImGui::PopID();
                         };
-                        map_field("Albedo Map", params.albedo_map,
+                        map_field("Albedo Map", params.albedo_map, params.albedo_map_path,
                                   SushiEngine::Render::TextureColorSpace::Srgb);
-                        map_field("ORM Map", params.orm_map,
+                        map_field("ORM Map", params.orm_map, params.orm_map_path,
                                   SushiEngine::Render::TextureColorSpace::Linear);
                     }
 
@@ -2574,6 +2848,22 @@ namespace SushiEngine
             ImGui::End();
         }
 
+        namespace
+        {
+            // The one frame for every settings panel's "Tier resolves to" readout:
+            // resolve once, through the same resolver the renderer runs, and let the
+            // panel print only the lines its domain owns. The frame lived as three
+            // hand-rolled copies before, which is exactly how readouts drift.
+            void draw_tier_readout(const SushiEngine::Render::RenderSettings& settings,
+                                   void (*draw_lines)(const SushiEngine::Render::ResolvedQuality&))
+            {
+                if (!ImGui::TreeNode("Tier resolves to"))
+                    return;
+                draw_lines(SushiEngine::Render::resolve_quality(settings));
+                ImGui::TreePop();
+            }
+        } // namespace
+
         void draw_rendering_panel(EditorContext& context)
         {
             if (!context.panels.rendering)
@@ -2587,7 +2877,6 @@ namespace SushiEngine
             SushiEngine::Render::RenderSettings& settings = context.render_settings;
             using SushiEngine::Render::AntiAliasingMode;
             using SushiEngine::Render::RenderQuality;
-            using SushiEngine::Render::UpscaleMode;
 
             // RenderSettings is plain trivially-copyable data (render_settings.hpp), so a
             // memcmp against a snapshot taken before the widgets run is a cheap, exhaustive
@@ -2599,6 +2888,11 @@ namespace SushiEngine
             int quality = static_cast<int>(settings.quality);
             if (ImGui::Combo("Quality", &quality, QUALITY, 4))
                 settings.quality = static_cast<RenderQuality>(quality);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Scales rendering only: shadows, clouds' march, material\n"
+                                  "lobes, post effects, GPU-driven geometry. The weather\n"
+                                  "simulation has its own tier in the Meteorology panel, so\n"
+                                  "changing this never touches the running weather.");
 
             const char* const ANTI_ALIASING[] = {"None", "FXAA", "Temporal"};
             int anti_aliasing = static_cast<int>(settings.anti_aliasing);
@@ -2771,10 +3065,8 @@ namespace SushiEngine
             // each pass is actually handed once the resolver has run — the same values the
             // renderer uses, so switching tiers shows the expensive half rescale here and,
             // in milliseconds, in the profiler HUD over the viewport.
-            if (ImGui::TreeNode("Tier resolves to"))
+            draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
-                const SushiEngine::Render::ResolvedQuality resolved =
-                    SushiEngine::Render::resolve_quality(settings);
                 const SushiEngine::Render::RenderSettings& effective = resolved.settings;
                 const SushiEngine::Render::QualityParams& knobs = resolved.params;
 
@@ -2815,8 +3107,7 @@ namespace SushiEngine
                 }
                 ImGui::Text("Async compute  %s", knobs.async_compute ? "permitted" : "off (tier)");
                 ImGui::Text("Frames in flight %u", effective.delivery.frames_in_flight);
-                ImGui::TreePop();
-            }
+            });
 
             ImGui::Separator();
             // Delivery, not fidelity: nothing here changes a pixel, only how much of the
@@ -2845,28 +3136,11 @@ namespace SushiEngine
                 if (ImGui::Combo("Present Mode", &present, PRESENT, 3))
                     delivery.present_mode = static_cast<PresentMode>(present);
 
-                ImGui::Separator();
-                // The upscaler is chosen as a backend, not as a checkbox: the built-in
-                // temporal reconstruction and a vendor library implement one interface, and
-                // this is where the choice between them is made and what it resolved to is
-                // reported.
-                const char* const UPSCALERS[] = {"None", "Temporal (built-in)", "FSR 3.1",
-                                                 "DLSS", "XeSS"};
-                int upscaler = static_cast<int>(settings.upscale);
-                if (ImGui::Combo("Upscaler", &upscaler, UPSCALERS, 5))
-                    settings.upscale = static_cast<UpscaleMode>(upscaler);
-
-                const SushiEngine::Render::Frame::UpscalerAvailability availability =
-                    SushiEngine::Render::Frame::upscaler_availability(settings.upscale);
-                if (availability.available)
-                    ImGui::TextDisabled(
-                        "Runs: %s", SushiEngine::Render::Frame::upscale_mode_name(settings.upscale));
-                else
-                    ImGui::TextDisabled(
-                        "Runs: %s — %s",
-                        SushiEngine::Render::Frame::upscale_mode_name(
-                            SushiEngine::Render::Frame::resolve_upscale_mode(settings.upscale)),
-                        availability.reason);
+                // No Upscaler combo: the frame never consumed an authored backend choice
+                // (the temporal reconstruction is governed by Anti-Aliasing and Render
+                // Scale), so the combo promised five backends and delivered none of the
+                // choice. It returns together with a second real backend — the IUpscaler
+                // seam it would select over is still there (render/frame/upscaler.hpp).
                 ImGui::TreePop();
             }
 
@@ -2878,29 +3152,6 @@ namespace SushiEngine
 
         namespace
         {
-            /**
-             * @brief The meteorology log's own state, private to the panel.
-             *
-             * A file handle and a cadence, kept here rather than on the editor context because
-             * nothing else in the editor has any business with it and the context is already
-             * long. Opened lazily on the first line written, so ticking the toggle and changing
-             * one's mind costs no file.
-             */
-            struct MeteorologyLog
-            {
-                bool enabled = false;
-                float interval_seconds = 10.0f;
-                double next_at_simulated = 0.0;
-                char path[256] = "meteorology.csv";
-                std::ofstream stream;
-                bool header_written = false;
-            };
-
-            MeteorologyLog& meteorology_log()
-            {
-                static MeteorologyLog log;
-                return log;
-            }
 
             /**
              * @brief How much of the weather being asked for is actually being simulated.
@@ -3003,16 +3254,371 @@ namespace SushiEngine
             // faster than that runs the sun ahead of the atmosphere it is meant to be heating,
             // and the surface forcing then oscillates faster than a boundary layer can respond.
             // Invisible without a number to look at, which is why there is one.
+            //
+            // The atmosphere's own quality tier lives here — in the panel that owns the
+            // domain — not in Rendering. It is the control whose side effect is worth a
+            // warning *at the control*: resolving a different grid rebuilds the nest,
+            // and a rebuilt nest starts from its base state.
+            ImGui::SeparatorText("Quality");
+            {
+                using SushiEngine::Simulation::AtmosphereQuality;
+                const char* const TIERS[] = {"Low", "Medium", "High", "Ultra"};
+                int tier = static_cast<int>(context.simulation_settings.atmosphere.quality);
+                if (ImGui::Combo("Atmosphere Quality", &tier, TIERS, 4))
+                {
+                    context.simulation_settings.atmosphere.quality =
+                        static_cast<AtmosphereQuality>(tier);
+                    context.preferences_dirty = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The weather simulation's grid resolution — independent\n"
+                                      "of the render quality tier. Persisted per user, like a\n"
+                                      "graphics setting: a grid is a machine budget, not scene\n"
+                                      "content.");
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                                   "Changing this rebuilds the nest: the running weather "
+                                   "restarts from the base state.");
+            }
+
+            // The GPU regional nest's authored physics (docs/slop/atmosphere_system.md §6).
+            // Everything here is authored data serialized with the scene -- the design doc
+            // states twice that no physical constant may live inside a loop body, and this
+            // section is what makes that claim mean something to an author rather than only
+            // to a reader. It lives in Meteorology, not Environment: this panel owns the
+            // atmosphere simulation, and Environment keeps what a level artist touches (the
+            // sun, the sky's look, fog, GI). Edits land in the world as scene content, one
+            // undo step per gesture, exactly like the Environment panel's own writes.
+            {
+                SushiEngine::Render::Environment edited = environment;
+                bool changed = false;
+                if (ImGui::TreeNode("Atmosphere physics (regional nest)"))
+                {
+                    SushiEngine::Render::AtmosphereParameters& nest = edited.atmosphere_nest;
+
+                    if (ImGui::Checkbox("Nest Enabled", &nest.enabled))
+                        changed = true;
+                    ImGui::BeginDisabled(!nest.enabled);
+
+                    // The two numbers that decide whether an afternoon convects at all: how hard
+                    // the ground heats the air above it, and how much moisture it gives up. A real
+                    // surface energy balance replaces both in the next phase.
+                    ImGui::SeparatorText("Surface forcing (prescribed this phase)");
+
+                    // The land cover, as the *properties* it implies.
+                    //
+                    // These presets used to set a pair of fluxes directly. Since Phase B3 the
+                    // fluxes are solved, so what a preset sets is what a place actually is —
+                    // how bright it is, how much water it can give up, and how much heat it
+                    // stores. The Bowen ratio it produces then falls out of the balance and
+                    // moves through the day as the ground dries, instead of being pinned.
+                    //
+                    // Presets rather than a default change, deliberately: which of these a scene
+                    // is standing on is an authoring decision, and the engine has no way to guess
+                    // it. The measured skies are in each tooltip; the panel above reports the
+                    // ratio the model is actually running at.
+                    struct SurfacePreset
+                    {
+                        const char* name;
+                        float albedo;
+                        float availability;
+                        float capacity;
+                        const char* note;
+                    };
+                    static const SurfacePreset PRESETS[] = {
+                        {"Semi-desert / bare soil", 0.30f, 0.10f, 6.0e4f,
+                         "Bright, dry and thin: it heats fast, gives up almost no\n"
+                         "water, and its Bowen ratio runs well above 1. The sky\n"
+                         "stays clear however long it is left running, and that is\n"
+                         "the model being right rather than idle."},
+                        {"Mixed cropland", 0.22f, 0.30f, 1.0e5f,
+                         "A dry summer, or land partly harvested. Cloud, but late\n"
+                         "and thin."},
+                        {"Vegetated summer land", 0.18f, 0.55f, 1.5e5f,
+                         "Temperate grassland or forest in leaf. Dark, damp, and\n"
+                         "with enough thermal mass to keep the afternoon going --\n"
+                         "the fair-weather cumulus case."},
+                        {"Open water / lake", 0.06f, 1.00f, 1.3e7f,
+                         "Dark, saturated, and with the heat capacity of a three\n"
+                         "metre mixed layer: the skin barely moves over a whole\n"
+                         "day. Almost all the sun's energy goes into evaporation,\n"
+                         "so the layer is moist but barely buoyant -- and it is\n"
+                         "this contrast against the land beside it that a sea\n"
+                         "breeze is made of."},
+                    };
+                    ImGui::TextUnformatted("Land cover");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(sets the three properties below)");
+                    for (const SurfacePreset& preset : PRESETS)
+                    {
+                        if (ImGui::Button(preset.name))
+                        {
+                            nest.surface_albedo = preset.albedo;
+                            nest.surface_moisture_availability = preset.availability;
+                            nest.surface_heat_capacity = preset.capacity;
+                            changed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("albedo %.2f, moisture %.2f, slab %.2g J/m2/K.\n%s",
+                                              double(preset.albedo), double(preset.availability),
+                                              double(preset.capacity), preset.note);
+                    }
+
+                    if (ImGui::SliderFloat("Albedo", &nest.surface_albedo, 0.0f, 0.9f, "%.2f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How much sunlight the ground throws away. The widest\n"
+                                          "range of any parameter here: 0.06 for water at noon,\n"
+                                          "0.20 for vegetation, 0.8 for fresh snow. First thing\n"
+                                          "to reach for when a scene heats too fast or too slow.");
+                    if (ImGui::SliderFloat("Moisture Availability", &nest.surface_moisture_availability,
+                                           0.0f, 1.0f, "%.2f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The fraction of the saturation deficit the ground can\n"
+                                          "actually supply -- 1 is open water or saturated soil,\n"
+                                          "0 is dry rock. **This is the Bowen ratio's author.**\n"
+                                          "It decides whether a heated afternoon reaches its\n"
+                                          "condensation level or merely gets hotter, which is\n"
+                                          "the difference between a clear sky and a cumulus deck\n"
+                                          "at every value of every other parameter here.");
+                    if (ImGui::SliderFloat("Heat Capacity", &nest.surface_heat_capacity, 1.0e4f,
+                                           1.5e7f, "%.2g J/m2/K", ImGuiSliderFlags_Logarithmic))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How much energy warms the ground by a degree, and so\n"
+                                          "how far the afternoon peak lags solar noon. 1e5 is a\n"
+                                          "few centimetres of soil (an hour or two of lag); 1.3e7\n"
+                                          "is three metres of water, which barely moves all day.\n"
+                                          "Safe at any value: the slab is solved semi-implicitly,\n"
+                                          "so a thin one cannot destabilise the step.");
+                    if (ImGui::SliderFloat("Surface Patchiness", &nest.thermal_seed_amplitude, 0.0f,
+                                           1.0f, "%.2f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How much the surface heating varies across the\n"
+                                          "ground, as a fraction. Convection needs it: a\n"
+                                          "uniformly heated surface rises as one slab and\n"
+                                          "never forms cells. 0.4 is mixed terrain. It scales\n"
+                                          "the flux, so it cannot cool the ground and it\n"
+                                          "stops at dusk.");
+                    // The two scales below are what make the slider above do anything. Measured:
+                    // patchiness with no scales -- redrawn per cell per step, as it was -- gives
+                    // 1.22x the domain structure of switching the seed off entirely, against
+                    // 3.72x for these defaults. They are in metres and seconds rather than cells
+                    // and steps so that the quality tier and the frame rate are not physical
+                    // parameters of the weather.
+                    if (ImGui::SliderFloat("Patch Size", &nest.thermal_seed_length_m, 1000.0f,
+                                           24000.0f, "%.0f m"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How wide a patch of warmer ground is. Convection\n"
+                                          "organises on this scale, so it sets how big the\n"
+                                          "cumulus cells come out. 6 km is the scale land\n"
+                                          "cover and soil moisture actually vary over; much\n"
+                                          "wider is broader than the plumes that form.");
+                    if (ImGui::SliderFloat("Patch Lifetime", &nest.thermal_seed_period_s, 60.0f,
+                                           3600.0f, "%.0f s"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How long a patch stays warmer before the pattern\n"
+                                          "renews. This is the axis that matters: a patch\n"
+                                          "gone in one step cannot lift anything, because a\n"
+                                          "thermal needs a boundary-layer turnover -- about\n"
+                                          "15 min -- to organise around it. Longer than an\n"
+                                          "hour and the pattern stops renewing at all.");
+
+                    // Without this the two above go nowhere. The turbulence that lifts surface
+                    // heat and moisture out of a 54 m surface layer is far below a 2 km grid, so
+                    // it is parameterized; with it switched off the fluxes pile up in the lowest
+                    // level, and a horizontally uniform hot slab cannot rise at all.
+                    ImGui::SeparatorText("Boundary layer");
+                    if (ImGui::SliderFloat("Mixing Depth Cap", &nest.boundary_layer_depth_m, 0.0f,
+                                           4000.0f, "%.0f m"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("A ceiling, not the depth. The depth itself is\n"
+                                          "diagnosed per column by the parcel method and grows\n"
+                                          "through the morning; this stands for the capping\n"
+                                          "inversion that stops a fair-weather layer.");
+                    if (ImGui::SliderFloat("Mixing Strength", &nest.boundary_layer_velocity_scale,
+                                           0.0f, 6.0f, "%.2f m/s"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The mixed layer's turbulent velocity scale, which\n"
+                                          "sets the whole diffusivity profile (Troen-Mahrt:\n"
+                                          "K = 0.4 w z (1 - z/h)^2). 1-2 m/s is a convective\n"
+                                          "afternoon, peaking at 150-300 m2/s a third of the\n"
+                                          "way up. Zero removes the boundary layer entirely.");
+
+                    ImGui::SeparatorText("Base state");
+                    if (ImGui::SliderFloat("Surface Temperature", &nest.surface_temperature, 233.0f,
+                                           323.0f, "%.1f K"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Surface Humidity", &nest.surface_humidity, 0.0f, 1.0f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Humidity Scale Height", &nest.humidity_scale_height,
+                                           500.0f, 6000.0f, "%.0f m"))
+                        changed = true;
+
+                    // Kessler's own rate constants. The autoconversion threshold is the one an
+                    // author feels most directly: below it a cloud never rains, however thick it
+                    // gets, which is the difference between fair-weather cumulus and a shower.
+                    ImGui::SeparatorText("Microphysics (Kessler warm rain)");
+                    // The closure that decides whether this nest can draw a cumulus at all. A
+                    // 2 km cell's humidity is a *mean*, and a fair-weather cumulus is saturated
+                    // air filling a fraction of it, so condensing only when the mean crosses
+                    // saturation produces fog and nothing else -- which is exactly what every
+                    // run did before this existed.
+                    if (ImGui::SliderFloat("Cloud From RH", &nest.cloud_critical_humidity, 0.5f,
+                                           1.0f, "%.2f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The cell-mean relative humidity subgrid cloud starts\n"
+                                          "at. 0.80 is standard at this spacing. Lower gives\n"
+                                          "more, thinner, earlier cloud; 1.00 switches the\n"
+                                          "subgrid closure off entirely and condenses on the\n"
+                                          "cell mean alone, which is fog or a clear sky.");
+                    if (ImGui::SliderFloat("Autoconversion Threshold", &nest.autoconversion_threshold,
+                                           0.0f, 5.0e-3f, "%.4f kg/kg"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Autoconversion Rate", &nest.autoconversion_rate, 0.0f,
+                                           5.0e-3f, "%.4f /s"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Accretion Rate", &nest.accretion_rate, 0.0f, 6.0f,
+                                           "%.2f /s"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Rain Evaporation", &nest.rain_evaporation_rate, 0.0f,
+                                           0.1f, "%.3f /s"))
+                        changed = true;
+                    // The single number deciding whether a given amount of condensate reads as a
+                    // crisp white cumulus or a thin haze -- the same water, differently divided.
+                    if (ImGui::SliderFloat("Droplet Radius", &nest.droplet_effective_radius, 3.0e-6f,
+                                           2.0e-5f, "%.7f m"))
+                        changed = true;
+                    // Raise this if the sky reads as a solid white ceiling: it is how much water
+                    // a 2 km cell has to average before it renders as fully overcast, and it
+                    // changes nothing about the physics that produced the water.
+                    if (ImGui::SliderFloat("Overcast At", &nest.coverage_reference_lwc, 2.0e-4f,
+                                           8.0e-3f, "%.5f kg/m3"))
+                        changed = true;
+
+                    // Ice is a *diagnosed phase*, not a second species: everything below is a
+                    // function of the cell's own temperature. Which is why there is a band and
+                    // not a switch -- a cloud at -5 C is mostly supercooled water and one at
+                    // -20 C is mostly crystals, and the band between them is where the two
+                    // coexist and where a cloud turns itself into snow.
+                    ImGui::SeparatorText("Ice");
+                    if (ImGui::SliderFloat("All Liquid Above", &nest.freezing_temperature, 263.15f,
+                                           278.15f, "%.2f K"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Warm edge of the mixed-phase band. Above this a cloud\n"
+                                          "is entirely liquid and every ice term below is\n"
+                                          "exactly inert, so a summer scene is untouched by any\n"
+                                          "of this.");
+                    if (ImGui::SliderFloat("All Ice Below", &nest.glaciation_temperature, 233.15f,
+                                           268.15f, "%.2f K"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Cold edge. Saturation over ice is lower than over\n"
+                                          "water, so a cell crossing into the band starts\n"
+                                          "condensing at a humidity it would have been clear at\n"
+                                          "-- which is why cold cloud forms where warm cloud\n"
+                                          "would not, on the same water.");
+                    if (ImGui::SliderFloat("Ice Radius", &nest.ice_effective_radius, 1.0e-5f,
+                                           1.0e-4f, "%.7f m"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The optical half, and the half you can see. A crystal\n"
+                                          "aggregate is nearly four times a droplet's effective\n"
+                                          "radius, so glaciated cloud is that much thinner for\n"
+                                          "the same water: a translucent cirrus veil and a soft\n"
+                                          "anvil top instead of a wall of white.");
+                    if (ImGui::SliderFloat("Snow Fall Speed", &nest.snow_fall_speed_coefficient,
+                                           1.0f, 20.0f, "%.1f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("An order of magnitude under rain's, and that single\n"
+                                          "fact is most of what makes snow look like snow: a\n"
+                                          "metre a second where a raindrop of the same water\n"
+                                          "falls at seven. It is also why a snow shaft leans so\n"
+                                          "far downwind.");
+                    if (ImGui::SliderFloat("Snow Precipitates At", &nest.glaciated_autoconversion_factor,
+                                           0.05f, 1.0f, "%.2f x"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Fraction of the warm threshold a fully glaciated cloud\n"
+                                          "needs before it precipitates. Crystals stick where\n"
+                                          "droplets have to coalesce, so a winter deck snows out\n"
+                                          "of cloud that in summer would just sit there. At 1.00\n"
+                                          "ice precipitates no more readily than water.");
+
+                    ImGui::SeparatorText("Dynamics");
+                    if (ImGui::SliderFloat("Courant Target", &nest.courant_target, 0.1f, 1.5f))
+                        changed = true;
+                    if (ImGui::SliderFloat("Eddy Viscosity", &nest.eddy_viscosity, 0.0f, 400.0f,
+                                           "%.0f m2/s"))
+                        changed = true;
+                    if (ImGui::SliderFloat("Boundary Relaxation", &nest.boundary_relaxation, 0.0f,
+                                           0.2f, "%.3f /s"))
+                        changed = true;
+                    int pressure_iterations = int(nest.pressure_iterations);
+                    if (ImGui::SliderInt("Pressure Sweeps", &pressure_iterations, 1, 48))
+                    {
+                        nest.pressure_iterations = std::uint32_t(pressure_iterations);
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Red-black sweeps of the pressure solve per step. The\n"
+                                          "vertical is solved exactly, so these only iterate the\n"
+                                          "horizontal coupling -- which this grid's anisotropy\n"
+                                          "(2 km against 54-560 m) makes a small, strongly\n"
+                                          "diagonally dominant correction.\n\n"
+                                          "Measured: the solve converges at 2. From 2 to 20 the\n"
+                                          "weather is identical to every printed figure and the\n"
+                                          "peak divergence agrees to seven. 4 is that with a\n"
+                                          "margin. Raising it costs about 0.7 ms a step each and\n"
+                                          "buys nothing measurable.");
+
+                    // How much weather one frame may buy. Read out by the Meteorology panel's
+                    // clock since that panel existed, but never authorable -- and it is the
+                    // cheapest lever on the whole tier's throughput, because the nest advances at
+                    // exactly `this x frame rate x step` game seconds per second of wall clock.
+                    // Raising it trades frame time for weather time directly.
+                    int steps_per_frame = int(nest.max_steps_per_frame);
+                    if (ImGui::SliderInt("Steps Per Frame", &steps_per_frame, 1, 32))
+                    {
+                        nest.max_steps_per_frame = std::uint32_t(steps_per_frame);
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The nest's throughput, directly: it advances\n"
+                                          "steps x frame rate x step-length game seconds per\n"
+                                          "second. Past this the surplus is discarded rather\n"
+                                          "than caught up, so raising it is how a scene gets its\n"
+                                          "weather sooner -- paid for in frame time, since the\n"
+                                          "nest submits on the graphics queue.");
+
+                    ImGui::EndDisabled();
+                    ImGui::TreePop();
+                }
+                if (changed)
+                    commit_environment_edit(context, *world, edited);
+                finish_environment_edit(context);
+            }
+
             ImGui::SeparatorText("Clock");
             const SushiEngine::Render::AtmosphereParameters& nest = environment.atmosphere_nest;
 
             const double sky_rate = context.sky_animate ? context.sky_days_per_second * 86400.0 : 0.0;
-            // The grid the *quality tier* resolves to, not a hard-coded default: the nest's
+            // The grid the *atmosphere tier* resolves to, not a hard-coded default: the nest's
             // discretization is a tier parameter, so a panel that assumed 192x192x48 would
             // report the wrong step and the wrong sustainable rate on every tier but High.
+            // The atmosphere's own tier, not the render tier — the separation that stops
+            // "Ultra rendering" from rebuilding the weather.
             const SushiEngine::Render::AtmosphereNestSize size =
-                SushiEngine::Render::resolve_quality(context.render_settings)
-                    .params.atmosphere_nest;
+                SushiEngine::Simulation::resolve_atmosphere_quality(
+                    context.simulation_settings.atmosphere.quality);
             // The step the nest will pick *before its first readback*, which is the only one
             // predictable from here: after that the vertical CFL binds against the updraft the
             // nest measures itself, and the step lengthens in quiet air.
@@ -3026,14 +3632,12 @@ namespace SushiEngine
                         double(size.spacing_m) * double(size.cells_x) / 1000.0,
                         double(size.cells_x) * double(size.cells_z) * double(size.levels) / 1e6);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Set by the render quality tier, not authored here. The domain\n"
+                ImGui::SetTooltip("Set by the Atmosphere Quality tier in this panel. The domain\n"
                                   "is 384 km at every tier and only the resolution changes, so\n"
                                   "raising the tier resolves the same weather more finely rather\n"
                                   "than simulating a different amount of world.\n\n"
                                   "2 km (High) is where convection stops being parameterized and\n"
-                                  "starts being resolved. Changing the tier rebuilds the nest,\n"
-                                  "and a rebuilt nest starts from its base state -- the running\n"
-                                  "weather is lost.");
+                                  "starts being resolved.");
             // What the nest could sustain *if the editor rendered at 60 fps*. It does not: this
             // panel is drawn beside a 192x192x48 nest, three scene views and a deferred
             // renderer, and the frame rate that results is the whole term. Kept only as the
@@ -3101,12 +3705,18 @@ namespace SushiEngine
             // Matched against what the nest *did*, not against what a formula says it could.
             // The measured rate already contains the frame rate, the scene's cost and this
             // machine, none of which the estimate can see; the margin is for the ordinary
-            // variation in all three rather than a fudge.
-            if (ImGui::Button("Match sky to atmosphere"))
+            // variation in all three rather than a fudge. The label names what it changes
+            // (the Environment panel's time-of-day animation rate) — a button that quietly
+            // set another panel's slider read as magic, and magic reads as broken.
+            if (ImGui::Button("Slow the sky's time rate to match"))
             {
                 context.sky_days_per_second = achievable * 0.9 / 86400.0;
                 context.sky_animate = true;
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Sets the Environment panel's Solar System animation rate\n"
+                                  "(days per second) to what the atmosphere measurably kept\n"
+                                  "up with, so no simulated weather is discarded.");
             ImGui::SameLine();
             if (measured)
                 ImGui::TextDisabled("(the rate this machine actually achieved, less 10%%)");
@@ -3214,7 +3824,7 @@ namespace SushiEngine
                 {
                     SushiEngine::Render::Environment updated = environment;
                     updated.atmosphere_nest.enabled = true;
-                    world->set_environment(updated);
+                    commit_environment_edit(context, *world, updated);
                 }
             }
             else if (!forcing_published)
@@ -3507,7 +4117,7 @@ namespace SushiEngine
             // interval of simulated weather however fast or slow the sky is being animated --
             // which is what makes two runs at different time scales comparable.
             ImGui::SeparatorText("Log");
-            MeteorologyLog& log = meteorology_log();
+            MeteorologyLog& log = context.meteorology_log;
             ImGui::InputText("File", log.path, sizeof(log.path));
             ImGui::SliderFloat("Every", &log.interval_seconds, 1.0f, 3600.0f, "%.0f s simulated",
                                ImGuiSliderFlags_Logarithmic);
@@ -3602,6 +4212,22 @@ namespace SushiEngine
             if (ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::PushID("Exposure");
+                // The whole exposure chain is authored here, in one panel. The scene
+                // multiplier below is *scene content* (it lives on the environment and
+                // rides the scene file and the undo history); the mode/EV fields around
+                // it are per-user render settings. One home, two owners of the data —
+                // the panel says which is which so neither fights the other blind.
+                if (IWorldEditor* world = world_of(context))
+                {
+                    SushiEngine::Render::Environment scene_environment = world->environment();
+                    if (ImGui::SliderFloat("Scene Exposure", &scene_environment.exposure,
+                                           0.02f, 1.0f))
+                        commit_environment_edit(context, *world, scene_environment);
+                    finish_environment_edit(context);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The environment's pre-tonemap multiplier — saved\n"
+                                          "with the scene, not with the editor preferences.");
+                }
                 const char* const MODES[] = {"Manual", "Automatic"};
                 int mode = static_cast<int>(post.exposure_mode);
                 if (ImGui::Combo("Mode", &mode, MODES, 2))
@@ -3694,17 +4320,14 @@ namespace SushiEngine
                 ImGui::PopID();
             }
 
-            if (ImGui::TreeNode("Tier resolves to"))
+            draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
-                const SushiEngine::Render::ResolvedQuality resolved =
-                    SushiEngine::Render::resolve_quality(settings);
                 const SushiEngine::Render::QualityParams& knobs = resolved.params;
                 ImGui::Text("Bloom: %s", knobs.bloom ? "on" : "off (tier)");
                 ImGui::Text("Depth of field: %s", knobs.depth_of_field ? "permitted" : "off (tier)");
                 ImGui::Text("Motion blur: %s", knobs.motion_blur ? "permitted" : "off (tier)");
                 ImGui::TextDisabled("The tier permits an effect; the toggle above enables it.");
-                ImGui::TreePop();
-            }
+            });
 
             if (std::memcmp(&settings_before, &settings, sizeof(settings)) != 0)
                 context.preferences_dirty = true;
@@ -3748,27 +4371,32 @@ namespace SushiEngine
             if (ImGui::CollapsingHeader("Debug"))
             {
                 ImGui::PushID("Debug");
-                ImGui::Checkbox("Freeze frustum (debug)", &cull.freeze);
-                ImGui::Checkbox("Show statistics", &cull.show_statistics);
-                if (cull.show_statistics)
-                {
-                    // Settings-only panel: it has no ISceneView to read the readback counts
-                    // from, so it points at where the live numbers surface instead.
-                    ImGui::TextDisabled("Live counts appear in the Profiler HUD as the "
-                                        "\"gpu cull\" pass.");
-                }
+                ImGui::Checkbox("Freeze frustum", &cull.freeze);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Latches the cull frustum at this camera pose so you can\n"
+                                      "fly out and watch what it keeps and drops. The LOD gate\n"
+                                      "and occlusion keep following the live camera.");
                 ImGui::PopID();
             }
 
-            if (ImGui::TreeNode("Tier resolves to"))
+            // The Scene view's real cull counts, read back a frame late by the main loop
+            // — the numbers the old "Show statistics" checkbox only promised.
+            ImGui::SeparatorText("Last frame");
+            if (context.scene_cull_tested == 0)
+                ImGui::TextDisabled("No GPU-driven frame yet (classic path, or the tier "
+                                    "keeps it off).");
+            else
+                ImGui::Text("Drawn %u of %u tested (%.0f%% culled)", context.scene_cull_drawn,
+                            context.scene_cull_tested,
+                            100.0f * (1.0f - static_cast<float>(context.scene_cull_drawn) /
+                                                 static_cast<float>(context.scene_cull_tested)));
+
+            draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
-                const SushiEngine::Render::ResolvedQuality resolved =
-                    SushiEngine::Render::resolve_quality(settings);
-                const SushiEngine::Render::QualityParams& knobs = resolved.params;
-                ImGui::Text("GPU-driven path: %s", knobs.gpu_driven ? "permitted" : "off (tier)");
+                ImGui::Text("GPU-driven path: %s",
+                            resolved.params.gpu_driven ? "permitted" : "off (tier)");
                 ImGui::TextDisabled("The Low tier keeps the classic one-draw-per-instance path.");
-                ImGui::TreePop();
-            }
+            });
 
             if (std::memcmp(&settings_before, &settings, sizeof(settings)) != 0)
                 context.preferences_dirty = true;
@@ -3794,45 +4422,21 @@ namespace SushiEngine
                 return;
             }
 
-            // The sun and the image-based-lighting source live on the Environment; the
-            // Lighting window edits the same object the Environment panel does, so a change
-            // in either lands in the world through set_environment.
+            // The image-based-lighting source lives on the Environment object; this panel
+            // edits it through the same set_environment path the Environment panel uses.
             SushiEngine::Render::Environment environment = world->environment();
             bool env_changed = false;
-            if (ImGui::CollapsingHeader("Sun", ImGuiTreeNodeFlags_DefaultOpen))
+
+            // The sun is authored in exactly one place — Environment — instead of the
+            // divergent second widget block this panel used to carry (its copy drifted:
+            // different ranges, no astronomical-sun awareness in one direction). A link
+            // beats a stale duplicate.
+            ImGui::TextDisabled("Sun & sky are authored in the Environment panel.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Open##sun_owner"))
             {
-                const SushiEngine::Vector3 dir =
-                    SushiEngine::normalize(environment.sun.direction);
-                float elevation = std::asin(static_cast<float>(
-                    dir.y < -1.0 ? -1.0 : (dir.y > 1.0 ? 1.0 : dir.y))) * 57.29578f;
-                float azimuth = std::atan2(static_cast<float>(dir.z),
-                                           static_cast<float>(dir.x)) * 57.29578f;
-                bool sun_moved = false;
-                ImGui::BeginDisabled(context.sky_astronomical_sun);
-                if (ImGui::SliderFloat("Elevation", &elevation, -10.0f, 90.0f, "%.1f deg"))
-                    sun_moved = true;
-                if (ImGui::SliderFloat("Azimuth", &azimuth, -180.0f, 180.0f, "%.1f deg"))
-                    sun_moved = true;
-                ImGui::EndDisabled();
-                if (sun_moved)
-                {
-                    const float e = elevation / 57.29578f;
-                    const float a = azimuth / 57.29578f;
-                    environment.sun.direction = SushiEngine::Vector3{
-                        std::cos(e) * std::cos(a), std::sin(e), std::cos(e) * std::sin(a)};
-                    env_changed = true;
-                }
-                float sun_color[3] = {static_cast<float>(environment.sun.color.x),
-                                      static_cast<float>(environment.sun.color.y),
-                                      static_cast<float>(environment.sun.color.z)};
-                if (ImGui::ColorEdit3("Color", sun_color))
-                {
-                    environment.sun.color =
-                        SushiEngine::Vector3{sun_color[0], sun_color[1], sun_color[2]};
-                    env_changed = true;
-                }
-                if (ImGui::SliderFloat("Intensity", &environment.sun.intensity, 0.0f, 40.0f))
-                    env_changed = true;
+                context.panels.environment = true;
+                ImGui::SetWindowFocus("Environment");
             }
 
             if (ImGui::CollapsingHeader("Image-Based Lighting", ImGuiTreeNodeFlags_DefaultOpen))
@@ -3843,29 +4447,23 @@ namespace SushiEngine
                     env_changed = true;
             }
             if (env_changed)
-            {
-                world->set_environment(environment);
-                // Environment/Lighting are an editor setting (see Preferences::environment),
-                // not scene data, so they persist through the preferences store like theme
-                // or render settings rather than through Save Scene.
-                context.preferences.environment = environment;
-                context.preferences_dirty = true;
-            }
+                // The environment is scene content: the write lands in the world (and so
+                // in the scene file, the undo history, and the play snapshot), bracketed
+                // as one undo step per gesture. Preferences keep only the *default* for
+                // new scenes, which editing a live scene deliberately does not touch.
+                commit_environment_edit(context, *world, environment);
+            finish_environment_edit(context);
 
-            // The sun's cascade shadows are a render-machinery setting, so they live on the
-            // render settings the Rendering panel also edits.
-            if (ImGui::CollapsingHeader("Sun Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+            // The sun's cascade shadows are render machinery with one editor — the
+            // Rendering panel's full shadow block. The four-field subset this panel used
+            // to carry was the divergent-duplicate problem again (a second, partial
+            // truth about the same settings), so it is a link now.
+            ImGui::TextDisabled("Sun shadow settings live in the Rendering panel.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Open##shadow_owner"))
             {
-                SushiEngine::Render::ShadowSettings& shadows = context.render_settings.shadows;
-                const SushiEngine::Render::ShadowSettings shadows_before = shadows;
-                ImGui::Checkbox("Cast Sun Shadows", &shadows.enabled);
-                int cascades = static_cast<int>(shadows.cascade_count);
-                if (ImGui::SliderInt("Cascades", &cascades, 1, 4))
-                    shadows.cascade_count = static_cast<std::uint32_t>(cascades);
-                ImGui::SliderFloat("Distance", &shadows.distance, 50.0f, 2000.0f, "%.0f m");
-                ImGui::Checkbox("Contact Shadows", &shadows.contact_shadows);
-                if (std::memcmp(&shadows_before, &shadows, sizeof(shadows)) != 0)
-                    context.preferences_dirty = true;
+                context.panels.rendering = true;
+                ImGui::SetWindowFocus("Rendering");
             }
 
             // The punctual-light budget the tier resolves this frame, so an author sees how
@@ -3934,8 +4532,19 @@ namespace SushiEngine
 
                     SushiEngine::Simulation::LightParams params = world->light_params(id);
                     bool changed = false;
+                    // One undo step per widget interaction, not one per frame of a drag:
+                    // the begin/end pair after every widget is the same idiom the
+                    // Inspector's component fields use.
+                    const auto track_undo = [&context, world]()
+                    {
+                        if (ImGui::IsItemActivated())
+                            context.history.begin_change(*world);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
+                            context.history.end_change();
+                    };
                     if (ImGui::Checkbox("Spot", &params.is_spot))
                         changed = true;
+                    track_undo();
                     float color[3] = {static_cast<float>(params.color.x),
                                       static_cast<float>(params.color.y),
                                       static_cast<float>(params.color.z)};
@@ -3944,27 +4553,30 @@ namespace SushiEngine
                         params.color = SushiEngine::Vector3{color[0], color[1], color[2]};
                         changed = true;
                     }
+                    track_undo();
                     if (ImGui::DragFloat("Intensity", &params.intensity, 0.1f, 0.0f, 1000.0f,
                                          "%.1f"))
                         changed = true;
+                    track_undo();
                     if (ImGui::DragFloat("Range", &params.range, 0.1f, 0.1f, 10000.0f, "%.2f"))
                         changed = true;
+                    track_undo();
                     if (params.is_spot)
                     {
                         if (ImGui::DragFloat("Inner Angle", &params.inner_degrees, 0.2f, 0.0f,
                                              89.0f, "%.1f deg"))
                             changed = true;
+                        track_undo();
                         if (ImGui::DragFloat("Outer Angle", &params.outer_degrees, 0.2f, 0.0f,
                                              89.0f, "%.1f deg"))
                             changed = true;
+                        track_undo();
                     }
                     if (ImGui::Checkbox("Casts Shadows", &params.casts_shadows))
                         changed = true;
+                    track_undo();
                     if (changed)
-                    {
-                        context.history.record(*world);
                         world->set_light_params(id, params);
-                    }
                 }
                 ImGui::PopID();
             }
@@ -4038,8 +4650,16 @@ namespace SushiEngine
             {
                 if (ImGui::Checkbox("Atmosphere Enabled", &environment.atmosphere.enabled))
                     changed = true;
-                if (ImGui::SliderFloat("Exposure", &environment.exposure, 0.02f, 1.0f))
-                    changed = true;
+                // Exposure has one owner: the Post Process panel, where the whole exposure
+                // chain (mode, compensation, and this scene multiplier) is authored
+                // together. A second slider here is how the two used to fight.
+                ImGui::TextDisabled("Exposure is authored in the Post Process panel.");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Open##exposure_owner"))
+                {
+                    context.panels.post_process = true;
+                    ImGui::SetWindowFocus("Post Process");
+                }
                 float height_km = environment.atmosphere.height * 0.001f;
                 if (ImGui::SliderFloat("Height", &height_km, 10.0f, 300.0f, "%.0f km"))
                 {
@@ -4653,339 +5273,6 @@ namespace SushiEngine
                     ImGui::TreePop();
                 }
 
-                // The GPU regional nest (docs/slop/atmosphere_system.md §6). Everything here is
-                // authored data serialized with the scene -- the design doc states twice that no
-                // physical constant may live inside a loop body, and this panel is what makes
-                // that claim mean something to an author rather than only to a reader.
-                if (ImGui::TreeNode("Atmosphere (regional nest)"))
-                {
-                    SushiEngine::Render::AtmosphereParameters& nest = environment.atmosphere_nest;
-
-                    // What the nest is actually doing, read through the same asynchronous mirror
-                    // gameplay reads. Deliberately the only window onto it: nothing in the editor
-                    // reaches the GPU state synchronously either.
-                    if (context.assets != nullptr)
-                    {
-                        const SushiEngine::Render::AtmosphereMirror mirror =
-                            context.assets->atmosphere_mirror();
-                        if (!nest.enabled)
-                            ImGui::TextDisabled("Nest off -- the sky comes from the classified or "
-                                                "authored deck stack.");
-                        else if (!mirror.valid())
-                            ImGui::TextDisabled("Nest has not reported yet; weather queries answer "
-                                                "from the base state.");
-                        else
-                            ImGui::Text("Simulated %.0f s of game time, %d x %d mirror columns.",
-                                        mirror.simulated_seconds, mirror.cells, mirror.cells);
-                    }
-
-                    if (ImGui::Checkbox("Nest Enabled", &nest.enabled))
-                        changed = true;
-                    ImGui::BeginDisabled(!nest.enabled);
-
-                    // The two numbers that decide whether an afternoon convects at all: how hard
-                    // the ground heats the air above it, and how much moisture it gives up. A real
-                    // surface energy balance replaces both in the next phase.
-                    ImGui::SeparatorText("Surface forcing (prescribed this phase)");
-
-                    // The land cover, as the *properties* it implies.
-                    //
-                    // These presets used to set a pair of fluxes directly. Since Phase B3 the
-                    // fluxes are solved, so what a preset sets is what a place actually is —
-                    // how bright it is, how much water it can give up, and how much heat it
-                    // stores. The Bowen ratio it produces then falls out of the balance and
-                    // moves through the day as the ground dries, instead of being pinned.
-                    //
-                    // Presets rather than a default change, deliberately: which of these a scene
-                    // is standing on is an authoring decision, and the engine has no way to guess
-                    // it. The measured skies are in each tooltip; the panel above reports the
-                    // ratio the model is actually running at.
-                    struct SurfacePreset
-                    {
-                        const char* name;
-                        float albedo;
-                        float availability;
-                        float capacity;
-                        const char* note;
-                    };
-                    static const SurfacePreset PRESETS[] = {
-                        {"Semi-desert / bare soil", 0.30f, 0.10f, 6.0e4f,
-                         "Bright, dry and thin: it heats fast, gives up almost no\n"
-                         "water, and its Bowen ratio runs well above 1. The sky\n"
-                         "stays clear however long it is left running, and that is\n"
-                         "the model being right rather than idle."},
-                        {"Mixed cropland", 0.22f, 0.30f, 1.0e5f,
-                         "A dry summer, or land partly harvested. Cloud, but late\n"
-                         "and thin."},
-                        {"Vegetated summer land", 0.18f, 0.55f, 1.5e5f,
-                         "Temperate grassland or forest in leaf. Dark, damp, and\n"
-                         "with enough thermal mass to keep the afternoon going --\n"
-                         "the fair-weather cumulus case."},
-                        {"Open water / lake", 0.06f, 1.00f, 1.3e7f,
-                         "Dark, saturated, and with the heat capacity of a three\n"
-                         "metre mixed layer: the skin barely moves over a whole\n"
-                         "day. Almost all the sun's energy goes into evaporation,\n"
-                         "so the layer is moist but barely buoyant -- and it is\n"
-                         "this contrast against the land beside it that a sea\n"
-                         "breeze is made of."},
-                    };
-                    ImGui::TextUnformatted("Land cover");
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(sets the three properties below)");
-                    for (const SurfacePreset& preset : PRESETS)
-                    {
-                        if (ImGui::Button(preset.name))
-                        {
-                            nest.surface_albedo = preset.albedo;
-                            nest.surface_moisture_availability = preset.availability;
-                            nest.surface_heat_capacity = preset.capacity;
-                            changed = true;
-                        }
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("albedo %.2f, moisture %.2f, slab %.2g J/m2/K.\n%s",
-                                              double(preset.albedo), double(preset.availability),
-                                              double(preset.capacity), preset.note);
-                    }
-
-                    if (ImGui::SliderFloat("Albedo", &nest.surface_albedo, 0.0f, 0.9f, "%.2f"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How much sunlight the ground throws away. The widest\n"
-                                          "range of any parameter here: 0.06 for water at noon,\n"
-                                          "0.20 for vegetation, 0.8 for fresh snow. First thing\n"
-                                          "to reach for when a scene heats too fast or too slow.");
-                    if (ImGui::SliderFloat("Moisture Availability", &nest.surface_moisture_availability,
-                                           0.0f, 1.0f, "%.2f"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The fraction of the saturation deficit the ground can\n"
-                                          "actually supply -- 1 is open water or saturated soil,\n"
-                                          "0 is dry rock. **This is the Bowen ratio's author.**\n"
-                                          "It decides whether a heated afternoon reaches its\n"
-                                          "condensation level or merely gets hotter, which is\n"
-                                          "the difference between a clear sky and a cumulus deck\n"
-                                          "at every value of every other parameter here.");
-                    if (ImGui::SliderFloat("Heat Capacity", &nest.surface_heat_capacity, 1.0e4f,
-                                           1.5e7f, "%.2g J/m2/K", ImGuiSliderFlags_Logarithmic))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How much energy warms the ground by a degree, and so\n"
-                                          "how far the afternoon peak lags solar noon. 1e5 is a\n"
-                                          "few centimetres of soil (an hour or two of lag); 1.3e7\n"
-                                          "is three metres of water, which barely moves all day.\n"
-                                          "Safe at any value: the slab is solved semi-implicitly,\n"
-                                          "so a thin one cannot destabilise the step.");
-                    if (ImGui::SliderFloat("Surface Patchiness", &nest.thermal_seed_amplitude, 0.0f,
-                                           1.0f, "%.2f"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How much the surface heating varies across the\n"
-                                          "ground, as a fraction. Convection needs it: a\n"
-                                          "uniformly heated surface rises as one slab and\n"
-                                          "never forms cells. 0.4 is mixed terrain. It scales\n"
-                                          "the flux, so it cannot cool the ground and it\n"
-                                          "stops at dusk.");
-                    // The two scales below are what make the slider above do anything. Measured:
-                    // patchiness with no scales -- redrawn per cell per step, as it was -- gives
-                    // 1.22x the domain structure of switching the seed off entirely, against
-                    // 3.72x for these defaults. They are in metres and seconds rather than cells
-                    // and steps so that the quality tier and the frame rate are not physical
-                    // parameters of the weather.
-                    if (ImGui::SliderFloat("Patch Size", &nest.thermal_seed_length_m, 1000.0f,
-                                           24000.0f, "%.0f m"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How wide a patch of warmer ground is. Convection\n"
-                                          "organises on this scale, so it sets how big the\n"
-                                          "cumulus cells come out. 6 km is the scale land\n"
-                                          "cover and soil moisture actually vary over; much\n"
-                                          "wider is broader than the plumes that form.");
-                    if (ImGui::SliderFloat("Patch Lifetime", &nest.thermal_seed_period_s, 60.0f,
-                                           3600.0f, "%.0f s"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How long a patch stays warmer before the pattern\n"
-                                          "renews. This is the axis that matters: a patch\n"
-                                          "gone in one step cannot lift anything, because a\n"
-                                          "thermal needs a boundary-layer turnover -- about\n"
-                                          "15 min -- to organise around it. Longer than an\n"
-                                          "hour and the pattern stops renewing at all.");
-
-                    // Without this the two above go nowhere. The turbulence that lifts surface
-                    // heat and moisture out of a 54 m surface layer is far below a 2 km grid, so
-                    // it is parameterized; with it switched off the fluxes pile up in the lowest
-                    // level, and a horizontally uniform hot slab cannot rise at all.
-                    ImGui::SeparatorText("Boundary layer");
-                    if (ImGui::SliderFloat("Mixing Depth Cap", &nest.boundary_layer_depth_m, 0.0f,
-                                           4000.0f, "%.0f m"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("A ceiling, not the depth. The depth itself is\n"
-                                          "diagnosed per column by the parcel method and grows\n"
-                                          "through the morning; this stands for the capping\n"
-                                          "inversion that stops a fair-weather layer.");
-                    if (ImGui::SliderFloat("Mixing Strength", &nest.boundary_layer_velocity_scale,
-                                           0.0f, 6.0f, "%.2f m/s"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The mixed layer's turbulent velocity scale, which\n"
-                                          "sets the whole diffusivity profile (Troen-Mahrt:\n"
-                                          "K = 0.4 w z (1 - z/h)^2). 1-2 m/s is a convective\n"
-                                          "afternoon, peaking at 150-300 m2/s a third of the\n"
-                                          "way up. Zero removes the boundary layer entirely.");
-
-                    ImGui::SeparatorText("Base state");
-                    if (ImGui::SliderFloat("Surface Temperature", &nest.surface_temperature, 233.0f,
-                                           323.0f, "%.1f K"))
-                        changed = true;
-                    if (ImGui::SliderFloat("Surface Humidity", &nest.surface_humidity, 0.0f, 1.0f))
-                        changed = true;
-                    if (ImGui::SliderFloat("Humidity Scale Height", &nest.humidity_scale_height,
-                                           500.0f, 6000.0f, "%.0f m"))
-                        changed = true;
-
-                    // Kessler's own rate constants. The autoconversion threshold is the one an
-                    // author feels most directly: below it a cloud never rains, however thick it
-                    // gets, which is the difference between fair-weather cumulus and a shower.
-                    ImGui::SeparatorText("Microphysics (Kessler warm rain)");
-                    // The closure that decides whether this nest can draw a cumulus at all. A
-                    // 2 km cell's humidity is a *mean*, and a fair-weather cumulus is saturated
-                    // air filling a fraction of it, so condensing only when the mean crosses
-                    // saturation produces fog and nothing else -- which is exactly what every
-                    // run did before this existed.
-                    if (ImGui::SliderFloat("Cloud From RH", &nest.cloud_critical_humidity, 0.5f,
-                                           1.0f, "%.2f"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The cell-mean relative humidity subgrid cloud starts\n"
-                                          "at. 0.80 is standard at this spacing. Lower gives\n"
-                                          "more, thinner, earlier cloud; 1.00 switches the\n"
-                                          "subgrid closure off entirely and condenses on the\n"
-                                          "cell mean alone, which is fog or a clear sky.");
-                    if (ImGui::SliderFloat("Autoconversion Threshold", &nest.autoconversion_threshold,
-                                           0.0f, 5.0e-3f, "%.4f kg/kg"))
-                        changed = true;
-                    if (ImGui::SliderFloat("Autoconversion Rate", &nest.autoconversion_rate, 0.0f,
-                                           5.0e-3f, "%.4f /s"))
-                        changed = true;
-                    if (ImGui::SliderFloat("Accretion Rate", &nest.accretion_rate, 0.0f, 6.0f,
-                                           "%.2f /s"))
-                        changed = true;
-                    if (ImGui::SliderFloat("Rain Evaporation", &nest.rain_evaporation_rate, 0.0f,
-                                           0.1f, "%.3f /s"))
-                        changed = true;
-                    // The single number deciding whether a given amount of condensate reads as a
-                    // crisp white cumulus or a thin haze -- the same water, differently divided.
-                    if (ImGui::SliderFloat("Droplet Radius", &nest.droplet_effective_radius, 3.0e-6f,
-                                           2.0e-5f, "%.7f m"))
-                        changed = true;
-                    // Raise this if the sky reads as a solid white ceiling: it is how much water
-                    // a 2 km cell has to average before it renders as fully overcast, and it
-                    // changes nothing about the physics that produced the water.
-                    if (ImGui::SliderFloat("Overcast At", &nest.coverage_reference_lwc, 2.0e-4f,
-                                           8.0e-3f, "%.5f kg/m3"))
-                        changed = true;
-
-                    // Ice is a *diagnosed phase*, not a second species: everything below is a
-                    // function of the cell's own temperature. Which is why there is a band and
-                    // not a switch -- a cloud at -5 C is mostly supercooled water and one at
-                    // -20 C is mostly crystals, and the band between them is where the two
-                    // coexist and where a cloud turns itself into snow.
-                    ImGui::SeparatorText("Ice");
-                    if (ImGui::SliderFloat("All Liquid Above", &nest.freezing_temperature, 263.15f,
-                                           278.15f, "%.2f K"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Warm edge of the mixed-phase band. Above this a cloud\n"
-                                          "is entirely liquid and every ice term below is\n"
-                                          "exactly inert, so a summer scene is untouched by any\n"
-                                          "of this.");
-                    if (ImGui::SliderFloat("All Ice Below", &nest.glaciation_temperature, 233.15f,
-                                           268.15f, "%.2f K"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Cold edge. Saturation over ice is lower than over\n"
-                                          "water, so a cell crossing into the band starts\n"
-                                          "condensing at a humidity it would have been clear at\n"
-                                          "-- which is why cold cloud forms where warm cloud\n"
-                                          "would not, on the same water.");
-                    if (ImGui::SliderFloat("Ice Radius", &nest.ice_effective_radius, 1.0e-5f,
-                                           1.0e-4f, "%.7f m"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The optical half, and the half you can see. A crystal\n"
-                                          "aggregate is nearly four times a droplet's effective\n"
-                                          "radius, so glaciated cloud is that much thinner for\n"
-                                          "the same water: a translucent cirrus veil and a soft\n"
-                                          "anvil top instead of a wall of white.");
-                    if (ImGui::SliderFloat("Snow Fall Speed", &nest.snow_fall_speed_coefficient,
-                                           1.0f, 20.0f, "%.1f"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("An order of magnitude under rain's, and that single\n"
-                                          "fact is most of what makes snow look like snow: a\n"
-                                          "metre a second where a raindrop of the same water\n"
-                                          "falls at seven. It is also why a snow shaft leans so\n"
-                                          "far downwind.");
-                    if (ImGui::SliderFloat("Snow Precipitates At", &nest.glaciated_autoconversion_factor,
-                                           0.05f, 1.0f, "%.2f x"))
-                        changed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Fraction of the warm threshold a fully glaciated cloud\n"
-                                          "needs before it precipitates. Crystals stick where\n"
-                                          "droplets have to coalesce, so a winter deck snows out\n"
-                                          "of cloud that in summer would just sit there. At 1.00\n"
-                                          "ice precipitates no more readily than water.");
-
-                    ImGui::SeparatorText("Dynamics");
-                    if (ImGui::SliderFloat("Courant Target", &nest.courant_target, 0.1f, 1.5f))
-                        changed = true;
-                    if (ImGui::SliderFloat("Eddy Viscosity", &nest.eddy_viscosity, 0.0f, 400.0f,
-                                           "%.0f m2/s"))
-                        changed = true;
-                    if (ImGui::SliderFloat("Boundary Relaxation", &nest.boundary_relaxation, 0.0f,
-                                           0.2f, "%.3f /s"))
-                        changed = true;
-                    int pressure_iterations = int(nest.pressure_iterations);
-                    if (ImGui::SliderInt("Pressure Sweeps", &pressure_iterations, 1, 48))
-                    {
-                        nest.pressure_iterations = std::uint32_t(pressure_iterations);
-                        changed = true;
-                    }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Red-black sweeps of the pressure solve per step. The\n"
-                                          "vertical is solved exactly, so these only iterate the\n"
-                                          "horizontal coupling -- which this grid's anisotropy\n"
-                                          "(2 km against 54-560 m) makes a small, strongly\n"
-                                          "diagonally dominant correction.\n\n"
-                                          "Measured: the solve converges at 2. From 2 to 20 the\n"
-                                          "weather is identical to every printed figure and the\n"
-                                          "peak divergence agrees to seven. 4 is that with a\n"
-                                          "margin. Raising it costs about 0.7 ms a step each and\n"
-                                          "buys nothing measurable.");
-
-                    // How much weather one frame may buy. Read out by the Meteorology panel's
-                    // clock since that panel existed, but never authorable -- and it is the
-                    // cheapest lever on the whole tier's throughput, because the nest advances at
-                    // exactly `this x frame rate x step` game seconds per second of wall clock.
-                    // Raising it trades frame time for weather time directly.
-                    int steps_per_frame = int(nest.max_steps_per_frame);
-                    if (ImGui::SliderInt("Steps Per Frame", &steps_per_frame, 1, 32))
-                    {
-                        nest.max_steps_per_frame = std::uint32_t(steps_per_frame);
-                        changed = true;
-                    }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The nest's throughput, directly: it advances\n"
-                                          "steps x frame rate x step-length game seconds per\n"
-                                          "second. Past this the surplus is discarded rather\n"
-                                          "than caught up, so raising it is how a scene gets its\n"
-                                          "weather sooner -- paid for in frame time, since the\n"
-                                          "nest submits on the graphics queue.");
-
-                    ImGui::EndDisabled();
-                    ImGui::TreePop();
-                }
                 ImGui::EndDisabled();
             }
 
@@ -5080,14 +5367,11 @@ namespace SushiEngine
             }
 
             if (changed)
-            {
-                world->set_environment(environment);
-                // Environment/Lighting are an editor setting (see Preferences::environment),
-                // not scene data, so they persist through the preferences store like theme
-                // or render settings rather than through Save Scene.
-                context.preferences.environment = environment;
-                context.preferences_dirty = true;
-            }
+                // Scene content, like the Lighting panel's sun block: the write lands in
+                // the world and the undo history, not in the preferences (which keep only
+                // the default_environment a new scene starts from).
+                commit_environment_edit(context, *world, environment);
+            finish_environment_edit(context);
 
             ImGui::End();
         }
@@ -5229,6 +5513,8 @@ namespace SushiEngine
                         {
                             request_open_scene(context, path_string);
                         }
+                        else if (has_character_extension(entry.path()))
+                            open_character_in_preview(context, entry.path());
                         else if (has_text_extension(entry.path()))
                             open_document(context, entry.path());
                         else
@@ -5244,6 +5530,8 @@ namespace SushiEngine
                             {
                                 request_open_scene(context, path_string);
                             }
+                            else if (has_character_extension(entry.path()))
+                                open_character_in_preview(context, entry.path());
                             else if (has_text_extension(entry.path()))
                                 open_document(context, entry.path());
                             else
@@ -5253,8 +5541,12 @@ namespace SushiEngine
                             context.renaming_project_path = path_string;
                         if (ImGui::MenuItem("Delete"))
                             delete_target = entry.path();
-                        if (ImGui::MenuItem("Show in Explorer"))
+                        if (ImGui::MenuItem("Show in Explorer", nullptr, false,
+                                            SHELL_INTEGRATION_AVAILABLE))
                             show_in_explorer(entry.path());
+                        if (!SHELL_INTEGRATION_AVAILABLE &&
+                            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            ImGui::SetTooltip("Windows-only for now.");
                         ImGui::Separator();
                         draw_project_create_menu(context, current);
                         ImGui::EndPopup();
@@ -5270,8 +5562,12 @@ namespace SushiEngine
                                                                            ImGuiPopupFlags_NoOpenOverItems))
             {
                 draw_project_create_menu(context, current);
-                if (ImGui::MenuItem("Show in Explorer"))
+                if (ImGui::MenuItem("Show in Explorer", nullptr, false,
+                                    SHELL_INTEGRATION_AVAILABLE))
                     show_in_explorer(current);
+                if (!SHELL_INTEGRATION_AVAILABLE &&
+                    ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Windows-only for now.");
                 ImGui::EndPopup();
             }
 
@@ -5369,20 +5665,22 @@ namespace SushiEngine
             ImGui::End();
         }
 
-        void draw_toolbar_panel(EditorContext& context)
+        namespace
         {
-            if (!context.panels.toolbar)
-                return;
-            if (!ImGui::Begin("Toolbar", &context.panels.toolbar))
+            // Play/Stop and Pause/Resume as functions rather than button handlers, so the
+            // toolbar buttons and the Ctrl+P / Ctrl+Shift+P shortcuts drive the exact same
+            // transitions — the scene snapshot taken on Play and restored verbatim on Stop
+            // (Unity's edit-mode-is-never-mutated-by-play-mode guarantee) included.
+            void toggle_play_stop(EditorContext& context)
             {
-                ImGui::End();
-                return;
-            }
-
-            const bool playing = context.play_state == PlayState::Playing;
-            if (ImGui::Button(playing ? "Stop" : "Play"))
-            {
-                if (playing || context.play_state == PlayState::Paused)
+                if (context.play_state == PlayState::Stopped)
+                {
+                    context.play_state = PlayState::Playing;
+                    if (context.simulation != nullptr)
+                        context.play_mode_snapshot = capture_scene(context.simulation->world());
+                    editor_log(context, "Playback started.");
+                }
+                else
                 {
                     context.play_state = PlayState::Stopped;
                     if (context.simulation != nullptr && context.play_mode_snapshot.has_value())
@@ -5393,20 +5691,12 @@ namespace SushiEngine
                     }
                     editor_log(context, "Playback stopped; scene restored.");
                 }
-                else
-                {
-                    context.play_state = PlayState::Playing;
-                    if (context.simulation != nullptr)
-                        context.play_mode_snapshot = capture_scene(context.simulation->world());
-                    editor_log(context, "Playback started.");
-                }
             }
-            ImGui::SameLine();
 
-            ImGui::BeginDisabled(context.play_state == PlayState::Stopped);
-            if (ImGui::Button(context.play_state == PlayState::Paused ? "Resume"
-                                                                      : "Pause"))
+            void toggle_pause(EditorContext& context)
             {
+                if (context.play_state == PlayState::Stopped)
+                    return;
                 context.play_state = context.play_state == PlayState::Paused
                                          ? PlayState::Playing
                                          : PlayState::Paused;
@@ -5414,65 +5704,151 @@ namespace SushiEngine
                                         ? "Playback paused."
                                         : "Playback resumed.");
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Step"))
+        } // namespace
+
+        void draw_toolbar(EditorContext& context)
+        {
+            // The playback shortcuts (Unity's Ctrl+P / Ctrl+Shift+P) are resolved here so
+            // one place owns every playback entry point. Ctrl+Shift+P also satisfies the
+            // plain Ctrl+P chord on the same press, so the more specific pause action is
+            // tested first and the else-if keeps the pair mutually exclusive.
+            if (context.input_snapshot != nullptr)
             {
-                context.step_requested = true;
-                editor_log(context, "Stepped one frame.");
+                if (context.input_snapshot->pressed("PauseToggle"))
+                    toggle_pause(context);
+                else if (context.input_snapshot->pressed("PlayToggle"))
+                    toggle_play_stop(context);
             }
-            ImGui::EndDisabled();
 
-            ImGui::SameLine();
-            const char* state_text = context.play_state == PlayState::Playing ? "Playing"
-                                     : context.play_state == PlayState::Paused ? "Paused"
-                                                                               : "Stopped";
-            ImGui::TextDisabled("| %s", state_text);
-
-            // Transform tool selector, mirroring Unity's W/E/R. The hotkeys apply only
-            // when no text field is capturing keys, so typing a name never switches tools.
-            ImGui::SameLine();
-            ImGui::TextDisabled("|");
-            const GizmoMode modes[3] = {GizmoMode::Translate, GizmoMode::Rotate, GizmoMode::Scale};
-            const char* mode_labels[3] = {"Move", "Rotate", "Scale"};
-            for (int i = 0; i < 3; ++i)
+            // A fixed strip under the menu bar (like the status bar), not a dockable
+            // window: the Play button and tool selector are chrome, and a closable
+            // Toolbar was the "closed the Toolbar, lost the Play button" failure. The
+            // side-bar height reserves its space before the dockspace claims the rest.
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            const float height =
+                ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2.0f;
+            if (ImGui::BeginViewportSideBar("##Toolbar", viewport, ImGuiDir_Up, height,
+                                            ImGuiWindowFlags_NoScrollbar |
+                                                ImGuiWindowFlags_NoSavedSettings))
             {
+                const bool in_play_session = context.play_state != PlayState::Stopped;
+                if (ImGui::Button(in_play_session ? "Stop" : "Play"))
+                    toggle_play_stop(context);
                 ImGui::SameLine();
-                const bool active = context.gizmo_mode == modes[i];
-                if (active)
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                if (ImGui::Button(mode_labels[i]))
-                    context.gizmo_mode = modes[i];
-                if (active)
-                    ImGui::PopStyleColor();
+
+                ImGui::BeginDisabled(!in_play_session);
+                if (ImGui::Button(context.play_state == PlayState::Paused ? "Resume"
+                                                                          : "Pause"))
+                    toggle_pause(context);
+                ImGui::SameLine();
+                if (ImGui::Button("Step"))
+                {
+                    context.step_requested = true;
+                    editor_log(context, "Stepped one frame.");
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                const char* state_text = context.play_state == PlayState::Playing ? "Playing"
+                                         : context.play_state == PlayState::Paused ? "Paused"
+                                                                                   : "Stopped";
+                ImGui::TextDisabled("| %s", state_text);
+
+                // Transform tool selector, mirroring Unity's W/E/R. The hotkeys apply only
+                // when no text field is capturing keys, so typing a name never switches tools.
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                const GizmoMode modes[3] = {GizmoMode::Translate, GizmoMode::Rotate,
+                                            GizmoMode::Scale};
+                const char* mode_labels[3] = {"Move", "Rotate", "Scale"};
+                for (int i = 0; i < 3; ++i)
+                {
+                    ImGui::SameLine();
+                    const bool active = context.gizmo_mode == modes[i];
+                    if (active)
+                        ImGui::PushStyleColor(ImGuiCol_Button,
+                                              ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                    if (ImGui::Button(mode_labels[i]))
+                        context.gizmo_mode = modes[i];
+                    if (active)
+                        ImGui::PopStyleColor();
+                }
+
+                // Local/World axis-frame toggle, mirroring Unity's gizmo-space button. Disabled
+                // for Scale, which always drags in local axes (a world-aligned scale on a
+                // rotated object would shear it).
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                ImGui::SameLine();
+                ImGui::BeginDisabled(context.gizmo_mode == GizmoMode::Scale);
+                const char* space_label =
+                    context.gizmo_space == GizmoSpace::Local ? "Local" : "World";
+                if (ImGui::Button(space_label))
+                    context.gizmo_space = context.gizmo_space == GizmoSpace::Local
+                                              ? GizmoSpace::World
+                                              : GizmoSpace::Local;
+                ImGui::EndDisabled();
+
+                // Overall Quality: a *derived* preset over the per-domain tiers, never
+                // stored anywhere. It reads the common tier when the domains agree and
+                // "Custom" when they diverge; picking a tier writes every domain's tier
+                // in one gesture. The domains stay the authorities — Render Quality in
+                // Rendering, Atmosphere Quality in Meteorology — so this can never
+                // reintroduce the cross-domain coupling it replaces.
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                ImGui::SameLine();
+                {
+                    using SushiEngine::Render::RenderQuality;
+                    using SushiEngine::Simulation::AtmosphereQuality;
+                    const char* const TIERS[] = {"Low", "Medium", "High", "Ultra"};
+                    const int render_tier = static_cast<int>(context.render_settings.quality);
+                    const int atmosphere_tier =
+                        static_cast<int>(context.simulation_settings.atmosphere.quality);
+                    const bool agree = render_tier == atmosphere_tier;
+                    const char* label = agree ? TIERS[render_tier] : "Custom";
+                    ImGui::SetNextItemWidth(110.0f);
+                    if (ImGui::BeginCombo("Quality", label))
+                    {
+                        for (int i = 0; i < 4; ++i)
+                        {
+                            const bool selected = agree && i == render_tier;
+                            if (ImGui::Selectable(TIERS[i], selected))
+                            {
+                                context.render_settings.quality =
+                                    static_cast<RenderQuality>(i);
+                                context.simulation_settings.atmosphere.quality =
+                                    static_cast<AtmosphereQuality>(i);
+                                context.preferences_dirty = true;
+                            }
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Sets every domain's quality tier at once (rendering and the\n"
+                            "atmosphere simulation). Shows Custom when the domains are set\n"
+                            "differently in their own panels. Note the atmosphere tier\n"
+                            "rebuilds the nest: the running weather restarts.");
+                }
+
+                // Tool hotkeys now resolve through the EditorViewport input context (rebindable),
+                // gated centrally by the mapper's capture gate so a text field never switches tools.
+                // While right mouse is held the Scene camera owns WASD for flight, so the tool
+                // hotkeys still stand down to avoid switching tools as the user moves.
+                if (context.input_snapshot != nullptr &&
+                    !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+                {
+                    if (context.input_snapshot->pressed("GizmoTranslate"))
+                        context.gizmo_mode = GizmoMode::Translate;
+                    else if (context.input_snapshot->pressed("GizmoRotate"))
+                        context.gizmo_mode = GizmoMode::Rotate;
+                    else if (context.input_snapshot->pressed("GizmoScale"))
+                        context.gizmo_mode = GizmoMode::Scale;
+                }
             }
-
-            // Local/World axis-frame toggle, mirroring Unity's gizmo-space button. Disabled
-            // for Scale, which always drags in local axes (a world-aligned scale on a
-            // rotated object would shear it).
-            ImGui::SameLine();
-            ImGui::TextDisabled("|");
-            ImGui::SameLine();
-            ImGui::BeginDisabled(context.gizmo_mode == GizmoMode::Scale);
-            const char* space_label = context.gizmo_space == GizmoSpace::Local ? "Local" : "World";
-            if (ImGui::Button(space_label))
-                context.gizmo_space = context.gizmo_space == GizmoSpace::Local ? GizmoSpace::World
-                                                                                : GizmoSpace::Local;
-            ImGui::EndDisabled();
-
-            // Tool hotkeys now resolve through the EditorViewport input context (rebindable),
-            // gated centrally by the mapper's capture gate so a text field never switches tools.
-            // While right mouse is held the Scene camera owns WASD for flight, so the tool
-            // hotkeys still stand down to avoid switching tools as the user moves.
-            if (context.input_snapshot != nullptr && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
-            {
-                if (context.input_snapshot->pressed("GizmoTranslate"))
-                    context.gizmo_mode = GizmoMode::Translate;
-                else if (context.input_snapshot->pressed("GizmoRotate"))
-                    context.gizmo_mode = GizmoMode::Rotate;
-                else if (context.input_snapshot->pressed("GizmoScale"))
-                    context.gizmo_mode = GizmoMode::Scale;
-            }
-
             ImGui::End();
         }
 
@@ -5857,6 +6233,10 @@ namespace SushiEngine
             }
 
             Vfx::ParticleEffect& target = particle_effect_for(context, entity, *world);
+            // The pre-frame shape of the effect, for the undo bracketing at the bottom:
+            // these widgets edit the scratch directly and report no per-widget change,
+            // so "did this frame edit the effect" is answered by comparing captures.
+            const nlohmann::json effect_before = capture_effect(target);
             if (draw_effect_library(target, context.assets))
                 context.particle_effect_dirty = true;
 
@@ -6113,10 +6493,33 @@ namespace SushiEngine
             // While a widget is active its value has already changed, so registering on those
             // frames covers a drag; the dirty flag covers the changes no widget reports (a library
             // load, an emitter's first appearance).
-            if (ImGui::IsAnyItemActive() || context.particle_effect_dirty)
+            //
+            // Undo bracketing: a drag is one begin_change/end_change step (armed the frame the
+            // scratch first diverges, committed when the widget releases); a discrete change with
+            // no active widget (library load, burst add/remove) is one record. Both snapshot the
+            // world before set_particle_effect_source writes the edit into it.
+            const bool particle_item_active = ImGui::IsAnyItemActive();
+            const bool effect_edited = context.particle_effect_dirty ||
+                                       capture_effect(target) != effect_before;
+            if (effect_edited && !context.particle_effect_change_active)
+            {
+                if (particle_item_active)
+                {
+                    context.history.begin_change(*world);
+                    context.particle_effect_change_active = true;
+                }
+                else if (context.particle_effect_dirty)
+                    context.history.record(*world);
+            }
+            if (particle_item_active || context.particle_effect_dirty)
             {
                 context.particle_effect_dirty = false;
                 world->set_particle_effect_source(entity, target);
+            }
+            if (!particle_item_active && context.particle_effect_change_active)
+            {
+                context.history.end_change();
+                context.particle_effect_change_active = false;
             }
 
             // The Preview surface mirrors whatever is being edited, so the isolated view and the
@@ -6310,6 +6713,7 @@ namespace SushiEngine
                     {
                         context.scene_path = path.string();
                         context.saved_scene_revision = context.history.revision();
+                        note_recent_scene(context, context.scene_path);
                         editor_log(context, "Saved scene '" + context.scene_path + "'.");
                         // This save-as was raised to unblock a pending window close (Ctrl+S
                         // or "Save" from the unsaved-changes prompt with no scene path yet)
@@ -6440,11 +6844,11 @@ namespace SushiEngine
 
         void draw_preferences_window(EditorContext& context)
         {
-            if (!context.show_preferences)
+            if (!context.panels.preferences)
                 return;
 
             ImGui::SetNextWindowSize(ImVec2(460.0f, 420.0f), ImGuiCond_FirstUseEver);
-            if (!ImGui::Begin("Preferences", &context.show_preferences))
+            if (!ImGui::Begin("Preferences", &context.panels.preferences))
             {
                 ImGui::End();
                 return;
@@ -6468,6 +6872,14 @@ namespace SushiEngine
             if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 changed |= ImGui::Checkbox("Autosave", &preferences.autosave);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Saves a dirty scene to its file on the interval below.\n"
+                                      "A scene that has never been saved is left alone (no\n"
+                                      "surprise Save-As), and a clean scene is never rewritten.");
+                if (preferences.autosave)
+                    changed |= ImGui::SliderFloat("Autosave interval",
+                                                  &preferences.autosave_interval_seconds, 15.0f,
+                                                  600.0f, "%.0f s");
                 changed |= ImGui::DragFloat("Camera move speed", &preferences.camera_move_speed,
                                             0.1f, 0.1f, 100.0f, "%.1f");
             }
@@ -6489,7 +6901,7 @@ namespace SushiEngine
 
             ImGui::Separator();
             if (ImGui::Button("Configure Input... (Edit > Input Manager)"))
-                context.show_input_manager = true;
+                context.panels.input_manager = true;
 
             ImGui::Separator();
             if (context.preferences_store != nullptr)
@@ -6566,7 +6978,7 @@ namespace SushiEngine
 
         void draw_input_manager_window(EditorContext& context)
         {
-            if (!context.show_input_manager)
+            if (!context.panels.input_manager)
                 return;
 
             // Needs the live contexts and manager main() wired in; without them there is nothing
@@ -6574,12 +6986,12 @@ namespace SushiEngine
             if (context.input_manager == nullptr || context.editor_global_context == nullptr ||
                 context.editor_viewport_context == nullptr)
             {
-                context.show_input_manager = false;
+                context.panels.input_manager = false;
                 return;
             }
 
             ImGui::SetNextWindowSize(ImVec2(540.0f, 480.0f), ImGuiCond_FirstUseEver);
-            if (!ImGui::Begin("Input Manager", &context.show_input_manager))
+            if (!ImGui::Begin("Input Manager", &context.panels.input_manager))
             {
                 ImGui::End();
                 return;
@@ -6691,9 +7103,10 @@ namespace SushiEngine
             ImGui::DockBuilderSetNodeSize(dockspace_id,
                                           ImGui::GetMainViewport()->WorkSize);
 
+            // No top split for the Toolbar any more: it is a fixed viewport side bar
+            // (see draw_toolbar), so the dockspace starts below it and the old 6 %
+            // guess at its height is gone.
             ImGuiID center = dockspace_id;
-            ImGuiID top = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.06f,
-                                                      nullptr, &center);
             ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f,
                                                        nullptr, &center);
             ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f,
@@ -6701,16 +7114,43 @@ namespace SushiEngine
             ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.35f,
                                                          nullptr, &center);
 
-            ImGui::DockBuilderDockWindow("Toolbar", top);
-            // Scene and Game share the centre node, so they open tabbed like Unity.
+            // Every window is docked, open or not — DockBuilder records a home for
+            // closed windows too, so opening one later lands it in its node as a tab
+            // instead of floating loose over the viewport.
+            //
+            // Centre: the three rendering surfaces, tabbed like Unity's Scene/Game.
             ImGui::DockBuilderDockWindow("Scene", center);
             ImGui::DockBuilderDockWindow("Game", center);
+            ImGui::DockBuilderDockWindow("Preview", center);
+
             ImGui::DockBuilderDockWindow("Hierarchy", left);
+
+            // Right: the Inspector, with every settings panel stacked behind it —
+            // Unity's own pattern (Inspector/Lighting/Occlusion share the right stack).
+            // Settings are open-on-demand and land in a predictable place instead of
+            // floating over the scene. Inspector is docked first so it is the front tab.
             ImGui::DockBuilderDockWindow("Inspector", right);
-            ImGui::DockBuilderDockWindow("Statistics", right);
+            ImGui::DockBuilderDockWindow("Environment", right);
+            ImGui::DockBuilderDockWindow("Lighting", right);
+            ImGui::DockBuilderDockWindow("Rendering", right);
+            ImGui::DockBuilderDockWindow("Post Process", right);
+            ImGui::DockBuilderDockWindow("GPU Culling", right);
+            ImGui::DockBuilderDockWindow("Meteorology", right);
+            ImGui::DockBuilderDockWindow("Physics", right);
+
+            // Bottom: the browser, the console, and the timeline-shaped tools.
             ImGui::DockBuilderDockWindow("Project", bottom);
-            ImGui::DockBuilderDockWindow("Text Editor", bottom);
             ImGui::DockBuilderDockWindow("Console", bottom);
+            ImGui::DockBuilderDockWindow("Text Editor", bottom);
+            ImGui::DockBuilderDockWindow("Animation", bottom);
+            ImGui::DockBuilderDockWindow("Animator Graph", bottom);
+            ImGui::DockBuilderDockWindow("Animator", bottom);
+            ImGui::DockBuilderDockWindow("Audio Mixer", bottom);
+            ImGui::DockBuilderDockWindow("Audio Profiler", bottom);
+            // Not in the build yet (its wiring is planned work), but docking the name
+            // costs nothing and means the window arrives already homed when it lands.
+            ImGui::DockBuilderDockWindow("Audio Authoring", bottom);
+            ImGui::DockBuilderDockWindow("Statistics", bottom);
             ImGui::DockBuilderFinish(dockspace_id);
         }
     } // namespace Editor

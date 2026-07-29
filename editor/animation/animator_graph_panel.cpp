@@ -21,6 +21,8 @@
 
 #include "animator_graph_panel.hpp"
 
+#include "animated_mesh_preview.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -890,6 +892,38 @@ namespace SushiEngine
 
             GraphState& g = state();
             seed(g);
+
+            // The graph's one live consumer today: the preview character. Scene entities
+            // do not consume controllers yet (entity-side animator components are engine
+            // scope, tracked in the animation design doc) — the panel says so instead of
+            // letting an authored graph look wired into the world.
+            {
+                AnimatedMeshPreview* preview = context.animated_mesh_preview;
+                const bool previewable = preview != nullptr && preview->loaded();
+                ImGui::BeginDisabled(!previewable);
+                if (ImGui::Button("Drive Preview Character"))
+                {
+                    if (preview->apply_controller(g.controller))
+                    {
+                        context.panels.preview = true;
+                        g.status = "Graph compiled; the Preview character is running it.";
+                    }
+                    else
+                    {
+                        g.status = "Graph did not compile against the loaded character "
+                                   "(check state clip names); preview keeps its previous "
+                                   "controller.";
+                    }
+                }
+                ImGui::EndDisabled();
+                if (!previewable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Load a character first (Animator panel, or double-click\n"
+                                      "a .gltf/.glb in the Project panel).");
+                ImGui::SameLine();
+                ImGui::TextDisabled("Drives the Preview only — scene entities do not consume "
+                                    "controllers yet.");
+            }
+            ImGui::Separator();
 
             if (ImGui::Button("Add State"))
             {

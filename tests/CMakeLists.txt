@@ -275,6 +275,20 @@ add_executable(se_functional_tests
     functional/integration/test_astro_dynamics.cpp
     functional/integration/test_ephemeris.cpp
 
+    # The editor's scene capture/apply round-trip against the real simulation:
+    # Save/Load, Undo/Redo, and the Play→Stop restore all ride this one seam, so a
+    # component it forgets is destroyed by all four. Compiled from the editor tree
+    # (serialization + command history are UI-free translation units).
+    ../editor/serialization/scene_serializer.cpp
+    ../editor/serialization/effect_serializer.cpp
+    ../editor/serialization/environment_serializer.cpp
+    ../editor/core/command_history.cpp
+    ../editor/core/preferences.cpp
+    functional/integration/test_scene_serializer_roundtrip.cpp
+    functional/unit/test_atmosphere_quality.cpp
+    functional/unit/test_autosave.cpp
+    functional/unit/test_preferences_roundtrip.cpp
+
     functional/regression/test_regression.cpp
 )
 sushi_configure_test_target(se_functional_tests)
@@ -286,6 +300,11 @@ target_link_libraries(se_functional_tests PRIVATE sushi_geometry)
 # The global dynamical core and its Fourier transform are the two compiled units in
 # the neutral atmosphere module.
 target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
+# The scene-serializer round-trip drives the real simulation behind IWorldEditor,
+# and the editor translation units it compiles include their own headers by
+# editor-relative paths.
+target_link_libraries(se_functional_tests PRIVATE sushi_sim)
+target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/editor")
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second

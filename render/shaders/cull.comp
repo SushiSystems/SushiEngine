@@ -28,6 +28,8 @@ layout(set = 0, binding = 1) uniform CullParams
     vec4 delta_eye;      // xyz = current eye - previous eye, to rebase onto last frame's origin
     vec4 hiz;            // x = mip count, y = width, z = height, w = near plane (last frame)
     vec4 flags;          // x = frustum on, y = occlusion on, z = min screen diameter (px)
+    mat4 frozen_view_proj; // camera-relative to the eye at the freeze, while frozen
+    vec4 frozen_delta_eye; // xyz = current eye - frozen eye; w = freeze active
 } params;
 
 struct GpuInstance
@@ -208,7 +210,19 @@ void main()
     float radius = instance.bounding_sphere.w;
 
     mat4 vp = scene.proj * scene.view;
-    if (params.flags.x > 0.5 && frustum_rejects(vp, centre, radius))
+    // Freeze-frustum debug: the frustum test runs against the view-projection latched
+    // when freezing began, with the sphere rebased onto the latched eye's origin (the
+    // spheres are relative to the *current* eye), so the frozen frustum stays pinned
+    // to the world while the camera flies out to inspect what it culls. The LOD gate
+    // and the occlusion test below keep the live camera.
+    mat4 frustum_vp = vp;
+    vec3 frustum_centre = centre;
+    if (params.frozen_delta_eye.w > 0.5)
+    {
+        frustum_vp = params.frozen_view_proj;
+        frustum_centre = centre + params.frozen_delta_eye.xyz;
+    }
+    if (params.flags.x > 0.5 && frustum_rejects(frustum_vp, frustum_centre, radius))
         return;
 
     // Screen-coverage LOD gate: project the radius and drop instances whose on-screen

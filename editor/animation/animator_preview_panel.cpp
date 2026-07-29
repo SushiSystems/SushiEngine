@@ -217,7 +217,29 @@ namespace SushiEngine
             }
 
             AnimatedMeshPreview* preview = context.animated_mesh_preview;
-            if (preview == nullptr || !preview->loaded())
+            if (preview == nullptr)
+            {
+                ImGui::TextDisabled("No preview available");
+                ImGui::End();
+                return;
+            }
+
+            // The character loader: type or paste a rigged .gltf/.glb path — or
+            // double-click one in the Project panel, which routes here. This replaced the
+            // hard-coded demo asset as the only way a character ever reached the preview.
+            static char character_path[512] = "examples/assets/rigged_arm_anim.gltf";
+            ImGui::SetNextItemWidth(340.0f);
+            ImGui::InputText("##character_path", character_path, sizeof(character_path));
+            ImGui::SameLine();
+            ImGui::BeginDisabled(context.assets == nullptr);
+            if (ImGui::Button("Load Character"))
+            {
+                if (preview->load_gltf(character_path, *context.assets))
+                    context.panels.preview = true;
+            }
+            ImGui::EndDisabled();
+
+            if (!preview->loaded())
             {
                 ImGui::TextDisabled("No character loaded");
                 ImGui::End();

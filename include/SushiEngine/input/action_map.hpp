@@ -229,6 +229,22 @@ namespace SushiEngine
                     return *this;
                 }
 
+                /**
+                 * @brief Binds @p key held together with two modifiers (e.g. Ctrl+Shift+P).
+                 *
+                 * Two is the chord's full capacity (see @ref ChordGate). Note a chord does
+                 * not exclude extra held modifiers: the two-modifier binding also satisfies
+                 * any one-modifier binding on the same key, so a consumer pairing Ctrl+P
+                 * with Ctrl+Shift+P must test the more specific action first.
+                 */
+                ButtonBuilder& bind(Key key, Key modifier, Key second_modifier)
+                {
+                    Binding binding{control_of(key), {}, {}, 1.0f, false};
+                    binding.chord.require(control_of(modifier)).require(control_of(second_modifier));
+                    action_->button_bindings.push_back(binding);
+                    return *this;
+                }
+
             private:
                 Action* action_;
         };

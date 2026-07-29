@@ -874,6 +874,18 @@ namespace SushiEngine
              */
             AtmosphereParameters atmosphere_nest;
             /**
+             * @brief The nest's grid, resolved by the host from its atmosphere tier.
+             *
+             * A per-user machine budget, not scene content: the host resolves it once
+             * per frame via `resolve_atmosphere_quality`
+             * (`SushiEngine/sim/simulation_settings.hpp`) and writes it here — the
+             * environment being the channel that already carries the nest's physics and
+             * forcing to `stage_atmosphere`. Never serialized with the scene. Carrying
+             * it as device-global data (rather than per-view resolved quality) is also
+             * what guarantees two views can never ask one nest for two grids.
+             */
+            AtmosphereNestSize atmosphere_nest_size;
+            /**
              * @brief What the simulation feeds the nest: the parent solution and the clock.
              *
              * The one channel through which the simulation's own time reaches the render tier.

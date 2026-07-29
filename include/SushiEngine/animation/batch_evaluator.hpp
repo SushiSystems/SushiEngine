@@ -45,11 +45,15 @@ namespace SushiEngine
     namespace Animation
     {
         /**
-         * @brief The tier-resolved animation LOD/throttle knobs (from render QualityParams).
+         * @brief The animation LOD/throttle knobs, at their compiled-in defaults.
          *
          * Kept here, engine-side and renderer-free, so the batched evaluator never sees a
-         * Vulkan type; the renderer's `resolve_quality` fills these from `bone_lod_bias` and
-         * the tier's update-rate ladder.
+         * Vulkan type. Nothing fills these from a quality tier today: the render tier
+         * once resolved animation budgets nobody consumed, and those fields were deleted
+         * rather than kept aspirationally (see `quality_params.hpp`). When a tier ladder
+         * for animation lands, it belongs in the simulation-side settings
+         * (`SushiEngine/sim/simulation_settings.hpp`) with this struct as its resolved
+         * output — added together with the code that reads it.
          */
         struct AnimationBudget
         {

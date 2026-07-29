@@ -453,9 +453,14 @@ namespace SushiEngine
                 // dispatch chain, so running it in front of the passes that read it put a whole
                 // step of weather inside the frame's critical path. This frame's passes
                 // therefore read the step submitted at the end of the previous one.
+                // The grid arrives on the environment, not the resolved render quality:
+                // the nest is device-global and its size is a simulation budget the host
+                // resolves from its own atmosphere tier (sim/simulation_settings.hpp),
+                // so the render tier cannot rebuild the weather and two views cannot
+                // disagree about the one nest's grid.
                 assets_.stage_atmosphere(environment.atmosphere_nest,
                                          environment.atmosphere_forcing,
-                                         resolved.params.atmosphere_nest);
+                                         environment.atmosphere_nest_size);
 
                 Scene::SceneUniforms uniforms;
                 Scene::fill_scene_uniforms(camera, environment, frame.eye,

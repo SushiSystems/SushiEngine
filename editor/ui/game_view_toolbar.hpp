@@ -25,7 +25,6 @@
 #define SUSHIENGINE_EDITOR_GAME_VIEW_TOOLBAR_HPP
 
 #include <imgui.h>
-#include <imgui_internal.h>
 
 #include "../core/game_view_settings.hpp"
 
@@ -90,73 +89,6 @@ namespace SushiEngine
             ImGui::Checkbox("Fullscreen", &settings.fullscreen);
         }
 
-        /**
-         * @brief Draws the Game window when there is no camera/display to play through.
-         *
-         * Keeps the window open with its toolbar rather than letting it vanish, and shows
-         * a centered placeholder — the same "no camera" affordance Unity's Game view gives
-         * (there, "Display 1 No cameras rendering") instead of a panel that simply is not
-         * there when the world has nothing to show through it yet.
-         *
-         * @param open     Visibility flag, bound to the panel's close button.
-         * @param settings The toolbar state this draws and edits in place.
-         */
-        inline void draw_no_camera_game_view(bool& open, GameViewSettings& settings)
-        {
-            // Same undock-and-cover-the-viewport fullscreen as `ViewportPanel::draw` (see
-            // its comment), tracked in statics since this path has no panel object of its
-            // own to hold the state between frames.
-            static bool was_fullscreen = false;
-            static ImGuiID saved_dock_id = 0;
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_None;
-            if (settings.fullscreen)
-            {
-                if (!was_fullscreen)
-                {
-                    const ImGuiWindow* self = ImGui::FindWindowByName("Game");
-                    saved_dock_id = self != nullptr ? self->DockId : 0;
-                    was_fullscreen = true;
-                }
-                const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-                ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
-                ImGui::SetNextWindowPos(main_viewport->Pos, ImGuiCond_Always);
-                ImGui::SetNextWindowSize(main_viewport->Size, ImGuiCond_Always);
-                ImGui::SetNextWindowFocus();
-                window_flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
-            }
-            else if (was_fullscreen)
-            {
-                ImGui::SetNextWindowDockID(saved_dock_id, ImGuiCond_Always);
-                was_fullscreen = false;
-            }
-
-            if (!ImGui::Begin("Game", &open, window_flags))
-            {
-                ImGui::End();
-                return;
-            }
-
-            draw_game_view_toolbar(settings);
-
-            const ImVec2 origin = ImGui::GetCursorScreenPos();
-            const ImVec2 available = ImGui::GetContentRegionAvail();
-            const float w = available.x > 1.0f ? available.x : 1.0f;
-            const float h = available.y > 1.0f ? available.y : 1.0f;
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            draw_list->AddRectFilled(origin, ImVec2(origin.x + w, origin.y + h),
-                                     IM_COL32(0, 0, 0, 255));
-
-            static const char* MESSAGE = "No cameras rendering";
-            const ImVec2 text_size = ImGui::CalcTextSize(MESSAGE);
-            const ImVec2 text_pos(origin.x + (w - text_size.x) * 0.5f,
-                                  origin.y + (h - text_size.y) * 0.5f);
-            draw_list->AddText(text_pos, IM_COL32(200, 200, 200, 255), MESSAGE);
-
-            ImGui::Dummy(ImVec2(w, h));
-
-            ImGui::End();
-        }
     } // namespace Editor
 } // namespace SushiEngine
 

@@ -40,11 +40,18 @@
  * editor's per-field sliders still mean something — they set the target the tier scales
  * from — and dropping a tier moves the whole red line at once rather than disabling
  * features one at a time. Plain trivially-copyable data, no Vulkan.
+ *
+ * This tier is a *render* tier. Simulation budgets resolve through their own tier —
+ * the atmosphere nest's grid through `resolve_atmosphere_quality` in
+ * `SushiEngine/sim/simulation_settings.hpp` — so a rendering knob can never decide a
+ * simulation outcome (changing the render tier used to rebuild the nest and destroy
+ * the running weather). Every field here must have a consumer: a resolved value
+ * nothing reads is a lie about what the tier does, and gets deleted rather than kept
+ * aspirationally.
  */
 
 #include <cstdint>
 
-#include <SushiEngine/render/atmosphere_nest.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 
 namespace SushiEngine
@@ -240,34 +247,6 @@ namespace SushiEngine
             bool async_compute = true;
 
             /**
-             * @brief The most skinned characters evaluated and skinned at full rate.
-             *
-             * The animation system's headline budget knob (design §6.6): instances beyond
-             * this either drop to a throttled update rate (A2) or are not skinned. The floor
-             * tier keeps a small crowd; Ultra allows a full one. A1 reads it as a hard cap on
-             * skinned instances; the LOD/throttle ladder that softens it lands in A2.
-             */
-            std::uint32_t max_skinned_instances = 128;
-
-            /**
-             * @brief Levels the skinned bone-LOD ladder is biased coarser by at this tier.
-             *
-             * Added to each instance's distance-derived LOD level, so a lower tier poses
-             * fewer joints per character at the same distance. Zero on High/Ultra (the
-             * authored ladder is used as-is); positive on the cheaper tiers.
-             */
-            std::uint32_t bone_lod_bias = 0;
-
-            /**
-             * @brief Bone influences blended per skinned vertex (4 or 8).
-             *
-             * Four covers all but the most deforming rigs; Ultra spends the second set of
-             * four on shoulders and hips. The skin vertex stream and the skinning dispatch
-             * both read this so the two never disagree.
-             */
-            std::uint32_t animation_influences = 4;
-
-            /**
              * @brief Lights each pixel samples and shadow-marches beyond the atlas budget.
              *
              * The cost of stochastic light visibility is set by this and not by how many
@@ -279,6 +258,18 @@ namespace SushiEngine
             std::uint32_t stochastic_light_samples = 0;
 
             /**
+             * @brief Whether the ray-traced sun-shadow path is permitted at this tier.
+             *
+             * The Ultra crown of the shadow ladder: a per-pixel trace against the
+             * acceleration structure instead of (not in addition to) the cascade
+             * lookup's filtered answer. Gated further by the author's
+             * @c ShadowSettings::ray_traced, so this only permits it. Resolved here so
+             * the pass reads a parameter — it used to branch on the raw tier enum,
+             * the one violation of this file's "no pass reads the raw enum" contract.
+             */
+            bool ray_traced_shadows = false;
+
+            /**
              * @brief Whether the GPU cosmetic particle path runs at this tier.
              *
              * The compute emit/simulate passes and the billboard draw are permitted on every
@@ -288,45 +279,6 @@ namespace SushiEngine
              */
             bool gpu_particles = true;
 
-            /**
-             * @brief The shared particle pool's ceiling at this tier.
-             *
-             * The cosmetic pool is sized once, but this caps how many particles the emitters may
-             * keep alive at a tier: Ultra allows a dense storm, the lower tiers a modest haze.
-             * A budget the host scales spawn rates against, mirroring @c max_skinned_instances.
-             */
-            std::uint32_t max_particles = 1u << 18;
-
-            /**
-             * @brief Fixed sub-steps the particle integrator takes per frame at this tier.
-             *
-             * More sub-steps keep fast, turbulent particles stable at a cost linear in this;
-             * one is the floor, the upper tiers spend more for smoother motion.
-             */
-            std::uint32_t particle_sim_substeps = 1;
-
-            /**
-             * @brief The regional atmosphere's discretization at this tier.
-             *
-             * **The horizontal domain is 384 km at every tier and only its resolution changes.**
-             * Raising the tier therefore resolves the same weather more finely rather than
-             * simulating a different amount of world, which is what keeps a scene's sky
-             * recognisably itself across machines — a front is in the same place, it is merely
-             * drawn with more or less structure. A tier that grew the domain instead would give
-             * two players in the same scene different weather.
-             *
-             * High is the shipped 192×192×48 at 2 km, unchanged, because the resolver's contract
-             * is that High *is* the authored baseline. That spacing is not an arbitrary rung: 2 km
-             * is where convection stops being parameterized and starts being resolved
-             * (`docs/slop/atmosphere_system.md` §2.2), which is what this tier's acceptance bar —
-             * a cumulus that grows on its own — rests on. Medium and Low sit above it and are
-             * honest about what that costs: their convection is smoother and more parameterized,
-             * in exchange for a step a third and a sixth of the price.
-             *
-             * Changing this rebuilds the nest, and a rebuilt nest starts from its base state —
-             * the running weather is lost. That is why it is a tier and not a slider.
-             */
-            AtmosphereNestSize atmosphere_nest{};
         };
 
         /**

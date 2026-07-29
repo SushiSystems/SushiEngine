@@ -28,39 +28,12 @@
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
+#include "gizmo_state.hpp"
+
 namespace SushiEngine
 {
     namespace Editor
     {
-        /**
-         * @brief Which transform channel the viewport gizmo manipulates.
-         *
-         * Mirrors Unity's W/E/R tools: move, rotate, scale. The active mode is editor
-         * state (shared through the context and the toolbar); the controller only reads
-         * it to pick which handle set to draw and how a drag maps to the transform.
-         */
-        enum class GizmoMode
-        {
-            Translate,
-            Rotate,
-            Scale
-        };
-
-        /**
-         * @brief Which frame a Translate/Rotate drag resolves its axes against.
-         *
-         * World keeps the handles aligned to the world's fixed X/Y/Z. Local aligns them
-         * to the selection's own orientation, so dragging X always moves/turns the object
-         * along its own facing rather than the world's. Scale always drags in local axes
-         * regardless of this setting — a world-aligned scale on a rotated object would
-         * shear it, which is never what an author wants.
-         */
-        enum class GizmoSpace
-        {
-            Local,
-            World
-        };
-
         /**
          * @brief Optional grid snapping applied to a gizmo drag, from Preferences.
          *

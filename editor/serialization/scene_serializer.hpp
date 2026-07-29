@@ -63,24 +63,32 @@ namespace SushiEngine
         };
 
         /**
-         * @brief Captures every live entity in @p world as JSON, in `.sushiscene` shape.
+         * @brief Captures the scene — every live entity plus the environment — as JSON.
          *
-         * The in-memory counterpart of @ref save_scene, reused by `CommandHistory` to
-         * snapshot the world for undo/redo without touching disk.
+         * The in-memory counterpart of @ref save_scene, reused by `CommandHistory` for
+         * undo/redo and by play mode's enter/exit snapshot, without touching disk. The
+         * environment rides beside the entity array because it is scene content: an
+         * undo or a Play→Stop that restored only the entities would leave the lighting,
+         * fog, and weather physics carrying edits the user believes were rolled back.
          *
          * @param world The world to snapshot.
-         * @return The scene as a JSON array, one object per entity.
+         * @return An object `{ "entities": [...], "environment": {...} }`.
          */
         nlohmann::json capture_scene(SushiEngine::Simulation::IWorldEditor& world);
 
         /**
-         * @brief Replaces every entity in @p world with the entities described by @p root.
+         * @brief Restores @p world to the scene described by @p root.
          *
          * The in-memory counterpart of @ref load_scene; see its documentation for the
-         * clear-then-recreate semantics and parent-index resolution.
+         * clear-then-recreate semantics and parent-index resolution. Applies the
+         * environment (when present) over the world's live one, so runtime-owned
+         * channels the capture never writes survive. A bare JSON array — the older
+         * entity-only capture shape — is still accepted and leaves the environment
+         * untouched.
          *
          * @param world The world to repopulate.
-         * @param root A JSON array in the shape @ref capture_scene produces.
+         * @param root An object in the shape @ref capture_scene produces (or a bare
+         *     entity array).
          */
         void apply_scene(SushiEngine::Simulation::IWorldEditor& world, const nlohmann::json& root);
 

@@ -30,6 +30,11 @@
 
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/render_settings.hpp>
+#include <SushiEngine/sim/simulation_settings.hpp>
+
+#include "../gizmo/gizmo_state.hpp"
+#include "game_view_settings.hpp"
+#include "panel_visibility.hpp"
 
 namespace SushiEngine
 {
@@ -65,6 +70,9 @@ namespace SushiEngine
 
             bool autosave = false;
 
+            /** @brief Seconds of continuous dirty time before an autosave fires. */
+            float autosave_interval_seconds = 120.0f;
+
             std::vector<std::string> recent_scenes;
             std::string last_project_root;
 
@@ -88,13 +96,44 @@ namespace SushiEngine
             SushiEngine::Render::RenderSettings render_settings;
 
             /**
-             * @brief The sky/lighting setup edited in the Environment and Lighting panels.
+             * @brief The simulation-side quality budgets (the atmosphere tier).
              *
-             * This is an editor/host setting, not scene data: it describes how the editor
-             * *displays* whatever scene is open, so it lives here (persisted once per user)
-             * rather than round-tripping through every .sushiscene file.
+             * A host setting like @ref render_settings and persisted for the same
+             * reason: a grid resolution is a machine budget, not scene content.
+             * Deliberately its own aggregate so no simulation tier can ride a render
+             * tier — the coupling this file's owner once suffered from.
              */
-            SushiEngine::Render::Environment environment;
+            SushiEngine::Simulation::SimulationSettings simulation;
+
+            /**
+             * @brief The environment a *new* scene starts from.
+             *
+             * The environment itself is scene content — every .sushiscene, undo
+             * snapshot, and play-mode snapshot carries it, and a loaded scene's
+             * environment is never overridden by this. What the preferences keep is
+             * only the starting point File ▸ New Scene applies, so an author who
+             * always works at the same latitude with the same sky does not re-author
+             * it per scene. Serialized in the same full shape the scene file uses
+             * (see `serialization/environment_serializer.hpp`).
+             */
+            SushiEngine::Render::Environment default_environment;
+
+            /**
+             * @brief Which editor windows are open, so the working set survives a restart.
+             *
+             * The dock *positions* are ImGui's to persist (layout.ini, in the same config
+             * directory); this is the open/closed side of the same session state.
+             */
+            PanelVisibility panels;
+
+            /** @brief The Game view's aspect/orientation/fullscreen toolbar state. */
+            GameViewSettings game_view;
+
+            /** @brief The active Scene-view transform tool (W/E/R), restored on start. */
+            GizmoMode gizmo_mode = GizmoMode::Translate;
+
+            /** @brief The gizmo's axis frame (Local/World), restored on start. */
+            GizmoSpace gizmo_space = GizmoSpace::World;
         };
 
         /**
@@ -134,16 +173,38 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The per-user editor config directory, as an absolute path.
+         *
+         * %APPDATA%/SushiEngine on Windows, $XDG_CONFIG_HOME or ~/.config/SushiEngine
+         * elsewhere. The one place this resolution lives: the preferences store writes
+         * `preferences.json` here, and the editor pins ImGui's `layout.ini` beside it so
+         * the dock layout stops depending on the launch directory. The directory itself
+         * is created on first save, not by this call.
+         *
+         * @return The config directory path (the directory may not exist yet).
+         */
+        std::string user_config_directory();
+
+        /**
          * @brief Creates the default JSON-backed preferences store.
          *
-         * Resolves the per-user config directory (%APPDATA%/SushiEngine on Windows,
-         * $XDG_CONFIG_HOME or ~/.config/SushiEngine elsewhere) and targets
-         * `preferences.json` inside it — a location distinct from the build-tool config
-         * under `cli/`.
+         * Targets `preferences.json` inside @ref user_config_directory — a location
+         * distinct from the build-tool config under `cli/`.
          *
          * @return A store owning that path.
          */
         std::unique_ptr<IPreferencesStore> create_preferences_store();
+
+        /**
+         * @brief Creates a JSON-backed preferences store at an explicit @p path.
+         *
+         * The seam the round-trip tests use: same serialization as the default store,
+         * pointed at a temporary file instead of the user's real config.
+         *
+         * @param path The preferences file to read and write.
+         * @return A store owning that path.
+         */
+        std::unique_ptr<IPreferencesStore> create_preferences_store(const std::string& path);
     } // namespace Editor
 } // namespace SushiEngine
 

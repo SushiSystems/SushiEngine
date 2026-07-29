@@ -39,10 +39,13 @@
 #include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/sim/simulation_settings.hpp>
 
 #include "command_history.hpp"
 #include "../gizmo/gizmo_controller.hpp"
 #include "game_view_settings.hpp"
+#include "meteorology_log.hpp"
+#include "panel_visibility.hpp"
 #include "preferences.hpp"
 
 namespace SushiEngine
@@ -56,47 +59,6 @@ namespace SushiEngine
 
     namespace Editor
     {
-        /**
-         * @brief Which dockable panels are currently shown.
-         *
-         * Each flag backs one entry in the Window menu and one panel's open state, so
-         * closing a panel (its title-bar X) and reopening it from the menu share the
-         * same bit. Defaults to everything visible on a fresh layout.
-         */
-        struct PanelVisibility
-        {
-            bool scene_view = true;
-            bool game_view = true;
-            bool hierarchy = true;
-            bool inspector = true;
-            bool project = true;
-            bool text_editor = true;
-            bool console = true;
-            bool statistics = true;
-            bool toolbar = true;
-            bool animation = false;
-            bool animator_graph = false;
-            bool animator_preview = false;
-            bool environment = true;
-            bool rendering = false;
-            bool lighting = false;
-            bool post_process = false;
-            bool meteorology = false;
-            bool gpu_culling = false;
-            bool physics = false;
-            /**
-             * @brief The Preview viewport: the one surface anything being authored is shown on.
-             *
-             * One screen, not one per subject: a previewed effect, a previewed character, and
-             * whatever is previewed next are all "the thing being authored, in isolation", and that
-             * is a property of the surface rather than of the subject. Nothing previewed belongs to
-             * an entity, which is exactly why none of it belongs in the Scene view.
-             */
-            bool preview = false;
-            bool audio_mixer = false;
-            bool audio_profiler = false;
-        };
-
         /** @brief The live particle-effect preview, owned by main() (see effect_preview.hpp). */
         class EffectPreview;
 
@@ -140,9 +102,11 @@ namespace SushiEngine
          * Captured entirely through `IWorldEditor` getters (see `copy_selection`), so
          * pasting an entity is just replaying the matching setters on a freshly created
          * one — no serialization format and no new engine-side clone primitive needed.
-         * `original`/`original_parent` are used only to rebuild internal parent/child
-         * relationships within a multi-entity paste; they are not valid after the source
-         * entity is gone (e.g. once Cut has deleted it).
+         * Every component the Inspector can author must have a field here, or copy/paste
+         * silently strips it from the duplicate. `original`/`original_parent` are used
+         * only to rebuild internal parent/child relationships within a multi-entity
+         * paste; they are not valid after the source entity is gone (e.g. once Cut has
+         * deleted it).
          */
         struct ClipboardEntity
         {
@@ -153,6 +117,8 @@ namespace SushiEngine
             SushiEngine::Vector3 color{};
             bool visible = true;
             bool has_renderer = false;
+            SushiEngine::Render::Material material;
+            SushiEngine::Simulation::MaterialTexturePaths material_texture_paths;
             bool is_camera = false;
             SushiEngine::Simulation::CameraParams camera_params;
             bool has_physics_body = false;
@@ -167,6 +133,18 @@ namespace SushiEngine
             SushiEngine::Simulation::ShapeParams shape_params;
             bool has_collider = false;
             SushiEngine::Simulation::ColliderParams collider_params;
+            bool has_particle_emitter = false;
+            SushiEngine::Simulation::ParticleEmitterParams particle_emitter_params;
+            SushiEngine::Vfx::ParticleEffect particle_effect;
+            bool has_audio_emitter = false;
+            SushiEngine::Simulation::AudioEmitterParams audio_emitter_params;
+            bool has_reverb_zone = false;
+            SushiEngine::Simulation::ReverbZoneParams reverb_zone_params;
+            bool has_audio_listener = false;
+            SushiEngine::Simulation::AudioListenerParams audio_listener_params;
+            bool surface_anchored = false;
+            SushiEngine::Quaternion surface_local_orientation{};
+            SushiEngine::Simulation::EntityFrame entity_frame;
             bool has_ui = false;
             SushiEngine::Simulation::UIElementParams ui_params;
             std::vector<SushiEngine::Simulation::ScriptComponent> scripts;
@@ -247,6 +225,11 @@ namespace SushiEngine
             bool show_save_scene_as = false;
             std::string save_scene_as_name;
 
+            // File ▸ Open Scene…: the path prompt's visibility and its typed path
+            // (relative paths resolve against `project_root`).
+            bool show_open_scene = false;
+            std::string open_scene_path;
+
             // Undo/redo over whole-world snapshots; panels record before a mutation (see
             // CommandHistory) and the menu/keyboard shortcuts drive undo()/redo().
             CommandHistory history;
@@ -291,6 +274,17 @@ namespace SushiEngine
             int active_document = -1;
 
             PanelVisibility panels;
+
+            // One-shot request from Window ▸ Reset Layout: the main loop rebuilds the
+            // default dock layout and resets `panels` to defaults on the frame it is
+            // set, then clears it — the escape hatch for any wedged drag state.
+            bool layout_reset_requested = false;
+
+            // Whether the Scene view is maximized over the whole editor viewport
+            // (Unity's Shift+Space). Session state, deliberately not persisted: an
+            // editor that reopens fullscreen hides its own layout.
+            bool scene_view_fullscreen = false;
+
             PlayState play_state = PlayState::Stopped;
 
             // The scene captured at the moment Play was pressed, restored verbatim on
@@ -332,6 +326,29 @@ namespace SushiEngine
 
             /** @brief Set when the scratch changed outside a widget edit (a library load). */
             bool particle_effect_dirty = false;
+
+            /**
+             * @brief Whether a particle-effect drag currently holds a pending undo step.
+             *
+             * The particle panel's widgets edit the scratch directly and report no
+             * per-widget change, so its undo bracketing is edge-triggered from
+             * "the scratch diverged this frame" — this flag is the begin_change /
+             * end_change state between those frames.
+             */
+            bool particle_effect_change_active = false;
+
+            /** @brief The Meteorology panel's CSV logger (see meteorology_log.hpp). */
+            MeteorologyLog meteorology_log;
+
+            /**
+             * @brief Whether an environment-editing drag holds a pending undo step.
+             *
+             * Shared by every panel that writes the environment (Environment, Lighting,
+             * Meteorology) through `commit_environment_edit`: the panels detect a change
+             * by memcmp after all their widgets ran, not per widget, so the bracketing is
+             * edge-triggered the same way the particle panel's is.
+             */
+            bool environment_change_active = false;
 
             std::vector<ClipboardEntity> clipboard;
 
@@ -382,24 +399,35 @@ namespace SushiEngine
             // The persisted editor/project settings and their store. The store is owned by
             // main() and injected; panels read and edit `preferences` and set
             // `preferences_dirty` so the loop persists the change once per frame rather
-            // than on every widget tick. `show_preferences` toggles the modal window.
+            // than on every widget tick. The Preferences and Input Manager windows are
+            // toggled through `panels` like every other window.
             Preferences preferences;
             IPreferencesStore* preferences_store = nullptr;
             bool preferences_dirty = false;
-            bool show_preferences = false;
-            bool show_input_manager = false; /**< Toggles the Edit > Input Manager configuration window. */
 
             // How the viewports trade fidelity against frame time: anti-aliasing mode,
             // render scale, the dynamic-resolution governor, and variable-rate shading.
-            // Edited in the Environment panel's Rendering section and pushed to both
-            // viewports each frame, so the two always agree.
+            // Edited in the Rendering panel and pushed to both viewports each frame, so
+            // the two always agree.
             SushiEngine::Render::RenderSettings render_settings;
+
+            // The simulation-side quality budgets — the atmosphere tier that resolves
+            // the nest grid. Its own aggregate, deliberately not part of
+            // `render_settings`: selecting a render tier must never rebuild the weather.
+            // Edited in the Meteorology panel, persisted per user like render_settings.
+            SushiEngine::Simulation::SimulationSettings simulation_settings;
 
             // The internal resolution the Scene view last rendered at, written back by
             // the main loop. It is the only way to see the dynamic-resolution governor
             // work: the scale slider is a request, this is what it settled on.
             std::uint32_t scene_render_width = 0;
             std::uint32_t scene_render_height = 0;
+
+            // The Scene view's GPU cull counts (survived / considered), read back a frame
+            // late by the main loop for the GPU Culling panel. Both zero on the classic
+            // path or before the first GPU-driven frame.
+            std::uint32_t scene_cull_drawn = 0;
+            std::uint32_t scene_cull_tested = 0;
 
             // Each visible viewport's per-pass GPU times, refilled by the main loop
             // after the viewports render and shown in the Statistics panel.

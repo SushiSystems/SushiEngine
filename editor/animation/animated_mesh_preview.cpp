@@ -211,6 +211,23 @@ namespace SushiEngine
             }
         }
 
+        bool AnimatedMeshPreview::apply_controller(const Animation::ControllerDesc& desc)
+        {
+            if (!loaded())
+                return false;
+            const Animation::ControllerDesc previous = controller_desc_;
+            controller_desc_ = desc;
+            if (!compile_controller())
+            {
+                // Restore the known-good controller so a bad graph reports as a message,
+                // never as a character that stops animating.
+                controller_desc_ = previous;
+                compile_controller();
+                return false;
+            }
+            return true;
+        }
+
         bool AnimatedMeshPreview::compile_controller()
         {
             std::vector<std::byte> blob;

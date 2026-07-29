@@ -208,6 +208,34 @@ namespace SushiEngine
                           std::size_t scene_skinned_count = 0);
 
                 /**
+                 * @brief Draws this panel as the Game view's "no cameras rendering" placeholder.
+                 *
+                 * Same window, same toolbar, same fullscreen behaviour as @ref draw — just a
+                 * black fill with a centred message instead of a rendered scene, the same
+                 * affordance Unity's Game view gives when nothing renders through it. Sharing
+                 * the panel object (and its fullscreen state machine) with the rendering path
+                 * is the point: the old free-function fallback tracked fullscreen in its own
+                 * statics, and the two copies could disagree about the dock slot to restore.
+                 *
+                 * @param open     Visibility flag, bound to the panel's close button.
+                 * @param settings The Game view toolbar state this draws and edits in place.
+                 */
+                void draw_no_camera(bool& open, GameViewSettings& settings);
+
+                /**
+                 * @brief Requests (or releases) fullscreen for this panel.
+                 *
+                 * The same undock-and-cover-the-editor maximize the Game view's toolbar
+                 * checkbox drives, exposed as a plain request so any viewport can be
+                 * maximized — the Scene view binds it to Shift+Space (Unity's maximize).
+                 * Applied by the next @ref draw through the one fullscreen state
+                 * machine, so the dock slot is remembered and restored the same way.
+                 *
+                 * @param enabled Whether this panel should cover the editor viewport.
+                 */
+                void set_fullscreen(bool enabled) noexcept { fullscreen_requested_ = enabled; }
+
+                /**
                  * @brief Applies the host's fidelity/performance settings to this view.
                  *
                  * Per panel rather than global because the two viewports converge their
@@ -242,6 +270,17 @@ namespace SushiEngine
                 const char* title() const noexcept { return title_; }
 
                 /**
+                 * @brief The GPU cull's counts from this view's last resolved frame.
+                 * @param drawn  Receives the instances that survived and were drawn.
+                 * @param tested Receives the instances the cull considered (both zero on
+                 *     the classic path or before the first GPU-driven frame).
+                 */
+                void cull_statistics(std::uint32_t& drawn, std::uint32_t& tested) const noexcept
+                {
+                    view_->cull_statistics(drawn, tested);
+                }
+
+                /**
                  * @brief Number of per-pass GPU timings from the last resolved frame.
                  *
                  * Zero until a timed submit has completed, and zero for the whole run on
@@ -267,8 +306,33 @@ namespace SushiEngine
 
             private:
                 void resize_to(std::uint32_t width, std::uint32_t height);
+
+                /**
+                 * @brief Debounces a live resize: rebuilds the target only once the
+                 * requested size has held still for @ref RESIZE_SETTLE_FRAMES frames.
+                 *
+                 * A rebuild is a device idle plus a temporal-history reset; per drag
+                 * frame that is a black, hitching viewport. Until it settles, the old
+                 * image stretches into the new rect.
+                 */
+                void request_resize(std::uint32_t width, std::uint32_t height);
+
                 void register_textures();
                 void unregister_textures();
+
+                /**
+                 * @brief Advances the fullscreen state machine for this frame's window.
+                 *
+                 * On entering fullscreen, remembers the dock slot and forces the next window
+                 * undocked and viewport-sized; on leaving, redocks it into the remembered
+                 * slot. Shared by @ref draw and @ref draw_no_camera so both paths agree on
+                 * one @c was_fullscreen_ / @c saved_dock_id_ pair. Must be called before the
+                 * window's `ImGui::Begin`; the returned flags belong to that `Begin`.
+                 *
+                 * @param want_fullscreen Whether the Game view settings request fullscreen.
+                 * @return The extra window flags fullscreen imposes (none when off).
+                 */
+                ImGuiWindowFlags apply_fullscreen_transition(bool want_fullscreen);
 
                 ImGuiBackend& imgui_;
                 const char* title_;
@@ -301,6 +365,17 @@ namespace SushiEngine
                 // forced undocked and full-viewport, and the dock id to restore on exit.
                 bool was_fullscreen_ = false;
                 unsigned int saved_dock_id_ = 0;
+                // A host-side maximize request (set_fullscreen), OR'd with the Game view
+                // toolbar's own checkbox by draw().
+                bool fullscreen_requested_ = false;
+                // The debounced-resize state: the size the panel currently wants and how
+                // many consecutive frames it has wanted exactly that.
+                std::uint32_t pending_width_ = 0;
+                std::uint32_t pending_height_ = 0;
+                std::uint32_t pending_stable_frames_ = 0;
+                // ~100 ms at 60 fps: long enough to skip every intermediate drag size,
+                // short enough that the sharp rebuild lands as the mouse settles.
+                static constexpr std::uint32_t RESIZE_SETTLE_FRAMES = 6;
                 GizmoController gizmo_;
                 // A second, independent GizmoController for the animated-mesh IK target (design
                 // §12.1) — its own drag state, separate from the selection gizmo above, since

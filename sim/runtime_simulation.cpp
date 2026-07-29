@@ -244,6 +244,13 @@ namespace SushiEngine
                         return material;
                     }
 
+                    MaterialTexturePaths material_texture_paths(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->material_texture_paths
+                                                 : MaterialTexturePaths{};
+                    }
+
                     Render::Environment environment() const override
                     {
                         return scene_.environment;
@@ -524,6 +531,15 @@ namespace SushiEngine
                         extract();
                     }
 
+                    void set_material_texture_paths(EntityId id,
+                                                    const MaterialTexturePaths& value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->material_texture_paths = value;
+                    }
+
                     void set_environment(const Render::Environment& value) override
                     {
                         scene_.environment = value;
@@ -606,9 +622,12 @@ namespace SushiEngine
                             // measurement before T0 existed was taken against -- a working
                             // atmosphere, not a degraded one, and the same one a non-Earth body
                             // gets. Nothing here fails over a missing asset.
+                            // The epoch goes in too, so the initial state is seeded for the
+                            // season the scene actually opens in rather than migrating into it
+                            // over its first simulated weeks.
                             auto provider = std::make_unique<ProceduralWeather>(
                                 DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius(),
-                                load_climatology());
+                                load_climatology(), julian_date_);
                             // Bound now rather than at the host's convenience: the mirror may
                             // have been installed long before this provider existed, and a
                             // provider that never learns about it would answer from the base
@@ -1033,14 +1052,17 @@ namespace SushiEngine
 
                     EntityId create_cloth(const std::string& display_name) override
                     {
-                        // A bare entity that owns a cloth grid: no Renderer/Shape (the
-                        // cloth draws as a wireframe strand set, not a solid mesh). The
-                        // grid seeds from the entity's Transform::position, so moving
-                        // the entity moves the pinned top edge.
-                        const Entity entity = world_.spawn(Transform{}, Orientation{});
+                        // An entity that owns a cloth grid and its own Renderer (so it has an
+                        // independent Color and Material in the Inspector, without a solid Shape mesh).
+                        // The grid seeds from the entity's Transform::position, so moving the entity
+                        // moves the pinned top edge.
+                        const Entity entity = world_.spawn(
+                            Transform{}, Orientation{},
+                            Tint{Vector3{Scalar(0.85), Scalar(0.85), Scalar(0.9)}});
                         const EntityId id = next_id_++;
                         order_.push_back(id);
                         Record record{entity, display_name, true, false};
+                        record.has_renderer = true;
                         record.has_cloth = true;
                         records_.emplace(id, record);
                         cloth_dirty_ = true;
@@ -1546,6 +1568,9 @@ namespace SushiEngine
                         // the Tint each extract). Host bookkeeping keyed on EntityId, like
                         // the shape/collider params below — no ECS component.
                         Render::Material material{};
+                        // The files the material's texture ids were loaded from — the
+                        // persistence side of the handles, never touched by the extract.
+                        MaterialTexturePaths material_texture_paths{};
                         // Whether the entity is tracked by physics_ (see set_has_physics_body).
                         // Unlike has_renderer/is_camera this needs no ECS migration, so it is
                         // plain host bookkeeping rather than a component toggle.
@@ -2814,6 +2839,10 @@ namespace SushiEngine
                             cloth_instance.cols = cols;
                             cloth_instance.first_vertex =
                                 static_cast<std::uint32_t>(scene_.cloth_vertices.size());
+                            if (record->has_renderer && world_.alive(record->entity))
+                                cloth_instance.color = world_.get<Tint>(record->entity).color;
+                            else
+                                cloth_instance.color = record->material.albedo;
                             scene_.cloth_vertices.insert(scene_.cloth_vertices.end(),
                                                          positions.begin(), positions.end());
                             scene_.cloth_instances.push_back(cloth_instance);

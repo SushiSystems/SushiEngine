@@ -53,6 +53,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <SushiEngine/audio/audio_scene.hpp>
 #include <SushiEngine/audio/codec.hpp>
 #include <SushiEngine/audio/event.hpp>
 #include <SushiEngine/audio/voice.hpp>

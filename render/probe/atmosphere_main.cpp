@@ -53,6 +53,7 @@
 #include <vector>
 
 #include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/sim/simulation_settings.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 
 #include "atmosphere/atmosphere_nest.hpp"
@@ -615,19 +616,19 @@ int main(int argc, char** argv)
         SushiEngine::Render::Resources::GraphicsPipelineFactory pipelines(device, cache);
         SushiEngine::Render::Resources::SamplerCache samplers(device);
 
-        // Through the same resolver the renderer uses, so a probe run at a tier is that tier and
-        // not a second opinion about what it means.
-        SushiEngine::Render::RenderSettings authored;
+        // Through the same resolver the host uses — the *atmosphere* tier, not the render
+        // tier, which no longer carries the nest — so a probe run at a tier is that tier
+        // and not a second opinion about what it means.
+        SushiEngine::Simulation::AtmosphereQuality tier =
+            SushiEngine::Simulation::AtmosphereQuality::High;
         if (options.tier == "low")
-            authored.quality = SushiEngine::Render::RenderQuality::Low;
+            tier = SushiEngine::Simulation::AtmosphereQuality::Low;
         else if (options.tier == "medium")
-            authored.quality = SushiEngine::Render::RenderQuality::Medium;
+            tier = SushiEngine::Simulation::AtmosphereQuality::Medium;
         else if (options.tier == "ultra")
-            authored.quality = SushiEngine::Render::RenderQuality::Ultra;
-        else
-            authored.quality = SushiEngine::Render::RenderQuality::High;
+            tier = SushiEngine::Simulation::AtmosphereQuality::Ultra;
         const SushiEngine::Render::AtmosphereNestSize size =
-            SushiEngine::Render::resolve_quality(authored).params.atmosphere_nest;
+            SushiEngine::Simulation::resolve_atmosphere_quality(tier);
         SushiEngine::Render::Atmosphere::AtmosphereNest nest(device, shaders, pipelines, samplers,
                                                              size);
         std::printf("nest: %ux%ux%u at %.0f m, top %.0f m\n", size.cells_x, size.cells_z,

@@ -272,6 +272,41 @@ namespace SushiEngine
                         values.flags[1] = frame.settings.gpu_culling.occlusion ? 1.0f : 0.0f;
                         values.flags[2] = frame.settings.gpu_culling.min_screen_diameter;
                         values.flags[3] = 0.0f;
+                        // Freeze-frustum debug: latch the camera-relative view-projection
+                        // (and the eye it was relative to) the frame freezing starts; while
+                        // held, the shader tests against the latched matrix with each sphere
+                        // rebased onto the latched eye. Cleared the frame freeze turns off.
+                        if (frame.settings.gpu_culling.freeze && frame.camera != nullptr)
+                        {
+                            if (!frozen_valid_)
+                            {
+                                Mat4 frozen_view = frame.camera->view;
+                                frozen_view.m[12] = 0.0;
+                                frozen_view.m[13] = 0.0;
+                                frozen_view.m[14] = 0.0;
+                                const Mat4 frozen =
+                                    mul(frame.camera->projection, frozen_view);
+                                for (int i = 0; i < 16; ++i)
+                                    frozen_view_projection_[i] =
+                                        static_cast<float>(frozen.m[i]);
+                                frozen_eye_[0] = frame.eye[0];
+                                frozen_eye_[1] = frame.eye[1];
+                                frozen_eye_[2] = frame.eye[2];
+                                frozen_valid_ = true;
+                            }
+                        }
+                        else
+                        {
+                            frozen_valid_ = false;
+                        }
+                        std::memcpy(values.frozen_view_projection, frozen_view_projection_,
+                                    sizeof(values.frozen_view_projection));
+                        for (int i = 0; i < 3; ++i)
+                            values.frozen_delta_eye[i] =
+                                frozen_valid_
+                                    ? static_cast<float>(frame.eye[i] - frozen_eye_[i])
+                                    : 0.0f;
+                        values.frozen_delta_eye[3] = frozen_valid_ ? 1.0f : 0.0f;
                         if (slots_[slot].params_mapped != nullptr)
                             std::memcpy(slots_[slot].params_mapped, &values, sizeof(values));
 

@@ -390,6 +390,32 @@ namespace SushiEngine
             float opacity = 1.0f;                         /**< Blend weight of the tint, [0, 1]. */
             Render::TextureId albedo_map = Render::INVALID_TEXTURE; /**< Projected albedo imagery (optional). */
             Render::TextureId orm_map = Render::INVALID_TEXTURE;    /**< Projected occlusion-roughness-metallic (optional). */
+            std::string albedo_map_path; /**< Source of @ref albedo_map, for persistence. */
+            std::string orm_map_path;    /**< Source of @ref orm_map, for persistence. */
+        };
+
+        /**
+         * @brief The file each of a material's texture slots was loaded from.
+         *
+         * A @ref Render::Material stores opaque @ref Render::TextureId handles, which
+         * are meaningless outside the session that loaded them; the paths are the
+         * persistent truth a scene file round-trips, the same split VFX makes between
+         * an emitter's `texture` handle and its `texture_path`. Kept beside — not
+         * inside — the material because the extract copies the material into every
+         * render instance each frame, and nine strings do not belong on that path.
+         * An empty string means the slot carries no file-backed texture.
+         */
+        struct MaterialTexturePaths
+        {
+            std::string albedo_map;             /**< Source of Material::albedo_map. */
+            std::string metallic_roughness_map; /**< Source of Material::metallic_roughness_map. */
+            std::string normal_map;             /**< Source of Material::normal_map. */
+            std::string height_map;             /**< Source of Material::height_map. */
+            std::string occlusion_map;          /**< Source of Material::occlusion_map. */
+            std::string emissive_map;           /**< Source of Material::emissive_map. */
+            std::string detail_albedo_map;      /**< Source of Material::detail_albedo_map. */
+            std::string detail_normal_map;      /**< Source of Material::detail_normal_map. */
+            std::string detail_mask_map;        /**< Source of Material::detail_mask_map. */
         };
 
         /**
@@ -600,6 +626,18 @@ namespace SushiEngine
                 /** @brief The entity's PBR material (defaults if it does not exist). */
                 virtual Render::Material material(EntityId id) const = 0;
 
+                /**
+                 * @brief The source paths of the entity's material textures.
+                 *
+                 * The persistence side of @ref material: the material's texture ids are
+                 * session-local handles, and these are the files they were loaded from
+                 * (empty for slots with no file-backed texture).
+                 *
+                 * @param id The entity to read.
+                 * @return The per-slot source paths (all empty if @p id does not exist).
+                 */
+                virtual MaterialTexturePaths material_texture_paths(EntityId id) const = 0;
+
                 /** @brief The scene-global lighting environment (sun, planet, atmosphere). */
                 virtual Render::Environment environment() const = 0;
 
@@ -707,6 +745,19 @@ namespace SushiEngine
                  * the metallic, roughness, and emissive fields are what this authors.
                  */
                 virtual void set_material(EntityId id, const Render::Material& material) = 0;
+
+                /**
+                 * @brief Writes the source paths of the entity's material textures.
+                 *
+                 * Bookkeeping only — loading the files and writing the resulting ids
+                 * into the material stays the caller's job (the editor's inspector and
+                 * the scene loader's resolve pass both do exactly that).
+                 *
+                 * @param id    The entity to update.
+                 * @param paths The per-slot source paths to remember.
+                 */
+                virtual void set_material_texture_paths(EntityId id,
+                                                        const MaterialTexturePaths& paths) = 0;
 
                 /** @brief Writes the scene-global lighting environment. */
                 virtual void set_environment(const Render::Environment& environment) = 0;

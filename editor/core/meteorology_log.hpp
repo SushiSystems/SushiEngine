@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* material_inspector.hpp                                                 */
+/* meteorology_log.hpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -21,45 +21,35 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#pragma once
+#ifndef SUSHIENGINE_EDITOR_METEOROLOGY_LOG_HPP
+#define SUSHIENGINE_EDITOR_METEOROLOGY_LOG_HPP
 
-/**
- * @file material_inspector.hpp
- * @brief The material editor, laid out like Unity's Standard shader inspector.
- *
- * Kept out of editor_panels.cpp because the material is the widest authoring
- * surface in the editor and would otherwise dominate the inspector file. The
- * ordering follows the one an artist expects: tiling and offset at the top, then
- * each map with the scalar or tint that goes with it, then the detail fold-out,
- * then the advanced lobes and the rendering state.
- */
-
-#include <SushiEngine/render/material.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <fstream>
 
 namespace SushiEngine
 {
-    namespace Render
-    {
-        class IAssetLibrary;
-    }
-
     namespace Editor
     {
         /**
-         * @brief Draws the material editor for one surface.
+         * @brief The Meteorology panel's CSV logger: a file handle and a cadence.
          *
-         * Texture slots load through @p assets when a path is entered, so the panel
-         * owns no asset state of its own: the typed path lives in @p paths, the
-         * entity's persistent record of where each texture id came from.
-         *
-         * @param material Edited in place.
-         * @param paths    The per-slot source paths, edited in place alongside the ids.
-         * @param assets   Library texture paths are loaded through.
-         * @return true when any field changed this frame.
+         * Owned by `EditorContext` like every other piece of session state, so it is
+         * visible where editor state is looked for and dies with the session instead of
+         * living in a hidden function-static. Sampled on the *nest's* clock rather than
+         * the wall clock, so a log line is a fixed interval of simulated weather however
+         * fast the sky is animated. The stream is opened lazily on the first line
+         * written, so ticking the toggle and changing one's mind costs no file.
          */
-        bool draw_material_editor(SushiEngine::Render::Material& material,
-                                  SushiEngine::Simulation::MaterialTexturePaths& paths,
-                                  SushiEngine::Render::IAssetLibrary& assets);
+        struct MeteorologyLog
+        {
+            bool enabled = false;
+            float interval_seconds = 10.0f;
+            double next_at_simulated = 0.0;
+            char path[256] = "meteorology.csv";
+            std::ofstream stream;
+            bool header_written = false;
+        };
     } // namespace Editor
 } // namespace SushiEngine
+
+#endif

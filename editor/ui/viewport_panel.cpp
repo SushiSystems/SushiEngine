@@ -352,11 +352,108 @@ namespace SushiEngine
         {
             if (width == view_->width() && height == view_->height())
                 return;
-            // The resize invalidates every slot's image view, so the ImGui texture ids
-            // must be released and re-registered against the new views.
-            unregister_textures();
+            // The view's resize waits for the device to go idle before destroying its
+            // targets, so the old ImGui descriptor sets are released only *after* every
+            // frame that could still be sampling them has landed. Releasing them first
+            // (the old order) freed sets the two-to-three frames still in flight were
+            // reading — a use-after-free that showed as the viewport image vanishing
+            // on a resize.
             view_->resize(width, height);
+            unregister_textures();
             register_textures();
+        }
+
+        void ViewportPanel::request_resize(std::uint32_t width, std::uint32_t height)
+        {
+            // A live drag changes the available size every frame, and honouring each
+            // one costs a device idle, a full target rebuild, and a temporal-history
+            // reset — per frame, that is a black, hitching viewport for the whole drag.
+            // So the target keeps its extent while the size is still moving and rebuilds
+            // once the size has been stable for a few frames; in between the old image
+            // is stretched into the new rect, which is what every shipping editor shows
+            // during a resize.
+            if (width == view_->width() && height == view_->height())
+            {
+                pending_stable_frames_ = 0;
+                return;
+            }
+            if (width == pending_width_ && height == pending_height_)
+            {
+                if (++pending_stable_frames_ >= RESIZE_SETTLE_FRAMES)
+                {
+                    resize_to(width, height);
+                    pending_stable_frames_ = 0;
+                }
+                return;
+            }
+            pending_width_ = width;
+            pending_height_ = height;
+            pending_stable_frames_ = 1;
+        }
+
+        ImGuiWindowFlags ViewportPanel::apply_fullscreen_transition(bool want_fullscreen)
+        {
+            // Fullscreen (Unity's "Maximize on Play"): undock the panel and cover the
+            // whole editor viewport instead of just stretching the rendered image inside
+            // its current dock slot. The dock id it came from is remembered so turning
+            // fullscreen back off restores it to the same tab/split rather than leaving
+            // it floating.
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_None;
+            if (want_fullscreen)
+            {
+                if (!was_fullscreen_)
+                {
+                    const ImGuiWindow* self = ImGui::FindWindowByName(title_);
+                    saved_dock_id_ = self != nullptr ? self->DockId : 0;
+                    was_fullscreen_ = true;
+                }
+                const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+                ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+                ImGui::SetNextWindowPos(main_viewport->Pos, ImGuiCond_Always);
+                ImGui::SetNextWindowSize(main_viewport->Size, ImGuiCond_Always);
+                ImGui::SetNextWindowFocus();
+                window_flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
+            }
+            else if (was_fullscreen_)
+            {
+                ImGui::SetNextWindowDockID(saved_dock_id_, ImGuiCond_Always);
+                was_fullscreen_ = false;
+            }
+            return window_flags;
+        }
+
+        void ViewportPanel::draw_no_camera(bool& open, GameViewSettings& settings)
+        {
+            const ImGuiWindowFlags window_flags =
+                apply_fullscreen_transition(fullscreen_requested_ || settings.fullscreen);
+            if (!ImGui::Begin(title_, &open, window_flags))
+            {
+                ImGui::End();
+                return;
+            }
+
+            draw_game_view_toolbar(settings);
+
+            // A black fill with a centred message where the image would be — the same
+            // "Display 1 No cameras rendering" affordance Unity's Game view gives.
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            const ImVec2 available = ImGui::GetContentRegionAvail();
+            const float w = available.x > 1.0f ? available.x : 1.0f;
+            const float h = available.y > 1.0f ? available.y : 1.0f;
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            draw_list->AddRectFilled(origin, ImVec2(origin.x + w, origin.y + h),
+                                     IM_COL32(0, 0, 0, 255));
+
+            static const char* MESSAGE = "No cameras rendering";
+            const ImVec2 text_size = ImGui::CalcTextSize(MESSAGE);
+            const ImVec2 text_pos(origin.x + (w - text_size.x) * 0.5f,
+                                  origin.y + (h - text_size.y) * 0.5f);
+            draw_list->AddText(text_pos, IM_COL32(200, 200, 200, 255), MESSAGE);
+
+            ImGui::Dummy(ImVec2(w, h));
+
+            ImGui::End();
         }
 
         bool ViewportPanel::draw(bool& open, const SushiEngine::Render::MeshInstance* instances,
@@ -383,34 +480,8 @@ namespace SushiEngine
                                  const SushiEngine::Render::SkinnedInstance* scene_skinned,
                                  std::size_t scene_skinned_count)
         {
-            // Fullscreen (Unity's "Maximize on Play"): undock the panel and cover the
-            // whole editor viewport instead of just stretching the rendered image inside
-            // its current dock slot. The dock id it came from is remembered so turning
-            // fullscreen back off restores it to the same tab/split rather than leaving
-            // it floating.
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_None;
-            const bool want_fullscreen = game_view != nullptr && game_view->fullscreen;
-            if (want_fullscreen)
-            {
-                if (!was_fullscreen_)
-                {
-                    const ImGuiWindow* self = ImGui::FindWindowByName(title_);
-                    saved_dock_id_ = self != nullptr ? self->DockId : 0;
-                    was_fullscreen_ = true;
-                }
-                const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-                ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
-                ImGui::SetNextWindowPos(main_viewport->Pos, ImGuiCond_Always);
-                ImGui::SetNextWindowSize(main_viewport->Size, ImGuiCond_Always);
-                ImGui::SetNextWindowFocus();
-                window_flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
-            }
-            else if (was_fullscreen_)
-            {
-                ImGui::SetNextWindowDockID(saved_dock_id_, ImGuiCond_Always);
-                was_fullscreen_ = false;
-            }
+            const ImGuiWindowFlags window_flags = apply_fullscreen_transition(
+                fullscreen_requested_ || (game_view != nullptr && game_view->fullscreen));
 
             if (!ImGui::Begin(title_, &open, window_flags))
             {
@@ -482,7 +553,9 @@ namespace SushiEngine
 
             const std::uint32_t width = static_cast<std::uint32_t>(image_w > 1.0f ? image_w : 1.0f);
             const std::uint32_t height = static_cast<std::uint32_t>(image_h > 1.0f ? image_h : 1.0f);
-            resize_to(width, height);
+            // Debounced: during a drag the target keeps its old extent (the image below
+            // stretches into the new rect) and rebuilds once the size settles.
+            request_resize(width, height);
 
             if (constrained && (image_offset.x > 0.5f || image_offset.y > 0.5f))
             {
