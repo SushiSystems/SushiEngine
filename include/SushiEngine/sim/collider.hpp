@@ -58,6 +58,7 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/physics/collision/narrowphase_dispatch.hpp>
 #include <SushiEngine/physics/core/body_flags.hpp>
 #include <SushiEngine/physics/geometry/mass_properties.hpp>
 #include <SushiEngine/sim/simulation.hpp>
@@ -298,6 +299,61 @@ namespace SushiEngine
                     break;
             }
             return Physics::MassProperties<Scalar>{};
+        }
+
+        /**
+         * @brief The collision shape this collider is, placed at a world pose.
+         *
+         * The one place the authoring record becomes something the narrowphase can
+         * collide. It is a translation and not a decision: every field it reads has
+         * already been resolved by @ref scaled_collider, and every shape it produces
+         * is one the dispatch table has a routine for.
+         *
+         * A **cooked asset falls back to its half-extents as a box**, and that is a
+         * placeholder with a date on it: the asset the identifier names does not
+         * exist until P4 (§8.4), and colliding a body as its bounding box is wrong
+         * in a way an author can see and correct, where colliding it as nothing at
+         * all is wrong in a way they cannot.
+         *
+         * @tparam T The physics scalar type.
+         * @param collider    The scaled collider.
+         * @param position    The body's world position.
+         * @param orientation The body's world orientation.
+         * @return A shape the narrowphase dispatch can collide.
+         */
+        template <typename T>
+        inline Physics::CollisionShape<T> collider_shape(
+            const Collider& collider, const Vector3T<T>& position,
+            const QuaternionT<T>& orientation) noexcept
+        {
+            const Vector3T<T> offset =
+                rotate(orientation, Vector3T<T>{T(collider.local_offset.x),
+                                                T(collider.local_offset.y),
+                                                T(collider.local_offset.z)});
+            const Vector3T<T> center = position + offset;
+            const Vector3T<T> half{T(collider.half_extents.x), T(collider.half_extents.y),
+                                   T(collider.half_extents.z)};
+
+            switch (collider.shape)
+            {
+                case ColliderShape::Sphere:
+                    return Physics::make_sphere_shape<T>(center, T(collider.radius));
+                case ColliderShape::Capsule:
+                    return Physics::make_capsule_shape<T>(center, T(collider.half_height),
+                                                          T(collider.radius), orientation);
+                case ColliderShape::Plane:
+                {
+                    // The record keeps a plane's normal in `half_extents` and its
+                    // offset in `radius`; a plane has no pose of its own, so the
+                    // body's is not applied to it.
+                    const Vector3T<T> normal = normalize(half);
+                    return Physics::make_plane_shape<T>(normal, T(collider.radius));
+                }
+                case ColliderShape::Box:
+                case ColliderShape::CookedAsset:
+                    break;
+            }
+            return Physics::make_box_shape<T>(center, half, orientation);
         }
     } // namespace Simulation
 } // namespace SushiEngine

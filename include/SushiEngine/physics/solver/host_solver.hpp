@@ -62,6 +62,8 @@
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/solver/constraint_store.hpp>
+#include <SushiEngine/physics/solver/contact_constraint.hpp>
+#include <SushiEngine/physics/solver/contact_store.hpp>
 #include <SushiEngine/physics/solver/solver_interface.hpp>
 
 namespace SushiEngine
@@ -77,8 +79,11 @@ namespace SushiEngine
         class HostXpbdSolver final : public IConstraintSolver<T>
         {
             public:
-                /** @brief The constraint kind this solver admits. */
+                /** @brief The persistent constraint kind this solver admits. */
                 using Constraint = XpbdDistanceConstraintT<T>;
+
+                /** @brief The per-tick constraint kind this solver admits. */
+                using Contact = ContactConstraintT<T>;
 
                 /**
                  * @brief Creates a solver sized by @p configuration.
@@ -96,8 +101,12 @@ namespace SushiEngine
                       constraints_store_(configuration.capacities.bodies,
                                          configuration.capacities.constraints,
                                          configuration.capacities.colors),
+                      contacts_store_(configuration.capacities.bodies,
+                                      configuration.capacities.contacts,
+                                      configuration.capacities.colors),
                       constraints_(constraints_store_.band_capacity() *
                                    constraints_store_.color_count()),
+                      contacts_(contacts_store_.capacity()),
                       bodies_(configuration.capacities.bodies)
                 {
                     // Every slot starts retired, matching the runtime-backed solver:
@@ -167,6 +176,45 @@ namespace SushiEngine
                     return true;
                 }
 
+                /** @copydoc IConstraintSolver::begin_contacts */
+                void begin_contacts() override
+                {
+                    contacts_store_.begin();
+                    submission_slots_.clear();
+                }
+
+                /** @copydoc IConstraintSolver::add_contact */
+                bool add_contact(const Contact& contact) override
+                {
+                    if (!contact_slots_valid(contact, bodies_.size()))
+                        return false;
+                    const ContactPlacement placement = contacts_store_.place(
+                        contact.a, contact.b, constraints_store_.coloring());
+                    if (!placement.placed)
+                    {
+                        ++statistics_.capacity_overflows;
+                        return false;
+                    }
+                    contacts_[placement.slot] = contact;
+                    submission_slots_.push_back(placement.slot);
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::contact_count */
+                std::size_t contact_count() const noexcept override
+                {
+                    return submission_slots_.size();
+                }
+
+                /** @copydoc IConstraintSolver::read_contact */
+                bool read_contact(std::size_t index, Contact& contact) const override
+                {
+                    if (index >= submission_slots_.size())
+                        return false;
+                    contact = contacts_[submission_slots_[index]];
+                    return true;
+                }
+
                 /** @copydoc IConstraintSolver::read_body */
                 bool read_body(BodyHandle handle, RigidBodyT<T>& body) const override
                 {
@@ -206,21 +254,34 @@ namespace SushiEngine
                  * @brief Advances every live body by one tick, sequentially.
                  *
                  * The order is the runtime-backed solver's order, written out: for
-                 * each substep, predict every body, then walk the colours in
-                 * ascending order projecting each one's live band in slot order, then
-                 * derive every body's velocity. Nothing about that sequence is a host
-                 * convenience — it is the schedule the graph encodes.
+                 * each substep, prepare every contact, predict every body, walk the
+                 * colours in ascending order projecting each one's live constraint
+                 * band and then its live contact band in slot order, derive every
+                 * body's velocity, and finally run the contact velocity pass over the
+                 * same colours. Nothing about that sequence is a host convenience — it
+                 * is the schedule the graph encodes, and the conformance suite exists
+                 * to catch the two drifting apart.
                  *
                  * @param parameters What the tick is told from outside the simulation.
                  */
                 void step(const StepParameters<T>& parameters) override
                 {
-                    live_substeps_ = derive_substep_count(parameters.delta_time);
+                    live_substeps_ = derive_substep_count(parameters.delta_time,
+                                                         parameters.substep_floor);
                     const T h =
                         parameters.delta_time / T(live_substeps_ > 0 ? live_substeps_ : 1);
 
                     for (std::size_t substep = 0; substep < live_substeps_; ++substep)
                     {
+                        // Before predict, because the arrival speed restitution is a
+                        // statement about is the speed the body had when the substep
+                        // began, and predict is the first thing that changes it.
+                        for_each_contact([&](Contact& contact)
+                                         {
+                                             ContactPreparationT<T> prepare;
+                                             prepare(contact, bodies_.data(), substep == 0);
+                                         });
+
                         for (std::size_t i = 0; i < body_high_water_; ++i)
                             predict(bodies_[i], parameters.gravity, h);
 
@@ -241,8 +302,27 @@ namespace SushiEngine
                             }
                         }
 
+                        // After the persistent kinds, because both correct positions
+                        // and a substep's positional projections belong together;
+                        // separately from them, because the two kinds have their own
+                        // bands and the graph gives each its own node (§6.3).
+                        for_each_contact([&](Contact& contact)
+                                         {
+                                             ContactPositionProjectionT<T> projection;
+                                             projection(contact, bodies_.data());
+                                         });
+
                         for (std::size_t i = 0; i < body_high_water_; ++i)
                             update_velocity(bodies_[i], h);
+
+                        // Last, because dynamic friction and restitution are statements
+                        // about a velocity that does not exist until the pose change
+                        // has been read back as one.
+                        for_each_contact([&](Contact& contact)
+                                         {
+                                             ContactVelocityProjectionT<T> projection;
+                                             projection(contact, bodies_.data(), h);
+                                         });
                     }
 
                     measure_motion();
@@ -267,6 +347,12 @@ namespace SushiEngine
                     return constraints_store_.capacity();
                 }
 
+                /** @copydoc IConstraintSolver::contact_capacity */
+                std::size_t contact_capacity() const noexcept override
+                {
+                    return contacts_store_.capacity();
+                }
+
                 /** @brief How many colours the layout was built with. */
                 std::size_t color_count() const noexcept
                 {
@@ -279,7 +365,35 @@ namespace SushiEngine
                     return constraints_store_.band_size(color);
                 }
 
+                /** @brief Contacts submitted into colour @p color this tick. */
+                std::size_t contact_color_size(std::size_t color) const noexcept
+                {
+                    return contacts_store_.band_size(color);
+                }
+
             private:
+                /**
+                 * @brief Applies @p visit to every submitted contact, in solve order.
+                 *
+                 * Solve order — colour ascending, then slot within the band — and not
+                 * submission order, because Gauss-Seidel makes order an input to the
+                 * answer, and the graph's order is the one the colours impose.
+                 *
+                 * @param visit A callable taking `Contact&`.
+                 */
+                template <typename Visit>
+                void for_each_contact(Visit visit)
+                {
+                    for (std::size_t color = 0; color < contacts_store_.color_count();
+                         ++color)
+                    {
+                        const std::size_t base = contacts_store_.band_base(color);
+                        const std::size_t live = contacts_store_.band_size(color);
+                        for (std::size_t offset = 0; offset < live; ++offset)
+                            visit(contacts_[base + offset]);
+                    }
+                }
+
                 /**
                  * @brief The fastest live body's speed, for the next tick's schedule.
                  *
@@ -308,12 +422,15 @@ namespace SushiEngine
                  * itself is the same, and the conformance suite is what keeps it so.
                  *
                  * @param delta_time The tick's duration, in seconds.
+                 * @param floor      A caller-imposed lower bound; zero imposes none.
                  * @return A substep count within the schedule's bounds.
                  */
-                std::size_t derive_substep_count(T delta_time) const
+                std::size_t derive_substep_count(T delta_time, std::size_t floor) const
                 {
                     const SubstepSchedule<T>& schedule = configuration_.substeps;
-                    const std::size_t minimum = schedule.minimum > 0 ? schedule.minimum : 1;
+                    std::size_t minimum = schedule.minimum > 0 ? schedule.minimum : 1;
+                    if (floor > minimum)
+                        minimum = floor;
                     const std::size_t maximum =
                         schedule.maximum > minimum ? schedule.maximum : minimum;
 
@@ -371,6 +488,12 @@ namespace SushiEngine
                     }
                     statistics_.largest_color = largest;
 
+                    statistics_.manifolds = contacts_store_.live_count();
+                    std::size_t points = 0;
+                    for (const std::size_t slot : submission_slots_)
+                        points += contacts_[slot].manifold.point_count;
+                    statistics_.contact_points = points;
+
                     // No graph, so nothing is ever compiled or composed. Reported as
                     // zero rather than omitted, because a conformance suite comparing
                     // statistics needs to know which fields are meaningfully
@@ -382,7 +505,10 @@ namespace SushiEngine
                 PhysicsConfigurationT<T> configuration_;
                 HandleTable<BodyTag> body_slots_;
                 ConstraintStore constraints_store_;
+                ContactStore contacts_store_;
                 std::vector<Constraint> constraints_;
+                std::vector<Contact> contacts_;
+                std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> bodies_;
 
                 std::size_t body_high_water_ = 0;

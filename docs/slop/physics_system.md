@@ -1584,7 +1584,7 @@ progress is recorded.
 | Phase | Deliverable | Acceptance | Status |
 |---|---|---|---|
 | **P0** | **Foundations.** Neutral `geometry/` module + the distance-baker move (§3.4). `physics/` restructured into §3.1's modules. `IPhysicsSimulation` split per §4.3. **`RuntimeGraphBuilder`: the single adapter naming `SushiRuntime::`, the solver migrated to the `Dynamic` `add()` form, the substep loop unrolled into one composition, predict/derive moved off the host, device residency for the hot columns (with the four-byte count slots left `Shared`), the rebalancer switched off, and the accumulation paths wired to the runtime's segmented fixed-order reduce rather than a hand-built one (§6.6, §12.2, §18).** Mutable world with generational handles, fixed-capacity buffers, and incremental recolouring (§6.4). `PhysicsMaterial`, body flags, `center_of_mass_local`. Deterministic contact ordering. `PhysicsStatistics` + profiler wiring (§13.3). Substepping schedule (§6.1, §6.2). The §1.3 correctness fixes. | Existing tests stay green; a body can be added and removed mid-simulation without a rebuild; **one `run()` per tick and a `compose_count()` that stops climbing**; statistics appear in the editor. | **Complete** — see §16.1 |
-| **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Partly done** — the manifold, warm-starting and friction machinery is built and tested; wiring it into the live `sim/` tick is open. See §16.4 |
+| **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Nearly complete** — manifolds, warm starting and friction are built and tested; **contacts are a constraint kind inside the solve graph** (§6.3, §16.5); and **the live `sim/` tick runs on one `IConstraintSolver`** (§16.6). Only contact events remain. |
 | **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4 |
 | **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | Not started |
 | **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | Not started |
@@ -1804,6 +1804,158 @@ the solve graph as a constraint kind (§6.3). That closes P0 carry-over 1, gives
 the Physics panel its per-stage device timings, and is the natural moment to cut the
 constraint bands per island and finish the paragraph above. Contact events are the other
 open P1 item and are small beside it.
+
+### 16.5 Contacts as a constraint kind, and what P1 still owes after it
+
+**Done on 2026-07-29.** §16.4's "one change with several consequences" — move contacts
+into the solve graph as a constraint kind (§6.3) — has landed. **P0 carry-over 1 is
+closed.** The solve graph now holds contacts on exactly the terms it holds a distance
+constraint: the same colouring, the same fixed per-colour bands, the same late
+binding, one node per (kind, colour) per substep.
+
+**The four pieces, and the decision inside each.**
+
+- **`solver/contact_constraint.hpp`** — the descriptor and three shared projections.
+  A contact names two body slots and exposes `a`/`b` in the shape the colourer
+  expects, so a contact colours against joints without the colourer knowing contacts
+  exist. Static geometry is `null_contact_body` and every projection substitutes
+  `immovable_body` for it, rather than a second one-sided projection — which is how
+  a plane contact and a pair contact end up disagreeing, the mistake §1.3 recorded
+  once already. Three callables and not one because the schedule needs them at three
+  different points: preparation *before* predict (the arrival speed restitution is a
+  statement about is gone by the time the positional solve has run), the positional
+  projection with the other positional projections, and the velocity pass after
+  `update_velocity`, because until then there is no velocity for dynamic friction and
+  restitution to be statements about.
+- **`solver/contact_store.hpp`** — the layout, for one tick. Deliberately *not*
+  `ConstraintStore` with a flag: a contact has no handle, no lifetime and no
+  swap-remove to mirror, and building persistence machinery for something that is not
+  persistent is a cost paid for nothing. What survives a tick is the manifold, which
+  the caller keeps keyed by the broadphase pair cache — which is what makes warm
+  starting possible at all.
+  The union colouring is **layered, not merged**. The persistent kinds are coloured
+  once, when added; contacts are recoloured every tick. One shared colourer cannot do
+  both, because clearing it for the contacts would throw the joints away. So each
+  tick a body's mask *starts* as what the persistent colourer says it holds, and the
+  contacts pile on top — seeded lazily, on first mention, because a scene with four
+  thousand body slots and forty contacts should not pay four thousand copies.
+- **`IConstraintSolver`** gained `begin_contacts` / `add_contact` / `contact_count` /
+  `read_contact`. Submitted, not added: no handle comes back and what is not
+  resubmitted is simply gone. `read_contact` reports in **submission** order, because
+  storage order is a colouring — an implementation detail a caller can neither
+  predict nor use, and one that would silently pair the wrong impulses with the wrong
+  pairs if it leaked.
+- **The graph** holds, per substep, one preparation node, one positional node and one
+  velocity node per colour. The ordering is not forced with false writes: the
+  preparation reads the bodies and predict writes them, so the write-after-read edge
+  the tracker already derives puts predict second. Contacts go to the device as one
+  transfer per non-empty band and come back the same way — the readback is not
+  optional, because the impulses the solve settled on are what warm starting inherits
+  and what a contact event will report.
+
+**What was measured.** The shared conformance suite grew four contact scenes and all
+eleven pass: contacts against static geometry, body-to-body contacts in a stack, a
+body under both a contact and a distance constraint, and a contact count that walks
+from nothing to three and back down. The two solvers agree to **1e-9** through all of
+it, and `compile_count()` stays at **1** across a tick set that is rebuilt from
+nothing every frame — which is the whole claim late binding was adopted for. Eleven
+new unit tests cover the store's colouring and the seam.
+
+**A defect the suite found, worth recording.** `RuntimeGraphBuilder::read_body`
+served the device buffer while the write that had just been staged was still in the
+host mirror, so a body added and read before the first `step` came back as the
+retired slot it used to be. The host solver has no staging and so no way to
+disagree — this is precisely the class of divergence a conformance suite exists for,
+and it had been sitting there since P0 because nothing had read a body before
+stepping. The fix keeps one rule rather than two: the device owns the state, and
+everything staged is flushed onto it before anyone reads.
+
+**What P1 still owes, and why it is a separate move.** `sim/PhysicsSimulation` still
+runs `Physics::PhysicsWorld` with the old single-point host contact pass; it does not
+hold an `IConstraintSolver` at all. Moving it is not a wiring change, it is a
+migration: the rigid and cloth worlds are driven in lockstep so cross-world contacts
+resolve before either derives its velocity, gravity is sampled *per body per substep*
+from a field rather than passed as the one uniform vector `StepParameters` carries,
+and both properties have to survive the move. That belongs with the same pass that
+gives `RuntimeGraphBuilder` a per-body external acceleration — which §5's "a
+non-uniform field is sampled per body by the scene above and folded in there" already
+names as the intended shape. Contact events are the other open P1 item and are small
+beside it.
+
+**And the paragraph §16.4 left open** — one `DynamicGraph` region per island — is now
+unblocked rather than done. The constraint bands are still cut per colour; cutting
+them per island is the change, and it can now be made for both kinds at once instead
+of for one kind and then again for the other.
+
+### 16.6 The live tick, moved onto the solver
+
+**Done on 2026-07-29.** `sim/PhysicsSimulation` no longer holds a `PhysicsWorld`, and
+no longer holds two of them. It holds **one `IConstraintSolver`**, and §0.1's "one
+solver, not a family of solvers" is in effect rather than aspirational.
+
+**What actually changed.**
+
+- **A cloth particle is a body in the same buffer as the rigid bodies**, linked to
+  its neighbours by the same `XpbdDistanceConstraint` a rope uses. It was never a
+  different kind of thing; it lived in a different world only because the world was
+  immutable and a cloth had to be built all at once. `build_cloth_grid` gained an
+  overload against the solver seam — a separate overload rather than a template,
+  because `PhysicsWorld` numbers its bodies and the solver hands out generational
+  handles, and quietly treating one as the other is the bug the generation counter
+  exists to catch.
+- **Rigid-to-cloth contact is an ordinary contact.** The two worlds used to be driven
+  in lockstep so a contact spanning them could be resolved between their substeps.
+  There is nothing to keep in step now, so the lockstep is gone, and with it the last
+  reason the tick could not be one `run()`.
+- **The old single-point host contact pass is gone.** The tick generates manifolds on
+  the host from one broadphase over every collidable thing — rigid colliders, cloth
+  particles and static planes in one hierarchy — warm-starts each from last tick's,
+  and submits them as §6.3 contacts. The solve happens on the device, inside the
+  substep loop, in the right place in the schedule.
+- **`set_rigid_bodies` is a diff, not a rebuild.** The world is mutable (§6.4), so an
+  entity that was here last frame keeps its body, its handle and its velocity. The
+  previous implementation rebuilt the world every call and carried velocities across
+  by hand — re-deriving what the handles already knew.
+- **`RigidBodyDesc` lost `radius`, `box` and `half_extents`.** They were a flattened
+  copy of `Collider`, kept because the single-point path could not read a collider.
+  §16.4 said they go when the manifold path takes over the live simulation; it has,
+  and they have. A derived copy of a record that is already present is how a body
+  ends up colliding as a box of one size while reporting a radius from another — and
+  the integration tests were, until this was done, passing against a default collider
+  while setting fields nothing read.
+
+**Three behaviour changes, stated rather than discovered.**
+
+1. **The substep count is derived.** The caller's `substeps` argument is now a
+   *floor* — the quality it is willing to pay for regardless of how slowly things
+   happen to be moving — carried in the new `StepParameters::substep_floor`. State
+   may raise the count, the caller may raise the floor, and neither lowers what the
+   other asked for. §6.2 does not allow a caller to set it outright.
+2. **The gravity field is sampled per body per tick, not per substep**, and lands in
+   the new `RigidBodyT::external_acceleration`. This is forced, not chosen: `predict`
+   runs on the device inside one composition, so there is no point inside the substep
+   loop at which a host sampler could be called at all. `StepParameters::gravity`
+   already said a non-uniform field is "sampled per body by the scene above and
+   folded in there"; there is now somewhere for it to be folded into.
+3. **The `iterations` argument is ignored.** §0.2: small steps, not many iterations.
+   The substep schedule subsumes it, and honouring both would be two dials on one
+   quantity.
+
+**What was measured.** All seven of `test_physics_simulation.cpp`'s integration
+scenes pass unchanged against the new implementation — a box settling on its face and
+not its bounding radius, a tilted box on its edge, cloth and a rigid body pushing on
+each other, a four-high stack that does not interpenetrate, and a body fast enough to
+cross its target inside one tick still being found. 197 physics unit tests pass. The
+solver conformance suite is unaffected and still passes at 11/11.
+
+**What is still on the host, and named as such.** Broadphase, manifold generation and
+the warm-start cache. §6.6 puts all three in the graph; they are not there yet, and
+`physics_simulation.hpp` is where they will move from. The bodies are read out in one
+bulk transfer per tick precisely because of it — the host needs the poses to find the
+contacts — and written back the same way. One pair of transfers, not one per body,
+and it is the honest remaining cost of host-side collision detection.
+
+**What P1 still owes: contact events.** That is the whole of it.
 
 ---
 

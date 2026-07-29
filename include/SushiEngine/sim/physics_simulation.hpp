@@ -25,38 +25,84 @@
 
 /**
  * @file physics_simulation.hpp
- * @brief The physics seam, split out of `RuntimeSimulation`.
+ * @brief The physics seam: the live scene, driven through one constraint solver.
  *
- * `IPhysicsSimulation` is the abstraction the live world drives its rigid bodies and
- * cloth through, in the fixed boundary `Scalar` precision. `PhysicsSimulation` is the
- * implementation, computing the XPBD solve in `double` and converting at this
- * boundary, so the ECS and renderer never see the solver's internals. Extracting this
- * also gives `RuntimeSimulation` one fewer responsibility: it marshals entity poses to
- * and from descriptors here and no longer owns a `PhysicsWorld` (single
- * responsibility).
+ * `IPhysicsScene` is the abstraction the live world drives its rigid bodies and
+ * cloth through, in the fixed boundary `Scalar` precision. `PhysicsSimulation` is
+ * the implementation, computing the XPBD solve in `double` and converting at this
+ * boundary, so the ECS and renderer never see the solver's internals.
+ *
+ * ### One solver, not a family of solvers
+ *
+ * This class used to hold two `PhysicsWorld`s — one for rigid bodies, one for cloth
+ * — driven in lockstep so that contacts spanning them could be resolved between
+ * their substeps, plus a host contact pass that pushed single points apart. It now
+ * holds **one `IConstraintSolver`**, and that is §0.1's decision finally taking
+ * effect rather than a refactor for its own sake:
+ *
+ * - **A cloth particle is a body.** It has zero inverse inertia and links to its
+ *   neighbours through the same `XpbdDistanceConstraint` a rope uses. It was never
+ *   a different kind of thing; it lived in a different world only because the world
+ *   was immutable and a cloth had to be built all at once.
+ * - **A contact is a constraint.** Manifolds are generated here, on the host, and
+ *   submitted to the solver as the per-tick constraint kind of §6.3. The solve —
+ *   non-penetration, static friction positionally, dynamic friction and restitution
+ *   in the velocity pass — happens inside the one composition, on the device, in the
+ *   right place in the substep schedule.
+ * - So **rigid-to-cloth contact is an ordinary contact**, not a coupling. There is
+ *   no lockstep to maintain because there is nothing to keep in step.
+ *
+ * ### Three consequences worth stating rather than discovering
+ *
+ * 1. **The substep count is derived, not passed.** §6.2: it is a function of
+ *    simulation state, and a caller passing it would make the simulation depend on
+ *    something outside itself. What the caller's `substeps` argument now means is a
+ *    *floor* — the quality it is willing to pay for regardless of how slowly things
+ *    happen to be moving. State can raise it; the caller can raise the floor;
+ *    neither lowers what the other asked for.
+ * 2. **The field is sampled per body per tick, not per substep.** `predict` runs on
+ *    the device inside one composition (§6.6), so there is no point inside the
+ *    substep loop at which a host sampler could be called at all. The sampled value
+ *    lands in `RigidBodyT::external_acceleration`, which is where `StepParameters`
+ *    always said a non-uniform field belonged.
+ * 3. **The `iterations` argument is ignored.** §0.2: small steps, not many
+ *    iterations. The substep schedule subsumes it, and honouring both would be two
+ *    dials controlling one quantity.
+ *
+ * ### What is still on the host
+ *
+ * Broadphase, manifold generation and the warm-start cache. §6.6 puts all three in
+ * the graph eventually; they are not there yet, and this file is where they will
+ * move from. The bodies are read out in one bulk transfer per tick for exactly this
+ * reason — the host needs the poses to find contacts — and written back the same
+ * way. That single pair of transfers is the honest remaining cost of host-side
+ * collision detection, and it is one pair, not one per body.
  */
 
-#include <cstddef>
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/physics/soft/cloth.hpp>
 #include <SushiEngine/physics/collision/bvh_broadphase.hpp>
-#include <SushiEngine/physics/collision/narrowphase.hpp>
-#include <SushiEngine/physics/collision/contact_solver.hpp>
+#include <SushiEngine/physics/collision/manifold.hpp>
+#include <SushiEngine/physics/collision/narrowphase_dispatch.hpp>
 #include <SushiEngine/physics/collision/scene_query.hpp>
-#include <SushiEngine/physics/scene/physics_world.hpp>
-#include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
-#include <SushiEngine/physics/solver/xpbd_solver.hpp>
+#include <SushiEngine/physics/core/configuration.hpp>
+#include <SushiEngine/physics/core/rigid_body.hpp>
+#include <SushiEngine/physics/soft/cloth.hpp>
+#include <SushiEngine/physics/solver/contact_constraint.hpp>
+#include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
+#include <SushiEngine/sim/collider.hpp>
 #include <SushiEngine/sim/physics_services.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
@@ -67,11 +113,6 @@ namespace SushiEngine
         /**
          * @brief The `IPhysicsScene` implementation; the XPBD solve runs in `double`.
          *
-         * Owns a `Physics::PhysicsWorld` for rigid bodies and another for cloth (kept
-         * separate so a rigid-body rebuild's velocity carry-over never has to
-         * special-case a pinned grid), and converts every boundary value between
-         * `Scalar` and `T` at this class's edge.
-         *
          * It implements all four services because it genuinely does all four jobs.
          * Consumers should not: the split exists so a caller depends on the one
          * service it uses, and naming this class instead is how that gets undone.
@@ -81,101 +122,131 @@ namespace SushiEngine
             public:
                 /**
                  * @brief Creates an empty physics simulation backed by @p runtime.
-                 * @param runtime The runtime backing the body buffers and solve graphs.
+                 * @param runtime The runtime backing the body buffers and the solve graph.
                  */
                 explicit PhysicsSimulation(SushiRuntime::API::Runtime& runtime) noexcept
-                    : runtime_(runtime) {}
+                    : runtime_(runtime)
+                {
+                }
 
+                // -- IRigidBodyService ---------------------------------------------
+
+                /**
+                 * @copydoc IRigidBodyService::set_rigid_bodies
+                 *
+                 * A *diff*, not a rebuild. The world is mutable now (§6.4), so an
+                 * entity that was here last frame keeps its body, its handle and its
+                 * velocity; one that has gone is removed with its constraints; one
+                 * that is new is admitted. The previous implementation rebuilt the
+                 * whole world and carried velocities across by hand, which is the
+                 * same outcome reached by re-deriving what the handles already knew.
+                 *
+                 * @param iterations Ignored; the substep schedule subsumes it (§0.2).
+                 */
                 void set_rigid_bodies(const std::vector<RigidBodyDesc>& bodies,
                                       std::size_t iterations, Scalar substep_dt) override
                 {
-                    std::unordered_map<EntityId, Body> previous;
-                    if (rigid_)
-                        for (const auto& entry : body_ids_)
-                            previous.emplace(entry.first, rigid_->body(entry.second));
-
-                    rigid_.reset();
-                    body_ids_.clear();
-                    rigid_radii_.clear();
-                    rigid_is_box_.clear();
-                    rigid_half_extents_.clear();
-                    rigid_entities_.clear();
-                    query_dirty_ = true;
-                    if (bodies.empty())
+                    (void)iterations;
+                    substep_dt_ = T(substep_dt);
+                    if (bodies.empty() && rigid_.empty())
                         return;
+                    ensure_solver();
 
-                    auto world = std::make_unique<World>(runtime_);
-                    rigid_radii_.reserve(bodies.size());
-                    rigid_is_box_.reserve(bodies.size());
-                    rigid_half_extents_.reserve(bodies.size());
+                    refresh_bodies();
+                    seen_.clear();
+                    for (const RigidBodyDesc& desc : bodies)
+                        seen_.insert(desc.id);
+
+                    // Removals first, so a scene that swaps one body for another does
+                    // not transiently need capacity for both.
+                    for (std::size_t i = rigid_.size(); i-- > 0;)
+                    {
+                        if (seen_.count(rigid_[i].entity) != 0)
+                            continue;
+                        solver_->remove_body(rigid_[i].handle);
+                        rigid_.erase(rigid_.begin() + std::ptrdiff_t(i));
+                    }
+                    reindex_rigid();
+
                     for (const RigidBodyDesc& desc : bodies)
                     {
+                        const auto it = rigid_index_.find(desc.id);
+                        if (it != rigid_index_.end())
+                        {
+                            update_rigid_entry(rigid_[it->second], desc);
+                            continue;
+                        }
+                        RigidEntry entry;
+                        entry.entity = desc.id;
                         Body body;
-                        const auto it = previous.find(desc.id);
-                        if (it != previous.end())
-                        {
-                            body = it->second;
-                        }
-                        else
-                        {
-                            body.position = to_vector(desc.position);
-                            body.orientation = to_quaternion(desc.orientation);
-                        }
+                        body.position = to_vector(desc.position);
+                        body.prev_position = body.position;
+                        body.orientation = to_quaternion(desc.orientation);
+                        body.prev_orientation = body.orientation;
                         body.inv_mass = T(desc.inv_mass);
                         body.inv_inertia = to_vector(desc.inv_inertia);
                         body.drag_coefficient = T(desc.drag_coefficient);
-                        // Shape data parallels body id (add order), so rigid_*_[BodyId]
-                        // describes the body world->add_body returns.
-                        rigid_radii_.push_back(T(desc.radius));
-                        rigid_is_box_.push_back(desc.box);
-                        rigid_half_extents_.push_back(to_vector(desc.half_extents));
-                        // Parallel to the body buffer as well, so a query can report
-                        // the entity it hit rather than an index into the solver.
-                        rigid_entities_.push_back(desc.id);
-                        body_ids_.emplace(desc.id, world->add_body(body));
+                        entry.handle = solver_->add_body(body);
+                        if (!entry.handle.valid())
+                            continue;
+                        entry.collider = desc.collider;
+                        entry.filter = desc.collider.filter;
+                        rigid_.push_back(entry);
+                        rigid_index_.emplace(desc.id, rigid_.size() - 1);
                     }
-                    world->finalize(iterations, T(substep_dt), Projection{});
-                    rigid_ = std::move(world);
-                    substep_dt_ = T(substep_dt);
+
+                    note_membership_changed();
                 }
 
                 void update_rigid_body_params(EntityId id, Scalar inv_mass,
                                               const Vector3& inv_inertia,
                                               Scalar drag_coefficient) override
                 {
-                    if (!rigid_)
+                    if (!solver_)
                         return;
-                    const auto it = body_ids_.find(id);
-                    if (it == body_ids_.end())
+                    const auto it = rigid_index_.find(id);
+                    if (it == rigid_index_.end())
                         return;
-                    Body& body = rigid_->body(it->second);
+                    Body body;
+                    if (!solver_->read_body(rigid_[it->second].handle, body))
+                        return;
                     body.inv_mass = T(inv_mass);
                     body.inv_inertia = to_vector(inv_inertia);
                     body.drag_coefficient = T(drag_coefficient);
+                    solver_->write_body(rigid_[it->second].handle, body);
+                    bodies_dirty_ = true;
                 }
 
                 bool rigid_pose(EntityId id, SolvedPose& out) const override
                 {
-                    if (!rigid_)
+                    if (!solver_)
                         return false;
-                    const auto it = body_ids_.find(id);
-                    if (it == body_ids_.end())
+                    const auto it = rigid_index_.find(id);
+                    if (it == rigid_index_.end())
                         return false;
-                    const Body& body = rigid_->body(it->second);
-                    out.position = from_vector(body.position);
-                    out.orientation = from_quaternion(body.orientation);
+                    // From the host mirror the tick already refreshed. Served from
+                    // the device instead, this would be one queue round trip per
+                    // entity per frame, on the one call every entity makes.
+                    refresh_bodies();
+                    const std::size_t slot = solver_->body_slot(rigid_[it->second].handle);
+                    if (slot >= bodies_.size())
+                        return false;
+                    out.position = from_vector(bodies_[slot].position);
+                    out.orientation = from_quaternion(bodies_[slot].orientation);
                     return true;
                 }
 
                 void set_rigid_pose(EntityId id, const Vector3& position,
                                     const Quaternion& orientation) override
                 {
-                    if (!rigid_)
+                    if (!solver_)
                         return;
-                    const auto it = body_ids_.find(id);
-                    if (it == body_ids_.end())
+                    const auto it = rigid_index_.find(id);
+                    if (it == rigid_index_.end())
                         return;
-                    Body& body = rigid_->body(it->second);
+                    Body body;
+                    if (!solver_->read_body(rigid_[it->second].handle, body))
+                        return;
                     body.position = to_vector(position);
                     body.orientation = to_quaternion(orientation);
                     // Clear velocity and align the previous pose so the next velocity
@@ -184,80 +255,100 @@ namespace SushiEngine
                     body.prev_orientation = body.orientation;
                     body.velocity = Vector3T<T>{T(0), T(0), T(0)};
                     body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
+                    solver_->write_body(rigid_[it->second].handle, body);
+                    bodies_dirty_ = true;
                     query_dirty_ = true;
                 }
 
+                // -- IClothService -------------------------------------------------
+
+                /**
+                 * @copydoc IClothService::set_cloth_grids
+                 *
+                 * Rebuilt wholesale rather than diffed, unlike the rigid bodies, and
+                 * the asymmetry is deliberate: a rigid body's identity survives a
+                 * change to its description, while a cloth whose row count changed is
+                 * a different cloth with a different constraint topology. There is
+                 * nothing to carry across. Grids whose shape has not changed are left
+                 * alone, so the common case — nothing changed — costs a comparison.
+                 *
+                 * @param iterations Ignored; the substep schedule subsumes it (§0.2).
+                 */
                 void set_cloth_grids(const std::vector<ClothDesc>& grids,
                                      std::size_t iterations, Scalar substep_dt) override
                 {
-                    cloth_.reset();
-                    cloth_grids_.clear();
-                    cloth_radii_.clear();
-                    if (grids.empty())
+                    (void)iterations;
+                    substep_dt_ = T(substep_dt);
+                    if (grids.empty() && cloth_.empty())
                         return;
+                    if (cloth_matches(grids))
+                        return;
+                    ensure_solver();
 
-                    auto world = std::make_unique<World>(runtime_);
-                    bool any_bodies = false;
+                    for (const ClothEntry& entry : cloth_)
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                            solver_->remove_body(handle);
+                    cloth_.clear();
+                    cloth_index_.clear();
+
                     for (const ClothDesc& desc : grids)
                     {
                         if (desc.rows == 0 || desc.cols == 0)
                             continue;
-                        Physics::ClothGrid grid = Physics::build_cloth_grid<Constraint>(
-                            *world, desc.rows, desc.cols, T(desc.spacing),
+                        ClothEntry entry;
+                        entry.entity = desc.id;
+                        entry.rows = desc.rows;
+                        entry.cols = desc.cols;
+                        entry.spacing = T(desc.spacing);
+                        entry.thickness = T(desc.thickness);
+                        entry.grid = Physics::build_cloth_grid<T>(
+                            *solver_, desc.rows, desc.cols, T(desc.spacing),
                             to_vector(desc.origin), T(desc.compliance));
-                        // One radius per grid point, appended in the same order
-                        // build_cloth_grid registered the bodies, so cloth_radii_ stays
-                        // parallel to the cloth world's body buffer across all grids.
-                        cloth_radii_.insert(cloth_radii_.end(), grid.bodies.size(),
-                                            T(desc.thickness));
-                        if (!grid.bodies.empty())
-                            any_bodies = true;
-                        cloth_grids_.emplace(desc.id, std::move(grid));
+                        cloth_index_.emplace(desc.id, cloth_.size());
+                        cloth_.push_back(std::move(entry));
                     }
 
-                    if (!any_bodies)
-                    {
-                        cloth_grids_.clear();
-                        cloth_radii_.clear();
-                        return;
-                    }
-                    world->finalize(iterations, T(substep_dt), Projection{});
-                    cloth_ = std::move(world);
-                    substep_dt_ = T(substep_dt);
+                    note_membership_changed();
                 }
 
                 std::vector<Vector3> cloth_positions(EntityId id) const override
                 {
                     std::vector<Vector3> positions;
-                    if (!cloth_)
+                    if (!solver_)
                         return positions;
-                    const auto it = cloth_grids_.find(id);
-                    if (it == cloth_grids_.end())
+                    const auto it = cloth_index_.find(id);
+                    if (it == cloth_index_.end())
                         return positions;
-                    positions.reserve(it->second.bodies.size());
-                    for (const Physics::BodyId body_id : it->second.bodies)
-                        positions.push_back(from_vector(cloth_->body(body_id).position));
+                    refresh_bodies();
+                    const ClothEntry& entry = cloth_[it->second];
+                    positions.reserve(entry.grid.bodies.size());
+                    for (const Physics::BodyHandle handle : entry.grid.bodies)
+                    {
+                        const std::size_t slot = solver_->body_slot(handle);
+                        positions.push_back(slot < bodies_.size()
+                                                ? from_vector(bodies_[slot].position)
+                                                : Vector3{});
+                    }
                     return positions;
                 }
 
                 bool cloth_dimensions(EntityId id, std::uint32_t& rows,
                                       std::uint32_t& cols) const override
                 {
-                    if (!cloth_)
+                    const auto it = cloth_index_.find(id);
+                    if (it == cloth_index_.end())
                         return false;
-                    const auto it = cloth_grids_.find(id);
-                    if (it == cloth_grids_.end())
-                        return false;
-                    rows = static_cast<std::uint32_t>(it->second.rows);
-                    cols = static_cast<std::uint32_t>(it->second.cols);
+                    rows = static_cast<std::uint32_t>(cloth_[it->second].rows);
+                    cols = static_cast<std::uint32_t>(cloth_[it->second].cols);
                     return true;
                 }
+
+                // -- IStaticGeometryService ----------------------------------------
 
                 void set_static_planes(const std::vector<PlaneDesc>& planes) override
                 {
                     planes_.clear();
                     planes_.reserve(planes.size());
-                    query_dirty_ = true;
                     for (const PlaneDesc& desc : planes)
                     {
                         const Vector3T<T> normal = normalize(to_vector(desc.normal));
@@ -266,48 +357,62 @@ namespace SushiEngine
                         plane.offset = dot(normal, to_vector(desc.point));
                         planes_.push_back(plane);
                     }
+                    note_membership_changed();
                 }
 
+                // -- IPhysicsStepper -----------------------------------------------
+
+                /**
+                 * @copydoc IPhysicsStepper::step
+                 *
+                 * The whole tick, in the order the design requires:
+                 *
+                 * 1. Bring the poses to the host — one bulk transfer, because the
+                 *    collision detection that finds this tick's contacts is still a
+                 *    host stage (§6.6 moves it, later).
+                 * 2. Sample the gravity field per body and fold it into each body's
+                 *    own external acceleration.
+                 * 3. Refresh the broadphase from those poses, generate a manifold per
+                 *    surviving pair, warm-start each from last tick's, and submit them
+                 *    as this tick's contact constraints.
+                 * 4. One `step`, which is one `run()` of one composition: predict,
+                 *    every constraint kind including the contacts, derive velocity,
+                 *    and the velocity pass — all of it, every substep, on the device.
+                 * 5. Take the solved manifolds back for the next tick to inherit.
+                 *
+                 * @param substeps A floor under the derived substep count, not the
+                 *                 count itself; see this file's header.
+                 */
                 void step(const GravitySampler& gravity, std::size_t substeps) override
                 {
-                    // Convert at the boundary: the solver holds T-precision positions, the
-                    // sampler speaks boundary Scalar. Evaluated per body, per sub-step, so a
-                    // body that moves through the field feels the field change.
-                    const auto acceleration_at = [&gravity](const Vector3T<T>& position) noexcept
+                    if (!solver_ || (rigid_.empty() && cloth_.empty()))
                     {
-                        return to_vector(gravity(from_vector(position)));
-                    };
-                    // The candidate pairs are found once for the whole tick, against
-                    // bounds swept by how far a body can travel in it. Rebuilding them
-                    // every sub-step — twice every sub-step, as this did — sorts the
-                    // whole scene tens of times per tick to learn something that barely
-                    // changes, and it is the single reason a large sub-step count was
-                    // unaffordable. The per-sub-step work that remains is the
-                    // resolution, which is what actually has to be repeated.
-                    refresh_contact_pairs(T(substeps) * substep_dt_);
-
-                    // Drive both worlds in lockstep so contacts spanning them (rigid↔cloth)
-                    // are resolved before either derives its velocity — two-way coupling.
-                    for (std::size_t s = 0; s < substeps; ++s)
-                    {
-                        if (rigid_)
-                        {
-                            rigid_->predict_substep_field(acceleration_at);
-                            rigid_->solve_constraints();
-                        }
-                        if (cloth_)
-                        {
-                            cloth_->predict_substep_field(acceleration_at);
-                            cloth_->solve_constraints();
-                        }
-                        resolve_contacts();
-                        if (rigid_)
-                            rigid_->derive_velocity();
-                        if (cloth_)
-                            cloth_->derive_velocity();
+                        statistics_ = Physics::PhysicsStatistics{};
+                        return;
                     }
 
-                    refresh_statistics(substeps);
+                    const std::size_t floor = substeps > 0 ? substeps : 1;
+                    const T delta_time = T(floor) * substep_dt_;
+
+                    bodies_dirty_ = true;
+                    refresh_bodies();
+                    apply_gravity_field(gravity);
+                    refresh_contact_index(delta_time);
+                    submit_contacts(delta_time, floor);
+
+                    Physics::StepParameters<T> parameters;
+                    parameters.delta_time = delta_time;
+                    // Zero, because the field has already been folded into each
+                    // body. Passing it here as well would apply it twice.
+                    parameters.gravity = Vector3T<T>{T(0), T(0), T(0)};
+                    parameters.substep_floor = floor;
+                    solver_->step(parameters);
+
+                    collect_contacts();
+
+                    bodies_dirty_ = true;
+                    refresh_bodies();
+                    refresh_statistics();
                     // Everything moved; the next query rebuilds before it answers.
                     query_dirty_ = true;
                 }
@@ -321,12 +426,11 @@ namespace SushiEngine
                 // -- ICollisionQueryService (§7.7) ---------------------------------
                 //
                 // Queries run against their own hierarchy rather than against the
-                // contact pass's pair list, and that is deliberate: a query asks
-                // about geometry that is not moving toward anything, so it has no
-                // use for swept bounds, and the contact pass's candidate pairs are
-                // a different question with a different answer. The index is
-                // rebuilt when the world has moved and reused when it has not, so a
-                // system firing twenty rays in one frame pays for one build.
+                // contact pass's, and that is deliberate: a query asks about geometry
+                // that is not moving toward anything, so it has no use for the swept
+                // bounds the contact pass needs. The index is rebuilt when the world
+                // has moved and reused when it has not, so a system firing twenty
+                // rays in one frame pays for one build.
 
                 SceneRayHit raycast_closest(const Vector3& origin, const Vector3& direction,
                                             Scalar max_distance,
@@ -373,14 +477,15 @@ namespace SushiEngine
                 }
 
                 SceneRayHit sweep_sphere(const Vector3& center, Scalar radius,
-                                         const Vector3& direction, Scalar distance,
+                                         const Vector3& direction, Scalar max_distance,
                                          const SceneQueryFilter& filter) const override
                 {
                     refresh_query_index();
                     const Physics::RayHit<T> hit = Physics::sweep_shape<T>(
                         query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
                         Physics::make_sphere_shape<T>(to_vector(center), T(radius)),
-                        normalize(to_vector(direction)), T(distance), to_query_filter(filter));
+                        normalize(to_vector(direction)), T(max_distance),
+                        to_query_filter(filter));
                     return from_hit(hit);
                 }
 
@@ -388,8 +493,6 @@ namespace SushiEngine
                                           const SceneQueryFilter& filter) const override
                 {
                     refresh_query_index();
-                    // A point is a sphere of no radius, which is why there is no
-                    // separate point path anywhere in the geometry below this.
                     const Physics::ClosestResult<T> result = Physics::closest_point<T>(
                         query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
                         Physics::make_sphere_shape<T>(to_vector(point), T(0)), T(max_distance),
@@ -407,10 +510,49 @@ namespace SushiEngine
 
             private:
                 using T = double;
-                using Constraint = Physics::XpbdDistanceConstraintT<T>;
-                using Projection = Physics::XpbdDistanceProjectionT<T>;
-                using World = Physics::PhysicsWorld<Constraint>;
+                using Solver = Physics::RuntimeGraphBuilder<T>;
                 using Body = Physics::RigidBodyT<T>;
+                using Contact = Physics::ContactConstraintT<T>;
+
+                /** @brief One rigid body: who owns it, where it lives, what it collides as. */
+                struct RigidEntry
+                {
+                    EntityId entity = NULL_ENTITY;
+                    Physics::BodyHandle handle;
+                    Collider collider{};
+                    Physics::CollisionFilter filter{};
+                };
+
+                /** @brief One cloth grid and the shape of it. */
+                struct ClothEntry
+                {
+                    EntityId entity = NULL_ENTITY;
+                    Physics::ClothGridHandles grid;
+                    std::size_t rows = 0;
+                    std::size_t cols = 0;
+                    T spacing = T(0.5);
+                    T thickness = T(0.1);
+                };
+
+                /**
+                 * @brief One thing the contact pass can collide, and what it belongs to.
+                 *
+                 * A proxy's index in @ref contact_proxies_ is its payload, and that
+                 * index is what a warm-start key is built from — so the list is
+                 * rebuilt only when the *membership* changes, never merely because
+                 * something moved. A list rebuilt every tick would renumber the
+                 * proxies, the keys would not match, and every contact in the scene
+                 * would silently start from zero impulse every frame.
+                 */
+                struct ContactProxy
+                {
+                    Physics::CollisionShape<T> shape;
+                    /** @brief The body slot, or `null_contact_body` for static geometry. */
+                    std::uint32_t slot = Physics::null_contact_body;
+                    Physics::ProxyId id = Physics::null_proxy;
+                    Physics::CollisionFilter filter{};
+                    std::uint32_t flags = 0;
+                };
 
                 static Vector3T<T> to_vector(const Vector3& v) noexcept
                 {
@@ -429,8 +571,386 @@ namespace SushiEngine
                     return Quaternion{Scalar(q.x), Scalar(q.y), Scalar(q.z), Scalar(q.w)};
                 }
 
-                /** @brief Contact sweeps per sub-step, enough to settle modest stacks. */
-                static constexpr std::size_t CONTACT_ITERATIONS = 2;
+                /**
+                 * @brief Contacts are generated out to here and resolved to @ref REST_OFFSET.
+                 *
+                 * The two differ for the reason §7.6 gives: a contact found only when
+                 * the surfaces already touch is a contact the solver first sees after
+                 * a tick's worth of approach has been spent, and the body arrives
+                 * already interpenetrating. Generating further out costs a few
+                 * manifolds that resolve to nothing.
+                 */
+                static constexpr T CONTACT_OFFSET = T(0.03);
+
+                /** @brief The separation contacts come to rest at; zero is touching. */
+                static constexpr T REST_OFFSET = T(0);
+
+                /**
+                 * @brief Creates the solver on first use, sized once and never resized.
+                 *
+                 * The capacities are a budget, not a guess that grows: a `Buffer`
+                 * cannot grow in place, and the compiled graph captured raw pointers
+                 * into every one of them. Exceeding one is counted in the statistics
+                 * as a capacity overflow rather than silently reallocating something
+                 * the device is reading.
+                 *
+                 * The colour ceiling is 16 rather than the configuration default of
+                 * 32 because the solve graph holds a node per colour per substep per
+                 * *kind*, and with contacts that is now four kinds of node; 32
+                 * colours would quadruple a compile that happens while a scene is
+                 * loading. Sixteen clears a cloth grid's busiest vertex, which links
+                 * to eight neighbours.
+                 */
+                void ensure_solver()
+                {
+                    if (solver_)
+                        return;
+                    Physics::PhysicsConfigurationT<T> configuration;
+                    configuration.capacities.bodies = 16384;
+                    configuration.capacities.constraints = 65536;
+                    configuration.capacities.contacts = 16384;
+                    configuration.capacities.colors = 16;
+                    configuration.substeps.minimum = 4;
+                    configuration.substeps.maximum = 16;
+                    solver_.reset(new Solver(runtime_, configuration));
+                    bodies_.assign(configuration.capacities.bodies, Body{});
+                    bodies_dirty_ = true;
+                }
+
+                /** @brief Rebuilds the entity-to-index map after the vector moved. */
+                void reindex_rigid()
+                {
+                    rigid_index_.clear();
+                    for (std::size_t i = 0; i < rigid_.size(); ++i)
+                        rigid_index_.emplace(rigid_[i].entity, i);
+                }
+
+                /** @brief Applies a description to a body that already exists. */
+                void update_rigid_entry(RigidEntry& entry, const RigidBodyDesc& desc)
+                {
+                    entry.collider = desc.collider;
+                    entry.filter = desc.collider.filter;
+                    Body body;
+                    if (!solver_->read_body(entry.handle, body))
+                        return;
+                    body.inv_mass = T(desc.inv_mass);
+                    body.inv_inertia = to_vector(desc.inv_inertia);
+                    body.drag_coefficient = T(desc.drag_coefficient);
+                    solver_->write_body(entry.handle, body);
+                    bodies_dirty_ = true;
+                }
+
+                /** @brief Whether @p grids describes exactly the cloths already built. */
+                bool cloth_matches(const std::vector<ClothDesc>& grids) const
+                {
+                    std::size_t wanted = 0;
+                    for (const ClothDesc& desc : grids)
+                        if (desc.rows != 0 && desc.cols != 0)
+                            ++wanted;
+                    if (wanted != cloth_.size())
+                        return false;
+                    for (const ClothDesc& desc : grids)
+                    {
+                        if (desc.rows == 0 || desc.cols == 0)
+                            continue;
+                        const auto it = cloth_index_.find(desc.id);
+                        if (it == cloth_index_.end())
+                            return false;
+                        const ClothEntry& entry = cloth_[it->second];
+                        if (entry.rows != desc.rows || entry.cols != desc.cols)
+                            return false;
+                    }
+                    return true;
+                }
+
+                /** @brief Records that the set of collidable things changed. */
+                void note_membership_changed()
+                {
+                    proxies_dirty_ = true;
+                    query_dirty_ = true;
+                    bodies_dirty_ = true;
+                    // The warm-start keys are built from proxy indices, and those are
+                    // about to be renumbered. Impulses inherited across a renumbering
+                    // would be attached to the wrong pairs, which is worse than
+                    // inheriting nothing for one tick.
+                    manifolds_.clear();
+                    previous_manifolds_.clear();
+                }
+
+                /** @brief Brings the solver's bodies to the host mirror, if they moved. */
+                void refresh_bodies() const
+                {
+                    if (!solver_ || !bodies_dirty_)
+                        return;
+                    bodies_dirty_ = false;
+                    if (bodies_.size() < solver_->body_capacity())
+                        bodies_.assign(solver_->body_capacity(), Body{});
+                    const std::size_t count = live_slot_count();
+                    if (count > 0)
+                        solver_->read_bodies(0, count, bodies_.data());
+                }
+
+                /** @brief One past the highest body slot this scene has ever used. */
+                std::size_t live_slot_count() const
+                {
+                    std::size_t high = 0;
+                    for (const RigidEntry& entry : rigid_)
+                        high = std::max(high, solver_->body_slot(entry.handle) + 1);
+                    for (const ClothEntry& entry : cloth_)
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                            high = std::max(high, solver_->body_slot(handle) + 1);
+                    return std::min(high, bodies_.size());
+                }
+
+                /**
+                 * @brief Samples the gravity field per body and folds it into each one.
+                 *
+                 * Per body, once per tick. The alternative — the uniform vector
+                 * `StepParameters` carries — cannot express a planetary field, and
+                 * sampling inside the substep loop is not available at all now that
+                 * `predict` runs on the device (§6.6).
+                 */
+                void apply_gravity_field(const GravitySampler& gravity)
+                {
+                    const std::size_t count = live_slot_count();
+                    for (std::size_t slot = 0; slot < count; ++slot)
+                    {
+                        const Vector3T<T> sampled =
+                            to_vector(gravity(from_vector(bodies_[slot].position)));
+                        bodies_[slot].external_acceleration = sampled;
+                    }
+                    // Written back through the handles rather than by slot, because a
+                    // slot the scene does not own is not this scene's to write.
+                    for (const RigidEntry& entry : rigid_)
+                        write_field(entry.handle);
+                    for (const ClothEntry& entry : cloth_)
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                            write_field(handle);
+                    bodies_dirty_ = false;
+                }
+
+                /** @brief Sends one body's sampled acceleration back to the solver. */
+                void write_field(Physics::BodyHandle handle)
+                {
+                    const std::size_t slot = solver_->body_slot(handle);
+                    if (slot < bodies_.size())
+                        solver_->write_body(handle, bodies_[slot]);
+                }
+
+                /**
+                 * @brief Rebuilds or refreshes the contact broadphase from the poses.
+                 *
+                 * Rebuilt only when the membership changed; otherwise every proxy's
+                 * shape is recomputed and its bounds updated in place, which is what
+                 * the hierarchy was built incremental for. The displacement handed to
+                 * `update_proxy` is a tick's travel, so a pair that will only start
+                 * overlapping partway through the tick is already a candidate.
+                 *
+                 * @param delta_time The tick's duration, in seconds.
+                 */
+                void refresh_contact_index(T delta_time)
+                {
+                    if (proxies_dirty_)
+                        rebuild_contact_index();
+
+                    for (ContactProxy& proxy : contact_proxies_)
+                    {
+                        if (proxy.slot == Physics::null_contact_body)
+                            continue;
+                        proxy.shape = shape_for_slot(proxy.slot);
+                        const Vector3T<T> travel =
+                            bodies_[proxy.slot].velocity * delta_time;
+                        contact_index_.update_proxy(
+                            proxy.id, Physics::shape_world_bounds(proxy.shape), travel);
+                    }
+                    contact_index_.update();
+                }
+
+                /** @brief Recreates every contact proxy, renumbering them from zero. */
+                void rebuild_contact_index()
+                {
+                    proxies_dirty_ = false;
+                    contact_index_ = Physics::BvhBroadphase<T>{};
+                    contact_proxies_.clear();
+
+                    // What each slot collides as, resolved before any proxy is built,
+                    // because building one asks the question.
+                    collider_of_slot_.clear();
+                    cloth_radius_.assign(bodies_.size(), T(0));
+                    for (const RigidEntry& entry : rigid_)
+                    {
+                        const std::size_t slot = solver_->body_slot(entry.handle);
+                        if (slot < bodies_.size())
+                            collider_of_slot_.emplace(std::uint32_t(slot), entry.collider);
+                    }
+                    for (const ClothEntry& entry : cloth_)
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                        {
+                            const std::size_t slot = solver_->body_slot(handle);
+                            if (slot < cloth_radius_.size())
+                                cloth_radius_[slot] = entry.thickness;
+                        }
+
+                    for (const RigidEntry& entry : rigid_)
+                    {
+                        const std::size_t slot = solver_->body_slot(entry.handle);
+                        if (slot >= bodies_.size())
+                            continue;
+                        ContactProxy proxy;
+                        proxy.slot = std::uint32_t(slot);
+                        proxy.shape = shape_for_slot(proxy.slot);
+                        proxy.filter = entry.filter;
+                        proxy.flags = bodies_[slot].inv_mass > T(0)
+                                          ? 0u
+                                          : Physics::BodyFlags::static_body;
+                        add_contact_proxy(proxy);
+                    }
+                    for (const ClothEntry& entry : cloth_)
+                    {
+                        for (const Physics::BodyHandle handle : entry.grid.bodies)
+                        {
+                            const std::size_t slot = solver_->body_slot(handle);
+                            if (slot >= bodies_.size())
+                                continue;
+                            ContactProxy proxy;
+                            proxy.slot = std::uint32_t(slot);
+                            proxy.shape = shape_for_slot(proxy.slot);
+                            // Cloth has no self-collision yet, and that is said by its
+                            // filter rather than by a flag every routine has to know.
+                            proxy.filter = Physics::self_excluding_filter(
+                                Physics::CollisionLayers::cloth);
+                            proxy.flags = bodies_[slot].inv_mass > T(0)
+                                              ? 0u
+                                              : Physics::BodyFlags::static_body;
+                            add_contact_proxy(proxy);
+                        }
+                    }
+                    for (const Physics::PlaneCollider<T>& plane : planes_)
+                    {
+                        ContactProxy proxy;
+                        proxy.slot = Physics::null_contact_body;
+                        proxy.shape = Physics::make_plane_shape<T>(plane.normal, plane.offset);
+                        proxy.flags = Physics::BodyFlags::static_body;
+                        add_contact_proxy(proxy);
+                    }
+                }
+
+                /** @brief Registers one proxy, its index becoming its payload. */
+                void add_contact_proxy(ContactProxy& proxy)
+                {
+                    const std::uint32_t payload = std::uint32_t(contact_proxies_.size());
+                    proxy.id = contact_index_.create_proxy(
+                        Physics::shape_world_bounds(proxy.shape), proxy.filter, proxy.flags,
+                        payload);
+                    contact_proxies_.push_back(proxy);
+                }
+
+                /** @brief The collision shape body slot @p slot presents this tick. */
+                Physics::CollisionShape<T> shape_for_slot(std::uint32_t slot) const
+                {
+                    if (slot < cloth_radius_.size() && cloth_radius_[slot] > T(0))
+                        return Physics::make_sphere_shape<T>(bodies_[slot].position,
+                                                             cloth_radius_[slot]);
+                    const auto it = collider_of_slot_.find(slot);
+                    if (it == collider_of_slot_.end())
+                        return Physics::make_sphere_shape<T>(bodies_[slot].position, T(0.5));
+                    return collider_shape<T>(it->second, bodies_[slot].position,
+                                             bodies_[slot].orientation);
+                }
+
+                /**
+                 * @brief Generates this tick's manifolds and submits them as contacts.
+                 *
+                 * @param delta_time The tick's duration, in seconds.
+                 * @param floor      The substep floor, for the restitution threshold.
+                 */
+                void submit_contacts(T delta_time, std::size_t floor)
+                {
+                    solver_->begin_contacts();
+                    previous_manifolds_.swap(manifolds_);
+                    manifolds_.clear();
+
+                    const T substep = delta_time / T(floor > 0 ? floor : 1);
+                    Physics::ContactSolveParams<T> params;
+                    params.rest_offset = REST_OFFSET;
+                    params.static_friction = T(0.6);
+                    params.dynamic_friction = T(0.5);
+                    params.restitution = T(0);
+                    // A resting body's contacts carry a closing speed of about
+                    // `g * h` every substep purely because gravity had a substep to
+                    // act; returning that is how a settled stack buzzes for ever.
+                    params.restitution_threshold = T(2) * T(9.81) * substep;
+
+                    for (const Physics::BroadphasePair& pair : contact_index_.pairs())
+                    {
+                        const std::uint32_t first =
+                            contact_index_.proxy(pair.a).payload;
+                        const std::uint32_t second =
+                            contact_index_.proxy(pair.b).payload;
+                        if (first >= contact_proxies_.size() ||
+                            second >= contact_proxies_.size())
+                            continue;
+
+                        // The manifold's normal points from `a` to `b` and `a` must be
+                        // a body, so static geometry is always the second of the two.
+                        const bool flip =
+                            contact_proxies_[first].slot == Physics::null_contact_body;
+                        const ContactProxy& lhs =
+                            flip ? contact_proxies_[second] : contact_proxies_[first];
+                        const ContactProxy& rhs =
+                            flip ? contact_proxies_[first] : contact_proxies_[second];
+                        if (lhs.slot == Physics::null_contact_body)
+                            continue; // two pieces of static geometry; nothing to move
+
+                        Contact contact;
+                        contact.a = lhs.slot;
+                        contact.b = rhs.slot;
+                        contact.key = pair_key(flip ? second : first, flip ? first : second);
+                        contact.params = params;
+                        contact.manifold = Physics::generate_shape_manifold<T>(
+                            lhs.shape, rhs.shape, CONTACT_OFFSET);
+                        if (contact.manifold.point_count == 0)
+                            continue;
+
+                        // Last tick's impulses, matched point by point on the feature
+                        // ids the clipper stamped. Without this a box on a ramp has no
+                        // friction cone until one builds, and creeps for the substep
+                        // it takes to build it.
+                        const auto previous = previous_manifolds_.find(contact.key);
+                        if (previous != previous_manifolds_.end())
+                            Physics::warm_start_manifold(contact.manifold, previous->second);
+
+                        solver_->add_contact(contact);
+                    }
+                }
+
+                /** @brief Takes the solved manifolds back, for the next tick to inherit. */
+                void collect_contacts()
+                {
+                    const std::size_t count = solver_->contact_count();
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        Contact contact;
+                        if (!solver_->read_contact(i, contact))
+                            continue;
+                        manifolds_[contact.key] = contact.manifold;
+                    }
+                }
+
+                /** @brief An order-stable key for the pair of proxies @p a and @p b. */
+                static std::uint64_t pair_key(std::uint32_t a, std::uint32_t b) noexcept
+                {
+                    return (std::uint64_t(a) << 32) | std::uint64_t(b);
+                }
+
+                /** @brief Refreshes the per-tick counters after a step. */
+                void refresh_statistics()
+                {
+                    statistics_ = solver_->statistics();
+                    statistics_.broadphase_pairs_produced = contact_index_.pairs().size();
+                }
+
+                // -- The query side ------------------------------------------------
 
                 /** @brief The shape a query proxy stands for. */
                 Physics::CollisionShape<T> query_shape(Physics::ProxyId id) const
@@ -470,44 +990,29 @@ namespace SushiEngine
                     return converted;
                 }
 
-                /**
-                 * @brief Rebuilds the query hierarchy if the world has moved since the last one.
-                 *
-                 * A full rebuild rather than a persistent tree, and that is the
-                 * honest state of it: the bodies here are re-seated wholesale on
-                 * every `set_rigid_bodies`, so a persistent index would spend its
-                 * life being invalidated. It becomes persistent when the contact
-                 * pass moves into the solve graph and the world stops being rebuilt
-                 * around it (§13.2's "persistent everything").
-                 */
+                /** @brief Rebuilds the query hierarchy if the world has moved. */
                 void refresh_query_index() const
                 {
-                    if (!query_dirty_)
+                    if (!query_dirty_ || !solver_)
                         return;
+                    refresh_bodies();
                     query_dirty_ = false;
                     query_index_ = Physics::BvhBroadphase<T>{};
                     query_shapes_.clear();
                     query_entities_.clear();
 
-                    if (rigid_)
+                    for (const RigidEntry& entry : rigid_)
                     {
-                        const std::size_t count = rigid_->body_count();
-                        for (std::size_t i = 0; i < count && i < rigid_radii_.size(); ++i)
-                        {
-                            const Body& body = rigid_->body(static_cast<Physics::BodyId>(i));
-                            const Physics::CollisionShape<T> shape =
-                                rigid_is_box_[i]
-                                    ? Physics::make_box_shape<T>(body.position,
-                                                                 rigid_half_extents_[i],
-                                                                 body.orientation)
-                                    : Physics::make_sphere_shape<T>(body.position,
-                                                                    rigid_radii_[i]);
-                            add_query_proxy(shape, i < rigid_entities_.size()
-                                                       ? rigid_entities_[i]
-                                                       : NULL_ENTITY,
-                                            body.inv_mass > T(0) ? 0u
-                                                                 : Physics::BodyFlags::static_body);
-                        }
+                        const std::size_t slot = solver_->body_slot(entry.handle);
+                        if (slot >= bodies_.size())
+                            continue;
+                        add_query_proxy(collider_shape<T>(entry.collider,
+                                                          bodies_[slot].position,
+                                                          bodies_[slot].orientation),
+                                        entry.entity,
+                                        bodies_[slot].inv_mass > T(0)
+                                            ? 0u
+                                            : Physics::BodyFlags::static_body);
                     }
                     for (const Physics::PlaneCollider<T>& plane : planes_)
                         add_query_proxy(Physics::make_plane_shape<T>(plane.normal, plane.offset),
@@ -526,173 +1031,40 @@ namespace SushiEngine
                                               Physics::CollisionFilter{}, flags, payload);
                 }
 
-                /**
-                 * @brief Rebuilds the unified body view (rigid + cloth) for this sub-step.
-                 *
-                 * Each entry points straight into its owning buffer's body, so a contact
-                 * correction moves the real body. Reused across sub-steps (cleared and
-                 * refilled) to avoid per-sub-step allocation.
-                 */
-                void build_contact_bodies()
-                {
-                    contact_bodies_.clear();
-                    contact_speeds_.clear();
-                    if (rigid_)
-                    {
-                        const std::size_t count = rigid_->body_count();
-                        for (std::size_t i = 0; i < count && i < rigid_radii_.size(); ++i)
-                        {
-                            Body& body = rigid_->body(static_cast<Physics::BodyId>(i));
-                            Physics::ContactBody<T> entry;
-                            entry.position = &body.position;
-                            entry.orientation = &body.orientation;
-                            entry.inv_mass = body.inv_mass;
-                            entry.inv_inertia = body.inv_inertia;
-                            entry.is_box = rigid_is_box_[i];
-                            entry.half_extents = rigid_half_extents_[i];
-                            entry.radius = rigid_radii_[i];
-                            entry.filter.layer = Physics::CollisionLayers::default_layer;
-                            contact_bodies_.push_back(entry);
-                            // Recorded alongside the view because the broadphase runs
-                            // once per tick now and has to know how far each entry can
-                            // travel before the next one.
-                            contact_speeds_.push_back(length(body.velocity));
-                        }
-                    }
-                    if (cloth_)
-                    {
-                        const std::size_t count = cloth_->body_count();
-                        for (std::size_t i = 0; i < count && i < cloth_radii_.size(); ++i)
-                        {
-                            Body& body = cloth_->body(static_cast<Physics::BodyId>(i));
-                            Physics::ContactBody<T> entry;
-                            entry.position = &body.position;
-                            entry.inv_mass = body.inv_mass;
-                            entry.radius = cloth_radii_[i];
-                            // Cloth has no self-collision yet, and that is now said
-                            // by its filter rather than by a flag the solver reads.
-                            entry.filter = Physics::self_excluding_filter(
-                                Physics::CollisionLayers::cloth);
-                            contact_bodies_.push_back(entry);
-                            contact_speeds_.push_back(length(body.velocity));
-                        }
-                    }
-                }
-
-                /**
-                 * @brief Finds this tick's candidate pairs, once, against swept bounds.
-                 *
-                 * Sweeping the bounds by how far a body can travel over the whole tick
-                 * is what makes once-per-tick sound: a pair that will only start
-                 * overlapping three sub-steps from now is already a candidate, so the
-                 * resolution pass never needs a broadphase it does not have.
-                 *
-                 * The pair list is then sorted by body index. Sweep-and-prune emits
-                 * pairs in whatever order its axis sort produced, and the contact
-                 * resolution is Gauss-Seidel — order-dependent by construction — so
-                 * an unsorted list makes the result depend on something that is not
-                 * simulation state. Sorting costs a fraction of the sweep and buys the
-                 * determinism rule outright.
-                 *
-                 * @param tick_duration The whole step's duration, in seconds.
-                 */
-                void refresh_contact_pairs(T tick_duration)
-                {
-                    build_contact_bodies();
-                    const std::size_t count = contact_bodies_.size();
-                    pairs_.clear();
-                    if (count == 0)
-                        return;
-
-                    aabbs_.clear();
-                    aabbs_.reserve(count);
-                    for (std::size_t i = 0; i < count; ++i)
-                    {
-                        Physics::Aabb<T> bounds =
-                            Physics::contact_body_aabb(contact_bodies_[i]);
-                        const T margin = contact_speeds_[i] * tick_duration;
-                        bounds.min = bounds.min - Vector3T<T>{margin, margin, margin};
-                        bounds.max = bounds.max + Vector3T<T>{margin, margin, margin};
-                        aabbs_.push_back(bounds);
-                    }
-                    Physics::sweep_and_prune(aabbs_, pairs_);
-                    std::sort(pairs_.begin(), pairs_.end());
-                }
-
-                /**
-                 * @brief Resolves this sub-step's contacts over the tick's candidate pairs.
-                 *
-                 * Two-way by inverse mass, so rigid↔cloth pushes both ways, plus every
-                 * body against the static planes. Several sweeps, because one pass of a
-                 * Gauss-Seidel resolution leaves a stack leaning.
-                 */
-                void resolve_contacts()
-                {
-                    if (contact_bodies_.empty())
-                        return;
-
-                    for (std::size_t iteration = 0; iteration < CONTACT_ITERATIONS; ++iteration)
-                    {
-                        for (const auto& pair : pairs_)
-                            Physics::resolve_contact_bodies(contact_bodies_[pair.first],
-                                                            contact_bodies_[pair.second]);
-                        for (Physics::ContactBody<T>& body : contact_bodies_)
-                            for (const Physics::PlaneCollider<T>& plane : planes_)
-                                Physics::resolve_contact_body_plane(body, plane);
-                    }
-                }
-
-                /**
-                 * @brief Refreshes the per-tick counters after a step.
-                 *
-                 * What can honestly be reported at this stage and no more. The contact
-                 * pass is still a host pass outside the solve graph, so there are no
-                 * manifolds to count and no per-stage device timings to read; those
-                 * appear when the contacts move into the graph, and reporting a zero
-                 * is the truthful placeholder until they do.
-                 *
-                 * @param substeps The sub-step count this tick ran.
-                 */
-                void refresh_statistics(std::size_t substeps)
-                {
-                    statistics_ = Physics::PhysicsStatistics{};
-                    statistics_.awake_bodies = contact_bodies_.size();
-                    statistics_.broadphase_pairs_produced = pairs_.size();
-                    statistics_.contact_points = pairs_.size();
-                    statistics_.substeps = substeps;
-                    if (rigid_)
-                    {
-                        statistics_.colors = rigid_->color_count();
-                        statistics_.compile_count += rigid_->compile_count();
-                    }
-                    if (cloth_)
-                        statistics_.compile_count += cloth_->compile_count();
-                }
-
                 SushiRuntime::API::Runtime& runtime_;
-                std::unique_ptr<World> rigid_;
-                std::unordered_map<EntityId, Physics::BodyId> body_ids_;
-                std::vector<T> rigid_radii_;
-                std::vector<char> rigid_is_box_;
-                std::vector<Vector3T<T>> rigid_half_extents_;
-                std::unique_ptr<World> cloth_;
-                std::unordered_map<EntityId, Physics::ClothGrid> cloth_grids_;
-                std::vector<T> cloth_radii_;
+                std::unique_ptr<Solver> solver_;
+
+                std::vector<RigidEntry> rigid_;
+                std::unordered_map<EntityId, std::size_t> rigid_index_;
+                std::vector<ClothEntry> cloth_;
+                std::unordered_map<EntityId, std::size_t> cloth_index_;
                 std::vector<Physics::PlaneCollider<T>> planes_;
+                std::unordered_set<EntityId> seen_;
+
                 T substep_dt_ = T(1) / T(240);
-                // Reused scratch for the contact pass. The pair list is found once per
-                // tick and read every sub-step, so it outlives a single sub-step.
-                std::vector<Physics::ContactBody<T>> contact_bodies_;
-                std::vector<T> contact_speeds_;
-                std::vector<Physics::Aabb<T>> aabbs_;
-                std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs_;
+
+                // The contact side: proxies numbered once per membership change, the
+                // hierarchy refreshed in place every tick, and the manifolds keyed by
+                // the pair of proxy numbers so warm starting has something stable to
+                // match against.
+                Physics::BvhBroadphase<T> contact_index_;
+                std::vector<ContactProxy> contact_proxies_;
+                std::vector<T> cloth_radius_;
+                std::unordered_map<std::uint32_t, Collider> collider_of_slot_;
+                std::unordered_map<std::uint64_t, Physics::ContactManifold<T>> manifolds_;
+                std::unordered_map<std::uint64_t, Physics::ContactManifold<T>>
+                    previous_manifolds_;
+                bool proxies_dirty_ = true;
+
                 Physics::PhysicsStatistics statistics_{};
-                // The query side. `mutable` because a query is a const operation on
-                // the world that may still have to notice the world moved — the
-                // alternative is a non-const raycast, which would make every
-                // gameplay system that reads the scene hold a mutable reference to
-                // it.
-                std::vector<EntityId> rigid_entities_;
+
+                // `mutable` because a query is a const operation on the world that may
+                // still have to notice the world moved — the alternative is a
+                // non-const raycast, which would make every gameplay system that reads
+                // the scene hold a mutable reference to it. The body mirror is the
+                // same argument: reading a pose must not require a mutable scene.
+                mutable std::vector<Body> bodies_;
+                mutable bool bodies_dirty_ = true;
                 mutable Physics::BvhBroadphase<T> query_index_;
                 mutable std::vector<Physics::CollisionShape<T>> query_shapes_;
                 mutable std::vector<EntityId> query_entities_;

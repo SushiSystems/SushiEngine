@@ -57,6 +57,7 @@
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
+#include <SushiEngine/physics/solver/contact_constraint.hpp>
 
 namespace SushiEngine
 {
@@ -82,6 +83,20 @@ namespace SushiEngine
              * sampler already lives.
              */
             Vector3T<T> gravity{T(0), T(-9.81), T(0)};
+
+            /**
+             * @brief A floor under this tick's derived substep count; zero imposes none.
+             *
+             * Not the substep count — that stays derived, because a caller passing it
+             * would make the simulation depend on something outside its own state.
+             * What a caller legitimately knows is the *quality* it is willing to pay
+             * for: a scene of tall stacks wants a floor under the schedule whatever
+             * the motion measure says, because a stack's difficulty is a property of
+             * its arrangement and the motion measure only sees speed. So the state
+             * may raise the count and the caller may raise the floor, and neither can
+             * lower what the other asked for.
+             */
+            std::size_t substep_floor = 0;
         };
 
         /**
@@ -98,8 +113,11 @@ namespace SushiEngine
         class IConstraintSolver
         {
             public:
-                /** @brief The constraint kind this solver admits. */
+                /** @brief The persistent constraint kind this solver admits. */
                 using Constraint = XpbdDistanceConstraintT<T>;
+
+                /** @brief The per-tick constraint kind this solver admits (§6.3). */
+                using Contact = ContactConstraintT<T>;
 
                 virtual ~IConstraintSolver() = default;
 
@@ -140,6 +158,47 @@ namespace SushiEngine
                  * @return True when a live constraint was removed by this call.
                  */
                 virtual bool remove_constraint(ConstraintHandle handle) = 0;
+
+                /**
+                 * @brief Discards last tick's contacts and opens a fresh submission.
+                 *
+                 * Contacts are the one constraint kind with no lifetime past a tick
+                 * (§6.3), so they are submitted rather than added: no handle is
+                 * returned, nothing is removed, and the set that is not resubmitted
+                 * is simply gone. What survives a tick is the manifold, which the
+                 * caller keeps — it is keyed by the broadphase pair cache, and that
+                 * is what makes warm starting possible.
+                 */
+                virtual void begin_contacts() = 0;
+
+                /**
+                 * @brief Submits one contact for this tick's solve.
+                 *
+                 * @param contact The contact; its `a`/`b` are body slot indices, and
+                 *                `b` may be @ref null_contact_body for static geometry.
+                 * @return True when it was placed. False is the contact budget or the
+                 *         colour ceiling being exceeded — counted in the statistics,
+                 *         and a little penetration rather than a failed tick.
+                 */
+                virtual bool add_contact(const Contact& contact) = 0;
+
+                /** @brief How many contacts the current submission holds. */
+                virtual std::size_t contact_count() const noexcept = 0;
+
+                /**
+                 * @brief Reads a solved contact back, by submission order.
+                 *
+                 * The accumulators the solve settled on are what warm starting
+                 * inherits next tick and what a contact event reports as its impulse,
+                 * so they have to come back out. Submission order rather than storage
+                 * order, because storage order is a colouring — an implementation
+                 * detail the caller has no way to predict and no reason to learn.
+                 *
+                 * @param index   The submission index, `[0, contact_count())`.
+                 * @param contact Receives the solved contact; untouched when out of range.
+                 * @return True when @p index named a submitted contact.
+                 */
+                virtual bool read_contact(std::size_t index, Contact& contact) const = 0;
 
                 /**
                  * @brief Reads a body's current state out of the solver.
@@ -195,6 +254,9 @@ namespace SushiEngine
 
                 /** @brief The fixed number of constraint slots this solver was built with. */
                 virtual std::size_t constraint_capacity() const noexcept = 0;
+
+                /** @brief The fixed number of contact slots one tick may fill. */
+                virtual std::size_t contact_capacity() const noexcept = 0;
         };
     } // namespace Physics
 } // namespace SushiEngine

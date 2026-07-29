@@ -61,6 +61,25 @@ namespace SushiEngine
             T drag_coefficient = 0; /**< Quadratic drag k: -k|v|v acceleration each predict; 0 disables. */
 
             /**
+             * @brief This body's own external acceleration, added to the uniform one.
+             *
+             * The place a non-uniform field lands. `StepParameters::gravity` is a
+             * single vector because that is what a solver can apply without knowing
+             * where a body is; a planetary field, a wind volume or a local force
+             * region is *not* uniform, and the scene above samples it per body and
+             * folds it in here — which is what §5.1 and `StepParameters` already say
+             * should happen, now with somewhere for it to happen.
+             *
+             * Per body per **tick**, not per substep, and that is forced rather than
+             * chosen: `predict` runs on the device inside one composition, so there
+             * is no point inside the substep loop at which a host sampler could be
+             * called. A body travels at most the substep schedule's motion budget in
+             * a tick, over which any field smooth enough to be worth sampling has
+             * not meaningfully changed.
+             */
+            Vector3T<T> external_acceleration;
+
+            /**
              * @brief Offset from the body's authored origin to its centre of mass.
              *
              * `position` is the centre of mass — that is what a rigid body rotates
@@ -320,7 +339,8 @@ namespace SushiEngine
 
             if (body.inv_mass > T(0))
             {
-                body.velocity = body.velocity + linear_acceleration * h;
+                body.velocity =
+                    body.velocity + (linear_acceleration + body.external_acceleration) * h;
                 // Quadratic aerodynamic drag, -k|v|v: opposes motion and grows with the
                 // square of speed, so a body reaches terminal velocity under gravity instead
                 // of accelerating without bound. Applied after the external acceleration and

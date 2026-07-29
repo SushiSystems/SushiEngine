@@ -88,22 +88,19 @@ TEST(Unit_PhysicsExtract, OnlyABoxCollidesAsABox)
     const std::vector<RigidBodyDesc> boxes =
         extract_rigid_bodies({body_with_collider(1, PrimitiveKind::Box, Vector3{2, 3, 4})});
     ASSERT_EQ(boxes.size(), 1u);
-    EXPECT_TRUE(boxes[0].box);
-    EXPECT_DOUBLE_EQ(double(boxes[0].half_extents.y), 3.0);
     EXPECT_EQ(boxes[0].collider.shape, ColliderShape::Box);
+    EXPECT_DOUBLE_EQ(double(boxes[0].collider.half_extents.y), 3.0);
 
-    // A cylinder is a *capsule* now, not a sphere (§1.2 item 4). Still an
-    // approximation — a capsule has round ends — but one that stands on the ground
-    // and rolls about the right axis, which the bounding sphere did neither of.
-    // The two shape fields the old contact path reads still say "sphere of radius
-    // two", because that path has no capsule; the collider is what the manifold
-    // path will read, and it says capsule.
+    // A cylinder is a *capsule*, not a sphere (§1.2 item 4). Still an approximation
+    // — a capsule has round ends — but one that stands on the ground and rolls about
+    // the right axis, which the bounding sphere did neither of. There is no longer a
+    // second, flattened description of the shape beside the collider: the live tick
+    // generates manifolds from the collider itself, so a capsule collides as one.
     const std::vector<RigidBodyDesc> cylinders = extract_rigid_bodies(
         {body_with_collider(1, PrimitiveKind::Cylinder, Vector3{2, 3, 4})});
     ASSERT_EQ(cylinders.size(), 1u);
-    EXPECT_FALSE(cylinders[0].box);
-    EXPECT_DOUBLE_EQ(double(cylinders[0].radius), 2.0);
     EXPECT_EQ(cylinders[0].collider.shape, ColliderShape::Capsule);
+    EXPECT_DOUBLE_EQ(double(cylinders[0].collider.radius), 2.0);
     EXPECT_DOUBLE_EQ(double(cylinders[0].collider.half_height), 1.0) << "3 tall minus a 2 cap";
 }
 
@@ -126,8 +123,9 @@ TEST(Unit_PhysicsExtract, AColliderOverridesTheVisualShape)
 
     const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
-    EXPECT_FALSE(bodies[0].box) << "the collider decides, not the visual";
-    EXPECT_DOUBLE_EQ(double(bodies[0].radius), 1.0);
+    EXPECT_EQ(bodies[0].collider.shape, ColliderShape::Sphere)
+        << "the collider decides, not the visual";
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.radius), 1.0);
 }
 
 TEST(Unit_PhysicsExtract, TheVisualShapeIsUsedWhenThereIsNoCollider)
@@ -139,8 +137,8 @@ TEST(Unit_PhysicsExtract, TheVisualShapeIsUsedWhenThereIsNoCollider)
 
     const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
-    EXPECT_TRUE(bodies[0].box);
-    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.x), 4.0);
+    EXPECT_EQ(bodies[0].collider.shape, ColliderShape::Box);
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.x), 4.0);
 }
 
 TEST(Unit_PhysicsExtract, APlaneColliderBecomesAStaticHalfSpaceAtItsWorldTransform)
@@ -198,10 +196,11 @@ TEST(Unit_PhysicsExtract, ScalingAnEntityScalesWhatItCollidesAs)
 
     const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
-    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.x), 2.0);
-    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.y), 3.0);
-    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.z), 0.5);
-    EXPECT_DOUBLE_EQ(double(bodies[0].radius), 0.5) << "still the smallest half-extent";
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.x), 2.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.y), 3.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.z), 0.5);
+    EXPECT_DOUBLE_EQ(double(collider_sphere_radius(bodies[0].collider)), 0.5)
+        << "still the smallest half-extent";
 }
 
 TEST(Unit_PhysicsExtract, ANonUniformlyScaledSphereTakesItsLargestAxis)
@@ -214,7 +213,7 @@ TEST(Unit_PhysicsExtract, ANonUniformlyScaledSphereTakesItsLargestAxis)
 
     const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
-    EXPECT_DOUBLE_EQ(double(bodies[0].radius), 5.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.radius), 5.0);
 }
 
 TEST(Unit_PhysicsExtract, AMirroredEntityCollidesAsItsMirrorImage)
@@ -224,8 +223,8 @@ TEST(Unit_PhysicsExtract, AMirroredEntityCollidesAsItsMirrorImage)
 
     const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
-    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.x), 1.0);
-    EXPECT_DOUBLE_EQ(double(bodies[0].half_extents.z), 3.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.x), 1.0);
+    EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.z), 3.0);
 }
 
 TEST(Unit_PhysicsExtract, WithoutADensityTheAuthoredMassIsKeptExactly)

@@ -43,13 +43,24 @@
  * the graph is built once, for the *maximum* substep count, as:
  *
  *     for each substep s:
- *         predict          (per body)
- *         project colour 0 (per constraint in colour 0)
+ *         prepare contacts, per colour  (capture arrival speed, clear accumulators)
+ *         predict                       (per body)
+ *         project colour 0              (per constraint in colour 0)
  *         project colour 1
  *         ...
- *         derive velocity  (per body)
+ *         project contacts, per colour  (non-penetration + static friction)
+ *         derive velocity               (per body)
+ *         contact velocity, per colour  (dynamic friction + restitution)
  *     measure motion       (per body, once)
  *     reduce the maximum   (fixed order)
+ *
+ * Contacts are a constraint kind like any other here (§6.3) — the same colouring,
+ * the same fixed bands, the same late binding — differing only in that their buffer
+ * is refilled every tick rather than at add time. That is exactly what `Dynamic` was
+ * for: the count changes every tick, the *structure* never does, and
+ * `compile_count()` stays one. Where the three contact stages sit in the substep is
+ * not a choice made here; it is `contact_projection.hpp`'s schedule, and the host
+ * solver walks the same one so the conformance suite can hold them to it.
  *
  * Every one of those nodes is late-bound. `sized()` supplies its live element count
  * each step and `when()` switches it off entirely, so the *counts* change every tick
@@ -90,6 +101,8 @@
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/solver/constraint_store.hpp>
+#include <SushiEngine/physics/solver/contact_constraint.hpp>
+#include <SushiEngine/physics/solver/contact_store.hpp>
 #include <SushiEngine/physics/solver/solver_interface.hpp>
 
 namespace SushiEngine
@@ -124,8 +137,11 @@ namespace SushiEngine
         class RuntimeGraphBuilder final : public IConstraintSolver<T>
         {
             public:
-                /** @brief The constraint kind this solver admits. */
+                /** @brief The persistent constraint kind this solver admits. */
                 using Constraint = XpbdDistanceConstraintT<T>;
+
+                /** @brief The per-tick constraint kind this solver admits. */
+                using Contact = ContactConstraintT<T>;
 
                 /**
                  * @brief Allocates every buffer at capacity and compiles the solve graph.
@@ -147,8 +163,12 @@ namespace SushiEngine
                       constraints_store_(configuration.capacities.bodies,
                                          configuration.capacities.constraints,
                                          configuration.capacities.colors),
+                      contacts_store_(configuration.capacities.bodies,
+                                      configuration.capacities.contacts,
+                                      configuration.capacities.colors),
                       constraint_mirror_(constraints_store_.band_capacity() *
                                          constraints_store_.color_count()),
+                      contact_mirror_(contacts_store_.capacity()),
                       body_mirror_(configuration.capacities.bodies)
                 {
                     // The rebalancer migrates tasks mid-run on a millisecond
@@ -240,6 +260,53 @@ namespace SushiEngine
                     return true;
                 }
 
+                /** @copydoc IConstraintSolver::begin_contacts */
+                void begin_contacts() override
+                {
+                    contacts_store_.begin();
+                    submission_slots_.clear();
+                }
+
+                /** @copydoc IConstraintSolver::add_contact */
+                bool add_contact(const Contact& contact) override
+                {
+                    if (!contact_slots_valid(contact, body_slots_.capacity()))
+                        return false;
+                    const ContactPlacement placement = contacts_store_.place(
+                        contact.a, contact.b, constraints_store_.coloring());
+                    if (!placement.placed)
+                    {
+                        ++statistics_.capacity_overflows;
+                        return false;
+                    }
+                    // Written into the mirror only; the bands go to the device as one
+                    // transfer each in `step`, because a scene resolving a thousand
+                    // contacts should pay for the bands it filled and not for a queue
+                    // round trip per manifold.
+                    contact_mirror_[placement.slot] = contact;
+                    submission_slots_.push_back(placement.slot);
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::contact_count */
+                std::size_t contact_count() const noexcept override
+                {
+                    return submission_slots_.size();
+                }
+
+                /** @copydoc IConstraintSolver::read_contact */
+                bool read_contact(std::size_t index, Contact& contact) const override
+                {
+                    if (index >= submission_slots_.size())
+                        return false;
+                    // From the mirror, which `step` refreshed from the device after
+                    // the run. Reading the device here instead would be a round trip
+                    // per contact for a caller that is, without exception, about to
+                    // read all of them.
+                    contact = contact_mirror_[submission_slots_[index]];
+                    return true;
+                }
+
                 /** @copydoc IConstraintSolver::read_body */
                 bool read_body(BodyHandle handle, RigidBodyT<T>& body) const override
                 {
@@ -255,6 +322,15 @@ namespace SushiEngine
                 {
                     if (count == 0 || bodies == nullptr)
                         return;
+                    // The device owns the state, so a read has to come from it — but
+                    // a write staged since the last step has not reached it yet, and
+                    // a body added and then read before the first tick would come
+                    // back as the retired slot it used to be. Flushing here keeps one
+                    // rule instead of two: the device is the truth, and everything
+                    // staged is on the device before anyone looks. The host solver
+                    // has no staging and so no way to disagree, which is exactly why
+                    // the conformance suite is where this surfaced.
+                    flush_staged_writes();
                     const std::vector<RigidBodyT<T>> range = bodies_->read_range(
                         SushiRuntime::API::ElementRange{first, count});
                     for (std::size_t i = 0; i < count && i < range.size(); ++i)
@@ -280,7 +356,8 @@ namespace SushiEngine
                 /** @copydoc IConstraintSolver::step */
                 void step(const StepParameters<T>& parameters) override
                 {
-                    live_substeps_ = derive_substep_count(parameters.delta_time);
+                    live_substeps_ = derive_substep_count(parameters.delta_time,
+                                                         parameters.substep_floor);
 
                     StepUniforms<T> uniforms;
                     uniforms.gravity = parameters.gravity;
@@ -289,10 +366,12 @@ namespace SushiEngine
                     (*uniforms_)[0] = uniforms;
 
                     flush_staged_writes();
+                    upload_contacts();
 
                     if (graph_ && graph_->size() > 0)
                         last_report_ = graph_->run();
 
+                    download_contacts();
                     refresh_statistics();
                 }
 
@@ -331,10 +410,22 @@ namespace SushiEngine
                     return constraints_store_.band_capacity();
                 }
 
+                /** @copydoc IConstraintSolver::contact_capacity */
+                std::size_t contact_capacity() const noexcept override
+                {
+                    return contacts_store_.capacity();
+                }
+
                 /** @brief Live constraints in colour @p color. */
                 std::size_t color_size(std::size_t color) const noexcept
                 {
                     return constraints_store_.band_size(color);
+                }
+
+                /** @brief Contacts submitted into colour @p color this tick. */
+                std::size_t contact_color_size(std::size_t color) const noexcept
+                {
+                    return contacts_store_.band_size(color);
                 }
 
                 /** @brief The report from the most recent @ref step. */
@@ -372,6 +463,9 @@ namespace SushiEngine
                         constraints > 0 ? constraints : 1, device, Residency::Device));
                     lambdas_.emplace(runtime_.buffer<T>(
                         constraints > 0 ? constraints : 1, device, Residency::Device));
+                    const std::size_t contacts = contact_mirror_.size();
+                    contacts_.emplace(runtime_.buffer<Contact>(
+                        contacts > 0 ? contacts : 1, device, Residency::Device));
                     motion_.emplace(runtime_.buffer<T>(bodies > 0 ? bodies : 1, device,
                                                        Residency::Device));
                     uniforms_.emplace(runtime_.buffer<StepUniforms<T>>(
@@ -414,6 +508,7 @@ namespace SushiEngine
                     RigidBodyT<T>* bodies = bodies_->data();
                     Constraint* constraints = constraints_->data();
                     T* lambdas = lambdas_->data();
+                    Contact* contacts = contacts_->data();
                     T* motion = motion_->data();
                     const StepUniforms<T>* uniforms = uniforms_->data();
 
@@ -423,6 +518,32 @@ namespace SushiEngine
 
                     for (std::size_t substep = 0; substep < maximum; ++substep)
                     {
+                        // The contact preparation reads bodies and the predict below
+                        // writes them, so the dependency tracker orders predict after
+                        // every preparation node by the write-after-read edge — which
+                        // is exactly the ordering the schedule needs and the reason
+                        // this does not have to be forced with a false write.
+                        for (std::size_t color = 0; color < contacts_store_.color_count();
+                             ++color)
+                        {
+                            const SushiRuntime::API::ElementRange band{
+                                contacts_store_.band_base(color),
+                                contacts_store_.band_capacity()};
+                            const std::size_t base = contacts_store_.band_base(color);
+                            const bool first = substep == 0;
+
+                            graph_->add(
+                                SushiRuntime::API::when(contact_predicate(substep, color))
+                                    .and_sized(contact_count_provider(color)),
+                                Reads(*bodies_), Writes(contacts_->region(band)),
+                                contacts_store_.band_capacity(),
+                                [bodies, contacts, base, first](std::size_t i)
+                                {
+                                    ContactPreparationT<T> prepare;
+                                    prepare(contacts[base + i], bodies, first);
+                                });
+                        }
+
                         graph_->add(
                             SushiRuntime::API::when(substep_predicate(substep))
                                 .and_sized(body_count_provider()),
@@ -466,6 +587,31 @@ namespace SushiEngine
                                 });
                         }
 
+                        // After the persistent kinds and before the velocity
+                        // derivation, because non-penetration and static friction are
+                        // corrections to *position* and every positional projection in
+                        // a substep belongs in one band of the schedule.
+                        for (std::size_t color = 0; color < contacts_store_.color_count();
+                             ++color)
+                        {
+                            const SushiRuntime::API::ElementRange band{
+                                contacts_store_.band_base(color),
+                                contacts_store_.band_capacity()};
+                            const std::size_t base = contacts_store_.band_base(color);
+
+                            graph_->add(
+                                SushiRuntime::API::when(contact_predicate(substep, color))
+                                    .and_sized(contact_count_provider(color)),
+                                Reads(*uniforms_),
+                                Writes(*bodies_, contacts_->region(band)),
+                                contacts_store_.band_capacity(),
+                                [bodies, contacts, base](std::size_t i)
+                                {
+                                    ContactPositionProjectionT<T> projection;
+                                    projection(contacts[base + i], bodies);
+                                });
+                        }
+
                         graph_->add(
                             SushiRuntime::API::when(substep_predicate(substep))
                                 .and_sized(body_count_provider()),
@@ -474,6 +620,32 @@ namespace SushiEngine
                             {
                                 update_velocity(bodies[i], uniforms->substep_duration);
                             });
+
+                        // Last in the substep. Dynamic friction and restitution are
+                        // statements about a velocity, and until `update_velocity` has
+                        // read the substep's pose change back as one there is no
+                        // velocity for them to be statements about.
+                        for (std::size_t color = 0; color < contacts_store_.color_count();
+                             ++color)
+                        {
+                            const SushiRuntime::API::ElementRange band{
+                                contacts_store_.band_base(color),
+                                contacts_store_.band_capacity()};
+                            const std::size_t base = contacts_store_.band_base(color);
+
+                            graph_->add(
+                                SushiRuntime::API::when(contact_predicate(substep, color))
+                                    .and_sized(contact_count_provider(color)),
+                                Reads(*uniforms_),
+                                Writes(*bodies_, contacts_->region(band)),
+                                contacts_store_.band_capacity(),
+                                [bodies, contacts, uniforms, base](std::size_t i)
+                                {
+                                    ContactVelocityProjectionT<T> projection;
+                                    projection(contacts[base + i], bodies,
+                                               uniforms->substep_duration);
+                                });
+                        }
                     }
 
                     // The substep count for the *next* tick is derived from this
@@ -539,6 +711,32 @@ namespace SushiEngine
                     };
                 }
 
+                /** @brief A provider reporting colour @p color's submitted contact count. */
+                auto contact_count_provider(std::size_t color) const
+                {
+                    return [this, color]() -> std::size_t
+                    {
+                        return contacts_store_.band_size(color);
+                    };
+                }
+
+                /**
+                 * @brief A predicate enabling a contact colour's node when it has work.
+                 *
+                 * The whole reason contacts can live in the graph at all. A tick with
+                 * no contacts switches every one of these nodes off without touching
+                 * the composition, so `compile_count()` stays at one through a scene
+                 * that goes from an empty room to a collapsing stack and back.
+                 */
+                auto contact_predicate(std::size_t substep, std::size_t color) const
+                {
+                    return [this, substep, color]() -> bool
+                    {
+                        return substep < live_substeps_ &&
+                               contacts_store_.band_size(color) > 0;
+                    };
+                }
+
                 /** @brief A predicate enabling a per-body node only when its substep runs. */
                 auto substep_predicate(std::size_t substep) const
                 {
@@ -590,8 +788,15 @@ namespace SushiEngine
                         constraint_dirty_high_ = slot + 1;
                 }
 
-                /** @brief Sends every staged write to the device as one range each. */
-                void flush_staged_writes()
+                /**
+                 * @brief Sends every staged write to the device as one range each.
+                 *
+                 * Const because a read has to be able to force it (see @ref
+                 * read_bodies) and a read is const. Nothing about the *simulation*
+                 * state changes here — what changes is only where the already-decided
+                 * state is, which is what `mutable` is for.
+                 */
+                void flush_staged_writes() const
                 {
                     if (body_dirty_)
                     {
@@ -609,6 +814,56 @@ namespace SushiEngine
                                 constraint_dirty_high_ - constraint_dirty_low_},
                             constraint_mirror_.data() + constraint_dirty_low_);
                         constraint_dirty_ = false;
+                    }
+                }
+
+                /**
+                 * @brief Sends this tick's contacts to the device, one band at a time.
+                 *
+                 * A band, not the whole buffer: the bands sit at fixed bases with
+                 * their live entries dense from each base, so a scene resolving forty
+                 * contacts across three colours pays three transfers of forty
+                 * manifolds and not one transfer of sixteen thousand. And not one
+                 * transfer per contact either, which is what writing through
+                 * `add_contact` would have cost.
+                 */
+                void upload_contacts()
+                {
+                    for (std::size_t color = 0; color < contacts_store_.color_count();
+                         ++color)
+                    {
+                        const std::size_t live = contacts_store_.band_size(color);
+                        if (live == 0)
+                            continue;
+                        const std::size_t base = contacts_store_.band_base(color);
+                        contacts_->write_range(
+                            SushiRuntime::API::ElementRange{base, live},
+                            contact_mirror_.data() + base);
+                    }
+                }
+
+                /**
+                 * @brief Brings the solved contacts back, so their accumulators survive.
+                 *
+                 * The impulses the solve settled on are what warm starting inherits
+                 * next tick and what a contact event reports, and they were computed
+                 * on the device — so this is not an optional readback. It is the price
+                 * of contacts being a device-resident kind, and it is one transfer per
+                 * non-empty band rather than one per contact.
+                 */
+                void download_contacts()
+                {
+                    for (std::size_t color = 0; color < contacts_store_.color_count();
+                         ++color)
+                    {
+                        const std::size_t live = contacts_store_.band_size(color);
+                        if (live == 0)
+                            continue;
+                        const std::size_t base = contacts_store_.band_base(color);
+                        const std::vector<Contact> range = contacts_->read_range(
+                            SushiRuntime::API::ElementRange{base, live});
+                        for (std::size_t i = 0; i < live && i < range.size(); ++i)
+                            contact_mirror_[base + i] = range[i];
                     }
                 }
 
@@ -691,12 +946,15 @@ namespace SushiEngine
                  * of the one composition this design exists to keep whole.
                  *
                  * @param delta_time The tick's duration, in seconds.
+                 * @param floor      A caller-imposed lower bound; zero imposes none.
                  * @return A substep count within the schedule's bounds.
                  */
-                std::size_t derive_substep_count(T delta_time)
+                std::size_t derive_substep_count(T delta_time, std::size_t floor)
                 {
                     const SubstepSchedule<T>& schedule = configuration_.substeps;
-                    const std::size_t minimum = schedule.minimum > 0 ? schedule.minimum : 1;
+                    std::size_t minimum = schedule.minimum > 0 ? schedule.minimum : 1;
+                    if (floor > minimum)
+                        minimum = floor;
                     const std::size_t maximum =
                         schedule.maximum > minimum ? schedule.maximum : minimum;
 
@@ -732,6 +990,12 @@ namespace SushiEngine
                     }
                     statistics_.largest_color = largest;
 
+                    statistics_.manifolds = contacts_store_.live_count();
+                    std::size_t points = 0;
+                    for (const std::size_t slot : submission_slots_)
+                        points += contact_mirror_[slot].manifold.point_count;
+                    statistics_.contact_points = points;
+
                     // compile_count is the number this solver is held to: one
                     // after warm-up, for ever. compose_count belongs to the region
                     // graph and stays zero here, because a static composition is
@@ -746,23 +1010,31 @@ namespace SushiEngine
 
                 HandleTable<BodyTag> body_slots_;
                 ConstraintStore constraints_store_;
+                ContactStore contacts_store_;
 
                 std::vector<Constraint> constraint_mirror_;
+                std::vector<Contact> contact_mirror_;
+                std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> body_mirror_;
 
-                bool body_dirty_ = false;
-                std::size_t body_dirty_low_ = 0;
-                std::size_t body_dirty_high_ = 0;
-                bool constraint_dirty_ = false;
-                std::size_t constraint_dirty_low_ = 0;
-                std::size_t constraint_dirty_high_ = 0;
+                // Mutable because a const read flushes them; see @ref flush_staged_writes.
+                mutable bool body_dirty_ = false;
+                mutable std::size_t body_dirty_low_ = 0;
+                mutable std::size_t body_dirty_high_ = 0;
+                mutable bool constraint_dirty_ = false;
+                mutable std::size_t constraint_dirty_low_ = 0;
+                mutable std::size_t constraint_dirty_high_ = 0;
 
                 std::size_t body_high_water_ = 0;
                 std::size_t live_substeps_ = 1;
 
-                std::optional<SushiRuntime::API::Buffer<RigidBodyT<T>>> bodies_;
-                std::optional<SushiRuntime::API::Buffer<Constraint>> constraints_;
+                // The two staged-into buffers are mutable for the same reason the
+                // dirty marks are: a const read flushes them, and moving already-
+                // decided state to where it is readable is not a change of state.
+                mutable std::optional<SushiRuntime::API::Buffer<RigidBodyT<T>>> bodies_;
+                mutable std::optional<SushiRuntime::API::Buffer<Constraint>> constraints_;
                 std::optional<SushiRuntime::API::Buffer<T>> lambdas_;
+                std::optional<SushiRuntime::API::Buffer<Contact>> contacts_;
                 std::optional<SushiRuntime::API::Buffer<T>> motion_;
                 std::optional<SushiRuntime::API::Buffer<StepUniforms<T>>> uniforms_;
                 std::optional<SushiRuntime::API::Buffer<T>> motion_maximum_;

@@ -279,6 +279,17 @@ namespace SushiEngine
                 /** @brief The fixed number of constraint slots. */
                 std::size_t capacity() const noexcept { return slots_.capacity(); }
 
+                /**
+                 * @brief The colouring the persistent kinds hold, for a per-tick kind to read.
+                 *
+                 * Handed out const, because a contact set is coloured *on top of* this
+                 * one rather than inside it (§6.3, `contact_store.hpp`): the persistent
+                 * assignments must survive a tick that recolours the contacts, so the
+                 * short-lived colourer reads what this one has taken and never writes
+                 * to it.
+                 */
+                const IncrementalColoring& coloring() const noexcept { return coloring_; }
+
                 /** @brief How many colours have been used since the last full recolour. */
                 std::size_t colors_used() const noexcept
                 {

@@ -38,12 +38,14 @@
 // copied file, which is the only way a conformance suite survives contact with a
 // second device backend.
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include <SushiEngine/physics/collision/manifold.hpp>
 #include <SushiEngine/physics/solver/host_solver.hpp>
 #include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
 
@@ -58,6 +60,7 @@ namespace
         PhysicsConfiguration configuration;
         configuration.capacities.bodies = 64;
         configuration.capacities.constraints = 256;
+        configuration.capacities.contacts = 256;
         configuration.capacities.colors = 8;
         configuration.substeps.minimum = 4;
         configuration.substeps.maximum = 16;
@@ -413,4 +416,284 @@ TEST(Integration_SolverConformance, RemovingABodyTakesItsConstraintsOnBoth)
         EXPECT_EQ(solver->statistics().constraints, 0u);
         EXPECT_FALSE(solver->remove_constraint(joined));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Contacts, the constraint kind whose set is rebuilt every tick (section 6.3).
+//
+// The persistent kinds above prove the two solvers agree about a *fixed* graph.
+// Contacts are the harder claim: their count changes every tick, they take colours
+// from the same union the distance constraints do, and the graph resolves them in
+// three stages that must sit in exactly the right places around predict and the
+// velocity derivation. A stage in the wrong place still runs and still produces
+// plausible motion -- a box still lands on the ground -- so only a comparison
+// against the written-out host schedule can catch it.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    /** @brief A unit-mass cube that can rotate, so the angular half of a contact runs. */
+    RigidBody contact_cube(const Vector3& position, Scalar half_extent = Scalar(0.5))
+    {
+        RigidBody body;
+        body.position = position;
+        body.prev_position = position;
+        body.orientation = Quaternion{0, 0, 0, 1};
+        body.prev_orientation = body.orientation;
+        body.inv_mass = Scalar(1);
+        const Scalar edge = Scalar(2) * half_extent;
+        const Scalar inertia = edge * edge / Scalar(6);
+        body.inv_inertia =
+            Vector3{Scalar(1) / inertia, Scalar(1) / inertia, Scalar(1) / inertia};
+        return body;
+    }
+
+    /** @brief Frictional, slightly bouncy contacts: every branch of the solve engaged. */
+    ContactSolveParams<Scalar> lively_params()
+    {
+        ContactSolveParams<Scalar> params;
+        params.static_friction = Scalar(0.6);
+        params.dynamic_friction = Scalar(0.5);
+        params.restitution = Scalar(0.3);
+        params.restitution_threshold = Scalar(0.5);
+        return params;
+    }
+
+    /**
+     * @brief Regenerates and submits one tick's contacts for one solver.
+     *
+     * Deliberately reads its poses back out of the solver it is submitting to rather
+     * than being handed a shared list: if the two solvers ever disagree the manifolds
+     * must disagree with them, or the comparison would be feeding both the same
+     * contacts and hiding the divergence it exists to find.
+     *
+     * @param solver  The solver to submit into.
+     * @param handles Its bodies, bottom of the stack first.
+     * @param stacked Whether to add box-to-box contacts as well as ground ones.
+     */
+    void submit_ground_contacts(IConstraintSolver<Scalar>& solver,
+                                const std::vector<BodyHandle>& handles, bool stacked)
+    {
+        const PlaneCollider<Scalar> ground{Vector3{0, 1, 0}, Scalar(0)};
+        const Vector3 half{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
+        const Scalar offset = Scalar(0.03);
+        const ContactSolveParams<Scalar> params = lively_params();
+
+        std::vector<RigidBody> bodies(handles.size());
+        for (std::size_t i = 0; i < handles.size(); ++i)
+            solver.read_body(handles[i], bodies[i]);
+
+        solver.begin_contacts();
+        for (std::size_t i = 0; i < handles.size(); ++i)
+        {
+            const OrientedBox<Scalar> box{bodies[i].position, half, bodies[i].orientation};
+
+            ContactConstraint contact;
+            contact.a = std::uint32_t(solver.body_slot(handles[i]));
+            contact.b = null_contact_body;
+            contact.params = params;
+            contact.manifold = generate_obb_plane_manifold(box, ground, offset);
+            if (contact.manifold.point_count > 0)
+                solver.add_contact(contact);
+
+            if (!stacked || i + 1 >= handles.size())
+                continue;
+            const OrientedBox<Scalar> above{bodies[i + 1].position, half,
+                                            bodies[i + 1].orientation};
+            ContactConstraint pair;
+            pair.a = contact.a;
+            pair.b = std::uint32_t(solver.body_slot(handles[i + 1]));
+            pair.params = params;
+            pair.manifold = generate_obb_obb_manifold(box, above, offset);
+            if (pair.manifold.point_count > 0)
+                solver.add_contact(pair);
+        }
+    }
+} // namespace
+
+TEST(Integration_SolverConformance, ContactsAgainstStaticGeometryAgree)
+{
+    // Three boxes dropped from different heights, so they arrive at different ticks
+    // and the live contact count changes underneath the graph -- which is the whole
+    // reason contacts needed late binding to live inside it at all.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    std::vector<BodyHandle> host_bodies;
+    std::vector<BodyHandle> runtime_bodies;
+    for (int i = 0; i < 3; ++i)
+    {
+        const RigidBody body =
+            contact_cube(Vector3{Scalar(i) * Scalar(3), Scalar(1) + Scalar(i), 0});
+        host_bodies.push_back((*host).add_body(body));
+        runtime_bodies.push_back((*runtime).add_body(body));
+    }
+
+    // Long enough for the highest box to fall, bounce at `e = 0.3`, and settle.
+    // A comparison taken mid-flight would agree for the uninteresting reason that
+    // neither solver had resolved a contact yet.
+    for (int tick = 0; tick < 240; ++tick)
+    {
+        submit_ground_contacts(*host, host_bodies, false);
+        submit_ground_contacts(*runtime, runtime_bodies, false);
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+
+        ASSERT_EQ((*host).statistics().manifolds, (*runtime).statistics().manifolds)
+            << "the contact sets parted at tick " << tick;
+        ASSERT_EQ((*host).statistics().substeps, (*runtime).statistics().substeps)
+            << "the substep schedules parted at tick " << tick;
+    }
+
+    for (std::size_t i = 0; i < host_bodies.size(); ++i)
+    {
+        RigidBody from_host;
+        RigidBody from_runtime;
+        ASSERT_TRUE((*host).read_body(host_bodies[i], from_host));
+        ASSERT_TRUE((*runtime).read_body(runtime_bodies[i], from_runtime));
+        EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE)
+            << "box " << i << " diverged under contact";
+        EXPECT_NEAR(double(from_host.position.y), 0.5, 0.02)
+            << "box " << i << " did not come to rest, so the comparison proves little";
+    }
+}
+
+TEST(Integration_SolverConformance, BodyToBodyContactsAgree)
+{
+    // Both sides of the contact take a correction, so the colouring has to keep the
+    // stack's neighbouring pairs apart. Get that wrong and two nodes correct one box
+    // at once, which the sequential host solver cannot reproduce and this catches.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    std::vector<BodyHandle> host_bodies;
+    std::vector<BodyHandle> runtime_bodies;
+    for (int i = 0; i < 4; ++i)
+    {
+        const RigidBody body =
+            contact_cube(Vector3{0, Scalar(0.5) + Scalar(i) * Scalar(1.02), 0});
+        host_bodies.push_back((*host).add_body(body));
+        runtime_bodies.push_back((*runtime).add_body(body));
+    }
+
+    for (int tick = 0; tick < 120; ++tick)
+    {
+        submit_ground_contacts(*host, host_bodies, true);
+        submit_ground_contacts(*runtime, runtime_bodies, true);
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+        ASSERT_EQ((*host).statistics().manifolds, (*runtime).statistics().manifolds)
+            << "the contact sets parted at tick " << tick;
+    }
+
+    for (std::size_t i = 0; i < host_bodies.size(); ++i)
+    {
+        RigidBody from_host;
+        RigidBody from_runtime;
+        ASSERT_TRUE((*host).read_body(host_bodies[i], from_host));
+        ASSERT_TRUE((*runtime).read_body(runtime_bodies[i], from_runtime));
+        EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE)
+            << "stacked box " << i << " diverged";
+    }
+}
+
+TEST(Integration_SolverConformance, ContactsAndConstraintsShareOneColouring)
+{
+    // The union requirement, end to end. A box is tethered by a distance constraint
+    // *and* resting on the ground, so its contact must take a colour the tether does
+    // not hold. If the two colourings were independent both would pick colour 0, the
+    // graph would run their nodes concurrently, and the host solver -- which cannot
+    // -- would end up somewhere else.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    IConstraintSolver<Scalar>* solvers[2] = {&(*host), &(*runtime)};
+    std::vector<std::vector<BodyHandle>> bodies(2);
+    for (int s = 0; s < 2; ++s)
+    {
+        RigidBody anchor = contact_cube(Vector3{0, Scalar(3), 0});
+        anchor.inv_mass = 0;
+        anchor.inv_inertia = Vector3{0, 0, 0};
+        const BodyHandle pinned = solvers[s]->add_body(anchor);
+
+        bodies[std::size_t(s)].push_back(
+            solvers[s]->add_body(contact_cube(Vector3{0, Scalar(0.6), 0})));
+        solvers[s]->add_constraint(
+            link(solvers[s]->body_slot(pinned),
+                 solvers[s]->body_slot(bodies[std::size_t(s)][0]), Scalar(2.4)));
+    }
+
+    for (int tick = 0; tick < 90; ++tick)
+    {
+        for (int s = 0; s < 2; ++s)
+        {
+            submit_ground_contacts(*solvers[s], bodies[std::size_t(s)], false);
+            solvers[s]->step(parameters);
+        }
+    }
+
+    RigidBody from_host;
+    RigidBody from_runtime;
+    ASSERT_TRUE((*host).read_body(bodies[0][0], from_host));
+    ASSERT_TRUE((*runtime).read_body(bodies[1][0], from_runtime));
+    EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE)
+        << "a body under both a contact and a constraint diverged";
+}
+
+TEST(Integration_SolverConformance, AChangingContactCountNeverRecomposes)
+{
+    // The property the whole late-binding design exists to deliver, and the one a
+    // reader is most entitled to be sceptical of: the contact set is rebuilt from
+    // nothing every tick, and the graph is still compiled exactly once. A count that
+    // climbed here would mean every collision in the game recompiled the solver.
+    const PhysicsConfiguration configuration = conformance_scene();
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    std::vector<BodyHandle> handles;
+    for (int i = 0; i < 3; ++i)
+        handles.push_back(
+            (*runtime).add_body(contact_cube(Vector3{Scalar(i) * Scalar(3), Scalar(4), 0})));
+
+    // Falling: no contacts at all. Landing: three. Bouncing: back to none and up
+    // again. The high-water mark rather than the count at one arbitrary tick,
+    // because a box mid-bounce has no contact and reading at that moment would say
+    // the graph was never exercised when it was exercised repeatedly.
+    std::size_t most_contacts = 0;
+    for (int tick = 0; tick < 240; ++tick)
+    {
+        submit_ground_contacts(*runtime, handles, false);
+        (*runtime).step(parameters);
+        most_contacts = std::max(most_contacts, (*runtime).statistics().manifolds);
+    }
+    ASSERT_EQ(most_contacts, 3u);
+
+    while (!handles.empty())
+    {
+        (*runtime).remove_body(handles.back());
+        handles.pop_back();
+        for (int tick = 0; tick < 10; ++tick)
+        {
+            submit_ground_contacts(*runtime, handles, false);
+            (*runtime).step(parameters);
+        }
+    }
+
+    EXPECT_EQ((*runtime).statistics().manifolds, 0u);
+    EXPECT_EQ((*runtime).statistics().compile_count, 1u)
+        << "a tick whose contact count changed recompiled the graph";
 }

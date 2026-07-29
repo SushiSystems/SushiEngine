@@ -180,9 +180,6 @@ namespace SushiEngine
                 desc.drag_coefficient = entity.physics_params.drag_coefficient;
 
                 desc.collider = resolve_collider(entity);
-                desc.radius = collider_sphere_radius(desc.collider);
-                desc.box = desc.collider.shape == ColliderShape::Box;
-                desc.half_extents = desc.collider.half_extents;
 
                 const Physics::MassProperties<Scalar> mass =
                     collider_mass_properties(desc.collider, entity.physics_params.density);

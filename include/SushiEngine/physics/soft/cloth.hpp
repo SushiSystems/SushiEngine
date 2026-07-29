@@ -50,8 +50,10 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/scene/physics_world.hpp>
+#include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
+#include <SushiEngine/physics/solver/solver_interface.hpp>
 
 namespace SushiEngine
 {
@@ -135,6 +137,100 @@ namespace SushiEngine
             };
 
             const Real diagonal = spacing * Real(std::sqrt(2.0));
+            for (std::size_t row = 0; row < rows; ++row)
+                for (std::size_t col = 0; col < cols; ++col)
+                {
+                    if (col + 1 < cols)
+                        link(grid.at(row, col), grid.at(row, col + 1), spacing);
+                    if (row + 1 < rows)
+                        link(grid.at(row, col), grid.at(row + 1, col), spacing);
+                    if (row + 1 < rows && col + 1 < cols)
+                    {
+                        link(grid.at(row, col), grid.at(row + 1, col + 1), diagonal);
+                        link(grid.at(row, col + 1), grid.at(row + 1, col), diagonal);
+                    }
+                }
+
+            return grid;
+        }
+
+        /**
+         * @brief The same grid, addressed by solver handles rather than world ids.
+         *
+         * `PhysicsWorld` numbers its bodies; `IConstraintSolver` hands out
+         * generational handles, because it admits and retires bodies mid-simulation
+         * and an index alone cannot say whether it still names the body it named
+         * last tick (§6.4). So the two cannot share a return type, and pretending
+         * they could by casting one to the other is exactly the class of bug the
+         * generation counter exists to catch.
+         */
+        struct ClothGridHandles
+        {
+            std::size_t rows = 0;
+            std::size_t cols = 0;
+            std::vector<BodyHandle> bodies;
+
+            /** @brief The body handle at grid position (row, column). */
+            BodyHandle at(std::size_t row, std::size_t col) const noexcept
+            {
+                return bodies[row * cols + col];
+            }
+        };
+
+        /**
+         * @brief Builds a pinned-top cloth grid into a constraint solver.
+         *
+         * The same topology as the `PhysicsWorld` overload above and deliberately
+         * the same arithmetic — structural links to the right and below, shear links
+         * across both diagonals, row 0 pinned — expressed against the solver seam so
+         * a cloth is bodies and constraints in the *one* solver that also holds the
+         * rigid bodies (§0.1). That is what makes cloth-to-rigid contact an ordinary
+         * contact rather than a coupling between two worlds driven in lockstep.
+         *
+         * @tparam T The solver's scalar element type.
+         * @param solver     The solver to register bodies and constraints into.
+         * @param rows       Number of grid rows (>= 1); row 0 is pinned.
+         * @param cols       Number of grid columns (>= 1).
+         * @param spacing    Distance between adjacent grid points, in world units (> 0).
+         * @param origin     World-space position of grid point (0, 0).
+         * @param compliance XPBD compliance applied to every constraint in the grid.
+         * @return The grid's body handles, addressable by (row, column).
+         */
+        template <typename T>
+        ClothGridHandles build_cloth_grid(IConstraintSolver<T>& solver, std::size_t rows,
+                                          std::size_t cols, T spacing, Vector3T<T> origin,
+                                          T compliance = 0)
+        {
+            ClothGridHandles grid;
+            grid.rows = rows;
+            grid.cols = cols;
+            grid.bodies.reserve(rows * cols);
+
+            for (std::size_t row = 0; row < rows; ++row)
+                for (std::size_t col = 0; col < cols; ++col)
+                {
+                    RigidBodyT<T> body;
+                    body.position =
+                        origin + Vector3T<T>{T(col) * spacing, T(0), T(row) * spacing};
+                    body.prev_position = body.position;
+                    body.inv_mass = (row == 0) ? T(0) : T(1);
+                    body.inv_inertia = Vector3T<T>{0, 0, 0};
+                    // A pinned row is immovable, not asleep: it must keep conducting
+                    // constraint corrections to the row below it.
+                    grid.bodies.push_back(solver.add_body(body));
+                }
+
+            const auto link = [&](BodyHandle a, BodyHandle b, T rest_length)
+            {
+                XpbdDistanceConstraintT<T> constraint;
+                constraint.a = std::uint32_t(solver.body_slot(a));
+                constraint.b = std::uint32_t(solver.body_slot(b));
+                constraint.rest_length = rest_length;
+                constraint.compliance = compliance;
+                solver.add_constraint(constraint);
+            };
+
+            const T diagonal = spacing * T(std::sqrt(2.0));
             for (std::size_t row = 0; row < rows; ++row)
                 for (std::size_t col = 0; col < cols; ++col)
                 {

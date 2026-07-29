@@ -164,6 +164,26 @@ namespace SushiEngine
                 /** @brief The colour ceiling this was constructed with. */
                 std::size_t color_limit() const noexcept { return color_limit_; }
 
+                /**
+                 * @brief The whole set of colours body @p index currently holds.
+                 *
+                 * Exposed so a *second*, shorter-lived colouring can be layered on
+                 * top of this one rather than beside it. Contacts are recoloured
+                 * every tick while joints and distance constraints are not (§6.3),
+                 * and a contact that took a colour one of its bodies already holds
+                 * would share a node with a constraint it shares a body with — which
+                 * is precisely the race colouring exists to prevent. Reading the mask
+                 * is how the contact colouring starts from what this one has already
+                 * taken; one word, not a per-colour interrogation.
+                 *
+                 * @param index The body slot.
+                 * @return Its used-colour mask, or zero when @p index is out of range.
+                 */
+                std::uint64_t mask_of(std::uint32_t index) const noexcept
+                {
+                    return index < used_colors_.size() ? used_colors_[index] : 0;
+                }
+
                 /** @brief Whether body @p index currently holds a constraint of @p color. */
                 bool holds(std::uint32_t index, std::uint32_t color) const noexcept
                 {

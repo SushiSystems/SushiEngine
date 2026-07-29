@@ -64,18 +64,16 @@ namespace SushiEngine
             Scalar inv_mass = Scalar(1); /**< Inverse mass; 0 pins the body. */
             Vector3 inv_inertia;         /**< Diagonal body-local inverse inertia. */
             Scalar drag_coefficient = Scalar(0); /**< Quadratic drag: acceleration -k|v|v, m⁻¹; 0 disables. */
-            Scalar radius = Scalar(0.5); /**< Collision radius when the body collides as a sphere. */
-            bool box = false;            /**< Collide as an oriented box (else a sphere). */
-            Vector3 half_extents{Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)}}; /**< Box half-extents. */
 
             /**
-             * @brief The full collider, scaled (§5.5).
+             * @brief What this body collides as: the full collider, scaled (§5.5).
              *
-             * The three fields above are what today's single-point contact path
-             * reads, and they are *derived from this one* rather than authored
-             * beside it — so a body cannot collide as a box of one size and report
-             * a radius from another. They go when the manifold path takes over the
-             * live simulation, and this stays.
+             * There used to be a `radius`, a `box` flag and a `half_extents` beside
+             * this, derived from it, because the single-point contact path could not
+             * read a collider. That path is gone — the live tick generates manifolds
+             * and submits them to the solver — and so are they. Keeping a derived
+             * copy of a record that is already here is how a body ends up colliding
+             * as a box of one size while reporting a radius from another.
              */
             Collider collider{};
         };

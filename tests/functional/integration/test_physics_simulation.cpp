@@ -59,6 +59,24 @@ namespace
         return [](const Vector3&) { return Vector3{0, 0, 0}; };
     }
 
+    /** @brief A unit cube's collider: the shape the body actually collides as. */
+    Collider unit_box_collider()
+    {
+        Collider collider;
+        collider.shape = ColliderShape::Box;
+        collider.half_extents = Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
+        return collider;
+    }
+
+    /** @brief A sphere collider of @p radius. */
+    Collider sphere_collider(Scalar radius)
+    {
+        Collider collider;
+        collider.shape = ColliderShape::Sphere;
+        collider.radius = radius;
+        return collider;
+    }
+
     /** @brief The ground plane at y = 0, solid below. */
     std::vector<PlaneDesc> ground()
     {
@@ -77,10 +95,9 @@ TEST(Integration_PhysicsSimulation, BoxSettlesOnItsFaceNotItsBoundingRadius)
     desc.id = 1;
     desc.position = Vector3{0, Scalar(4), 0};
     desc.inv_mass = Scalar(1);
-    desc.box = true;
-    desc.half_extents = Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
-    // A bounding-sphere fallback would hover at this radius instead of the half-extent.
-    desc.radius = Scalar(0.5) * std::sqrt(Scalar(3));
+    // A bounding-sphere fallback would hover at the box's bounding radius,
+    // 0.5*sqrt(3), instead of resting on its face at the half-extent.
+    desc.collider = unit_box_collider();
 
     physics->set_rigid_bodies({desc}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
@@ -103,8 +120,7 @@ TEST(Integration_PhysicsSimulation, TiltedBoxSettlesOnItsEdge)
     desc.orientation = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(PI / 4.0));
     desc.inv_mass = Scalar(1);
     desc.inv_inertia = Vector3{0, 0, 0}; // no angular freedom: it stays tilted
-    desc.box = true;
-    desc.half_extents = Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
+    desc.collider = unit_box_collider();
 
     physics->set_rigid_bodies({desc}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
@@ -143,7 +159,7 @@ TEST(Integration_PhysicsSimulation, ClothAndRigidBodyPushOnEachOther)
     // stiffness rather than the coupling this test is about.
     body.position = Vector3{Scalar(0.5), Scalar(0.35), Scalar(0.5)};
     body.inv_mass = Scalar(1);
-    body.radius = Scalar(0.3);
+    body.collider = sphere_collider(Scalar(0.3));
 
     physics->set_rigid_bodies({body}, ITERATIONS, SUBSTEP_DT);
     physics->set_cloth_grids({cloth}, ITERATIONS, SUBSTEP_DT);
@@ -224,8 +240,7 @@ TEST(Integration_PhysicsSimulation, StackedBoxesSettleWithoutInterpenetrating)
         desc.id = static_cast<EntityId>(i + 1);
         desc.position = Vector3{0, Scalar(1.0 + i * 1.2), 0};
         desc.inv_mass = Scalar(1);
-        desc.box = true;
-        desc.half_extents = Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
+        desc.collider = unit_box_collider();
         bodies.push_back(desc);
     }
 
@@ -258,13 +273,13 @@ TEST(Integration_PhysicsSimulation, AFastBodyIsStillFoundByTheOncePerTickBroadph
     bullet.id = 1;
     bullet.position = Vector3{Scalar(-3), Scalar(1), 0};
     bullet.inv_mass = Scalar(1);
-    bullet.radius = Scalar(0.5);
+    bullet.collider = sphere_collider(Scalar(0.5));
 
     RigidBodyDesc wall;
     wall.id = 2;
     wall.position = Vector3{0, Scalar(1), 0};
     wall.inv_mass = Scalar(0); // immovable, so any motion it causes is the contact
-    wall.radius = Scalar(0.5);
+    wall.collider = sphere_collider(Scalar(0.5));
 
     physics->set_rigid_bodies({bullet, wall}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes({});

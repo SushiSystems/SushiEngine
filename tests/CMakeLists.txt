@@ -57,6 +57,10 @@ add_executable(se_functional_tests
     # Resolving one: non-penetration, static friction positionally, and the
     # velocity pass that finally makes restitution expressible (P1, §7.4).
     functional/unit/test_contact_projection.cpp
+    # A contact as a constraint kind the solver holds: coloured against the
+    # persistent kinds in one union, banded per colour, and rebuilt every tick
+    # (P1, §6.3).
+    functional/unit/test_contact_constraint.cpp
     # The XPBD distance constraint, measured against a conservation law rather than
     # against a transcription of itself — which is what let a frame error survive.
     functional/unit/test_distance_projection.cpp
