@@ -109,10 +109,12 @@ def _open(path: Path):
     try:
         import netCDF4
     except ImportError as error:  # pragma: no cover - environment-dependent
+        # The bracket is escaped for Rich, which reads "[climatology]" as a style tag and
+        # would drop the one word the reader needs.
         raise RuntimeError(
             "netCDF4 is required to bake the climatology and is not installed.\n"
             "It is an optional extra so that `se build` does not drag it in:\n"
-            "    pip install -e cli[climatology]") from error
+            r"    pip install -e cli\[climatology]") from error
     return netCDF4.Dataset(path)
 
 

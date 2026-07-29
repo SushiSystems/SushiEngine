@@ -93,8 +93,13 @@ namespace SushiEngine
          * @brief The core's discretization.
          *
          * Separate from @ref QuasiGeostrophicParameters because it is not physics: it is how
-         * finely the physics is resolved, and it is chosen by the quality tier rather than
-         * authored per scene — the same split `AtmosphereNestSize` makes for the nest.
+         * finely the physics is resolved. Deliberately **not** on any quality tier — the
+         * global core's state is scene data (its fields persist in the weather sidecar,
+         * whose grid must match to load), its step is host-side and nearly free, and a
+         * tier that resized it would make "which machine opened the scene" decide whether
+         * the saved weather survives. Only the regional nest's grid is tiered
+         * (`resolve_atmosphere_quality`); this one is fixed at the resolution the sidecar
+         * was written at, and only a test or a probe passes something smaller.
          */
         struct QuasiGeostrophicGridSize
         {
@@ -102,7 +107,7 @@ namespace SushiEngine
              * @brief Cells around a latitude circle. **Must be a power of two.**
              *
              * The longitude transform is radix-2. 512 is §5's resolution, ~78 km at the
-             * equator; a test or a low tier may ask for less.
+             * equator; a test or a headless probe may ask for less.
              */
             int longitude_cells = 512;
 
@@ -391,8 +396,10 @@ namespace SushiEngine
                  * @brief Restores a state previously produced by @ref capture.
                  *
                  * Rejects a blob whose grid does not match this core's rather than resampling
-                 * one: a scene saved at one quality tier and reopened at another should restart
-                 * its weather visibly, not silently interpolate a different atmosphere.
+                 * one: the shipped grid is fixed (see @ref QuasiGeostrophicGridSize), so a
+                 * mismatch means the blob came from a probe or a differently-built core, and
+                 * the honest response is a visible restart, not a silently interpolated
+                 * different atmosphere.
                  *
                  * @param blob Bytes from @ref capture.
                  * @return Whether the blob was accepted. On false the core is left untouched.
@@ -547,6 +554,38 @@ namespace SushiEngine
                  * invisible until the jet turns up in the wrong place.
                  */
                 const Climatology& climatology() const noexcept;
+
+                /**
+                 * @brief Moves the mean state to a position in the year (T0, §4).
+                 *
+                 * **The season is not a force on the flow; it is a change to what the flow is
+                 * relaxing toward.** Potential vorticity and column water carry straight through
+                 * untouched — only the saturation ceiling and the climatological state are
+                 * re-read. A cyclone alive in April does not vanish because the target jet
+                 * moved; it finds itself in a slightly different mean flow, which is what a
+                 * season is.
+                 *
+                 * Cheap to call every tick, and meant to be. The value is wrapped into [0, 1)
+                 * and then **quantized to whole days**, so the mean state is a pure function of
+                 * the date rather than of how often the host called — two hosts ticking at
+                 * different rates get identical weather, which §3.4 requires. Rebuilding the two
+                 * tables therefore happens about 365 times a simulated year rather than once a
+                 * frame, and the call is a comparison the rest of the time.
+                 *
+                 * Nothing calls this on a core that was never seeded; on an invalid core it does
+                 * nothing and answers false.
+                 *
+                 * @param year_fraction Position in the year; 0 is the start of the first month,
+                 *                      and values outside [0, 1) wrap rather than clamp, because
+                 *                      the last hour of December is adjacent to the first of
+                 *                      January.
+                 * @return Whether the mean state actually moved — false when the date resolved to
+                 *         the same day, which is the common case and not a failure.
+                 */
+                bool set_year_fraction(double year_fraction);
+
+                /** @brief The position in the year the mean state is currently built for. */
+                double year_fraction() const noexcept;
 
                 /** @brief Centre latitude of row @p index, radians. */
                 double latitude_of(int index) const noexcept;

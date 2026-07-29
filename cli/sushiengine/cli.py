@@ -179,7 +179,7 @@ def climatology_bake(
         None, "--output", "-o",
         help="Where to write; defaults to assets/atmosphere/climatology.set0."),
 ):
-    """Bake T0's climatology from public reanalysis and coastline data.
+    r"""Bake T0's climatology from public reanalysis and coastline data.
 
     Downloads about 15 MB once (NCEP-NCAR Reanalysis 1, NOAA OISST V2, Natural Earth —
     no credentials), derives the three zonal profiles the global core relaxes toward plus
@@ -187,7 +187,7 @@ def climatology_bake(
     audit of everything it read and derived, and refuses to write if the land total, the
     implied humidity, or the round trip disagrees.
 
-    Needs the optional extras: pip install -e cli[climatology]
+    Needs the optional extras: pip install -e cli\[climatology]
     """
     raise typer.Exit(climatology_svc.bake(refresh=refresh, bands=bands, output=output))
 

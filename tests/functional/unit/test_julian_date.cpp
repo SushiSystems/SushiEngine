@@ -137,3 +137,56 @@ TEST(Unit_JulianDate, LocalSiderealTimeAddsEastLongitude)
         expected += two_pi;
     EXPECT_NEAR(local_mean_sidereal_time(jd, east), expected, 1e-9);
 }
+
+// --------------------------------------------------------------------------------------
+// The inverse. `year_fraction_from_julian_date` reads a month out of an epoch to index T0's
+// climatology, so a date that comes back one day out puts the weather in the wrong month --
+// and the failure would look like a slightly wrong jet rather than like a calendar bug.
+// --------------------------------------------------------------------------------------
+
+TEST(Unit_JulianDate, CalendarSurvivesTheRoundTripThroughJulianDate)
+{
+    // Deliberately awkward: a leap day, a century that is *not* a leap year under the
+    // Gregorian rule, both ends of a day, and a date before the epoch (where the
+    // truncation in the algorithm has to floor rather than round toward zero).
+    const CalendarDate dates[] = {
+        {2000, 1, 1, 12, 0, 0.0},
+        {2026, 7, 29, 3, 45, 30.0},
+        {1969, 12, 31, 23, 59, 0.0},
+        {2024, 2, 29, 6, 0, 0.0},
+        {1900, 3, 1, 0, 0, 0.0},
+        {2100, 2, 28, 18, 30, 15.0},
+    };
+    for (const CalendarDate& date : dates)
+    {
+        const CalendarDate back =
+            calendar_from_julian_date(julian_date_from_calendar(date));
+        EXPECT_EQ(back.year, date.year);
+        EXPECT_EQ(back.month, date.month);
+        EXPECT_EQ(back.day, date.day);
+        EXPECT_EQ(back.hour, date.hour);
+        EXPECT_EQ(back.minute, date.minute);
+        EXPECT_NEAR(back.second, date.second, 0.01);
+    }
+}
+
+TEST(Unit_JulianDate, TheInverseAgreesWithTheEpochItDefines)
+{
+    const CalendarDate epoch = calendar_from_julian_date(J2000_JULIAN_DATE);
+    EXPECT_EQ(epoch.year, 2000);
+    EXPECT_EQ(epoch.month, 1);
+    EXPECT_EQ(epoch.day, 1);
+    EXPECT_EQ(epoch.hour, 12);
+    EXPECT_EQ(epoch.minute, 0);
+}
+
+TEST(Unit_JulianDate, HalfADayEarlierIsTheMidnightThatStartsTheSameDate)
+{
+    // The Julian day rolls over at noon and the civil day at midnight; the conversion has
+    // to carry that offset, and getting it backwards moves every date by one.
+    const CalendarDate midnight = calendar_from_julian_date(J2000_JULIAN_DATE - 0.5);
+    EXPECT_EQ(midnight.year, 2000);
+    EXPECT_EQ(midnight.month, 1);
+    EXPECT_EQ(midnight.day, 1);
+    EXPECT_EQ(midnight.hour, 0);
+}

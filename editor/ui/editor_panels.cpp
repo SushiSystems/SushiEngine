@@ -4262,6 +4262,100 @@ namespace SushiEngine
                         changed = true;
                     }
 
+                    // ---- The mean state the weather is a departure from (T0, §4) ----------
+                    //
+                    // **Which climatology is running is otherwise invisible.** A scene on the
+                    // analytic latitude bands when somebody meant it to be on the baked asset
+                    // looks completely normal -- there is still a jet, there are still cyclones
+                    // -- right up until the jet turns out to be in the wrong place and the
+                    // seasons do not exist. That is a failure that survives inspection, so the
+                    // panel states the source rather than leaving it to be inferred.
+                    //
+                    // Read-only, deliberately. Nothing here is authorable: T0 is *data*, baked
+                    // offline by `se climatology bake` from sources whose attribution rides
+                    // inside the asset. A slider over a climatology would be a slider over a
+                    // measurement.
+                    if (const SushiEngine::Atmosphere::Climatology* climatology =
+                            weather.climatology())
+                    {
+                        ImGui::SeparatorText("Mean State (T0)");
+                        if (climatology->baked())
+                            ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
+                                               "Baked climatology");
+                        else
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                                               "Analytic latitude bands (no asset loaded)");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "The analytic bands are a working mean state, not an error:\n"
+                                "they are what a body that is not Earth uses, and what every\n"
+                                "measurement before T0 existed was taken against. But they\n"
+                                "have no continents and no season.\n\n"
+                                "Expected the real one? Run: se climatology bake");
+
+                        // Where the season currently is, read from the scene's own epoch by the
+                        // same conversion the provider feeds the core. The core additionally
+                        // quantizes to whole days, so the profile it is actually built for can
+                        // sit up to a day behind this -- far below the resolution of a monthly
+                        // climatology, and not worth another accessor on the interface to say.
+                        const double year_fraction =
+                            SushiEngine::Simulation::year_fraction_from_julian_date(
+                                environment.observer.julian_date);
+                        const int month_index =
+                            std::min(11, std::max(0, int(year_fraction * 12.0)));
+                        static const char* const MONTHS[] = {
+                            "January", "February", "March", "April", "May", "June", "July",
+                            "August", "September", "October", "November", "December"};
+                        ImGui::Text("Season: %s (year fraction %.3f)", MONTHS[month_index],
+                                    year_fraction);
+
+                        // The two numbers that decide whether this mean state makes weather at
+                        // all: where the jet is, and how much vertical shear it carries. Phillips'
+                        // criterion puts the critical shear near beta * L_d^2, about 8 m/s here,
+                        // so a shear below that is a mean state that will never produce a storm
+                        // however long it is left running -- worth seeing before waiting.
+                        double peak_shear = 0.0;
+                        double shear_latitude = 0.0;
+                        double peak_jet = 0.0;
+                        double jet_latitude = 0.0;
+                        for (int degree = -89; degree <= 89; ++degree)
+                        {
+                            const double latitude = double(degree) * 3.14159265358979323846 / 180.0;
+                            const double upper =
+                                climatology->upper_zonal_wind_mps(latitude, year_fraction);
+                            const double shear =
+                                upper - climatology->lower_zonal_wind_mps(latitude, year_fraction);
+                            if (std::fabs(shear) > std::fabs(peak_shear))
+                            {
+                                peak_shear = shear;
+                                shear_latitude = double(degree);
+                            }
+                            if (upper > peak_jet)
+                            {
+                                peak_jet = upper;
+                                jet_latitude = double(degree);
+                            }
+                        }
+                        ImGui::Text("Jet: %.1f m/s at %+.0f deg", peak_jet, jet_latitude);
+                        ImGui::Text("Shear: %.1f m/s at %+.0f deg", peak_shear, shear_latitude);
+                        if (std::fabs(peak_shear) < 8.0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                                               "Below the Phillips threshold: this mean state "
+                                               "will not grow storms.");
+
+                        // Attribution travels *inside* the asset rather than in a sidecar that
+                        // could be separated from the data it describes, so this is the licence
+                        // notice as well as the debugging aid.
+                        if (climatology->baked() && !climatology->provenance().empty() &&
+                            ImGui::TreeNode("Provenance"))
+                        {
+                            ImGui::PushTextWrapPos(0.0f);
+                            ImGui::TextUnformatted(climatology->provenance().c_str());
+                            ImGui::PopTextWrapPos();
+                            ImGui::TreePop();
+                        }
+                    }
+
                     // Synoptic map overlay (design doc §6), rebuilt on the global core.
                     //
                     // **This used to draw a list and now it samples a field**, which is the whole
@@ -4439,13 +4533,20 @@ namespace SushiEngine
                     // the author's setting, which is exactly the trade this phase makes.
                     ImGui::SeparatorText("Inject Anomaly");
                     static float inject_radius_km = 700.0f;
-                    static float inject_amplitude_mps = 20.0f;
+                    // 12 m/s of peak rotational wind, which lands near -26 hPa at the default
+                    // radius -- an ordinary deep low rather than a record one. It used to be 20,
+                    // which was chosen before the injection carried compensating circulation and
+                    // reached -70.
+                    static float inject_amplitude_mps = 12.0f;
                     static int inject_sign = 0;
                     ImGui::RadioButton("Low", &inject_sign, 0);
                     ImGui::SameLine();
                     ImGui::RadioButton("High", &inject_sign, 1);
                     ImGui::SliderFloat("Radius", &inject_radius_km, 200.0f, 2000.0f, "%.0f km");
-                    ImGui::SliderFloat("Strength", &inject_amplitude_mps, 2.0f, 45.0f, "%.0f m/s");
+                    // Ceiling lowered from 45: past about 30 m/s at these radii the anomaly is
+                    // deeper than any recorded mid-latitude cyclone, so the top of the range was
+                    // offering an author a system that cannot exist.
+                    ImGui::SliderFloat("Strength", &inject_amplitude_mps, 2.0f, 30.0f, "%.0f m/s");
                     ImGui::TextDisabled("Click the map to place one; it then evolves on its own.");
 
                     if (map_clicked)

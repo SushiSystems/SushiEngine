@@ -463,6 +463,47 @@ the rain further away. What that pattern indicates is the condensation and evapo
 match. (It is worth noting how much closer the rain already is: the analytic mean state produced
 0.235 mm/day, an order of magnitude low.)
 
+### 4.2 The season
+
+`ProceduralWeather::tick` used to drop its `julian_date`. It now converts it to a position in
+the year and hands it to `QuasiGeostrophicCore::set_year_fraction` before advancing the flow, so
+a step always runs against the climatology of the moment it belongs to.
+
+**A season is not a force on the flow.** `set_year_fraction` re-reads exactly two things — the
+saturation ceiling and the climatological state — and touches nothing prognostic. Potential
+vorticity and column water carry straight through. A cyclone alive in April does not vanish
+because the target jet moved; it finds itself in a slightly different mean flow, which is what a
+season is.
+
+**Determinism (§3.4) is preserved by quantizing, not by thresholding.** The obvious way to avoid
+rebuilding two tables every frame is "rebuild when the date has moved enough", and that is wrong:
+it makes the mean state depend on the *call history*, so two hosts ticking at different rates
+diverge. Instead the year fraction is quantized to whole days — a pure function of the date. T0
+holds twelve monthly fields, so a day already oversamples the data thirty to one and nothing is
+lost, while the rebuild happens ~365 times a simulated year rather than 60 times a second.
+Measured: a host ticking 1000 times and a host ticking 10 times across the same interval land on
+mean states identical to nine decimal places.
+
+**The date is applied before the seed, not after.** A scene opening in July would otherwise be
+seeded with January's jet and spend its first simulated weeks migrating — a transient nobody
+asked for that would read as the weather being wrong. `ProceduralWeather`'s constructor takes the
+epoch for that reason.
+
+Measured through the provider, seeded at each solstice:
+
+| | January | July |
+|---|---|---|
+| 35°N upper wind | 34.55 m/s | 11.37 m/s |
+| 30°S upper wind | 16.45 m/s | 35.97 m/s |
+| SH jet peak latitude | 48°S | 29°S |
+
+The last row is the one worth pointing at. Nothing in the engine knows the hemispheres behave
+differently, yet the southern jet **moves equatorward into winter** while the northern one simply
+weakens. That is the Southern Hemisphere's double-jet structure: one merged eddy-driven jet near
+50°S in summer, splitting in winter so the strongest flow is the subtropical jet at 30°S. It
+falls out of the data. (It also cost a wrong assertion to find — a check written at 45°S failed,
+because 45°S is exactly the crossover between the two jets and says nothing either way.)
+
 Licensing note: ERA5 (CDS), ETOPO, Natural Earth, and MODIS land cover are all
 redistributable under attribution-class terms; sourcing and baking them into engine
 assets is a task of Phase C, not an afterthought. The provenance travels *inside* the
@@ -818,11 +859,9 @@ passes, the ridge builds, and the wind veers from north-northeast to nearly due 
 **Next: T0's real climatology** sourced and baked, which is what gives the core a mean state with
 continents in it instead of analytic latitude bands.
 
-**One thing to settle first:** the preset and click amplitudes are about 3x too strong — a click at
-the panel's defaults puts −70.6 hPa over the map, `FrontPassage` −94.8, where a deep real low is
-−30. The dynamics themselves are calibrated correctly (a naturally grown cyclone reaches −35.4 hPa,
-measured), so this is only about what a disturbance an author places should be worth. See C3 for
-the mechanism and the two candidate fixes.
+**Settled since:** the preset and click amplitudes were about 3x too strong, and the cause was the
+injection placing a *monopole*. Fixed by compensating it — see §11's C3 notes below, where the
+before/after table is.
 
 **Carried, deliberately, with the reason each time:**
 
@@ -845,10 +884,11 @@ the mechanism and the two candidate fixes.
   (1.27 ms), not cost per step, and the table has not been rewritten in those terms.
 - **An async compute queue** is now a straightforward win rather than a blocked one, since the
   step already submits at frame end and waits on the frame's readers.
-- **The global core produces no tropical rain**, because a two-layer quasi-geostrophic model has
-  no Hadley circulation and the ITCZ has to come from T0 — which is analytic latitude bands until
-  the rest of Phase C. Global mean precipitation is 0.25 mm/day against Earth's 2.7; what does
-  rain is mid-latitude frontal ascent. See C2.
+- **The global core's rain is still low, but far less so since T0 landed.** A two-layer
+  quasi-geostrophic model has no Hadley circulation, so the ITCZ has to be T0-forced. On the
+  analytic bands global mean precipitation was 0.25 mm/day against Earth's 2.7; on the baked
+  climatology it reaches **1.5–2.4 mm/day** (§4.1). The remaining gap is the moisture *cycling
+  timescale*, not the saturation ceiling — see §4.1's named limit.
 - **The global core's step is 36 ms and runs on the main thread.** Invisible at 1× time scale, a
   visible hitch under time compression. Moving it to a worker is straightforward and is not done
   because nothing consumes the tier yet.
@@ -1896,7 +1936,25 @@ The late timing has its own separate cause, already recorded: surface relative h
 all day because `humidity_scale_height` does not do what its documentation says, so a column has to
 be pushed to its condensation level rather than starting near it.
 
-### Phase C — Global core and climatology — *in progress*
+### Phase C — Global core and climatology — **shipped**
+
+Closed in four steps: **C1** brought the parent's large-scale vertical motion; **C2** built the
+two-layer quasi-geostrophic core standing alone on analytic latitude bands; **C3** made it the
+weather, deleting `SynopticLayer` and retargeting the nest, the editor, the gameplay wind and the
+scene file onto it; and **T0** replaced the analytic bands with baked data (§4, §4.1, §4.2).
+
+What the phase set out to do was make the weather *emerge* rather than be authored, and that is
+measurable rather than asserted: the core grows eddies exponentially with nothing placing a low,
+runs a complete baroclinic life cycle, puts its jet at 29–31°N because that is where January's
+subtropical jet is in the reanalysis it relaxes toward, and moves that jet with the season —
+equatorward into the southern winter and merely weaker into the northern one, which is a
+hemispheric asymmetry nothing in the engine encodes.
+
+One limit is carried out of the phase rather than hidden by it, and it is named where it is
+measured: the moisture cycles too slowly (§4.1). It does not block Phase D or E. The other
+long-standing open question — that an authored disturbance was about three times deeper than a
+natural one — was closed rather than carried: it turned out to be a monopole injection, not a
+tuning problem (§11's C3 notes).
 
 #### C1 — large-scale vertical motion, and the clause B3e carried here — **shipped**
 
@@ -1974,8 +2032,9 @@ elliptical Gaussians across the sphere and diagnosing a wind from their summed g
 can only ever do what it was told to do at genesis. This section is its replacement — §5's
 two-layer moist quasi-geostrophic core, in the new engine-neutral `atmosphere/` module, with
 `QuasiGeostrophicCore` as the tier and `FourierTransform` as the transform its inversion is built
-on. **C2 is the core alone.** It does not yet feed the nest and `SynopticLayer` is still the
-parent; that swap and T0's real assets are what is left of Phase C.
+on. **C2 was the core alone**: it did not yet feed the nest and `SynopticLayer` was still the
+parent. C3 made that swap and deleted `SynopticLayer`; T0's real assets landed after it. Phase C
+is closed — see §4.1, §4.2 and the phase status below.
 
 **Where it runs, and the section this contradicts.** §3.3 planned T1 on the GPU beside T2 and T3.
 That section has been corrected rather than quietly left: every consumer of this tier is
@@ -2074,6 +2133,7 @@ asserted that the field was non-uniform — which a 15 km/s field satisfies perf
   2.7. §5 already names the cause — a two-layer quasi-geostrophic model has no Hadley circulation,
   so the ITCZ has to be a *T0-forced* convergence band — and T0 is analytic latitude bands in C2.
   What does rain is mid-latitude frontal ascent, which is the part this formulation is entitled to.
+  *(Superseded: with T0's baked climatology this reaches 1.5–2.4 mm/day. §4.1.)*
 - **A 47 ms step is a visible hitch under time compression.** At 1× it lands once per six minutes
   of wall clock and is invisible. At 60× it lands once per six seconds and is not. The step has no
   dependency on anything mid-frame, so moving it to a worker is straightforward; it is not done
@@ -2173,33 +2233,52 @@ through the probe.
 > because it had actually simulated ten hours rather than 24 days. Drive it against
 > `simulated_seconds()` in a `while` loop, not by handing it a large interval and trusting it.
 
-##### One open question, named rather than buried
+##### The injection was three times too loud — found, diagnosed, fixed
 
-**The preset amplitudes are about 3x too strong.** Measured at 128×64, right after injection,
-against the corrected reference:
+**The symptom.** Measured at 128×64 right after injection, against the corrected pressure
+reference, a click at the panel's defaults put **−70.6 hPa** over the map; `FrontPassage` −94.8,
+`Storm` −110.9, `Clear` +61.9. A deep real low is −30 and the deepest ever recorded is near −50.
 
-| what injects it | request | central `p'` |
+**The cause was not arithmetic.** The field was geostrophically self-consistent and 0.451 is the
+correct peak-azimuthal-wind constant for a Gaussian vorticity blob. What made it deep is that
+`inject_vorticity` placed a **monopole** — a blob with net circulation — whose streamfunction
+grows *logarithmically outward* instead of decaying the way a compensated anomaly's does. A low
+placed anywhere therefore tilted the pressure field of the entire hemisphere, and did it in a way
+that still looked like a plausible synoptic pattern.
+
+**The fix is the physics, not a smaller number.** Every injection now lays down a broader opposing
+lobe carrying exactly the core's circulation, scaled by summing both lobes over the actual grid
+rather than from a ratio of analytic integrals — so the cancellation is exact at any latitude,
+including near the poles where the metric is nothing like a plane. The pair's peak wind is a fifth
+below a lone blob's (the compensator opposes the core), so the wind constant was re-derived as
+`0.369 · ζ₀R`; without that the parameter would have quietly meant something other than its name,
+and a requested 20 m/s blew at 16.2.
+
+**Then, and only then, the amplitudes.** With the far field no longer inflating everything, the
+presets were re-measured and found to be asking for 26 and 34 m/s of rotational wind — hurricane
+force at synoptic radii. Re-tuned to what a system of each kind actually reaches:
+
+| what injects it | before | after (request → central `p'`) |
 |---|---|---|
-| editor click, defaults | 700 km, 20 m/s | **−70.6 hPa** |
-| `FrontPassage` | 750 km, 26 m/s | **−94.8 hPa** |
-| `Storm` | 600 km, 34 m/s | **−110.9 hPa** |
-| `Clear` (a ridge) | 1 200 km, −14 m/s | **+61.9 hPa** |
+| editor click, defaults | −70.6 hPa | 700 km, 12 m/s → **−26.1 hPa** |
+| `FrontPassage` | −94.8 hPa | 750 km, 15 m/s → **−34.7 hPa** |
+| `Storm` | −110.9 hPa | 600 km, 23 m/s → **−44.1 hPa** |
+| `Overcast` | — | 1 100 km, 8 m/s → **−24.8 hPa** |
+| `Clear` (a ridge) | +61.9 hPa | 1 200 km, −8.5 m/s → **+28.5 hPa** |
 
-A deep real low is −30. The field is geostrophically self-consistent and
-`GAUSSIAN_BLOB_WIND_FACTOR = 0.451` is the correct peak-azimuthal-wind constant for a Gaussian
-vorticity blob, so nothing here is arithmetically wrong. What makes it deep is that
-`inject_vorticity` places a **monopole** — a blob with net circulation — whose streamfunction
-therefore keeps growing logarithmically inward from the far field rather than decaying the way a
-compensated (net-zero) anomaly's does. So the question is what a preset should place, and the
-honest fix is either a compensated blob (a ring of opposite sign around it) or simply smaller
-amplitudes.
+And the far field, which is the point: the anomaly 60–120° away fell from *rivalling the centre*
+to 2–5 hPa. The editor's strength slider had its ceiling lowered from 45 to 30 m/s, because past
+about 30 at these radii it was offering an author a system the atmosphere has never made.
+
+Four tests pin it: the anomaly is local, it blows at the speed it was asked for, it is a depth
+that could exist, and its sign is right in both directions.
 
 > **An earlier draft of this section claimed the other end was mis-scaled too — that a naturally
 > mature cyclone reads only −6.9 hPa against a textbook −31. That was wrong and is withdrawn.**
 > It was measured on the default 30 m/s jet, which sits barely above the Phillips threshold and
 > grows slowly. On a properly supercritical jet the core reaches **−35.4 hPa by day 8** — a
 > textbook deep low, with the eddy energy peaking and the zonal flow drawn down as it should.
-> The anomaly scale is right; only the injection is loud.
+> The anomaly scale is right; the injection was the loud part, and it has since been fixed above.
 
 | day | deepest `p'` | eddy KE | zonal KE |
 |---|---|---|---|
@@ -2219,7 +2298,8 @@ front-passage sequence occurs unscripted: cirrus, then altostratus, then continu
 veering, a cold-frontal cumulus line with a gust, then clearing to scattered cumulus. Weather
 1 000 km away has developed on its own by the time the player flies there.* **Both halves are
 measured above and met at the dynamical level. The cloud-genus sequence itself belongs to the
-nest and is checked when T0 lands.**
+nest and remains unchecked — T0 has since landed, and that check is a nest-side acceptance run
+that has not been done rather than one that is blocked.**
 
 ### Phase D — Terrain and surface coupling *(blocked, §15)*
 
@@ -2325,8 +2405,11 @@ Stated here so they are decisions rather than discoveries:
   shadows, and terrain-driven turbulence — all of Phase D and part of Phase B's surface
   model — cannot start until the terrain system provides one. Phases A, B (aloft), C, and
   E are unblocked.
-- **T0 asset pipeline** (ERA5/ETOPO/MODIS bake) is a Phase C work item with its own
-  sourcing and licensing step.
+- **T0 asset pipeline** — *done*. `se climatology bake` builds `assets/atmosphere/climatology.set0`
+  from NCEP-NCAR Reanalysis 1, NOAA OISST V2 and Natural Earth (ERA5 was dropped: it needs a
+  Copernicus account, and an asset nobody else can reproduce is an asset nobody else can check).
+  Attribution rides inside the asset. Terrain and land-cover remain blocked on §15's terrain
+  system, which is what the ETOPO/MODIS half of this item was waiting for.
 - `render_pipeline_refactor.md` **Phase 7** (sky-view / aerial-perspective LUTs) —
   consumed by §8.3's spatial fog and AP coupling; analytic fallbacks stand until it lands.
 - `render_pipeline_refactor.md` **Phase 11** (async compute) — the preferred home for the

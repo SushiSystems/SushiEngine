@@ -105,6 +105,12 @@ add_executable(se_functional_tests
     # it is a neutral module, so its transform, its elliptic inversion and its
     # conservation properties are testable against references that are not itself.
     functional/unit/test_quasigeostrophic_core.cpp
+    # T0, the mean state T1 is a departure from: the asset format's refusals (tested against
+    # synthesized bytes, so they fail on a machine with no asset checked out) and the shipped
+    # bake's claims about the actual Earth.
+    functional/unit/test_climatology.cpp
+    # The path from the epoch to T0's month axis, and the determinism the quantization buys.
+    functional/unit/test_season.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
     functional/unit/test_rng.cpp

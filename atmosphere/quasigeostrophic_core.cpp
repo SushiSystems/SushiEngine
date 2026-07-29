@@ -45,17 +45,64 @@ namespace SushiEngine
             constexpr double PASCALS_PER_HECTOPASCAL = 100.0;
 
             /**
-             * @brief Peak azimuthal wind of a Gaussian vorticity blob, as a fraction of `zeta*R`.
+             * @brief Peak azimuthal wind of an injected anomaly, as a fraction of `zeta_0 * R`.
              *
-             * A blob `zeta_0 exp(-r^2/2R^2)` has circulation `2*pi*R^2*zeta_0*(1-exp(-r^2/2R^2))`,
-             * whose azimuthal wind peaks near `r = 1.585 R` at `0.451 * zeta_0 * R`. Injecting a
-             * *wind* rather than a vorticity is what an author means by "a 20 m/s low", so the
-             * inverse of this number is how the request is turned into the field.
+             * Injecting a *wind* rather than a vorticity is what an author means by "a 20 m/s
+             * low", so the inverse of this number is how the request is turned into a field.
+             *
+             * A lone Gaussian blob `zeta_0 exp(-r^2/2R^2)` has circulation
+             * `2*pi*R^2*zeta_0*(1-exp(-r^2/2R^2))`, whose azimuthal wind peaks near
+             * `r = 1.585 R` at `0.451 * zeta_0 * R`. **But a lone blob is not what is
+             * injected** — it carries net circulation, and its streamfunction therefore grows
+             * logarithmically outward instead of decaying, which is what made an authored low
+             * three times deeper than a natural one and let it be felt across the hemisphere.
+             * What is injected is that blob plus a broader opposing lobe carrying exactly its
+             * circulation (@ref COMPENSATION_RADIUS_FACTOR), and the compensator is a wind of
+             * its own:
+             *
+             *     v(r) = (zeta_0 R^2 / r) * [exp(-r^2 / 2(kR)^2) - exp(-r^2 / 2R^2)]
+             *
+             * which at `k = 3` and `r = 1.585 R` is `0.369 * zeta_0 * R` — about a fifth below
+             * the lone blob's. Using the lone blob's 0.451 here was measured to deliver 16.2 m/s
+             * for a requested 20, which is not a small error but the parameter quietly meaning
+             * something other than what it is named.
+             *
+             * The true peak shifts slightly outward once the two lobes are summed; the shift is
+             * well inside the grid spacing at any radius this is used with, so the lone blob's
+             * peak radius is kept rather than re-solved.
              */
-            constexpr double GAUSSIAN_BLOB_WIND_FACTOR = 0.451;
+            constexpr double COMPENSATED_BLOB_WIND_FACTOR = 0.369;
 
             /** @brief Departure points are never allowed further than this fraction of the grid. */
             constexpr double MAX_DEPARTURE_CELLS_FRACTION = 0.25;
+
+            /**
+             * @brief Distinct seasonal states in a year — the resolution the date is quantized to.
+             *
+             * One per day. T0 carries twelve monthly fields, so a day already oversamples the
+             * data by thirty to one and nothing is lost by not going finer; what is gained is
+             * that the mean state depends on the date alone and not on how often the host asked.
+             * The step this leaves in the relaxation target is a thirtieth of one month's change,
+             * applied to a field the flow approaches over days — it is below the resolution of
+             * anything downstream.
+             */
+            constexpr double SEASON_STEPS_PER_YEAR = 365.0;
+
+            /**
+             * @brief Radius of an injection's compensating lobe, as a multiple of its own.
+             *
+             * An injected anomaly must carry **no net circulation**, or its streamfunction grows
+             * logarithmically outward instead of decaying and the disturbance is felt across the
+             * hemisphere -- which is what made an authored low three times deeper than a natural
+             * one. So a broader opposite-signed lobe is laid down with it, carrying exactly the
+             * circulation the core carries.
+             *
+             * Three is wide enough that the compensator contributes little where the core's own
+             * wind peaks (at 1.585 radii), so the requested amplitude still means roughly what it
+             * says, and narrow enough that the pair is still a local feature rather than a
+             * hemispheric one.
+             */
+            constexpr double COMPENSATION_RADIUS_FACTOR = 3.0;
 
             bool power_of_two(int value) noexcept
             {
@@ -341,6 +388,31 @@ namespace SushiEngine
                     saturation[std::size_t(j)] =
                         climatology.saturation_kg_per_m2(latitude, year_fraction);
                 }
+            }
+
+            /**
+             * @brief Re-reads T0 at the current @ref year_fraction.
+             *
+             * Only the two things the season actually moves: the saturation ceiling and the
+             * climatological state the flow relaxes toward. Everything else in
+             * `build_latitude_tables` — the cosines, the Coriolis parameter, the stretching —
+             * is geometry, and geometry has no season.
+             *
+             * **Nothing prognostic is touched, and that is the point.** Potential vorticity and
+             * column water carry straight through; what changes is what they are being pulled
+             * toward. A cyclone that exists in April does not stop existing because the target
+             * jet moved, it just finds itself in a slightly different mean flow — which is
+             * exactly what a season is.
+             */
+            void refresh_season()
+            {
+                for (int j = 0; j < latitude_cells; ++j)
+                {
+                    const double latitude = -0.5 * PI + (double(j) + 0.5) * delta_latitude;
+                    saturation[std::size_t(j)] =
+                        climatology.saturation_kg_per_m2(latitude, year_fraction);
+                }
+                build_climatology();
             }
 
             void build_factorization()
@@ -1297,6 +1369,37 @@ namespace SushiEngine
             return taken;
         }
 
+        bool QuasiGeostrophicCore::set_year_fraction(double year_fraction)
+        {
+            State& s = *state_;
+            if (!s.valid)
+                return false;
+
+            // Wrapped, not clamped: the last hour of December is adjacent to the first hour of
+            // January, and a clamp would make the year end at a wall.
+            const double wrapped = year_fraction - std::floor(year_fraction);
+
+            // **Quantized, and this is what keeps §3.4's determinism.** The season is resolved
+            // to whole days: `SEASON_STEPS_PER_YEAR` is far finer than the monthly data the
+            // climatology holds, so nothing is lost, and it means the mean state is a pure
+            // function of the date rather than of how often somebody happened to call this. A
+            // "rebuild when it moved enough" threshold would have made the tables depend on the
+            // call history, and two hosts ticking at different rates would diverge.
+            const double quantized =
+                std::floor(wrapped * SEASON_STEPS_PER_YEAR) / SEASON_STEPS_PER_YEAR;
+            if (quantized == s.year_fraction)
+                return false;
+
+            s.year_fraction = quantized;
+            s.refresh_season();
+            return true;
+        }
+
+        double QuasiGeostrophicCore::year_fraction() const noexcept
+        {
+            return state_->year_fraction;
+        }
+
         namespace
         {
             /** @brief Identifies a global-core blob; a scene sidecar is otherwise unlabelled bytes. */
@@ -1436,34 +1539,71 @@ namespace SushiEngine
                 return;
 
             const double peak = amplitude_mps /
-                                (GAUSSIAN_BLOB_WIND_FACTOR * radius_m) *
+                                (COMPENSATED_BLOB_WIND_FACTOR * radius_m) *
                                 (position.latitude_radians >= 0.0 ? 1.0 : -1.0);
             const double centre_cosine =
                 std::max(std::cos(position.latitude_radians), 0.05);
+            const double outer_radius = COMPENSATION_RADIUS_FACTOR * radius_m;
+
+            // The squared distance, in units of each lobe's own width, at one cell. Shared by
+            // both passes so the compensator is measured over exactly the cells it is written
+            // to -- an analytic ratio would be right on a plane and wrong on this grid, and
+            // wrong by more the nearer the pole the injection is.
+            const auto lobes = [&](int j, int i, double& core, double& compensator) {
+                const double latitude = -0.5 * PI + (double(j) + 0.5) * s.delta_latitude;
+                const double north =
+                    s.parameters.planet_radius_m * (latitude - position.latitude_radians);
+                double difference = double(i) * s.delta_longitude - position.longitude_radians;
+                difference = std::fmod(difference + PI, 2.0 * PI);
+                if (difference < 0.0)
+                    difference += 2.0 * PI;
+                difference -= PI;
+                const double east = s.parameters.planet_radius_m * difference * centre_cosine;
+                const double distance = east * east + north * north;
+                core = distance / (2.0 * radius_m * radius_m);
+                compensator = distance / (2.0 * outer_radius * outer_radius);
+            };
+
+            // First pass: how much circulation each lobe would carry, area-weighted. The
+            // compensator is then scaled to cancel the core exactly, on this grid, rather than
+            // to the ratio of two analytic integrals.
+            double core_circulation = 0.0;
+            double compensator_circulation = 0.0;
+            for (int j = 0; j < s.latitude_cells; ++j)
+            {
+                const double weight = s.cosine[std::size_t(j)];
+                for (int i = 0; i < s.longitude_cells; ++i)
+                {
+                    double core = 0.0;
+                    double compensator = 0.0;
+                    lobes(j, i, core, compensator);
+                    if (core < 30.0)
+                        core_circulation += weight * std::exp(-core);
+                    if (compensator < 30.0)
+                        compensator_circulation += weight * std::exp(-compensator);
+                }
+            }
+            if (!(compensator_circulation > 0.0))
+                return; // a radius so large the compensator covers nothing distinguishable
+            const double compensator_peak =
+                -peak * core_circulation / compensator_circulation;
 
             for (int layer = 0; layer < 2; ++layer)
             {
                 double* target = s.potential_vorticity[layer].data();
                 for (int j = 0; j < s.latitude_cells; ++j)
                 {
-                    const double latitude = -0.5 * PI + (double(j) + 0.5) * s.delta_latitude;
-                    const double north =
-                        s.parameters.planet_radius_m * (latitude - position.latitude_radians);
                     for (int i = 0; i < s.longitude_cells; ++i)
                     {
-                        double difference =
-                            double(i) * s.delta_longitude - position.longitude_radians;
-                        difference = std::fmod(difference + PI, 2.0 * PI);
-                        if (difference < 0.0)
-                            difference += 2.0 * PI;
-                        difference -= PI;
-                        const double east =
-                            s.parameters.planet_radius_m * difference * centre_cosine;
-                        const double squared = (east * east + north * north) /
-                                               (2.0 * radius_m * radius_m);
-                        if (squared > 30.0)
-                            continue;
-                        target[s.index(j, i)] += peak * std::exp(-squared);
+                        double core = 0.0;
+                        double compensator = 0.0;
+                        lobes(j, i, core, compensator);
+                        if (compensator > 30.0)
+                            continue; // outside both lobes; the core is narrower than this one
+                        double added = compensator_peak * std::exp(-compensator);
+                        if (core < 30.0)
+                            added += peak * std::exp(-core);
+                        target[s.index(j, i)] += added;
                     }
                 }
             }

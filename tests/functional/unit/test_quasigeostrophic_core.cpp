@@ -728,3 +728,116 @@ TEST(Unit_QuasiGeostrophicCore, CyclonesGrowOutOfTheMeanStateWithNothingPlacingT
     EXPECT_GT(measured.peak_ascent_mps, 1e-4);
     EXPECT_LT(measured.peak_ascent_mps, 1.0);
 }
+
+// --------------------------------------------------------------------------------------
+// Injection. An author disturbs the field and the dynamics take it from there, so what has
+// to be right is the disturbance itself: it must be local, it must be the strength it was
+// asked for, and it must be a system that could exist.
+// --------------------------------------------------------------------------------------
+
+namespace
+{
+    /** @brief Where the injection tests place their anomaly. */
+    GeographicPosition injection_site()
+    {
+        GeographicPosition where;
+        where.latitude_radians = 45.0 * 3.14159265358979323846 / 180.0;
+        where.longitude_radians = 3.14159265358979323846; // 180 degrees east
+        return where;
+    }
+} // namespace
+
+TEST(Unit_QuasiGeostrophicCore, AnInjectedAnomalyIsFeltLocallyAndNotAcrossTheHemisphere)
+{
+    // **The defect this pins.** A Gaussian blob on its own carries net circulation, and a
+    // streamfunction with net circulation grows *logarithmically outward* instead of decaying
+    // -- so placing one low quietly tilted the pressure field of the whole hemisphere, and did
+    // it in a way that looked like a plausible synoptic pattern. The injection therefore lays
+    // down a broader opposing lobe carrying exactly the core's circulation, and this is the
+    // observable consequence of that: far from the anomaly, there is nearly nothing.
+    QuasiGeostrophicCore core(small_grid(), QuasiGeostrophicParameters());
+    ASSERT_TRUE(core.valid());
+    core.seed(1);
+
+    const GeographicPosition where = injection_site();
+    core.inject_vorticity(where, 700000.0, 12.0);
+
+    const double centre = std::fabs(core.pressure_anomaly_hpa(where));
+    ASSERT_GT(centre, 5.0) << "nothing was injected, so the rest of this proves nothing";
+
+    double far = 0.0;
+    for (int degrees = 60; degrees <= 120; degrees += 10)
+    {
+        GeographicPosition away = where;
+        away.longitude_radians += double(degrees) * 3.14159265358979323846 / 180.0;
+        far = std::max(far, std::fabs(core.pressure_anomaly_hpa(away)));
+    }
+    EXPECT_LT(far, 0.35 * centre)
+        << "an anomaly a quarter of the world away should not rival the one that was placed";
+}
+
+TEST(Unit_QuasiGeostrophicCore, AnInjectedAnomalyBlowsAtTheSpeedItWasAskedFor)
+{
+    // `amplitude_mps` names a peak rotational wind, and the compensating lobe is a wind of its
+    // own opposing the core's -- so the conversion has to account for it. It did not at first,
+    // and a requested 20 m/s blew at 16.2. That is not a small error; it is the parameter
+    // meaning something other than its name.
+    QuasiGeostrophicParameters parameters;
+    parameters.seed_perturbation_mps = 0.0; // a zonal background, so the anomaly is the signal
+    QuasiGeostrophicGridSize size;
+    size.longitude_cells = 256;
+    size.latitude_cells = 128;
+    QuasiGeostrophicCore core(size, parameters);
+    ASSERT_TRUE(core.valid());
+    core.seed(1);
+
+    const GeographicPosition where = injection_site();
+    const double background = core.wind_at(where, 0.5).northward_mps;
+    constexpr double REQUESTED = 20.0;
+    core.inject_vorticity(where, 700000.0, REQUESTED);
+
+    double peak = 0.0;
+    for (int step = 1; step <= 60; ++step)
+    {
+        GeographicPosition sample = where;
+        sample.longitude_radians +=
+            double(step) * 0.25 * 3.14159265358979323846 / 180.0;
+        peak = std::max(peak, std::fabs(core.wind_at(sample, 0.5).northward_mps - background));
+    }
+    EXPECT_NEAR(peak, REQUESTED, 0.15 * REQUESTED);
+}
+
+TEST(Unit_QuasiGeostrophicCore, AnInjectedLowIsASystemThatCouldExist)
+{
+    // The editor's default click. A deep mid-latitude cyclone runs -30 to -40 hPa against its
+    // surroundings and the deepest ever recorded is near -50, so a default that produced -70 --
+    // as it did before the compensation -- was offering an author a system the atmosphere has
+    // never made.
+    QuasiGeostrophicCore core(small_grid(), QuasiGeostrophicParameters());
+    ASSERT_TRUE(core.valid());
+    core.seed(1);
+    core.inject_vorticity(injection_site(), 700000.0, 12.0);
+
+    const double depth = core.diagnostics().lowest_pressure_anomaly_hpa;
+    EXPECT_LT(depth, -10.0) << "a low, not a ripple";
+    EXPECT_GT(depth, -50.0) << "a low, not a record";
+}
+
+TEST(Unit_QuasiGeostrophicCore, InjectingAHighRaisesThePressureAndInjectingALowLowersIt)
+{
+    // Sign, end to end through the diagnosis -- the cheapest thing to get backwards and the
+    // hardest to notice, since either way the map fills with plausible-looking systems.
+    QuasiGeostrophicCore low(small_grid(), QuasiGeostrophicParameters());
+    QuasiGeostrophicCore high(small_grid(), QuasiGeostrophicParameters());
+    ASSERT_TRUE(low.valid());
+    ASSERT_TRUE(high.valid());
+    low.seed(2);
+    high.seed(2);
+
+    const GeographicPosition where = injection_site();
+    low.inject_vorticity(where, 700000.0, 12.0);
+    high.inject_vorticity(where, 700000.0, -12.0);
+
+    EXPECT_LT(low.pressure_anomaly_hpa(where), -10.0);
+    EXPECT_GT(high.pressure_anomaly_hpa(where), 10.0);
+}

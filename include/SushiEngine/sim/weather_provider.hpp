@@ -52,6 +52,7 @@
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
+#include <SushiEngine/sim/season.hpp>
 #include <SushiEngine/sim/weather_field_buffer.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
@@ -185,6 +186,23 @@ namespace SushiEngine
                 {
                     (void)position;
                     return 0.0;
+                }
+
+                /**
+                 * @brief The mean state this weather is a departure from (T0, §4), or null.
+                 *
+                 * **Null is the honest answer for most providers, not a stub.** A static sky and
+                 * an ingested METAR feed are not departures from a climatology — they *are* the
+                 * weather, given rather than grown — so there is no mean state to describe and
+                 * saying so is truthful. Only a provider that runs the global core has one.
+                 *
+                 * Returned as a pointer rather than folded into a description struct because
+                 * the caller is a panel and different panels want different things out of it;
+                 * a struct here would be this file guessing which.
+                 */
+                virtual const Atmosphere::Climatology* climatology() const noexcept
+                {
+                    return nullptr;
                 }
 
                 /**
@@ -369,16 +387,25 @@ namespace SushiEngine
                  * is not Earth wants neither. `Simulation::load_climatology` is the one place that
                  * turns a file into one of these.
                  *
+                 * **The season is set before the seed, not after.** `set_year_fraction` moves
+                 * what the flow relaxes *toward*, and the flow takes the relaxation timescale —
+                 * days — to follow it. A scene that opens in July would otherwise be seeded with
+                 * January's jet and spend its first simulated weeks migrating, which is a
+                 * transient nobody asked for and would read as the weather being wrong.
+                 *
                  * @param seed            Any 64-bit seed; identical seeds reproduce identical T1 evolution.
                  * @param planet_radius_m The dominant body's mean radius, metres.
                  * @param climatology     The mean state T1 relaxes toward; analytic bands by default.
+                 * @param julian_date     Epoch the initial state is seeded for; J2000 by default.
                  */
                 explicit ProceduralWeather(std::uint64_t seed, double planet_radius_m,
                                            const Atmosphere::Climatology& climatology =
-                                               Atmosphere::Climatology())
+                                               Atmosphere::Climatology(),
+                                           double julian_date = Astro::J2000_JULIAN_DATE)
                     : planet_radius_m_(planet_radius_m),
                       core_(grid_for(), physics_for(planet_radius_m), climatology)
                 {
+                    core_.set_year_fraction(year_fraction_from_julian_date(julian_date));
                     core_.seed(seed);
                 }
 
@@ -389,9 +416,9 @@ namespace SushiEngine
                  * bands when somebody meant it to run on the baked asset is otherwise invisible
                  * until the jet turns out to be in the wrong place.
                  */
-                const Atmosphere::Climatology& climatology() const noexcept
+                const Atmosphere::Climatology* climatology() const noexcept override
                 {
-                    return core_.climatology();
+                    return &core_.climatology();
                 }
 
                 /**
@@ -399,8 +426,14 @@ namespace SushiEngine
                  *
                  * The core's step is six minutes of game time, so most calls advance nothing and
                  * only accumulate; `advance` owns that remainder rather than making the caller
-                 * track it. The Julian date is not passed on: the core's mean state is a
-                 * climatology, and the season enters through T0 rather than through the tick.
+                 * track it.
+                 *
+                 * **The date moves the mean state before the flow is advanced into it**, so a
+                 * step always runs against the climatology of the moment it belongs to rather
+                 * than the one before it. The core quantizes the season to whole days, so this
+                 * is a comparison on all but about 365 calls a simulated year — and because the
+                 * quantization is a pure function of the date, two hosts ticking at different
+                 * rates still get identical weather (§3.4).
                  *
                  * @param dt_seconds  Fixed step duration; never wall-clock.
                  * @param observer    Where the simulation is centred.
@@ -410,7 +443,7 @@ namespace SushiEngine
                           double julian_date) override
                 {
                     (void)observer;
-                    (void)julian_date;
+                    core_.set_year_fraction(year_fraction_from_julian_date(julian_date));
                     core_.advance(dt_seconds);
                 }
 
@@ -520,28 +553,45 @@ namespace SushiEngine
                 void apply_preset(Render::WeatherPreset preset,
                                   const GeodeticPosition& observer) override
                 {
+                    // **These amplitudes were re-measured, not carried forward.** They are peak
+                    // rotational winds, and the depths they produce were checked against what a
+                    // real system of that kind reaches rather than assumed from the number
+                    // looking reasonable. The previous set asked for 26 and 34 m/s, which at
+                    // synoptic radii is hurricane-force gradient wind and produced -60 and
+                    // -65 hPa -- deeper than any recorded mid-latitude cyclone. Measured now, at
+                    // 128x64 immediately after injection:
+                    //
+                    //     Clear         1200 km  -8.5 m/s  ->  +28 hPa
+                    //     FairWeather    900 km  -5.0      ->  +14
+                    //     Overcast      1100 km   8.0      ->  -25
+                    //     FrontPassage   750 km  15.0      ->  -35
+                    //     Storm          600 km  23.0      ->  -44
+                    //
+                    // A preset is a starting condition, not a target: what is placed here is a
+                    // disturbance the dynamics then grow, tilt and steer, so these are the
+                    // depths at t=0 and not the depths the scene will settle at.
                     switch (preset)
                     {
                     case Render::WeatherPreset::Clear:
                         // Subsidence, and nothing arriving: a high overhead rather than the
                         // absence of weather, because the absence of weather is not something a
                         // dynamical core can be asked for.
-                        inject_upstream(observer, 0.0, 1200000.0, -14.0);
+                        inject_upstream(observer, 0.0, 1200000.0, -8.5);
                         break;
                     case Render::WeatherPreset::FairWeather:
-                        inject_upstream(observer, 0.0, 900000.0, -8.0);
+                        inject_upstream(observer, 0.0, 900000.0, -5.0);
                         break;
                     case Render::WeatherPreset::Overcast:
-                        inject_upstream(observer, 0.0, 1100000.0, 14.0);
+                        inject_upstream(observer, 0.0, 1100000.0, 8.0);
                         break;
                     case Render::WeatherPreset::FrontPassage:
                         // Placed several hundred kilometres upstream so it visibly *arrives*
                         // over the following authored minutes rather than being present
                         // immediately — the acceptance-bar demo.
-                        inject_upstream(observer, -6.0, 750000.0, 26.0);
+                        inject_upstream(observer, -6.0, 750000.0, 15.0);
                         break;
                     case Render::WeatherPreset::Storm:
-                        inject_upstream(observer, -2.0, 600000.0, 34.0);
+                        inject_upstream(observer, -2.0, 600000.0, 23.0);
                         break;
                     default:
                         break;

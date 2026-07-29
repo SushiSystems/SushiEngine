@@ -25,12 +25,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List
 
-import numpy as np
-
 from ... import console
 from ...config import find_project_root
-from . import asset as asset_module
-from . import landmask, reanalysis, sources
+
+# `sources` only, and only because it is pure standard library — it names the downloads and
+# defers `requests` to the moment one is fetched.
+#
+# **Nothing numeric is imported at module scope, and that is load-bearing.** `cli.py` imports
+# this package to register `se climatology`, so anything imported here is imported by *every*
+# `se` command. An `import numpy` on this line makes `se build` fail on a machine that has no
+# numpy — which is every machine that only wants to compile the engine, since the bake's
+# dependencies are an optional extra precisely so they are not needed for that.
+from . import sources
 
 # Where the baked asset lands, relative to the project root.
 ASSET_PATH = Path("assets") / "atmosphere" / "climatology.set0"
@@ -45,6 +51,27 @@ DEFAULT_BANDS = 180
 MAX_PLAUSIBLE_WIND_MPS = 80.0
 
 
+def _load_bake_modules():
+    """Imports the parts that need numpy, turning a missing extra into advice.
+
+    Deferred rather than imported at the top of the file: see the note beside the imports.
+
+    @return `(asset, landmask, reanalysis)`, or None once the reason has been printed.
+    """
+    try:
+        from . import asset, landmask, reanalysis
+    except ImportError as error:
+        console.error(f"`se climatology` needs a package that is not installed: "
+                      f"{getattr(error, 'name', None) or error}.")
+        # The backslash escapes the bracket for Rich, which would otherwise read
+        # "[climatology]" as a style tag and print the line with the extra silently missing --
+        # which is the one word the reader needs.
+        console.info(r"  pip install -e cli\[climatology]")
+        console.info("  (an optional extra, so `se build` never needs it)")
+        return None
+    return asset, landmask, reanalysis
+
+
 def _provenance(digests: Dict[str, str], bands: int, months: int,
                 surface: str) -> str:
     """Assembles the attribution string that travels inside the asset.
@@ -52,6 +79,8 @@ def _provenance(digests: Dict[str, str], bands: int, months: int,
     Built from the same source table the downloader used, so an added source cannot be
     read but not credited.
     """
+    from . import reanalysis
+
     lines: List[str] = [
         f"SushiEngine T0 climatology, base period {sources.BASE_PERIOD}.",
         f"Zonal profiles: {bands} latitude bands x {months} months. Surface: {surface}.",
@@ -67,12 +96,15 @@ def _provenance(digests: Dict[str, str], bands: int, months: int,
     return "\n".join(lines)
 
 
-def _report_profile(name: str, values: np.ndarray, unit: str,
-                    latitudes: np.ndarray) -> None:
-    """Prints where a profile peaks and how deep its trough runs."""
+def _report_profile(name: str, values, unit: str, latitudes) -> None:
+    """Prints where a profile peaks and how deep its trough runs.
+
+    Untyped, and reached only through the array's own methods rather than through numpy's
+    free functions, so this file still does not have to import numpy to be defined.
+    """
     annual = values.mean(axis=0)
-    peak = int(np.argmax(annual))
-    trough = int(np.argmin(annual))
+    peak = int(annual.argmax())
+    trough = int(annual.argmin())
     console.info(
         f"  {name:<22} annual peak {annual[peak]:+7.2f} {unit} at "
         f"{latitudes[peak]:+6.1f}deg, min {annual[trough]:+7.2f} at "
@@ -90,15 +122,14 @@ def bake(refresh: bool = False, bands: int = DEFAULT_BANDS,
     @return A process exit code.
     """
     console.header("Climatology bake")
+    modules = _load_bake_modules()
+    if modules is None:
+        return 1
+    asset_module, landmask, reanalysis = modules
+    import numpy as np
+
     root = find_project_root()
     cache = sources.cache_dir(root)
-
-    try:
-        import numpy  # noqa: F401
-    except ImportError:
-        console.error("numpy is required to bake the climatology.")
-        console.info("  pip install -e cli[climatology]")
-        return 1
 
     # ---------------------------------------------------------------- download
     console.info(f"Cache: {cache}")
@@ -244,6 +275,11 @@ def inspect(path: Path | None = None) -> int:
     gets an answer without a rebuild.
     """
     console.header("Climatology")
+    modules = _load_bake_modules()
+    if modules is None:
+        return 1
+    asset_module, _, reanalysis = modules
+
     target = path or (find_project_root() / ASSET_PATH)
     if not target.is_file():
         console.error(f"No climatology asset at {target}.")

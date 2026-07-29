@@ -103,6 +103,59 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Converts a Julian Date back to a Gregorian civil date.
+         *
+         * The exact inverse of @ref julian_date_from_calendar, by the standard Fliegel-Van
+         * Flandern reversal, valid across the whole proleptic Gregorian calendar including
+         * negative years. Round-trips to within the resolution of the seconds field.
+         *
+         * @param julian_date The Julian Date (days), interpreted as Universal Time.
+         * @return The civil date and time.
+         */
+        inline CalendarDate calendar_from_julian_date(double julian_date) noexcept
+        {
+            // Shift so the day boundary falls at midnight rather than at noon, then split the
+            // integer day from the fraction of it. `floor` rather than a cast, so dates before
+            // the epoch truncate the same direction as dates after it.
+            const double shifted = julian_date + 0.5;
+            const double integer_day = std::floor(shifted);
+            const double day_fraction = shifted - integer_day;
+
+            long long z = static_cast<long long>(integer_day);
+            const long long alpha =
+                static_cast<long long>(std::floor((static_cast<double>(z) - 1867216.25) / 36524.25));
+            const long long a = z + 1 + alpha - alpha / 4;
+            const long long b = a + 1524;
+            const long long c =
+                static_cast<long long>(std::floor((static_cast<double>(b) - 122.1) / 365.25));
+            const long long d = static_cast<long long>(std::floor(365.25 * static_cast<double>(c)));
+            const long long e =
+                static_cast<long long>(std::floor(static_cast<double>(b - d) / 30.6001));
+
+            CalendarDate date;
+            date.day = static_cast<int>(b - d - static_cast<long long>(std::floor(30.6001 *
+                                                    static_cast<double>(e))));
+            date.month = static_cast<int>(e < 14 ? e - 1 : e - 13);
+            date.year = static_cast<int>(date.month > 2 ? c - 4716 : c - 4715);
+
+            // The clock, from what is left of the day. Rounded to the nearest millisecond first,
+            // so a date that went in as an exact hour does not come back as 13:59:59.9999997.
+            double seconds_of_day = day_fraction * 86400.0;
+            seconds_of_day = std::floor(seconds_of_day * 1000.0 + 0.5) / 1000.0;
+            date.hour = static_cast<int>(seconds_of_day / 3600.0);
+            seconds_of_day -= static_cast<double>(date.hour) * 3600.0;
+            date.minute = static_cast<int>(seconds_of_day / 60.0);
+            date.second = seconds_of_day - static_cast<double>(date.minute) * 60.0;
+            if (date.hour > 23) // only reachable when rounding pushed the day over
+            {
+                date.hour = 23;
+                date.minute = 59;
+                date.second = 59.999;
+            }
+            return date;
+        }
+
+        /**
          * @brief Julian centuries elapsed from J2000.0 to a Julian Date.
          * @param julian_date The Julian Date to measure from J2000.0.
          * @return (jd - 2451545.0) / 36525.
