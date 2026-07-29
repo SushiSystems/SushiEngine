@@ -369,6 +369,15 @@ endif()
 # a device (docs/slop/physics_system.md §3.4).
 add_subdirectory(geometry)
 
+# The engine-neutral atmosphere module (atmosphere/): T1, the global dynamical
+# core, and the Fourier transform its elliptic inversion is built on. Linking
+# nothing, for the same reason geometry does: its consumers are the simulation's
+# gameplay queries, the regional nest's parent forcing, and a headless probe, and
+# none of the three should have to bring up a device to ask what the weather is
+# (docs/slop/atmosphere_system.md §5). The nest itself is a Vulkan service and
+# stays in render/atmosphere.
+add_subdirectory(atmosphere)
+
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
 # (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.
 if(SE_BUILD_RENDER)

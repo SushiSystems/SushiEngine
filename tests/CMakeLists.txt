@@ -66,6 +66,10 @@ add_executable(se_functional_tests
     # The neutral geometry module, reachable without a renderer — which is the point
     # of having moved it out from behind Vulkan.
     functional/unit/test_geometry_sdf.cpp
+    # T1, the global dynamical core, reachable without a device for the same reason:
+    # it is a neutral module, so its transform, its elliptic inversion and its
+    # conservation properties are testable against references that are not itself.
+    functional/unit/test_quasigeostrophic_core.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
     functional/unit/test_rng.cpp
@@ -238,6 +242,9 @@ target_link_libraries(se_functional_tests PRIVATE nlohmann_json::nlohmann_json)
 # The signed-distance baker is the one compiled unit in the neutral geometry module;
 # everything else the tests reach there is header-only.
 target_link_libraries(se_functional_tests PRIVATE sushi_geometry)
+# The global dynamical core and its Fourier transform are the two compiled units in
+# the neutral atmosphere module.
+target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second

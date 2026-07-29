@@ -243,7 +243,7 @@ weather is slow.
      SST · terrain · land cover · zonal-mean jet · solar constant
         │  relaxation targets and surface forcing for T1/T2
         ▼
- T1  Global dynamical core (GPU)                           ~0.15 ms per step, ~1 step/6 min game time
+ T1  Global dynamical core (CPU, §3.3)                     ~36 ms per step, ~1 step/6 min game time
      2-layer moist QG on 512×256 lat/lon (~78 km)
      emergent: cyclogenesis · fronts · jet · storm tracks · precipitable water
         │  one-way nesting: Davies relaxation into T2's boundary zone
@@ -281,7 +281,7 @@ tier steps. That is the whole concurrency story.
 
 ### 3.3 Where it runs
 
-**Vulkan compute**, in the render domain's queue family, for T1/T2/T3. The rationale is
+**Vulkan compute**, in the render domain's queue family, for T2/T3. The rationale is
 narrow and worth stating because the alternative is the house default:
 
 - Every consumer of the heavy fields is the renderer, every frame. Running them in SYCL
@@ -290,9 +290,17 @@ narrow and worth stating because the alternative is the house default:
   makes that interop the most fragile part of the stack for zero gain here.
 - The gameplay side needs a *coarse, stale* mirror, which is a readback — cheap and
   already a solved pattern in the engine.
-- T1 is small enough (131 k cells) that if a future need arises to run it CPU-side or in
-  SYCL for global gameplay queries, it can move behind `IDynamicalCore` without touching
-  anything else. That option is preserved, not taken now.
+**T1 runs on the CPU, and this section used to say it would not.** The escape clause was here
+from the start — *T1 is small enough (131 k cells) that if a future need arises to run it
+CPU-side for global gameplay queries, it can move behind `IDynamicalCore` without touching
+anything else* — and building it made the clause the answer rather than the fallback. Every
+consumer of T1 is host-side: the nest's parent forcing is assembled in host memory by
+`AtmosphereForcingBuffer`, and the gameplay question this tier exists to answer — *what is the
+weather a thousand kilometres away* — is a CPU query. No render pass reads a T1 field; T3 reads
+T2's extinction. Putting the tier on the device would have bought a step that is already nearly
+free and paid for it with a readback and its latency, and it would have made the whole tier
+untestable without a device and non-reproducible without a driver. See §11's C2 for the
+measured cost.
 
 Async compute queue where available (`render_pipeline_refactor.md` Phase 11), graphics
 queue otherwise; the tier steps are latency-insensitive by construction, which makes them
@@ -718,15 +726,17 @@ entries per repo policy.
 
 ### Where this stands — 2026-07-29
 
-**Shipped:** A · B1 · B2 · B2b · B2c · B3 (a–e) · **C1**. Phase B's acceptance bar is met, its
-last clause closed by C1's subsidence. 448 tests pass; `se build` and `se editor --no-run` are
-clean.
+**Shipped:** A · B1 · B2 · B2b · B2c · B3 (a–e) · C1 · **C2**. Phase B's acceptance bar is met, its
+last clause closed by C1's subsidence. T1 now exists as a real dynamical core and produces
+emergent cyclones; it does not yet feed anything.
 
-**Next, and it is the largest remaining piece:** the rest of Phase C — T1's 2-layer moist
-quasi-geostrophic core replacing the analytic `SynopticLayer`, T0 climatology assets sourced and
-baked, and editor authoring becoming vorticity injection rather than system placement. C1 already
-took the first bite of the seam that connects them: the parent now supplies vertical motion as
-well as wind and anomalies, so a real core has somewhere to publish it.
+**Next: the swap, and T0.** C2 built the global core standing on its own. What remains of Phase C
+is to put it in `SynopticLayer`'s place — the Davies zone fed from real fields, C1's Ekman-pumping
+estimate replaced by the core's own quasi-geostrophic omega (already diagnosed and unused),
+`Astro::Ephemeris` as the single solar authority, and editor authoring becoming vorticity
+injection through `QuasiGeostrophicCore::inject_vorticity` — and to source and bake T0's real
+climatology, which is what gives the core a mean state with continents in it instead of analytic
+latitude bands.
 
 **Carried, deliberately, with the reason each time:**
 
@@ -749,10 +759,20 @@ well as wind and anomalies, so a real core has somewhere to publish it.
   (1.27 ms), not cost per step, and the table has not been rewritten in those terms.
 - **An async compute queue** is now a straightforward win rather than a blocked one, since the
   step already submits at frame end and waits on the frame's readers.
+- **The global core produces no tropical rain**, because a two-layer quasi-geostrophic model has
+  no Hadley circulation and the ITCZ has to come from T0 — which is analytic latitude bands until
+  the rest of Phase C. Global mean precipitation is 0.25 mm/day against Earth's 2.7; what does
+  rain is mid-latitude frontal ascent. See C2.
+- **The global core's step is 36 ms and runs on the main thread.** Invisible at 1× time scale, a
+  visible hitch under time compression. Moving it to a worker is straightforward and is not done
+  because nothing consumes the tier yet.
 
 **Never visually confirmed in the editor.** Everything in B2c, B3 and C1 was settled with
 `atmosphere_probe` headlessly, plus builds and tests. The frame-end submission move, the surface
-panel rework and the ice optics have not been looked at on screen.
+panel rework and the ice optics have not been looked at on screen. C2 is a different case rather
+than a worse one: nothing renders the global core, because nothing yet consumes it — the swap
+below is what puts it on screen, and until then `atmosphere_global_probe` is not a substitute for
+looking, it is the only way to look.
 
 ### Phase A — Spatial coupling *(existing physics, maximum visual delta)* — **shipped**
 
@@ -1861,11 +1881,138 @@ that the wind was *non-uniform* — that a front had something to advect it — 
 satisfies that perfectly. Structure was checked and magnitude never was. Both are now asserted, and
 the scale is written as `PASCALS_PER_HECTOPASCAL / AIR_DENSITY` so there is no number left to tune.
 
+#### C2 — the global dynamical core — **shipped**
+
+`SynopticLayer` is not a simulation and never claimed to be: §1.3 records it translating authored
+elliptical Gaussians across the sphere and diagnosing a wind from their summed gradient, so a low
+can only ever do what it was told to do at genesis. This section is its replacement — §5's
+two-layer moist quasi-geostrophic core, in the new engine-neutral `atmosphere/` module, with
+`QuasiGeostrophicCore` as the tier and `FourierTransform` as the transform its inversion is built
+on. **C2 is the core alone.** It does not yet feed the nest and `SynopticLayer` is still the
+parent; that swap and T0's real assets are what is left of Phase C.
+
+**Where it runs, and the section this contradicts.** §3.3 planned T1 on the GPU beside T2 and T3.
+That section has been corrected rather than quietly left: every consumer of this tier is
+host-side, the device would have bought a step that is already nearly free and paid for it with a
+readback, and the whole tier would have become untestable without a device. It is 36 ms of one
+core per step at 512×256, one step per six minutes of game time.
+
+**The inversion is the whole reason this tier is cheap, and it decouples exactly.** The layer
+coupling enters the two potential-vorticity definitions with the same coefficient and opposite
+signs, so the sum and the difference of the layers separate with no approximation: `laplacian(psi_1
++ psi_2)` for one and `(laplacian - 2S)(psi_1 - psi_2)` for the other. Each is then diagonal in
+zonal wavenumber and tridiagonal in latitude — a Fourier transform per row and a pre-factored
+Thomas sweep per wavenumber. The factorization depends only on the grid and the stratification,
+neither of which changes, so it is computed once at construction instead of three times a step
+forever.
+
+**Three details that are worth carrying to any future core on this grid.**
+
+- *The poles need no special case in the elliptic operator.* The grid is cell-centred, so its
+  polar cell edges fall exactly on the poles where `cos(latitude)` is zero, and "no flux across
+  the pole" is what the metric already says. The advective stencils do need to cross, and there
+  the even longitude count makes a pole crossing an **exact index shift by half a revolution** —
+  no interpolation, no reflection formula.
+- *The zonal Laplacian uses the discrete eigenvalue, not `-m^2`.* The Jacobian, the Ekman drag and
+  the vertical velocity all read a relative vorticity that this inversion produced. Using the
+  continuous eigenvalue would leave those three reading a field that does not quite satisfy the
+  equation they assume — a small, permanent, entirely avoidable inconsistency.
+- *One filter does two jobs.* A latitude/longitude grid's zonal spacing shrinks as
+  `cos(latitude)`, and near the pole it would set the time step for the whole globe. Cutting the
+  wavenumbers that spacing cannot carry is the standard fix; making the cut-off clamp to the
+  grid's own highest wavenumber equatorward of 60° turns the same filter into the grid-scale
+  enstrophy sink a two-dimensional flow needs and does not otherwise have.
+
+**Acceptance: cyclogenesis is emergent, and it equilibrates.** 512×256, 20 m/s shear, seeded with
+a perturbation of 1 m/s — a thirtieth of the jet — and nothing else placed:
+
+| day | eddy KE (J/m²) | zonal KE (J/m²) | jet (m/s) | peak wind (m/s) | lowest (hPa) |
+|---|---|---|---|---|---|
+| 0 | 859 | 704 069 | 29.98 | 30.04 | −36.06 |
+| 6 | 1 843 | 524 735 | 26.83 | 28.13 | −22.38 |
+| 12 | 11 715 | 472 522 | 25.95 | 29.26 | −17.48 |
+| 20 | 69 686 | 483 020 | 29.98 | 42.09 | −21.50 |
+| **24** | **51 931** | 485 279 | 31.32 | 40.07 | −21.91 |
+| 39 | 113 956 | 437 284 | 28.24 | 45.59 | −24.61 |
+| 48 | 68 343 | 432 923 | 29.18 | 42.73 | −22.89 |
+| 70 | 84 957 | 417 431 | 26.78 | 39.91 | −25.39 |
+
+The eddy energy grows exponentially — **0.26/day fitted over the whole growth phase, 0.32/day over
+days 8–12 where it is purely exponential**, an amplitude e-folding of six to eight days —
+saturates near 10⁵ J/m² against a zonal flow of 4.2×10⁵, and then runs a **15–20 day oscillation**:
+eddies grow, flatten the shear that feeds them, decay, and the relaxation rebuilds it. That is the
+baroclinic life cycle, and the fact that a 70-day run neither dies nor runs away is the half of the
+acceptance a growth rate alone does not cover. Over the run the strongest wind reaches 49 m/s and
+the deepest cyclone −31 hPa; day 0's −36 hPa is the prescribed jet's own field, not a storm.
+
+*The fit window has to close as well as open.* An earlier version of the probe left it open for
+the whole run, and because the equilibrated state spends as much time decaying as growing it
+reported 0.047/day — a number that would have read as "no instability" for a core that is
+demonstrably unstable. It now closes at the first sample where the energy falls.
+
+**Why the growth is slower than the Eady estimate, and why that is the right answer.** A uniform
+20 m/s shear at a 700 km deformation radius suggests an amplitude e-folding near two days. Three
+things account for the six: the jet is *localized* (15° wide, so the mode has to fit inside it),
+the state is only about 1.5 times critical once Ekman drag has spun the lower layer down —
+Phillips' criterion puts the critical shear near `beta * L_d^2`, about 8 m/s here — and near a
+threshold the growth rate falls off steeply. The relaxation and the Ekman drag then take about
+0.2/day back out of the energy budget. Raising `upper_jet_speed_mps` is the knob if a scene wants
+storms sooner.
+
+**Resolution is not a preference here, it is the difference between weather and no weather.** At
+64×32 the deformation radius is one cell and the run decays monotonically; at 256×128 it grows at
+0.09/day; at 512×256 it grows at 0.32/day. The cause is the grid-scale damping, which is
+calibrated against the two-cell wave: at 64 latitudes the most unstable mode *is* nearly the
+two-cell wave and the damping eats it, and at 256 it is twelve cells across and the damping cannot
+see it. The core's low tiers therefore cannot simply be the same physics on a coarser grid, and
+`grid_scale_damping_seconds` is the parameter that has to move with them. **Named limit**, and the
+unit test that exercises the instability at 64 latitudes lengthens the damping for exactly this
+reason.
+
+**Measured against references that are not itself.** `test_quasigeostrophic_core.cpp`: the fast
+transform against a naive O(N²) one and the real-pair packing against two separate transforms;
+the recovered streamfunction against the potential-vorticity relation written out a second time
+in the test (residual under 10⁻⁶ of the field); the prescribed jet coming back through
+streamfunction, vorticity, inversion and differencing at 30 m/s ± 0.6; free advection conserving
+the domain integral of `q` to 10⁻⁴ and of `q²` to 2×10⁻³ over a simulated day; and an injected
+vorticity blob drifting **northwest** at 19.7 m/s against Rossby's `beta * R²` of 23.3 — the beta
+drift, in both of its components, from a core that was never told about it.
+
+Every check that can assert a magnitude does. §11's C1 records the synoptic wind running 735 times
+too fast for the entire life of the shipped system, surviving because the one test covering it
+asserted that the field was non-uniform — which a 15 km/s field satisfies perfectly.
+
+**Carried out of C2, deliberately:**
+
+- **There is no tropical rain**, and the global mean precipitation is 0.25 mm/day against Earth's
+  2.7. §5 already names the cause — a two-layer quasi-geostrophic model has no Hadley circulation,
+  so the ITCZ has to be a *T0-forced* convergence band — and T0 is analytic latitude bands in C2.
+  What does rain is mid-latitude frontal ascent, which is the part this formulation is entitled to.
+- **A 47 ms step is a visible hitch under time compression.** At 1× it lands once per six minutes
+  of wall clock and is invisible. At 60× it lands once per six seconds and is not. The step has no
+  dependency on anything mid-frame, so moving it to a worker is straightforward; it is not done
+  because nothing consumes the tier yet.
+- **The moisture is transported by the lower layer's wind alone**, with the ascent-driven
+  convergence added as a source. A two-layer model has one interior wind per layer and no profile
+  to integrate against, so a column-mean transport would need a weighting invented for the purpose.
+- **`inject_vorticity` exists on the core and nothing calls it.** It is §5's "place a low here"
+  becoming an injected anomaly that then evolves, and wiring the editor to it is part of the swap
+  below rather than part of the core.
+
 #### The rest of Phase C
 
-T0 assets sourced and baked. T1's 2-layer moist QG core replaces `SynopticLayer`; Davies
-relaxation nesting into T2; `Astro::Ephemeris` as the single solar authority. Editor
-authoring becomes vorticity injection.
+T0 assets sourced and baked. C2's core replaces `SynopticLayer` as the nest's parent — Davies
+relaxation fed from real fields, and C1's Ekman-pumping estimate replaced by the core's
+quasi-geostrophic omega, which is already diagnosed and unused. `Astro::Ephemeris` as the single
+solar authority. Editor authoring becomes vorticity injection through
+`QuasiGeostrophicCore::inject_vorticity`, which exists and nothing calls.
+
+*One defect goes out with `SynopticLayer` rather than before it.* `SynopticLayer::wind_at`
+applies the surface-friction turn as the same rotation in both hemispheres. It should reverse
+with the hemisphere — air spirals into a low counterclockwise in the north and clockwise in the
+south — so every southern-hemisphere boundary wind the nest has ever been given was turned the
+wrong way. Fixing it in place would change the look of existing scenes for a class that is about
+to be deleted; C2's core does it correctly and a unit test pins both signs.
 
 *Acceptance: cyclogenesis is emergent — nothing places a low. The textbook front-passage
 sequence occurs unscripted: cirrus, then altostratus, then continuous rain, wind veering,
@@ -1952,6 +2099,13 @@ Stated here so they are decisions rather than discoveries:
   tropical cyclones, if wanted, are seeded and then advected by real dynamics.
 - **One-way nesting.** The nest cannot influence the global core. A squall line does not
   alter the parent low.
+- **The global core's grid-scale damping does not scale itself with the grid** (§11's C2).
+  It is calibrated against the two-cell wave, and at 512×256 the most unstable baroclinic mode
+  is twelve cells across and is untouched; halve the latitude count twice and the mode *is*
+  nearly the two-cell wave, the damping eats it, and the run decays instead of producing
+  weather. A coarser tier therefore has to lengthen `grid_scale_damping_seconds` with it. This
+  is a resolution below which the tier stops being a simulation, not a resolution at which it
+  is merely less detailed.
 - **Microphysics is single-moment.** Droplet number is parameterized, not predicted; no
   aerosol/chemistry transport.
 - **No ocean coupling.** SST is climatology plus a slab, not a dynamic ocean.
