@@ -872,10 +872,18 @@ Per Müller et al. 2020, and this is the recipe the implementation follows exact
   relative displacement of the contact anchors since the substep began and apply a tangential
   correction, **clamped to the static-friction cone** `λ_t ≤ μ_static λ_n`. Static friction that is
   positional is what lets a box sit still on a ramp instead of creeping.
-- **Velocity pass, per contact point:** dynamic friction
-  `Δv = -v̂_tangent · min(μ_dynamic |λ_n| / h, |v_tangent|)`, then restitution
+- **Velocity pass, per contact point:** dynamic friction as an impulse
+  `p_t = -t̂ · min(|v_tangent| / w, μ_dynamic |λ_n| / h)` — *both* terms are impulses: the first is
+  what would halt the slide outright, the second is what the normal impulse can pay for. Writing the
+  minimum as `min(μ_dynamic |λ_n| / h, |v_tangent|)` reads naturally and compares an impulse against
+  a speed; the deceleration then comes out wrong by the generalized inverse mass `w`, which for a
+  box's corner contact is a factor of four. Then restitution
   `Δv = n · (-v_normal + max(-e · v_normal_before_solve, 0))`, with restitution **suppressed** when
   `|v_normal| < 2 g h` — the standard anti-jitter threshold that stops resting bodies from buzzing.
+  The restitution term runs whenever the point carried a normal impulse, **not only when `e > 0`**:
+  at `e = 0` it reads "leave this contact at zero closing speed", which is what removes the velocity
+  the positional depenetration would otherwise inject (a body that sank in over a tick is pushed out
+  in a substep, and `update_velocity` reads that push back as metres per second of real motion).
 - Materials combine by their declared combine mode (§5.3).
 
 ### 7.5 Continuous collision — nothing tunnels

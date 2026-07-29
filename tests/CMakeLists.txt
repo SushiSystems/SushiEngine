@@ -54,6 +54,9 @@ add_executable(se_functional_tests
     # Contact manifolds: the several points two shapes touch at, which is what a
     # box needs to rest rather than rock (P1, §7.3).
     functional/unit/test_manifold.cpp
+    # Resolving one: non-penetration, static friction positionally, and the
+    # velocity pass that finally makes restitution expressible (P1, §7.4).
+    functional/unit/test_contact_projection.cpp
     # The authored-components-to-physics-descriptors translation, which was
     # untestable while it lived inside RuntimeSimulation.
     functional/unit/test_physics_extract.cpp

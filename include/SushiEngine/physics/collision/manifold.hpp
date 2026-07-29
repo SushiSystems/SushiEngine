@@ -101,6 +101,15 @@ namespace SushiEngine
             T normal_lambda = 0;
             /** @brief Accumulated friction impulse along the two tangent directions. */
             T tangent_lambda[2] = {0, 0};
+            /**
+             * @brief Relative normal velocity, captured before the substep's solve.
+             *
+             * Restitution is a statement about the speed a body *arrived* at, and by
+             * the time the velocity pass runs the positional solve has already
+             * removed it. So it is recorded at the top of the substep and read at
+             * the bottom (§7.4). Positive is separating.
+             */
+            T normal_velocity = 0;
             /** @brief Which pair of features produced this point (@ref make_feature_id). */
             std::uint32_t feature_id = 0;
         };
@@ -265,25 +274,41 @@ namespace SushiEngine
          *
          * Keeps the part of the polygon on the inside of the plane
          * (`dot(normal, p) <= offset`) and inserts an intersection vertex wherever
-         * an edge crosses it. A vertex that survives keeps its id; a vertex created
-         * on the boundary takes @p crossing_id, so a point that is defined by a
-         * clip edge is distinguishable from one that is a real corner and both stay
-         * stable while the boxes stay in the same relative pose.
+         * an edge crosses it.
          *
-         * @param input      The polygon, in order.
-         * @param count      How many vertices @p input holds.
-         * @param normal     Outward normal of the clipping plane.
-         * @param offset     Plane offset along @p normal.
-         * @param crossing_id Vertex id to give points created on the plane.
-         * @param output     Receives the clipped polygon; must hold @ref
-         *                   max_clipped_points vertices.
+         * Two details carry more weight than they look like they should.
+         *
+         * **The tolerance is not optional.** Two boxes resting face to face have
+         * their incident corners lying *exactly* on the reference face's side
+         * planes, so the signed distances are floating-point noise — a pair of
+         * values around 1e-17 whose signs are meaningless. Testing `d > 0` on those
+         * declares an edge to cross the plane, and the crossing lands at whatever
+         * fraction the noise implies: often the middle of the edge, which is a
+         * contact point in the middle of a face that nothing is touching. A body
+         * held partly by an invented point drifts. Treating anything within
+         * @p tolerance of the plane as inside removes the whole failure mode.
+         *
+         * **A crossing's id includes the edge it cut, not just the plane.** One
+         * clip plane cuts a quad twice, and giving both crossings the plane's id
+         * makes them indistinguishable — which makes @ref warm_start_manifold match
+         * the wrong one and hand a corner the impulse belonging to a corner across
+         * the face.
+         *
+         * @param input       The polygon, in order.
+         * @param count       How many vertices @p input holds.
+         * @param normal      Outward normal of the clipping plane.
+         * @param offset      Plane offset along @p normal.
+         * @param crossing_id Base id (0..7) identifying this clip plane.
+         * @param tolerance   Distance within which a vertex counts as on the plane.
+         * @param output      Receives the clipped polygon; must hold @ref
+         *                    max_clipped_points vertices.
          * @return The number of vertices written to @p output.
          */
         template <typename T>
         inline std::size_t clip_polygon_against_plane(const ClippedPoint<T>* input,
                                                       std::size_t count,
                                                       const Vector3T<T>& normal, T offset,
-                                                      std::uint32_t crossing_id,
+                                                      std::uint32_t crossing_id, T tolerance,
                                                       ClippedPoint<T>* output) noexcept
         {
             std::size_t written = 0;
@@ -291,27 +316,30 @@ namespace SushiEngine
                 return 0;
 
             Vector3T<T> previous = input[count - 1].position;
+            std::uint32_t previous_id = input[count - 1].vertex_id;
             T previous_distance = dot(normal, previous) - offset;
+            bool previous_inside = previous_distance <= tolerance;
 
             for (std::size_t i = 0; i < count && written < max_clipped_points; ++i)
             {
                 const Vector3T<T> current = input[i].position;
                 const std::uint32_t current_id = input[i].vertex_id;
                 const T current_distance = dot(normal, current) - offset;
+                const bool current_inside = current_distance <= tolerance;
 
                 // The edge crosses the plane: emit the crossing point first, so the
                 // output polygon stays in order and stays convex.
-                if ((previous_distance > T(0)) != (current_distance > T(0)))
+                if (previous_inside != current_inside)
                 {
                     const T denominator = previous_distance - current_distance;
                     const T t = std::abs(denominator) > T(1e-12)
                                     ? previous_distance / denominator
                                     : T(0);
                     output[written].position = previous + (current - previous) * t;
-                    output[written].vertex_id = crossing_id;
+                    output[written].vertex_id = (crossing_id << 3) | (previous_id & 0x7u);
                     ++written;
                 }
-                if (current_distance <= T(0) && written < max_clipped_points)
+                if (current_inside && written < max_clipped_points)
                 {
                     output[written].position = current;
                     output[written].vertex_id = current_id;
@@ -319,7 +347,9 @@ namespace SushiEngine
                 }
 
                 previous = current;
+                previous_id = current_id;
                 previous_distance = current_distance;
+                previous_inside = current_inside;
             }
             return written;
         }
@@ -339,16 +369,24 @@ namespace SushiEngine
          * the same four points in the same order — §0.5's determinism rule reaching
          * all the way down into the narrowphase.
          *
+         * Candidates that coincide with one already chosen are skipped. Clipping a
+         * quad against four planes it is flush with produces duplicates as a matter
+         * of course, and four points that are really one point hold a body no better
+         * than one does — while looking, to everything downstream, like a
+         * well-conditioned patch.
+         *
          * @param candidates  The clipped points.
          * @param separations Each candidate's separation; the deepest is negative-most.
          * @param count       How many candidates there are.
          * @param kept        Receives the indices of the chosen points.
+         * @param weld_tolerance Points closer together than this are the same point.
          * @return How many indices were written to @p kept (at most four).
          */
         template <typename T>
         inline std::size_t reduce_manifold_points(const ClippedPoint<T>* candidates,
                                                   const T* separations, std::size_t count,
-                                                  std::size_t* kept) noexcept
+                                                  std::size_t* kept,
+                                                  T weld_tolerance = T(0)) noexcept
         {
             if (count <= max_manifold_points)
             {
@@ -356,6 +394,21 @@ namespace SushiEngine
                     kept[i] = i;
                 return count;
             }
+
+            const T weld_squared = weld_tolerance * weld_tolerance;
+            const auto is_distinct = [&](std::size_t candidate, std::size_t chosen_count) noexcept
+            {
+                for (std::size_t k = 0; k < chosen_count; ++k)
+                {
+                    if (kept[k] == candidate)
+                        return false;
+                    const Vector3T<T> delta =
+                        candidates[candidate].position - candidates[kept[k]].position;
+                    if (dot(delta, delta) <= weld_squared)
+                        return false;
+                }
+                return true;
+            };
 
             // 1. The deepest point. It is the one the solver most has to fix, so it
             //    is never the point that gets dropped.
@@ -370,7 +423,7 @@ namespace SushiEngine
             T best = T(-1);
             for (std::size_t i = 0; i < count; ++i)
             {
-                if (i == deepest)
+                if (!is_distinct(i, 1))
                     continue;
                 const Vector3T<T> delta = candidates[i].position - candidates[deepest].position;
                 const T distance_squared = dot(delta, delta);
@@ -380,6 +433,8 @@ namespace SushiEngine
                     furthest = i;
                 }
             }
+            if (best < T(0))
+                return 1;
             kept[1] = furthest;
 
             // 3. The point furthest off the line through the first two — the widest
@@ -390,7 +445,7 @@ namespace SushiEngine
             best = T(-1);
             for (std::size_t i = 0; i < count; ++i)
             {
-                if (i == deepest || i == furthest)
+                if (!is_distinct(i, 2))
                     continue;
                 const Vector3T<T> arm = candidates[i].position - candidates[deepest].position;
                 const Vector3T<T> area = cross(edge, arm);
@@ -401,6 +456,8 @@ namespace SushiEngine
                     widest = i;
                 }
             }
+            if (best < T(0))
+                return 2;
             kept[2] = widest;
 
             // 4. The point that most enlarges the triangle into a quad: the largest
@@ -409,7 +466,7 @@ namespace SushiEngine
             best = T(-1);
             for (std::size_t i = 0; i < count; ++i)
             {
-                if (i == deepest || i == furthest || i == widest)
+                if (!is_distinct(i, 3))
                     continue;
                 T largest = T(0);
                 for (std::size_t e = 0; e < 3; ++e)
@@ -428,6 +485,8 @@ namespace SushiEngine
                     fourth = i;
                 }
             }
+            if (best < T(0))
+                return 3;
             kept[3] = fourth;
             return max_manifold_points;
         }
@@ -850,6 +909,15 @@ namespace SushiEngine
             // Clip against the four side planes of the reference face: the two axes
             // that are not the face normal, on both sides. The two buffers ping-pong,
             // so no allocation and no copy back.
+            // Scaled to the geometry: a tolerance that is right for a crate is far
+            // too coarse for a bolt and far too fine for a hillside.
+            T scale = reference_extents[0];
+            for (int k = 1; k < 3; ++k)
+                if (reference_extents[k] > scale)
+                    scale = reference_extents[k];
+            const T boundary_tolerance = T(1e-9) * scale;
+            const T weld_tolerance = T(1e-4) * scale;
+
             ClippedPoint<T>* source = buffer_a;
             ClippedPoint<T>* destination = buffer_b;
             std::uint32_t crossing_id = 4;
@@ -863,7 +931,8 @@ namespace SushiEngine
                     const T plane_offset = dot(plane_normal, reference.center) +
                                            reference_extents[side_axis];
                     count = clip_polygon_against_plane(source, count, plane_normal, plane_offset,
-                                                       crossing_id, destination);
+                                                       crossing_id, boundary_tolerance,
+                                                       destination);
                     ClippedPoint<T>* const swapped = source;
                     source = destination;
                     destination = swapped;
@@ -896,7 +965,8 @@ namespace SushiEngine
 
             std::size_t chosen[max_manifold_points];
             const std::size_t chosen_count =
-                reduce_manifold_points(kept_points, separations, kept_count, chosen);
+                reduce_manifold_points(kept_points, separations, kept_count, chosen,
+                                       weld_tolerance);
 
             const std::uint32_t reference_face =
                 obb_face_index(reference_axis, reference_sign > T(0));

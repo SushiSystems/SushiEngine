@@ -268,20 +268,27 @@ TEST(Unit_Manifold, ClipPolygonHalvesASquare)
 
     ClippedPoint<Scalar> clipped[max_clipped_points];
     const std::size_t count = clip_polygon_against_plane(
-        square, 4, Vector3{1.0, 0.0, 0.0}, 0.0, 9u, clipped);
+        square, 4, Vector3{1.0, 0.0, 0.0}, 0.0, 5u, 0.0, clipped);
 
     ASSERT_EQ(count, 4u);
     std::size_t crossings = 0;
+    std::uint32_t crossing_ids[2] = {0, 0};
     for (std::size_t i = 0; i < count; ++i)
     {
         EXPECT_LE(clipped[i].position.x, 1e-12);
-        if (clipped[i].vertex_id == 9u)
+        // A crossing's id is the clip plane's base shifted up and combined with the
+        // edge it cut, so it is never a corner id (which are 0..3) and the plane's
+        // two crossings are never each other.
+        if (clipped[i].vertex_id >= (5u << 3))
         {
+            ASSERT_LT(crossings, 2u);
+            crossing_ids[crossings] = clipped[i].vertex_id;
             ++crossings;
             EXPECT_NEAR(clipped[i].position.x, 0.0, 1e-12);
         }
     }
-    EXPECT_EQ(crossings, 2u);
+    ASSERT_EQ(crossings, 2u);
+    EXPECT_NE(crossing_ids[0], crossing_ids[1]);
 }
 
 // A polygon entirely outside the half-space clips to nothing, which is how the
@@ -295,7 +302,7 @@ TEST(Unit_Manifold, ClipPolygonRejectsAnOutsidePolygon)
     square[3] = {Vector3{2.0, 0.0, 1.0}, 3};
 
     ClippedPoint<Scalar> clipped[max_clipped_points];
-    EXPECT_EQ(clip_polygon_against_plane(square, 4, Vector3{1.0, 0.0, 0.0}, 0.0, 9u, clipped),
+    EXPECT_EQ(clip_polygon_against_plane(square, 4, Vector3{1.0, 0.0, 0.0}, 0.0, 5u, 0.0, clipped),
               0u);
 }
 
