@@ -729,6 +729,8 @@ namespace SushiEngine
                 block.tropopause_altitude = p.tropopause_altitude;
                 block.surface_humidity = p.surface_humidity;
                 block.humidity_scale_height = p.humidity_scale_height;
+                block.free_troposphere_drying = p.free_troposphere_drying;
+                block.free_troposphere_exponent = p.free_troposphere_exponent;
                 block.eddy_viscosity = p.eddy_viscosity;
                 block.boundary_layer_depth = p.boundary_layer_depth_m;
                 block.boundary_layer_velocity_scale = p.boundary_layer_velocity_scale;
@@ -739,6 +741,8 @@ namespace SushiEngine
                 block.thermal_seed_length = p.thermal_seed_length_m;
                 block.thermal_seed_period = p.thermal_seed_period_s;
                 block.convective_velocity_scale = p.convective_velocity_scale;
+                block.cloud_top_longwave_flux = p.cloud_top_longwave_flux;
+                block.cloud_water_absorption = p.cloud_water_absorption;
                 block.cloud_critical_humidity = p.cloud_critical_humidity;
                 block.autoconversion_rate = p.autoconversion_rate;
                 block.autoconversion_threshold = p.autoconversion_threshold;

@@ -191,6 +191,53 @@ void main()
         }
     }
 
+    // ---- Cloud-top radiative cooling ---------------------------------------------------
+    //
+    // The sink a cloud has and the clear air beside it does not, and the reason a stratocumulus
+    // deck mixes itself all night. A cloud top is optically thick in the longwave with space
+    // above it, so it loses ~70 W/m² across a layer tens of metres deep; the flux is used up
+    // going *down* into the cloud as exp(-kappa * liquid water path above), which concentrates
+    // essentially all of the cooling in the top few tens of grams of water. That concentration is
+    // the mechanism rather than an implementation detail: the same energy spread through the deck
+    // would cool it stably, where cooling only its top makes the top denser than what is under it
+    // and drives the overturning that entrains dry air down from above. The entrainment is
+    // therefore *resolved* here rather than parameterized -- the nest has a vertical velocity, so
+    // the term it needs is the one that makes the air want to sink, not a flux invented to stand
+    // in for the sinking.
+    //
+    // Before this, the only sink a nocturnal deck had was the parent's subsidence (see the block
+    // above), so a deck under a quiescent parent persisted until dawn.
+    //
+    // Only cloudy cells pay for the column march, and the flux is exhausted within a few cloudy
+    // levels, so what looks like an O(levels) loop costs a couple of iterations in the cells that
+    // run it at all.
+    if (q.y > 0.0 && nest.cloud_top_longwave_flux > 0.0)
+    {
+        float path = 0.0; // liquid water path above this cell, kg/m^2
+        for (int above = cell.y + 1; above < levels; ++above)
+        {
+            float altitude_above = nest_level_altitude(float(above));
+            vec4 q_above = imageLoad(moisture, ivec3(cell.x, above, cell.z)) / MOISTURE_UNIT;
+            path += q_above.y * nest_base_density(altitude_above) * nest_level_thickness(above);
+            // Past this the exponential is under half a percent and every level costs the same.
+            if (nest.cloud_water_absorption * path > 6.0)
+                break;
+        }
+
+        // The flux *difference across this cell*, not the local dF/dz. The distinction is not
+        // pedantry: a 250 m level holding half a gram per kilogram is optically thick on its own
+        // (kappa rho q_c dz is 16), so the differential form would cool it at 16 K/h where the
+        // energy actually arriving is 1. Written as a difference of two exponentials, the column
+        // telescopes to F0 (1 - exp(-kappa W_total)) and the scheme cannot radiate away more than
+        // the cloud top is given, at any resolution.
+        float own = q.y * base_density * thickness;
+        float absorbed = nest.cloud_top_longwave_flux *
+                         (exp(-nest.cloud_water_absorption * path) -
+                          exp(-nest.cloud_water_absorption * (path + own)));
+        float cooling = absorbed / (nest.specific_heat_pressure * base_density * thickness);
+        theta_perturbation -= cooling * dt / max(nest_exner(altitude), 1e-6);
+    }
+
     // ---- Buoyancy, Coriolis, diffusion on the momentum --------------------------------
     //
     // Buoyancy lands on the vertical face this cell owns, from the average of the two cells

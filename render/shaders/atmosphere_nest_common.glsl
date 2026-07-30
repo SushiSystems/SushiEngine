@@ -36,6 +36,8 @@ layout(set = 0, binding = 0) uniform NestParams
     float tropopause_altitude;
     float surface_humidity;
     float humidity_scale_height;
+    float free_troposphere_drying;
+    float free_troposphere_exponent;
 
     // Dynamics.
     float eddy_viscosity;
@@ -51,6 +53,8 @@ layout(set = 0, binding = 0) uniform NestParams
     float convective_velocity_scale;
 
     // Microphysics.
+    float cloud_top_longwave_flux;
+    float cloud_water_absorption;
     float cloud_critical_humidity;
     float autoconversion_rate;
     float autoconversion_threshold;
@@ -260,13 +264,33 @@ float nest_latent_heat(float temperature)
     return nest.latent_heat_vaporization + nest_ice_fraction(temperature) * nest.latent_heat_fusion;
 }
 
+// The relative humidity the base state is allowed to reach: the Weisman-Klemp (1982) idealized
+// sounding's shape, falling from the surface value to (1 - drying) of it at the tropopause and
+// holding above. Mirrors Render::atmosphere_base_humidity_ceiling.
+float nest_base_humidity_ceiling(float altitude)
+{
+    float height = max(altitude, 0.0) / max(nest.tropopause_altitude, 1.0);
+    float shape = height < 1.0 ? pow(height, nest.free_troposphere_exponent) : 1.0;
+    return max(nest.surface_humidity * (1.0 - nest.free_troposphere_drying * shape), 0.0);
+}
+
+// The base-state vapour profile: the *mixing ratio* decays exponentially from its surface value,
+// which is what humidity_scale_height names and what a real sounding does. Relative humidity is
+// then whatever q_v / q_s(z) comes to — 70 % at the ground and 62 % at 1.3 km, against the 41 %
+// applying the exponential to RH itself gave. Above ~7 km q_s folds faster than the vapour and
+// the bare exponential would saturate, so the ceiling caps it; without that every run began with
+// a global cirrus deck at 9.5 km.
+//
+// Mirrors Render::atmosphere_base_vapour; neither is edited alone.
 float nest_base_vapour(float altitude)
 {
-    float temperature = nest_base_temperature(altitude);
-    float pressure = nest_base_pressure(altitude);
-    float saturation = nest_saturation_mixing_ratio(temperature, pressure);
-    float humidity = nest.surface_humidity * exp(-altitude / max(nest.humidity_scale_height, 1.0));
-    return min(humidity * saturation, saturation);
+    float surface_saturation =
+        nest_saturation_mixing_ratio(nest_base_temperature(0.0), nest_base_pressure(0.0));
+    float vapour = nest.surface_humidity * surface_saturation *
+                   exp(-altitude / max(nest.humidity_scale_height, 1.0));
+    float saturation =
+        nest_saturation_mixing_ratio(nest_base_temperature(altitude), nest_base_pressure(altitude));
+    return min(min(vapour, nest_base_humidity_ceiling(altitude) * saturation), saturation);
 }
 
 // ---- Subgrid cloud fraction -------------------------------------------------------------

@@ -141,9 +141,16 @@ namespace SushiEngine
                     //
                     // These presets used to set a pair of fluxes directly. Since Phase B3 the
                     // fluxes are solved, so what a preset sets is what a place actually is —
-                    // how bright it is, how much water it can give up, and how much heat it
-                    // stores. The Bowen ratio it produces then falls out of the balance and
-                    // moves through the day as the ground dries, instead of being pinned.
+                    // how bright it is, how much water it can give up, how much heat it stores,
+                    // and how moist the airmass over it is. The Bowen ratio it produces then
+                    // falls out of the balance and moves through the day as the ground dries,
+                    // instead of being pinned.
+                    //
+                    // The airmass humidity belongs here rather than only on the slider below,
+                    // because a semi-desert is not merely a dry *surface*: with the base-state
+                    // vapour profile corrected, a dry surface under a 70 %-humidity airmass still
+                    // makes an afternoon deck at 2 km, which is the model being right and the
+                    // preset being incomplete. A place is a surface and the air over it.
                     //
                     // Presets rather than a default change, deliberately: which of these a scene
                     // is standing on is an authoring decision, and the engine has no way to guess
@@ -155,32 +162,39 @@ namespace SushiEngine
                         float albedo;
                         float availability;
                         float capacity;
+                        float humidity;
                         const char* note;
                     };
                     static const SurfacePreset PRESETS[] = {
-                        {"Semi-desert / bare soil", 0.30f, 0.10f, 6.0e4f,
-                         "Bright, dry and thin: it heats fast, gives up almost no\n"
-                         "water, and its Bowen ratio runs well above 1. The sky\n"
-                         "stays clear however long it is left running, and that is\n"
-                         "the model being right rather than idle."},
-                        {"Mixed cropland", 0.22f, 0.30f, 1.0e5f,
-                         "A dry summer, or land partly harvested. Cloud, but late\n"
-                         "and thin."},
-                        {"Vegetated summer land", 0.18f, 0.55f, 1.5e5f,
+                        {"Semi-desert / bare soil", 0.30f, 0.10f, 6.0e4f, 0.35f,
+                         "Bright, dry and thin, under an airmass to match: it heats\n"
+                         "fast, gives up almost no water, and its Bowen ratio runs\n"
+                         "well above 1. Measured: clear all day, condensation level\n"
+                         "climbing 2.1 -> 3.0 km. The sky stays clear however long it\n"
+                         "is left running, and that is the model being right rather\n"
+                         "than idle."},
+                        {"Mixed cropland", 0.22f, 0.30f, 1.0e5f, 0.60f,
+                         "A dry summer, or land partly harvested. Measured: nothing\n"
+                         "until mid-afternoon, then a third of the columns carrying\n"
+                         "3 % cover at 1.8 km -- cloud, but late and thin."},
+                        {"Vegetated summer land", 0.18f, 0.55f, 1.5e5f, 0.65f,
                          "Temperate grassland or forest in leaf. Dark, damp, and\n"
                          "with enough thermal mass to keep the afternoon going --\n"
-                         "the fair-weather cumulus case."},
-                        {"Open water / lake", 0.06f, 1.00f, 1.3e7f,
+                         "the fair-weather cumulus case. Measured: a 23 % deck at\n"
+                         "1 341 m by mid-afternoon, out of nothing but the ground."},
+                        {"Open water / lake", 0.06f, 1.00f, 1.3e7f, 0.75f,
                          "Dark, saturated, and with the heat capacity of a three\n"
                          "metre mixed layer: the skin barely moves over a whole\n"
                          "day. Almost all the sun's energy goes into evaporation,\n"
-                         "so the layer is moist but barely buoyant -- and it is\n"
+                         "so the layer is moist but barely buoyant -- measured, a\n"
+                         "22 % deck with its base at 214-517 m and staying there,\n"
+                         "which is stratocumulus rather than more cumulus. It is\n"
                          "this contrast against the land beside it that a sea\n"
                          "breeze is made of."},
                     };
                     ImGui::TextUnformatted("Land cover");
                     ImGui::SameLine();
-                    ImGui::TextDisabled("(sets the three properties below)");
+                    ImGui::TextDisabled("(sets the three properties below, and the airmass humidity)");
                     for (const SurfacePreset& preset : PRESETS)
                     {
                         if (ImGui::Button(preset.name))
@@ -188,12 +202,14 @@ namespace SushiEngine
                             nest.surface_albedo = preset.albedo;
                             nest.surface_moisture_availability = preset.availability;
                             nest.surface_heat_capacity = preset.capacity;
+                            nest.surface_humidity = preset.humidity;
                             changed = true;
                         }
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("albedo %.2f, moisture %.2f, slab %.2g J/m2/K.\n%s",
-                                              double(preset.albedo), double(preset.availability),
-                                              double(preset.capacity), preset.note);
+                            ImGui::SetTooltip(
+                                "albedo %.2f, moisture %.2f, slab %.2g J/m2/K, airmass RH %.2f.\n%s",
+                                double(preset.albedo), double(preset.availability),
+                                double(preset.capacity), double(preset.humidity), preset.note);
                     }
 
                     if (ImGui::SliderFloat("Albedo", &nest.surface_albedo, 0.0f, 0.9f, "%.2f"))
@@ -289,9 +305,30 @@ namespace SushiEngine
                         changed = true;
                     if (ImGui::SliderFloat("Surface Humidity", &nest.surface_humidity, 0.0f, 1.0f))
                         changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative humidity of the airmass at the ground, and\n"
+                                          "the single strongest lever on whether a scene has a\n"
+                                          "sky. The land-cover presets above set it with the\n"
+                                          "surface, because a place is a surface and the air\n"
+                                          "over it.");
                     if (ImGui::SliderFloat("Humidity Scale Height", &nest.humidity_scale_height,
                                            500.0f, 6000.0f, "%.0f m"))
                         changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("e-folding height of the base-state *mixing ratio*.\n"
+                                          "Relative humidity is then whatever q_v / q_s comes\n"
+                                          "to -- 70 %% at the ground reads 62 %% at 1.3 km, not\n"
+                                          "41 %%. Raising it moistens the whole free troposphere\n"
+                                          "and drops the condensation level with it.");
+                    if (ImGui::SliderFloat("Free-troposphere Drying", &nest.free_troposphere_drying,
+                                           0.0f, 0.95f, "%.2f"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Fraction of the surface humidity the base state has\n"
+                                          "lost by the tropopause (Weisman-Klemp 1982). It caps\n"
+                                          "the profile aloft and nothing near the ground. At 0\n"
+                                          "the uncapped mixing ratio reaches saturation near\n"
+                                          "9.5 km and every run starts under a cirrus deck.");
 
                     // Kessler's own rate constants. The autoconversion threshold is the one an
                     // author feels most directly: below it a cloud never rains, however thick it
@@ -311,6 +348,17 @@ namespace SushiEngine
                                           "more, thinner, earlier cloud; 1.00 switches the\n"
                                           "subgrid closure off entirely and condenses on the\n"
                                           "cell mean alone, which is fog or a clear sky.");
+                    if (ImGui::SliderFloat("Cloud-top Longwave", &nest.cloud_top_longwave_flux,
+                                           0.0f, 150.0f, "%.0f W/m2"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The longwave a cloud top loses to space -- the sink a\n"
+                                          "cloud has and the clear air beside it does not. It is\n"
+                                          "absorbed within the top few tens of grams of water, so\n"
+                                          "it cools the top and not the deck, which is what makes\n"
+                                          "a stratocumulus overturn instead of sitting still. At\n"
+                                          "0 a nocturnal deck's only sink is the parent's\n"
+                                          "subsidence and it will outlive the night.");
                     if (ImGui::SliderFloat("Autoconversion Threshold", &nest.autoconversion_threshold,
                                            0.0f, 5.0e-3f, "%.4f kg/kg"))
                         changed = true;

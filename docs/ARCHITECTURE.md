@@ -3280,6 +3280,13 @@ readback.
   autoconversion, accretion, sub-cloud evaporation, and terminal-fall-speed sedimentation.
   Cloud base is nowhere placed — it falls out where a rising parcel's `q_s(T)` drops to its own
   `q_v`, which is the lifting condensation level by definition.
+- **Cloud-top radiative cooling** is the sink a cloud has and the clear air beside it does not: a
+  cloud top is optically thick in the longwave with space above it, so it loses ~70 W/m² across a
+  layer tens of metres deep. Carried as the flux *difference* across a level rather than a local
+  `dF/dz`, which telescopes down a column to `F0·(1 − e^{−κW})` and so cannot radiate away more
+  than the top is given at any vertical resolution — the differential form over-cools an optically
+  thick level by its own opacity. The entrainment the cooling drives is resolved rather than
+  parameterized, and is under-resolved at the spacing the upper levels carry.
 - **The boundary layer** is parameterized, because the eddies that carry surface heat and
   moisture out of the lowest level are two orders below a 2 km grid. Vertical diffusion of total
   θ and the moisture species on Troen & Mahrt's `K = κ·w_s·z·(1 − z/h)²` — linear in height at the

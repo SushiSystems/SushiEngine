@@ -110,9 +110,24 @@ namespace SushiEngine
              *
              * Water vapour falls off far faster than air itself does — most of the column's
              * moisture sits in the lowest couple of kilometres, which is exactly why the
-             * lifting condensation level lands where it does.
+             * lifting condensation level lands where it does. This folds the *mixing ratio*,
+             * not the relative humidity; see @ref atmosphere_base_vapour.
              */
             float humidity_scale_height = 2500.0f;
+            /**
+             * @brief Fraction of the surface relative humidity the base state has lost by the
+             *        tropopause, [0, 1).
+             *
+             * The upper troposphere is dry, and nothing in a single exponential mixing ratio
+             * knows that: `q_s` folds faster than the vapour above ~7 km, so an uncapped profile
+             * reaches saturation near the tropopause and starts every run with a global cirrus
+             * deck. This is the Weisman–Klemp (1982) idealized sounding's relative-humidity
+             * shape, used as a ceiling — it binds only aloft, so the lower troposphere is still
+             * the vapour profile @ref humidity_scale_height describes.
+             */
+            float free_troposphere_drying = 0.75f;
+            /** @brief Exponent of that drying's approach to the tropopause (Weisman–Klemp: 5/4). */
+            float free_troposphere_exponent = 1.25f;
 
             // ---- Dynamics ------------------------------------------------------------
 
@@ -350,6 +365,31 @@ namespace SushiEngine
              * strict generalisation rather than a second, competing condensation path.
              */
             float cloud_critical_humidity = 0.80f;
+
+            /**
+             * @brief Longwave flux a cloud top radiates to space, W/m².
+             *
+             * The sink a cloud has that clear air does not. A cloud top is optically thick in the
+             * longwave and the sky above it is effectively at space temperature, so it loses
+             * 60–90 W/m² across a layer tens of metres deep — which is why a stratocumulus deck
+             * mixes itself all night while the clear air beside it does nothing. Before this
+             * existed the nest's only sink for a nocturnal deck was the parent's subsidence, so a
+             * deck under a quiescent parent persisted until dawn.
+             *
+             * Set to 0 to remove the term. The pairing with @ref cloud_water_absorption is
+             * Stevens et al.'s (2005) two-parameter form of the standard flux profile.
+             */
+            float cloud_top_longwave_flux = 70.0f;
+            /**
+             * @brief Longwave mass absorption coefficient of cloud water, m²/kg.
+             *
+             * How quickly the cooling is used up going down into the cloud: the flux falls as
+             * `exp(-κ · liquid water path above)`, so at 130 m²/kg a deck 30 g/m² thick has
+             * absorbed nearly all of it and everything below the top few tens of metres is
+             * shielded. That concentration is the point — spread uniformly through the deck the
+             * same energy would cool it stably instead of destabilising it from the top.
+             */
+            float cloud_water_absorption = 130.0f;
 
             /** @brief Autoconversion rate coefficient k₁, 1/s. */
             float autoconversion_rate = 1.0e-3f;
@@ -833,22 +873,79 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Relative humidity the base state is allowed to reach at @p altitude_m, [0, 1].
+         *
+         * The Weisman–Klemp (1982) idealized sounding's shape: the surface value falling to
+         * `1 - free_troposphere_drying` of itself at the tropopause and holding above it. Mirrors
+         * `nest_base_humidity_ceiling` in atmosphere_nest_common.glsl.
+         */
+        inline float atmosphere_base_humidity_ceiling(const AtmosphereParameters& p,
+                                                       float altitude_m)
+        {
+            const float tropopause =
+                p.tropopause_altitude > 1.0f ? p.tropopause_altitude : 1.0f;
+            const float height = altitude_m > 0.0f ? altitude_m / tropopause : 0.0f;
+            const float shape =
+                height < 1.0f ? std::pow(height, p.free_troposphere_exponent) : 1.0f;
+            const float ceiling = p.surface_humidity * (1.0f - p.free_troposphere_drying * shape);
+            return ceiling > 0.0f ? ceiling : 0.0f;
+        }
+
+        /**
          * @brief Base-state vapour mixing ratio at @p altitude_m, kg/kg.
          *
-         * The surface relative humidity carried aloft with its own scale height, capped at
-         * saturation so the initial state is never supersaturated anywhere.
+         * The *mixing ratio* decays exponentially from its surface value, which is what
+         * @ref AtmosphereParameters::humidity_scale_height names and what a real sounding does.
+         * Relative humidity is then whatever `q_v / q_s(z)` comes to: over the lowest kilometres
+         * `q_s` folds more slowly than the vapour, so the ISA base state reads 70 % at the ground
+         * and 62 % at 1.3 km rather than the 41 % that applying the exponential to RH itself
+         * produced. Above ~7 km the ordering reverses and the bare exponential would saturate, so
+         * @ref atmosphere_base_humidity_ceiling caps it — without which every run began with a
+         * global cirrus deck at 9.5 km. Capped at saturation as well, so the initial state is
+         * never supersaturated anywhere.
          */
         inline float atmosphere_base_vapour(const AtmosphereParameters& p, float altitude_m)
         {
-            const float temperature = atmosphere_base_temperature(p, altitude_m);
-            const float pressure = atmosphere_base_pressure(p, altitude_m);
-            const float saturation = atmosphere_saturation_mixing_ratio(temperature, pressure);
-            const float humidity =
-                p.surface_humidity * std::exp(-altitude_m / (p.humidity_scale_height > 1.0f
-                                                                 ? p.humidity_scale_height
-                                                                 : 1.0f));
-            const float vapour = humidity * saturation;
-            return vapour < saturation ? vapour : saturation;
+            const float surface_saturation = atmosphere_saturation_mixing_ratio(
+                atmosphere_base_temperature(p, 0.0f), atmosphere_base_pressure(p, 0.0f));
+            const float scale =
+                p.humidity_scale_height > 1.0f ? p.humidity_scale_height : 1.0f;
+            const float vapour =
+                p.surface_humidity * surface_saturation * std::exp(-altitude_m / scale);
+            const float saturation = atmosphere_saturation_mixing_ratio(
+                atmosphere_base_temperature(p, altitude_m), atmosphere_base_pressure(p, altitude_m));
+            const float ceiling = atmosphere_base_humidity_ceiling(p, altitude_m) * saturation;
+            const float capped = vapour < ceiling ? vapour : ceiling;
+            return capped < saturation ? capped : saturation;
+        }
+
+        /**
+         * @brief Longwave flux a cloud layer absorbs across one level, W/m².
+         *
+         * The cloud-top cooling term's whole content, as the difference of two exponentials
+         * rather than a local flux divergence: the flux `F0 exp(-κW)` is evaluated at the level's
+         * top and bottom faces and what the level keeps is the gap between them. That form is
+         * what makes the scheme conservative at any vertical resolution — summed down a column it
+         * telescopes to `F0 (1 - exp(-κ W_total))`, so a deck can never radiate away more than
+         * its top is given, where the differential form over-cools an optically thick level by
+         * the ratio of its own opacity (16× for a 250 m level holding half a gram per kilogram).
+         *
+         * Mirrors the cloud-top block in atmosphere_forces.comp; neither is edited alone.
+         *
+         * @param p             Carries `cloud_top_longwave_flux` and `cloud_water_absorption`.
+         * @param path_above    Liquid water path above the level, kg/m². Zero at a cloud top.
+         * @param path_in_level The level's own liquid water path, `ρ q_c Δz`, kg/m².
+         * @return              Absorbed flux, W/m², never negative and never above `F0`.
+         */
+        inline float atmosphere_cloud_top_absorption(const AtmosphereParameters& p,
+                                                      float path_above, float path_in_level)
+        {
+            if (!(p.cloud_top_longwave_flux > 0.0f) || !(path_in_level > 0.0f))
+                return 0.0f;
+            const float above = path_above > 0.0f ? path_above : 0.0f;
+            return p.cloud_top_longwave_flux *
+                   (std::exp(-p.cloud_water_absorption * above) -
+                    std::exp(-p.cloud_water_absorption * (above + path_in_level)));
         }
 
         /** @brief What @ref atmosphere_cloud_partition resolves a cell's water into. */

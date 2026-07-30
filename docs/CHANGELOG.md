@@ -8,6 +8,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- 2026-07-31 — Added cloud-top radiative longwave cooling to the regional nest, as the flux difference across a level so the scheme is conservative at any vertical resolution. `cloud_top_longwave_flux` and `cloud_water_absorption` carry it as data; 0 removes the term.
+  - Measured, it *maintains* nocturnal cloud rather than removing it, which is what makes nocturnal stratocumulus exist. The evening decay a subsiding parent produces is unchanged in direction and weaker in size: the overnight fall is 15 % where it was 40 %.
+  - Costs 0.096 ms in the `forces` stage, 1.6 % of the whole step.
+- 2026-07-31 — Added a Weisman–Klemp relative-humidity ceiling to the nest's base state (`free_troposphere_drying`, `free_troposphere_exponent`), without which the corrected vapour profile saturates near 9.5 km and every run starts under a global cirrus deck.
+- 2026-07-31 — Added `--sponge-depth`, `--sponge-rate` and `--cloud-top-lw` to `atmosphere_probe`.
+
+### Fixed
+- 2026-07-31 — Fixed `humidity_scale_height` folding the base state's *relative humidity* rather than its mixing ratio, which decayed the profile twice and left the airmass far drier than documented — 41 % relative humidity at 1.3 km and 9.5 % at 5 km, against 62 % and 50 % now.
+  - Changed the Meteorology panel's land-cover presets to set the airmass humidity along with the surface properties, because a semi-desert is not merely a dry surface: under a 70 % airmass a dry surface still built a 2 km afternoon deck. Each preset now delivers the sky its tooltip describes, measured over 11 h from sunrise.
+
 ### Changed
 - 2026-07-30 — Changed the skeleton debug draw and the transform gizmo to share one `project_to_screen` in `editor/core/viewport_projection.hpp`, replacing the identical copy each had grown.
 - 2026-07-30 — Changed `Physics::mesh_mass_properties` to check the surface is closed before integrating: an open shell used to return the cone-fan volume, so a box missing one face reported five sixths of its mass rather than refusing.

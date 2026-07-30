@@ -135,6 +135,80 @@ TEST(Unit_AtmosphereNest, BaseVapourIsNeverSupersaturated)
     }
 }
 
+TEST(Unit_AtmosphereNest, TheScaleHeightFoldsTheMixingRatioAndNotTheRelativeHumidity)
+{
+    const Render::AtmosphereParameters p{};
+    const float surface = Render::atmosphere_base_vapour(p, 0.0f);
+
+    // What the parameter is named for: one scale height up, the *mixing ratio* is down by e.
+    // Applying the exponential to relative humidity instead decayed the profile twice — once
+    // through the exponential and again through q_s — and left the free troposphere at 9 % RH.
+    // The e-fold is exact only where the exponential governs; above ~4 km the ceiling below
+    // takes over and the profile is deliberately drier than a bare exponential.
+    EXPECT_NEAR(Render::atmosphere_base_vapour(p, p.humidity_scale_height) / surface,
+                std::exp(-1.0f), 1e-3f);
+    EXPECT_LT(Render::atmosphere_base_vapour(p, 2.0f * p.humidity_scale_height) / surface,
+              std::exp(-2.0f));
+
+    // And the profile that follows: q_s folds over ~3.2 km against the vapour's 2.5, so relative
+    // humidity decays gently rather than collapsing. A mid-troposphere near half saturated is
+    // what lets a lifted parcel reach its condensation level at all.
+    const auto relative_humidity = [&p](float altitude) {
+        return Render::atmosphere_base_vapour(p, altitude) /
+               Render::atmosphere_saturation_mixing_ratio(
+                   Render::atmosphere_base_temperature(p, altitude),
+                   Render::atmosphere_base_pressure(p, altitude));
+    };
+    EXPECT_NEAR(relative_humidity(0.0f), p.surface_humidity, 1e-3f);
+    EXPECT_NEAR(relative_humidity(1341.0f), 0.62f, 0.02f);
+    EXPECT_NEAR(relative_humidity(5000.0f), 0.50f, 0.03f);
+
+    // And the ceiling that has to sit on top of it. Above ~7 km the ordering of the two scale
+    // heights reverses, so the bare exponential climbs back through saturation and starts every
+    // run with a global cirrus deck — measured at 81 % RH at 9.5 km before this existed. The
+    // Weisman-Klemp shape holds the upper troposphere where a real sounding has it.
+    EXPECT_LT(relative_humidity(9569.0f), 0.35f);
+    EXPECT_LT(relative_humidity(p.tropopause_altitude), 0.25f);
+    EXPECT_NEAR(Render::atmosphere_base_humidity_ceiling(p, p.tropopause_altitude),
+                p.surface_humidity * (1.0f - p.free_troposphere_drying), 1e-4f);
+
+    // The ceiling must not touch the ground, or it would be setting the surface humidity rather
+    // than capping the profile aloft.
+    EXPECT_NEAR(Render::atmosphere_base_humidity_ceiling(p, 0.0f), p.surface_humidity, 1e-6f);
+}
+
+TEST(Unit_AtmosphereNest, CloudTopCoolingIsConservativeAndConcentratedAtTheTop)
+{
+    const Render::AtmosphereParameters p{};
+
+    // Clear air has no cloud-top cooling, which is the whole distinction the term draws: this is
+    // the sink a cloud has and the air beside it does not.
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_absorption(p, 0.0f, 0.0f), 0.0f);
+
+    // A deck cannot radiate away more than its top is given, however it is sliced. Summing one
+    // level's worth against ten slices of a tenth each has to land on the same number, or the
+    // cooling would depend on the vertical resolution rather than on the cloud.
+    const float total_path = 0.05f;
+    const float whole = Render::atmosphere_cloud_top_absorption(p, 0.0f, total_path);
+    float sliced = 0.0f;
+    for (int slice = 0; slice < 10; ++slice)
+        sliced += Render::atmosphere_cloud_top_absorption(p, float(slice) * total_path * 0.1f,
+                                                          total_path * 0.1f);
+    EXPECT_NEAR(sliced, whole, whole * 1e-4f);
+    EXPECT_LE(whole, p.cloud_top_longwave_flux);
+
+    // And where it lands. The top tenth of the path takes 48 % of the flux — nearly five times a
+    // uniform share — which is the mechanism rather than a detail: cooling spread through a deck
+    // stabilises it, cooling only its top makes the top denser than what is beneath it and drives
+    // the overturning.
+    const float top_tenth = Render::atmosphere_cloud_top_absorption(p, 0.0f, total_path * 0.1f);
+    EXPECT_GT(top_tenth, 4.0f * 0.1f * whole);
+
+    // Deep inside the cloud there is nothing left to absorb.
+    EXPECT_LT(Render::atmosphere_cloud_top_absorption(p, total_path, total_path),
+              0.01f * whole);
+}
+
 // ---- The stretched vertical grid ---------------------------------------------------------
 
 TEST(Unit_AtmosphereNest, VerticalGridIsStretchedAndClosesOnTheDomainTop)

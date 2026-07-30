@@ -107,6 +107,9 @@ namespace
         float boundary_layer_velocity_scale = std::nanf("");
         float surface_humidity = std::nanf("");
         float critical_humidity = std::nanf("");
+        float cloud_top_longwave = std::nanf("");
+        float sponge_depth = std::nanf("");
+        float sponge_rate = std::nanf("");
         // The parent solution the Davies zone relaxes toward. Zero is a quiescent airmass,
         // which is the hardest case the nest can be asked for and therefore the default.
         float forcing_humidity_anomaly = 0.0f;
@@ -264,6 +267,12 @@ namespace
                 options.boundary_layer_velocity_scale = float(std::atof(text));
             else if (argument == "--humidity" && value(&text))
                 options.surface_humidity = float(std::atof(text));
+            else if (argument == "--sponge-depth" && value(&text))
+                options.sponge_depth = float(std::atof(text));
+            else if (argument == "--sponge-rate" && value(&text))
+                options.sponge_rate = float(std::atof(text));
+            else if (argument == "--cloud-top-lw" && value(&text))
+                options.cloud_top_longwave = float(std::atof(text));
             else if (argument == "--critical" && value(&text))
                 options.critical_humidity = float(std::atof(text));
             else if (argument == "--parent-humidity" && value(&text))
@@ -656,6 +665,9 @@ int main(int argc, char** argv)
                        options.boundary_layer_velocity_scale);
         override_float(parameters.surface_humidity, options.surface_humidity);
         override_float(parameters.cloud_critical_humidity, options.critical_humidity);
+        override_float(parameters.cloud_top_longwave_flux, options.cloud_top_longwave);
+        override_float(parameters.sponge_depth, options.sponge_depth);
+        override_float(parameters.sponge_rate, options.sponge_rate);
         if (options.pressure_iterations > 0)
             parameters.pressure_iterations = options.pressure_iterations;
         if (options.dt > 0.0)

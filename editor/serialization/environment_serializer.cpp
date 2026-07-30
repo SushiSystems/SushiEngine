@@ -145,6 +145,8 @@ namespace SushiEngine
                       {"tropopause_altitude", e.atmosphere_nest.tropopause_altitude},
                       {"surface_humidity", e.atmosphere_nest.surface_humidity},
                       {"humidity_scale_height", e.atmosphere_nest.humidity_scale_height},
+                      {"free_troposphere_drying", e.atmosphere_nest.free_troposphere_drying},
+                      {"free_troposphere_exponent", e.atmosphere_nest.free_troposphere_exponent},
                       {"courant_target", e.atmosphere_nest.courant_target},
                       {"max_step_seconds", e.atmosphere_nest.max_step_seconds},
                       {"min_step_seconds", e.atmosphere_nest.min_step_seconds},
@@ -163,6 +165,8 @@ namespace SushiEngine
                       {"boundary_layer_velocity_scale",
                        e.atmosphere_nest.boundary_layer_velocity_scale},
                       {"cloud_critical_humidity", e.atmosphere_nest.cloud_critical_humidity},
+                      {"cloud_top_longwave_flux", e.atmosphere_nest.cloud_top_longwave_flux},
+                      {"cloud_water_absorption", e.atmosphere_nest.cloud_water_absorption},
                       {"autoconversion_rate", e.atmosphere_nest.autoconversion_rate},
                       {"autoconversion_threshold", e.atmosphere_nest.autoconversion_threshold},
                       {"accretion_rate", e.atmosphere_nest.accretion_rate},
@@ -334,6 +338,10 @@ namespace SushiEngine
                 n.surface_humidity = a.value("surface_humidity", n.surface_humidity);
                 n.humidity_scale_height =
                     a.value("humidity_scale_height", n.humidity_scale_height);
+                n.free_troposphere_drying =
+                    a.value("free_troposphere_drying", n.free_troposphere_drying);
+                n.free_troposphere_exponent =
+                    a.value("free_troposphere_exponent", n.free_troposphere_exponent);
                 n.courant_target = a.value("courant_target", n.courant_target);
                 n.max_step_seconds = a.value("max_step_seconds", n.max_step_seconds);
                 n.min_step_seconds = a.value("min_step_seconds", n.min_step_seconds);
@@ -362,6 +370,10 @@ namespace SushiEngine
                             n.boundary_layer_velocity_scale);
                 n.cloud_critical_humidity =
                     a.value("cloud_critical_humidity", n.cloud_critical_humidity);
+                n.cloud_top_longwave_flux =
+                    a.value("cloud_top_longwave_flux", n.cloud_top_longwave_flux);
+                n.cloud_water_absorption =
+                    a.value("cloud_water_absorption", n.cloud_water_absorption);
                 n.autoconversion_rate = a.value("autoconversion_rate", n.autoconversion_rate);
                 n.autoconversion_threshold =
                     a.value("autoconversion_threshold", n.autoconversion_threshold);

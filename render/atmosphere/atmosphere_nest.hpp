@@ -235,6 +235,8 @@ namespace SushiEngine
                         float tropopause_altitude;
                         float surface_humidity;
                         float humidity_scale_height;
+                        float free_troposphere_drying;
+                        float free_troposphere_exponent;
 
                         float eddy_viscosity;
                         float boundary_layer_depth;
@@ -248,6 +250,8 @@ namespace SushiEngine
                         float coriolis;
                         float convective_velocity_scale;
 
+                        float cloud_top_longwave_flux;
+                        float cloud_water_absorption;
                         float cloud_critical_humidity;
                         float autoconversion_rate;
                         float autoconversion_threshold;

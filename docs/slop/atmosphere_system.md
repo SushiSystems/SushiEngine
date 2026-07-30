@@ -594,15 +594,33 @@ parameterized and starts being *resolved* (§2.2), which is what this phase's ac
 cumulus that grows on its own — rests on. Medium and Low sit above it and their convection is
 correspondingly smoother and more parameterized.
 
-**Named limit: the subgrid cloud closure is not rescaled with the tier.**
-`cloud_critical_humidity` sets where a cell's humidity distribution begins to hold cloud, and its
-0.80 is the standard value *at 2 km* — the subgrid variance a cell hides is a function of how big
-the cell is, so the correct value falls at coarser spacing and approaches 1 as the grid resolves
-the cloud itself. One authored number therefore means slightly different things per tier.
-Measured, this is invisible when the sky is decisively cloudy or decisively clear, and visible
-exactly at the margin: a configuration that leaves High with 5.8 % of columns cloudy leaves Low,
-Medium and Ultra between 0 and 0.1 %. Scaling the critical humidity with `spacing_m` is the fix,
-and it wants its own calibration rather than a plausible-looking exponent.
+**Named limit: the subgrid cloud closure is not rescaled with the tier — and the scaling that was
+supposed to fix that was built, measured, and rejected.** `cloud_critical_humidity` sets where a
+cell's humidity distribution begins to hold cloud, and its 0.80 is the standard value *at 2 km*:
+the subgrid variance a cell hides is a function of how big the cell is, so in isolation the
+correct value falls at coarser spacing and approaches 1 as the grid resolves the cloud itself.
+
+That argument is sound and the scaling it implies is not a guess — the spread is the standard
+deviation of a field filtered at the cell scale, and an inertial-range spectrum fixes its exponent
+at 1/3 rather than leaving it to calibration, giving 0.748 / 0.771 / 0.800 / 0.818 across the four
+tiers. Built and measured end to end, **it makes tier agreement worse**, so it is not shipped.
+Marginal sky, coverage at the moment the closure is the deciding term:
+
+| | Low | Medium | High | Ultra |
+|---|---|---|---|---|
+| one authored value everywhere | 0.089 | 0.011 | 0.014 | 0.010 |
+| scaled with spacing | 0.147 | 0.039 | 0.014 | 0.001 |
+
+At onset the single authored value already agrees to within 5 % (Low 0.089 against High 0.085) and
+the scaling breaks that agreement. What is left of the disagreement is *later* in the day and is
+resolved convection rather than the closure — the coarse grid's deck is thinner, and no critical
+humidity addresses that.
+
+The symptom this limit was originally written from — High 5.8 % cloudy against every other tier
+under 0.1 % — is **no longer reproducible**, because it was a property of the too-dry base state
+the vapour profile fix removed, not of the closure. Medium, High and Ultra now agree to
+0.010–0.014; Low is the outlier, at the spacing where this section already says convection is
+smoother and more parameterized.
 
 Every prognostic field is fp32, including the `q_*` fields. Half floats were the
 original choice for them on a range argument — mixing ratios are a few grams per
@@ -845,7 +863,64 @@ time scales are comparable. Phase B2c's entire diagnosis came out of that file.
 Each phase ships editor surface, tier wiring, profiler budget, and CHANGELOG/ARCHITECTURE
 entries per repo policy.
 
-### Where this stands — 2026-07-29
+### Where this stands — 2026-07-31
+
+**Shipped since the entry below:** the base-state vapour profile is fixed (§6's carried item, the
+one named there as the highest-value thing left in the model), and cloud-top radiative cooling is
+in. Two other carried items were *closed by measurement without shipping a change*, which is a
+different outcome from being deferred again and is written up as such:
+
+- **`humidity_scale_height` now folds the mixing ratio, not the relative humidity.** The airmass
+  was drier than it should be at every altitude — RH 0.41 at 1.3 km and 0.095 at 5 km against a
+  documented ~0.62 — because the exponential was applied to RH and then multiplied by `q_s`, so
+  the profile decayed twice. Measured after: 0.70 at the ground, 0.62 at 1.3 km, 0.50 at 5 km.
+  *Fixing it exposed a second defect the old form had been hiding:* with a single scale height the
+  mixing ratio climbs back through saturation aloft, because above ~7 km `q_s` folds faster than
+  the vapour does. Measured, RH reached **0.81 at 9.5 km** and every run began under a global
+  cirrus deck. The base state therefore now carries the Weisman–Klemp (1982) relative-humidity
+  ceiling as two parameters (`free_troposphere_drying`, `free_troposphere_exponent`); it binds
+  only above ~4 km and holds the tropopause at 0.175. The land-cover presets were re-measured and
+  now set the airmass humidity along with the surface, because a semi-desert is not merely a dry
+  *surface* — under a 70 % airmass a dry surface still built a 2 km afternoon deck. The four
+  presets deliver the sky each tooltip promises, measured over 11 h from sunrise.
+- **Cloud-top radiative cooling is in, and it is not the sink this document said it was.** Added
+  to `atmosphere_forces.comp` as the flux difference across a level,
+  `F0 (e^{−κW_top} − e^{−κW_bottom})`, which telescopes down a column to `F0 (1 − e^{−κW})` and is
+  therefore conservative at any vertical resolution — the differential form `dF/dz` over-cools an
+  optically thick level by its own opacity, 16× for a 250 m level holding half a gram per
+  kilogram, and was the first version. Measured, the term *maintains* nocturnal cloud rather than
+  removing it, which is the textbook result and is why nocturnal stratocumulus exists at all: with
+  a subsiding parent the deck still peaks and falls, so C1's evening-decay clause stays closed, but
+  the overnight fall is 15 % where it was 40 %. Cost: `forces` 0.789 → 0.885 ms, the whole step
+  7.79 → 7.92 ms.
+- **The subgrid closure is *not* rescaled with the tier, and that is now a measurement rather than
+  a deferral.** See §6, whose named limit has been rewritten: the scaling was built in its
+  physically correct form and makes tier agreement worse.
+- **The slow cooling near the tropopause is not numerical diffusion in the transport.** See the
+  open item below; the attribution in the entry below is withdrawn.
+
+**Still open, and the reason each stopped where it did:**
+
+- **The tropopause drift is diagnosed but not fixed.** Run with the transport stepping 43 202
+  times and *no flow at all* (no thermal seed, no surface exchange), the drift near the tropopause
+  over 72 h is **0.02 K** — so it is not the semi-Lagrangian scheme diffusing across the base
+  state's sharpest θ gradient, which is what this document claimed. Under surface forcing the same
+  72 h reaches **−1.07 K at 12.9 km**, and the signal is a *growing oscillation* rather than a
+  drift (0.005 → 0.13 → −0.58 → −1.07), concentrated at 12.4–12.9 km — immediately below the
+  Rayleigh sponge's lower edge at 13 km. That is the signature of gravity waves radiated by the
+  forced motion amplifying as density falls and accumulating under the sponge. The sponge's own
+  profile is already a `sin²` ramp with zero slope where it begins, so the next thing to try is
+  starting it lower; `atmosphere_probe` now carries `--sponge-depth` and `--sponge-rate` for
+  exactly that experiment, and the experiment has not been run.
+- **The global core's 36 ms step is still on the main thread.** Not started.
+- **The nest step is still on the graphics queue.** Not started.
+- **Phase C's nest-side genus acceptance has not been run.** Not started.
+- **Nothing in this pass was confirmed by eye in the editor**, which leaves the standing item
+  below unchanged and adds this pass's changes to it. The editor builds.
+- **§12's performance budget is still stale**, and now doubly so — the T2 step figures above
+  supersede it again.
+
+### Where this stood — 2026-07-29
 
 **Shipped:** A · B1 · B2 · B2b · B2c · B3 (a–e) · C1 · C2 · **C3**. Phase B's acceptance bar is met,
 its last clause closed by C1's subsidence. T1 is now the nest's parent: `SynopticLayer` is deleted,
@@ -865,20 +940,25 @@ before/after table is.
 
 **Carried, deliberately, with the reason each time:**
 
-- **`humidity_scale_height` does not do what it is documented to do** — the airmass is drier than
-  it should be, every configuration that makes cloud has to be pushed there, and the afternoon
-  cumulus forms hours later than it ought to. Not fixed because it changes the look of every
-  existing scene, which is an authoring decision. This is the single highest-value item left in
-  the model and the first thing to reach for if the sky reads as too dry. See B2c's resume notes.
-- **`cloud_critical_humidity` is calibrated at 2 km and does not scale with the spacing**, so the
-  Low tier disagrees with the others at a marginal sky. Named limit in §6.
+- ~~**`humidity_scale_height` does not do what it is documented to do**~~ — fixed 2026-07-31, see
+  the entry above. It was indeed the highest-value item left in the model, and fixing it changed
+  the regime enough to retire one named limit and rewrite another.
+- ~~**`cloud_critical_humidity` is calibrated at 2 km and does not scale with the spacing**~~ —
+  settled 2026-07-31 by measuring the proposed fix and rejecting it. §6 carries the numbers.
 - **`AtmosphereSurface` — the land/sea seam** — blocked on the same terrain height field Phase D
   is blocked on (§15). See B3c for why building it early would be worse than not having it.
-- **The nocturnal cloud's only sink is now subsidence.** Cloud-top radiative cooling and the
-  entrainment it drives are not modelled; with the parent quiescent a deck still persists.
-- **A slow cooling near the tropopause**, −0.29 K/day over 72 h, attributable to numerical
-  diffusion in the semi-Lagrangian transport across the base state's sharpest θ gradient. Not a
-  radiation gap and a radiation scheme would not fix it.
+- ~~**The nocturnal cloud's only sink is now subsidence.**~~ Cloud-top radiative cooling shipped
+  2026-07-31 — and the premise here was wrong: it is a *source* of nocturnal cloud, not a sink.
+  What limits a real deck is the entrainment of dry air the cooling drives across the inversion,
+  and that is **resolved rather than parameterized**. At 250–560 m spacing aloft the inversion is
+  under-resolved, so the nest now carries the maintaining half of the stratocumulus energy balance
+  more faithfully than the limiting half and over-produces nocturnal cloud. That is the new named
+  limit, in place of the old one.
+- **A slow cooling near the tropopause**, ~−0.35 K/day over 72 h under surface forcing. ~~Attributable
+  to numerical diffusion in the semi-Lagrangian transport~~ — **that attribution is withdrawn**: with
+  the transport stepping 43 202 times and no flow, the drift is 0.02 K over the same 72 h. It is
+  flow-driven, it is a growing oscillation rather than a drift, and it sits immediately below the
+  sponge's lower edge. Diagnosed, not fixed; see the 2026-07-31 entry.
 - **§12's performance budget table is stale.** It budgets the T2 step at 2 ms; the measured step
   is ~10 ms at High. The honest metric established in B2c is *cost per second of weather bought*
   (1.27 ms), not cost per step, and the table has not been rewritten in those terms.
