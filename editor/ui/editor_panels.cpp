@@ -236,6 +236,7 @@ namespace SushiEngine
                 if (ImGui::BeginMenu("Analysis"))
                 {
                     ImGui::MenuItem("Physics", nullptr, &context.panels.physics);
+                    ImGui::MenuItem("Bake", nullptr, &context.panels.bake);
                     ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
                     ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                     ImGui::EndMenu();
@@ -704,7 +705,11 @@ namespace SushiEngine
                         ImGui::Text("Clip tracks: %zu bytes (uncompressed)",
                                    stats.clip_raw_track_bytes);
                         if (stats.active_morph_weights > 0)
-                            ImGui::Text("Morph weights: %u active", stats.active_morph_weights);
+                            ImGui::Text("Morph weights: %u active, %u clip track(s), %s",
+                                       stats.active_morph_weights, stats.clip_morph_track_count,
+                                       stats.clip_driven_morphs && stats.clip_morph_track_count > 0
+                                           ? "clip-driven"
+                                           : "manual");
                         ImGui::Text("Two-bone IK: %s", stats.ik_active ? "active" : "off");
                         ImGui::Text("Skinning: %s", stats.dual_quaternion_skinning
                                                         ? "dual-quaternion"

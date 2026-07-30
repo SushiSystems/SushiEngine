@@ -24,6 +24,8 @@
 
 #include <cmath>
 
+#include "../core/viewport_projection.hpp"
+
 namespace SushiEngine
 {
     namespace Editor
@@ -35,23 +37,8 @@ namespace SushiEngine
             constexpr float TWO_PI = 6.28318530718f;
             constexpr float DEG_TO_RAD = 0.01745329252f;
 
-            // Projects a world point to panel-local screen pixels through the camera's
-            // view-projection. Returns false when the point is behind the camera. The
-            // projection already carries Vulkan's Y flip, so NDC maps straight to the image.
-            bool project_to_screen(const SushiEngine::Mat4& view_projection, const Vector3& point,
-                                   const ImVec2& origin, float width, float height, ImVec2& out)
-            {
-                using Scalar = SushiEngine::Scalar;
-                const Scalar* m = view_projection.m;
-                const Scalar x = m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12];
-                const Scalar y = m[1] * point.x + m[5] * point.y + m[9] * point.z + m[13];
-                const Scalar w = m[3] * point.x + m[7] * point.y + m[11] * point.z + m[15];
-                if (w <= Scalar(0.0001))
-                    return false;
-                out.x = origin.x + static_cast<float>(x / w * Scalar(0.5) + Scalar(0.5)) * width;
-                out.y = origin.y + static_cast<float>(y / w * Scalar(0.5) + Scalar(0.5)) * height;
-                return true;
-            }
+            // `project_to_screen` comes from ../core/viewport_projection.hpp, shared with every
+            // other overlay that has to put a world point on the screen.
 
             // Shortest distance in pixels from point m to segment a-b: the handle hit test.
             float distance_to_segment(const ImVec2& a, const ImVec2& b, const ImVec2& m)

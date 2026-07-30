@@ -27,9 +27,9 @@
 // nonzero translation component, since rotating about a point other than the origin needs
 // one. A vertex sitting on the elbow's outer surface (pivot + a perpendicular offset),
 // weighted 50/50 between the two bones, is skinned two ways:
-//   * skin_position_lbs: linear-blend (translation lerp, rotation nlerp, independently) — the
-//     shape `skinning.comp`'s mat4-weighted-sum path is algebraically equivalent to for rigid
-//     joint transforms.
+//   * skin_position_lbs: linear blend skinning — the vertex is transformed by each bone and the
+//     results are weight-averaged, which is what `skinning.comp`'s mat4-weighted-sum path
+//     computes. Averaging in position space is what pulls the vertex off the rigid arc.
 //   * skin_position_dqs: dual-quaternion blend.
 // A rigid bend preserves every point's distance from the pivot exactly; LBS visibly does not
 // (the pinch), while DQS stays close to it — the whole reason this header exists.

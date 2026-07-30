@@ -369,6 +369,13 @@ endif()
 # a device (docs/slop/physics_system.md §3.4).
 add_subdirectory(geometry)
 
+# The offline cooking pipeline (cooking/, headers under physics/cooking): mesh in,
+# simulation asset out. Immediately after geometry because it is that module's first
+# real consumer, and host-only by design — it links sushi_geometry and nothing else,
+# so a build machine with no GPU can still turn a mesh into a collision asset
+# (docs/slop/physics_system.md §3.1, §8).
+add_subdirectory(cooking)
+
 # The engine-neutral atmosphere module (atmosphere/): T1, the global dynamical
 # core, and the Fourier transform its elliptic inversion is built on. Linking
 # nothing, for the same reason geometry does: its consumers are the simulation's

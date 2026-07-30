@@ -1611,8 +1611,8 @@ progress is recorded.
 | **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Complete** — manifolds, warm starting and friction; **contacts as a constraint kind inside the solve graph** (§6.3, §16.5); **the live `sim/` tick on one `IConstraintSolver`**; and contact events (§16.6). |
 | **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4, and §16.10 for the half of it that had been built without being connected: the island partition and sleeping reached only their own unit tests until 2026-07-30. |
 | **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | **Complete but for the editor.** The joint library, force/torque recovery, breakable joints and `IJointService` (§16.8); the `PhysicsAssembly` asset, its blob and its instancing, and the ragdoll wired to `RagdollBlend` (§16.9). The §14 assembly editor is the one item outstanding, and §16.10 sizes it honestly: it needs §5.5's `PhysicsJoint` component, its serialization and an `ISimulation` surface for joints before it can be a panel at all, because `ISimulation` deliberately does not expose the physics boundary. |
-| **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | Not started |
-| **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | Not started |
+| **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | **In progress.** The foundation layer (§16.11): `geometry/`'s mesh utilities and distance hierarchy, the fidelity dial, `CookingReport` and its thresholds, the three seams, the content-hash cache, polyhedral mass properties with principal axes. **The rigid half (§16.12): `CollisionCooker`, the convex decomposition, and the `.sushicollision` blob — a mesh now cooks to a loadable collision asset, cached, with its error measured.** **The soft half (§16.13): `SoftBodyCooker`, the tetrahedralizer, the render-mesh embedding, the level chain and the `.sushisoft` blob.** **The import chain (§16.14): `IMeshPostProcessor`, the ordered chain, the import profile with per-asset overrides, `CookingService` on a worker thread, and `Geometry::import_gltf_mesh` — so a mesh path in produces both assets with nobody pressing anything.** **The bake surface (§16.15): the Bake window's fidelity dial, cook reports, progress, Re-cook, and the collider overlay.** | **Complete** — see §16.11 (foundations), §16.12 (rigid), §16.13 (soft), §16.14 (import chain), §16.15 (bake surface). **94 of 94** tests pass across nine suites, dirty-mesh corpus included. Two things deliberately outside the phase: nothing consumes `.sushisoft` until P6 writes the element solver, and §14's soft-body *debug views* (stress and plastic-strain heat maps) read quantities only that solver produces. |
+| **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | **In progress.** **Maximum depenetration velocity is in and tested** — `ContactSolveParams::max_depenetration`, a distance per substep so the projection stays a pure function of its parameters, wired at `sim/`'s `submit_contacts` from `MAX_DEPENETRATION_VELOCITY`. **Speculative contacts are in and tested** — generation is widened by `ContactProxy::speculative_margin`, the same travel the broadphase sweeps its bounds by, and the *touching* test that feeds contact events deliberately stayed at the old offset so a speculative manifold is a constraint without reporting an impact from metres away. Survey of the rest: global substep escalation from the motion maximum already exists in `derive_substep_count` and the **per-island** part is P8's, not P5's; conservative advancement and the SDF narrowphase path are unwritten, and the SDF one is now unblocked because P4 produces the field. |
 | **P6** | **FEM soft bodies and strength.** The neo-Hookean two-constraint model (§9.1), `SoftBodyMaterial` and presets, stress readout and heat map (§9.3), plasticity (§9.4), fracture (§9.5), soft-vs-rigid and soft-vs-soft collision (§9.6), levels of detail (§9.7), and **the mesh binding of §8.6 driven end to end** — the embedding kernel, deformed normals, and `ClothStrandView` generalized to `DeformableMeshView`. Cloth gains bending. Cosmetic bodies gain the `float` column (§6.5). | **The cantilever-deflection test matches theory**; a body past yield keeps a permanent dent; a fractured body's render mesh follows correctly; 20 000 tetrahedra at the §13.1 target. | Not started |
 | **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | Not started |
 | **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | Not started |
@@ -2506,6 +2506,443 @@ fix for it compiles but **the suite has not been re-run since**, so those two sc
 diagnosed and repaired rather than observed green. Everything else here was run: the four
 new colouring tests pass, and the convex-manifold file passes at 8 of 8 with its restored
 negative case.
+
+### 16.11 P4's foundation layer, and the line it stops at
+
+**Started 2026-07-30.** P4 is the largest phase in the roadmap by some distance — ten
+soft-body stages, a rigid cooker, an import chain and an editor surface — so this
+entry exists to record what is in and, more usefully, what is *not*, in the shape
+§16.10 established: a module's status is a property of its call sites, not of its
+contents.
+
+**What is in, and tested.**
+
+- **`geometry/` grew the mesh utilities P4's first line asks for.** `analyze_mesh_topology`
+  measures without touching the geometry; `repair_mesh` produces a new mesh and reports
+  every change. The four repair stages run in the only order that works, and the order
+  is the interesting part: welding first, because which triangles share an edge is
+  undecidable until coincident corners are one vertex; then the degenerate and duplicate
+  drop, because **welding creates degenerate triangles** — a sliver whose two ends weld
+  together becomes a line, and a pipeline that dropped degenerates first would keep it;
+  then orientation, which needs the adjacency the first two stages made meaningful; then
+  compaction, the only stage that renumbers.
+- **Two options were deliberately removed** rather than implemented. "Do not drop
+  degenerate triangles" and "do not drop duplicates" both produce a state the orientation
+  pass has no answer for — a duplicated triangle makes all three of its edges
+  non-manifold, which is exactly the input propagation cannot resolve. Both are now
+  unconditional and both are still *counted*, which is what §8.3 stage 1 actually asks
+  for: the artist is told, not protected.
+- **`MeshDistanceQuery`,** a host hierarchy answering closest-point and signed-distance
+  queries, because four stages ask that one question and only differ in what they do with
+  the answer. It is separate from `physics/geometry/mesh_bvh.hpp` on purpose: that one
+  answers *overlap* per tick in the engine's scalar policy, this one answers *distance* at
+  cook time in `float`, below the physics, because an offline cooker must not depend
+  upward to get it.
+- **The distance-field bake now queries it.** `signed_distance_field.hpp` used to document
+  its O(voxels × triangles) sweep as acceptable because "a mesh large enough for that to
+  matter is a mesh that wants a hierarchy, which is a later change". P4 is when that stops
+  being true — 128³ voxels against 50 000 triangles is a hundred billion triangle tests
+  against §13.1's three-second budget — so the later change is this one, and that sentence
+  is now false and corrected.
+- **The fidelity dial**, resolving §8.2's table verbatim, with per-field overrides. The
+  interpolation is **geometric** for the four resolution-like quantities and linear for the
+  three small counts, and the reason is worth keeping: cost grows with the cube of a
+  resolution, so a linearly interpolated dial spends its first half buying nothing and its
+  last tenth buying everything. Under geometric interpolation each equal step of the dial
+  is a constant *factor*, which is the only mapping under which 0.5 means something an
+  artist can learn.
+- **`CookingReport` and `CookingThresholds`, split.** The report carries numbers; the
+  thresholds turn numbers into a verdict. That split is what lets a project accept eight
+  unembedded vertices in a background prop and none in a hero vehicle without either
+  decision being compiled into the cooker. A rejected cook **still has an asset**, because
+  being told "this failed" without being able to look at the geometry that failed is not a
+  diagnosis.
+- **The three seams** (`ICookingStage`, `IMeshCooker`, `ICookedAssetStore`) and the
+  content-hash cache behind the third, in memory and on a disk. The key is
+  (source hash, parameters hash, **cooker version**), and the third component is the one a
+  pipeline usually forgets: its absence means a bug fixed in the cooker never reaches the
+  assets cooked before the fix.
+- **Two decisions inside the cache worth not re-deriving.** The parameters hash is over the
+  *resolved* numbers, not the dial, so dragging a fidelity slider does not re-cook at every
+  pixel it passes through — two dials that resolve identically produce byte-identical assets
+  and must share an entry. And the mesh content hash reads positions *through the view's
+  stride* and normalizes negative zero, so the same geometry hashes identically whether it
+  arrives tightly packed or inside a sixty-byte render vertex; otherwise the cache misses
+  every time the import path changes shape.
+- **Polyhedral mass properties with principal axes** (§8.4 item 1), which closes the hole
+  `mass_properties.hpp` has documented since P0: a cooked hull has no closed form, its
+  properties are integrated over its faces, and the cooker is what produces faces. The
+  integration is a signed sum over tetrahedra spanned from the origin, so the origin's
+  position is irrelevant — whatever lies outside the surface is spanned twice with opposite
+  orientation and cancels. The eigendecomposition is here and not later because
+  `RigidBodyT::inv_inertia` is a *diagonal*, and keeping only the diagonal of a tensor that
+  is not diagonal in the modelled frame silently discards the products of inertia and
+  produces a body that tumbles plausibly and wrongly.
+- **Jacobi and not the closed-form cubic**, and the axis assignment is not cosmetic. Each
+  coordinate axis takes the eigenvector most aligned with it, so a box modelled
+  axis-aligned reports the identity rotation instead of an arbitrary permutation of its own
+  axes. The tests pin that, and one of them rotates by **thirty** degrees rather than
+  forty-five: at forty-five each eigenvector is equally aligned with two axes, the
+  assignment is a genuine tie, and asserting one arm of it would make the test lie about
+  what the code guarantees.
+
+**What is not in.** `CollisionCooker` and the `.sushicollision` blob, `SoftBodyCooker` and
+its ten stages and `.sushisoft`, the `IMeshPostProcessor` import chain, and the editor bake
+surface. **P4's acceptance criterion is therefore not met** — dropping a mesh into the
+project still produces nothing — and the phase status says "In progress" rather than
+anything warmer.
+
+**One finding that changes the shape of the rigid cooker, and is worth having before it is
+written.** `ConvexHullView` carries only `vertices`, `vertex_count`, a placement and a
+`convex_radius`; GJK's support function scans the vertex array. A cooked convex hull is
+therefore a **point set**, not a face topology — so the decomposition needs no
+face-building quickhull to produce a *correct* asset, only to produce a compact one, and a
+superset of hull vertices costs support-query time rather than correctness. Mass properties
+do not need the hulls at all: §8.4 item 1 integrates over the closed source mesh, which is
+what `mesh_mass_properties` already does. That collapses the riskiest-looking part of §8.4
+into a vertex-budget selection problem whose error is measurable with
+`max_protrusion_distance`, which exists.
+
+**On verification, stated plainly.** `se build` was run once at the start of the session and
+returned exit code 0, which establishes only that the tree was clean **before** any of this
+landed. Everything above is **unbuilt and unrun**: the user asked for no builds partway
+through, so not one line of the new code has been compiled and not one of the new tests has
+executed. Treat every claim in this section as a design statement, not an observation. The
+suite also still has §16.10's open item — it was at 727 of 729 with two joint-assembly
+scenes repaired but never re-run.
+
+### 16.12 The rigid cooker, and the number it optimizes
+
+**Done 2026-07-30**, immediately after §16.11 and on the finding recorded at the end of it.
+A mesh now cooks to a `.sushicollision` a body can collide as.
+
+**The finding did most of the work.** `ConvexHullView` holds a vertex array, a placement and
+a convex radius, and `support()` scans the vertices — so a cooked hull is a **point set**,
+and nothing in the runtime reads a hull face. Two consequences that between them removed
+most of §8.4's apparent difficulty:
+
+1. **The vertex budget comes before the hull, not after.** Selecting at most `N` vertices of
+   a part and hulling *those* bounds the hull build at `N` points, where brute-force
+   enumeration of triples is affordable and short enough to be read and believed. An
+   incremental hull that is subtly wrong produces a collider that is subtly wrong, which is
+   the least findable bug this pipeline can ship.
+2. **Simplification can only make a collider thinner.** Every selected point is a real mesh
+   vertex, so the selected hull sits inside the part's true hull. A thin collider is a body
+   that sinks a millimetre; a fat one is an invisible wall. The budget errs in the direction
+   that is merely imperfect rather than the one players report as a bug.
+
+**The hull build's one real trap is coplanarity, and it is why triples find *planes* rather
+than faces.** The four corners of a square face all satisfy every one of their own triples,
+so emitting a triangle per accepted triple covers that face twice and doubles its
+contribution to the volume — a hull of a cube's eight corners would report a volume of two.
+So accepted triples are deduplicated into supporting planes, and each plane is then tiled
+once by fanning its own points in angular order about their centroid. The test asserts the
+volume, because the volume is the assertion that catches this.
+
+**Concavity is measured as the number that gets reported.** A part's concavity is
+`Geometry::max_protrusion_distance` from its hull's surface to the source mesh — which is
+not a proxy for §7.6's error, it *is* §7.6's error, "the collider is three centimetres fatter
+than the mesh", in local units. The decomposition splits the part that departs furthest,
+picks whichever of three axis-aligned planes leaves the better *worse* child (the report is a
+maximum, so improving the better child moves nothing), and stops when a split buys no
+reduction. Optimizing the reported quantity directly avoids the usual arrangement where a
+volume ratio is minimized and a distance is reported.
+
+**Mass properties never touch the pieces.** §8.4 item 1 integrates over the closed source
+mesh, so the decomposition's approximation reaches what a body bumps into and never what it
+weighs or how it spins.
+
+**And that is where a real bug surfaced, found by writing the test rather than by reading the
+code.** `mesh_mass_properties` checked only that the volume came out positive. The divergence
+theorem given an *open* surface still returns a number — the cone fan from the origin — and a
+unit box missing one face integrates to five sixths of its volume. Plausible, wrong, and
+untraceable three weeks later. Closure is now checked, and the refusal is the point: zero mass
+already means "keep the authored value" at the extract, so a single-sided wall degrades to
+hand-authored numbers instead of to a confidently incorrect one. A **self-intersecting** mesh
+is closed and does integrate, with its overlap counted twice; that is inherent to the input,
+and the honest place to notice it is the repair report's component count.
+
+**Three things deliberately left undone rather than half-done.**
+
+- **`convex_radius` is zero on every cooked piece.** §5.2's inflation is only sound alongside
+  shrinking the vertices by the same amount, which means offsetting the hull inward along its
+  own planes. Setting the radius without the shrink would make every cooked collider fatter
+  than the mesh it came from — the one error §7.6 exists to keep at zero — so it stays zero
+  until the shrink is written.
+- **The distance field is a full brick, not the narrow band §8.4 item 3 asks for.** At 128
+  voxels per axis that is eight megabytes an asset. Narrowing it is a *format* change rather
+  than a baking change, so it is named here instead of approximated.
+- **The union volume is estimated by summing the pieces**, so a region two pieces both cover
+  counts twice and `volume_error` reports more collider than there is. That is the safe
+  direction for a threshold, and it is documented as an estimate rather than presented as the
+  union.
+
+**What the cooker does end to end.** Five stages, each an `ICookingStage` in a list so a sixth
+is an object rather than a case: repair, mass properties, geometry, distance field, serialize.
+Only the third differs between the two shapes — convex pieces, or the exact triangle hierarchy
+for authored-static geometry, whose error fields are genuinely zero rather than unmeasured
+because the collider *is* the mesh. The cache check is the cooker's own, so "an unchanged mesh
+is never re-cooked" is a property of the pipeline and not of every call site remembering to
+ask; a cache hit reports what the asset carries and leaves the source topology **unmeasured**,
+with `served_from_cache` as the discriminator, rather than filling in a clean-looking report
+nothing looked at. A cached blob this build cannot validate is evicted and re-cooked, because
+trusting it would be trusting bytes this build cannot read.
+
+**On verification.** Written as unbuilt and unrun; **run on 2026-07-30, and it is now
+observation rather than design.** The five test files compile and execute at **61 of 61**,
+including the dirty-mesh corpus P4's acceptance criterion names (exploded, mixed winding,
+inside out, self-intersecting, degenerate-and-duplicate, open shell). This did not need the
+project's build: `geometry/` and `cooking/` name `SushiRuntime` nowhere, so the suites link
+against nothing but their own two modules and gtest.
+
+**What the first execution found — three defects, all three in the tests.** Worth recording
+because the ratio is the interesting part: the pipeline the entry above describes was correct
+everywhere the tests disagreed with it.
+
+1. **One test did not compile at all**: `FilesystemCookedAssetStore store(std::string());` is
+   a most-vexing-parse, so the whole file was a function declaration where it read as a
+   variable. Nothing about the cache was being asserted, and nothing said so — this is the
+   failure mode a never-executed test file has, and the only detector for it is execution.
+2. **Two volume expectations were off by exactly 2×**, in `MatchesTheClosedFormForABox` and
+   `LeavesAConvexShapeAsOnePiece`, and the same way in both: `box_mesh` takes **half**-extents,
+   the expected literal converts them to full extents, and the *x* factor was left undoubled
+   in each (`0.5 * 3.0 * 0.5` for a box whose volume is `1.0 * 3.0 * 0.5`). Two independent
+   files carrying the identical slip is the tell that it came from the convention and not from
+   a typo.
+3. **`DiagonalizesARotatedBox` held absolute tolerances a float32 vertex buffer cannot meet.**
+   The residual was 1.6e-5 on a mass of 1200 — 1.3e-8 relative — and which side of the seam it
+   was on was *measured*, not assumed: integrating the same float32 corners in long double
+   with an independent tetra-fan formula reproduces the cooker's answer to its last two digits
+   (1199.9999839774744 against 1199.9999839774746). The integrator is exact; a rotated corner
+   simply is not representable in float32 where an axis-aligned one is, which is why the
+   unrotated box in the same file holds absolute bounds and this one now holds relative ones.
+
+Still **not** written, unchanged by the above: `SoftBodyCooker` and `.sushisoft`, the
+import-processor chain, and the editor bake surface.
+
+### 16.13 The soft-body cooker, and three bugs the first run found
+
+**Done 2026-07-30.** `.sushisoft` exists: a mesh cooks to a tetrahedral interior with the
+render mesh embedded in it, a level chain, a rest-shape distance field, and the parameters
+that produced all of it. Six `ICookingStage` objects cover §8.3's ten numbered steps — the
+mapping is tabulated in `soft_body_cooker.hpp` rather than left to be counted, and stages 2
+through 5 and 7 are one object because they share the voxel grid and publishing that grid as
+an interface would be a worse violation of §3.2 than the grouping is of §8.3's numbering.
+
+**Two deviations from §8.3, named rather than glossed.**
+
+1. **The lattice is Kuhn's six-tetrahedra-per-cell triangulation, not body-centred cubic.**
+   Kuhn conforms across cell faces *by construction* — the diagonal a shared face splits
+   along is the same computed from either side, verified by hand for all three axes — so
+   there is no parity bookkeeping to get wrong. Every element is congruent, which makes the
+   worst element quality a lattice constant (measured at roughly 0.42, against 1.0 for a
+   regular tetrahedron) rather than a property of the input. Body-centred cubic gives a
+   better constant and is a swap inside `build_tetrahedral_mesh`.
+2. **Boundary conforming is snapping, not marching tetrahedra.** Snapping cannot add a
+   vertex, so a feature thinner than a cell is lost rather than resolved. The voxel
+   resolution controls it and the report's accuracy number measures it.
+
+**The division of labour in the voxelizer is the part worth keeping.** The flood fill answers
+the *global* question — is this region enclosed — topologically, with no reliance on a
+surface normal, which is why a self-intersecting or open-shelled mesh still produces a solid
+body and is the whole of §8.3 stage 2's argument. But the fill cannot pass through the marked
+band, so every band cell comes out "not reached". The band, **and only the band**, is
+therefore decided by the local question: is this cell's centre behind the surface. One sign
+lookup, in the one place where it is the best information available, and an error there costs
+a single cell at a crease.
+
+**Three bugs, and the first execution found all three.** This is the entry's real content,
+because two of them were in the pipeline and neither was visible by reading.
+
+1. **The simulation mesh was a full cell fatter than the source in every direction.** The
+   surface band was marked by a circumradius test plus a one-cell bounds pad, which marks a
+   shell the surface never enters — and a marked cell is treated as part of the body. A unit
+   box measured **1.94** against a true volume of 1.0. The fix is an exact test: the closest
+   point of a triangle to a cell centre lies inside the cell exactly when the triangle meets
+   the cell, so comparing each component against half the cell is exact rather than
+   conservative. The box then measures 1.00000 and 216 interior cells for a resolution of 6,
+   which is 6³ — the right answer for the right reason.
+2. **The render-mesh binding table was indexed in the wrong order, and this is the one that
+   matters.** It was built against the *repaired* mesh, and `repair_mesh` welds and compacts,
+   so it renumbers. Every render vertex would have been driven by some other vertex's
+   element. The symptom is not a torn mesh but a **shuffled** one — the test caught it as a
+   vertex reconstructing at `y = +0.7` where the source has `-0.7`, an exact mirror — so it
+   reconstructs plausible geometry and is invisible until somebody looks at the model. The
+   bindings are now built against the source view, in source order, honouring its stride.
+3. **The level chain silently collapsed to one level.** The element-count target scales the
+   finest level's resolution *down* (16 to 3, for a 200-element target), and the coarser
+   levels were halving the **authored** resolution — so level 1 came out finer than level 0,
+   the "a level that is not coarser is a second copy" guard fired, and the chain refused to
+   grow. Coarser levels now halve the *effective* resolution, which
+   `TetrahedralizationReport` reports for the purpose — and reporting it also satisfies
+   §8.2's "the inspector shows what the dial produced".
+
+**A fourth defect surfaced while fixing the first.** Marking the band with an exact
+comparison decides the equidistant case — a face lying on a cell boundary, which is what a
+mesh modelled on round numbers produces constantly — by whichever way the grid arithmetic
+rounded, and it rounds differently for different faces of the same box. One wall of a cube
+marked both its layers and the opposite wall marked one, so an open box produced **zero**
+interior cells. The tie is now included with a tolerance and the outer layer is removed by
+the sign pass, so the outcome is a decision rather than a rounding artefact.
+
+**What is deliberately not done.** The `.sushisoft` asset has **no runtime consumer**: the
+finite-element model, the plasticity and the fracture that read a tetrahedral mesh are
+**P6**, and `physics/soft/` today holds a mass-spring box lattice and no element solver. So
+this asset's status is "produced and validated, not yet consumed" — recorded in advance this
+time rather than found by a later audit, which is what §16.10 was written about. Of §8.6's
+five binding invariants, 1 and 2 are asserted here (every render vertex bound; the
+reconstruction reproduces the source at rest, *through the serialized blob* rather than
+through the cooker's own intermediate state, since a rebasing bug lives exactly in that gap).
+Invariants 3, 4 and 5 are properties of a running solve and belong to P6; claiming a test for
+them here would be claiming a test for code that does not exist.
+
+**On verification — and this section is measured, not designed.** **78 of 78 pass**, across
+the six P4 suites and the pre-existing signed-distance-field suite, the last of which
+confirms that routing the bake through `MeshDistanceQuery` is behaviour-neutral. Compiled
+clean under `-Wall -Wextra -pedantic`. Run **without** the project build, through the
+standalone harness, which works because nothing in `geometry/` or `cooking/` names
+`SushiRuntime` — that independence is a property of the layering and is the reason this loop
+is measurable at all.
+
+### 16.14 The import chain — "without a manual step", finally
+
+**Done 2026-07-30.** §8.1's chain exists, so a mesh path in produces a `.sushicollision` and,
+if the profile asks, a `.sushisoft`, cached, on a worker thread, with nobody pressing
+anything. That is the clause of P4's acceptance criterion the two cookers could not satisfy
+on their own.
+
+**What §8.1 asks for is three words, and each is a mechanism rather than an intention.**
+*Ordered* — a processor names its own position, so the chain's sequence is a property of the
+processors and not of the order somebody registered them in; the test registers them
+backwards to prove it. *Registered* — the chain holds objects it was given, so §11's
+node-beam cooker arrives as one `add()` call at whatever point P7 writes it. *Open/closed* —
+the chain never asks *what* a processor is, only whether the profile wants it, which is the
+one decision that would otherwise become a `switch` every new asset kind has to edit. The two
+shipped processors are one template over the cooker, because the only things that differ
+between them are which cooker they hold, which profile flag they read and what they are
+called, and writing that twice is writing the same bug twice.
+
+**The mesh loader is a seam, and that is what keeps `cooking/` honest.** The chain takes
+triangles; getting them out of a file is the consumer's job, wired in as a `MeshLoader`. So
+`sushi_cooking` still links nothing but `sushi_geometry` and Threads — no cgltf, no device —
+and the chain is testable against a box built in memory. The glTF side is
+`Geometry::import_gltf_mesh`, declared in the neutral geometry surface and implemented in
+`import/`, the one module that links cgltf, which is the same split
+`Animation::import_gltf_skeleton` already uses. It walks **nodes** rather than meshes, because
+a node is what carries a transform and a model assembled from instanced nodes imported
+mesh-by-mesh arrives as a pile of overlapping parts at the origin.
+
+**Three decisions the tests exist to pin down.**
+
+1. **A failing processor does not stop the chain.** A mesh whose tetrahedralization cannot be
+   filled must still get its collider, or one bad soft-body cook silently costs the asset its
+   collision too — and what the artist then sees is a crate that has stopped being solid,
+   with nothing anywhere saying why.
+2. **An import that produced nothing still comes back.** `CookedImport::loaded` is false and
+   the products are empty, rather than the whole import being dropped. Same reasoning: a
+   silent absence is the failure that costs a day to trace.
+3. **An empty per-asset override removes its entry** rather than storing a no-op, so "reset
+   to project default" and "was never set" are one state. Otherwise a project accumulates
+   entries that do nothing, and a changed default silently fails to reach the assets that
+   carry them.
+
+**The override is deliberately small — four fields.** Fidelity, and which of the three kinds
+of thing this mesh is. Everything else in `CookingParameters` is engineering policy that
+belongs to the project, and letting the vertex budget or the sampling order be overridden per
+asset produces a project where no two assets were cooked comparably and no measurement means
+anything.
+
+**On the service.** One worker, not a pool. A cook is already allocation-heavy and
+cache-hostile so several at once mostly contend, and — the real reason — a single worker makes
+the result order a function of the submission order, which keeps an import log readable and a
+test deterministic. The caller polls; no callback fires on the worker, because a callback
+landing on a background thread is one that eventually touches a renderer from the wrong one.
+The destructor abandons the queue rather than draining it, since closing the editor must not
+take as long as the largest pending cook and the cache means nothing is lost.
+`CookingServiceStatus` has no "current processor" field: the chain does not report which
+member is running, and a field that is structurally always empty is the same failure as a
+made-up one — the stage name is also the better of the two, since "Tetrahedralize" says both
+what is happening and which cooker is doing it.
+
+**On verification.** **87 of 87 pass** across the eight P4 suites, the nine import-chain tests
+green on their first run. Compiled clean under `-Wall -Wextra -pedantic`; the glTF importer
+compiles clean against cgltf separately, since it is the one piece the standalone harness
+cannot link into the same binary. Still run without the project build.
+
+**What remains of P4 is the editor bake surface (§14), and one thing it needs.** The collider
+inspector wants the cook report, a Re-cook button and the collision geometry drawn as an
+overlay; the soft-body panel wants fidelity, progress and the report. The report and the
+progress are both available now — `CookingService::status()` is shaped for exactly that
+readout. The overlay needs hull *faces*, which the asset deliberately does not store because
+the runtime never reads one; `build_convex_hull_mesh` rebuilds them from the stored point set,
+so the panel has a supported route rather than a reason to change the format.
+
+### 16.15 The bake surface, and P4 closed
+
+**Done 2026-07-30.** The last P4 item. §14's collider and soft-body inspectors, as one **Bake**
+window (Analysis ▸ Bake) rather than two, because both show the same thing about the same
+asset — what the cook made and what it cost — and splitting them would have an artist checking
+two places to find out whether a crate is solid.
+
+**The split that matters is not between the two inspectors, it is between the panel and its
+model.** `CookBakeState` links no UI and holds every decision: which profile applies, whether
+Re-cook has to evict, when the overlay's geometry is rebuilt, whether a re-bake updates a row
+or adds one. `cook_bake_panel.cpp` is widgets over it. That is the arrangement the scene
+serializer and the command history already use, and the reason is that a bake surface's
+interesting behaviour is exactly the part an ImGui call cannot reach — so the seven tests are
+against the model and the untestable file is kept small.
+
+**Re-cook needed something that did not exist, and the shape of the fix is the point.** The
+button's whole purpose is to get past a cache entry whose key has *not* changed, which is the
+case when the **cooker** changed rather than the mesh — the one staleness a content hash cannot
+detect. Evicting needs the key; the key needs the source's content hash; the source is behind
+the loader on the worker thread. The first attempt at this was dead code that computed keys
+from an empty mesh and discarded them, which is worth recording because it looked plausible.
+The fix is `IMeshCooker::cache_key`: the cooker owns its version, the version is the part of
+the key nothing else can derive, so the cooker is what publishes it. Then `ImportProfile` gains
+a `force_recook` flag — on the *profile* and deliberately not in `CookingParameters`, because a
+flag that reached `cooking_parameters_hash` would not bypass the stale entry, it would file the
+result under a different key and leave the next ordinary cook reading the stale one again — and
+the processor evicts at the first point where the mesh and the cooker that owns the key are
+both in hand. The test asserts all three states: a plain bake is served from the cache, a
+re-cook is not, and the bake after it is served again, so Re-cook did not simply switch the
+cache off.
+
+**The overlay is drawn from rebuilt faces, not stored ones.** §14 asks for the collision
+geometry over the scene "so 'the collider is not the mesh' is *visible*", and the asset
+deliberately stores no hull faces — the runtime never reads one, so storing them would be
+memory in every shipped asset for a debug view. `collision_asset_wireframe` rebuilds them with
+the same routine that produced them at cook time, which is why it cannot disagree with what was
+cooked, and `CookBakeState` rebuilds on *selection* rather than per frame because that is a
+cook-shaped cost. A flat piece has no faces and is drawn as a star from its centre, since a
+piece that shows nothing reads as a piece that is not there.
+
+**One duplication removed rather than added to.** `project_to_screen` existed identically in
+the skeleton debug draw and in the transform gizmo, and the overlay would have been a third
+copy. Three definitions of a projection is three places for a near-plane rule to drift, and the
+symptom of drift is one overlay clipping a line another draws across the whole viewport. It now
+lives once, in `editor/core/viewport_projection.hpp`.
+
+**What §14 lists that this is not.** §14 covers seven surfaces and only two are P4's. The
+assembly editor is P3's one outstanding item and still needs §5.5's `PhysicsJoint` component
+first; the vehicle editor is P7; physics debug draw is P8/P9; the profiler panel already exists.
+The soft-body panel's *debug views* — wireframe tetrahedra, stress and plastic-strain heat maps
+— are listed under §14 but two of the three read quantities a running finite-element solve
+produces, which is **P6**. The report, the fidelity dial, the progress and the collider overlay
+are what P4 can honestly deliver, and they are delivered.
+
+**On verification. 94 of 94 pass** across the nine P4 suites — the seven bake-state tests green
+on their first run, including the eighteen-unique-edge assertion that catches a wireframe dedup
+that does not work. The three ImGui translation units cannot link into the standalone harness,
+so they were compiled `-fsyntax-only` against the real imgui headers, clean under `-Wall
+-Wextra`; the two files whose duplicated helper was removed were re-checked the same way.
+
+**P4 is closed.** The clause that has been the phase's headline since §8's first line — *drop a
+mesh into the project and it is soft-body ready, and you can set how accurate that is* — is
+true: a path in produces a `.sushicollision` and, at the profile's word, a `.sushisoft`, at the
+authored fidelity, cached, off the main thread, with a report and a measured error. The two
+things that remain are **not** P4's and are recorded as such: nothing consumes `.sushisoft`
+until P6 writes the element solver, and the editor's soft-body debug views need the same.
 
 ---
 

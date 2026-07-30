@@ -73,15 +73,12 @@ namespace SushiEngine
                 return after > before;
             }
 
-            /** @brief Samples one joint's local translation at a time (single joint, no alloc). */
-            inline Vector3f joint_translation(const ClipView& clip, float time_seconds, bool loop,
-                                              std::uint32_t joint) noexcept
+            /** @brief Brackets a clip time to two frames and the alpha between them. */
+            inline void bracket_frames(const ClipView& clip, float time_seconds, bool loop,
+                                       std::uint32_t& frame0, std::uint32_t& frame1,
+                                       float& alpha) noexcept
             {
-                if (!clip.valid() || joint >= clip.joint_count)
-                    return Vector3f{0.0f, 0.0f, 0.0f};
                 float position;
-                std::uint32_t frame0;
-                std::uint32_t frame1;
                 if (clip.frame_count == 1)
                 {
                     frame0 = frame1 = 0;
@@ -109,12 +106,41 @@ namespace SushiEngine
                     frame0 = static_cast<std::uint32_t>(local);
                     frame1 = frame0 + 1 < clip.frame_count ? frame0 + 1 : frame0;
                 }
-                const float alpha = position - std::floor(position);
+                alpha = position - std::floor(position);
+            }
+
+            /** @brief Samples one joint's local translation at a time (single joint, no alloc). */
+            inline Vector3f joint_translation(const ClipView& clip, float time_seconds, bool loop,
+                                              std::uint32_t joint) noexcept
+            {
+                if (!clip.valid() || joint >= clip.joint_count)
+                    return Vector3f{0.0f, 0.0f, 0.0f};
+                std::uint32_t frame0;
+                std::uint32_t frame1;
+                float alpha;
+                bracket_frames(clip, time_seconds, loop, frame0, frame1, alpha);
                 if (clip.format == ClipFormat::Compressed)
                     return lerp(clip.compressed.translation_at(frame0, joint),
                                 clip.compressed.translation_at(frame1, joint), alpha);
                 return lerp(clip.translations[frame0 * clip.joint_count + joint],
                             clip.translations[frame1 * clip.joint_count + joint], alpha);
+            }
+
+            /** @brief Samples one joint's local rotation at a time (single joint, no alloc). */
+            inline Quaternionf joint_rotation(const ClipView& clip, float time_seconds, bool loop,
+                                              std::uint32_t joint) noexcept
+            {
+                if (!clip.valid() || joint >= clip.joint_count)
+                    return Quaternionf{0.0f, 0.0f, 0.0f, 1.0f};
+                std::uint32_t frame0;
+                std::uint32_t frame1;
+                float alpha;
+                bracket_frames(clip, time_seconds, loop, frame0, frame1, alpha);
+                if (clip.format == ClipFormat::Compressed)
+                    return nlerp(clip.compressed.rotation_at(frame0, joint),
+                                 clip.compressed.rotation_at(frame1, joint), alpha);
+                return nlerp(clip.rotations[frame0 * clip.joint_count + joint],
+                             clip.rotations[frame1 * clip.joint_count + joint], alpha);
             }
 
             /** @brief The root joint's translation as a continuous function of accumulating time. */
@@ -130,6 +156,71 @@ namespace SushiEngine
                 const Vector3f first = joint_translation(clip, 0.0f, false, 0);
                 const Vector3f last = joint_translation(clip, duration, false, 0);
                 return local + (last - first) * cycles;
+            }
+
+            /**
+             * @brief Full loops a clip's root turn may compound into one tick's rotation delta.
+             *
+             * A tick that spans more than this many loops of the same clip is a pathological
+             * step, not a frame; the delta saturates rather than looping unboundedly. The
+             * translation path needs no equivalent because its per-cycle term is a multiply.
+             */
+            constexpr int MAX_ROOT_ROTATION_CYCLES = 8;
+
+            /**
+             * @brief The root joint's rotation between two accumulating normalized times.
+             *
+             * The rotational counterpart of @ref root_at, and continuous across a loop for the
+             * same reason: a clip whose root turns over its length must keep turning when it
+             * wraps, so the per-cycle turn `rotation(0)^-1 * rotation(duration)` is compounded
+             * once per whole loop crossed and the within-loop turn is taken from the fractions.
+             *
+             * @param clip           The clip whose root joint (index 0) carries the motion.
+             * @param old_normalized The tick's starting normalized time (loops as whole units).
+             * @param new_normalized The tick's ending normalized time.
+             * @return The local-frame rotation delta to apply this tick; identity if the clip
+             *         is invalid or its root does not turn.
+             */
+            inline Quaternionf root_rotation_delta(const ClipView& clip, float old_normalized,
+                                                   float new_normalized) noexcept
+            {
+                const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
+                if (!clip.valid())
+                    return identity;
+                const float duration = clip.duration > 0.0f ? clip.duration : 0.0f;
+                const float old_cycles = std::floor(old_normalized);
+                const float new_cycles = std::floor(new_normalized);
+                const Quaternionf from =
+                    joint_rotation(clip, (old_normalized - old_cycles) * duration, false, 0);
+                const Quaternionf to =
+                    joint_rotation(clip, (new_normalized - new_cycles) * duration, false, 0);
+
+                // The turn carried by whole loops crossed this tick, as a left multiply: the
+                // accumulated turn is in the entity's frame, the within-loop turn is local to it.
+                Quaternionf cycled = identity;
+                int loops = static_cast<int>(new_cycles - old_cycles);
+                if (loops > MAX_ROOT_ROTATION_CYCLES)
+                    loops = MAX_ROOT_ROTATION_CYCLES;
+                if (loops > 0)
+                {
+                    const Quaternionf per_cycle =
+                        mul(conjugate(joint_rotation(clip, 0.0f, false, 0)),
+                            joint_rotation(clip, duration, false, 0));
+                    for (int i = 0; i < loops; ++i)
+                        cycled = mul(per_cycle, cycled);
+                }
+
+                Quaternionf delta = normalize(mul(mul(conjugate(from), cycled), to));
+                // Take the short arc: a delta and its negation are the same rotation, and the
+                // caller compounds it every tick, so the sign must not flip frame to frame.
+                if (delta.w < 0.0f)
+                {
+                    delta.x = -delta.x;
+                    delta.y = -delta.y;
+                    delta.z = -delta.z;
+                    delta.w = -delta.w;
+                }
+                return delta;
             }
 
             /** @brief Evaluates one condition against the parameter block. */
@@ -251,6 +342,61 @@ namespace SushiEngine
                     delta = delta + step * contributions[i].weight;
                 }
                 return delta;
+            }
+
+            /**
+             * @brief The weighted root-track rotation of a contribution set between two times.
+             *
+             * Blends the per-clip deltas the same way the evaluator blends a pose: a
+             * hemisphere-corrected weighted component sum, normalized. A blend tree turning the
+             * root by different amounts per clip therefore turns the entity by their average,
+             * not by whichever clip happened to be first.
+             *
+             * @param database      Resolves each contribution's clip.
+             * @param contributions The state's weighted clips.
+             * @param count         Entries in @p contributions.
+             * @param old_time      The tick's starting normalized time.
+             * @param new_time      The tick's ending normalized time.
+             * @return The blended local-frame rotation delta; identity when no clip resolves.
+             */
+            inline Quaternionf blend_root_rotation(const IAnimationDatabase& database,
+                                                   const BlendContribution* contributions,
+                                                   std::uint32_t count, float old_time,
+                                                   float new_time) noexcept
+            {
+                const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
+                float x = 0.0f, y = 0.0f, z = 0.0f, w = 0.0f;
+                float total = 0.0f;
+                bool have_reference = false;
+                Quaternionf reference = identity;
+                for (std::uint32_t i = 0; i < count; ++i)
+                {
+                    const ClipView clip = database.clip(contributions[i].clip);
+                    if (!clip.valid())
+                        continue;
+                    Quaternionf step = root_rotation_delta(clip, old_time, new_time);
+                    if (!have_reference)
+                    {
+                        reference = step;
+                        have_reference = true;
+                    }
+                    else if (dot(reference, step) < 0.0f)
+                    {
+                        step.x = -step.x;
+                        step.y = -step.y;
+                        step.z = -step.z;
+                        step.w = -step.w;
+                    }
+                    const float weight = contributions[i].weight;
+                    x += step.x * weight;
+                    y += step.y * weight;
+                    z += step.z * weight;
+                    w += step.w * weight;
+                    total += weight;
+                }
+                if (total <= 1e-6f)
+                    return identity;
+                return normalize(Quaternionf{x, y, z, w});
             }
         } // namespace detail
 
@@ -403,8 +549,12 @@ namespace SushiEngine
 
                 // Root motion from the base layer only (weighted across a blend tree's clips).
                 if (l == 0 && instance.apply_root_motion != 0 && contribution_count > 0)
+                {
                     instance.root_motion.position = detail::blend_root_delta(
                         database, contributions, contribution_count, old_time, new_time);
+                    instance.root_motion.rotation = detail::blend_root_rotation(
+                        database, contributions, contribution_count, old_time, new_time);
+                }
             }
         }
 

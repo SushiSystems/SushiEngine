@@ -56,8 +56,9 @@ namespace SushiEngine
          * @brief Samples a clip's morph tracks into a mesh's target order.
          *
          * A clip names its morph tracks; a mesh fixes its target order. This resolves each mesh
-         * target to the clip track of the same name (by hash) and samples it, leaving targets the
-         * clip does not drive at zero — so one clip drives any mesh that shares the naming.
+         * target to the clip track of the same name (by hash) and samples that track alone,
+         * leaving targets the clip does not drive at zero — so one clip drives any mesh that
+         * shares the naming, however many tracks the clip carries.
          *
          * @param clip         The clip to sample.
          * @param time_seconds Playback time.
@@ -75,19 +76,15 @@ namespace SushiEngine
             out.count = target_count;
             for (std::uint32_t i = 0; i < target_count; ++i)
                 out.weights[i] = 0.0f;
-            if (!clip.valid() || clip.morph_track_count == 0)
+            if (!clip.valid() || clip.morph_track_count == 0 || target_names == nullptr)
                 return;
 
-            float sampled[MAX_MORPH_TARGETS];
-            std::uint32_t tracks = clip.morph_track_count;
-            if (tracks > MAX_MORPH_TARGETS)
-                tracks = MAX_MORPH_TARGETS;
-            clip.sample_morph(time_seconds, loop, sampled);
             for (std::uint32_t i = 0; i < target_count; ++i)
             {
                 const int track = clip.find_morph(target_names[i]);
-                if (track >= 0 && static_cast<std::uint32_t>(track) < tracks)
-                    out.weights[i] = sampled[track];
+                if (track >= 0)
+                    out.weights[i] =
+                        clip.sample_morph_track(time_seconds, loop, static_cast<std::uint32_t>(track));
             }
         }
 

@@ -74,10 +74,13 @@ namespace SushiEngine
             std::uint32_t tracks = clip.generic_track_count;
             if (tracks > MAX_GENERIC_TRACKS)
                 tracks = MAX_GENERIC_TRACKS;
-            float values[MAX_GENERIC_TRACKS];
-            clip.sample_generic(time_seconds, loop, values);
+            // Sampled a track at a time rather than into a `float[MAX_GENERIC_TRACKS]`, because
+            // `sample_generic` writes `generic_track_count` values and nothing caps a cooked
+            // clip's track count at this bound — clamping the dispatch loop would leave the
+            // *write* unclamped, which is the shape of the bug rather than the fix.
             for (std::uint32_t t = 0; t < tracks; ++t)
-                sink.set_value(clip.generic_names[t], values[t]);
+                sink.set_value(clip.generic_names[t],
+                               clip.sample_generic_track(time_seconds, loop, t));
         }
 
         /**

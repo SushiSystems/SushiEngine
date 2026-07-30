@@ -75,6 +75,22 @@ namespace SushiEngine
         {
             std::vector<std::byte> skeleton_blob; /**< The cooked `.sushiskel`. */
             std::vector<GltfClip> clips;          /**< One entry per glTF animation. */
+
+            /**
+             * @brief The skinned mesh's morph target names, in the mesh's own target order.
+             *
+             * Empty when the skin drives no mesh with morph targets. Hash these with
+             * @ref hash_name to get the `target_names` array @ref sample_morph_state maps a
+             * clip's morph tracks onto — the identity that lets one clip drive any mesh
+             * sharing the naming. A target the file leaves unnamed is called `morph_<index>`
+             * here and in the clip's own tracks alike, so nameless targets still resolve
+             * positionally.
+             *
+             * The order is the one @ref Render::Assets::import_gltf_skinned_mesh uploads its
+             * delta buffer in: the first triangle primitive of the first node bound to this
+             * skin that carries a complete skinned vertex set.
+             */
+            std::vector<std::string> morph_target_names;
         };
 
         /**
@@ -86,6 +102,14 @@ namespace SushiEngine
          * @ref ClipView against the matching @ref SkeletonView. Channels are sampled linearly
          * (cubic-spline keys are read at their value, tangents ignored — an A1 simplification);
          * joints a channel does not drive hold their bind-pose local transform.
+         *
+         * A `weights` channel drives every morph target of its node at once (glTF packs all of
+         * them into one sampler), so each such channel contributes one morph-weight track per
+         * target, named after the target (see @ref GltfAnimationImport::morph_target_names).
+         * Targets of the same name across two channels collapse to one track — the first seen
+         * wins, matching @ref ClipView::find_morph's first-match lookup. An animation with no
+         * `weights` channel yields no morph tracks, and a mesh whose targets no track names
+         * samples to zero weights.
          *
          * @param path        Path to a `.gltf` or `.glb` file with a skin and animations.
          * @param out         Receives the cooked skeleton and clips; cleared first.

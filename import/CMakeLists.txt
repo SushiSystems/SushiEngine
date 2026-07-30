@@ -22,7 +22,12 @@ find_path(CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
 add_library(sushi_import STATIC
     cgltf_impl.cpp
     gltf_skeleton_importer.cpp
-    gltf_animation_importer.cpp)
+    gltf_animation_importer.cpp
+    # §8.1's MeshImporter box: a glTF file's triangles as a Geometry::TriangleMesh, with no
+    # renderer between the file and them. The cooking pipeline starts at a file rather than
+    # at a mesh somebody already had, and reaching one through the renderer's importer would
+    # mean bringing up a graphics stack to cook a collider.
+    gltf_mesh_importer.cpp)
 
 target_include_directories(sushi_import PUBLIC
     "${CMAKE_SOURCE_DIR}/include"

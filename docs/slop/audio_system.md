@@ -46,7 +46,23 @@ in-engine feature (phase S10), never as a product.
 
 ---
 
-## Implementation status — where we left off (2026-07-24)
+## Implementation status — where we left off (2026-07-30)
+
+> **Verification record (2026-07-30).** Until this date the suite had been *written and reviewed
+> but never executed* — no compiler was on PATH in the sessions that authored S5 onward. It has now
+> been run. Every `include/SushiEngine/audio/**` header is host-only except `accelerator_sycl.hpp`,
+> and no audio unit test includes anything beyond the standard library and GoogleTest, so all
+> thirteen `test_audio_*.cpp` files compile into one binary and run without the project build:
+> **`Unit_Audio` 110/110**, compiled with `-Wall -Wextra` and warning-free, in ~1.3 s.
+> **`Integration_AudioEcs` 4/4** against the real ECS world. `accelerator_sycl.hpp` passes
+> `-fsycl -fsyntax-only`. No defects surfaced.
+>
+> **What that run does *not* cover**, named here rather than quietly counted as covered:
+> the **SYCL `IDspAccelerator` device path** (compiles, never executed on a device); the
+> **`opus_codec.hpp` / `vorbis_codec.hpp` / `sofa_hrtf.hpp`** external-dependency codecs, which no
+> test includes and which are therefore demo-verified only; and the **SDL/miniaudio device seam**,
+> which is hardware and needs ears. (`magls.hpp`, `acoustic_raytracer.hpp` and `authoring.hpp` are
+> covered — `test_audio_advanced.cpp`.)
 
 The **S0–S4 critical path is complete and verified**, and **S5 (reverb), S6 (ECS integration),
 S7 (occlusion / rooms + portals / early reflections), and S8 (asset pipeline) have landed on top of

@@ -23,6 +23,8 @@
 
 #include <SushiEngine/animation/gltf_skeleton_import.hpp>
 
+#include "../core/viewport_projection.hpp"
+
 namespace SushiEngine
 {
     namespace Editor
@@ -31,35 +33,8 @@ namespace SushiEngine
         using SushiEngine::Animation::NO_PARENT;
         using SushiEngine::Animation::SkeletonView;
 
-        namespace
-        {
-            // Projects a world point to panel-local screen pixels through the camera's
-            // view-projection — the same mapping the gizmo uses. Returns false behind the
-            // camera. The projection already carries Vulkan's Y flip.
-            bool project_to_screen(const SushiEngine::Mat4& view_projection, const Vector3& point,
-                                   const ImVec2& origin, float width, float height, ImVec2& out)
-            {
-                using Scalar = SushiEngine::Scalar;
-                const Scalar* m = view_projection.m;
-                const Scalar x = m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12];
-                const Scalar y = m[1] * point.x + m[5] * point.y + m[9] * point.z + m[13];
-                const Scalar w = m[3] * point.x + m[7] * point.y + m[11] * point.z + m[15];
-                if (w <= Scalar(0.0001))
-                    return false;
-                out.x = origin.x + static_cast<float>(x / w * Scalar(0.5) + Scalar(0.5)) * width;
-                out.y = origin.y + static_cast<float>(y / w * Scalar(0.5) + Scalar(0.5)) * height;
-                return true;
-            }
-
-            // Transforms a point by an affine matrix (w = 1).
-            Vector3 transform_point(const SushiEngine::Mat4& matrix, const Vector3& p)
-            {
-                const SushiEngine::Scalar* m = matrix.m;
-                return Vector3{m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12],
-                               m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13],
-                               m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14]};
-            }
-        } // namespace
+        // `project_to_screen` and `transform_point` come from ../core/viewport_projection.hpp:
+        // every overlay the editor draws needs them, and each one had grown its own copy.
 
         bool SkeletonPreview::load_gltf(const char* path)
         {

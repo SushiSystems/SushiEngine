@@ -824,6 +824,20 @@ namespace SushiEngine
                     std::uint32_t flags = 0;
                     /** @brief Detected and reported, never resolved. */
                     bool trigger = false;
+
+                    /**
+                     * @brief How far this proxy can travel this tick, in metres (§7.5 tier 1).
+                     *
+                     * The speculative margin's half. Manifold generation is widened by the
+                     * pair's two, so a body that will cross a surface *during* the tick still
+                     * gets a manifold at the start of it — without one, the per-substep
+                     * positional pass has nothing to catch the crossing with, and the body
+                     * arrives on the far side.
+                     *
+                     * Zero for static geometry and for anything asleep, both of which are
+                     * exactly right: neither is going anywhere.
+                     */
+                    T speculative_margin = 0;
                 };
 
                 /**
@@ -883,6 +897,23 @@ namespace SushiEngine
 
                 /** @brief The separation contacts come to rest at; zero is touching. */
                 static constexpr T REST_OFFSET = T(0);
+
+                /**
+                 * @brief The fastest a contact may push two bodies apart, in metres a second.
+                 *
+                 * §7.6's depenetration budget. Without it, a body spawned a metre inside
+                 * another has a metre of separation error and the positional pass projects
+                 * all of it in one substep — the pair leaves at a speed nothing in the scene
+                 * put there and takes whatever it hits with it. With it, the same overlap
+                 * resolves over as many substeps as it needs and looks like being pushed out
+                 * rather than fired out.
+                 *
+                 * Three metres a second is about walking pace: fast enough that a normal
+                 * overlap of a few centimetres clears within a tick, slow enough that a gross
+                 * one cannot become a projectile. It bounds only *recovery*; nothing here can
+                 * let a body sink further than it otherwise would.
+                 */
+                static constexpr T MAX_DEPENETRATION_VELOCITY = T(3);
 
                 /**
                  * @brief Creates the solver on first use, sized once and never resized.
@@ -1322,10 +1353,21 @@ namespace SushiEngine
                         // awake that comes near it still has to find it.
                         if (Physics::has_any_flag(bodies_[proxy.slot].flags,
                                                   Physics::BodyFlags::sleeping))
+                        {
+                            // Cleared rather than left: a body that was moving fast and then
+                            // settled would otherwise keep last tick's margin for as long as
+                            // it slept, widening every manifold around a stack that is not
+                            // going anywhere.
+                            proxy.speculative_margin = 0;
                             continue;
+                        }
                         proxy.shape = shape_for_slot(proxy.slot);
                         const Vector3T<T> travel =
                             bodies_[proxy.slot].velocity * delta_time;
+                        // The same displacement the broadphase sweeps its bounds by, which is
+                        // the point: the narrowphase must look as far as the broadphase did,
+                        // or the pair is found and then discarded for being far apart.
+                        proxy.speculative_margin = length(travel);
                         contact_index_.update_proxy(
                             proxy.id, Physics::shape_world_bounds(proxy.shape), travel);
                     }
@@ -1452,6 +1494,10 @@ namespace SushiEngine
                     // `g * h` every substep purely because gravity had a substep to
                     // act; returning that is how a settled stack buzzes for ever.
                     params.restitution_threshold = T(2) * T(9.81) * substep;
+                    // A velocity in the contract, a distance in the projection: the
+                    // multiplication happens once, here, where the substep length is already
+                    // known, so the projection stays a pure function of its parameters.
+                    params.max_depenetration = MAX_DEPENETRATION_VELOCITY * substep;
 
                     for (const Physics::BroadphasePair& pair : contact_index_.pairs())
                     {
@@ -1481,8 +1527,23 @@ namespace SushiEngine
                         record.a_entity = lhs.entity;
                         record.b_entity = rhs.entity;
                         record.trigger = lhs.trigger || rhs.trigger;
+                        // §7.5 tier 1. Generated out to the contact offset *plus how far the
+                        // pair can close this tick*, so a body that will cross the surface
+                        // mid-tick has a constraint waiting for it. The positional pass then
+                        // catches the crossing on whichever substep the predict makes the
+                        // separation negative — which is why the vast majority of fast motion
+                        // needs no sweep at all, and why this costs a few inert manifolds
+                        // rather than a closest-point query per body.
+                        //
+                        // The pair's summed travel and not its closing speed along the normal:
+                        // the normal is what generation is about to compute, so the magnitude
+                        // is the only bound available before it exists. It over-generates for
+                        // a pair moving *apart*, which costs a manifold that resolves to
+                        // nothing — the safe direction.
+                        const T speculative =
+                            CONTACT_OFFSET + lhs.speculative_margin + rhs.speculative_margin;
                         record.manifold = Physics::generate_shape_manifold<T>(
-                            lhs.shape, rhs.shape, CONTACT_OFFSET);
+                            lhs.shape, rhs.shape, speculative);
                         if (record.manifold.point_count == 0)
                             continue;
 
@@ -1494,7 +1555,22 @@ namespace SushiEngine
                         if (was != nullptr)
                             Physics::warm_start_manifold(record.manifold, was->manifold);
 
-                        current_.push_back(record);
+                        // A speculative manifold is a *constraint*, not a *touching pair*, and
+                        // conflating the two would make a body report a contact — with an
+                        // audio impact and a VFX burst behind it — while it is still metres
+                        // away and merely heading this way. So the touching test stays what it
+                        // was before the margin widened: within the contact offset.
+                        //
+                        // Only the deepest point is asked, because that is the point the event
+                        // reports at (§16.6) and a manifold whose nearest corner is inside the
+                        // offset is touching however far its others are.
+                        T nearest = record.manifold.points[0].separation;
+                        for (std::size_t p = 1; p < record.manifold.point_count; ++p)
+                            nearest = std::min(nearest, record.manifold.points[p].separation);
+                        const bool touching = nearest <= CONTACT_OFFSET;
+
+                        if (touching)
+                            current_.push_back(record);
                         if (record.trigger)
                             continue; // reported, never resolved
 

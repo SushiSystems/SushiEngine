@@ -171,6 +171,15 @@ namespace SushiEngine
             const SkeletonPreview* skeleton = nullptr; /**< Skeleton debug draw, or null. */
             bool skeleton_names = true;                /**< Label the skeleton's joints. */
 
+            /**
+             * @brief The selected cooked collider as line segments, or null (§14).
+             *
+             * Six floats per segment, in the asset's frame. Segments rather than an asset,
+             * because building them means rebuilding hull faces from the stored point set and
+             * that is not a per-frame cost; `CookBakeState` rebuilds them on selection.
+             */
+            const std::vector<float>* collision_wireframe = nullptr;
+
             /** The isolated effect preview drawn in this viewport, or null. */
             EffectPreview* particle_preview = nullptr;
 

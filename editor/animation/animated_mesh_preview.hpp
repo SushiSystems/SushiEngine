@@ -258,11 +258,11 @@ namespace SushiEngine
                 const Animation::TwoBoneIk& two_bone_ik() const noexcept { return two_bone_ik_; }
 
                 /**
-                 * @brief Sets constant per-target morph (blend-shape) weights.
+                 * @brief Sets per-target morph (blend-shape) weights by hand.
                  *
-                 * Not yet clip-driven (design §12.1/§12.2: glTF `WEIGHTS` animation-channel
-                 * import doesn't exist yet), so this is the manual seam until that lands — set
-                 * once to pose a face/prop, or drive it frame-by-frame from calling code.
+                 * The manual seam, for posing a face/prop the loaded clip does not animate. It
+                 * is overwritten every frame while @ref clip_driven_morphs is on and the base
+                 * clip carries morph tracks — turn that off first to hold a hand-set pose.
                  * Weights beyond the loaded mesh's own target count are ignored by the
                  * SkinningPass.
                  *
@@ -273,6 +273,40 @@ namespace SushiEngine
                 {
                     morph_weights_.assign(weights, weights + count);
                 }
+
+                /**
+                 * @brief Whether the base clip's morph-weight tracks drive the mesh's targets.
+                 *
+                 * On by default, and a no-op when the loaded clip has no morph tracks (a rig
+                 * without blend shapes, or a glTF whose animations carry no `weights` channel),
+                 * so a hand-set pose survives in that case.
+                 */
+                bool clip_driven_morphs() const noexcept { return clip_driven_morphs_; }
+
+                /** @brief Morph-weight tracks the base clip carries; 0 means nothing to drive. */
+                std::uint32_t clip_morph_track_count() const noexcept
+                {
+                    return clip_.morph_track_count;
+                }
+
+                /**
+                 * @brief Stops or resumes clip-driven morph weights, per @ref clip_driven_morphs.
+                 * @param enabled False to hold whatever @ref set_morph_weights /
+                 *                @ref set_morph_weight last wrote.
+                 */
+                void set_clip_driven_morphs(bool enabled) noexcept { clip_driven_morphs_ = enabled; }
+
+                /**
+                 * @brief A morph target's name, for a blend-shape slider's label.
+                 *
+                 * The name the clip's tracks are matched against (design §6.5) — a target the
+                 * source file left unnamed reads back as `morph_<index>`, the same positional
+                 * fallback the importer names its tracks with.
+                 *
+                 * @param index A target index in [0, @ref morph_target_count).
+                 * @return The name, or an empty string if @p index is out of range.
+                 */
+                const std::string& morph_target_name(std::uint32_t index) const noexcept;
 
                 /**
                  * @brief Morph targets the loaded mesh carries, per @ref set_morph_weights.
@@ -355,6 +389,9 @@ namespace SushiEngine
                     std::uint32_t layer_count = 0;
                     std::size_t palette_bytes = 0;      /**< One frame's palette (current only). */
                     std::uint32_t active_morph_weights = 0;
+                    /** @brief Morph-weight tracks the base clip carries (0 = nothing to drive). */
+                    std::uint32_t clip_morph_track_count = 0;
+                    bool clip_driven_morphs = false; /**< See set_clip_driven_morphs. */
                     bool clip_compressed = false;
                     std::uint32_t clip_frame_count = 0;
                     float clip_sample_rate = 0.0f;
@@ -406,8 +443,14 @@ namespace SushiEngine
                 bool playing_ = true;
                 bool use_dual_quaternion_skinning_ = false; /**< See set_dual_quaternion_skinning. */
                 // Sized to the loaded mesh's morph target count by load_gltf (zero-filled), then
-                // overwritten in place by set_morph_weights; see morph_target_count().
+                // overwritten in place by set_morph_weights or, while clip_driven_morphs_ is on,
+                // by sampling the base clip's morph tracks each update(); see morph_target_count().
                 std::vector<float> morph_weights_;
+                // Parallel to morph_weights_: the mesh's target names and their hashes, the
+                // identity sample_morph_state matches the clip's tracks against.
+                std::vector<std::string> morph_target_names_;
+                std::vector<Animation::NameHash> morph_target_hashes_;
+                bool clip_driven_morphs_ = true;
                 std::vector<Render::SkinnedInstance> instances_;
         };
     } // namespace Editor

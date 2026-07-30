@@ -83,6 +83,9 @@
 #include "audio/audio_authoring_panel.hpp"
 #include "audio/audio_editor_system.hpp"
 #include "audio/audio_panels.hpp"
+#include <SushiEngine/geometry/gltf_mesh_import.hpp>
+
+#include "physics/cook_bake_panel.hpp"
 #include "physics/physics_statistics_panel.hpp"
 
 namespace
@@ -319,6 +322,15 @@ int main(int argc, char** argv)
         // here like the particle preview — the panel is a view over it, and it bakes
         // to a runtime bank. Session-scoped until project-file persistence lands.
         SushiEngine::Audio::AudioAuthoringProject audio_authoring_project;
+
+        // The bake surface's model, and the one place the `MeshLoader` seam is wired: the
+        // editor is the consumer, so the editor is what decides that "a path" means a glTF
+        // file. The cooking module itself links no importer, which is what lets it be built
+        // and tested on a machine with neither cgltf nor a device.
+        SushiEngine::Editor::CookBakeState cook_bake_state(
+            [](const std::string& path, SushiEngine::Geometry::TriangleMesh& out)
+            { return SushiEngine::Geometry::import_gltf_mesh(path.c_str(), out); },
+            "cooked");
 
         // The live GPU-skinned character preview: the A1 "load a rigged, animated glTF and see
         // it looping, skinned on the GPU" surface (design `slop/animation_system.md` §12.1) —
@@ -843,6 +855,10 @@ int main(int argc, char** argv)
                 scene_inputs.gizmo_snap = &snap;
                 scene_inputs.strands = strands.data();
                 scene_inputs.strand_count = strands.size();
+                // The selected cooked collider, drawn over the mesh it came from (§14). Scene
+                // view only: the Game view is what the player sees, and a debug overlay there
+                // would be showing them the workings.
+                scene_inputs.collision_wireframe = &cook_bake_state.collision_wireframe();
                 scene_inputs.lights = scene.lights.data();
                 scene_inputs.light_count = scene.lights.size();
                 scene_inputs.decals = scene.decals.data();
@@ -1105,6 +1121,7 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_audio_authoring_panel(audio_authoring_project, audio_system,
                                                             &context.panels.audio_authoring);
             SushiEngine::Editor::draw_physics_statistics_panel(context);
+            SushiEngine::Editor::draw_cook_bake_panel(context, cook_bake_state);
             SushiEngine::Editor::draw_preferences_window(context);
             SushiEngine::Editor::draw_input_manager_window(context);
             SushiEngine::Editor::draw_save_scene_as_modal(context, running);

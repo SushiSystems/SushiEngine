@@ -78,8 +78,14 @@ namespace SushiEngine
                         normal = Vector3{0.0, 1.0, 0.0};
                     normal = normalize(normal);
 
-                    // Only plant when the ground is at or above the animated foot (don't pull the
-                    // foot down into the air); a foot already below ground is lifted to it.
+                    // The goal is the ground, in *both* directions and unconditionally: a foot the
+                    // clip put below the surface is lifted onto it, and a foot the clip left
+                    // floating above a dip is planted down into it. Only planting upward would
+                    // leave a walk cycle authored on flat ground hovering over every depression,
+                    // which is the more visible of the two errors. Nothing has to guard against
+                    // reaching for ground too far below, either — @ref TwoBoneIk extends toward an
+                    // out-of-range target without stretching, so an unreachable floor leaves the
+                    // leg straight rather than pulling it apart.
                     const Scalar goal_y = hit.y + static_cast<Scalar>(foot_height);
 
                     TwoBoneIk leg;

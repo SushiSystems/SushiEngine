@@ -49,6 +49,29 @@ interactive-session launch check — this session's own attempt to run `se_edito
 hit a `vkQueueSubmit`/`VK_ERROR_DEVICE_LOST` very early despite a real GPU being
 enumerable (`vulkaninfo` confirms a GTX 1060), unconfirmed whether pre-existing or
 introduced by this session's work — see the crowd wiring entry for the exact finding.
+**2026-07-30**: §12.2's glTF `WEIGHTS` animation-channel import — the last open in-scope
+item in this document — is closed and verified by a real test suite, so morph weights are
+clip-driven end to end (`examples/assets/morph_face.gltf`,
+`tests/functional/unit/test_animation_morph_import.cpp`, seven cases, all passing). A
+latent 64-track buffer overrun in `sample_morph_state` was found and fixed on the way.
+That session also found the one genuinely large remaining gap and then closed its core: the
+animation stack had **no tests in `tests/functional/` at all**, every claim below resting on
+an `examples/*_demo.cpp` binary, which `CONTRIBUTING.md` §3.2 explicitly says does not
+substitute for a test. **Ten suites, 125 cases, all passing** now cover the asset layer, the
+deterministic tick, the blend trees, the layer/mask fold, the pose-modifier stack, retargeting,
+the controller's persistence, the authoring model, and the §12.4 tail. §12.5 item 7 has the
+table, the five defects the suites found, and the one item still uncovered
+(`DeviceBatchEvaluator`, the only piece needing SushiRuntime).
+
+Writing them paid for itself immediately and kept paying: **rotation root motion turned out
+never to have been implemented**, though §0.1 listed it as met and two earlier audits of this
+document confirmed it (implemented and tested 2026-07-30, §12.2); and of the four further
+defects the §12.4 tail's suites found, **three were a comment or a doc describing behaviour the
+code did not have** — including one that made dual-quaternion skinning's whole comparison
+against linear blending meaningless. Read §12.5 item 7 before trusting any "confirmed present"
+claim here. The failure mode both rounds demonstrate is the same: prose about code, with
+nothing that fails when the two disagree.
+
 Audited against the actual source tree on 2026-07-25; do not trust phase checkmarks in
 this document without re-grepping, the previous revision drifted from the code for
 weeks before this rewrite.
@@ -66,14 +89,19 @@ The system is done when every one of these holds. They are contractual, not aspi
    trigger), exit time, duration, offset, and interruption sources; layers carry avatar
    masks and override/additive blending; animation events fire callbacks; root motion
    moves the entity (translation **and** rotation); two-bone IK, look-at IK, and chain
-   IK modify the final pose. **Met.**
+   IK modify the final pose. **Met** — the rotation half only as of 2026-07-30; it was
+   listed as met for two revisions while nothing sampled it (§12.2). Test-guarded now
+   (`Unit_AnimatorStep`, `Unit_AnimationBlendTree`, `Unit_AnimationLayers`,
+   `Unit_AnimationIk`).
 2. **Deterministic where it must be.** Everything that can affect gameplay — parameter
    values, state-machine state, transition progress, normalized times, event firing,
    root-motion deltas — advances only in the fixed-tick simulation, is bit-reproducible
    under `SE_DETERMINISTIC_FP`, lives in trivially-copyable ECS columns, and survives
    `RollbackBuffer` capture/restore byte-exactly. Pose evaluation and skinning are
    derived, per-render-frame data and are explicitly outside the rollback domain.
-   **Met, CPU-verified (`animator_demo`).**
+   **Met, and test-guarded as of 2026-07-30** (`Unit_AnimatorStep`: a `static_assert` that
+   every column is trivially copyable, a same-inputs replay compared with `memcmp`, and a
+   capture/restore/replay compared the same way).
 3. **Replay-only graphs stay replay-only.** After warm-up, `Schedule::compile_count()`
    remains 1 with any number of animated entities spawning and despawning inside
    reserved chunks. Animation never migrates archetypes mid-run and never allocates
@@ -100,9 +128,11 @@ The system is done when every one of these holds. They are contractual, not aspi
    `animation_benchmark`). **Byte-accountable in the editor's statistics panel: not
    met** — no such panel rows exist yet (§12.1).
 8. **Docs land with code.** Every phase ships its CHANGELOG entry, ARCHITECTURE
-   section, and editor surface in the same PR. **Mostly met** — CHANGELOG and
-   `ARCHITECTURE.md` §12 are current; some editor surfaces (mask editor, IK gizmos)
-   never shipped despite their CPU seams landing (§12.1).
+   section, and editor surface in the same PR. **Met** — CHANGELOG and
+   `ARCHITECTURE.md` §12 are current, and the editor surfaces that were missing (mask
+   editor, IK gizmos) shipped 2026-07-25 (§12.1). The sibling standard is **not** met:
+   `CONTRIBUTING.md` §3.2 requires a test with new behavior, and the animation stack has
+   one test file (§12.5 item 7).
 
 ---
 
@@ -261,9 +291,11 @@ time retargeting cannot cover. Cooked artifacts: `.sushiskel`, `.sushianim`, `.s
 shared header. `animator_step` advances normalized time, evaluates transitions
 (Any-State first, then current-state, honoring exit time and interruption source),
 steps/starts crossfades, consumes triggers once, appends events, and samples the root
-track — **both translation and rotation** — into `RootMotionDelta`
-(`animator_step.hpp:412-433`, `animator_components.hpp:169-173`). `apply_root_motion`
-writes `Transform`/`Orientation` as a second, dependency-ordered system.
+track — both translation (`blend_root_delta`) and rotation (`blend_root_rotation`, added
+2026-07-30; the earlier claim that this existed was wrong, see §12.2) — into
+`RootMotionDelta`. `apply_root_motion` writes `Transform`/`Orientation` as a second,
+dependency-ordered system. Line references are deliberately omitted here: citing them is
+what let two audits mistake the delta's *consumer* for its *producer*.
 
 ### 5.2 Frame evaluation — blend trees, sampling, layers, compose
 
@@ -533,11 +565,12 @@ missing.
   back to the already-bound skin/palette buffer when an instance has none, since a
   descriptor set needs a live handle even for a binding the shader will not read) and
   `skinning.comp` blends `Σ weight × delta` into the base position before joint
-  skinning. `AnimatedMeshPreview::set_morph_weights` is the manual seam — **not yet
-  clip-driven**, because glTF `WEIGHTS` animation-channel import doesn't exist (§12.2
-  addendum below). Needs a real morph-target asset and the user's GPU build to confirm
-  visually; the demo rig (`rigged_arm_anim.gltf`) almost certainly has no blend shapes,
-  so this cannot self-verify with the asset already wired into `editor/main.cpp`.
+  skinning. `AnimatedMeshPreview::set_morph_weights` was the manual seam; the weights are
+  clip-driven as of 2026-07-30 (§12.2). Still needs the user's GPU build to confirm
+  visually: `rigged_arm_anim.gltf`, the rig wired into `editor/main.cpp`, has no blend
+  shapes, so point `panel_state.hpp`'s `character_path` at
+  `examples/assets/morph_face.gltf` instead — a deliberately minimal fixture (one skinned
+  triangle, two targets), enough to see a target move on screen but not a face.
 - **Live layered/masked/IK `AnimatorEvaluator` path — CLOSED 2026-07-25, unverified on
   hardware.** Part 1 of the two-part re-scope below: `AnimatedMeshPreview` no longer
   runs the cut-down single-clip `ClipEvaluator` — `load_gltf` now compiles a minimal
@@ -601,18 +634,80 @@ missing.
 
 ### 12.2 Root-motion / IK correctness refinements
 
-- Rotation root motion is present (§5.1) — no work needed here, corrects an error in
-  the prior revision of this document.
-- **glTF `WEIGHTS` animation-channel import — open, found 2026-07-25.** Discovered
-  while wiring GPU morph blending (§12.1): `gltf_animation_importer.cpp` reads
-  translation/rotation/scale channels only — it never reads
-  `cgltf_animation_path_type_weights`, so a clip's morph-weight tracks
-  (`.sushianim` v2, A7) can never be populated from a glTF source; only a
-  hand-authored clip blob could drive them today. Small, scoped fix once someone
-  needs animated (not just posed) morph targets: extend the existing per-joint
-  channel-mapping loop with a per-target weights sampler, matching the pattern
-  `sample_vec3`/`sample_quat` already use. Blocks `AnimatedMeshPreview` (or anything
-  else) from clip-driving `set_morph_weights` instead of setting it once by hand.
+- **Rotation root motion — was NOT present; implemented 2026-07-30.** This entry previously
+  read "rotation root motion is present (§5.1) — no work needed here, corrects an error in the
+  prior revision of this document." That correction was itself wrong, and §0.1 listed the
+  translation-and-rotation contract as **Met** on the strength of it. What existed was the
+  `RootMotionDelta::rotation` field and its consumer (`apply_root_motion` composes it into the
+  entity's orientation); what did not exist was anything writing it. `animator_step` set only
+  `root_motion.position` — a grep for `root_motion.rotation` found no assignment anywhere — so
+  every clip whose root turned moved the character without turning it. Both earlier audits read
+  the struct field and the consumer and concluded the sampler was there. Found by writing
+  `Unit_AnimatorStep`, which is the whole argument for the suite: a claim that survived two
+  document audits did not survive one test.
+  Closed by `detail::root_rotation_delta` — the rotational counterpart of `root_at`, continuous
+  across a loop for the same reason: the per-cycle turn `rotation(0)⁻¹ · rotation(duration)` is
+  compounded once per whole loop crossed, bounded by `MAX_ROOT_ROTATION_CYCLES` so a
+  pathological step saturates rather than looping unboundedly — and
+  `detail::blend_root_rotation`, which blends a blend tree's per-clip deltas with the same
+  hemisphere-corrected weighted component sum the evaluator already uses on a pose.
+  `joint_translation`'s frame bracketing was factored into `bracket_frames` and shared with a
+  new `joint_rotation` rather than duplicated. Verified by test: a clip turning a quarter circle
+  per loop turns the entity a quarter circle per loop across two wraps, about the clip's axis
+  only, and a clip whose root does not turn leaves the orientation exactly alone over 300 ticks
+  instead of drifting by an accumulated near-identity delta.
+- **glTF `WEIGHTS` animation-channel import — CLOSED 2026-07-30, actually verified.**
+  Found 2026-07-25 while wiring GPU morph blending (§12.1):
+  `import/gltf_animation_importer.cpp` read translation/rotation/scale channels only —
+  never `cgltf_animation_path_type_weights` — so a clip's morph-weight tracks
+  (`.sushianim` v2, A7) could never be populated from a glTF source, and
+  `AnimatedMeshPreview::set_morph_weights` had to stay a hand-set seam. Closed by:
+  - **The sampler.** `read_weight`/`sample_weight` alongside the existing
+    `sample_vec3`/`sample_quat`. glTF packs *every* target's weight into one sampler
+    (`target_count` scalars per key), so one channel becomes one track per target — a
+    single element read at `key * target_count + target_index`, with the same
+    cubic-spline-reads-the-middle-component and step-vs-linear handling the joint
+    samplers use. Tracks are named after the target (`mesh.extras.targetNames`, else the
+    positional `morph_<index>`); a name a second channel repeats is skipped, since
+    `ClipView::find_morph` is first-match and could never reach the duplicate anyway.
+  - **The mesh side.** `GltfAnimationImport::morph_target_names` reports the target order
+    the *mesh* fixes — which is what `morph.hpp`'s `sample_morph_state` needs to map a
+    clip's name-addressed tracks onto a mesh's index-addressed weights, and which nothing
+    in the codebase produced before. Its documented contract is that it matches
+    `Render::Assets::import_gltf_skinned_mesh`'s upload order (first triangle primitive of
+    the first node bound to this skin carrying a complete skinned vertex set); the
+    predicate is written out in both files with a note to keep them in step. The
+    positional fallback name is the load-bearing detail: both sides derive `morph_<i>`
+    from the same index, so an unnamed target still resolves by hash.
+  - **The consumer.** `AnimatedMeshPreview` samples the base layer's clip into the mesh's
+    target order every `update()` (`clip_driven_morphs()`, on by default, a no-op when the
+    clip has no morph tracks so a hand-set pose survives), exposes
+    `morph_target_name(index)` for slider labels, and reports the track count and drive
+    mode through `Statistics`. The Animator Preview window gained a "Driven by clip"
+    checkbox that disables the sliders while it is on; the Statistics panel's morph row
+    now says clip-driven vs. manual. Morph weights are sampled from the *base* clip, not
+    blended across layers — layer blending is a pose operation, weight tracks are not
+    part of a pose.
+  - **A real latent bug found and fixed on the way.** `sample_morph_state` sampled *all*
+    of a clip's tracks into a `float[MAX_MORPH_TARGETS]` (64) stack buffer while clamping
+    only its own loop bound — a clip with more than 64 morph tracks overran it. It was
+    unreachable before this work (nothing could produce morph tracks from an asset), and
+    would have become reachable the moment a real facial rig landed. Fixed by adding
+    `ClipView::sample_morph_track` (one track, same bracketing) and having
+    `sample_morph_state` sample only the tracks a mesh's targets actually name — which is
+    also strictly less work in the common case.
+
+  **Verified by running it**, not by inspection: `examples/assets/morph_face.gltf` (a
+  skinned triangle with two named targets, `jawOpen`/`eyeBlinkLeft`, one animation driving
+  them and one driving only a joint rotation) and
+  `tests/functional/unit/test_animation_morph_import.cpp` — seven cases covering the
+  import, the cooked clip's named tracks, the resampled keys against the authored ones
+  (including that between-key sampling is linear, not stepped), an animation with no
+  `weights` channel yielding no morph tracks, `sample_morph_state` resolving a
+  *reverse-ordered* mesh with an undriven extra target (the case a positional mapping
+  silently gets wrong), and joint tracks still importing alongside a weights channel. All
+  seven pass. This is also the **animation stack's first test under `tests/functional/`**
+  — see the standards note below.
 
 ### 12.3 The performance floor — device-batched evaluator: CLOSED 2026-07-25, actually verified
 
@@ -965,9 +1060,8 @@ Cheapest-and-most-blocking first, matching §12.1/§12.3 grouping:
 1. ~~The evaluator-to-renderer bridge~~ — done 2026-07-25, pending the user's GPU
    build/visual confirmation (§12.1).
 2. ~~GPU morph blending~~ — done 2026-07-25, pending the user's GPU build/visual
-   confirmation with an actual morph-target asset (§12.1); surfaced the glTF
-   `WEIGHTS`-channel import gap (§12.2) as a smaller follow-up once clip-driven morphs
-   are needed.
+   confirmation (§12.1); the morph-target asset it needed and the glTF `WEIGHTS`-channel
+   import gap it surfaced are both ~~closed 2026-07-30 and verified by test~~ (§12.2).
 3. ~~Statistics panel~~ — done 2026-07-25, pending the user's GPU build/visual
    confirmation (§12.1).
 4. ~~Mask editor + IK gizmos~~ — both parts done 2026-07-25, pending the user's GPU
@@ -988,3 +1082,63 @@ Cheapest-and-most-blocking first, matching §12.1/§12.3 grouping:
    left there is purely a visual check, not more engineering. One genuine follow-up
    remains: neural/ML compression (needs a training pipeline and dataset, not an
    afternoon of engineering — a real non-goal, not a shortcut).
+7. **The regression-test debt — closed, 2026-07-30, core and §12.4 tail alike.**
+   Not a feature, a standards gap: `CONTRIBUTING.md` §3.2 says new behavior ships with a
+   GoogleTest under `tests/functional/` and says in as many words that a demo under
+   `examples/` "does not substitute for a test." Every claim in §8 and §12 rested on an
+   `examples/*_demo.cpp` binary; the animation stack — forty-odd headers, every A-phase,
+   every §12.4 item — had **zero** tests in the suite. Ten suites now exist, **125 cases,
+   all passing**:
+
+   | Suite | Covers | Cases |
+   |---|---|---|
+   | `Unit_AnimationClip` | skeleton/clip cooks + refusals, sampling contract, compression error bound | 11 |
+   | `Unit_AnimatorStep` | state machine, events, root motion, determinism, rollback | 11 |
+   | `Unit_AnimationBlendTree` | all five node kinds, unit-partition sweep, capacity bound | 9 |
+   | `Unit_AnimationLayers` | fold order, masks, additive, the additive bake | 12 |
+   | `Unit_AnimationIk` | seven solvers' convergence and limits, stack order, zero-weight no-op | 20 |
+   | `Unit_AnimationMorphImport` | the glTF `weights` lane end to end (§12.2) | 7 |
+   | `Unit_AnimationRetarget` | §4.4's avatar mapping, delta transfer, stride scaling, mirroring, the runtime path | 12 |
+   | `Unit_AnimationControllerJson` | §4.3's persistence, round-tripped through the compiled blob's bytes | 10 |
+   | `Unit_AnimationKeyframe` | §4.2's curves, auto-tangents, the bake, the pose recorder, generic tracks | 14 |
+   | `Unit_AnimationAuthoringTail` | §12.4's motion matching, DQS algebra, ARKit-52 mapping, sequencer timeline | 19 |
+
+   The suites were written to pin properties rather than to restate the code, and every round
+   of them paid for itself. From the core: **`Unit_AnimatorStep` found that rotation root
+   motion had never been implemented** despite §0.1 listing it as met and two document audits
+   confirming it (see §12.2), and `Unit_AnimationIk` pinned a real fixed point in the
+   jiggle-bone model as a documented limitation instead of a latent surprise.
+
+   From the tail, four more, and the pattern in them is worth naming: **three of the four were
+   a comment or a doc describing behaviour the code did not have**, which is the failure mode a
+   subsystem verified only by demos accumulates — a demo exercises the path the author had in
+   mind, and the prose drifts from the code with nothing to arbitrate.
+
+   - **`apply_generic_tracks` overran a 64-entry stack buffer.** It clamped its dispatch loop
+     to `MAX_GENERIC_TRACKS` but sampled with `sample_generic`, which writes one value per
+     track the clip carries, and nothing caps a cooked clip's generic-track count. This is the
+     *sibling* of the `sample_morph_state` overrun fixed earlier the same day: that fix was
+     applied to one instance of a pattern rather than to the pattern, and the second instance
+     survived. Reproduced as an access violation against the pre-fix header before the fix was
+     accepted, so the regression test is known to regress.
+   - **`skin_position_lbs` was not linear blend skinning.** It blended rotation with `nlerp`
+     and translation with `lerp`, documented as equivalent to `skinning.comp`'s matrix-weighted
+     sum. It is not: `nlerp` yields a genuine rotation, so that form preserves a vertex's
+     distance from the twist axis *exactly* and exhibits no candy-wrapper collapse. Since this
+     function exists only as the baseline dual-quaternion skinning is measured against, the
+     comparison was between the new path and a reference without the defect the new path
+     removes. Now transforms per influence and averages the results.
+   - **`FootPlacementIk`'s comment described a guard that was never there** ("only plant when
+     the ground is at or above the animated foot"). The unconditional behaviour is correct — a
+     clip authored on flat ground must step *into* a dip, not hover over it — and an
+     unreachable floor needs no guard, because `TwoBoneIk` extends toward an out-of-range
+     target without stretching. Both directions and the unreachable case are now pinned.
+   - **`SequenceFloatTrack` claimed `evaluate` sorted its keys.** It does not, and the same
+     paragraph contradicted itself about where the cost lived. Sorting per evaluate would put a
+     copy and a sort on the per-frame path; the requirement is now stated and `sort_keys` /
+     `sort_tracks` provided for a bulk-loaded timeline.
+
+   **What is still untested**, and it is one item: **`DeviceBatchEvaluator`'s host/device
+   agreement** (§12.4's device path). It is the only piece of the animation stack that needs
+   SushiRuntime, so unlike everything above it cannot be compiled and run without the project
+   build — which is why it is named here rather than quietly counted as covered.

@@ -77,10 +77,10 @@ namespace SushiEngine
          * the zero isosurface has clearance and rays approaching from outside read
          * positive distances first.
          *
-         * Host-only and deliberately unhurried: it is an import-time cost, and it is
-         * O(voxels × triangles) with no acceleration structure. A mesh large enough
-         * for that to matter is a mesh that wants a hierarchy, which is a later
-         * change and not a reason to complicate this one.
+         * Host-only, and one query per voxel against a @ref MeshDistanceQuery rather
+         * than a sweep over every triangle: at the resolutions the cooking pipeline's
+         * fidelity dial reaches, the product of the two counts is the difference
+         * between a three-second cook and a coffee break.
          *
          * @param mesh       The geometry to bake; only positions and indices are read.
          * @param resolution Voxels per axis of the cube brick (e.g. 32).

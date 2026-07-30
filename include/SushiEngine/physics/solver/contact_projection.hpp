@@ -104,6 +104,26 @@ namespace SushiEngine
              */
             T rest_offset = 0;
 
+            /**
+             * @brief The most a contact may push apart in one substep, in metres.
+             *
+             * §7.6's depenetration budget. A body spawned deeply inside another has a
+             * separation error of whole metres, and projecting all of it in one substep
+             * turns a placement mistake into an explosion — the pair leaves at a speed
+             * nothing in the scene put there, taking whatever it hits with it.
+             *
+             * A **distance per substep** rather than a velocity, even though §7.6 names a
+             * velocity, because that is what the projection can use without being told the
+             * substep length: the caller knows `h` and multiplies once, which keeps this
+             * function a pure function of its parameters and costs nothing at the call site
+             * that was already building them per tick.
+             *
+             * Zero or less disables the clamp, which is the right default for a solver whose
+             * callers have not opted in — an unclamped correction is the previous behaviour
+             * and is correct for every scene that does not spawn overlapping.
+             */
+            T max_depenetration = 0;
+
             /** @brief Combined static friction; bounds the positional tangent correction. */
             T static_friction = T(0.6);
 
@@ -309,9 +329,20 @@ namespace SushiEngine
                 const T separation = dot(world_b - world_a, manifold.normal);
                 point.separation = separation;
 
-                const T error = separation - params.rest_offset;
+                T error = separation - params.rest_offset;
                 if (error < T(0))
                 {
+                    // The depenetration budget (§7.6). Clamped rather than skipped: the
+                    // contact still resolves, over as many substeps as the budget needs,
+                    // which is what makes a deep overlap push apart smoothly instead of
+                    // leaving at a speed nothing in the scene put there.
+                    //
+                    // Only the *recovery* is clamped, never the approach — `error` is
+                    // negative here by construction, so raising it toward zero can only
+                    // reduce how much is corrected and can never let a body sink further.
+                    if (params.max_depenetration > T(0) && error < -params.max_depenetration)
+                        error = -params.max_depenetration;
+
                     const T w = generalized_inverse_mass(body_a, lever_a, manifold.normal) +
                                 generalized_inverse_mass(body_b, lever_b, manifold.normal);
                     if (w > T(0))

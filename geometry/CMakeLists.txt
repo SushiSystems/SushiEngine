@@ -12,10 +12,14 @@
 # is host-only by design (docs/slop/physics_system.md §3.4).
 #
 # The headers are the include/SushiEngine/geometry/ tree, reached through the
-# SushiEngine INTERFACE target; only the baker has a compiled unit.
+# SushiEngine INTERFACE target; the value types are header-only and the three
+# units below are the ones with real work in them — mesh repair and analysis, the
+# distance hierarchy every cooking stage queries, and the field bake that queries it.
 # ============================================================================
 
 add_library(sushi_geometry STATIC
+    mesh_utilities.cpp
+    mesh_distance_query.cpp
     signed_distance_field.cpp)
 
 target_include_directories(sushi_geometry PUBLIC "${CMAKE_SOURCE_DIR}/include")

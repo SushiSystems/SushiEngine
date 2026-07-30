@@ -76,14 +76,26 @@ namespace SushiEngine
         /**
          * @brief A keyed float curve driving one `AnimatorParameterBlock` slot over the scene.
          *
-         * Keys need not be pre-sorted by the caller — @ref SequenceTimeline::evaluate sorts a
-         * local copy once; construction-time cost, not per-evaluate cost, since a timeline's
-         * tracks are authored once and evaluated every frame.
+         * **Keys must ascend in time**, and @ref sort_keys is how a caller that bulk-loaded them
+         * guarantees it. Sorting inside @ref sample instead would put a copy and a sort on the
+         * per-frame path for a property that is fixed the moment the track is authored — and a
+         * timeline is authored once and evaluated every frame, so the cost belongs at authoring.
+         * Out-of-order keys are not rejected because there is nowhere to report from: @ref sample
+         * is `noexcept` and returns a value, so it walks the keys in the order it finds them and
+         * an unsorted track simply reads the wrong segment.
          */
         struct SequenceFloatTrack
         {
             std::uint32_t parameter_index = 0; /**< Slot in the target `AnimatorParameterBlock`. */
             std::vector<SequenceFloatKey> keys;
+
+            /** @brief Sorts @ref keys ascending by time, which @ref sample requires. */
+            void sort_keys()
+            {
+                std::sort(keys.begin(), keys.end(),
+                          [](const SequenceFloatKey& a, const SequenceFloatKey& b)
+                          { return a.time < b.time; });
+            }
 
             /**
              * @brief Linearly interpolates the track's value at a time, clamped at the ends.
@@ -127,6 +139,19 @@ namespace SushiEngine
             public:
                 std::vector<SequenceFloatTrack> float_tracks;
                 std::vector<SequenceEvent> events;
+
+                /**
+                 * @brief Sorts every track's keys, so a bulk-loaded timeline is ready to evaluate.
+                 *
+                 * Called once after authoring or loading. @ref events needs no equivalent —
+                 * @ref advance sorts what it fired rather than what it holds, because only the
+                 * crossed subset has to be ordered.
+                 */
+                void sort_tracks()
+                {
+                    for (SequenceFloatTrack& track : float_tracks)
+                        track.sort_keys();
+                }
 
                 /**
                  * @brief Writes every float track's value at @p time_seconds into a parameter block.

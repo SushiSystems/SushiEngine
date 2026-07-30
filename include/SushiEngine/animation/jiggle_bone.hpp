@@ -65,6 +65,14 @@
  * approximation of chain dynamics, not a real multi-body solve). Collision, wind, and
  * stretch limits beyond the fixed bone-length constraint are not built.
  *
+ * One consequence of the point-mass-on-a-sphere model is worth naming, because it looks like a
+ * bug: a parent displacement exactly *along* the bone's own axis by twice its length is a fixed
+ * point. The mass ends up diametrically opposite on the constraint sphere, where the spring
+ * pull is parallel to the constraint, so the length projection returns it to where it started
+ * and it never catches up. Any lateral component at all breaks the symmetry and it swings
+ * normally, so real animation never hits it — but a rig that needs axial travel damped must
+ * drive the joint's rest length instead of this spring.
+ *
  * @ref IPoseModifier::solve is `const` (the stack's documented "stateless configuration"
  * contract), but a spring genuinely needs last frame's position and velocity to integrate —
  * @ref JiggleBone is a deliberate, documented exception: its per-joint simulation state lives

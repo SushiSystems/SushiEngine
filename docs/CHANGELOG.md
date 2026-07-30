@@ -9,6 +9,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Changed
+- 2026-07-30 — Changed the skeleton debug draw and the transform gizmo to share one `project_to_screen` in `editor/core/viewport_projection.hpp`, replacing the identical copy each had grown.
+- 2026-07-30 — Changed `Physics::mesh_mass_properties` to check the surface is closed before integrating: an open shell used to return the cone-fan volume, so a box missing one face reported five sixths of its mass rather than refusing.
+- 2026-07-30 — Changed `Geometry::closest_point_on_triangle` to guard each edge region's division, so a triangle collapsed by welding returns a point on itself instead of a not-a-number.
+- 2026-07-30 — Changed `Geometry::bake_signed_distance_field` to query a `MeshDistanceQuery` per voxel instead of sweeping every triangle, which is what makes a bake at the fidelity dial's upper resolutions affordable.
 - 2026-07-30 — Changed `sim/PhysicsSimulation` to partition islands and put settled ones to sleep, which P2 built and never connected to the live tick.
 - 2026-07-30 — Changed `runtime_graph_builder` to fold its motion maximum with the runtime's `Graph::add_reduce`, deleting the hand-built two-node reduction and its partial column.
 - 2026-07-30 — Changed `PhysicsConfiguration::profiling` from a flag nobody read into the switch that decides whether per-stage timings are measured; the Physics panel's timing rows are no longer structurally zero.
@@ -42,6 +46,47 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - 2026-07-02 — Changed cloud noise generation to run on the GPU (Perlin-Worley shape, erosion detail).
 
 ### Added
+- 2026-07-30 — Added the velocity half of speculative contacts (P5, §7.5): manifolds are generated out to the contact offset plus how far the pair can close this tick, so a body that crosses a surface mid-tick has a constraint waiting for it instead of being found next tick already deep.
+  - Added `ContactProxy::speculative_margin`, taken from the same travel the broadphase sweeps its bounds by.
+  - Changed contact events to keep their old touching test, so a speculative manifold is a constraint without reporting a contact — and an impact sound — from metres away.
+- 2026-07-30 — Added a maximum depenetration velocity (P5, §7.6): `ContactSolveParams::max_depenetration` bounds how far a contact may push apart per substep, so a deeply-overlapping spawn is pushed out over several ticks instead of fired out in one.
+- 2026-07-30 — Added `Geometry::analyze_mesh_topology` and `Geometry::repair_mesh`, the cooking pipeline's measurement and repair stage: welding, degenerate and duplicate removal, consistent and outward winding, and a report of everything it changed.
+- 2026-07-30 — Added `Geometry::MeshDistanceQuery`, a host bounding-volume hierarchy answering closest-point and signed-distance queries, plus `sample_surface_points`, `one_sided_hausdorff_distance`, and `max_protrusion_distance`.
+- 2026-07-30 — Added `Physics::mesh_mass_properties`, exact mass, centre of mass and principal inertia integrated over a closed mesh with a Jacobi eigendecomposition to principal axes.
+- 2026-07-30 — Added a `sushi_cooking` module (`cooking/`, headers under `physics/cooking/`) holding the fidelity dial, the cook report and its thresholds, the `ICookingStage`/`IMeshCooker`/`ICookedAssetStore` seams, and the content-hash cache in memory and on disk.
+- 2026-07-30 — Added `Cooking::CollisionCooker`, the five-stage rigid cooker: repair, mass properties, convex decomposition or a static triangle hierarchy, distance-field bake, and serialization.
+- 2026-07-30 — Added the `.sushicollision` blob — `build_collision_blob`, `validate_collision_blob`, `load_collision_blob`, and the `collision_asset_hull`/`collision_asset_mesh` views that point straight into the loaded bytes.
+- 2026-07-30 — Added the editor's Bake window (Analysis ▸ Bake): the fidelity dial with what it derives, live cook progress, per-asset cook reports for both asset kinds, and a Re-cook button.
+- 2026-07-30 — Added `Editor::CookBakeState`, the Bake window's UI-free model — the profile library, the worker, the filed cook reports, and the collider overlay's geometry.
+- 2026-07-30 — Added `Cooking::collision_asset_wireframe` and `Editor::draw_collision_overlay`, which draw a cooked collider over the mesh it came from so "the collider is not the mesh" is visible rather than a number.
+- 2026-07-30 — Added `IMeshCooker::cache_key`, so a Re-cook can evict the entry a content hash cannot see is stale — the case where the cooker changed rather than the mesh.
+- 2026-07-30 — Added `Cooking::MeshPostProcessorChain` and `IMeshPostProcessor`, §8.1's ordered, registered import chain, with the collision and soft-body cookers registered as its shipped members.
+- 2026-07-30 — Added `Cooking::ImportProfile` and `ImportProfileLibrary`: a per-project default plus a partial per-asset override, so one crate can be deformable without every rock paying for a tetrahedral mesh.
+- 2026-07-30 — Added `Cooking::CookingService`, which runs the import chain on a worker thread and reports stage progress, so a dropped asset does not freeze the editor for the length of its cook.
+- 2026-07-30 — Added `Geometry::import_gltf_mesh`, a glTF-to-`TriangleMesh` importer in the `import/` module, so the cooking pipeline starts at a file instead of at a mesh somebody already had.
+- 2026-07-30 — Added `Cooking::SoftBodyCooker`, the six-stage soft-body cooker covering §8.3's ten steps: repair, voxelize and tetrahedralize, embed the render mesh, bake the rest shape, build the level chain, and serialize.
+- 2026-07-30 — Added the `.sushisoft` blob — `build_soft_body_blob`, `validate_soft_body_blob`, `load_soft_body_blob`, and `evaluate_soft_binding`; it carries the cooking parameters that produced it, so a re-cook is reproducible.
+- 2026-07-30 — Added `Cooking::build_tetrahedral_mesh` and `Cooking::embed_points`: surface rasterization, exterior flood fill, a conforming lattice, sliver removal, rest state, boundary extraction, and the barycentric embedding with its extrapolated fallback.
+- 2026-07-30 — Added `Cooking::tetrahedron_quality`, the normalized element metric the sliver threshold and the cook report both read.
+- 2026-07-30 — Added `Cooking::decompose_convex` and `Cooking::build_convex_hull_mesh`, an approximate convex decomposition driven by the measured protrusion it reports, with an exact small-point-set hull build underneath it.
+- 2026-07-30 — Added the cooking pipeline's five test suites (`Unit_CookingParameters`, `Unit_FilesystemCookedAssetStore`, `Unit_CookingThresholds`, `Unit_ConvexHullBuild`, `Unit_ConvexDecomposition`, `Unit_CollisionCooker`, `Unit_GeometryMeshDistance`, `Unit_GeometryMeshUtilities`, `Unit_MeshMassProperties`), including the deliberately dirty-mesh corpus P4's acceptance criterion names.
+- 2026-07-30 — Added glTF `weights` animation-channel import, so a clip's morph-weight tracks can come from an asset instead of only from hand-authored bytes.
+  - Added `GltfAnimationImport::morph_target_names`, the mesh's target order the clip's tracks are matched against.
+  - Added clip-driven morph weights to `AnimatedMeshPreview` (with a "Driven by clip" toggle in the Animator Preview window), replacing the manual-only seam.
+  - Added `examples/assets/morph_face.gltf` and `Unit_AnimationMorphImport`, the animation stack's first tests under `tests/functional/`.
+- 2026-07-30 — Added the animation stack's regression suites, which had no tests in `tests/functional/` at all — every phase had shipped with only an `examples/*_demo.cpp` behind it.
+  - Added `Unit_AnimationClip`: the skeleton cook's topological reorder, both clip formats and their refusals, the sampling contract, and the compressed format's error bound on both easy and hostile content.
+  - Added `Unit_AnimatorStep`: the state machine's semantics (exit time, typed conditions, a trigger consumed once, crossfades, events, root motion) and §0.2's byte-exact determinism and rollback-replay contract.
+  - Added `Unit_AnimationBlendTree`: all five node kinds resolved from a compiled blob, swept for the unit-partition invariant, plus the resolver's capacity bound.
+  - Added `Unit_AnimationLayers`: layer folding order, avatar mask weights and defaults, additive blending, and the additive bake's delta round trip.
+  - Added `Unit_AnimationIk`: each solver's convergence and limits, §10's zero-weight-is-a-no-op substitutability claim, and the stranded-child and self-rotating-joint failure modes — including foot placement, which plants a foot on raised ground and on a slope, and pins its deliberate no-pelvis-drop limitation.
+  - Added `Unit_AnimationRetarget`: the avatar's name mapping (heuristic and authored), the bind-pose-delta transfer between two differently-proportioned rigs, hip-height stride scaling, mirroring and its involution, and the runtime path agreeing with the baked one.
+  - Added `Unit_AnimationControllerJson`: the Animator's JSON round trip, asserted by compiling the desc to a `.sushictrl` before and after and comparing the bytes, plus every enum's name round trip and the tolerant read's documented defaults.
+  - Added `Unit_AnimationKeyframe`: the authoring curves' three interpolation modes, Catmull-Rom auto-tangents reproducing a straight line exactly, the bake against the curve at each frame's own time, the pose recorder's round trip, and generic float-track dispatch.
+  - Added `Unit_AnimationAuthoringTail`: §12.4's remaining items — the motion-matching database and its crossfade driver, dual-quaternion skinning's algebra against closed forms and against the linear baseline, the ARKit-52 facial mapping, and the sequencer timeline's half-open event interval.
+- 2026-07-30 — Added `ClipView::sample_morph_track`, which samples one morph track instead of all of them.
+- 2026-07-30 — Added `ClipView::sample_generic_track`, the generic-track counterpart, so a caller with a fixed-size buffer can read within it.
+- 2026-07-30 — Added `SequenceFloatTrack::sort_keys` and `SequenceTimeline::sort_tracks`, so a bulk-loaded timeline can meet the ascending-key requirement `sample` has always had.
 - 2026-07-30 — Added four tests holding the incremental colouring to what determinism needs (validity, a function of the sequence, inside greedy's bound, colours released on removal) — the §17.5 risk row, written at last.
 - 2026-07-30 — Added the negative case `Unit_ConvexManifold.CornerContactStaysOnePoint` claims in its own comment: a tilted hull lifted clear of the ground must produce no manifold.
 - 2026-07-30 — Added `ui/component_editor.hpp`: pointer-to-member component fields that read a value from the whole selection to detect disagreement and write an edit back to all of it, plus the shared `component_header` and value clipboard behind the section menus.
@@ -134,6 +179,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - 2026-06-26 — Added the milestone-A headless core.
 
 ### Fixed
+- 2026-07-30 — Fixed root-motion rotation never being sampled: `animator_step` filled only `RootMotionDelta::position`, so a clip whose root turned moved the entity without turning it, while `apply_root_motion` and the design both assumed otherwise.
+- 2026-07-30 — Fixed `sample_morph_state` overrunning its 64-entry scratch buffer for a clip carrying more than `MAX_MORPH_TARGETS` morph tracks; it now samples only the tracks a mesh's targets name.
+- 2026-07-30 — Fixed `apply_generic_tracks` overrunning its 64-entry stack buffer the same way — the sibling of the morph fix above, which had clamped its dispatch loop to `MAX_GENERIC_TRACKS` while sampling every track the clip carried. Nothing caps a cooked clip's generic-track count, so 65 authored properties reached it.
+- 2026-07-30 — Fixed `skin_position_lbs` not being linear blend skinning: it blended rotation with `nlerp` and translation with `lerp`, which yields a genuine rotation and so exhibits no candy-wrapper collapse at all — meaning dual-quaternion skinning was being measured against a baseline without the defect it removes. It now transforms by each influence and averages the results, as `skinning.comp` does.
+- 2026-07-30 — Fixed `FootPlacementIk`'s comment describing a guard that was never there ("only plant when the ground is at or above the animated foot"); the solver plants in both directions, which is correct, and an unreachable floor is already handled by `TwoBoneIk` extending without stretching.
+- 2026-07-30 — Fixed `SequenceFloatTrack`'s claim that `SequenceTimeline::evaluate` sorts its keys — it does not, and sorting there would put a copy and a sort on the per-frame path; the ascending-key requirement is now stated and `sort_keys` provided.
 - 2026-07-29 — Fixed authored pressure lows landing ~3× deeper than a natural one: `inject_vorticity` now compensates each blob's circulation so the far-field pressure signature stays local, and the amplitude/preset constants were re-derived and retuned.
 - 2026-07-29 — Fixed the viewport image vanishing on a Scene-window resize; live drags no longer rebuild every frame.
 - 2026-07-29 — Fixed `numpy` being a hard import-time dependency of the entire `se` CLI.

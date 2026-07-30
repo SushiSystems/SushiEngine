@@ -37,7 +37,8 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 | SushiLoop core | `loop/app.hpp`, `loop/fixed_timestep.hpp`, `loop/rng.hpp`, `loop/input.hpp`, `loop/rollback.hpp`, `loop/net.hpp` | The `Loop::App` authoring API over a fixed-step deterministic loop; plus seeded RNG, per-tick input capture, rollback snapshots, and loopback network reconciliation (see §8, §9, §10). |
 | UI | `ui/rect.hpp`, `ui/components.hpp`, `ui/layout.hpp`, `ui/interaction.hpp`, `ui/ui.hpp` | Retained ECS UI (Unity UGUI-shaped): `RectTransform`/`Canvas`/`UIImage`/`UIText`/`UIButton` components, the `resolve_rect` anchor solver, the pointer/click model, and the `UI` façade that builds, lays out, and drives a canvas of buttons (see §11). |
 | Physics     | `physics/core/`, `physics/geometry/`, `physics/collision/`, `physics/constraints/`, `physics/solver/`, `physics/soft/`, `physics/scene/` | Body state and handles, shapes and mass properties, broad/narrowphase, constraint descriptors and their projections, the XPBD solvers behind `IConstraintSolver`, soft-body topology, and the world lifecycle (see §4). |
-| Geometry    | `geometry/triangle_mesh.hpp`, `geometry/signed_distance_field.hpp` | Engine-neutral triangle geometry and the shared signed-distance baker. Links nothing — no Vulkan, no SYCL, no runtime — because both the renderer and the physics read it and neither may own it. |
+| Geometry    | `geometry/triangle_mesh.hpp`, `geometry/mesh_utilities.hpp`, `geometry/mesh_distance_query.hpp`, `geometry/signed_distance_field.hpp` | Engine-neutral triangle geometry: the mesh value types, topology analysis and repair, a host closest-point hierarchy, and the shared signed-distance baker that queries it. Links nothing — no Vulkan, no SYCL, no runtime — because both the renderer and the physics read it and neither may own it. |
+| Cooking     | `physics/cooking/cooking_parameters.hpp`, `physics/cooking/cooking_report.hpp`, `physics/cooking/cooker_interface.hpp`, `physics/cooking/cooked_asset_store.hpp`, `physics/cooking/collision_cooker.hpp`, `physics/cooking/soft_body_cooker.hpp`, `physics/cooking/mesh_post_processor.hpp`, `physics/cooking/cooking_service.hpp` | The offline pipeline that turns an imported mesh into a simulation asset: §8.2's fidelity dial, the cook report and the thresholds that fail a bad cook loudly, the `ICookingStage`/`IMeshCooker`/`ICookedAssetStore` seams, the content-hash cache, the two cookers that produce `.sushicollision` and `.sushisoft`, and the ordered import chain that runs them on a worker thread. Host-only, links only Geometry (plus Threads), and never linked into a shipping runtime path — an importer that needs a GPU is an importer that fails on a build machine. Getting triangles out of a file is a `MeshLoader` seam the consumer wires, which is why this module needs no cgltf (see §8 of `docs/slop/physics_system.md`). |
 | Atmosphere  | `atmosphere/fourier_transform.hpp`, `atmosphere/quasigeostrophic_core.hpp` | T1, the global dynamical core: two-layer moist quasi-geostrophic flow on a latitude/longitude grid, from which cyclones, fronts, the jet and storm tracks emerge rather than being placed (see §5 of `docs/slop/atmosphere_system.md`). Links nothing, for the same reason Geometry does — its consumers are gameplay queries, the regional nest's parent forcing, and a headless probe, and none should need a device to ask what the weather is. The regional nest (T2) is a Vulkan compute service and stays under `render/atmosphere/`. |
 | Animation   | `animation/skeleton*.hpp`, `animation/clip*.hpp`, `animation/animator_*.hpp`, `animation/blend_tree.hpp`, `animation/avatar_mask.hpp`, `animation/additive.hpp`, `animation/pose_modifier.hpp`, `animation/ik_*.hpp`, `animation/morph.hpp`, `animation/generic_track.hpp`, `animation/humanoid.hpp`, `animation/retarget.hpp`, `animation/edit_preview.hpp`, `animation/animation_database.hpp` | Skeletal-animation stack (phases A0–A9): skeleton/clip/controller/mask assets, the deterministic `animator_step`, the `AnimatorEvaluator` (blend trees, mask-gated layers, additive), the IK / pose-modifier stack, morph + generic tracks, humanoid retargeting, and controller JSON authoring, behind the `IAnimationDatabase` seam (see §12). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
@@ -1808,8 +1809,12 @@ corrects the final blended pose. The shipped solvers are analytic pole-controlle
 (`ik_two_bone.hpp`), weight-distributed cone-clamped look-at (`ik_look_at.hpp`), iteration-capped
 FABRIK (`ik_chain.hpp`), and composite foot placement (`ik_foot_placement.hpp`) that rays to the
 ground through the `IPoseTaskContext` seam. Beyond posing joints, a clip carries **morph-weight and generic float tracks** (`.sushianim` v2,
-A7): `morph.hpp` maps a clip's morph tracks onto a mesh's target order and gives the CPU
-reference of the skin-pass morph blend, and `generic_track.hpp` routes generic tracks to an
+A7): `morph.hpp` maps a clip's morph tracks onto a mesh's target order — by target *name*, so one
+clip drives any mesh sharing the naming — and gives the CPU reference of the skin-pass morph blend.
+The importer fills those tracks from glTF `weights` animation channels, naming each after the
+target it drives (`import/gltf_animation_importer.cpp`; `GltfAnimationImport::morph_target_names`
+reports the mesh's own target order, the order the render mesh's delta buffer is uploaded in), and
+`generic_track.hpp` routes generic tracks to an
 `IFloatSink` binding registry (material/UI/script hooks). **Retargeting** (A8) lets one clip
 library drive many rigs: `humanoid.hpp` maps a skeleton's joints to canonical `HumanBone`s (by an
 alias heuristic or an explicit table), and `retarget.hpp` transfers a clip's bind-pose deltas onto
@@ -1827,12 +1832,24 @@ Bake writes a dense `.sushianim`. The **Animator window** (`editor/animation/ani
 is the Mecanim state-machine graph editor over a `ControllerDesc` — a grid canvas of draggable
 state nodes, transition arrows made by right-click ▸ Make Transition To (a `"Exit"` target compiles
 to the layer's entry), Entry/Exit/Any-State nodes, a parameter panel, and JSON save/load through
-`animator_controller_json.hpp`. Verified headless
-by `clip_demo` (A1), `animation_benchmark` (A2), `animator_demo` (A3), `blend_tree_demo` (A4),
-`layered_animation_demo` (A5), `ik_demo` (A6), `morph_demo` (A7), `retarget_demo` (A8),
-`authoring_demo` (A9), and `keyframe_demo`. What remains is GPU/editor-side: the A1 GPU skinning pipeline
-(`render/passes/skinning_pass.*`, `render/scene/skinning_system.*`, `skinning.comp`, written and
-awaiting a GPU build) and the A9 editor windows (Animator graph, dope sheet, live scrubbing UI).
+`animator_controller_json.hpp`. Guarded by ten CTest suites, 125 cases — `Unit_AnimationClip` (the
+asset formats and the compressed error bound), `Unit_AnimatorStep` (the state machine, root motion,
+and the byte-exact determinism/rollback contract), `Unit_AnimationBlendTree`,
+`Unit_AnimationLayers`, `Unit_AnimationIk` (seven pose modifiers including foot placement),
+`Unit_AnimationMorphImport`, `Unit_AnimationRetarget`, `Unit_AnimationControllerJson`,
+`Unit_AnimationKeyframe`, and `Unit_AnimationAuthoringTail` (§12.4's motion matching,
+dual-quaternion algebra, ARKit-52 mapping and sequencer timeline). The headless demos
+(`clip_demo`, `animation_benchmark`, `animator_demo`, `blend_tree_demo`,
+`layered_animation_demo`, `ik_demo`, `morph_demo`, `retarget_demo`, `authoring_demo`,
+`keyframe_demo`) remain as runnable examples rather than as the verification of record. One piece
+is still untested and is named rather than counted: `DeviceBatchEvaluator`'s host/device
+agreement, the only part of the stack that needs SushiRuntime. What remains besides it is a
+visual pass on the GPU side: `render/passes/skinning_pass.*`,
+`render/scene/skinning_system.*` and `skinning.comp` are built, linked and driven by a live
+producer (`Editor::AnimatedMeshPreview` for the authored subject, `RenderScene::skinned_instances`
+for crowd entities), but the compute pre-skin, the morph blend and the opt-in dual-quaternion
+path have never been looked at on a display. The editor windows the A9 phase named all shipped
+(Animation, Animator graph, Animator Preview).
 
 ## 13. Input (device-abstracted actions, Phase 1)
 

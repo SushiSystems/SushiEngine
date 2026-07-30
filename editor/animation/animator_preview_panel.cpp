@@ -274,18 +274,28 @@ namespace SushiEngine
             }
             else
             {
+                const std::uint32_t morph_tracks = preview->clip_morph_track_count();
+                bool clip_driven = preview->clip_driven_morphs();
+                if (ImGui::Checkbox("Driven by clip", &clip_driven))
+                    preview->set_clip_driven_morphs(clip_driven);
+                const bool sliders_live = !clip_driven || morph_tracks == 0;
                 for (std::uint32_t i = 0; i < morph_count; ++i)
                 {
                     ImGui::PushID(static_cast<int>(i));
                     float weight = preview->morph_weight(i);
+                    ImGui::BeginDisabled(!sliders_live);
                     if (ImGui::SliderFloat("##weight", &weight, 0.0f, 1.0f))
                         preview->set_morph_weight(i, weight);
+                    ImGui::EndDisabled();
                     ImGui::SameLine();
-                    ImGui::Text("Target %u", i);
+                    ImGui::TextUnformatted(preview->morph_target_name(i).c_str());
                     ImGui::PopID();
                 }
-                ImGui::TextDisabled(
-                    "Manual weights (design §12.1/§12.2: not yet clip-driven).");
+                if (morph_tracks == 0)
+                    ImGui::TextDisabled(
+                        "The clip has no morph tracks — these weights are held as set.");
+                else if (clip_driven)
+                    ImGui::TextDisabled("%u clip track(s) driving these weights.", morph_tracks);
             }
 
             ImGui::Separator();

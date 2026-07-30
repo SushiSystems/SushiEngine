@@ -84,6 +84,12 @@ add_executable(se_editor
     audio/audio_panels.cpp
     audio/audio_authoring_panel.cpp
     physics/physics_statistics_panel.cpp
+    # The bake surface (§14): the model, the widgets over it, and the collider overlay. The
+    # model is a UI-free translation unit on purpose — it holds every decision the panel makes
+    # and is tested without ImGui, the way the scene serializer already is.
+    physics/cook_bake_state.cpp
+    physics/cook_bake_panel.cpp
+    physics/collision_overlay.cpp
     gizmo/gizmo_controller.cpp
     core/preferences.cpp
     serialization/scene_serializer.cpp
@@ -92,6 +98,10 @@ add_executable(se_editor
     core/command_history.cpp)
 target_link_libraries(se_editor PRIVATE
     sushi_imgui sushi_render sushi_sim sushi_input sushi_audio nlohmann_json::nlohmann_json)
+# The bake surface cooks, and cooking needs the pipeline plus the neutral glTF mesh importer
+# it is wired to through the `MeshLoader` seam — the editor is the consumer that owns that
+# seam, which is why `sushi_cooking` itself links neither cgltf nor this target.
+target_link_libraries(se_editor PRIVATE sushi_cooking sushi_import)
 # ShellExecuteW (Project panel's "open with default app") needs Shell32.
 if(WIN32)
     target_link_libraries(se_editor PRIVATE Shell32)

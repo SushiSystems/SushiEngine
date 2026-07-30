@@ -109,6 +109,32 @@ add_executable(se_functional_tests
     # The neutral geometry module, reachable without a renderer — which is the point
     # of having moved it out from behind Vulkan.
     functional/unit/test_geometry_sdf.cpp
+    # The cooking pipeline's first stage: what a dirty mesh measures as, and what a
+    # repair is allowed to change about it (P4, §8.3 stage 1).
+    functional/unit/test_geometry_mesh_utilities.cpp
+    # The distance hierarchy every cooking stage queries, against the brute-force sweep
+    # it replaced — a pruned descent is fast and subtly wrong in ways that stay plausible.
+    functional/unit/test_geometry_mesh_distance.cpp
+    # The cooking pipeline's contracts as distinct from its geometry: the fidelity dial
+    # against §8.2's table, the cache key, and the two asset stores (P4, §8.1, §8.2, §8.5).
+    functional/unit/test_cooking_core.cpp
+    # Polyhedral mass properties against the closed forms for the primitives, which is
+    # the strongest oracle available for them (P4, §8.4 item 1).
+    functional/unit/test_mesh_mass_properties.cpp
+    # §8.4 end to end — the hull build, the decomposition, the blob's refusals, and the
+    # corpus of deliberately dirty meshes P4's acceptance criterion names.
+    functional/unit/test_collision_cooker.cpp
+    # §8.3 end to end — the voxel fill, the lattice's closed boundary, the embedding's rest
+    # round trip (§8.6 invariants 1 and 2), the level chain, and the .sushisoft blob.
+    functional/unit/test_soft_body_cooker.cpp
+    # §8.1's import chain: who decides which cookers run, what the chain does when one of
+    # them fails, and that cooking happens off the calling thread and is cached end to end.
+    functional/unit/test_import_chain.cpp
+    # The bake surface's decisions (§14) — whether Re-cook gets past the cache, whether the
+    # overlay follows the selection — compiled from the editor tree, since `CookBakeState` is
+    # a UI-free translation unit for exactly this reason.
+    ../editor/physics/cook_bake_state.cpp
+    functional/unit/test_cook_bake_state.cpp
     # T1, the global dynamical core, reachable without a device for the same reason:
     # it is a neutral module, so its transform, its elliptic inversion and its
     # conservation properties are testable against references that are not itself.
@@ -121,6 +147,45 @@ add_executable(se_functional_tests
     functional/unit/test_season.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
+    # The animation stack, whose every phase shipped with a demo and no test. Starting at
+    # the bottom: the asset layer everything else reads through (the skeleton cook's
+    # topological reorder, the clip formats and their refusals, the sampling contract, the
+    # compressed format's error bound).
+    functional/unit/test_animation_clip.cpp
+    # The deterministic half — the state machine's semantics, and §0.2's contract that the
+    # whole animator state is memcpy-snapshottable and a rollback replay is byte-exact.
+    functional/unit/test_animator_step.cpp
+    # The five blend-node kinds, resolved out of a compiled controller blob. Each is checked
+    # at its authored sample points and swept for the invariant that outranks them: weights
+    # partition unity, or the pose scales up and down with the parameter.
+    functional/unit/test_animation_blend_tree.cpp
+    # Layer folding, avatar masks and additive blending — where a mistake is quiet, because a
+    # mask admitting one joint too many reads as bad content rather than as a bug.
+    functional/unit/test_animation_layers.cpp
+    # The pose-modifier stack: each solver's convergence and limits, §10's substitutability
+    # claim (a zero weight is an exact no-op), and the two failure modes these solvers have
+    # actually shipped with — a joint rotating itself (a no-op) and a stranded child.
+    functional/unit/test_animation_ik.cpp
+    # The glTF `weights` channel lane, against a real asset: the importer, the cooked
+    # clip's named morph tracks, and sample_morph_state's name-keyed target mapping.
+    functional/unit/test_animation_morph_import.cpp
+    # §4.4's retargeting: the avatar's name mapping, and the three transfers built on it. Two
+    # rigs with deliberately *different* bind poses, because that is the only setup in which
+    # transferring the bind-pose delta and copying the rotation are distinguishable answers.
+    functional/unit/test_animation_retarget.cpp
+    # The Animator's persistence seam (§4.3). The round trip is asserted by compiling the desc
+    # to a `.sushictrl` before and after and comparing the bytes — a hand-written field-by-field
+    # comparison would grow the same blind spot as the serializer it guards.
+    functional/unit/test_animation_controller_json.cpp
+    # The authoring side (§4.2): the sparse curves a dope sheet edits, the pose recorder, the
+    # bake that resamples them into a dense clip, and the generic float tracks a baked clip
+    # dispatches. Every bake case checks the frame against the curve at that frame's own time.
+    functional/unit/test_animation_keyframe.cpp
+    # §12.4's tail, each item at exactly the scope it claims: the motion-matching database and
+    # its reference crossfade driver, dual-quaternion skinning's blend algebra against closed
+    # forms and against the linear baseline it exists to beat, the ARKit-52 facial mapping, and
+    # the sequencer timeline's evaluation core.
+    functional/unit/test_animation_authoring_tail.cpp
     functional/unit/test_rng.cpp
     functional/unit/test_fixed_timestep.cpp
     functional/unit/test_input_action_map.cpp
@@ -313,6 +378,9 @@ target_link_libraries(se_functional_tests PRIVATE nlohmann_json::nlohmann_json)
 # The signed-distance baker is the one compiled unit in the neutral geometry module;
 # everything else the tests reach there is header-only.
 target_link_libraries(se_functional_tests PRIVATE sushi_geometry)
+# The cooking pipeline: the content hash and the two asset stores are compiled units;
+# the fidelity dial, the report and the seams are header-only.
+target_link_libraries(se_functional_tests PRIVATE sushi_cooking)
 # The global dynamical core and its Fourier transform are the two compiled units in
 # the neutral atmosphere module.
 target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
@@ -325,6 +393,10 @@ target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/edit
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.
 target_link_libraries(se_functional_tests PRIVATE sushi_import)
+# A test that imports a real glTF needs its path, and CTest's working directory is not the
+# source tree. An absolute source-dir path keeps the test independent of where it runs from.
+target_compile_definitions(se_functional_tests
+    PRIVATE SE_TEST_ASSET_DIR="${CMAKE_SOURCE_DIR}/examples/assets")
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second

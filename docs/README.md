@@ -292,10 +292,13 @@ look-at, foot placement), morph targets and generic tracks, humanoid
 retargeting, and JSON controller authoring behind an `IAnimationDatabase`
 seam — plus motion matching, jiggle bones, ragdoll blending, dual-quaternion
 skinning, and facial blendshapes. Every one of these has a real header and a
-runnable example under `examples/`. Unlike most other subsystems, animation
-has no dedicated GoogleTest suite yet — correctness is checked by each demo's
-own headless assertions, not a `Unit_Animation`/`Integration_Animation` CTest
-target.
+runnable example under `examples/`. Ten CTest suites and 125 cases cover it: the
+asset formats, the deterministic tick and its rollback invariant, the blend trees,
+the layer/mask fold, the pose-modifier stack, retargeting, the controller's JSON
+persistence, the authoring curves and their bake, and the motion-matching /
+dual-quaternion / blendshape / sequencer extras. One piece is still untested and
+named as such — the device-side batch evaluator, the only part that needs
+SushiRuntime.
 
 ### Audio (`audio/`)
 The full audio roadmap (phases S0 through S10) is implemented: spatialization

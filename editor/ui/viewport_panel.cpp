@@ -31,6 +31,7 @@
 
 #include <SushiEngine/ui/layout.hpp>
 
+#include "../physics/collision_overlay.hpp"
 #include "game_view_toolbar.hpp"
 
 namespace SushiEngine
@@ -937,6 +938,15 @@ namespace SushiEngine
                 draw_skeleton_overlay(*inputs.skeleton, camera_view, image_origin,
                                       static_cast<float>(width), static_cast<float>(height),
                                       ImGui::GetWindowDrawList(), inputs.skeleton_names);
+
+            // The cooked collider over the mesh it was cooked from, so "the collider is not the
+            // mesh" is visible rather than a number in a panel (§14). At the origin: a cooked
+            // asset is authored in its own space and placing it belongs to whatever instances
+            // it, which the bake surface does not.
+            if (inputs.collision_wireframe != nullptr && !inputs.collision_wireframe->empty())
+                draw_collision_overlay(*inputs.collision_wireframe, SushiEngine::Mat4{},
+                                       camera_view, image_origin, static_cast<float>(width),
+                                       static_cast<float>(height), ImGui::GetWindowDrawList());
 
             // Particle emitter gizmo: mark where the previewed effect spawns, before the
             // transform gizmo so its handles stay on top.

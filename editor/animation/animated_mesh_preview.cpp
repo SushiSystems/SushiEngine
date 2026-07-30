@@ -19,9 +19,11 @@
 
 #include "animated_mesh_preview.hpp"
 
+#include <algorithm>
 #include <utility>
 
 #include <SushiEngine/animation/animator_step.hpp>
+#include <SushiEngine/animation/morph.hpp>
 
 namespace SushiEngine
 {
@@ -80,8 +82,27 @@ namespace SushiEngine
             mesh_ = meshes[0];
             material_ = materials[0];
             source_path_ = path;
+
+            // The mesh fixes how many targets there are; the import names them, in the same
+            // order. A name the file omitted falls back to morph_<index> — the identical
+            // fallback the importer's own track names use, so an unnamed target still resolves.
             morph_weights_.assign(assets.morph_target_count(mesh_), 0.0f);
+            morph_target_names_.resize(morph_weights_.size());
+            morph_target_hashes_.resize(morph_weights_.size());
+            for (std::size_t i = 0; i < morph_target_names_.size(); ++i)
+            {
+                morph_target_names_[i] = i < import.morph_target_names.size()
+                                             ? import.morph_target_names[i]
+                                             : "morph_" + std::to_string(i);
+                morph_target_hashes_[i] = Animation::hash_name(morph_target_names_[i].c_str());
+            }
             return true;
+        }
+
+        const std::string& AnimatedMeshPreview::morph_target_name(std::uint32_t index) const noexcept
+        {
+            static const std::string EMPTY;
+            return index < morph_target_names_.size() ? morph_target_names_[index] : EMPTY;
         }
 
         bool AnimatedMeshPreview::add_layer(const char* clip_name,
@@ -273,6 +294,8 @@ namespace SushiEngine
             instances_.clear();
             source_path_.clear();
             morph_weights_.clear();
+            morph_target_names_.clear();
+            morph_target_hashes_.clear();
         }
 
         void AnimatedMeshPreview::update(float dt)
@@ -290,6 +313,22 @@ namespace SushiEngine
             const std::size_t modifier_count = two_bone_ik_.weight > 0.0f ? 1u : 0u;
             evaluator_.evaluate(controller_, database_, animator_instance_, skeleton_, modifiers,
                                 modifier_count);
+
+            // Morph weights come from the base layer's clip, which is what the mesh's blend
+            // shapes belong to; layer blending applies to the pose, not to weight tracks. The
+            // base state loops, so its normalized time maps straight onto the clip's duration.
+            if (clip_driven_morphs_ && clip_.morph_track_count > 0 && !morph_target_hashes_.empty())
+            {
+                Animation::MorphState morph;
+                Animation::sample_morph_state(
+                    clip_, animator_instance_.layers[0].normalized_time * clip_.duration, true,
+                    morph_target_hashes_.data(),
+                    static_cast<std::uint32_t>(morph_target_hashes_.size()), morph);
+                const std::size_t count =
+                    std::min(morph_weights_.size(), static_cast<std::size_t>(morph.count));
+                for (std::size_t i = 0; i < count; ++i)
+                    morph_weights_[i] = morph.weights[i];
+            }
 
             Render::SkinnedInstance instance;
             instance.model = world_;
@@ -330,6 +369,8 @@ namespace SushiEngine
             stats.palette_bytes =
                 static_cast<std::size_t>(skeleton_.joint_count) * sizeof(Animation::JointMatrix);
             stats.active_morph_weights = static_cast<std::uint32_t>(morph_weights_.size());
+            stats.clip_morph_track_count = clip_.morph_track_count;
+            stats.clip_driven_morphs = clip_driven_morphs_;
             stats.dual_quaternion_skinning = use_dual_quaternion_skinning_;
             stats.clip_compressed = clip_.format == Animation::ClipFormat::Compressed;
             stats.clip_frame_count = clip_.frame_count;

@@ -63,6 +63,14 @@ namespace SushiEngine
             bool gpu_culling = false;
             bool physics = false;
             /**
+             * @brief The Bake window: the fidelity dial and what each cook produced (§14).
+             *
+             * Off by default. An import cooks whether or not this is open — the panel is the
+             * readout, not the trigger — so opening it is something an artist does when a
+             * collider looks wrong, which is not most of the time.
+             */
+            bool bake = false;
+            /**
              * @brief The Preview viewport: the one surface anything being authored is shown on.
              *
              * One screen, not one per subject: a previewed effect, a previewed character, and

@@ -83,12 +83,14 @@ namespace
     void tick_against_plane(RigidBody& body, Vector3 half_extents,
                             const PlaneCollider<Scalar>& ground, ContactManifold<Scalar>& manifold,
                             const ContactSolveParams<Scalar>& params, Scalar dt,
-                            std::size_t substeps)
+                            std::size_t substeps, Scalar speculative_margin = 0.0)
     {
         // Contacts are *generated* further out than they are *resolved* to: the
         // offset has to cover a tick's motion, or a corner that comes down within
         // the tick has no constraint until the next tick and arrives already deep.
-        const Scalar contact_offset = params.rest_offset + 0.03;
+        // `speculative_margin` is §7.5 tier 1's addition — how far the pair can close
+        // this tick — which `sim/` supplies from the same travel the broadphase sweeps by.
+        const Scalar contact_offset = params.rest_offset + 0.03 + speculative_margin;
         const ContactManifold<Scalar> previous = manifold;
         manifold = generate_obb_plane_manifold(box_of(body, half_extents), ground, contact_offset);
         warm_start_manifold(manifold, previous);
@@ -451,4 +453,176 @@ TEST(Unit_ContactProjection, ParametersComeFromTheCombinedMaterials)
     EXPECT_NEAR(forward.static_friction, 0.65, 1e-12);
     EXPECT_NEAR(forward.restitution, 0.8, 1e-12);
     EXPECT_NEAR(forward.rest_offset, 0.001, 1e-15);
+}
+
+TEST(Unit_ContactProjection, TheDepenetrationBudgetTurnsAGrossOverlapIntoAPush)
+{
+    // §7.6: "a maximum depenetration velocity clamps recovery so a deeply-overlapping
+    // spawn pushes apart smoothly instead of exploding." A body placed most of a metre
+    // inside the ground is a placement mistake, and the unclamped projection turns it into
+    // a projectile — which is worse than the mistake, because the debris lands somewhere
+    // else and the cause is no longer under it.
+    const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
+    const Vector3 half_extents{0.5, 0.5, 0.5};
+    const Scalar dt = 1.0 / 60.0;
+    const std::size_t substeps = 4;
+    const Scalar h = dt / static_cast<Scalar>(substeps);
+
+    // Spawned with its centre below the ground: three quarters of a metre of overlap.
+    const Vector3 spawn{0.0, -0.25, 0.0};
+
+    ContactSolveParams<Scalar> unclamped = plain_params();
+    ContactSolveParams<Scalar> clamped = unclamped;
+    const Scalar max_velocity = 3.0;
+    clamped.max_depenetration = max_velocity * h;
+
+    RigidBody loose = unit_cube(spawn);
+    RigidBody held = unit_cube(spawn);
+    ContactManifold<Scalar> loose_manifold;
+    ContactManifold<Scalar> held_manifold;
+
+    tick_against_plane(loose, half_extents, ground, loose_manifold, unclamped, dt, substeps);
+    tick_against_plane(held, half_extents, ground, held_manifold, clamped, dt, substeps);
+
+    // Unclamped, the whole error is projected out in the first substep and the derived
+    // velocity is that correction over h — metres per substep, so tens of metres a second.
+    EXPECT_GT(loose.velocity.y, 10.0);
+
+    // Clamped, the separating speed stays within the budget. Not exactly at it: gravity
+    // still pulls down over the same substep, so the net is a little under.
+    EXPECT_GT(held.velocity.y, 0.0);
+    EXPECT_LE(held.velocity.y, max_velocity + 1e-6);
+
+    // And it is a clamp on the *rate*, not a refusal: the body is still climbing out.
+    EXPECT_GT(held.position.y, spawn.y);
+
+    // Over one tick it recovers about the budget's worth of distance rather than the whole
+    // three quarters of a metre. "About" and not "at most": the budget bounds what the
+    // solver *pushes* each substep, and between substeps the body also travels under the
+    // momentum it now has — which is real motion, not injected correction, so the tick's
+    // total lands a little over `v * dt`. What matters is the order: 5 centimetres, not 75.
+    const Scalar recovered = held.position.y - spawn.y;
+    EXPECT_GT(recovered, max_velocity * dt * 0.5);
+    EXPECT_LT(recovered, max_velocity * dt * 1.5);
+    // The unclamped body, for contrast, is out of the ground entirely in the same tick.
+    EXPECT_GT(loose.position.y - spawn.y, 0.5);
+}
+
+TEST(Unit_ContactProjection, TheDepenetrationBudgetDoesNotSlowAnOrdinaryRest)
+{
+    // The clamp must be invisible in the case that is not pathological, or it would be a
+    // safety feature that costs stacking accuracy every tick to guard against a spawn
+    // mistake — and it would be switched off.
+    const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
+    const Vector3 half_extents{0.5, 0.5, 0.5};
+    const Scalar dt = 1.0 / 60.0;
+    const std::size_t substeps = 8;
+
+    ContactSolveParams<Scalar> clamped = plain_params();
+    clamped.max_depenetration = 3.0 * (dt / static_cast<Scalar>(substeps));
+
+    RigidBody body = unit_cube(Vector3{0.0, 0.5, 0.0});
+    ContactManifold<Scalar> manifold;
+    for (int tick = 0; tick < 120; ++tick)
+        tick_against_plane(body, half_extents, ground, manifold, clamped, dt, substeps);
+
+    // Resting exactly on the surface, and the penetration contract of §7.6 holds: the
+    // measured penetration at rest stays within rest_offset plus a tolerance.
+    EXPECT_NEAR(body.position.y, 0.5, 1e-3);
+    ASSERT_GT(manifold.point_count, 0u);
+    for (std::size_t i = 0; i < manifold.point_count; ++i)
+        EXPECT_GT(manifold.points[i].separation, clamped.rest_offset - 1e-3);
+}
+
+TEST(Unit_ContactProjection, SpeculativeMarginCatchesABodyThatWouldCrossWithinTheTick)
+{
+    // §7.5 tier 1. A body approaching fast is further than the contact offset when the
+    // manifold is generated, and closer than nothing by the time the substeps have run. The
+    // margin is what makes a constraint exist for the crossing; without one the tick has
+    // nothing to catch it with, and the body is found next tick already deep.
+    const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
+    const Vector3 half_extents{0.5, 0.5, 0.5};
+    const Scalar dt = 1.0 / 60.0;
+    const std::size_t substeps = 4;
+    const Scalar approach = 30.0;   // metres a second, straight down
+    const Scalar travel = approach * dt;
+
+    // Starting five centimetres clear: outside the three-centimetre offset, and half a
+    // metre of travel away from the surface.
+    const Vector3 start{0.0, 0.55, 0.0};
+    ASSERT_GT(start.y - half_extents.y, 0.03);
+    ASSERT_GT(travel, start.y - half_extents.y);
+
+    const ContactSolveParams<Scalar> params = plain_params();
+
+    // Without the margin the manifold does not exist at generation time.
+    RigidBody blind = unit_cube(start);
+    blind.velocity = Vector3{0.0, -approach, 0.0};
+    ContactManifold<Scalar> blind_manifold;
+    tick_against_plane(blind, half_extents, ground, blind_manifold, params, dt, substeps, 0.0);
+    EXPECT_EQ(blind_manifold.point_count, 0u);
+    // So the tick runs unconstrained and the box ends up well inside the ground.
+    EXPECT_LT(blind.position.y, 0.1);
+
+    // With it, the manifold is generated at a *positive* separation — a contact that
+    // resolves to nothing this instant and is waiting for the substep that closes it.
+    RigidBody guarded = unit_cube(start);
+    guarded.velocity = Vector3{0.0, -approach, 0.0};
+    ContactManifold<Scalar> guarded_manifold;
+    tick_against_plane(guarded, half_extents, ground, guarded_manifold, params, dt, substeps,
+                       travel);
+    ASSERT_GT(guarded_manifold.point_count, 0u);
+
+    // And the box is stopped on the surface rather than under it. Bounded below tightly and
+    // above loosely, because a contact is an inequality: the correction pushes the box out
+    // and never pulls it back down, so arriving at thirty metres a second leaves it a
+    // millimetre or two proud of the surface for a tick. Being *above* is the safe side —
+    // it is the sinking that §7.6 is a contract about.
+    EXPECT_GE(guarded.position.y, 0.5 - 1e-3);
+    EXPECT_LT(guarded.position.y, 0.5 + 0.02);
+    EXPECT_GT(guarded.position.y, blind.position.y + 0.3);
+}
+
+TEST(Unit_ContactProjection, ASpeculativeContactThatNeverClosesResolvesToNothing)
+{
+    // The other half of the bargain: widening generation must cost nothing when the body
+    // does not arrive. A contact generated at a positive separation and never closed must
+    // apply no impulse, or every fast-moving body in the scene would be pushed around by
+    // surfaces it merely flew past.
+    const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
+    const Vector3 half_extents{0.5, 0.5, 0.5};
+    const Scalar dt = 1.0 / 60.0;
+    const std::size_t substeps = 4;
+
+    // Moving *upward* fast, so the pair is closing on nothing — the margin is a magnitude
+    // and cannot tell, which is exactly the over-generation the design accepts.
+    // Within the margin it is about to be given (its underside sits 0.3 above the plane,
+    // against a margin of a third of a metre), so the manifold is generated — which is the
+    // precondition for the test to be testing anything.
+    RigidBody body = unit_cube(Vector3{0.0, 0.8, 0.0});
+    body.velocity = Vector3{0.0, 20.0, 0.0};
+    const Vector3 before = body.position;
+
+    ContactManifold<Scalar> manifold;
+    tick_against_plane(body, half_extents, ground, manifold, plain_params(), dt, substeps,
+                       20.0 * dt);
+
+    // The manifold exists...
+    ASSERT_GT(manifold.point_count, 0u);
+    for (std::size_t i = 0; i < manifold.point_count; ++i)
+    {
+        // ...at a positive separation, and carrying no impulse.
+        EXPECT_GT(manifold.points[i].separation, 0.0);
+        EXPECT_EQ(manifold.points[i].normal_lambda, 0.0);
+    }
+
+    // The body rose by its own velocity less gravity, untouched by the surface below it.
+    // Semi-implicit Euler over n substeps, not the closed form: predict adds the whole
+    // substep's acceleration before moving, so the drop is `g h^2 n(n+1)/2` rather than
+    // `g dt^2 / 2`, and asserting the continuous answer here would be asserting against a
+    // scheme the solver does not use.
+    const Scalar h = dt / static_cast<Scalar>(substeps);
+    const Scalar n = static_cast<Scalar>(substeps);
+    const Scalar expected = before.y + 20.0 * dt - GRAVITY * h * h * n * (n + 1.0) / 2.0;
+    EXPECT_NEAR(body.position.y, expected, 1e-6);
 }

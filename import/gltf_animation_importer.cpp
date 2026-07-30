@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <cgltf.h>
@@ -162,6 +163,94 @@ namespace SushiEngine
                 read_value(sampler, i1, b, 4);
                 return nlerp(qa, Quaternionf{b[0], b[1], b[2], b[3]}, u);
             }
+
+            // A weights sampler packs every morph target's weight into one scalar accessor:
+            // target_count values per key, so one target's value is a single element read.
+            float read_weight(const cgltf_animation_sampler* sampler, cgltf_size key,
+                              cgltf_size target_count, cgltf_size target_index)
+            {
+                const cgltf_size block =
+                    sampler->interpolation == cgltf_interpolation_type_cubic_spline ? key * 3 + 1 : key;
+                float value = 0.0f;
+                cgltf_accessor_read_float(sampler->output, block * target_count + target_index, &value,
+                                          1);
+                return value;
+            }
+
+            float sample_weight(const cgltf_animation_sampler* sampler, cgltf_size target_count,
+                                cgltf_size target_index, float time)
+            {
+                cgltf_size i0, i1;
+                float u;
+                const bool interior = bracket(sampler, time, i0, i1, u);
+                const float a = read_weight(sampler, i0, target_count, target_index);
+                if (!interior || sampler->interpolation == cgltf_interpolation_type_step)
+                    return a;
+                const float b = read_weight(sampler, i1, target_count, target_index);
+                return a + (b - a) * u;
+            }
+
+            cgltf_size morph_target_count(const cgltf_mesh& mesh) noexcept
+            {
+                if (mesh.primitives_count > 0)
+                    return mesh.primitives[0].targets_count;
+                return mesh.weights_count;
+            }
+
+            // The name a morph target is addressed by, in the clip and on the mesh alike. The
+            // positional fallback is what lets an unnamed target still resolve: both sides
+            // derive it from the same index.
+            std::string morph_target_name(const cgltf_mesh& mesh, cgltf_size target_index)
+            {
+                if (target_index < mesh.target_names_count && mesh.target_names[target_index] != nullptr &&
+                    mesh.target_names[target_index][0] != '\0')
+                    return std::string(mesh.target_names[target_index]);
+                return "morph_" + std::to_string(target_index);
+            }
+
+            // The primitive whose morph-target order GltfAnimationImport::morph_target_names
+            // reports. Render::Assets::import_gltf_skinned_mesh walks nodes then primitives in
+            // the same glTF order under the same predicate, so target index i means the same
+            // target on both sides; keep the two in step if either changes.
+            const cgltf_mesh* skinned_morph_mesh(const cgltf_data& data, const cgltf_skin& skin) noexcept
+            {
+                for (cgltf_size n = 0; n < data.nodes_count; ++n)
+                {
+                    const cgltf_node& node = data.nodes[n];
+                    if (node.mesh == nullptr || node.skin != &skin)
+                        continue;
+                    for (cgltf_size p = 0; p < node.mesh->primitives_count; ++p)
+                    {
+                        const cgltf_primitive& primitive = node.mesh->primitives[p];
+                        if (primitive.type != cgltf_primitive_type_triangles ||
+                            primitive.indices == nullptr)
+                            continue;
+                        bool has_position = false, has_joints = false, has_weights = false;
+                        for (cgltf_size a = 0; a < primitive.attributes_count; ++a)
+                        {
+                            const cgltf_attribute& attribute = primitive.attributes[a];
+                            if (attribute.type == cgltf_attribute_type_position)
+                                has_position = true;
+                            else if (attribute.type == cgltf_attribute_type_joints && attribute.index == 0)
+                                has_joints = true;
+                            else if (attribute.type == cgltf_attribute_type_weights &&
+                                     attribute.index == 0)
+                                has_weights = true;
+                        }
+                        if (has_position && has_joints && has_weights)
+                            return primitive.targets_count > 0 ? node.mesh : nullptr;
+                    }
+                }
+                return nullptr;
+            }
+
+            /** One morph target driven by one glTF `weights` channel. */
+            struct MorphTrackSource
+            {
+                const cgltf_animation_sampler* sampler = nullptr;
+                cgltf_size target_count = 0;
+                cgltf_size target_index = 0;
+            };
         } // namespace
 
         bool import_gltf_animated(const char* path, GltfAnimationImport& out, float sample_rate,
@@ -169,6 +258,7 @@ namespace SushiEngine
         {
             out.skeleton_blob.clear();
             out.clips.clear();
+            out.morph_target_names.clear();
             if (path == nullptr || sample_rate <= 0.0f)
                 return false;
 
@@ -223,6 +313,14 @@ namespace SushiEngine
                 return false;
             }
 
+            if (const cgltf_mesh* morph_mesh = skinned_morph_mesh(*data, skin))
+            {
+                const cgltf_size target_count = morph_target_count(*morph_mesh);
+                out.morph_target_names.reserve(target_count);
+                for (cgltf_size t = 0; t < target_count; ++t)
+                    out.morph_target_names.push_back(morph_target_name(*morph_mesh, t));
+            }
+
             for (cgltf_size a = 0; a < data->animations_count; ++a)
             {
                 const cgltf_animation& animation = data->animations[a];
@@ -232,27 +330,72 @@ namespace SushiEngine
                 std::vector<const cgltf_animation_sampler*> track_t(joint_count, nullptr);
                 std::vector<const cgltf_animation_sampler*> track_r(joint_count, nullptr);
                 std::vector<const cgltf_animation_sampler*> track_s(joint_count, nullptr);
+                std::vector<MorphTrackSource> morph_sources;
+                std::vector<std::string> morph_names;
                 float duration = 0.0f;
                 for (cgltf_size c = 0; c < animation.channels_count; ++c)
                 {
                     const cgltf_animation_channel& channel = animation.channels[c];
-                    const int j = joint_index_of(skin, channel.target_node);
-                    if (j < 0 || channel.sampler == nullptr)
+                    if (channel.sampler == nullptr || channel.target_node == nullptr)
                         continue;
+                    const int j = joint_index_of(skin, channel.target_node);
+                    bool used = false;
                     switch (channel.target_path)
                     {
                         case cgltf_animation_path_type_translation:
-                            track_t[static_cast<cgltf_size>(j)] = channel.sampler;
+                            if (j >= 0)
+                            {
+                                track_t[static_cast<cgltf_size>(j)] = channel.sampler;
+                                used = true;
+                            }
                             break;
                         case cgltf_animation_path_type_rotation:
-                            track_r[static_cast<cgltf_size>(j)] = channel.sampler;
+                            if (j >= 0)
+                            {
+                                track_r[static_cast<cgltf_size>(j)] = channel.sampler;
+                                used = true;
+                            }
                             break;
                         case cgltf_animation_path_type_scale:
-                            track_s[static_cast<cgltf_size>(j)] = channel.sampler;
+                            if (j >= 0)
+                            {
+                                track_s[static_cast<cgltf_size>(j)] = channel.sampler;
+                                used = true;
+                            }
                             break;
+                        case cgltf_animation_path_type_weights:
+                        {
+                            // One channel carries every target of its node, so it becomes one
+                            // track per target. A name already claimed by an earlier channel is
+                            // skipped: find_morph would never reach the duplicate anyway.
+                            const cgltf_mesh* mesh = channel.target_node->mesh;
+                            if (mesh == nullptr)
+                                break;
+                            const cgltf_size target_count = morph_target_count(*mesh);
+                            for (cgltf_size t = 0; t < target_count; ++t)
+                            {
+                                std::string name = morph_target_name(*mesh, t);
+                                bool claimed = false;
+                                for (const std::string& existing : morph_names)
+                                    if (existing == name)
+                                    {
+                                        claimed = true;
+                                        break;
+                                    }
+                                if (claimed)
+                                    continue;
+                                morph_names.push_back(std::move(name));
+                                morph_sources.push_back(
+                                    MorphTrackSource{channel.sampler, target_count, t});
+                            }
+                            used = target_count > 0;
+                            break;
+                        }
                         default:
                             break;
                     }
+                    if (!used)
+                        continue;
                     const cgltf_accessor* input = channel.sampler->input;
                     if (input != nullptr && input->count > 0)
                     {
@@ -274,10 +417,19 @@ namespace SushiEngine
                 clip.translations.resize(element_count);
                 clip.rotations.resize(element_count);
                 clip.scales.resize(element_count);
+                clip.morph_names = std::move(morph_names);
+                clip.morph_weights.resize(static_cast<std::size_t>(clip.frame_count) *
+                                          morph_sources.size());
 
                 for (std::uint32_t f = 0; f < clip.frame_count; ++f)
                 {
                     const float time = static_cast<float>(f) / sample_rate;
+                    for (std::size_t m = 0; m < morph_sources.size(); ++m)
+                    {
+                        const MorphTrackSource& source = morph_sources[m];
+                        clip.morph_weights[static_cast<std::size_t>(f) * morph_sources.size() + m] =
+                            sample_weight(source.sampler, source.target_count, source.target_index, time);
+                    }
                     for (cgltf_size nj = 0; nj < joint_count; ++nj)
                     {
                         const cgltf_size original = static_cast<cgltf_size>(order[nj]);

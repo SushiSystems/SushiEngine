@@ -210,51 +210,49 @@ namespace SushiEngine
         /**
          * @brief The linear-blend reference this header exists to improve on.
          *
-         * Blends rotation (nlerp) and translation (lerp) independently, matching what
-         * `skinning.comp`'s `mat4`-weighted-sum path is algebraically equivalent to for a set
-         * of rigid (no-scale) joint transforms — the candy-wrapper baseline @c
-         * dual_quaternion_skinning_demo measures @ref skin_position_dqs against.
+         * Linear blend skinning as `skinning.comp` performs it: the vertex is transformed by
+         * **each** influence and the *results* are weight-averaged — algebraically the same as
+         * averaging the joint matrices and transforming once, which is what the shader's
+         * `mat4`-weighted sum does. This is the candy-wrapper baseline
+         * @c dual_quaternion_skinning_demo measures @ref skin_position_dqs against.
+         *
+         * The averaging happens in *position* space and that is the whole point: the average of
+         * two rigid transforms is not a rigid transform, so a vertex under two influences whose
+         * rotations differ widely is pulled toward the line between their two images — the
+         * collapse @ref skin_position_dqs exists to avoid. An earlier revision blended the
+         * rotation with `nlerp` and the translation with `lerp` instead, and documented that as
+         * equivalent to the shader's matrix sum. It is not: `nlerp` yields a genuine rotation, so
+         * that form preserves the vertex's distance from the twist axis exactly and exhibits no
+         * candy-wrapper artifact at all. Measuring dual-quaternion skinning against it therefore
+         * compared the new path to a baseline without the defect the new path removes.
          *
          * @param rotations    Per-joint rotations, one per skin influence.
          * @param translations Per-joint translations, one per skin influence.
          * @param weights      Parallel skin weights (need not sum to 1; renormalized here).
          * @param count        Influences in all three arrays.
          * @param position     The vertex position in the skin's rest (bind) space.
-         * @return The skinned position.
+         * @return The skinned position, or @p position when no influence carries weight.
          */
         inline Vector3f skin_position_lbs(const Quaternionf* rotations, const Vector3f* translations,
                                           const float* weights, std::uint32_t count,
                                           const Vector3f& position) noexcept
         {
-            Quaternionf reference{0.0f, 0.0f, 0.0f, 1.0f};
-            bool have_reference = false;
+            // No hemisphere correction here, and none is needed: nothing sums quaternions. Each
+            // influence's rotation is applied on its own, and `q` and `-q` rotate a vector
+            // identically, so the representation's double cover never reaches the result.
             float total_weight = 0.0f;
-            Vector3f translation_sum{0.0f, 0.0f, 0.0f};
-            Quaternionf rotation_sum{0.0f, 0.0f, 0.0f, 0.0f};
+            Vector3f sum{0.0f, 0.0f, 0.0f};
             for (std::uint32_t i = 0; i < count; ++i)
             {
                 if (weights[i] <= 0.0f)
                     continue;
-                if (!have_reference)
-                {
-                    reference = rotations[i];
-                    have_reference = true;
-                }
-                const float sign = detail::quat_dot4(reference, rotations[i]) < 0.0f ? -1.0f : 1.0f;
-                const float w = weights[i] * sign;
-                rotation_sum = detail::quat_add(rotation_sum, detail::quat_scale(rotations[i], w));
-                translation_sum = translation_sum + translations[i] * (w);
+                const Vector3f transformed = rotate(rotations[i], position) + translations[i];
+                sum = sum + transformed * weights[i];
                 total_weight += weights[i];
             }
             if (total_weight <= 1e-8f)
                 return position;
-
-            const float norm = detail::quat_norm(rotation_sum);
-            const Quaternionf blended_rotation =
-                norm > 1e-8f ? detail::quat_scale(rotation_sum, 1.0f / norm)
-                            : Quaternionf{0.0f, 0.0f, 0.0f, 1.0f};
-            const Vector3f blended_translation = translation_sum * (1.0f / total_weight);
-            return rotate(blended_rotation, position) + blended_translation;
+            return sum * (1.0f / total_weight);
         }
     } // namespace Animation
 } // namespace SushiEngine

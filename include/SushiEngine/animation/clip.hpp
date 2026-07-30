@@ -231,6 +231,31 @@ namespace SushiEngine
             }
 
             /**
+             * @brief Samples one morph-weight track, for a caller that wants a few of many.
+             *
+             * Brackets the same two frames @ref sample_morph does but reads only the one track, so
+             * mapping a mesh's handful of targets onto a clip with many needs no buffer sized to
+             * the clip's track count.
+             *
+             * @param time_seconds Playback time (wrapped or clamped like @ref sample).
+             * @param loop         Whether the clip loops.
+             * @param track        Track index, as returned by @ref find_morph.
+             * @return The interpolated weight, or 0 when @p track is out of range.
+             */
+            float sample_morph_track(float time_seconds, bool loop, std::uint32_t track) const noexcept
+            {
+                if (morph_weights == nullptr || track >= morph_track_count)
+                    return 0.0f;
+                std::uint32_t frame0;
+                std::uint32_t frame1;
+                float alpha;
+                bracket(time_seconds, loop, frame0, frame1, alpha);
+                const float a = morph_weights[frame0 * morph_track_count + track];
+                const float b = morph_weights[frame1 * morph_track_count + track];
+                return a * (1.0f - alpha) + b * alpha;
+            }
+
+            /**
              * @brief Samples every generic float track at a time into a caller-owned array.
              * @param time_seconds Playback time (wrapped or clamped like @ref sample).
              * @param loop         Whether the clip loops.
@@ -239,6 +264,34 @@ namespace SushiEngine
             void sample_generic(float time_seconds, bool loop, float* out_values) const noexcept
             {
                 sample_float_tracks(generic_values, generic_track_count, time_seconds, loop, out_values);
+            }
+
+            /**
+             * @brief Samples one generic float track, for a caller that wants a few of many.
+             *
+             * The counterpart to @ref sample_morph_track, and it exists for the same reason: a
+             * caller whose buffer is sized to a fixed bound rather than to the clip's track count
+             * must be able to read within that bound. @ref sample_generic writes
+             * @ref generic_track_count values and takes the caller's word that the array is that
+             * long, which is not a contract a fixed-size buffer can honour.
+             *
+             * @param time_seconds Playback time (wrapped or clamped like @ref sample).
+             * @param loop         Whether the clip loops.
+             * @param track        Track index, as returned by @ref find_generic.
+             * @return The interpolated value, or 0 when @p track is out of range.
+             */
+            float sample_generic_track(float time_seconds, bool loop,
+                                       std::uint32_t track) const noexcept
+            {
+                if (generic_values == nullptr || track >= generic_track_count)
+                    return 0.0f;
+                std::uint32_t frame0;
+                std::uint32_t frame1;
+                float alpha;
+                bracket(time_seconds, loop, frame0, frame1, alpha);
+                const float a = generic_values[frame0 * generic_track_count + track];
+                const float b = generic_values[frame1 * generic_track_count + track];
+                return a * (1.0f - alpha) + b * alpha;
             }
 
             /**

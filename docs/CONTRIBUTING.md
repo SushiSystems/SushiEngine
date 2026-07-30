@@ -131,6 +131,23 @@ you're editing.
   (`Api`, `Pgs`) and do not invent new acronyms for the sake of brevity — this
   exception is for terms the reader already knows as an acronym (API, PGS, RHI,
   GPU, ECS, XPBD), not a shortcut around the no-abbreviation rule.
+- **Build-system names are prefixed with the full program name.** Every CMake
+  target, function, macro, option, and build-tree artifact this repo defines
+  starts with `sushiengine_` — `sushiengine_render`, `sushiengine_apply_sycl`,
+  `sushiengine_configure_test_target`. Never the bare `sushi_` prefix.
+
+  This is a **SushiStack-wide convention**: each program prefixes with its own
+  full name (`sushiruntime_`, `sushistack_`, `sushicli_`, `sushiblas_`). The
+  reason is concrete rather than cosmetic — this repo consumes SushiRuntime by
+  `add_subdirectory` of a sibling checkout, so both trees configure into one
+  flat CMake namespace with no scoping. A target or function name defined by
+  both repos collides, and for functions the second definition silently
+  overrides the first rather than erroring. `sushiengine_configure_test_target`
+  and `sushiruntime_configure_test_target` cannot collide; `sushi_…` can. It
+  also makes a configure-log line self-identifying.
+
+  The rule covers build-system identifiers and build-tree artifacts, not C++
+  symbols: the public C++ API is already scoped by the `SushiEngine` namespace.
 - **Every source file carries the Apache 2.0 license header** used across the
   tree. Copy it verbatim into new files.
 
