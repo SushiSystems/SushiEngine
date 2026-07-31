@@ -224,6 +224,19 @@ void main()
                 break;
         }
 
+        // **What the top is given depends on how cold it already is**, and without that this term
+        // is a sink rather than a flux. The sky above a cloud top is not empty: it returns a share
+        // of what the top emits, and that share grows as the top cools, until at
+        // `cloud_top_equilibrium_depression` below its environment the two balance. Left as a
+        // constant, a deck that persists pays the same 70 W/m² forever and nothing in this model
+        // ever warms a cloud -- measured, a deck at 1585 m under a quiescent parent reached
+        // **-42.7 K at 72 h**, still falling linearly, and took the ground 21 K down with it.
+        // Exactly 1 at ambient, so a transient deck sees no change and only a runaway is capped.
+        float departure = theta_perturbation * nest_exner(altitude);
+        float closing = clamp(1.0 + departure /
+                                        max(nest.cloud_top_equilibrium_depression, 1e-3),
+                              0.0, 1.0);
+
         // The flux *difference across this cell*, not the local dF/dz. The distinction is not
         // pedantry: a 250 m level holding half a gram per kilogram is optically thick on its own
         // (kappa rho q_c dz is 16), so the differential form would cool it at 16 K/h where the
@@ -231,7 +244,7 @@ void main()
         // telescopes to F0 (1 - exp(-kappa W_total)) and the scheme cannot radiate away more than
         // the cloud top is given, at any resolution.
         float own = q.y * base_density * thickness;
-        float absorbed = nest.cloud_top_longwave_flux *
+        float absorbed = nest.cloud_top_longwave_flux * closing *
                          (exp(-nest.cloud_water_absorption * path) -
                           exp(-nest.cloud_water_absorption * (path + own)));
         float cooling = absorbed / (nest.specific_heat_pressure * base_density * thickness);

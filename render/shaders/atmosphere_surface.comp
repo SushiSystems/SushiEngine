@@ -45,7 +45,9 @@ layout(set = 0, binding = 3) uniform sampler3D moisture;
 layout(set = 0, binding = 4) uniform sampler3D wind_x;
 layout(set = 0, binding = 5) uniform sampler3D wind_z;
 // This column's cloud, as the extinction stage left it at the end of the previous frame:
-// r = cell-mean optical depth, g = the fraction it is spread over.
+// r = cell-mean optical depth, g = the fraction it is spread over, b = the cloud base's
+// temperature, a = the column's liquid water path. The first pair shades the sun, the second
+// pair decides what comes back down.
 layout(set = 0, binding = 6) uniform sampler2D cloud_shade;
 
 layout(push_constant) uniform Params
@@ -85,6 +87,11 @@ void main()
     // beats it on the very first frame); zero kelvin would make the first longwave term absurd.
     float skin = state.r > 1.0 ? state.r : nest_base_temperature(0.0);
 
+    // Read once: the shortwave below shades itself with the first two channels and the longwave
+    // further down answers to the other two, and they describe the same cloud.
+    vec4 shade = texelFetch(cloud_shade, column, 0);
+    float cover = clamp(shade.g, 0.0, 1.0);
+
     // ---- Shortwave ------------------------------------------------------------------
     //
     // The sun the sky is drawn with, through a slant path: transmittance to the power of the air
@@ -111,8 +118,6 @@ void main()
         // wrong at a low one, where the shadow really falls kilometres downsun. That error grows
         // exactly as the flux being shaded shrinks, which is what makes it affordable; a real
         // one is a shadow march across neighbours, and it is not worth a march.
-        vec2 shade = texelFetch(cloud_shade, column, 0).rg;
-        float cover = clamp(shade.g, 0.0, 1.0);
         if (cover > 0.0)
         {
             float in_cloud = shade.r / max(cover, 1e-3);
@@ -154,6 +159,21 @@ void main()
                                  0.5, 1.0);
     float emissivity = clamp(nest.surface_emissivity, 0.0, 1.0);
     float longwave_down = air_emissivity * STEFAN_BOLTZMANN * pow(air_temperature, 4.0);
+
+    // **And the covered share of that sky is a cloud base, not clear air.** Brutsaert describes
+    // the air's own weak emission; a cloud base is very nearly a black body — 30 g/m² of liquid
+    // water is 0.98 of one — and it is warm, because it sits at the bottom of the troposphere.
+    // Applying the clear-sky value under an overcast column leaves the ground radiating to a sky
+    // that is not there while the same cloud is shading its sunlight away above, which is a
+    // one-way loss the ground has no way out of.
+    float cloud_water_path = max(shade.a, 0.0);
+    float cloud_base = shade.b;
+    float overcast = cover * (cloud_water_path > 0.0
+                                  ? 1.0 - exp(-nest.cloud_water_absorption * cloud_water_path)
+                                  : 0.0);
+    if (overcast > 0.0 && cloud_base > 1.0)
+        longwave_down = mix(longwave_down, STEFAN_BOLTZMANN * pow(cloud_base, 4.0), overcast);
+
     float longwave_up = emissivity * STEFAN_BOLTZMANN * pow(skin, 4.0);
     float net_radiation = absorbed + emissivity * longwave_down - longwave_up;
 

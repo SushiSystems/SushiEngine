@@ -3285,8 +3285,20 @@ readback.
   layer tens of metres deep. Carried as the flux *difference* across a level rather than a local
   `dF/dz`, which telescopes down a column to `F0·(1 − e^{−κW})` and so cannot radiate away more
   than the top is given at any vertical resolution — the differential form over-cools an optically
-  thick level by its own opacity. The entrainment the cooling drives is resolved rather than
-  parameterized, and is under-resolved at the spacing the upper levels carry.
+  thick level by its own opacity. It also cannot radiate *forever*: the sky above returns a growing
+  share of what the top emits as it cools, so the loss is scaled by how far the top still is above
+  the temperature at which the two balance and is gone at `cloud_top_equilibrium_depression` below
+  ambient. Without that bound the constant is a sink rather than a flux, and nothing in this model
+  warms a cloud — a deck that persisted cooled its column 42.7 K over 72 h and did not stop. The
+  entrainment the cooling drives is resolved rather than parameterized, and is under-resolved at the
+  spacing the upper levels carry.
+- **The other direction of the same longwave** reaches the ground: the covered share of the sky the
+  surface balance radiates to is the cloud base's own emission rather than Brutsaert's clear-sky
+  air, blended by cover and by how black the deck is. A cloud base holding 30 g/m² is 0.98 of a
+  black body and it is warm, so an overcast column that is shading the sunlight away is also
+  returning most of the loss — applying the clear-sky value under it leaves the ground losing tens
+  of watts to a sky that is not there. The cloud-base temperature and liquid water path come out of
+  the column walk the extinction stage already runs for the shading.
 - **The boundary layer** is parameterized, because the eddies that carry surface heat and
   moisture out of the lowest level are two orders below a 2 km grid. Vertical diffusion of total
   θ and the moisture species on Troen & Mahrt's `K = κ·w_s·z·(1 − z/h)²` — linear in height at the

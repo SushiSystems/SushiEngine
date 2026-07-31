@@ -9,6 +9,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-01 — Added a closing condition to the nest's cloud-top cooling (`cloud_top_equilibrium_depression`): the loss falls as the top cools below its environment and is gone at the depression, so the term is a flux rather than a constant sink. Exactly unchanged for a cloud at ambient.
+- 2026-08-01 — Added the cloud's downwelling longwave to the surface energy balance, carried out of the extinction stage's existing column walk as a cloud-base temperature and liquid water path. `cloud_shade` widens from two channels to four (147 → 294 KB at the shipped tier).
+- 2026-08-01 — Added `--cloud-top-floor` to `atmosphere_probe`.
 - 2026-07-31 — Added cloud-top radiative longwave cooling to the regional nest, as the flux difference across a level so the scheme is conservative at any vertical resolution. `cloud_top_longwave_flux` and `cloud_water_absorption` carry it as data; 0 removes the term.
   - Measured, it *maintains* nocturnal cloud rather than removing it, which is what makes nocturnal stratocumulus exist. The evening decay a subsiding parent produces is unchanged in direction and weaker in size: the overnight fall is 15 % where it was 40 %.
   - Costs 0.096 ms in the `forces` stage, 1.6 % of the whole step.
@@ -16,6 +19,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - 2026-07-31 — Added `--sponge-depth`, `--sponge-rate` and `--cloud-top-lw` to `atmosphere_probe`.
 
 ### Fixed
+- 2026-08-01 — Fixed the nest's longwave budget being one-way, which cooled a column without bound wherever cloud persisted: measured over 72 h under a fixed sun and a quiescent parent, the deck level at 1585 m reached −42.7 K and the ground −21.7 K, both still falling linearly, while the sky field froze to four decimals from 43 h. Two independent halves — a cloud-top loss that did not depend on the cloud's own temperature, and a ground that radiated to Brutsaert's clear sky while the same deck shaded its sunlight away.
+  - Isolated by running the same 72 h with the cloud-top term off: the surface holds +4.5 to +5.8 K across the whole run instead, at the same 0.84 cloud cover.
+  - Verified on the same 72 h: net radiation goes −76.3 → **+1.3 W/m²** and the sensible flux −57.7 → −1.6, so the ground is in balance under an overcast noon sky; the surface settles at −1.4 K against −21.7, and the deck at −13.9 K against its 15 K floor rather than falling without end.
+
 - 2026-07-31 — Fixed `humidity_scale_height` folding the base state's *relative humidity* rather than its mixing ratio, which decayed the profile twice and left the airmass far drier than documented — 41 % relative humidity at 1.3 km and 9.5 % at 5 km, against 62 % and 50 % now.
   - Changed the Meteorology panel's land-cover presets to set the airmass humidity along with the surface properties, because a semi-desert is not merely a dry surface: under a 70 % airmass a dry surface still built a 2 km afternoon deck. Each preset now delivers the sky its tooltip describes, measured over 11 h from sunrise.
 

@@ -376,10 +376,37 @@ namespace SushiEngine
              * existed the nest's only sink for a nocturnal deck was the parent's subsidence, so a
              * deck under a quiescent parent persisted until dawn.
              *
+             * This is the loss for a top at its *environment's* temperature; how it shuts down as
+             * the top cools below that is @ref cloud_top_equilibrium_depression.
+             *
              * Set to 0 to remove the term. The pairing with @ref cloud_water_absorption is
              * Stevens et al.'s (2005) two-parameter form of the standard flux profile.
              */
             float cloud_top_longwave_flux = 70.0f;
+            /**
+             * @brief How far below its environment a radiating cloud top settles, K.
+             *
+             * The closing condition on the term above, and without it that term is a constant
+             * sink rather than a flux: a cloud top that has cooled ten kelvin goes on losing the
+             * same 70 W/m² as one at ambient, and since nothing in this model ever warms a cloud,
+             * a deck that persists cools without bound. Measured before this existed — a
+             * quiescent parent, a fixed sun, and a deck that formed at 1585 m and stayed —
+             * the deck level reached **−42.7 K at 72 h** and was still falling linearly, taking
+             * the ground 21 K down with it.
+             *
+             * What is physically missing there is that the sky above a cloud top is not at space
+             * temperature: it returns a share of what the top emits, and that share grows as the
+             * top cools, until the two balance. So the loss is scaled by how far the top still is
+             * above the temperature at which they do — linear in temperature rather than in `T⁴`,
+             * which over this depth is a sub-kelvin difference and is not worth a quartic.
+             *
+             * The default is *derived* rather than authored, so it and the flux above stay
+             * consistent: a black body at 277.9 K — the base state at 1585 m, where the measured
+             * deck sat — emits 338 W/m², and it is 15.6 K colder by the time it has given up the
+             * 70 W/m² above. Rounded to 15. An author who changes the flux should move this with
+             * it; `test_atmosphere_nest.cpp` pins the two against that arithmetic.
+             */
+            float cloud_top_equilibrium_depression = 15.0f;
             /**
              * @brief Longwave mass absorption coefficient of cloud water, m²/kg.
              *
@@ -930,6 +957,10 @@ namespace SushiEngine
          * its top is given, where the differential form over-cools an optically thick level by
          * the ratio of its own opacity (16× for a 250 m level holding half a gram per kilogram).
          *
+         * This is the *distribution* down the cloud only. What the top is given in the first place
+         * depends on how cold it already is, and that is @ref atmosphere_cloud_top_flux_scale —
+         * the two compose, and the shader multiplies them.
+         *
          * Mirrors the cloud-top block in atmosphere_forces.comp; neither is edited alone.
          *
          * @param p             Carries `cloud_top_longwave_flux` and `cloud_water_absorption`.
@@ -946,6 +977,35 @@ namespace SushiEngine
             return p.cloud_top_longwave_flux *
                    (std::exp(-p.cloud_water_absorption * above) -
                     std::exp(-p.cloud_water_absorption * (above + path_in_level)));
+        }
+
+        /**
+         * @brief What fraction of `cloud_top_longwave_flux` a cloud this cold still loses.
+         *
+         * The closing condition, and the difference between a flux and a sink. A cloud top emits
+         * to a sky that is not empty: the air above returns a share of it, and that share grows
+         * as the top cools, until at @ref AtmosphereParameters::cloud_top_equilibrium_depression
+         * below its environment the two balance and the net loss is gone. Without this the term
+         * is a constant a persistent deck pays forever — measured at −42.7 K over 72 h, and still
+         * falling.
+         *
+         * Linear in temperature rather than in `T⁴`: over fifteen kelvin about a 278 K black body
+         * the two differ by under a kelvin, which is far inside what the flux itself is known to.
+         *
+         * @param p             Carries `cloud_top_equilibrium_depression`.
+         * @param departure_k   Temperature of the cloud less its base state's, K. Negative for a
+         *                      cloud that has cooled; zero is a cloud at its environment.
+         * @return              Scale on the flux, in [0, 1]. Exactly 1 at ambient and above, so a
+         *                      transient deck is unaffected and only a runaway is capped.
+         */
+        inline float atmosphere_cloud_top_flux_scale(const AtmosphereParameters& p,
+                                                     float departure_k)
+        {
+            const float depression = p.cloud_top_equilibrium_depression > 1.0e-3f
+                                         ? p.cloud_top_equilibrium_depression
+                                         : 1.0e-3f;
+            const float scale = 1.0f + departure_k / depression;
+            return scale < 0.0f ? 0.0f : (scale > 1.0f ? 1.0f : scale);
         }
 
         /** @brief What @ref atmosphere_cloud_partition resolves a cell's water into. */
@@ -1018,6 +1078,25 @@ namespace SushiEngine
             return partition;
         }
 
+        /**
+         * @brief The cloud a column's ground is standing under, as the surface balance sees it.
+         *
+         * Default-constructed is a clear sky, and a clear sky is exactly the balance without any
+         * of this — so a caller that has no cloud field to offer is not making one up.
+         *
+         * `atmosphere_extinction.comp` fills these in the column walk it already runs for the
+         * shading, which is why they cost nothing new.
+         */
+        struct AtmosphereCloudCover
+        {
+            /** @brief Fraction of the column covered, [0, 1]. Maximum overlap, as the shade is. */
+            float fraction = 0.0f;
+            /** @brief Temperature at the cloud base, K — what the ground actually sees. */
+            float base_temperature_k = 0.0f;
+            /** @brief Column liquid water path, kg/m². Decides how black the base is. */
+            float water_path = 0.0f;
+        };
+
         /** @brief What @ref atmosphere_surface_balance leaves the ground holding. */
         struct AtmosphereSurfaceBalance
         {
@@ -1062,9 +1141,14 @@ namespace SushiEngine
          * in `test_atmosphere_nest.cpp`, and both replaced a stronger one this comment made
          * before the test was written.
          *
-         * Longwave down is Brutsaert (1975): the clear-sky emissivity of air goes as the seventh
-         * root of vapour pressure over temperature, so a humid night radiates far more back down
-         * than a dry one — which is why a desert freezes after dark and a coast does not.
+         * Longwave down is Brutsaert (1975) **where the sky is clear**: the clear-sky emissivity of
+         * air goes as the seventh root of vapour pressure over temperature, so a humid night
+         * radiates far more back down than a dry one — which is why a desert freezes after dark and
+         * a coast does not. Under cloud it is the cloud base that the ground sees, and a cloud base
+         * is very nearly a black body: a deck holding 30 g/m² is 0.98 of one. Applying the
+         * clear-sky value under an overcast column instead is what let the ground go on losing
+         * 42 W/m² at noon while its own sunlight was being shaded away, and it is half of why the
+         * column measured in §11 cooled without bound.
          *
          * @param p              The authored physics.
          * @param skin_k         Skin temperature at the start of the step, K.
@@ -1076,13 +1160,12 @@ namespace SushiEngine
          *                       why free convection is added in quadrature.
          * @param absorbed_w     Shortwave already absorbed — after albedo, cloud and patchiness.
          * @param dt             Step length, seconds.
+         * @param cloud          What is overhead. Default-constructed is a clear sky.
          */
-        inline AtmosphereSurfaceBalance atmosphere_surface_balance(const AtmosphereParameters& p,
-                                                                  float skin_k, float air_k,
-                                                                  float air_vapour,
-                                                                  float pressure_pa, float density,
-                                                                  float wind_mps, float absorbed_w,
-                                                                  float dt)
+        inline AtmosphereSurfaceBalance atmosphere_surface_balance(
+            const AtmosphereParameters& p, float skin_k, float air_k, float air_vapour,
+            float pressure_pa, float density, float wind_mps, float absorbed_w, float dt,
+            const AtmosphereCloudCover& cloud = AtmosphereCloudCover{})
         {
             constexpr float STEFAN_BOLTZMANN = 5.670374e-8f;
             const auto clamp01 = [](float v)
@@ -1095,8 +1178,21 @@ namespace SushiEngine
                 1.24f * std::pow(vapour_pressure * 0.01f / std::fmax(air_k, 1.0f), 1.0f / 7.0f);
             air_emissivity = air_emissivity < 0.5f ? 0.5f : (air_emissivity > 1.0f ? 1.0f
                                                                                   : air_emissivity);
-            const float longwave_down =
+            float longwave_down =
                 air_emissivity * STEFAN_BOLTZMANN * air_k * air_k * air_k * air_k;
+            // The covered share of the sky is the cloud base rather than the clear air behind it.
+            // Blended by cover, not switched by it, so a scattered sky lands between the two.
+            const float overcast =
+                clamp01(cloud.fraction) *
+                (cloud.water_path > 0.0f
+                     ? 1.0f - std::exp(-p.cloud_water_absorption * cloud.water_path)
+                     : 0.0f);
+            if (overcast > 0.0f && cloud.base_temperature_k > 1.0f)
+            {
+                const float base = cloud.base_temperature_k;
+                longwave_down = (1.0f - overcast) * longwave_down +
+                                overcast * STEFAN_BOLTZMANN * base * base * base * base;
+            }
             const float longwave_up =
                 emissivity * STEFAN_BOLTZMANN * skin_k * skin_k * skin_k * skin_k;
 

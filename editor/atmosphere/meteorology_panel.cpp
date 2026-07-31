@@ -359,6 +359,17 @@ namespace SushiEngine
                                           "a stratocumulus overturn instead of sitting still. At\n"
                                           "0 a nocturnal deck's only sink is the parent's\n"
                                           "subsidence and it will outlive the night.");
+                    if (ImGui::SliderFloat("Cloud-top Floor", &nest.cloud_top_equilibrium_depression,
+                                           1.0f, 60.0f, "%.0f K"))
+                        changed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How far below its environment a radiating cloud top\n"
+                                          "settles. The sky above returns a growing share of what\n"
+                                          "the top emits as it cools, and here the two balance and\n"
+                                          "the loss above stops. This is what makes that loss a\n"
+                                          "flux rather than a sink: raise it far enough and a deck\n"
+                                          "that persists cools without bound, which is what a\n"
+                                          "quiescent 72 h run measured at -42.7 K.");
                     if (ImGui::SliderFloat("Autoconversion Threshold", &nest.autoconversion_threshold,
                                            0.0f, 5.0e-3f, "%.4f kg/kg"))
                         changed = true;

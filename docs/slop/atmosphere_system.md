@@ -863,7 +863,97 @@ time scales are comparable. Phase B2c's entire diagnosis came out of that file.
 Each phase ships editor surface, tier wiring, profiler budget, and CHANGELOG/ARCHITECTURE
 entries per repo policy.
 
-### Where this stands — 2026-07-31
+### Where this stands — 2026-08-01
+
+**The sponge experiment the entry below leaves open was not run, and the reason is the reason it
+should not have been: the base state it would have been measured on is broken.** Reproducing that
+entry's tropopause run first — 72 h, fixed sun, quiescent parent, exactly the shipped defaults —
+reproduced its step count exactly (43 202) and nothing else. The drift near the tropopause is not
+−1.07 K, it is a ±20 K oscillation with the sign alternating between adjacent levels, and it is
+sitting on top of something an order of magnitude larger that the entry below does not mention at
+all: **the column cools without bound.**
+
+| | 6 h | 24 h | 48 h | 72 h |
+|---|---|---|---|---|
+| θ′ at 1585 m, the deck the run builds | +5.1 | −6.8 | −22.7 | **−42.7 K** |
+| θ′ at the surface | +5.1 | +1.1 | −8.4 | **−21.7 K** |
+| skin temperature | 33 °C | 13 °C | — | **−10 °C, still falling** |
+
+Linear at about −0.8 K/h from the moment the deck closes over, with the sky field frozen to four
+decimal places from 43 h onward — 0.879 cover, 0.3262 deviation, 0.0605 roughness, sample after
+sample. A run in that state cannot answer a question about a sponge.
+
+**The cause is the entry below's own newest term, and it was isolated rather than argued.** The
+same 72 h with `--cloud-top-lw 0` holds the surface at +4.5 to +5.8 K for the whole run, at the
+same 0.84 cloud cover — so the difference is not how much cloud there is, it is the term:
+
+| `cloud_top_longwave_flux` | 6 h | 24 h | 48 h | 72 h | final skin |
+|---|---|---|---|---|---|
+| **70 W/m² (as shipped)** | +5.1 | −6.8 | −22.7 | **−42.7 K** | −10.4 °C |
+| **0** | +5.2 | +5.4 | +5.8 | **+4.5 K** | +13.6 °C |
+
+The conservation argument that entry makes for the term is correct and is untouched — a column
+telescopes to `F0 (1 − e^{−κW})` and cannot radiate away more than its top is given. What it is
+missing is the *other* bound: `F0` is a constant, so a cloud top that has cooled ten kelvin goes on
+losing exactly what one at ambient does, and nothing in this model ever warms a cloud. Written that
+way the term is a sink and not a flux. **Fixed** by scaling it with how far the top still is above
+the temperature at which the sky above balances it (`cloud_top_equilibrium_depression`, defaulting
+to the 15 K at which a 278 K black body has given up exactly the shipped 70 W/m², so the two move
+together rather than drifting apart). Exactly 1 at ambient — a transient deck, the case the term
+was calibrated on last week, is bit-identical.
+
+**A second, independent half of the same one-way budget, found while isolating the first.** The
+surface's downwelling longwave is Brutsaert's clear-sky emissivity *always*, including under a
+fully overcast column. So the deck shades the ground's sunlight away above while the ground goes on
+radiating to a sky that is not there: even with the cloud-top term removed, net radiation is
+−42 W/m² at permanent noon under an 0.84-covered sky. That one is bounded — the slab equilibrates —
+so it is a bias rather than a runaway, but it is also the term that would have *closed the loop* on
+the first: a ground kept warm under a cooling deck drives a sensible flux back into it. **Fixed** by
+blending the downwelling longwave toward the cloud base's own emission by cover and cloud
+emissivity. The data it needs — cloud-base temperature and column liquid water path — comes out of
+the walk `atmosphere_extinction.comp` already runs for the shading, so `cloud_shade` widens from two
+channels to four and nothing new is computed.
+
+**Both fixes verified, on the same 72 h at the same defaults.** The column stops running away, and
+the two halves show up in different places, which is what says each is doing its own work:
+
+| | as shipped | cloud-top term off | **both fixes** |
+|---|---|---|---|
+| θ′ at 1585 m, 72 h | −42.7 K, still falling | +0.6 K | **−13.9 K, settling** |
+| θ′ at the surface, 72 h | −21.7 K | +4.5 K | **−1.4 K** |
+| skin temperature | −10.4 °C | 13.6 °C | **13.2 °C** |
+| net radiation | −76.3 W/m² | −42.4 W/m² | **+1.3 W/m²** |
+| sensible flux | −57.7 W/m² | −34.0 W/m² | **−1.6 W/m²** |
+
+The surface row is the unambiguous one: at permanent noon under an 0.879-covered sky the ground is
+now within a watt and a half of radiative balance, where before it was losing 76. Notice that
+removing the cloud-top term alone does *not* fix that — it leaves 42 W/m² of loss — so the two
+defects really were independent, and only the second one is about the ground.
+
+The deck's own row is bounded rather than resolved, and the distinction is worth keeping: it is
+settling on **−13.9 K against a 15 K floor** (−2.1, −1.7, −0.9, −0.7, −1.0 K per six hours, still
+shrinking), so what is holding it is the closure and not a balance the model found. Under a
+quiescent parent with a fixed sun there is nothing else to hold it — the entrainment and subsidence
+that limit a real deck are the terms §6 already names as under-resolved. **Named limit:** a
+persistent deck sits against its radiative floor rather than at an equilibrium, and the floor is a
+parameter. What has changed is that it is a floor at all.
+
+**Two things this run did not settle.** The sky field still freezes to four decimal places from
+43 h — 0.879 cover sample after sample — which is a separate question from the temperature and is
+still open. And the step cost cannot be compared across these runs: it reads 12.35 ms against the
+baseline's 7.87, but `advect wind`, `advect scalars` and `pressure` — none of which this change
+touches — all moved by the same ~1.6×, so the machine and not the code is what differs. A cost
+measurement for this change has to be taken as a pair of runs back to back.
+
+**Still not measured:** the diurnal comparison. Phase B3b measured this same 72 h *with a day/night
+cycle* and found no runaway (−0.86 K above 10 km), so the fixed-sun case above is the harsh one by
+construction; what the fixes do to a realistic diurnal forcing has not been run.
+
+**Still open from below, unchanged:** the sponge experiment, now to be run on a base state that
+holds still; T1's 36 ms step on the main thread; the nest on the graphics queue; Phase C's nest-side
+genus acceptance; nothing confirmed by eye; §12's budget stale.
+
+### Where this stood — 2026-07-31
 
 **Shipped since the entry below:** the base-state vapour profile is fixed (§6's carried item, the
 one named there as the highest-value thing left in the model), and cloud-top radiative cooling is

@@ -209,6 +209,44 @@ TEST(Unit_AtmosphereNest, CloudTopCoolingIsConservativeAndConcentratedAtTheTop)
               0.01f * whole);
 }
 
+TEST(Unit_AtmosphereNest, CloudTopCoolingClosesInsteadOfRunningAway)
+{
+    const Render::AtmosphereParameters p{};
+
+    // The distinction this scale draws is between a flux and a sink. A cloud at its environment's
+    // temperature loses everything the flux says it does — so nothing about a transient deck, the
+    // case the term was calibrated on, changes at all.
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_flux_scale(p, 0.0f), 1.0f);
+    // A cloud *warmer* than its environment does not lose more than one. The term is a bound on
+    // the sky's return, not a temperature difference to be scaled up.
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_flux_scale(p, 5.0f), 1.0f);
+
+    // And the closure: by the depression the loss is gone, and it never turns into a gain however
+    // far past it a column is pushed. This is what bounds the cooling — without it the same
+    // 70 W/m² is paid at every temperature, and a deck that persists cools forever.
+    EXPECT_FLOAT_EQ(
+        Render::atmosphere_cloud_top_flux_scale(p, -p.cloud_top_equilibrium_depression), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_flux_scale(p, -1000.0f), 0.0f);
+
+    // Monotone in between, so a deck approaches its floor rather than switching off at it.
+    float previous = 1.0f;
+    for (int step = 1; step <= 15; ++step)
+    {
+        const float scale = Render::atmosphere_cloud_top_flux_scale(p, -float(step));
+        EXPECT_LT(scale, previous);
+        previous = scale;
+    }
+
+    // The default is derived from the flux rather than typed beside it, and this is the arithmetic
+    // that ties them: a black body at the base state's 1585 m temperature, cooled by the
+    // depression, has given up the flux the term starts from.
+    constexpr float STEFAN_BOLTZMANN = 5.670374e-8f;
+    const float ambient = Render::atmosphere_base_temperature(p, 1585.0f);
+    const float floor_k = ambient - p.cloud_top_equilibrium_depression;
+    const float given_up = STEFAN_BOLTZMANN * (std::pow(ambient, 4.0f) - std::pow(floor_k, 4.0f));
+    EXPECT_NEAR(given_up, p.cloud_top_longwave_flux, 5.0f);
+}
+
 // ---- The stretched vertical grid ---------------------------------------------------------
 
 TEST(Unit_AtmosphereNest, VerticalGridIsStretchedAndClosesOnTheDomainTop)
@@ -576,6 +614,72 @@ TEST(Unit_AtmosphereNest, SurfaceBalanceIsUnconditionallyStableAndLandsItsSteady
     EXPECT_FLOAT_EQ(parched.latent, 0.0f);
     // And the wet surface is the cooler one, because evaporation is where its energy went.
     EXPECT_LT(soaked.skin_k, parched.skin_k);
+}
+
+TEST(Unit_AtmosphereNest, TheGroundRadiatesToTheCloudBaseAndNotThroughIt)
+{
+    const Render::AtmosphereParameters p{};
+    const float air = 288.0f;
+    const float vapour = 0.008f;
+    const float pressure = 101325.0f;
+    const float density = 1.2f;
+    const float wind = 3.0f;
+
+    // A clear sky is the balance without any of this, stated as an equality rather than as an
+    // intention: a caller with no cloud field to offer must get exactly what it got before one
+    // existed, so the default argument cannot quietly change anybody's weather.
+    const Render::AtmosphereSurfaceBalance bare = Render::atmosphere_surface_balance(
+        p, air, air, vapour, pressure, density, wind, 0.0f, 60.0f);
+    Render::AtmosphereCloudCover clear;
+    const Render::AtmosphereSurfaceBalance stated = Render::atmosphere_surface_balance(
+        p, air, air, vapour, pressure, density, wind, 0.0f, 60.0f, clear);
+    EXPECT_FLOAT_EQ(bare.net_radiation, stated.net_radiation);
+    EXPECT_FLOAT_EQ(bare.skin_k, stated.skin_k);
+
+    // A column with cover but no water is still clear. Cover alone is not a radiating surface,
+    // and this is the case a cloud field produces constantly as a deck thins out of existence.
+    Render::AtmosphereCloudCover empty;
+    empty.fraction = 1.0f;
+    empty.base_temperature_k = 280.0f;
+    EXPECT_FLOAT_EQ(Render::atmosphere_surface_balance(p, air, air, vapour, pressure, density,
+                                                       wind, 0.0f, 60.0f, empty)
+                        .net_radiation,
+                    bare.net_radiation);
+
+    // **The defect this closes.** After dark under a real deck the ground is nearly in radiative
+    // balance, because what is over it is a warm near-black body rather than the thin emission of
+    // clear air. Brutsaert's clear-sky value under an overcast column has the ground going on
+    // losing a hundred watts to a sky that is not there — and it was half of a column that cooled
+    // 42.7 K in 72 h and did not stop.
+    Render::AtmosphereCloudCover overcast;
+    overcast.fraction = 1.0f;
+    overcast.base_temperature_k = 283.0f;
+    overcast.water_path = 0.05f; // 50 g/m^2, an ordinary stratocumulus
+    const Render::AtmosphereSurfaceBalance covered = Render::atmosphere_surface_balance(
+        p, air, air, vapour, pressure, density, wind, 0.0f, 60.0f, overcast);
+    EXPECT_GT(covered.net_radiation, bare.net_radiation);
+    // Not merely larger — the loss all but closes, where the clear-sky value leaves the ground
+    // tens of watts short of balance with no way out of it.
+    EXPECT_LT(std::fabs(covered.net_radiation), 0.45f * std::fabs(bare.net_radiation));
+    EXPECT_LT(bare.net_radiation, -50.0f);
+
+    // Blended by cover rather than switched by it, so a broken sky lands between the two ends.
+    Render::AtmosphereCloudCover half = overcast;
+    half.fraction = 0.5f;
+    const float scattered = Render::atmosphere_surface_balance(p, air, air, vapour, pressure,
+                                                               density, wind, 0.0f, 60.0f, half)
+                                .net_radiation;
+    EXPECT_GT(scattered, bare.net_radiation);
+    EXPECT_LT(scattered, covered.net_radiation);
+
+    // And a cold high cirrus returns less than a warm low deck, which is the whole reason the
+    // base *temperature* is carried rather than the cover alone.
+    Render::AtmosphereCloudCover high = overcast;
+    high.base_temperature_k = 240.0f;
+    EXPECT_LT(Render::atmosphere_surface_balance(p, air, air, vapour, pressure, density, wind,
+                                                  0.0f, 60.0f, high)
+                  .net_radiation,
+              covered.net_radiation);
 }
 
 TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward)

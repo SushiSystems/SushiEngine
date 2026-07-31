@@ -251,6 +251,7 @@ namespace SushiEngine
                         float convective_velocity_scale;
 
                         float cloud_top_longwave_flux;
+                        float cloud_top_equilibrium_depression;
                         float cloud_water_absorption;
                         float cloud_critical_humidity;
                         float autoconversion_rate;
@@ -286,9 +287,13 @@ namespace SushiEngine
                         std::int32_t cells_z;
                         std::int32_t levels;
                         std::int32_t boundary_zone;
-                        // 56 scalars, exactly 224 bytes — a multiple of 16, so std140
-                        // needs no tail padding and this struct carries none. Neither is edited
-                        // without the other.
+                        // 57 scalars is 228 bytes, which std140 rounds a block up to 240 — so the
+                        // three floats below are that rounding, written down rather than left to
+                        // the compiler to imply. Keep the total a multiple of four scalars: the
+                        // host binds `sizeof(NestParams)` as the range, and a struct short of the
+                        // block the shader declares binds less than it reads. Neither side is
+                        // edited without the other.
+                        float padding[3];
                     };
 
                     // The push blocks these two stages take are *not* declared here. They were,

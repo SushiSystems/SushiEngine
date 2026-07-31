@@ -35,15 +35,17 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 layout(set = 0, binding = 1) uniform sampler3D moisture;
 layout(set = 0, binding = 2, rgba16f) uniform writeonly image3D extinction;
-// One texel per column: r = the column's cell-mean optical depth, g = the cloud fraction it is
-// spread over. The surface energy balance reads it to shade the ground it is heating.
+// One texel per column, and both halves of what the ground sees: r = the column's cell-mean
+// optical depth and g = the cloud fraction it is spread over, which shade the sunlight; b = the
+// temperature at the cloud base and a = the column's liquid water path, which are what the deck
+// radiates back down. The surface energy balance reads all four.
 //
 // Written *here* rather than by the surface stage, and the reason is arithmetic: a column walk
 // is 48 fetches, and this stage runs once per frame where the surface stage runs once per
 // **step**. Folding it into the invocations that already own this column costs one frame of
 // staleness — the surface always sees the cloud the previous frame ended with, which at a couple
 // of seconds of game time per step is nothing a cloud field notices.
-layout(set = 0, binding = 3, rg32f) uniform writeonly image2D cloud_shade;
+layout(set = 0, binding = 3, rgba32f) uniform writeonly image2D cloud_shade;
 // Bound for the *phase* alone: a crystal is nearly four times the effective radius of a droplet,
 // so glaciated cloud is that much thinner for the same water, and the temperature is the only
 // thing that says which a cell is holding.
@@ -114,6 +116,10 @@ void main()
 
     float mean_depth = 0.0;
     float cover = 0.0;
+    // The lowest level holding any water is the base, because that is the surface the ground has
+    // a clear line to; everything above it is radiating to the cloud rather than to the ground.
+    float base_temperature = 0.0;
+    float water_path = 0.0;
     for (int level = 0; level < levels; ++level)
     {
         vec4 sample_raw = texelFetch(moisture, ivec3(cell.x, level, cell.z), 0);
@@ -131,6 +137,15 @@ void main()
                              (2.0 * nest.water_density * max(sample_radius, 1e-7));
         mean_depth += sample_sigma * nest_level_thickness(level);
         cover = max(cover, clamp(sample_raw.w, 0.0, 1.0));
+
+        float sample_water = sample_raw.y / MOISTURE_UNIT;
+        if (sample_water > 0.0)
+        {
+            water_path += sample_water * sample_density * nest_level_thickness(level);
+            if (base_temperature <= 0.0)
+                base_temperature = sample_temperature;
+        }
     }
-    imageStore(cloud_shade, ivec2(cell.x, cell.z), vec4(mean_depth, cover, 0.0, 0.0));
+    imageStore(cloud_shade, ivec2(cell.x, cell.z),
+               vec4(mean_depth, cover, base_temperature, water_path));
 }

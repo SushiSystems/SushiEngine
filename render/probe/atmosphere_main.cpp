@@ -108,6 +108,7 @@ namespace
         float surface_humidity = std::nanf("");
         float critical_humidity = std::nanf("");
         float cloud_top_longwave = std::nanf("");
+        float cloud_top_depression = std::nanf("");
         float sponge_depth = std::nanf("");
         float sponge_rate = std::nanf("");
         // The parent solution the Davies zone relaxes toward. Zero is a quiescent airmass,
@@ -185,6 +186,9 @@ namespace
             "  --humidity <0-1>     base-state surface relative humidity\n"
             "  --critical <0-1>     relative humidity subgrid cloud begins at; 1 disables the\n"
             "                       subgrid closure and condenses on the cell mean alone\n"
+            "  --cloud-top-lw <W/m2> longwave a cloud top at ambient loses; 0 removes the term\n"
+            "  --cloud-top-floor <K> how far below ambient that loss shuts off; a large value\n"
+            "                       reproduces the unbounded sink it was before it closed\n"
             "  --parent-humidity <f> parent-solution relative humidity anomaly\n"
             "  --parent-theta <K>   parent-solution potential temperature anomaly\n"
             "  --parent-wind <m/s>  parent-solution eastward wind\n"
@@ -273,6 +277,8 @@ namespace
                 options.sponge_rate = float(std::atof(text));
             else if (argument == "--cloud-top-lw" && value(&text))
                 options.cloud_top_longwave = float(std::atof(text));
+            else if (argument == "--cloud-top-floor" && value(&text))
+                options.cloud_top_depression = float(std::atof(text));
             else if (argument == "--critical" && value(&text))
                 options.critical_humidity = float(std::atof(text));
             else if (argument == "--parent-humidity" && value(&text))
@@ -666,6 +672,7 @@ int main(int argc, char** argv)
         override_float(parameters.surface_humidity, options.surface_humidity);
         override_float(parameters.cloud_critical_humidity, options.critical_humidity);
         override_float(parameters.cloud_top_longwave_flux, options.cloud_top_longwave);
+        override_float(parameters.cloud_top_equilibrium_depression, options.cloud_top_depression);
         override_float(parameters.sponge_depth, options.sponge_depth);
         override_float(parameters.sponge_rate, options.sponge_rate);
         if (options.pressure_iterations > 0)

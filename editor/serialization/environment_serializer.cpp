@@ -166,6 +166,8 @@ namespace SushiEngine
                        e.atmosphere_nest.boundary_layer_velocity_scale},
                       {"cloud_critical_humidity", e.atmosphere_nest.cloud_critical_humidity},
                       {"cloud_top_longwave_flux", e.atmosphere_nest.cloud_top_longwave_flux},
+                      {"cloud_top_equilibrium_depression",
+                       e.atmosphere_nest.cloud_top_equilibrium_depression},
                       {"cloud_water_absorption", e.atmosphere_nest.cloud_water_absorption},
                       {"autoconversion_rate", e.atmosphere_nest.autoconversion_rate},
                       {"autoconversion_threshold", e.atmosphere_nest.autoconversion_threshold},
@@ -372,6 +374,9 @@ namespace SushiEngine
                     a.value("cloud_critical_humidity", n.cloud_critical_humidity);
                 n.cloud_top_longwave_flux =
                     a.value("cloud_top_longwave_flux", n.cloud_top_longwave_flux);
+                n.cloud_top_equilibrium_depression =
+                    a.value("cloud_top_equilibrium_depression",
+                            n.cloud_top_equilibrium_depression);
                 n.cloud_water_absorption =
                     a.value("cloud_water_absorption", n.cloud_water_absorption);
                 n.autoconversion_rate = a.value("autoconversion_rate", n.autoconversion_rate);

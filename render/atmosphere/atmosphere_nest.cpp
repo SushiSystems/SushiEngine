@@ -160,11 +160,12 @@ namespace SushiEngine
                 // the moisture field when it was fp16, and the same arithmetic gives the same
                 // answer here.
                 constexpr VkFormat SURFACE_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
-                // The per-column cloud the surface energy balance shades itself with: an optical
-                // depth and the cover it is spread over. Two channels, and full floats for the
-                // same reason as everything else on this seam -- 147 KB either way at the shipped
-                // tier, so precision is free.
-                constexpr VkFormat SHADE_FORMAT = VK_FORMAT_R32G32_SFLOAT;
+                // The per-column cloud the surface energy balance answers to: an optical depth and
+                // the cover it is spread over for the shortwave, and the cloud base's temperature
+                // and liquid water path for the longwave it sends back down. Full floats for the
+                // same reason as everything else on this seam -- 294 KB at the shipped tier, so
+                // precision is free.
+                constexpr VkFormat SHADE_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
                 // Full floats for the parent solution: it is 64x64 texels, so the format costs
                 // 256 KB, and half floats would need a packer on the host for no gain at all.
                 constexpr VkFormat FORCING_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -742,6 +743,7 @@ namespace SushiEngine
                 block.thermal_seed_period = p.thermal_seed_period_s;
                 block.convective_velocity_scale = p.convective_velocity_scale;
                 block.cloud_top_longwave_flux = p.cloud_top_longwave_flux;
+                block.cloud_top_equilibrium_depression = p.cloud_top_equilibrium_depression;
                 block.cloud_water_absorption = p.cloud_water_absorption;
                 block.cloud_critical_humidity = p.cloud_critical_humidity;
                 block.autoconversion_rate = p.autoconversion_rate;
