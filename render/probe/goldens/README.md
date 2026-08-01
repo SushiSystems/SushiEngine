@@ -1,6 +1,6 @@
 # Golden references (RHI0)
 
-One file per case, written by `render_golden --update`. Each records the frame's
+One file per case, written by `se render --probe golden -- --update`. Each records the frame's
 FNV-1a hash, a 32x18 thumbprint of it, and one hash per pass output — all in text,
 so a change is reviewable in a diff rather than only as a hash that moved.
 
@@ -71,3 +71,18 @@ reference. A frame that only matches with capture on is that bug.
 
 `--update` refuses to run with `--no-capture`: a golden without a pass section is not
 a golden, and a harness that can quietly weaken its own baseline is not one either.
+
+## Recording one
+
+    se render --probe golden                 # compare against what is here
+    se render --probe golden -- --dump       # ...and write a PPM of any mismatch
+    se render --probe golden -- --update     # re-record, deliberately
+
+`--update` is an act, not a remedy. A red run is the harness doing its job; look at the
+dump and the per-pass lines first, and re-record only once the change is understood and
+wanted.
+
+No baseline is checked in yet. Every recording attempted so far predated a fix that was
+found by running the harness — a name-normalisation bug in the harness itself, and an
+under-declared image usage that hid the whole post-processing tail from the per-pass
+half. A reference is worth keeping once nothing is still being fixed underneath it.

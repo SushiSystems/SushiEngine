@@ -505,6 +505,14 @@ namespace SushiEngine
                  * Takes effect from the next render(): the frame in progress has already
                  * decided what its resources are.
                  *
+                 * **Invalidates every texture() previously handed out, exactly as resize()
+                 * does, and discards any accumulated temporal history.** A backend may have
+                 * to rebuild its targets to make them legal copy sources — a usage flag is
+                 * fixed at creation — and that is the price of not carrying the flag in
+                 * builds that never capture. A host that registered textures with a UI
+                 * backend must re-register them; a caller that renders a fixed number of
+                 * frames from cold, which is what a harness does, pays nothing.
+                 *
                  * @param enabled Whether following frames should capture.
                  * @return Whether the backend honoured the request.
                  */

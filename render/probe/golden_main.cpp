@@ -133,14 +133,42 @@ namespace
         return true;
     }
 
-    /** @brief Drops the passes @ref stable_pass turns down, preserving order. */
-    std::vector<PassOutputHash> stable_passes(const std::vector<PassOutputHash>& passes)
+    /**
+     * @brief The one spelling of a name, used in the file and in every comparison.
+     *
+     * A name reaches here with spaces in it ("shadow cascades"), and the file format is
+     * whitespace-separated, so it has to be folded to a single token somewhere. Doing
+     * that only on the way out was a bug: the recorded name then never equalled the
+     * live one, and every pass reported itself as simultaneously gone and new.
+     */
+    std::string token_of(const std::string& name)
+    {
+        std::string token = name.empty() ? std::string("unnamed") : name;
+        for (char& character : token)
+            if (character == ' ' || character == '\t' || character == '\n')
+                character = '_';
+        return token;
+    }
+
+    /**
+     * @brief The passes this golden pins: normalised to their file spelling, filtered.
+     *
+     * Normalising here rather than at the point of writing is what keeps the recorded
+     * and the live side of a comparison in the same vocabulary.
+     */
+    std::vector<PassOutputHash> golden_passes(const std::vector<PassOutputHash>& passes)
     {
         std::vector<PassOutputHash> kept;
         kept.reserve(passes.size());
         for (const PassOutputHash& entry : passes)
-            if (stable_pass(entry.pass))
-                kept.push_back(entry);
+        {
+            if (!stable_pass(entry.pass))
+                continue;
+            PassOutputHash normalised = entry;
+            normalised.pass = token_of(entry.pass);
+            normalised.resource = token_of(entry.resource);
+            kept.push_back(std::move(normalised));
+        }
         return kept;
     }
 
@@ -301,16 +329,6 @@ namespace
         return golden;
     }
 
-    /** @brief Names are one whitespace-free token in the file; keep them that way. */
-    std::string token_of(const std::string& name)
-    {
-        std::string token = name.empty() ? std::string("unnamed") : name;
-        for (char& character : token)
-            if (character == ' ' || character == '\t' || character == '\n')
-                character = '_';
-        return token;
-    }
-
     /** @brief Writes a golden in the text form a review can read. */
     bool write_golden(const std::string& path, std::uint64_t hash, const Thumbprint& print,
                       const std::vector<PassOutputHash>& passes)
@@ -336,8 +354,10 @@ namespace
         file << std::dec << "passes " << passes.size() << "\n";
         file << std::hex << std::setfill('0');
         for (const PassOutputHash& entry : passes)
-            file << std::setw(16) << entry.hash << " " << token_of(entry.pass) << " "
-                 << token_of(entry.resource) << "\n";
+            // Already in file spelling: golden_passes() normalised them, which is what
+            // keeps a recorded name equal to the live one it will be compared against.
+            file << std::setw(16) << entry.hash << " " << entry.pass << " "
+                 << entry.resource << "\n";
         return bool(file);
     }
 
@@ -652,7 +672,7 @@ int main(int argc, char** argv)
                 ++failures;
                 continue;
             }
-            const std::vector<PassOutputHash> passes = stable_passes(report.passes);
+            const std::vector<PassOutputHash> passes = golden_passes(report.passes);
 
             const std::uint64_t hash = hash_image(image);
             const Thumbprint print = thumbprint_of(image);

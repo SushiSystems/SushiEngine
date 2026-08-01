@@ -5,7 +5,7 @@ SE_BUILD_RENDER. `se render` reconfigures in place with that flag on (cheap and
 incremental — it does not wipe the build tree), builds a headless probe target, and
 runs it. The Vulkan/VMA/vk-bootstrap vcpkg packages must be provisioned (`ss install`).
 
-Two probes share this path because they share everything that makes it slow — the
+These probes share this path because they share everything that makes it slow — the
 configure and the `sushi_render` build — and differ only in which executable comes out:
 
 * `render_probe` renders the triangle offscreen and reads two pixels back, which
@@ -13,6 +13,10 @@ configure and the `sushi_render` build — and differ only in which executable c
 * `atmosphere_probe` steps the regional nest through hours of simulated weather and
   writes the observer column's vertical profile. A measuring instrument rather than a
   smoke test, so it takes arguments; see `--help`.
+* `render_golden` renders a fixed scene and compares it — whole frame and per pass —
+  against the references in `render/probe/goldens/` (RHI0). Run it before and after a
+  render change; `--update` re-records, which is a deliberate act and not a remedy for
+  a red run. It takes arguments, so `se render --probe golden -- --dump` works.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from . import project
 PROBES = {
     "render": "render_probe",
     "atmosphere": "atmosphere_probe",
+    "golden": "render_golden",
 }
 
 

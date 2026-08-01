@@ -136,8 +136,9 @@ def render(
         False, "--no-run", help="Build the probe but do not run it."),
     probe: str = typer.Option(
         "render", "--probe",
-        help="Which headless probe to build: 'render' (triangle smoke test) or "
-             "'atmosphere' (steps the regional nest and reports its column)."),
+        help="Which headless probe to build: 'render' (triangle smoke test), "
+             "'atmosphere' (steps the regional nest and reports its column), or "
+             "'golden' (RHI0's whole-frame and per-pass regression oracle)."),
 ):
     """Build and run a headless Vulkan probe (configures with SE_BUILD_RENDER=ON).
 

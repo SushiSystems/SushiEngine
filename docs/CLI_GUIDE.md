@@ -136,11 +136,30 @@ se render --no-run     # build only
 se render --probe atmosphere -- --hours 3 --profile column.csv
 ```
 
-Configures with `SE_BUILD_RENDER=ON`. Both probes run without a window, so they work
+Configures with `SE_BUILD_RENDER=ON`. Every probe runs without a window, so they work
 over SSH and in CI.
 
 `--probe render` (the default) renders a triangle offscreen and reads two pixels back,
 which proves the device, shaders, pipeline and submit path came up.
+
+`--probe golden` is the renderer's regression oracle (RHI0): it renders a fixed scene
+for a fixed number of frames and compares it against the references in
+`render/probe/goldens/` — the whole frame by hash and thumbprint, and each pass's output
+by its own hash, so a mismatch says *which pass* changed rather than only that something
+did. Run it before and after any change to a pass.
+
+```bash
+se render --probe golden              # compare
+se render --probe golden -- --dump    # ...and write a PPM of any mismatch
+se render --probe golden -- --update  # re-record, deliberately
+```
+
+A golden is a statement about one GPU and one driver, which is why this is not a ctest
+case and why `--update` is an act rather than a remedy: a red run is the harness working.
+Read the thumbprint distance and the per-pass lines it prints, and re-record only once
+the change is understood and wanted. `--no-capture` skips the per-pass half and renders
+the way a shipping build allocates, which is how to tell a real difference from one that
+exists only under capture.
 
 `--probe atmosphere` steps the regional weather nest through hours of simulated time in
 seconds of wall clock and reports both the observer column and the whole domain's sky —

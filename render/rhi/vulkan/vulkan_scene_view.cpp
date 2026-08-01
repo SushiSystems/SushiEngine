@@ -932,9 +932,13 @@ namespace SushiEngine
                         vkDeviceWaitIdle(device_.device());
                         capture_.reset();
                     }
+                    resources_.set_targets_copyable(false);
                     return true;
                 }
 
+                // Before the capture exists, because this rebuilds the owned targets and
+                // there is no reason to have staging buffers alive across that.
+                resources_.set_targets_copyable(true);
                 if (!capture_)
                     capture_ = std::unique_ptr<Graph::PassCapture>(
                         new Graph::PassCapture(device_, SLOTS));

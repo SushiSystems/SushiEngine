@@ -271,8 +271,11 @@ namespace SushiEngine
                     image_info.arrayLayers = 1;
                     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
                     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                    // Only while the per-pass capture is attached; see
+                    // set_targets_copyable() for why this is not paid unconditionally.
                     image_info.usage =
-                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                        (targets_copyable_ ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 
                     VmaAllocationCreateInfo image_alloc{};
                     image_alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -356,6 +359,19 @@ namespace SushiEngine
                 destroy_targets();
                 width_ = width;
                 height_ = height;
+                create_targets();
+            }
+
+            void ViewResources::set_targets_copyable(bool copyable)
+            {
+                if (copyable == targets_copyable_)
+                    return;
+                targets_copyable_ = copyable;
+                // The same rebuild resize() performs, for the same reason: a usage flag is
+                // fixed at creation, so changing what the targets must be able to do means
+                // creating them again.
+                vkDeviceWaitIdle(device_.device());
+                destroy_targets();
                 create_targets();
             }
 
@@ -624,8 +640,11 @@ namespace SushiEngine
                 resolved.image = history_[parity].image;
                 resolved.view = history_[parity].view;
                 resolved.desc = color_target(width_, height_, Frame::HDR_FORMAT, "resolved");
+                // Declared to match how the images were actually created, which is what
+                // the graph's per-pass capture reasons from.
                 resolved.desc.usage =
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                    (targets_copyable_ ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
                 resolved.state = &history_[parity].state;
                 targets.resolved = graph.import_texture(resolved);
 

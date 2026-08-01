@@ -109,6 +109,27 @@ namespace SushiEngine
                      */
                     void resize(std::uint32_t width, std::uint32_t height);
 
+                    /**
+                     * @brief Whether the owned targets must be legal copy sources.
+                     *
+                     * Off by default, and off is what ships. Per-pass capture copies out of
+                     * every image a pass wrote, and the temporal history pair is written by
+                     * the resolve — so capturing it needs @c TRANSFER_SRC on those images,
+                     * which is a usage bit that can cost lossless framebuffer compression.
+                     * Paying that in every frame of every build, permanently, to serve a
+                     * debug instrument is the wrong trade; paying it only while the
+                     * instrument is attached is the right one.
+                     *
+                     * Changing this rebuilds the extent-sized resources exactly as resize()
+                     * does, with the same two consequences: the device is idled, and the
+                     * accumulated history is discarded. It therefore also invalidates every
+                     * texture handed out by texture(), so a host that registered them must
+                     * re-register. Calling it with the value it already holds does nothing.
+                     *
+                     * @param copyable Whether the targets should carry @c TRANSFER_SRC.
+                     */
+                    void set_targets_copyable(bool copyable);
+
                     std::uint32_t width() const noexcept { return width_; }
                     std::uint32_t height() const noexcept { return height_; }
 
@@ -331,6 +352,9 @@ namespace SushiEngine
                     Slot slots_[SLOTS];
                     History history_[2];
                     bool history_valid_ = false;
+                    /** @brief Whether the targets were built as copy sources; see
+                     *         @ref set_targets_copyable. */
+                    bool targets_copyable_ = false;
                     std::uint32_t width_ = 16;
                     std::uint32_t height_ = 16;
             };

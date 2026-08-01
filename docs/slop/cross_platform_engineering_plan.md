@@ -244,7 +244,7 @@ Recommendation: **SPIRV-Cross now, Slang later, delete the bridge in the same mi
 
 | Code | Delivers | Size |
 |---|---|---|
-| **RHI0** | **Code complete 2026-08-01** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. *Not yet green — no baseline has been recorded, because recording one requires running the harness on the machine it will be compared against.* Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
+| **RHI0** | **Code complete 2026-08-01** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. *Not yet green — no baseline is recorded; every recording so far predated a fix found by running it (see "What running it actually taught").* Reachable as `se render --probe golden`. Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
 | **RHI1** | Neutral vocabulary (`Rhi::types.hpp`/`handles.hpp`); collapse `TextureState`/`BufferState`; one Vulkan conversion TU. Slang GLSL-front-end spike. Exit: `render/graph/` no longer includes `vulkan.h`; trace byte-identical. | Small–Medium |
 | **RHI2** | `ICommandList` (21 verbs); port **recording only** across all 39 passes (95 `VkCommandBuffer` sites). Exit: zero `vkCmd*` under `render/passes/`; golden images identical. | Large |
 | **RHI3** | `IDevice` + generation-tagged handle tables; port all resource-owning systems (texture/buffer pools, samplers, pipelines, descriptor heap, material/light/instance systems, all pass-owned resources). Exit: zero `vulkan.h`/`vk_mem_alloc.h` outside `render/rhi/vulkan/`; `sushi_render` links Vulkan **PRIVATE**. | Large |
@@ -326,6 +326,91 @@ real requirement. A harness needs to *read back* what the renderer drew, and the
 readback path today exists only for picking and for the triangle probe. The seam is
 additive and touches no drawing code, so the requirement is restated as **zero change
 to rendering behaviour** — which is what the golden images are there to prove.
+
+#### What running it actually taught (2026-08-02)
+
+Four things, none of which were visible from reading the code.
+
+**The harness works, and it has now been seen to fail.** Its first red was against a
+change it was right to catch, and it reported it in the form that matters: *"frame
+identical, N pass output(s) differ"*. A regression oracle that has never gone red is an
+oracle nobody has tested; this one has.
+
+**Two of those four findings were defects in the harness itself**, both found only by
+running it. Pass names were folded to a single token on the way *out* to the file but
+not on the way in from the renderer, so every pass compared as simultaneously `gone` and
+`new` — the normalisation now happens once, where the hashes are read. And the first
+diagnosis of a short capture (a staging budget spent by the cascade atlas) was simply
+**wrong**: raising the budget and shrinking the atlas changed nothing, because the frame
+never dropped an output for want of bytes. The reporting added to test that theory is
+what disproved it, which is the argument for building the counter before trusting the
+guess.
+
+**The real cause was an under-declared import, and beneath it a genuine bug.** The
+post-processing tail — tonemap, FXAA — writes into the view's *imported* resolve image
+rather than a graph transient, and that import declared `COLOR_ATTACHMENT | SAMPLED`
+only. Chasing why capture skipped it found that the resolve image is *created* without
+`TRANSFER_SRC` too — while `read_output` copies out of it. That is undefined behaviour
+that returned the right pixels on the driver it was written against, which is what
+undefined behaviour looks like from the inside. Both are fixed; the second half is also
+what lets per-pass capture reach the tail.
+
+**The instrument was unreachable from the project's own CLI.** `se render --probe`
+knew `render` and `atmosphere` and not the target this milestone added, so the only way
+to run it was a raw path into the build tree — which is exactly what `docs/CLAUDE.md`
+forbids. `se render --probe golden` now exists.
+
+#### What RHI0 still owes, in order (2026-08-02)
+
+Everything below is small and concrete. None of it is design work; it is the tail of a
+milestone whose code is finished.
+
+1. **Record the first baselines.** `se render --probe golden -- --update`, then a plain
+   `se render --probe golden` to prove they reproduce — a harness whose reference does
+   not survive the very next run is not a harness. This is the only remaining exit
+   criterion, and it cannot be done by reading: a golden is a measurement, taken on the
+   machine it will be compared against. Every recording attempted so far was against a
+   build predating one of the fixes above and was superseded before it was useful, which
+   is why nothing is checked in.
+2. **Read the recorded pass list once, deliberately.** Two things to confirm rather than
+   assume: that the post-processing tail (`tonemap`, `fxaa`) and the TAA resolve now
+   appear, both having been unreachable until the usage fixes; and why `depth_prepass`
+   does not — the likely answer is that it is culled because the opaque pass writes depth
+   itself, but that has been inferred and never checked.
+3. **Add cases as the frame settles.** Sky and cloud when the cloudscape rewrite lands;
+   terrain now that `terrain_pass` exists. Each new case is one row in the harness's
+   `cases[]` table and a recording.
+
+Then RHI0 is closed and RHI1 has the safety net it was scheduled behind.
+
+Two known limits are recorded rather than fixed, because fixing either costs more than
+it currently buys. Per-pass capture reads **mip 0 and the depth aspect only**, so a
+regression confined to a lower mip or to stencil is invisible to the per-pass half
+(though not to the whole-frame hash, if it reaches the screen). And the excluded
+cloud/sky passes still write into the shared scene target, so a change in what they
+write *while disabled* can still move the whole-frame hash — the exclusion filter
+narrows that risk without removing it.
+
+**The TAA question, resolved 2026-08-02.** The temporal history pair needs
+`TRANSFER_SRC` for the resolve's output to be capturable, and TAA is worth pinning
+precisely because its failure mode is the one attribution is hardest for: its output is
+its own input next frame, so a regression reads as *"the frame converged differently"* —
+which the whole-frame hash sees and blames nothing for. But the bit is not free, and
+paying it in every frame of every shipping build for a debug instrument is the wrong
+trade.
+
+It is now **conditional**: `ViewResources::set_targets_copyable` adds the bit only while
+the capture is attached, rebuilding the extent-sized targets the same way `resize()`
+already does, because a usage flag is fixed at creation. This is not a new kind of
+compromise — capture already changes every *transient's* usage and therefore its pool
+key — it is the same one applied consistently to the owned targets. The two consequences,
+invalidated textures and discarded history, are documented on `enable_pass_capture`: a
+host that registered textures must re-register, and a harness rendering a fixed number of
+frames from cold pays nothing at all.
+
+Worth stating plainly: this is about **attribution, not detection.** A TAA regression was
+always caught by the whole-frame hash. What the capture adds is the sentence naming which
+pass did it, which is what RHI2's port will spend its days asking.
 
 Rough calibration: RHI0–5 ≈ 6–9 engineer-months solo; RHI0–8 (Metal parity) ≈ 12–18; RHI0–9 (Slang done) approaching two years solo, roughly halved with two engineers after RHI2 since RHI3/RHI4 partially parallelize.
 
