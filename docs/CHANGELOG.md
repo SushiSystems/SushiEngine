@@ -18,6 +18,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - 2026-07-31 — Added a Weisman–Klemp relative-humidity ceiling to the nest's base state (`free_troposphere_drying`, `free_troposphere_exponent`), without which the corrected vapour profile saturates near 9.5 km and every run starts under a global cirrus deck.
 - 2026-07-31 — Added `--sponge-depth`, `--sponge-rate` and `--cloud-top-lw` to `atmosphere_probe`.
 
+### Changed
+- 2026-08-01 — Changed the nest's Rayleigh sponge from a quarter of the domain to half (`sponge_depth` 5000 → 9000 m, lower edge 13 → 9 km), which removes the growing tropopause oscillation the design doc has carried as open since 2026-07-31. Measured over 72 h across five configurations.
+  - The mode parked at 12.4 km, immediately below the old edge, where the ramp's weight is exactly zero: it reached ±13 K and was still growing, and *doubling* `sponge_rate` moved it only to ±11 K. At a 9 km edge the same level reads +0.02 K. `sponge_rate` is therefore unchanged — placement decides this, not strength.
+  - The old sponge was not working inside itself either: at 14 km it carried 1.4 m/s and +3 K, against 0.11 m/s now.
+  - The weather below is untouched: the cloud deck at 1585 m reads −13.98 K against −13.93, cloud water agrees to three significant figures, and the largest θ′ departure below 4 km is 0.08 K. A 6 km edge was measured too and is what overreach looks like — wind between 4.6 and 9 km collapses to 0.02 m/s and θ′ at 6 km changes sign.
+
 ### Fixed
 - 2026-08-01 — Fixed the nest's longwave budget being one-way, which cooled a column without bound wherever cloud persisted: measured over 72 h under a fixed sun and a quiescent parent, the deck level at 1585 m reached −42.7 K and the ground −21.7 K, both still falling linearly, while the sky field froze to four decimals from 43 h. Two independent halves — a cloud-top loss that did not depend on the cloud's own temperature, and a ground that radiated to Brutsaert's clear sky while the same deck shaded its sunlight away.
   - Isolated by running the same 72 h with the cloud-top term off: the surface holds +4.5 to +5.8 K across the whole run instead, at the same 0.84 cloud cover.

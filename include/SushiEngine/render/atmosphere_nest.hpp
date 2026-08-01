@@ -205,10 +205,32 @@ namespace SushiEngine
              *
              * Gravity waves radiated by convection would otherwise reflect off the rigid
              * lid and interfere with the storms that launched them. Standard practice in
-             * every cloud model; the depth is the usual quarter of the domain.
+             * every cloud model.
+             *
+             * Half the domain rather than the usual quarter, and the difference is a
+             * measurement rather than a preference. At a quarter — a lower edge at 13 km —
+             * a two-cell vertical mode parked at 12.4 km, in the levels immediately below
+             * the sponge, where the ramp's weight is exactly zero. It reached ±13 K after
+             * 72 hours and was still growing, and doubling `sponge_rate` moved it to ±11 K:
+             * a damping layer cannot absorb what it does not cover, however hard it pulls.
+             * A lower edge at 9 km leaves +0.02 K there. It also fixes the layer itself,
+             * which at a quarter carried 1.4 m/s and +3 K *inside* the sponge — a sponge
+             * fed faster than it absorbs is not damping anything.
+             *
+             * Deeper is not better without bound: an edge at 6 km collapses the wind
+             * between 4.6 and 9 km to 0.02 m/s and reverses the sign of theta' at 6 km,
+             * which is the sponge replacing the weather rather than bounding it. At 9 km
+             * the boundary layer and the cloud deck are untouched to three significant
+             * figures, and the largest theta' departure below 4 km is 0.08 K.
              */
-            float sponge_depth = 5000.0f;
-            /** @brief Peak Rayleigh damping rate at the domain top, 1/s. */
+            float sponge_depth = 9000.0f;
+            /**
+             * @brief Peak Rayleigh damping rate at the domain top, 1/s.
+             *
+             * Left where it was: doubling it changes nothing the depth above does not
+             * already decide, in either direction. Rayleigh damping is a placement
+             * question before it is a strength one.
+             */
             float sponge_rate = 0.01f;
             /** @brief Width of the Davies lateral relaxation zone, cells. */
             std::uint32_t boundary_zone_cells = 8;
@@ -755,6 +777,31 @@ namespace SushiEngine
             const float upper = static_cast<float>(level + 1) / count;
             return top_m * (std::pow(upper, ATMOSPHERE_VERTICAL_STRETCH) -
                             std::pow(lower, ATMOSPHERE_VERTICAL_STRETCH));
+        }
+
+        /**
+         * @brief Rayleigh sponge weight at @p altitude_m, 0 below the layer and 1 at the lid.
+         * @param p          Parameters carrying the sponge depth.
+         * @param top_m      Domain top, metres — the sponge hangs from it downward.
+         * @param altitude_m Altitude above the surface, metres.
+         *
+         * A `sin²` ramp, so the damping begins with both zero value *and* zero slope: a sponge
+         * that switched on abruptly would itself be a discontinuity for waves to reflect from,
+         * which is the thing it exists to prevent.
+         *
+         * The one property worth stating separately is that this returns exactly zero below the
+         * layer, because that is what makes placement matter more than strength. Whatever sits
+         * under the lower edge is not damped at all, however large `sponge_rate` is.
+         */
+        inline float atmosphere_sponge_weight(const AtmosphereParameters& p, float top_m,
+                                              float altitude_m)
+        {
+            const float depth = p.sponge_depth > 1.0f ? p.sponge_depth : 1.0f;
+            const float start = top_m - depth;
+            float t = (altitude_m - start) / depth;
+            t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+            const float s = std::sin(1.5707963f * t);
+            return s * s;
         }
 
         /** @brief Base-state temperature at @p altitude_m, K (ISA troposphere then isothermal). */

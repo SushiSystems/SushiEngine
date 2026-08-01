@@ -276,6 +276,46 @@ TEST(Unit_AtmosphereNest, VerticalGridIsStretchedAndClosesOnTheDomainTop)
     EXPECT_GT(highest, lowest * 4.0f);
 }
 
+TEST(Unit_AtmosphereNest, TheSpongeCoversTheLevelsThatOscillatedAndNotTheWeather)
+{
+    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestSize size{};
+
+    // Shape first: zero and flat where it starts, one at the lid, monotone between.
+    const float start = size.top_m - p.sponge_depth;
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, start), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, size.top_m), 1.0f);
+    float previous = -1.0f;
+    for (int step = 0; step <= 20; ++step)
+    {
+        const float altitude = start + p.sponge_depth * float(step) / 20.0f;
+        const float weight = Render::atmosphere_sponge_weight(p, size.top_m, altitude);
+        EXPECT_GE(weight, previous) << "altitude " << altitude;
+        EXPECT_GE(weight, 0.0f);
+        EXPECT_LE(weight, 1.0f);
+        previous = weight;
+    }
+
+    // A sponge damps exactly nothing below its lower edge, which is why the depth is the
+    // parameter that matters and the rate is not: whatever the rate, this is zero.
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, start - 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, 0.0f), 0.0f);
+
+    // The measurement this default exists for. A two-cell vertical mode grew to +-13 K at
+    // 12.4 km, in levels a 5 km sponge left uncovered; the depth has to reach them. Doubling
+    // the rate instead moved it to +-11 K, because zero times anything is zero.
+    EXPECT_GT(Render::atmosphere_sponge_weight(p, size.top_m, 12430.0f), 0.05f);
+    EXPECT_GT(Render::atmosphere_sponge_weight(p, size.top_m, 12930.0f), 0.05f);
+
+    // And the other side of it: deep enough to reach 12.4 km, not so deep that it replaces the
+    // troposphere. An edge at 6 km collapsed the wind between 4.6 and 9 km to 0.02 m/s. The
+    // boundary layer, the cloud deck at 1585 m, and the free troposphere below 4 km are the
+    // weather this model is for, and the sponge does not touch them.
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, 1585.0f), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, 4000.0f), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, 6166.0f), 0.0f);
+}
+
 // ---- The seam the GPU state reaches gameplay through -------------------------------------
 
 TEST(Unit_AtmosphereNest, ColdStartReportsAClearSkyWithRealWind)

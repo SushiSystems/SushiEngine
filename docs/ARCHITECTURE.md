@@ -3299,6 +3299,15 @@ readback.
   returning most of the loss — applying the clear-sky value under it leaves the ground losing tens
   of watts to a sky that is not there. The cloud-base temperature and liquid water path come out of
   the column walk the extinction stage already runs for the shading.
+- **The Rayleigh sponge** hangs from the rigid lid over the upper *half* of the domain — an edge at
+  9 km, not the quarter-domain edge at 13 km a cloud model usually takes — and the difference is a
+  measurement. Its `sin²` ramp is exactly zero below its lower edge, so a mode that sits underneath
+  it is not damped at all however large the rate is: one parked at 12.4 km, immediately below the
+  13 km edge, reached ±13 K over 72 h and was still growing, and doubling the rate moved it to
+  ±11 K. Covering those levels leaves +0.02 K. Depth is the parameter that decides this and rate is
+  not. Deeper is not free either — an edge at 6 km collapses the wind between 4.6 and 9 km to
+  0.02 m/s and reverses θ′ at 6 km, which is the sponge standing in for the weather; at 9 km the
+  boundary layer, the cloud deck and everything below 4 km are unchanged to within 0.08 K.
 - **The boundary layer** is parameterized, because the eddies that carry surface heat and
   moisture out of the lowest level are two orders below a 2 km grid. Vertical diffusion of total
   θ and the moisture species on Troen & Mahrt's `K = κ·w_s·z·(1 − z/h)²` — linear in height at the

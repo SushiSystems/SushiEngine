@@ -949,9 +949,56 @@ measurement for this change has to be taken as a pair of runs back to back.
 cycle* and found no runaway (−0.86 K above 10 km), so the fixed-sun case above is the harsh one by
 construction; what the fixes do to a realistic diurnal forcing has not been run.
 
-**Still open from below, unchanged:** the sponge experiment, now to be run on a base state that
-holds still; T1's 36 ms step on the main thread; the nest on the graphics queue; Phase C's nest-side
-genus acceptance; nothing confirmed by eye; §12's budget stale.
+**Still open from below, unchanged:** T1's 36 ms step on the main thread; the nest on the graphics
+queue; Phase C's nest-side genus acceptance; nothing confirmed by eye; §12's budget stale.
+
+### The sponge experiment — 2026-08-01
+
+Run on the base state the entry above made hold still. Five configurations, 72 h each, everything
+else at defaults. **The oscillation was a placement failure, not a strength one, and the fix is one
+number: `sponge_depth` 5000 → 9000 m.**
+
+θ′ at the levels that oscillated:
+
+| altitude | `base` 13 km edge | rate ×2, same edge | **9 km edge** | 9 km edge, rate ×2 | 6 km edge |
+|---|---|---|---|---|---|
+| 11 936 m | +4.18 K | +2.20 | **+0.03** | +0.03 | −0.01 |
+| 12 430 m | **−13.45 K** | −10.93 | **+0.02** | +0.02 | −0.01 |
+| 12 930 m | −11.75 K | −12.07 | **+0.02** | +0.01 | −0.01 |
+| 13 951 m | +3.01 K | +1.66 | **+0.01** | +0.01 | −0.01 |
+
+**Doubling the rate does essentially nothing and that is the whole finding.** The mode sat at
+12.4 km, in the levels immediately *below* the old lower edge, where `nest_sponge_weight` returns
+exactly zero — so the damping rate multiplied a zero however large it was. Covering those levels
+removes the mode by three orders of magnitude. A Rayleigh sponge is a placement question before it
+is a strength one, and this run is what says so rather than an argument.
+
+**The old sponge was not working inside itself either.** At 14 km, within its own layer, `base`
+carries 1.4 m/s of wind and +3 K of θ′; the 9 km edge leaves 0.11 m/s there. A damping layer
+holding values like that is being fed faster than it absorbs — which is consistent with the mode
+below it being the source, and is the second independent sign that the old configuration was not
+merely imperfect but inert.
+
+**Does it damp the weather it is meant to leave alone? No, and the 6 km run is what makes that
+statable rather than asserted.** At the 9 km edge the boundary layer, the cloud deck and the free
+troposphere are unchanged: 1585 m reads −13.98 K against −13.93, cloud water agrees to three
+significant figures (6.80e-4 against 6.82e-4), the surface level −1.38 K against −1.37, and the
+largest θ′ departure anywhere below 4 km is 0.08 K. At the 6 km edge — deliberately too deep —
+wind between 4.6 and 9 km collapses to 0.02 m/s from 0.34 and θ′ at 6.2 km reverses sign, +0.31 to
+−0.42. That is a sponge replacing the weather instead of bounding it, and it is what the 9 km
+configuration is *not* doing.
+
+**Named limit: the mode was not eliminated, it was relocated and reduced by an order of
+magnitude.** The residual at 8.6–9.1 km grows from −0.88/−1.07 K in `base` to −1.59/−1.76 K at the
+9 km edge — one level below the new edge, which is where a two-cell mode parks. ±1.8 K is the same
+size as the ordinary variability this model already carries between 2 and 6 km, so it is no longer
+distinguishable as a defect; it is not gone. Moving the edge again would move it again.
+
+**One thing this run cannot settle.** Between 4.6 and 9 km the 9 km configuration also reduces wind
+(0.34 → 0.28 m/s at 6.2 km, 0.33 → 0.17 at 8.2 km) in a region where the sponge weight is
+identically zero, so it is not direct damping. It is either the removed mode's own wind signature
+disappearing or a genuine change in the wave field beneath. These runs do not separate the two and
+this document does not claim they do.
 
 ### Where this stood — 2026-07-31
 
@@ -1001,7 +1048,8 @@ different outcome from being deferred again and is written up as such:
   forced motion amplifying as density falls and accumulating under the sponge. The sponge's own
   profile is already a `sin²` ramp with zero slope where it begins, so the next thing to try is
   starting it lower; `atmosphere_probe` now carries `--sponge-depth` and `--sponge-rate` for
-  exactly that experiment, and the experiment has not been run.
+  exactly that experiment, and the experiment has not been run. **Run on 2026-08-01 and closed;
+  see the entry above.**
 - **The global core's 36 ms step is still on the main thread.** Not started.
 - **The nest step is still on the graphics queue.** Not started.
 - **Phase C's nest-side genus acceptance has not been run.** Not started.
