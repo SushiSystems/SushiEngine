@@ -99,6 +99,16 @@ namespace SushiEngine
                 DepthStencilAttachment, /**< Written as a depth/stencil attachment. */
                 DepthStencilReadOnly,   /**< Bound as depth/stencil but never written. */
                 SampledFragment,        /**< Sampled by a fragment shader. */
+                /**
+                 * @brief Sampled by a vertex shader.
+                 *
+                 * Distinct from @c SampledFragment because the barrier is not the same one:
+                 * a vertex stage reads before the fragment stage of the same draw, so a
+                 * producer made visible only at @c FRAGMENT_SHADER is a race the validation
+                 * layers will not catch. Terrain is the first consumer — it samples its
+                 * height field to place vertices.
+                 */
+                SampledVertex,
                 SampledCompute,         /**< Sampled by a compute shader. */
                 StorageComputeRead,     /**< Read as a storage image by compute. */
                 StorageComputeWrite,    /**< Written as a storage image by compute. */

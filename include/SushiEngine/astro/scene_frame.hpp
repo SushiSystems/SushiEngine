@@ -134,7 +134,7 @@ namespace SushiEngine
          * @brief Builds the scene frame for an observer instant.
          *
          * Reproduces the ephemeris's scene construction exactly (see @ref fill_environment_sky):
-         * the meridian is sidereal time on Earth and the body-rotation angle elsewhere; the
+         * the meridian is @ref prime_meridian_angle plus the observer's east longitude; the
          * origin is the observer's geodetic surface point on the body's reference ellipsoid,
          * so a body-anchored entity and the rendered ground share one frame.
          *
@@ -148,9 +148,7 @@ namespace SushiEngine
                                           double longitude_radians, BodyId observer_body) noexcept
         {
             const double meridian =
-                observer_body == BodyId::Earth
-                    ? local_mean_sidereal_time(julian_date, longitude_radians)
-                    : body_rotation_angle(observer_body, julian_date) + longitude_radians;
+                prime_meridian_angle(observer_body, julian_date) + longitude_radians;
 
             SceneFrame frame;
             frame.observer_body = observer_body;

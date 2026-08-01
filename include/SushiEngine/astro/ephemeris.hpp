@@ -212,14 +212,14 @@ namespace SushiEngine
             const double julian_date = observer.julian_date;
             const BodyId observer_body = static_cast<BodyId>(observer.observer_body);
 
-            // The observer's meridian angle, in its own body's equatorial frame. Earth
-            // keeps sidereal time exactly (the home sky is unchanged); every other body
-            // uses its own spin (@ref body_rotation_angle), so its day turns its own sky.
-            const double meridian =
-                observer_body == BodyId::Earth
-                    ? local_mean_sidereal_time(julian_date, observer.longitude_radians)
-                    : body_rotation_angle(observer_body, julian_date) +
-                          observer.longitude_radians;
+            // The observer's meridian angle, in its own body's equatorial frame: where the
+            // prime meridian is right now, plus how far east the observer stands from it.
+            // @ref prime_meridian_angle is what makes that one expression work for every
+            // body — Earth resolves to sidereal time, so the home sky is unchanged, and
+            // every other body picks up its own spin measured from the node the IAU
+            // actually measures it from.
+            const double meridian = prime_meridian_angle(observer_body, julian_date) +
+                                    observer.longitude_radians;
             const LocalSkyBasis basis = local_sky_basis(meridian, observer.latitude_radians);
 
             const Vector3 observer_helio =
@@ -634,12 +634,35 @@ namespace SushiEngine
             {
                 const BodyId dominant_body = static_cast<BodyId>(dominant);
                 environment.planet_surface_visible = true;
+                environment.planet_body = dominant;
                 environment.planet_center =
                     WorldVector3{world_position[dominant].x, world_position[dominant].y,
                                  world_position[dominant].z};
                 environment.planet_pole = normalize(to_local(
                     basis, equatorial_to_body_equatorial(
                                observer_body, body_north_pole_equatorial(dominant_body))));
+
+                // The dominant body's body-fixed axes in scene axes — the rotation that
+                // places anything defined against its real geography (its elevations above
+                // all) in the scene. Both equatorial axes are the prime meridian turned by
+                // the meridian angle; the route out is the one the pole and the stars
+                // already take, so the third column below is the pole again and the four
+                // agree by construction rather than by coincidence.
+                const double dominant_meridian =
+                    prime_meridian_angle(dominant_body, julian_date);
+                const double cos_meridian = std::cos(dominant_meridian);
+                const double sin_meridian = std::sin(dominant_meridian);
+                const Vector3 body_axis[2] = {Vector3{cos_meridian, sin_meridian, 0.0},
+                                              Vector3{-sin_meridian, cos_meridian, 0.0}};
+                for (int axis = 0; axis < 2; ++axis)
+                    environment.planet_body_axes[axis] = normalize(to_local(
+                        basis, ecliptic_to_body_equatorial(
+                                   observer_body,
+                                   body_equatorial_to_ecliptic(dominant_body, body_axis[axis]))));
+                // Taken rather than recomputed: the pole *is* the third column, and
+                // deriving it twice would let the two drift apart on Earth, whose
+                // conversion above is the exact fixed-obliquity one.
+                environment.planet_body_axes[2] = environment.planet_pole;
                 environment.planet_surface_style = surface_style_for(dominant_body);
                 const RingExtent dominant_ring = ring_extent(dominant_body);
                 environment.planet_ring_inner_metres =
@@ -680,6 +703,7 @@ namespace SushiEngine
             else
             {
                 environment.planet_surface_visible = false;
+                environment.planet_body = -1;
                 environment.planet_ring_inner_metres = 0.0f;
                 environment.planet_ring_outer_metres = 0.0f;
                 environment.atmosphere.enabled = false;

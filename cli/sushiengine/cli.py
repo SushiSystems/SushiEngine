@@ -16,6 +16,7 @@ from .services import climatology as climatology_svc
 from .services import diag as diag_svc
 from .services import docker as docker_svc
 from .services import editor as editor_svc
+from .services import planet as planet_svc
 from .services import project as project_svc
 from .services import render as render_svc
 from .services.project import BuildType, Suite
@@ -35,6 +36,10 @@ app.add_typer(docker_app, name="docker")
 climatology_app = typer.Typer(help="Bake and inspect the T0 climatology asset.",
                               no_args_is_help=True)
 app.add_typer(climatology_app, name="climatology")
+
+planet_app = typer.Typer(help="Bake and inspect baked planetary terrain assets.",
+                         no_args_is_help=True)
+app.add_typer(planet_app, name="planet")
 
 
 # --------------------------------------------------------------------------- #
@@ -200,6 +205,50 @@ def climatology_inspect(
 ):
     """Print a baked asset's grid, extremes, and provenance."""
     raise typer.Exit(climatology_svc.inspect(path))
+
+
+# --------------------------------------------------------------------------- #
+# planet
+# --------------------------------------------------------------------------- #
+@planet_app.command("bake")
+def planet_bake(
+    body: str = typer.Option(
+        planet_svc.DEFAULT_BODY, "--body", "-b",
+        help="Which body to bake. Known: " + ", ".join(sorted(planet_svc.BODIES)) + "."),
+    tier: str = typer.Option(
+        planet_svc.DEFAULT_TIER, "--tier", "-t",
+        help="Quality tier; picks the source raster and the depth it supports."),
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Re-download the source instead of using the cache."),
+    depth: Optional[int] = typer.Option(
+        None, "--depth", "-d", min=0, max=20,
+        help="Bake to this quadtree depth instead of the source's own data depth. "
+             "Deeper costs four times the tiles per level and adds no measurement."),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Where to write; defaults to assets/planet/<body>.<tier>.planet."),
+):
+    r"""Bake a body's terrain from public elevation data.
+
+    Downloads a public-domain topography raster once (LOLA for the Moon — no credentials),
+    checks that it reads as the body it claims by sampling known landmarks, reprojects it
+    onto the cube-sphere quadtree the renderer addresses, and writes the asset with its
+    provenance inside it. Re-reads the result and refuses to claim success if an elevation
+    comes back further from the source than quantisation can account for.
+
+    Needs the optional extras: pip install -e cli\[planet]
+    """
+    raise typer.Exit(planet_svc.bake(body_key=body, tier=tier, refresh=refresh,
+                                     depth=depth, output=output))
+
+
+@planet_app.command("inspect")
+def planet_inspect(
+    path: Optional[Path] = typer.Argument(
+        None, help="Asset to read; defaults to assets/planet/moon.compact.planet."),
+):
+    """Print a baked asset's body, tile pyramid, elevation range, and provenance."""
+    raise typer.Exit(planet_svc.inspect(path))
 
 
 # --------------------------------------------------------------------------- #

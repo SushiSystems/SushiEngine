@@ -406,7 +406,42 @@ add_executable(se_functional_tests
     functional/unit/test_star_catalog.cpp
     functional/unit/test_scene_frame.cpp
     functional/unit/test_reference_frame.cpp
+    # Where a body's prime meridian actually is, and the body-fixed rotation built on it.
+    # The decisive case is external to the conversion rather than a round trip through it:
+    # the Moon is tidally locked, so from selenographic (0, 0) the Earth has to stand
+    # within the libration cone of the zenith. A frame that is self-consistent but
+    # measured from the wrong node puts it forty degrees away and looks fine.
+    functional/unit/test_body_frame.cpp
 
+    # Terrain P0 (`docs/slop/solar_system_overhaul.md`): the planetary tile addressing
+    # and its projection, and the editable half of the height. Host-only header maths --
+    # no renderer, no device, no baked asset, which is what lets the authoritative ground
+    # be checked the same way the server will evaluate it. The precision case is the one
+    # that matters: §9.2's difference form against a double reference at depth 20, run
+    # side by side with the naive single-precision form it replaces.
+    functional/unit/test_cube_sphere.cpp
+    functional/unit/test_terrain_layers.cpp
+    # Terrain P1: the baked asset's byte layout and every refusal its reader makes,
+    # driven by synthesized bytes so the refusals are tested on a machine with no asset
+    # checked out -- plus a few cases against the shipped lunar pack, which skip when it
+    # is absent.
+    functional/unit/test_planet_pack.cpp
+    # Terrain P2a: CDLOD node selection. The property that matters is not the node count
+    # but that the emitted set is a proper cut of the tree -- every point of the body
+    # covered exactly once -- which is checkable exactly, because a node covers 4^-depth
+    # of its face and those are exact binary fractions.
+    functional/unit/test_terrain_quadtree.cpp
+    # Terrain P2b: the tile cache's bookkeeping, kept away from the device on purpose.
+    # The inheritance rectangle is checked by computing the geographic point it lands on
+    # both ways -- a half-texel error there shifts terrain everywhere it inherits and is
+    # undiagnosable from a screenshot.
+    functional/unit/test_tile_residency.cpp
+    # Terrain P2b: the camera's crossing into the body's own frame. Header-only on the
+    # renderer's side precisely so it can be checked here -- no device, no pack, no frame
+    # in flight -- because the three conventions that meet in it (column order, which
+    # half-space a plane keeps, when the body offset is taken) are each wrong in a way that
+    # still draws a planet.
+    functional/unit/test_terrain_frame.cpp
 
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp

@@ -58,6 +58,11 @@ namespace SushiEngine
                         state.access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
                         state.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                         break;
+                    case TextureAccess::SampledVertex:
+                        state.stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+                        state.access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+                        state.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        break;
                     case TextureAccess::SampledCompute:
                         state.stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                         state.access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
@@ -201,6 +206,7 @@ namespace SushiEngine
                     case TextureAccess::DepthStencilReadOnly:
                         return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
                     case TextureAccess::SampledFragment:
+                    case TextureAccess::SampledVertex:
                     case TextureAccess::SampledCompute:
                         return VK_IMAGE_USAGE_SAMPLED_BIT;
                     case TextureAccess::StorageComputeRead:

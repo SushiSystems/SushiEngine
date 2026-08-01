@@ -39,6 +39,7 @@
 #include "scene/scene_uniforms.hpp"
 #include "scene/shadow_uniforms.hpp"
 #include "scene/temporal_uniforms.hpp"
+#include "terrain/terrain_frame.hpp"
 #include "vulkan_check.hpp"
 
 namespace SushiEngine
@@ -49,8 +50,24 @@ namespace SushiEngine
         {
             namespace
             {
-                /** @brief Upper bound on timed passes in one frame. */
-                constexpr std::uint32_t MAX_TIMED_PASSES = 16;
+                /**
+                 * @brief Upper bound on timed passes in one frame.
+                 *
+                 * Sized to cover the whole graph, not a sample of it. At 16 the profiler ran
+                 * out of timers part-way down the pass list and silently stopped measuring —
+                 * `GpuProfiler::begin_pass` returns INVALID_TIMER once the budget is spent, so
+                 * the overflow read as *absence*: at Ultra, where more tier-gated passes are
+                 * enabled ahead of them, `sky` and `clouds` simply vanished from the panel and
+                 * looked like passes that were not running.
+                 *
+                 * That is not only a reporting problem. `measured_frame_milliseconds()` is the
+                 * sum of these timings, and it drives the auto-exposure adaptation rate and the
+                 * dynamic-resolution governor — both were being steered by a number that
+                 * omitted most of the frame. The list registers ~44 pass objects and the
+                 * multi-node passes (gtao, ray shadows) contribute two or three each, so 64
+                 * leaves headroom above the true worst case rather than sitting on it.
+                 */
+                constexpr std::uint32_t MAX_TIMED_PASSES = 64;
             } // namespace
 
             VulkanSceneView::VulkanSceneView(VulkanDevice& device,
@@ -62,6 +79,8 @@ namespace SushiEngine
                   skinning_(device, SLOTS), particles_(device, SLOTS, 1u << 16),
                   lights_(device, SLOTS),
                   accelerator_(device, assets.meshes(), SLOTS),
+                  terrain_layout_(device, assets.layout(), assets.heap()),
+                  terrain_(device, Terrain::PlanetTerrainDesc{}),
                   profiler_(device, SLOTS, MAX_TIMED_PASSES),
                   graph_(device, &profiler_),
                   atmosphere_lut_pass_(device, assets.shaders(), assets.pipelines()),
@@ -105,6 +124,9 @@ namespace SushiEngine
                                assets.meshes(), deformable_, materials_, motion_,
                                cloud_shadow_map_pass_, ibl_pass_, irradiance_volume_pass_, lights_,
                                instance_system_, skinning_),
+                  terrain_pass_(device, assets.shaders(), assets.pipelines(), terrain_layout_,
+                                terrain_, ibl_pass_, cloud_shadow_map_pass_,
+                                irradiance_volume_pass_, materials_, motion_, lights_),
                   transparent_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                                     assets.meshes(), materials_, motion_, skinning_,
                                     cloud_shadow_map_pass_, ibl_pass_, irradiance_volume_pass_,
@@ -120,7 +142,7 @@ namespace SushiEngine
                                               assets.layout()),
                   cloud_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
                               cloudscape_compile_pass_, cloud_light_volume_pass_,
-                              assets.cloud_noise()),
+                              assets.cloud_noise(), atmosphere_lut_pass_),
                   // 16u, 16u: the same construction-time placeholder resources_ below
                   // uses — width_/height_ are declared later in the class and are not
                   // yet initialized this early in the member-init list, so the real
@@ -200,6 +222,10 @@ namespace SushiEngine
                            &hiz_pass_,
                            &deformable_pass_,
                            &opaque_pass_,
+                           // The body's ground, after the meshes standing on it: it covers
+                           // the whole screen, so letting their finished depth reject it
+                           // costs one pass of ordering and saves the shading.
+                           &terrain_pass_,
                            // Mesh particles are solid geometry, so they belong with the opaque
                            // surfaces and before anything that reads a finished depth buffer.
                            &particle_mesh_pass_,
@@ -314,6 +340,17 @@ namespace SushiEngine
                 // reused by a frame the old mapping never expected to collide with.
                 vkDeviceWaitIdle(device_.device());
                 frame_slots_ = slots;
+            }
+
+            void VulkanSceneView::update_terrain_body(int body)
+            {
+                if (!terrain_layout_.available() || body == terrain_.body())
+                    return;
+                // Same reasoning as above: the frames in flight hold slot bindings, and
+                // re-pointing the pool at another world invalidates every one of them.
+                // A body change is a scene-level event, so the stall is paid once.
+                vkDeviceWaitIdle(device_.device());
+                terrain_.set_body(body, Terrain::default_pack_path(body));
             }
 
             SceneViewTexture VulkanSceneView::texture(std::uint32_t slot) const noexcept
@@ -463,9 +500,26 @@ namespace SushiEngine
                                          environment.atmosphere_forcing,
                                          environment.atmosphere_nest_size);
 
+                // The near-field body's real ground. Selected here, ahead of the scene
+                // block, because whether it drew is what decides whether the analytic
+                // ellipsoid below should draw at all — and the answer is only known once
+                // the selection has run.
+                update_terrain_body(environment.planet_body);
+                if (terrain_.loaded())
+                {
+                    SushiEngine::Terrain::FrustumPlanes terrain_frustum;
+                    Terrain::TerrainFrameView terrain_view;
+                    Terrain::build_terrain_frame(camera, environment, frame.eye, render_height_,
+                                                 frame_counter_, index, terrain_frustum,
+                                                 terrain_view);
+                    terrain_.prepare(terrain_view);
+                }
+
                 Scene::SceneUniforms uniforms;
                 Scene::fill_scene_uniforms(camera, environment, frame.eye,
                                            static_cast<float>(frame_counter_) * 0.016f, uniforms);
+                if (terrain_.drawing())
+                    Scene::suppress_analytic_ground(uniforms);
                 // The cloudscape windows are placed here, between the fill and the upload,
                 // because the bake and every consumer of the bake — the view march, the light
                 // volume, the cloud shadow map, the panorama, and the ground/mesh shadow lookup —

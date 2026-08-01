@@ -23,6 +23,8 @@
 
 #include "passes/opaque_pass.hpp"
 
+#include "passes/shading_set.hpp"
+
 #include <cstddef>
 #include <vector>
 
@@ -411,27 +413,8 @@ namespace SushiEngine
                         // ever runs on it.
                         builder.depth_stencil_attachment(frame.targets.depth,
                                                          Graph::AttachmentLoad::Load, 0.0f, 0);
-                        builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.temporal, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.shadow, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.shadow_atlas,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.contact_shadow,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.ray_shadow,
-                                     Graph::TextureAccess::SampledFragment);
-                        // The froxel grid the cull pass built: read here so the graph
-                        // derives the compute→fragment barrier that makes the light lists
-                        // visible before shading loops them.
-                        builder.read(frame.targets.cluster_grid,
-                                     Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.light_index,
-                                     Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.light_shadow_atlas,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.decal_grid, Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.decal_index, Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.ao, Graph::TextureAccess::SampledFragment);
+                        // Everything set 0 points at, declared where it is written.
+                        declare_shading_set(builder, frame);
                         if (gpu)
                         {
                             // The cull pass wrote both; reading them here derives the
@@ -446,88 +429,15 @@ namespace SushiEngine
                      instance_motions, deformable_motions, skinned_materials,
                      skinned_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        // The full scene set the shading fragment shader reads. Factored into a
-                        // lambda because the GPU-driven path pushes it against two layouts in a
-                        // row (the GPU layout for the indirect batch, then the classic layout
-                        // for the deformable draw that follows).
+                        // The full scene set the shading fragment shader reads, shared
+                        // with every other pbr.frag pass (`passes/shading_set.hpp`).
+                        // Wrapped in a lambda because the GPU-driven path pushes it
+                        // against two layouts in a row (the GPU layout for the indirect
+                        // batch, then the classic layout for the deformable draw).
+                        const ShadingSetSources sources{ibl_,       cloud_shadow_, gi_,
+                                                        materials_, motion_,       lights_};
                         const auto write_scene_set = [&](Scene::SceneSetWriter& writer)
-                        {
-                        writer.uniform(Scene::SceneLayout::SCENE_BINDING,
-                                       context.buffer(frame.targets.uniforms),
-                                       sizeof(Scene::SceneUniforms));
-                        writer.image(1, ibl_.irradiance(), ibl_.sampler());
-                        writer.image(2, ibl_.specular(), ibl_.sampler());
-                        writer.image(3, ibl_.brdf_lut(), ibl_.sampler());
-                        writer.image(Scene::SceneLayout::SHADOW_ATLAS_BINDING,
-                                     context.sampled_view(frame.targets.shadow_atlas),
-                                     ShadowPass::atlas_sampler(*frame.samplers));
-                        writer.image(Scene::SceneLayout::SHADOW_DEPTH_BINDING,
-                                     context.sampled_view(frame.targets.shadow_atlas),
-                                     ShadowPass::atlas_depth_sampler(*frame.samplers));
-                        writer.image(4, context.sampled_view(frame.targets.ray_shadow),
-                                     frame.samplers->get(Resources::SamplerDesc{}));
-                        writer.image(5, context.sampled_view(frame.targets.contact_shadow),
-                                     frame.samplers->get(Resources::SamplerDesc{}));
-                        // Kept in GENERAL across CloudShadowMapPass's own compute build.
-                        writer.image(6, cloud_shadow_.view(), cloud_shadow_.sampler(),
-                                    VK_IMAGE_LAYOUT_GENERAL);
-                        writer.storage(Scene::SceneLayout::MATERIAL_BINDING, materials_.buffer(),
-                                       materials_.buffer_range());
-                        writer.storage(Scene::SceneLayout::MOTION_BINDING, motion_.buffer(),
-                                       motion_.buffer_range());
-                        writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
-                                       context.buffer(frame.targets.temporal),
-                                       sizeof(Scene::TemporalUniforms));
-                        writer.uniform(Scene::SceneLayout::SHADOW_BINDING,
-                                       context.buffer(frame.targets.shadow),
-                                       sizeof(Scene::ShadowUniforms));
-                        writer.storage(Scene::SceneLayout::IBL_SH_BINDING, ibl_.sh_buffer(),
-                                       IblPass::sh_buffer_bytes());
-                        // The clustered light engine's four bindings: the light array and
-                        // config block are host-written and bound directly (like the
-                        // material array); the count grid and index list are the graph
-                        // transients the cull pass wrote this frame.
-                        writer.storage(Scene::SceneLayout::LIGHT_BINDING, lights_.light_buffer(),
-                                       lights_.light_buffer_range());
-                        writer.storage(Scene::SceneLayout::CLUSTER_GRID_BINDING,
-                                       context.buffer(frame.targets.cluster_grid),
-                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
-                        writer.storage(Scene::SceneLayout::LIGHT_INDEX_BINDING,
-                                       context.buffer(frame.targets.light_index),
-                                       Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
-                        writer.uniform(Scene::SceneLayout::CLUSTER_CONFIG_BINDING,
-                                       lights_.config_buffer(), lights_.config_buffer_range());
-                        // Punctual spot shadows: the atlas through the same comparison
-                        // sampler the sun cascades use, and the per-caster matrix buffer.
-                        writer.image(Scene::SceneLayout::LIGHT_SHADOW_ATLAS_BINDING,
-                                     context.sampled_view(frame.targets.light_shadow_atlas),
-                                     ShadowPass::atlas_sampler(*frame.samplers));
-                        writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
-                                       lights_.shadow_buffer(), lights_.shadow_buffer_range());
-                        // Clustered decals: the decal array (host-written, bound directly)
-                        // and the count grid + index list the cull pass wrote this frame.
-                        writer.storage(Scene::SceneLayout::DECAL_BINDING, lights_.decal_buffer(),
-                                       lights_.decal_buffer_range());
-                        writer.storage(Scene::SceneLayout::DECAL_GRID_BINDING,
-                                       context.buffer(frame.targets.decal_grid),
-                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
-                        writer.storage(Scene::SceneLayout::DECAL_INDEX_BINDING,
-                                       context.buffer(frame.targets.decal_index),
-                                       Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t));
-                        // The resolved ambient occlusion the shading pass multiplies its
-                        // indirect diffuse and specular by.
-                        writer.image(Scene::SceneLayout::AO_BINDING,
-                                     context.sampled_view(frame.targets.ao),
-                                     frame.samplers->get(Resources::SamplerDesc{}));
-                        // Probe-volume GI: the SH grid the shading pass gathers and the config
-                        // block that locates a surface in it. Both are pass-owned resources
-                        // the irradiance-volume pass barriered before this pass runs.
-                        writer.storage(Scene::SceneLayout::GI_PROBE_SH_BINDING, gi_.probe_sh_buffer(),
-                                       IrradianceVolumePass::probe_sh_bytes());
-                        writer.uniform(Scene::SceneLayout::GI_PROBE_CONFIG_BINDING,
-                                       gi_.config_buffer(frame.index),
-                                       IrradianceVolumePass::config_bytes());
-                        };
+                        { write_shading_set(writer, sources, frame, context); };
 
                         Scene::SceneSetWriter writer;
                         write_scene_set(writer);

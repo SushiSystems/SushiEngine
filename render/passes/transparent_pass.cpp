@@ -23,6 +23,8 @@
 
 #include "passes/transparent_pass.hpp"
 
+#include "passes/shading_set.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <vector>
@@ -306,91 +308,16 @@ namespace SushiEngine
                         builder.depth_stencil_attachment(frame.targets.depth,
                                                          Graph::AttachmentLoad::Load, 0.0f, 0,
                                                          true);
-                        builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.temporal, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.shadow, Graph::BufferAccess::UniformRead);
-                        builder.read(frame.targets.shadow_atlas,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.contact_shadow,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.ray_shadow,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.cluster_grid,
-                                     Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.light_index,
-                                     Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.light_shadow_atlas,
-                                     Graph::TextureAccess::SampledFragment);
-                        builder.read(frame.targets.decal_grid, Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.decal_index, Graph::BufferAccess::StorageRead);
-                        builder.read(frame.targets.ao, Graph::TextureAccess::SampledFragment);
+                        // Everything set 0 points at, declared where it is written.
+                        declare_shading_set(builder, frame);
                     },
                     [this, &frame, order, instance_materials, instance_motions, skinned_materials,
                      skinned_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
+                        const ShadingSetSources sources{ibl_,       cloud_shadow_, gi_,
+                                                        materials_, motion_,       lights_};
                         Scene::SceneSetWriter writer;
-                        writer.uniform(Scene::SceneLayout::SCENE_BINDING,
-                                       context.buffer(frame.targets.uniforms),
-                                       sizeof(Scene::SceneUniforms));
-                        writer.image(1, ibl_.irradiance(), ibl_.sampler());
-                        writer.image(2, ibl_.specular(), ibl_.sampler());
-                        writer.image(3, ibl_.brdf_lut(), ibl_.sampler());
-                        writer.image(Scene::SceneLayout::SHADOW_ATLAS_BINDING,
-                                     context.sampled_view(frame.targets.shadow_atlas),
-                                     ShadowPass::atlas_sampler(*frame.samplers));
-                        writer.image(Scene::SceneLayout::SHADOW_DEPTH_BINDING,
-                                     context.sampled_view(frame.targets.shadow_atlas),
-                                     ShadowPass::atlas_depth_sampler(*frame.samplers));
-                        writer.image(4, context.sampled_view(frame.targets.ray_shadow),
-                                     frame.samplers->get(Resources::SamplerDesc{}));
-                        writer.image(5, context.sampled_view(frame.targets.contact_shadow),
-                                     frame.samplers->get(Resources::SamplerDesc{}));
-                        // Kept in GENERAL across CloudShadowMapPass's own compute build.
-                        writer.image(6, cloud_shadow_.view(), cloud_shadow_.sampler(),
-                                    VK_IMAGE_LAYOUT_GENERAL);
-                        writer.storage(Scene::SceneLayout::MATERIAL_BINDING, materials_.buffer(),
-                                       materials_.buffer_range());
-                        writer.storage(Scene::SceneLayout::MOTION_BINDING, motion_.buffer(),
-                                       motion_.buffer_range());
-                        writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
-                                       context.buffer(frame.targets.temporal),
-                                       sizeof(Scene::TemporalUniforms));
-                        writer.uniform(Scene::SceneLayout::SHADOW_BINDING,
-                                       context.buffer(frame.targets.shadow),
-                                       sizeof(Scene::ShadowUniforms));
-                        writer.storage(Scene::SceneLayout::IBL_SH_BINDING, ibl_.sh_buffer(),
-                                       IblPass::sh_buffer_bytes());
-                        writer.storage(Scene::SceneLayout::LIGHT_BINDING, lights_.light_buffer(),
-                                       lights_.light_buffer_range());
-                        writer.storage(Scene::SceneLayout::CLUSTER_GRID_BINDING,
-                                       context.buffer(frame.targets.cluster_grid),
-                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
-                        writer.storage(Scene::SceneLayout::LIGHT_INDEX_BINDING,
-                                       context.buffer(frame.targets.light_index),
-                                       Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
-                        writer.uniform(Scene::SceneLayout::CLUSTER_CONFIG_BINDING,
-                                       lights_.config_buffer(), lights_.config_buffer_range());
-                        writer.image(Scene::SceneLayout::LIGHT_SHADOW_ATLAS_BINDING,
-                                     context.sampled_view(frame.targets.light_shadow_atlas),
-                                     ShadowPass::atlas_sampler(*frame.samplers));
-                        writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
-                                       lights_.shadow_buffer(), lights_.shadow_buffer_range());
-                        writer.storage(Scene::SceneLayout::DECAL_BINDING, lights_.decal_buffer(),
-                                       lights_.decal_buffer_range());
-                        writer.storage(Scene::SceneLayout::DECAL_GRID_BINDING,
-                                       context.buffer(frame.targets.decal_grid),
-                                       Lighting::CLUSTER_COUNT * sizeof(std::uint32_t));
-                        writer.storage(Scene::SceneLayout::DECAL_INDEX_BINDING,
-                                       context.buffer(frame.targets.decal_index),
-                                       Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t));
-                        writer.image(Scene::SceneLayout::AO_BINDING,
-                                     context.sampled_view(frame.targets.ao),
-                                     frame.samplers->get(Resources::SamplerDesc{}));
-                        writer.storage(Scene::SceneLayout::GI_PROBE_SH_BINDING, gi_.probe_sh_buffer(),
-                                       IrradianceVolumePass::probe_sh_bytes());
-                        writer.uniform(Scene::SceneLayout::GI_PROBE_CONFIG_BINDING,
-                                       gi_.config_buffer(frame.index),
-                                       IrradianceVolumePass::config_bytes());
+                        write_shading_set(writer, sources, frame, context);
                         writer.commit(cmd, frame.layout->pipeline_layout());
                         frame.layout->bind_heap(cmd);
 

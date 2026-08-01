@@ -103,8 +103,11 @@
 #include "passes/skinning_pass.hpp"
 #include "passes/sky_pass.hpp"
 #include "passes/taa_pass.hpp"
+#include "passes/terrain_pass.hpp"
 #include "passes/tonemap_pass.hpp"
 #include "resources/descriptor_allocator.hpp"
+#include "terrain/planet_terrain.hpp"
+#include "terrain/terrain_layout.hpp"
 #include "raytracing/scene_accelerator.hpp"
 #include "scene/instance_system.hpp"
 #include "scene/motion_system.hpp"
@@ -206,6 +209,19 @@ namespace SushiEngine
                      * @param requested Frames in flight the resolved settings ask for.
                      */
                     void update_frame_slots(std::uint32_t requested);
+
+                    /**
+                     * @brief Points the terrain at the body the environment now names.
+                     *
+                     * Idles the device when the body actually changes, for the same reason
+                     * @ref update_frame_slots does: the slot pool is re-pointed, and a
+                     * frame still in flight is drawing from bindings that are about to
+                     * stop meaning what they meant. Cheap and silent when nothing changed,
+                     * which is every frame but the first.
+                     *
+                     * @param body The dominant body's ephemeris index, or negative.
+                     */
+                    void update_terrain_body(int body);
                     float measured_frame_milliseconds() const noexcept;
 
                     VulkanDevice& device_;
@@ -226,6 +242,25 @@ namespace SushiEngine
                     Scene::ParticleSystem particles_;
                     Lighting::LightSystem lights_;
                     RayTracing::SceneAccelerator accelerator_;
+                    /**
+                     * @brief Terrain's own descriptor set and the pipeline layout over it.
+                     *
+                     * Set 0 is full (`docs/slop/solar_system_overhaul.md` §8.3), so terrain
+                     * takes set 2 and builds its own pipeline layout around the scene's
+                     * sets 0 and 1 — which is also why it must bind the bindless heap
+                     * itself: Vulkan set compatibility requires identical push-constant
+                     * ranges, and terrain's is not the mesh path's.
+                     */
+                    Terrain::TerrainLayout terrain_layout_;
+                    /**
+                     * @brief The near-field body's ground: its pack, its slot pool, its
+                     * per-frame node selection.
+                     *
+                     * Per view rather than shared, because the selection is a function of
+                     * *this* camera. Claims nothing until a frame names a body with a baked
+                     * pack, so a scene with no planet in it pays for none of it.
+                     */
+                    Terrain::PlanetTerrain terrain_;
                     Graph::GpuProfiler profiler_;
                     Graph::RenderGraph graph_;
                     /**
@@ -272,6 +307,14 @@ namespace SushiEngine
                     Passes::ParticleSimPass particle_sim_pass_;
                     Passes::ParticleSortPass particle_sort_pass_;
                     Passes::OpaquePass opaque_pass_;
+                    /**
+                     * @brief One instanced draw of the body's selected nodes.
+                     *
+                     * After the opaque meshes so their finished depth rejects the terrain
+                     * behind them — terrain covers the whole screen, and it is the one pass
+                     * that gains most from being shaded last.
+                     */
+                    Passes::TerrainPass terrain_pass_;
                     Passes::TransparentPass transparent_pass_;
                     Passes::LightCullPass light_cull_pass_;
                     Passes::LightShadowPass light_shadow_pass_;

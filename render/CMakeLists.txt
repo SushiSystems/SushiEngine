@@ -69,7 +69,8 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sdf_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_common.glsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_shadow.glsl")
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_shadow.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/terrain_common.glsl")
 
 # sushi_compile_shader(<vert|frag|comp> <input> <symbol> <out_var>)
 #   Emits a rule that compiles <input> to <SHADER_GEN_DIR>/<input-name>.h exposing
@@ -128,6 +129,11 @@ sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.vert"
     outline_vert_spv OUTLINE_VERT_HEADER)
 sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.vert"
     fullscreen_vert_spv FULLSCREEN_VERT_HEADER)
+# Terrain draws through the shared pbr.frag, so it ships a vertex stage and no fragment
+# one: its output signature is mesh.vert's exactly, which is what lets the existing
+# shading path light it with no parallel code.
+sushi_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/terrain.vert"
+    terrain_vert_spv TERRAIN_VERT_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sky.frag"
     sky_frag_spv SKY_FRAG_HEADER)
 sushi_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud.frag"
@@ -349,8 +355,17 @@ add_library(sushi_render STATIC
     rhi/vulkan/view_resources.cpp
     rhi/vulkan/vma_impl.cpp
     material/stb_impl.cpp
+    # Planetary terrain: set 2 and the height slot pool. The bookkeeping these wrap --
+    # selection, residency, the inheritance rectangle -- is neutral header code under
+    # include/SushiEngine/terrain/ and is tested without a device.
+    terrain/terrain_layout.cpp
+    terrain/tile_cache.cpp
+    terrain/planet_terrain.cpp
+    passes/shading_set.cpp
+    passes/terrain_pass.cpp
     "${TRIANGLE_VERT_HEADER}"
     "${TRIANGLE_FRAG_HEADER}"
+    "${TERRAIN_VERT_HEADER}"
     "${MESH_VERT_HEADER}"
     "${MESH_GPU_VERT_HEADER}"
     "${MESH_SKINNED_VERT_HEADER}"

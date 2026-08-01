@@ -51,6 +51,7 @@ the final resolved values and where each one came from.
 | `se editor`                                           | Build and launch the ImGui editor                 |
 | `se render`                                           | Build and run a headless Vulkan probe             |
 | `se audio`                                            | Build and run the audio demo                      |
+| `se planet`                                           | Bake and inspect planetary terrain assets         |
 | `se docker`                                           | Build and run the development container           |
 | `se config`                                           | Show the resolved configuration                   |
 | `se env`                                               | Show the environment your builds run under        |
@@ -188,6 +189,41 @@ se audio --no-run     # build only
 ```
 
 Configures with `SE_BUILD_AUDIO=ON`.
+
+## `se planet` — baked planetary terrain
+
+Builds the `.planet` assets the terrain system reads: a cube-sphere height pyramid per body
+per quality tier (`docs/slop/solar_system_overhaul.md` §5).
+
+```bash
+pip install -e cli[planet]                       # numpy + requests, an optional extra
+se planet bake                                   # the Moon, compact tier (33 MB download)
+se planet bake --body moon --tier standard       # 64 pixels/degree (530 MB download)
+se planet bake --depth 5                         # deeper than the source supports; see below
+se planet bake --refresh                         # re-download instead of using the cache
+se planet bake -o /tmp/moon.planet               # write somewhere else
+se planet inspect                                # print a baked asset's provenance and pyramid
+```
+
+The bake downloads a public-domain topography raster once (LOLA for the Moon, from the NASA
+PDS Geosciences Node — no credentials), caches it under `build/planet-cache/`, and writes the
+asset to `assets/planet/<body>.<tier>.planet`. Those are gitignored: see
+`assets/planet/README.md`. Nothing breaks without one — a body with no baked terrain falls
+back to the analytic ground the sky pass already draws.
+
+Three things it does that are worth knowing about:
+
+- **It verifies the grid convention before baking anything.** A raster read with longitude
+  mirrored produces a planet that looks entirely reasonable and is wrong everywhere, so the
+  bake samples known landmarks (the South Pole–Aitken floor, the far-side highlands) and
+  refuses to proceed if they are not where they should be.
+- **It reports the depth the *data* supports, not the depth you asked for.** `--depth` may go
+  deeper, but the asset still records the source's own resolution, so nothing downstream
+  mistakes resampled levels for measurement.
+- **It audits its own output.** After writing, it re-reads the asset through every rule the
+  engine's reader applies and compares decoded elevations against the source raster. It
+  refuses to claim success if anything came back further off than quantisation can account
+  for — for the compact lunar tier that is 0.09 m against a 0.18 m step.
 
 ## `se docker` — the development container
 

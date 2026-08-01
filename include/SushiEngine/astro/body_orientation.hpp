@@ -174,5 +174,62 @@ namespace SushiEngine
                 return equatorial;
             return ecliptic_to_body_equatorial(observer_body, equatorial_to_ecliptic(equatorial));
         }
+
+        /**
+         * @brief The body's prime meridian, as an angle in @b this @b header's frame.
+         *
+         * @ref body_rotation_angle returns the IAU angle W, and W is measured from the
+         * ascending node of the body's equator on the **J2000 equator**. The frame
+         * @ref ecliptic_to_body_equatorial projects into puts its +X on the node with the
+         * **ecliptic** instead. Both are legitimate frames with the pole as +Z, but they
+         * are not the same frame, and W is only an angle in the first one — so adding W to
+         * a longitude expressed in the second one is a category error that silently
+         * rotates a body's whole surface. It is not a small error either: the two nodes are
+         * 52.7 degrees apart for the Moon, 40.9 for Mars, 117.6 for Venus.
+         *
+         * This is the one place that reconciles them, and it is what every consumer that
+         * needs "where is the prime meridian right now" must call: the topocentric sky
+         * (@ref fill_environment_sky), the scene-frame bijection (@ref scene_frame_for),
+         * the body-fixed pose conversions, and the terrain, which reads elevations defined
+         * against the real prime meridian.
+         *
+         * Earth is not routed through W at all. Its body-equatorial frame *is* the J2000
+         * equatorial one, whose +X is the vernal equinox, so its prime meridian's angle in
+         * that frame is Greenwich sidereal time by definition — the same quantity the home
+         * sky has always used, which is why the home sky does not move.
+         *
+         * @param body        Whose prime meridian to locate.
+         * @param julian_date The epoch.
+         * @return The angle, radians, wrapped to [0, 2pi).
+         */
+        inline double prime_meridian_angle(BodyId body, double julian_date) noexcept
+        {
+            if (body == BodyId::Earth)
+                return local_mean_sidereal_time(julian_date, 0.0);
+
+            constexpr double TWO_PI = 6.283185307179586;
+
+            // The node W is measured from: the ascending node of the body equator on the
+            // J2000 equator, which is z_J2000 x pole. Expressed in this header's frame it
+            // gives the offset between the two conventions directly.
+            const Vector3 pole = body_north_pole_equatorial(body);
+            const Vector3 node_equatorial{-pole.y, pole.x, 0.0};
+            const double node_length = length(node_equatorial);
+
+            // A pole on the J2000 pole makes that node degenerate; the IAU convention then
+            // places it at right ascension 90 degrees, which in a frame whose +X is the
+            // equinox is a quarter turn. Unreachable with the present table (only Earth is
+            // defined that way, and Earth returned above) but the limit is the honest value.
+            double offset = 1.5707963267948966;
+            if (node_length > 1e-12)
+            {
+                const Vector3 node = equatorial_to_body_equatorial(
+                    body, node_equatorial * (1.0 / node_length));
+                offset = std::atan2(node.y, node.x);
+            }
+
+            const double angle = offset + body_rotation_angle(body, julian_date);
+            return angle - TWO_PI * std::floor(angle / TWO_PI);
+        }
     } // namespace Astro
 } // namespace SushiEngine

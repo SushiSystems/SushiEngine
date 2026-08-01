@@ -93,6 +93,7 @@
 #include "meshlet.mesh.h"
 #include "meshlet.task.h"
 #include "grid.frag.h"
+#include "terrain.vert.h"
 #include "occlusion.comp.h"
 #include "outline.frag.h"
 #include "outline.vert.h"
@@ -149,6 +150,8 @@ namespace SushiEngine
                  Shaders::outline_frag_spv_word_count, "outline.frag"},
                 {"grid.frag", ShaderStage::Fragment, Shaders::grid_frag_spv,
                  Shaders::grid_frag_spv_word_count, "grid.frag"},
+                {"terrain.vert", ShaderStage::Vertex, Shaders::terrain_vert_spv,
+                 Shaders::terrain_vert_spv_word_count, "terrain.vert"},
                 {"sky.frag", ShaderStage::Fragment, Shaders::sky_frag_spv,
                  Shaders::sky_frag_spv_word_count, "sky.frag"},
                 {"cloud.frag", ShaderStage::Fragment, Shaders::cloud_frag_spv,

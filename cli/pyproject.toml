@@ -25,6 +25,17 @@ climatology = [
     "netCDF4>=1.6",
 ]
 
+# `se planet bake` reads PDS3 elevation rasters and reprojects them onto the cube-sphere.
+# Deliberately lighter than the climatology extra: the planetary science community ships
+# global topography as a raw binary raster beside a plain-text label, so the bake needs
+# numpy and a downloader and no geospatial stack at all — no GDAL, no rasterio, no
+# projection library. Same reasoning otherwise: a rare developer-only step whose inputs are
+# hundreds of megabytes, so every other `se` command stays installable without it.
+planet = [
+    "numpy>=1.24",
+    "requests>=2.28",
+]
+
 # sushicli (shared CLI presentation layer, see D:/Projects/sushicli) is
 # intentionally NOT listed above: it isn't published to any index, so a bare
 # "sushicli>=0.1.0" dependency can't be resolved by pip/pipx from a clean

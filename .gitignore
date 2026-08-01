@@ -24,3 +24,7 @@ cli/*.egg-info/
 
 # Downloaded HRTF datasets (large binaries; the SOFA demo bakes a synthetic fallback)
 assets/hrtf/*.sofa
+
+# Baked planetary terrain (17 MB for the compact lunar tier, hundreds for the deeper
+# ones; reproduces from `se planet bake`, see assets/planet/README.md)
+assets/planet/*.planet

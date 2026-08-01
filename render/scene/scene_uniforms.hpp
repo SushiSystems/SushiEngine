@@ -181,6 +181,19 @@ namespace SushiEngine
                  * reason as everything above it.
                  */
                 float atmosphere_nest_params[4];
+                /**
+                 * @brief The pattern frame the cloudscape windows were baked in (CloudsV2).
+                 *
+                 * `xy` = the near window's texel-(0,0) corner, `zw` = the far window's, both
+                 * in scene-absolute-plus-wind metres (the frame the bake evaluates its
+                 * weather in). The view march's analytic carve reconstructs
+                 * `pattern = origin + window_uv * span` from these so its noise stands in
+                 * exactly the frame the envelope was baked in. Stamped by
+                 * CloudscapeCompilePass::update_window; float, matching the precision the
+                 * bake's own push constants already accept. Appended last for the same
+                 * offset reason as everything above it.
+                 */
+                float cloud_field_pattern[4];
             };
 
             /**
@@ -210,6 +223,25 @@ namespace SushiEngine
             void fill_scene_uniforms(const CameraView& camera, const Environment& environment,
                                      const double eye[3], float time_seconds,
                                      SceneUniforms& uniforms);
+
+            /**
+             * @brief Switches off `sky.frag`'s analytic ellipsoid ground for this frame.
+             *
+             * The analytic ground is the fallback for a body with no baked terrain
+             * (`docs/slop/solar_system_overhaul.md` §10). When real terrain is drawing,
+             * the two are not merely redundant — the reference ellipsoid would win every
+             * pixel the real elevations dig *below* it, which on the Moon is two
+             * kilometres of every mare.
+             *
+             * Separate from @ref fill_scene_uniforms because the answer is not known when
+             * that runs: it depends on what this frame's node selection produced.
+             *
+             * @param uniforms The block to amend, already filled.
+             */
+            inline void suppress_analytic_ground(SceneUniforms& uniforms) noexcept
+            {
+                uniforms.sky_counts[2] = 0.0f;
+            }
         } // namespace Scene
     } // namespace Render
 } // namespace SushiEngine

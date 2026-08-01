@@ -841,6 +841,32 @@ namespace SushiEngine
             WorldVector3 planet_center{0.0, -6378137.0, 0.0}; /**< The dominant body's centre in the scene frame, metres. */
             double planet_surface_reference_metres = 6378137.0; /**< Radius of the sphere the atmosphere/cloud altitudes reference — chosen so altitude is exactly zero at the local ground, not the equatorial radius. */
             Vector3 planet_pole{Vector3{0.0, 1.0, 0.0}};      /**< The dominant body's north pole, scene frame (orients the ellipsoid and its ring). */
+            /**
+             * @brief Which body the near field belongs to, as an ephemeris index; -1 for none.
+             *
+             * A plain int for the same reason @ref SkyObserver::observer_body is one: this
+             * seam stays free of the astro layer, and whoever fills it maps back. What it
+             * buys is the ability to name the body rather than merely describe it, which is
+             * what a consumer holding *per-body* data — a baked terrain pack, a material
+             * set — needs before it can pick the right one.
+             */
+            int planet_body = -1;
+            /**
+             * @brief The dominant body's body-fixed axes, expressed in scene axes.
+             *
+             * Column 0 is +X (the prime meridian on the equator), column 1 is +Y (90
+             * degrees east), column 2 is +Z (the north pole) — so column 2 is
+             * @ref planet_pole, and the three together are the rotation that carries a
+             * body-fixed direction into the scene.
+             *
+             * The body-fixed frame is the one a planet's *data* lives in: elevations,
+             * coordinates, everything a bake produced. Nothing downstream can place that
+             * data without this rotation, and nothing downstream can derive it either —
+             * it needs the body's pole and its prime meridian at this instant, which are
+             * the ephemeris's to know. Identity-ish when no body is dominant.
+             */
+            Vector3 planet_body_axes[3] = {Vector3{1.0, 0.0, 0.0}, Vector3{0.0, 0.0, -1.0},
+                                           Vector3{0.0, 1.0, 0.0}};
             SurfaceStyle planet_surface_style = SurfaceStyle::EarthLike; /**< Procedural pattern of the dominant body's ground. */
             float planet_ring_inner_metres = 0.0f;            /**< Inner edge of the dominant body's ring, metres; 0 = no ring. */
             float planet_ring_outer_metres = 0.0f;            /**< Outer edge of the dominant body's ring, metres. */
