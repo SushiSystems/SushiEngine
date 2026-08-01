@@ -1000,6 +1000,40 @@ identically zero, so it is not direct damping. It is either the removed mode's o
 disappearing or a genuine change in the wave field beneath. These runs do not separate the two and
 this document does not claim they do.
 
+### What is open, in the order it is worth doing — 2026-08-01
+
+Written down at the end of the session that closed the longwave budget and the sponge, so the next
+one starts from a list rather than from a re-reading. Ordered by value per unit of work, and each
+says what it would cost to answer, because on this machine a 72-hour probe run is six minutes of a
+saturated GPU and that is a real constraint on what gets asked.
+
+1. **The sky field freezes, and nobody knows why.** From 43 h the published cover reads 0.879 to
+   four decimal places, sample after sample, unchanged for the last 29 hours of every long run. It
+   survived both fixes above, so it is not the temperature runaway wearing a different mask — the
+   column beneath it now settles and the field still freezes. It is most likely in the mirror or
+   the publish path rather than in the physics, which makes it the one open item that can be
+   *started by reading code* and costs no GPU at all. Highest value for the least work, and it
+   undermines every long-run number in this document until it is understood.
+2. **The diurnal comparison has never been run.** Every measurement in the 2026-08-01 entries is
+   under a fixed noon sun and a quiescent parent, which is the harsh case by construction — B3b
+   measured the same 72 h *with* a day/night cycle and found no runaway at all (−0.86 K above
+   10 km). What the closed longwave budget and the deeper sponge do under a realistic forcing is
+   therefore unknown in the direction that matters for shipping. One run, six minutes.
+3. **The step cost of both changes is unmeasured.** The verification run reads 12.35 ms against the
+   baseline's 7.87, but `advect wind`, `advect scalars` and `pressure` — untouched by either change
+   — moved by the same ~1.6×, so the machine differs and not the code. §12's budget is stale for
+   the same reason. Two runs back to back on one machine settles it; nothing else will.
+4. **The cloud deck settles against a parameter, not a balance.** With the closing condition in, a
+   persistent deck stops at −13.9 K, which is its `cloud_top_equilibrium_depression` floor. What
+   should bound a real deck is entrainment at its top and subsidence above it, both of which §6 and
+   §14 already record as under-resolved at this vertical spacing. This is the largest piece of
+   physics still missing and the only one on this list that is a modelling problem rather than a
+   measurement — which is why it is last despite being the most important.
+
+Carried unchanged from below and not re-listed above: T1's 36 ms step on the main thread, the nest
+on the graphics queue, Phase C's nest-side genus acceptance, and the standing item that none of
+this has been confirmed by eye in the editor.
+
 ### Where this stood — 2026-07-31
 
 **Shipped since the entry below:** the base-state vapour profile is fixed (§6's carried item, the
