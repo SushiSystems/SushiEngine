@@ -80,7 +80,7 @@ namespace
 
 TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
 {
-    auto& runtime = Harness::shared_runtime();
+    auto& execution = Harness::shared_context();
 
     Loop::InputHistory<Scalar> input;
     Loop::RngState input_rng = Loop::seed_rng(0xABCDEFu);
@@ -88,14 +88,14 @@ TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
         input.record(tick, Scalar(Loop::next_unit(input_rng)) - Scalar(0.5));
 
     // Baseline: straight through, no rollback.
-    World baseline_world(runtime, CHUNK_CAPACITY);
+    World baseline_world(execution, CHUNK_CAPACITY);
     std::vector<Entity> baseline_entities = seed_world(baseline_world);
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         step(baseline_world, baseline_entities, *input.find(tick));
 
     // Rolled-back run: capture every tick up to TICK_ROLLBACK_HAPPENS, then rewind to
     // ROLLBACK_TARGET_TICK and replay the same input stream forward from there.
-    World rolled_world(runtime, CHUNK_CAPACITY);
+    World rolled_world(execution, CHUNK_CAPACITY);
     std::vector<Entity> rolled_entities = seed_world(rolled_world);
 
     Loop::RollbackBuffer rollback(TOTAL_TICKS);
@@ -124,8 +124,8 @@ TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
 
 TEST(Integration_Rollback, RestoreOfEvictedTickFails)
 {
-    auto& runtime = Harness::shared_runtime();
-    World world(runtime, CHUNK_CAPACITY);
+    auto& execution = Harness::shared_context();
+    World world(execution, CHUNK_CAPACITY);
     std::vector<Entity> entities = seed_world(world);
 
     Loop::RollbackBuffer rollback(4); // small ring: tick 0 will be evicted quickly

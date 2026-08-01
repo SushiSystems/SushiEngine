@@ -1612,8 +1612,8 @@ progress is recorded.
 | **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4, and §16.10 for the half of it that had been built without being connected: the island partition and sleeping reached only their own unit tests until 2026-07-30. |
 | **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | **Complete but for the editor.** The joint library, force/torque recovery, breakable joints and `IJointService` (§16.8); the `PhysicsAssembly` asset, its blob and its instancing, and the ragdoll wired to `RagdollBlend` (§16.9). The §14 assembly editor is the one item outstanding, and §16.10 sizes it honestly: it needs §5.5's `PhysicsJoint` component, its serialization and an `ISimulation` surface for joints before it can be a panel at all, because `ISimulation` deliberately does not expose the physics boundary. |
 | **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | **In progress.** The foundation layer (§16.11): `geometry/`'s mesh utilities and distance hierarchy, the fidelity dial, `CookingReport` and its thresholds, the three seams, the content-hash cache, polyhedral mass properties with principal axes. **The rigid half (§16.12): `CollisionCooker`, the convex decomposition, and the `.sushicollision` blob — a mesh now cooks to a loadable collision asset, cached, with its error measured.** **The soft half (§16.13): `SoftBodyCooker`, the tetrahedralizer, the render-mesh embedding, the level chain and the `.sushisoft` blob.** **The import chain (§16.14): `IMeshPostProcessor`, the ordered chain, the import profile with per-asset overrides, `CookingService` on a worker thread, and `Geometry::import_gltf_mesh` — so a mesh path in produces both assets with nobody pressing anything.** **The bake surface (§16.15): the Bake window's fidelity dial, cook reports, progress, Re-cook, and the collider overlay.** | **Complete** — see §16.11 (foundations), §16.12 (rigid), §16.13 (soft), §16.14 (import chain), §16.15 (bake surface). **94 of 94** tests pass across nine suites, dirty-mesh corpus included. Two things deliberately outside the phase: nothing consumes `.sushisoft` until P6 writes the element solver, and §14's soft-body *debug views* (stress and plastic-strain heat maps) read quantities only that solver produces. |
-| **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | **In progress — one known failing test.** See §16.16. Maximum depenetration velocity, speculative contacts, conservative advancement, and the SDF narrowphase path are all written, built, and pass their own unit tests. Of the three §15.4 regression scenes, two pass (stacked crates, the Hausdorff report); the tunnelling scene passes at 50 and 100 m/s but **fails at 200 m/s** — the sphere lands on the wrong side of the plate, a real, currently-unfixed bug in tier 2's 200 m/s behavior, not a documentation gap. Global substep escalation from the motion maximum already exists in `derive_substep_count`; the **per-island** part stays P8's, not P5's. |
-| **P6** | **FEM soft bodies and strength.** The neo-Hookean two-constraint model (§9.1), `SoftBodyMaterial` and presets, stress readout and heat map (§9.3), plasticity (§9.4), fracture (§9.5), soft-vs-rigid and soft-vs-soft collision (§9.6), levels of detail (§9.7), and **the mesh binding of §8.6 driven end to end** — the embedding kernel, deformed normals, and `ClothStrandView` generalized to `DeformableMeshView`. Cloth gains bending. Cosmetic bodies gain the `float` column (§6.5). | **The cantilever-deflection test matches theory**; a body past yield keeps a permanent dent; a fractured body's render mesh follows correctly; 20 000 tetrahedra at the §13.1 target. | **In progress — one known failing test.** §9.1's model and `SoftBodyMaterial` (§16.17), §9.3's stress readout (§16.18), §9.4's plasticity, and §9.5's element removal (fracture, minus vertex duplication along the crack) are all written and built, and every one of their own unit/integration tests passes. But the phase's own named acceptance test — the cantilever-vs-Euler-Bernoulli case — **currently fails**, measuring roughly 9x the expected tip deflection; see §16.19 for the investigation so far and the two leading suspects (bending-specific discretization error vs. a compliance-mapping error), neither isolated yet. §9.1–9.5 stay a **host-only** implementation. Still not started: §9.6 (soft-body collision), §9.7 (levels of detail), the §8.6 mesh binding, cloth bending, and the cosmetic `float` column. |
+| **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | **Complete** — see §16.16 for the build and §16.19's RESOLVED addendum for the last failure. Maximum depenetration velocity, speculative contacts, conservative advancement, and the SDF narrowphase path are all written and tested, and all three §15.4 regression scenes pass — including the tunnelling scene at 200 m/s, which held out longest and turned out not to be a CCD bug at all: the manifold was correct at every speed, and §7.6's depenetration budget was the culprit, correcting 6 mm of a 0.4 m last-substep violation and letting the next tick's nearest-face manifold walk the buried sphere out the far side. The budget now also covers however much the pair closed during the substep, so a spawned overlap still pays out at 3 m/s while a moving body can always be stopped by what it hit. Global substep escalation from the motion maximum already exists in `derive_substep_count`; the **per-island** part stays P8's, not P5's. |
+| **P6** | **FEM soft bodies and strength.** The neo-Hookean two-constraint model (§9.1), `SoftBodyMaterial` and presets, stress readout and heat map (§9.3), plasticity (§9.4), fracture (§9.5), soft-vs-rigid and soft-vs-soft collision (§9.6), levels of detail (§9.7), and **the mesh binding of §8.6 driven end to end** — the embedding kernel, deformed normals, and `ClothStrandView` generalized to `DeformableMeshView`. Cloth gains bending. Cosmetic bodies gain the `float` column (§6.5). | **The cantilever-deflection test matches theory**; a body past yield keeps a permanent dent; a fractured body's render mesh follows correctly; 20 000 tetrahedra at the §13.1 target. | **Complete but for one unmeasured number.** The cantilever-vs-Euler-Bernoulli acceptance test **passes** — §16.19 records the three fixes (the deviatoric constraint is `‖F‖`, not `‖F‖ − √3`; the hydrostatic term uses Smith's `λ + μ` reparameterization; the case runs at 60 substeps). §9.1–§9.5 as before, and now §9.6's three collision problems, §9.7's tiers and pop-free transfer, §8.6's embedding kernel and deformed normals, §9.5's vertex duplication along the crack with the binding following it, §9.1's bending constraint, and §6.5's cosmetic `float` column — all written, all with tests. See §16.20. `DeformableMeshView`, `ISoftBodyService` and the editor's debug views closed P6-G2/G3/G5; **P6-J1 generalized the colourer and the constraint store from two body indices to N, and P6-J2 made the FEM element a constraint kind in the device graph**, so a 20 250-tetrahedron lattice now places, colours and steps through `RuntimeGraphBuilder` with zero rejections and zero recompositions. **The one acceptance item still open is the number itself:** §16.21 records **29.4 ms/tick** for that scene at 32 substeps against a 3 ms budget — but on the **CPU backend**, because SushiRuntime finds no GPU device on the machine it was run on, and §13.1's target is written against a desktop GPU. Not a miss; an unmeasured line on the hardware that was meant to measure it. |
 | **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | Not started |
 | **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | Not started |
 | **P9** | **Gameplay surface.** Kinematic bodies, character controller, the full event stream into gameplay/audio/VFX through `IPhysicsEventSink`, rollback integration and its snapshot, and the networking validation harness. | Snapshot-rollback-replay byte equality across 10 000 ticks including contacts and fracture; impact events drive audio and VFX in a demo scene. | Not started |
@@ -3268,10 +3268,12 @@ inspection, not against real cooked geometry.
 **Read before extending any of this further:** P6-B/C/D's own tests are green (see above), but
 that is not the same as P6-E-ready — P6-E's soft-vs-rigid collision reads the same
 `SdfCollider`/`collision_asset_field` P5 built, and would compound an error in the stress or
-plasticity pipeline into a collision response reading a wrong force. Since P6-A's own acceptance
-test is currently failing (§16.19), the honest position is: the element math these three build on
-has not been shown correct for the specific case that matters most for collision response
-(bending under an external load), only for uniaxial strain and pure creep. Re-run
+plasticity pipeline into a collision response reading a wrong force. When this was written P6-A's
+acceptance test was failing, so the element math these three build on had not been shown correct
+for the case that matters most for collision response — bending under an external load — only for
+uniaxial strain and pure creep. **That caveat is discharged:** §16.19's RESOLVED addendum records
+the three fixes and the cantilever now matches Euler-Bernoulli inside tolerance. The standing
+instruction survives it, because the coupling it warns about does. Re-run
 `se test --suite functional --filter 'Unit_FemStress.*:Unit_FemPlasticity.*:Unit_FemFracture.*:Integration_FemPlasticity.*'`
 after any change touching P6-A, not just once at the start of a session.
 
@@ -3357,6 +3359,178 @@ instruction to commit now and continue working rather than keep debugging uninte
   substeps, -5.9e-3 at 60, -1.5e-3 at 120); the cantilever test runs at 60 substeps and passes
   inside its 35% tolerance. The plasticity integration scene was recalibrated (50 → 800 m/s^2
   pull) because its old load only crossed yield against the erroneously soft material.
+
+### 16.20 Finishing P6's host side, 2026-08-01: what was built, and what a build has not yet seen
+
+Everything §16's P6 row listed as "still not started" is written and has tests, with one group of
+exceptions named at the bottom. This entry records the decisions worth keeping and, separately, the
+honest verification status — which is not the same thing.
+
+**§9.6, collision, in three parts.** Soft-vs-rigid was the one that could have gone badly and did
+not: rather than a new contact solver for particles, each contacting surface vertex becomes an
+ordinary one-point `ContactManifold` handed to the existing `solve_manifold_positions` /
+`solve_manifold_velocities`. Friction, restitution, rest offset and the depenetration budget are then
+literally the same code path a crate on a floor takes, and two-way coupling is free because the rigid
+body is the manifold's second body. It also forced a real fix underneath: the cooked distance field
+was only sampled at nearest voxel, which settles a deformable surface onto a staircase, and its
+gradient — a half-voxel central difference *inside* one voxel — reads exactly zero and fell through to
+`sdf_gradient_world`'s fixed-axis guard, returning a normal unrelated to the surface. A trilinear
+sampler with an analytic gradient sits beside the old one; the convex-pair narrowphase is untouched.
+
+Soft-vs-soft is a build-once/refit-every-tick hierarchy per body, vertex-triangle both ways plus
+edge-edge, and the continuous path is Bridson's coplanarity cubic solved by bracketing over the
+derivative's roots rather than in closed form — grazing contacts are double roots and the closed form
+is worst exactly there. Contacts are keyed by feature and reduced, which removes the "as many times
+too stiff as the vertex has neighbours" error *and* makes the solve order a function of topology
+rather than traversal (§12.1).
+
+Two structural consequences, both of which the later work needed anyway. `FiniteElementModel::step`
+became a composition of named phases, and `SoftBodyScene` interleaves several bodies' substeps —
+without it two soft bodies in contact cannot be correct however good the contact code is, because
+each would finish its whole tick against poses the other has not reached.
+
+**§3.3's seam, and the shape it actually wanted.** `ISoftBodyModel` is the seam; `SoftBodyBase` is the
+substep schedule three of the four model kinds share, as a template method with exactly one hole
+(`project_constraints`). Splitting them matters: a consumer of the seam should not depend on a substep
+loop it never calls, and the rigid tier of §9.7 genuinely does not want that loop — its tick is
+"integrate one body", and forcing it through the particle schedule would mean integrating hundreds of
+particles to arrive at what one `predict` already gives. §4.4's conformance suite runs one set of
+cases against all three deformable kinds through `ISoftBodyModel&`.
+
+**§9.7's transfer is written in displacements, and that is the whole of "no pop."** Reconstructing a
+coarse vertex as `sum(weight * fine_vertex)` is exact only if the fine lattice sits exactly where the
+embedding says, which it never does — a coarse lattice cannot represent every pose a finer one can, so
+the reconstruction of an *undeformed* body already lands slightly off its own rest position. Working
+in displacements makes the rest pose transfer exactly by construction and leaves only the genuinely
+unrepresentable part of the deformation to be lost, which reads as softening rather than as a jump.
+Coarsening has no stored inverse, so it is the transpose of refining — a mass-lumped scatter — chosen
+because it reproduces a rigid translation exactly, and a body that is merely falling must cross a tier
+boundary with no motion at all.
+
+**§9.5's vertex duplication turned out not to need what it was blocked on.** This document recorded
+the crack-splitting clause as requiring cooked face-adjacency data that `FemTetrahedronT`'s flat vertex
+list does not carry. That was wrong. A vertex's *star* is a handful of elements, not a mesh, and two
+of them lie on the same side of a crack exactly when they share three vertices one of which is that
+vertex — which the vertex lists answer directly, at a cost proportional to the crack rather than to
+the body. Splitting divides the vertex's mass rather than copying it (a copy would make a body heavier
+every time it broke), keeps a pinned vertex pinned in every copy, and starts the copies coincident so
+the split itself moves nothing. The boundary is rebuilt from the surviving elements afterward, because
+a collision surface still describing the shape a body had before it broke is worse than none.
+
+**§9.1's bending is isometric, not dihedral, and the reason is the common case.** The textbook
+constraint `C = acos(dot(n1, n2)) - angle_rest` carries a `1 / sqrt(1 - dot^2)` factor in its
+gradient. For a flat stencil that dot product is exactly minus one — a division by zero sitting
+precisely on the configuration every piece of cloth starts at and spends most of its life near. The
+numerator vanishes too, so the correction has a finite limit, but computing it divides one cancelling
+quantity by another exactly where the constraint most needs to be reliable. The coplanarity-weight
+form has no trigonometry, no normals, no singularity, and constant gradients. P6's own acceptance
+clause — zero stiffness reproduces the old behaviour — is met structurally rather than numerically:
+at zero stiffness no bending constraints are created, so the sweep is the same sequence of the same
+projections it was before.
+
+**§6.5's `float` column.** `resolve_soft_body_precision` reads the asset and the component flags;
+`SoftBodyInstance` owns one column or the other and answers in `Scalar` either way, so the decision
+does not spread past instantiation. Participation in rollback *overrides* the cosmetic flag rather
+than being weighed against it — two machines agreeing in `double` and disagreeing in `float` is the
+entire failure §0.5 exists to prevent. Half-precision storage stays in P8, where the measurement that
+justifies it lives.
+
+**Verification status.** Built and run: **1061 of 1061 functional tests pass.** The first run
+after this work failed nine, all of them mine, and they were worth having — two were real defects in
+the engine and the rest were tests asserting things that are not true. Both defects were found by
+measurement rather than by reading, which is the only reason they were found at all.
+
+**Defect 1: the narrow phase was not widened by the tick's travel.** A cube dropped on a cube fell
+straight through it, ending 4.07 m below where it should have rested. The broad phase was already
+inflating its bounds by how far a particle can travel in a tick, so the candidate pairs were correct
+— 576 of them, every tick, throughout the fall. The narrow phase then tested those pairs against the
+pose at the *tick's start* and rejected every one for not touching yet. A body falling at 1 m/s covers
+16 mm per 60 Hz tick, which is more than a centimetre-thick surface, so the contact set was
+empty at every moment it was built and full only in the ticks where the body happened to be
+mid-surface. Contacts are found once per tick by design (§6.1); what was missing is that a set built
+once per tick has to cover the whole tick. The fix is speculative contacts — accept a pair within
+`thickness + travel`, keep `rest_distance` at `thickness` — and it applies to all three of §9.6's
+mechanisms, so `ISoftBodyCollider::generate_contacts` now takes the tick duration. The projection is
+an inequality, so the extra contacts cost list length and never a spurious push. The same bug was
+behind the self-collision scene's falling half passing through its pinned half.
+
+**Defect 2: `continuous` was strictly worse than `discrete`.** With the margin in place the discrete
+path stops a sheet crossing at 300 m/s on its own. The continuous path still did not — because it
+*replaced* the tick's contact set with the swept one each substep instead of adding to it. A body
+marked continuous therefore tunnelled through something the same body would have hit with the flag
+off. The swept pass now adds to the speculative set, so enabling the flag can only ever find more.
+A flag that costs more and detects less is the one shape of defect nobody goes looking for, and it is
+now pinned by a test named after that property rather than after the scene.
+
+**Four of the nine failures were tests asserting false things**, and correcting them is worth
+recording because each was a wrong belief rather than a loose tolerance:
+
+- *The comparator removed translation but not rotation.* Nothing pins the orientation of a body
+  floating in free space, and a Gauss-Seidel sweep is not symmetric — it imparts a small torque that
+  velocity damping cannot undo, because damping removes the spin and not the angle already turned
+  through. `MassSpringModel` had recovered its rest shape to 4.7e-17 up to a rigid motion and was
+  being reported as having failed by 0.129 m. The conformance comparator now fits and removes the
+  rotation.
+- *§4.4's "all implementations converge to the same rest shape" is very nearly but not exactly true.*
+  The spring and shape-matching models rest at the cooked lattice by construction; the stable
+  neo-Hookean pair does not. Its two constraints balance at a deformation gradient slightly off the
+  identity, so an unpinned FEM body relaxes to a shape a few per cent from the lattice it was cooked
+  from — measured, 4.6 mm on a 100 mm cube, and non-uniformly, since it survives removing a uniform
+  scale as well as a rigid motion. That is a documented property of the model, so the cross-model
+  bound states it instead of hiding it, and a second assertion pins the two that *do* share a rest
+  state to 1e-6 of each other so the explanation cannot silently stop being the right one.
+- *A fall was being measured at the unweighted centroid.* A tetrahedral lattice's lumped masses are
+  not uniform, so the plain centroid moves whenever an internal projection redistributes particles
+  even though momentum is perfectly conserved. Measured at the centre of mass, the three models agree.
+- *A single cube cell is self-intersecting at a large enough thickness.* Two edges of a 0.05 m cell
+  that share no vertex pass within 0.05/√3 = 0.0289 m, because the closest approach of a face diagonal
+  and an edge is not along an axis. The test had set a combined thickness of 0.03 and read the correct
+  answer as a bug.
+
+**The remaining precision finding.** `Cooking::SoftBodyBinding` stores its weights as `float`, so
+after the round trip they sum to one only to about six digits. Both readers multiplied them by
+*absolute* positions, which displaces a reconstructed point by `|position| × 1e-7` — micrometres near
+the origin, centimetres at planet scale, and invisible to any test that places its body at the origin.
+Two of the nine failures were exactly this, caught only because one case deliberately placed the body
+12 m away. `Cooking::read_binding_weights` now renormalizes at the one point every reader goes
+through.
+
+### 16.21 P6's acceptance number, measured
+
+P6-J1 generalized `IncrementalColoring` and `ConstraintStore` from two body indices to N, and P6-J2
+made the FEM element a constraint kind in the device graph alongside distance constraints and joints.
+That is what the 20 000-tetrahedron acceptance line was waiting on, so it can now be measured rather
+than deferred. `examples/soft_body_budget.cpp` is that measurement: a 15³ Freudenthal lattice —
+20 250 tetrahedra over 4 096 particles, top layer pinned so every element deforms — stepped at the
+32 substeps §13.1 names.
+
+It is a probe and not a suite assertion on purpose. §13.1 states its targets against "one
+desktop-class GPU through SushiRuntime", and a test asserting 3 ms would be asserting the machine it
+happened to run on. So the *shape* is pinned by `ATetrahedralLatticeColoursCleanlyAndComposesOnce` in
+the conformance suite — every element finds a band, the lattice colours inside the ceiling, the graph
+composes once and never again — and the *number* is reported by the probe.
+
+**The number, on the machine at hand.** 20 250 elements placed, none rejected; 32 colours of 48 used;
+zero recompositions after the first tick; **mean 29.4 ms/tick, best 25.4 ms/tick, against a 3 ms
+budget.** Roughly ten times over.
+
+That is stated without spin, and so is its one large caveat: SushiRuntime found exactly one device on
+this machine — `AMD Ryzen 5 7600X`, twelve workers — so this is the **CPU backend**, not the desktop
+GPU the target is written against. The honest reading is not "P6 misses §13.1 by 10×" but "§13.1's
+soft-body line has not yet been measured on the hardware it was written for; on a twelve-core CPU
+backend the same scene costs 29.4 ms." Until this is run against a GPU device, the acceptance line
+stays open.
+
+Two things the measurement does settle, because neither depends on the backend. The scene builds and
+runs without a single rejected element or recomposition, which is what J1 and J2 were for. And the
+work per tick is now a known quantity: 20 250 elements × 32 substeps × two projections is 1.3 million
+projections a tick, dispatched as 32 colours × 32 substeps = 1 024 graph nodes, so 1 024 barriers a
+tick as well. Which of those two the 29.4 ms is mostly spent on — the arithmetic or the barriers —
+this probe does not distinguish, and guessing would be worth less than profiling it.
+
+**What P6 does not owe any more.** The stale list that stood here — `ClothStrandView` not yet
+generalized, no `ISoftBodyService`, no editor tetrahedra view, the FEM element not a constraint kind —
+was closed by P6-G2, P6-G3, P6-G5 and P6-J1/J2 respectively.
 
 ---
 

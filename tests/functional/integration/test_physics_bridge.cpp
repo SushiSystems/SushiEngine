@@ -50,7 +50,7 @@ namespace
 
 TEST(Integration_PhysicsBridge, RegisteredEntitySyncsAndUnregisteredDoesNot)
 {
-    World world(Harness::shared_runtime(), 8);
+    World world(Harness::shared_context(), 8);
     world.reserve<Simulation::Transform, Simulation::Orientation, Simulation::PhysicsBody>(8);
 
     const Entity falling = world.spawn(
@@ -58,7 +58,7 @@ TEST(Integration_PhysicsBridge, RegisteredEntitySyncsAndUnregisteredDoesNot)
     const Entity untouched = world.spawn(
         Simulation::Transform{Vector3{3, 3, 3}}, Simulation::Orientation{}, Simulation::PhysicsBody{});
 
-    PhysicsWorld<XpbdDistanceConstraint> physics(Harness::shared_runtime());
+    PhysicsWorld<XpbdDistanceConstraint> physics(Harness::shared_context());
     const BodyId falling_id =
         physics.add_body(Simulation::initial_rigid_body(world, falling, Scalar(1)));
     // No constraints: a single free-falling body under gravity is enough to prove

@@ -74,9 +74,9 @@ namespace
 
 TEST(Integration_PgsSolver, HangingChainMatchesReference)
 {
-    auto& runtime = Harness::shared_runtime();
-    auto positions = runtime.buffer<Vector3>(N);
-    auto inv_mass = runtime.buffer<Scalar>(N);
+    auto& execution = Harness::shared_context();
+    auto positions = execution.allocate<Vector3>(N);
+    auto inv_mass = execution.allocate<Scalar>(N);
 
     std::vector<Vector3> ref_pos(N);
     std::vector<Scalar> ref_inv(N);
@@ -95,7 +95,7 @@ TEST(Integration_PgsSolver, HangingChainMatchesReference)
         constraints.push_back(DistanceConstraint{i, i + 1, SPACING});
 
     ConstraintSolver<DistanceConstraint> solver(
-        runtime, positions, inv_mass, constraints, N, ITERATIONS, DistanceProjection{});
+        execution, positions, inv_mass, constraints, N, ITERATIONS, DistanceProjection{});
 
     EXPECT_EQ(solver.color_count(), 2u);
 

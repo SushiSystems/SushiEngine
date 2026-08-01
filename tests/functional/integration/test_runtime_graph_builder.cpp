@@ -28,10 +28,14 @@
 // count that climbs is the failure mode that would otherwise be invisible.
 
 #include <cmath>
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <gtest/gtest.h>
 
+#include <SushiEngine/physics/soft/fem_projection.hpp>
+#include <SushiEngine/physics/soft/soft_body_material.hpp>
 #include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
 
 using namespace SushiEngine;
@@ -64,7 +68,8 @@ namespace
 TEST(Integration_RuntimeGraphBuilder, ABodyFallsUnderGravity)
 {
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
 
     const BodyHandle handle = solver.add_body(falling_body(Scalar(10)));
     ASSERT_TRUE(handle.valid());
@@ -84,7 +89,8 @@ TEST(Integration_RuntimeGraphBuilder, TheGraphIsCompiledOnceHoweverTheWorldChang
     // The whole point of the late-binding design. Bodies and constraints come and go
     // every tick; the compiled structure must not notice.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
 
     StepParameters<Scalar> parameters;
     BodyHandle anchor = solver.add_body(falling_body(Scalar(5)));
@@ -121,7 +127,8 @@ TEST(Integration_RuntimeGraphBuilder, AStaleHandleIsRefusedAfterItsSlotIsReused)
     // The reason handles carry a generation at all. Without one, the second body
     // silently answers for the first.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
 
     const BodyHandle first = solver.add_body(falling_body(Scalar(1)));
     ASSERT_TRUE(solver.remove_body(first));
@@ -141,7 +148,8 @@ TEST(Integration_RuntimeGraphBuilder, RemovingABodyTakesItsConstraintsWithIt)
     // A constraint left naming a freed slot would act on whatever body claimed the
     // slot next — a corruption with no symptom until the simulation looks wrong.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
 
     const BodyHandle a = solver.add_body(falling_body(Scalar(1)));
     const BodyHandle b = solver.add_body(falling_body(Scalar(2)));
@@ -169,7 +177,8 @@ TEST(Integration_RuntimeGraphBuilder, ConstraintsOnASharedBodyTakeDifferentColou
     // meeting at one body can never be projected in parallel, so they must land in
     // different colours without a full recolour having run.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
 
     const BodyHandle hub = solver.add_body(falling_body(Scalar(1)));
     const BodyHandle spoke_a = solver.add_body(falling_body(Scalar(2)));
@@ -199,7 +208,8 @@ TEST(Integration_RuntimeGraphBuilder, ExceedingTheBodyBudgetIsReportedNotThrown)
     configuration.capacities.bodies = 2;
 
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, configuration);
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, configuration);
 
     EXPECT_TRUE(solver.add_body(falling_body(Scalar(1))).valid());
     EXPECT_TRUE(solver.add_body(falling_body(Scalar(2))).valid());
@@ -216,7 +226,8 @@ TEST(Integration_RuntimeGraphBuilder, ADistanceConstraintPullsTwoBodiesTogether)
     // bands, the late-bound counts, and the device-resident columns are all between
     // the caller and the same XPBD projection the host mirror tests already trust.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
 
     // Started only mildly violated, on purpose. A hard constraint given a large
     // initial violation is not a stiffness test — XPBD converts the position
@@ -269,13 +280,14 @@ TEST(Integration_RuntimeGraphBuilder, TheRebalancerIsOffForAPhysicsScene)
     // a fixed-rate tick the cost is jitter, and a scene that quietly left it running
     // would show up as frame-time noise with no other symptom.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
+    Execution::Context execution(runtime);
     // The runtime's default is off since the 2026-08-01 rebalancer change, so turn
     // it on explicitly: the property under test is that constructing a physics
     // scene switches it off, not whatever the runtime's default happens to be.
     runtime.rebalancer(true);
     ASSERT_TRUE(runtime.advanced().rebalancer_enabled());
 
-    RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
+    RuntimeGraphBuilder<Scalar> solver(execution, small_scene());
     EXPECT_FALSE(runtime.advanced().rebalancer_enabled())
         << "constructing a physics scene must turn it off";
 }
@@ -291,7 +303,8 @@ TEST(Integration_RuntimeGraphBuilder, TheSubstepCountFollowsTheFastestBody)
     configuration.substeps.motion_budget = Scalar(0.05);
 
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    RuntimeGraphBuilder<Scalar> solver(runtime, configuration);
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, configuration);
 
     RigidBody still = falling_body(Scalar(0));
     const BodyHandle resting = solver.add_body(still);
@@ -310,4 +323,129 @@ TEST(Integration_RuntimeGraphBuilder, TheSubstepCountFollowsTheFastestBody)
     solver.step(parameters); // and spends it
     EXPECT_GT(solver.statistics().substeps, 1u);
     EXPECT_LE(solver.statistics().substeps, 8u);
+}
+
+/**
+ * @brief The soft-body budget scene's *shape*, which the suite can own.
+ *
+ * `examples/soft_body_budget.cpp` measures section 13.1's number -- one body,
+ * 20 000 tetrahedra, 32 substeps, 3 ms/tick -- and reports it rather than asserting
+ * it, because a target stated against one desktop-class GPU is not a claim any
+ * machine running this suite can be held to. What *is* machine-independent, and what
+ * the number is worthless without, is here: that a dense tetrahedral lattice colours
+ * cleanly inside the colour ceiling, that every element finds a band, and that a
+ * scene of this shape composes once and never again.
+ *
+ * A smaller lattice than the probe's, at the same density and the same connectivity.
+ * Vertex valence -- which is what the colouring is bounded by -- is a property of the
+ * decomposition and not of how many cells it is run over, so the colour count this
+ * pins is the colour count the probe meets.
+ */
+TEST(Integration_RuntimeGraphBuilder, ATetrahedralLatticeColoursCleanlyAndComposesOnce)
+{
+    constexpr int CELLS = 5;
+    constexpr int GRID_POINTS = CELLS + 1;
+    constexpr int PARTICLES = GRID_POINTS * GRID_POINTS * GRID_POINTS;
+    constexpr int COLORS = 48;
+    constexpr int CELL_TETRAHEDRA[6][4] = {{0, 1, 3, 7}, {0, 1, 5, 7}, {0, 4, 5, 7},
+                                           {0, 4, 6, 7}, {0, 2, 6, 7}, {0, 2, 3, 7}};
+
+    PhysicsConfiguration configuration;
+    configuration.capacities.bodies = PARTICLES;
+    configuration.capacities.constraints = 1;
+    configuration.capacities.joints = 0;
+    configuration.capacities.contacts = 0;
+    // Not the element count. The store hands each colour a fixed band of
+    // `elements / colors` slots (`constraint_store.hpp`), so what has to fit is the
+    // *busiest* band, and a budget of exactly 750 would give every colour fifteen
+    // slots and reject the lattice a fifth of the way in. A colour class is a set of
+    // vertex-disjoint tetrahedra, so no band can hold more than a quarter of the
+    // particles whatever order they arrive in; that bound is the only sizing that
+    // cannot under-shoot. Greedy actually peaks at 48 of the 54 it is given here.
+    configuration.capacities.colors = COLORS;
+    configuration.capacities.elements = std::size_t(COLORS) * (PARTICLES / 4);
+    configuration.substeps.minimum = 2;
+    configuration.substeps.maximum = 2;
+
+    SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
+    Execution::Context execution(runtime);
+    RuntimeGraphBuilder<Scalar> solver(execution, configuration);
+
+    std::vector<Vector3> rest;
+    std::vector<BodyHandle> handles;
+    for (int z = 0; z < GRID_POINTS; ++z)
+        for (int y = 0; y < GRID_POINTS; ++y)
+            for (int x = 0; x < GRID_POINTS; ++x)
+            {
+                const Vector3 position{Scalar(x) * Scalar(0.05),
+                                       Scalar(1) + Scalar(y) * Scalar(0.05),
+                                       Scalar(z) * Scalar(0.05)};
+                rest.push_back(position);
+                RigidBody body;
+                body.position = position;
+                body.prev_position = position;
+                body.inv_mass = Scalar(1);
+                handles.push_back(solver.add_body(body));
+                ASSERT_TRUE(handles.back().valid());
+            }
+
+    const LameParameters<Scalar> lame = lame_parameters(SoftBodyMaterial{});
+
+    std::size_t placed = 0;
+    for (int z = 0; z < CELLS; ++z)
+        for (int y = 0; y < CELLS; ++y)
+            for (int x = 0; x < CELLS; ++x)
+                for (const auto& corners : CELL_TETRAHEDRA)
+                {
+                    FemTetrahedron element;
+                    Vector3 corner[4];
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        const int bits = corners[i];
+                        const int px = x + (bits & 1);
+                        const int py = y + ((bits >> 1) & 1);
+                        const int pz = z + ((bits >> 2) & 1);
+                        element.vertex[i] =
+                            std::uint32_t((pz * GRID_POINTS + py) * GRID_POINTS + px);
+                        corner[i] = rest[element.vertex[i]];
+                    }
+
+                    FemMatrix3<Scalar> rest_shape;
+                    rest_shape.column0 = corner[1] - corner[0];
+                    rest_shape.column1 = corner[2] - corner[0];
+                    rest_shape.column2 = corner[3] - corner[0];
+                    FemMatrix3<Scalar> inverse;
+                    ASSERT_TRUE(invert_fem_matrix3(rest_shape, inverse))
+                        << "a degenerate element means the lattice itself is wrong";
+                    element.rest_inverse_column_0 = inverse.column0;
+                    element.rest_inverse_column_1 = inverse.column1;
+                    element.rest_inverse_column_2 = inverse.column2;
+                    element.plastic_inverse_column_0 = inverse.column0;
+                    element.plastic_inverse_column_1 = inverse.column1;
+                    element.plastic_inverse_column_2 = inverse.column2;
+                    element.rest_volume =
+                        std::abs(determinant(rest_shape)) / Scalar(6);
+                    element.mu = lame.mu;
+                    element.lambda = lame.lambda;
+
+                    ASSERT_TRUE(solver.add_element(element).valid())
+                        << "element " << placed
+                        << " found no conflict-free colour with room left";
+                    ++placed;
+                }
+
+    EXPECT_EQ(placed, std::size_t(CELLS * CELLS * CELLS * 6));
+
+    StepParameters<Scalar> parameters;
+    solver.step(parameters);
+    EXPECT_EQ(solver.statistics().elements, placed);
+    const std::size_t after_warmup = solver.statistics().compile_count;
+
+    for (int tick = 0; tick < 4; ++tick)
+        solver.step(parameters);
+
+    EXPECT_EQ(solver.statistics().compile_count, after_warmup)
+        << "a lattice of elements must not recompile the graph as it runs";
+    EXPECT_EQ(solver.statistics().compose_count, 0u);
+    EXPECT_LE(solver.statistics().colors, configuration.capacities.colors);
 }

@@ -159,6 +159,29 @@ namespace SushiEngine
             return true;
         }
 
+        /**
+         * @brief The transpose of a 3x3 matrix given as three columns.
+         *
+         * Column `i` of the result is row `i` of the input, which for this storage
+         * shape is a gather of one component from each column. Needed by the polar
+         * decomposition `shape_matching_model.hpp` runs — its Newton iteration is
+         * written in terms of `M^-T` — and kept beside the inverse it composes with
+         * rather than in the one file that uses it, so a second caller does not
+         * arrive at a second spelling.
+         *
+         * @param m The matrix to transpose.
+         * @return Its transpose.
+         */
+        template <typename T>
+        inline FemMatrix3<T> transpose(const FemMatrix3<T>& m) noexcept
+        {
+            FemMatrix3<T> out;
+            out.column0 = Vector3T<T>{m.column0.x, m.column1.x, m.column2.x};
+            out.column1 = Vector3T<T>{m.column0.y, m.column1.y, m.column2.y};
+            out.column2 = Vector3T<T>{m.column0.z, m.column1.z, m.column2.z};
+            return out;
+        }
+
         /** @brief One constraint's value and the gradient it hands each of the tetrahedron's four vertices. */
         template <typename T>
         struct FemConstraintEvaluation
@@ -312,14 +335,15 @@ namespace SushiEngine
          * @brief Projects one tetrahedron's deviatoric constraint in place.
          *
          * @param bodies   The owning solver's particle array.
-         * @param element  The element; its `deviatoric_lambda` is updated.
-         * @param mu       The material's Lame `mu`.
+         * @param element  The element; its `deviatoric_lambda` is updated, and its own
+         *                 @ref FemTetrahedronT::mu is the material this reads.
          * @param h        Sub-step duration, in seconds.
          */
         template <typename T>
         inline void project_fem_deviatoric(RigidBodyT<T>* bodies, FemTetrahedronT<T>& element,
-                                           T mu, T h) noexcept
+                                           T h) noexcept
         {
+            const T mu = element.mu;
             const Vector3T<T>& x0 = bodies[element.vertex[0]].position;
             const Vector3T<T> edge1 = bodies[element.vertex[1]].position - x0;
             const Vector3T<T> edge2 = bodies[element.vertex[2]].position - x0;
@@ -351,15 +375,17 @@ namespace SushiEngine
          * `2*mu*strain + lambda*tr(strain)*I` exactly.
          *
          * @param bodies   The owning solver's particle array.
-         * @param element  The element; its `hydrostatic_lambda` is updated.
-         * @param mu       The material's Lame `mu`.
-         * @param lambda   The material's Lame `lambda` (raw; reparameterized here).
+         * @param element  The element; its `hydrostatic_lambda` is updated, and its own
+         *                 @ref FemTetrahedronT::mu and @ref FemTetrahedronT::lambda are
+         *                 the material this reads.
          * @param h        Sub-step duration, in seconds.
          */
         template <typename T>
         inline void project_fem_hydrostatic(RigidBodyT<T>* bodies, FemTetrahedronT<T>& element,
-                                            T mu, T lambda, T h) noexcept
+                                            T h) noexcept
         {
+            const T mu = element.mu;
+            const T lambda = element.lambda;
             const Vector3T<T>& x0 = bodies[element.vertex[0]].position;
             const Vector3T<T> edge1 = bodies[element.vertex[1]].position - x0;
             const Vector3T<T> edge2 = bodies[element.vertex[2]].position - x0;

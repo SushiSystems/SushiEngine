@@ -101,7 +101,8 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
-    PhysicsWorld<XpbdDistanceConstraint> world(runtime);
+    Execution::Context execution(runtime);
+    PhysicsWorld<XpbdDistanceConstraint> world(execution);
 
     const ClothGrid grid =
         build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));

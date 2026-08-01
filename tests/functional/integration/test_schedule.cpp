@@ -60,8 +60,8 @@ namespace
 
 TEST(Integration_Schedule, MatchesScalarReferenceAndCompilesOnce)
 {
-    World world(Harness::shared_runtime(), 256);
-    Schedule schedule(Harness::shared_runtime());
+    World world(Harness::shared_context(), 256);
+    Schedule schedule(Harness::shared_context());
     world.reserve<Position, Velocity, Mass, Lifetime>(COUNT);
 
     schedule.each<Write<Velocity>, Read<Mass>>("apply_forces",

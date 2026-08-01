@@ -40,6 +40,7 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/render/deformable_mesh.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/render_settings.hpp>
@@ -100,24 +101,6 @@ namespace SushiEngine
              * mesh carries its own geometry and its own scale.
              */
             MeshId mesh = INVALID_MESH;
-        };
-
-        /**
-         * @brief One simulated soft-body grid's world-space points, ready to triangulate and draw.
-         *
-         * A non-owning view: `vertices` points at `rows * cols` row-major points
-         * (matching `Physics::ClothGrid`) owned by the caller for the duration of
-         * the `render()` call that receives it. The scene view triangulates the grid
-         * (see `triangulate_cloth_grid`) and draws it as a shaded, pickable mesh
-         * rather than a wireframe.
-         */
-        struct ClothStrandView
-        {
-            std::uint32_t rows = 0;  /**< Grid rows. */
-            std::uint32_t cols = 0;  /**< Grid columns. */
-            const Vector3* vertices = nullptr; /**< Row-major world-space points, rows * cols long. */
-            Vector3 color{Vector3{0.85, 0.85, 0.9}}; /**< Base colour. */
-            std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
         };
 
         /**
@@ -197,7 +180,7 @@ namespace SushiEngine
          * The extract seam for the CPU-deterministic path: unlike @ref ParticleEmitterView (an
          * emitter the GPU simulates), these are final world-space particles the sim advanced on
          * its fixed tick, handed to the renderer to billboard directly — the particle analogue of
-         * @ref ClothStrandView's already-simulated vertices.
+         * @ref DeformableMeshView's already-simulated vertices.
          */
         struct ParticleBillboard
         {
@@ -330,9 +313,9 @@ namespace SushiEngine
                  * @param instances   Pointer to the mesh instances to draw.
                  * @param count       Number of instances.
                  * @param selected_id The instance id to highlight, or NO_PICK for none.
-                 * @param strands       Pointer to the soft-body wireframes to draw, or
-                 *                      nullptr for none.
-                 * @param strand_count  Number of entries in @p strands.
+                 * @param deformable       Pointer to the host-simulated surfaces to shade and
+                 *                         draw, or nullptr for none.
+                 * @param deformable_count Number of entries in @p deformable.
                  * @param lights        Pointer to the punctual lights to shade with, or
                  *                      nullptr for none; culled into the froxel grid.
                  * @param light_count   Number of entries in @p lights.
@@ -358,8 +341,8 @@ namespace SushiEngine
                 virtual void render(const CameraView& camera, const Environment& environment,
                                     const MeshInstance* instances,
                                     std::size_t count, std::uint32_t selected_id,
-                                    const ClothStrandView* strands = nullptr,
-                                    std::size_t strand_count = 0,
+                                    const DeformableMeshView* deformable = nullptr,
+                                    std::size_t deformable_count = 0,
                                     const PunctualLight* lights = nullptr,
                                     std::size_t light_count = 0,
                                     const Decal* decals = nullptr,

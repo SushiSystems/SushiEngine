@@ -33,6 +33,18 @@ add_library(SushiEngine INTERFACE)
 target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(SushiEngine INTERFACE sushiruntime)
 
+# Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
+# consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
+# once by the build instead of per translation unit.
+if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+    target_compile_definitions(SushiEngine INTERFACE SUSHIENGINE_EXECUTION_BACKEND_RUNTIME=1)
+elseif(SE_EXECUTION_BACKEND STREQUAL "native")
+    target_compile_definitions(SushiEngine INTERFACE SUSHIENGINE_EXECUTION_BACKEND_NATIVE=1)
+else()
+    message(FATAL_ERROR
+        "SE_EXECUTION_BACKEND must be 'runtime' or 'native', got '${SE_EXECUTION_BACKEND}'")
+endif()
+
 # Determinism guard rail (see cmake/ProjectOptions.cmake): forbid the compiler from
 # reordering floating-point operations or fusing multiply-adds, either of which can
 # change a result's bit pattern between builds and would silently break replay.
@@ -61,6 +73,13 @@ add_sushi_sycl_executable(ui_demo examples/ui_demo.cpp)
 # soft_body_demo exercises the volumetric XPBD lattice and positional contact
 # resolution (Phase 4 physics), checked headlessly.
 add_sushi_sycl_executable(soft_body_demo examples/soft_body_demo.cpp)
+
+# soft_body_budget measures docs/slop/physics_system.md §13.1's soft-body line — one
+# body, 20 000 tetrahedra, 32 substeps, ≤ 3 ms/tick — and reports the number rather
+# than asserting it, because the target is stated against one desktop-class GPU and a
+# suite that fails on the hardware it happens to run on is a suite people stop reading.
+# The scene's *shape* is pinned by the conformance suite; this reports its *cost*.
+add_sushi_sycl_executable(soft_body_budget examples/soft_body_budget.cpp)
 
 # skeleton_demo exercises the phase-A0 animation foundations: the math seam additions
 # (TRS decompose, affine inverse, slerp/nlerp) and the skeleton cook/load path

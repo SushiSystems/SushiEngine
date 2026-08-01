@@ -453,6 +453,162 @@ namespace SushiEngine
             return rotate(field.orientation, local_gradient);
         }
 
+        /**
+         * @brief Trilinear sample of the field, with the interpolant's own gradient.
+         *
+         * @ref sdf_sample_local reads the nearest voxel, which is the right answer
+         * for a convex pair: one shape produces one sample per tick, and half a
+         * voxel of quantization is smaller than the manifold's other errors. A
+         * soft body queries the field **once per surface vertex, every tick**
+         * (§9.6.1), and there the piecewise-constant field shows in two ways a
+         * single sample never does. A surface resting on it settles onto a
+         * staircase rather than a plane, and — worse — a central difference over
+         * two samples that land in the same voxel reads exactly zero, so
+         * @ref sdf_gradient_world falls through to its fixed-axis guard and hands
+         * back a normal that has nothing to do with the surface.
+         *
+         * So this reads the eight surrounding voxel centres and interpolates,
+         * which makes both the value and the gradient continuous, and returns the
+         * gradient *analytically* from the same eight values rather than by
+         * differencing the interpolant again — six more samples for a quantity the
+         * first eight already determine.
+         *
+         * Outside the brick the coordinates clamp, exactly as the nearest-voxel
+         * sampler's do: the field is constant there and the gradient is zero,
+         * which a caller reads as "nothing near enough to collide with" because
+         * the padded boundary values are positive by construction.
+         *
+         * @tparam T The scalar element type.
+         * @param field        The field.
+         * @param local_point  The query point, in the field's own local frame.
+         * @param out_gradient Receives the interpolant's gradient in the same local
+         *                     frame, unnormalized; zero where the field is flat.
+         * @return The interpolated signed distance, or the largest finite @p T when
+         *         the field is empty — the same "nothing to collide with" answer
+         *         @ref sdf_sample_local gives.
+         */
+        template <typename T>
+        inline T sdf_sample_interpolated_local(const SdfCollider<T>& field,
+                                               const Vector3T<T>& local_point,
+                                               Vector3T<T>& out_gradient) noexcept
+        {
+            out_gradient = Vector3T<T>{T(0), T(0), T(0)};
+            if (field.distances == nullptr || field.resolution <= 0)
+                return std::numeric_limits<T>::max();
+
+            const T component[3] = {local_point.x, local_point.y, local_point.z};
+            const T low[3] = {field.field_min.x, field.field_min.y, field.field_min.z};
+            const T high[3] = {field.field_max.x, field.field_max.y, field.field_max.z};
+            std::int32_t low_voxel[3];
+            std::int32_t high_voxel[3];
+            T fraction[3];
+            T voxels_per_unit[3];
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                const T span = high[axis] - low[axis];
+                if (!(span > T(0)))
+                    return std::numeric_limits<T>::max();
+
+                // Voxel `i` holds the value at the centre of its cell, so the
+                // continuous coordinate the eight neighbours are indexed by is the
+                // normalized position in voxels, shifted back by half a cell.
+                const T coordinate =
+                    ((component[axis] - low[axis]) / span) * T(field.resolution) - T(0.5);
+                std::int32_t index = static_cast<std::int32_t>(std::floor(coordinate));
+                if (index < 0)
+                    index = 0;
+                if (index > field.resolution - 1)
+                    index = field.resolution - 1;
+                T offset = coordinate - T(index);
+                if (offset < T(0))
+                    offset = T(0);
+                if (offset > T(1))
+                    offset = T(1);
+
+                low_voxel[axis] = index;
+                high_voxel[axis] = index + 1 < field.resolution ? index + 1 : index;
+                fraction[axis] = offset;
+                voxels_per_unit[axis] = T(field.resolution) / span;
+            }
+
+            const std::size_t resolution = std::size_t(field.resolution);
+            const auto value_at = [&](int x, int y, int z) -> T
+            {
+                const std::size_t ix = std::size_t(x == 0 ? low_voxel[0] : high_voxel[0]);
+                const std::size_t iy = std::size_t(y == 0 ? low_voxel[1] : high_voxel[1]);
+                const std::size_t iz = std::size_t(z == 0 ? low_voxel[2] : high_voxel[2]);
+                return T(field.distances[ix + resolution * (iy + resolution * iz)]);
+            };
+
+            const T v000 = value_at(0, 0, 0);
+            const T v100 = value_at(1, 0, 0);
+            const T v010 = value_at(0, 1, 0);
+            const T v110 = value_at(1, 1, 0);
+            const T v001 = value_at(0, 0, 1);
+            const T v101 = value_at(1, 0, 1);
+            const T v011 = value_at(0, 1, 1);
+            const T v111 = value_at(1, 1, 1);
+
+            const T tx = fraction[0];
+            const T ty = fraction[1];
+            const T tz = fraction[2];
+
+            const T edge_00 = v000 + (v100 - v000) * tx;
+            const T edge_10 = v010 + (v110 - v010) * tx;
+            const T edge_01 = v001 + (v101 - v001) * tx;
+            const T edge_11 = v011 + (v111 - v011) * tx;
+            const T face_0 = edge_00 + (edge_10 - edge_00) * ty;
+            const T face_1 = edge_01 + (edge_11 - edge_01) * ty;
+
+            const T along_x_00 = v100 - v000;
+            const T along_x_10 = v110 - v010;
+            const T along_x_01 = v101 - v001;
+            const T along_x_11 = v111 - v011;
+            const T along_x_0 = along_x_00 + (along_x_10 - along_x_00) * ty;
+            const T along_x_1 = along_x_01 + (along_x_11 - along_x_01) * ty;
+
+            out_gradient = Vector3T<T>{
+                (along_x_0 + (along_x_1 - along_x_0) * tz) * voxels_per_unit[0],
+                ((edge_10 - edge_00) + ((edge_11 - edge_01) - (edge_10 - edge_00)) * tz) *
+                    voxels_per_unit[1],
+                (face_1 - face_0) * voxels_per_unit[2]};
+
+            return face_0 + (face_1 - face_0) * tz;
+        }
+
+        /**
+         * @brief Trilinear sample of the field at a world point, with a unit world normal.
+         *
+         * The world-space face of @ref sdf_sample_interpolated_local: the query
+         * rotates into the field's frame, the gradient rotates back out, and it is
+         * normalized here because every caller wants a direction rather than a
+         * slope. A flat neighbourhood — an empty field, or a query clamped outside
+         * the brick — yields a fixed axis rather than a zero vector, matching
+         * @ref sdf_gradient_world so a caller never receives something to divide by.
+         *
+         * @tparam T The scalar element type.
+         * @param field      The field, placed in the world.
+         * @param world_point The query point, in world space.
+         * @param out_normal Receives the unit outward normal at the nearest surface point.
+         * @return The interpolated signed distance; negative inside the solid.
+         */
+        template <typename T>
+        inline T sdf_sample_interpolated_world(const SdfCollider<T>& field,
+                                               const Vector3T<T>& world_point,
+                                               Vector3T<T>& out_normal) noexcept
+        {
+            const Vector3T<T> local =
+                rotate(conjugate(field.orientation), world_point - field.center);
+            Vector3T<T> local_gradient;
+            const T distance = sdf_sample_interpolated_local(field, local, local_gradient);
+            const T length_squared = dot(local_gradient, local_gradient);
+            local_gradient = length_squared > T(1e-24)
+                                 ? local_gradient * (T(1) / std::sqrt(length_squared))
+                                 : Vector3T<T>{T(0), T(1), T(0)};
+            out_normal = rotate(field.orientation, local_gradient);
+            return distance;
+        }
+
         /** @brief The world-space box enclosing a signed-distance field's padded brick. */
         template <typename T>
         inline Aabb<T> world_bounds(const SdfCollider<T>& field) noexcept

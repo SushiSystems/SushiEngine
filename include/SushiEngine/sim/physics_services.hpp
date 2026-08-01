@@ -48,6 +48,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/soft/soft_body_material.hpp>
 #include <SushiEngine/sim/collider.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
@@ -223,6 +224,97 @@ namespace SushiEngine
                  */
                 virtual bool cloth_dimensions(EntityId id, std::uint32_t& rows,
                                               std::uint32_t& cols) const = 0;
+        };
+
+        /**
+         * @brief A tetrahedral soft body to (re)build, addressed by its owning entity.
+         *
+         * The asset is passed as bytes rather than as a path or a handle because this
+         * header names no file system and no cache: where a `.sushisoft` blob came from
+         * is the caller's business, and by the time it gets here it is either a valid
+         * blob or nothing. The pointer is read during the `set_soft_bodies` call and
+         * not retained — instantiation copies out everything the solve needs, so the
+         * caller may free the bytes the moment the call returns.
+         */
+        struct SoftBodyDesc
+        {
+            EntityId id = NULL_ENTITY;        /**< The entity that owns this body. */
+            const std::byte* asset = nullptr; /**< A `.sushisoft` blob; not retained past the call. */
+            std::size_t asset_size = 0;       /**< Length of @ref asset in bytes. */
+            std::uint32_t level = 0;          /**< Which cooked simulation level to build (0 is finest). */
+            Vector3 origin;                   /**< World position of the asset's local origin. */
+            Physics::SoftBodyMaterialT<Scalar> material{}; /**< Constitutive parameters (§9.2). */
+            Scalar thickness = Scalar(0.01);  /**< The half-width the surface presents to a contact. */
+            bool self_collision = false;      /**< Whether the surface is tested against itself (§9.6.3). */
+            bool cosmetic = false;            /**< Asks for the narrow column; only a request (§6.5). */
+            bool participates_in_rollback = false; /**< Overrides @ref cosmetic outright. */
+        };
+
+        /**
+         * @brief Tetrahedral soft bodies: a cooked asset in, a deformed surface out.
+         *
+         * Separate from @ref IClothService rather than folded into it, because the two
+         * have almost nothing in common on this side of the seam. A cloth grid is
+         * described by three numbers and lives in the rigid solver as pinned particles;
+         * a soft body is described by a cooked asset it cannot be reconstructed without,
+         * and lives in its own world with its own contact machinery. Merging them would
+         * produce an interface where half the methods return nothing for half the
+         * callers — the shape §4.3 exists to prevent.
+         */
+        class ISoftBodyService
+        {
+            public:
+                virtual ~ISoftBodyService() = default;
+
+                /**
+                 * @brief Rebuilds the soft-body world from @p bodies.
+                 *
+                 * Wholesale, like cloth and unlike rigid bodies, and for the same reason:
+                 * a body whose asset or level changed has a different particle count and
+                 * a different element list, so there is no state to carry across. A set
+                 * that has not changed is left alone, so the common case costs a
+                 * comparison.
+                 *
+                 * @param bodies The full set of soft bodies after the change.
+                 */
+                virtual void set_soft_bodies(const std::vector<SoftBodyDesc>& bodies) = 0;
+
+                /**
+                 * @brief A soft body's deformed surface, as of the last completed tick.
+                 *
+                 * Positions are every particle, and the indices address them directly, so
+                 * the pair is a self-contained triangle mesh — which is what §8.6's third
+                 * invariant needs: the render mesh is *derived from* the simulated state
+                 * rather than synchronised with it, so it cannot lag it.
+                 *
+                 * @param id           The entity whose body to read.
+                 * @param positions    Receives the world-space particle positions; cleared first.
+                 * @param indices      Receives the surface triangle list; cleared first.
+                 * @return Whether @p id owns a soft body (and the outputs were written).
+                 */
+                virtual bool soft_body_surface(EntityId id, std::vector<Vector3>& positions,
+                                               std::vector<std::uint32_t>& indices) const = 0;
+
+                /**
+                 * @brief The largest von Mises stress in a body, from its last tick (§9.3).
+                 * @param id The entity whose body to read.
+                 * @return Zero when @p id owns no soft body.
+                 */
+                virtual Scalar soft_body_maximum_stress(EntityId id) const = 0;
+
+                /**
+                 * @brief Every element of a body, with its last tick's two readouts.
+                 *
+                 * The interior, which @ref soft_body_surface deliberately does not show: a
+                 * body's surface can look untouched while the elements behind it are past
+                 * yield, and that gap is exactly what a debug view exists to close.
+                 *
+                 * @param id       The entity whose body to read.
+                 * @param elements Receives one entry per tetrahedron; cleared first.
+                 * @return Whether @p id owns a soft body.
+                 */
+                virtual bool soft_body_elements(
+                    EntityId id, std::vector<SoftBodyElementSample>& elements) const = 0;
         };
 
         /** @brief The immovable surfaces everything else is pushed out of. */
@@ -740,6 +832,7 @@ namespace SushiEngine
          */
         class IPhysicsScene : public IRigidBodyService,
                               public IClothService,
+                              public ISoftBodyService,
                               public IJointService,
                               public IStaticGeometryService,
                               public ICollisionQueryService,

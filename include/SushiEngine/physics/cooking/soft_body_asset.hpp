@@ -303,6 +303,47 @@ namespace SushiEngine
             SoftBodyAssetView load_soft_body_blob(const std::byte* data, std::size_t size) noexcept;
 
             /**
+             * @brief Reads a binding's weights into the solver's precision, renormalized.
+             *
+             * The blob stores weights as `float` so a binding is twenty bytes and an
+             * array of them serializes as a `memcpy`. That is the right trade for the
+             * file, and it has one consequence every reader has to handle: four
+             * `float`s that summed to one in the cooker do **not** sum to one after
+             * the round trip, they sum to one within about six decimal digits.
+             *
+             * That residue is not harmless, because the reconstruction it feeds is
+             * `sum(weight * position)` over *absolute* positions. A shortfall of
+             * `1e-7` against a body sitting a hundred metres from the origin displaces
+             * the reconstructed point by ten micrometres; at planet scale it is
+             * centimetres, and it appears as the render mesh detaching from the
+             * simulation the further the world is from its origin — a bug that
+             * reproduces nowhere near the origin, which is where it would be tested.
+             *
+             * Renormalizing here makes every reader immune by construction rather
+             * than each remembering, and costs one division per binding at load time
+             * against a per-tick error.
+             *
+             * @param binding The cooked binding.
+             * @param out     Receives the four weights, summing to one in @c T.
+             */
+            template <typename T>
+            inline void read_binding_weights(const SoftBodyBinding& binding, T out[4]) noexcept
+            {
+                T total = 0;
+                for (int i = 0; i < 4; ++i)
+                {
+                    out[i] = T(binding.weights[i]);
+                    total += out[i];
+                }
+                // A binding whose weights sum to nothing is not a binding; leaving it
+                // alone lets the caller's own validity test see it unchanged rather
+                // than turning it into an infinity here.
+                if (total > T(1e-6) || total < T(-1e-6))
+                    for (int i = 0; i < 4; ++i)
+                        out[i] /= total;
+            }
+
+            /**
              * @brief Where a bound point is, given the level it is bound into.
              *
              * The per-tick reconstruction, in scalar form — `sum(weight[i] * vertex[i])` —

@@ -96,15 +96,15 @@ namespace
 
 TEST(Integration_NetClientServer, ReconciledClientConvergesWithRealCommand)
 {
-    auto& runtime = Harness::shared_runtime();
+    auto& execution = Harness::shared_context();
 
-    World baseline_world(runtime, CHUNK_CAPACITY);
+    World baseline_world(execution, CHUNK_CAPACITY);
     baseline_world.reserve<Position>(CHUNK_CAPACITY);
     const Entity baseline_player = baseline_world.spawn(Position{});
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         apply_command(baseline_world, baseline_player, authoritative_command(tick));
 
-    World client_world(runtime, CHUNK_CAPACITY);
+    World client_world(execution, CHUNK_CAPACITY);
     client_world.reserve<Position>(CHUNK_CAPACITY);
     const Entity client_player = client_world.spawn(Position{});
 
@@ -150,7 +150,7 @@ TEST(Integration_NetClientServer, ReconciledClientConvergesWithRealCommand)
 
 TEST(Integration_NetClientServer, DeterministicSpawnIdMatchesAcrossClientAndServer)
 {
-    auto& runtime = Harness::shared_runtime();
+    auto& execution = Harness::shared_context();
 
     // Kept outside any rollback-captured tick range, on purpose: this proves
     // make_network_id's agreement, not rollback surviving a structural change
@@ -164,9 +164,9 @@ TEST(Integration_NetClientServer, DeterministicSpawnIdMatchesAcrossClientAndServ
         Loop::Net::make_network_id(CLIENT_ID, SPAWN_TICK, SPAWN_SEQUENCE);
     ASSERT_EQ(client_id, server_id);
 
-    World client_world(runtime, CHUNK_CAPACITY);
+    World client_world(execution, CHUNK_CAPACITY);
     client_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
-    World server_world(runtime, CHUNK_CAPACITY);
+    World server_world(execution, CHUNK_CAPACITY);
     server_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
 
     const Vector3 spawn_position{Scalar(1), Scalar(2), Scalar(3)};

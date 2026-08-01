@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "frame/frame_context.hpp"
-#include "geometry/cloth_buffers.hpp"
+#include "geometry/deformable_buffers.hpp"
 #include "scene/skinning_system.hpp"
 #include "geometry/mesh_registry.hpp"
 #include "lighting/cluster_config.hpp"
@@ -186,13 +186,13 @@ namespace SushiEngine
             OpaquePass::OpaquePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                    Resources::GraphicsPipelineFactory& pipelines,
                                    Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
-                                   Geometry::ClothBuffers& cloth,
+                                   Geometry::DeformableBuffers& deformable,
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                CloudShadowMapPass& cloud_shadow, IblPass& ibl,
                                IrradianceVolumePass& gi, Lighting::LightSystem& lights,
                                Scene::InstanceSystem& instances, Scene::SkinningSystem& skinning)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  meshes_(meshes), cloth_(cloth), materials_(materials), motion_(motion),
+                  meshes_(meshes), deformable_(deformable), materials_(materials), motion_(motion),
                   cloud_shadow_(cloud_shadow), ibl_(ibl), gi_(gi), lights_(lights),
                   instances_(instances), skinning_(skinning)
             {
@@ -285,10 +285,10 @@ namespace SushiEngine
             void OpaquePass::register_pass(Graph::RenderGraph& graph,
                                            const Frame::FrameContext& frame)
             {
-                // Soft bodies are triangulated on the GPU by the cloth pass, which ran just
-                // before this one and filled the vertex/index buffers the draw below binds; the
-                // host packed only their particle positions (see ClothBuffers::prepare). What
-                // is still needed here is per-strand material and motion, packed as before.
+                // Soft bodies are shaded on the GPU by the deformable pass, which ran just
+                // before this one and filled the vertex buffer the draw below binds; the host
+                // packed only their positions and topology (see DeformableBuffers::prepare).
+                // What is still needed here is per-mesh material and motion, packed as before.
 
                 // The quality tier decides which advanced BRDF lobes are evaluated at all;
                 // apply that once here, before any material is packed, so a lower tier
@@ -334,11 +334,11 @@ namespace SushiEngine
                             materials_.push(frame.draws.instances[i].material));
                 }
 
-                std::vector<std::uint32_t> strand_materials;
-                strand_materials.reserve(frame.draws.strand_count);
-                for (std::size_t s = 0; s < frame.draws.strand_count; ++s)
-                    strand_materials.push_back(
-                        materials_.push(flat_material(frame.draws.strands[s].color)));
+                std::vector<std::uint32_t> deformable_materials;
+                deformable_materials.reserve(frame.draws.deformable_count);
+                for (std::size_t s = 0; s < frame.draws.deformable_count; ++s)
+                    deformable_materials.push_back(
+                        materials_.push(flat_material(frame.draws.deformable[s].color)));
 
                 std::vector<std::uint32_t> instance_motions;
                 if (!gpu)
@@ -356,10 +356,10 @@ namespace SushiEngine
                     }
                 }
 
-                std::vector<std::uint32_t> strand_motions;
-                strand_motions.reserve(frame.draws.strand_count);
-                for (std::size_t s = 0; s < frame.draws.strand_count; ++s)
-                    strand_motions.push_back(motion_.push_camera_relative());
+                std::vector<std::uint32_t> deformable_motions;
+                deformable_motions.reserve(frame.draws.deformable_count);
+                for (std::size_t s = 0; s < frame.draws.deformable_count; ++s)
+                    deformable_motions.push_back(motion_.push_camera_relative());
 
                 // Skinned characters pack their material and previous transform the same way as
                 // rigid instances; their previous *pose* rides the vertex stream (mesh_skinned.vert
@@ -442,14 +442,14 @@ namespace SushiEngine
                                          Graph::BufferAccess::StorageRead);
                         }
                     },
-                    [this, &frame, gpu, meshlet, instance_materials, strand_materials,
-                     instance_motions, strand_motions, skinned_materials,
+                    [this, &frame, gpu, meshlet, instance_materials, deformable_materials,
+                     instance_motions, deformable_motions, skinned_materials,
                      skinned_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         // The full scene set the shading fragment shader reads. Factored into a
                         // lambda because the GPU-driven path pushes it against two layouts in a
                         // row (the GPU layout for the indirect batch, then the classic layout
-                        // for the cloth draw that follows).
+                        // for the deformable draw that follows).
                         const auto write_scene_set = [&](Scene::SceneSetWriter& writer)
                         {
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
@@ -660,7 +660,7 @@ namespace SushiEngine
                                                             1, 1);
                             }
 
-                            // Restore set 0 and the heap on the classic layout for the cloth
+                            // Restore set 0 and the heap on the classic layout for the deformable
                             // draw that follows.
                             Scene::SceneSetWriter restore;
                             write_scene_set(restore);
@@ -712,7 +712,7 @@ namespace SushiEngine
                                     sizeof(VkDrawIndexedIndirectCommand));
                             }
 
-                            // Restore set 0 and the heap on the classic layout for the cloth
+                            // Restore set 0 and the heap on the classic layout for the deformable
                             // draw that follows, which uses the classic mesh pipeline.
                             Scene::SceneSetWriter restore;
                             write_scene_set(restore);
@@ -767,48 +767,53 @@ namespace SushiEngine
                             }
                         }
 
-                        const Geometry::Mesh& cloth_mesh = cloth_.mesh(frame.slot);
-                        if (cloth_mesh.index_count == 0)
+                        const Geometry::Mesh& deformable_mesh = deformable_.mesh(frame.slot);
+                        if (deformable_mesh.index_count == 0)
                             return;
 
                         // Soft bodies draw with the same lit pipeline the primitives use
-                        // (already double-sided), so they shade and pick like any other
-                        // object rather than as a bare wireframe. The cloth pass wrote their
-                        // vertices camera-relative already, so the push carries no eye of its
-                        // own, and the GPU-baked indices are absolute into the shared vertex
-                        // buffer, so each strand's slice draws with vertex offset zero.
+                        // (already double-sided), so they shade and pick like any other object
+                        // rather than as a bare wireframe. The deformable pass wrote their
+                        // vertices camera-relative already, so the push carries no eye of its own.
+                        //
+                        // The indices stayed mesh-local -- nothing rewrote them into the shared
+                        // numbering -- so each mesh's slice supplies its base vertex as the draw's
+                        // vertex offset instead. That is the same addition, moved from a rewrite
+                        // of every index whenever the frame's packing order changed, to one
+                        // integer per draw call.
                         const double no_eye[3] = {0.0, 0.0, 0.0};
-                        const auto draw_cloth = [&](VkPipeline pipeline, bool outline)
+                        const auto draw_deformable = [&](VkPipeline pipeline, bool outline)
                         {
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                            vkCmdBindVertexBuffers(cmd, 0, 1, &cloth_mesh.vertices, &zero);
-                            vkCmdBindIndexBuffer(cmd, cloth_mesh.indices, 0, VK_INDEX_TYPE_UINT32);
+                            vkCmdBindVertexBuffers(cmd, 0, 1, &deformable_mesh.vertices, &zero);
+                            vkCmdBindIndexBuffer(cmd, deformable_mesh.indices, 0,
+                                                 VK_INDEX_TYPE_UINT32);
                             if (outline)
                                 vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
-                            for (const Geometry::ClothStrandRange& range : cloth_.ranges())
+                            for (const Geometry::DeformableMeshRange& range : deformable_.ranges())
                             {
-                                const std::size_t s = range.strand_index;
-                                const ClothStrandView& strand = frame.draws.strands[s];
-                                if (outline && strand.id != frame.draws.selected_id)
+                                const std::size_t s = range.view_index;
+                                const DeformableMeshView& view = frame.draws.deformable[s];
+                                if (outline && view.id != frame.draws.selected_id)
                                     continue;
                                 if (!outline)
                                     vkCmdSetStencilReference(
                                         cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
-                                        strand.id == frame.draws.selected_id ? 1 : 0);
+                                        view.id == frame.draws.selected_id ? 1 : 0);
                                 const MeshPushConstants push =
-                                    make_push(Mat4{}, no_eye, flat_material(strand.color),
-                                              strand.id, frame.draws.selected_id,
-                                              strand_materials[s], strand_motions[s],
-                                              outline ? 0.006f : 0.0f);
+                                    make_push(Mat4{}, no_eye, flat_material(view.color), view.id,
+                                              frame.draws.selected_id, deformable_materials[s],
+                                              deformable_motions[s], outline ? 0.006f : 0.0f);
                                 vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, range.index_count, 1, range.base_index, 0, 0);
+                                vkCmdDrawIndexed(cmd, range.index_count, 1, range.base_index,
+                                                 static_cast<std::int32_t>(range.base_vertex), 0);
                             }
                         };
 
-                        draw_cloth(mesh_pipeline_.get(), false);
+                        draw_deformable(mesh_pipeline_.get(), false);
                         if (frame.draws.selected_id != NO_PICK)
-                            draw_cloth(outline_pipeline_.get(), true);
+                            draw_deformable(outline_pipeline_.get(), true);
                     });
             }
         } // namespace Passes

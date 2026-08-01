@@ -36,6 +36,7 @@
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../animation/skeleton_debug_draw.hpp"
+#include "../physics/soft_body_heat.hpp"
 #include "../vfx/effect_preview.hpp"
 #include "../gizmo/gizmo_controller.hpp"
 #include "imgui_backend.hpp"
@@ -152,8 +153,8 @@ namespace SushiEngine
             const DisplaySelector* display = nullptr;
 
             /** Soft-body wireframes to draw, and how many. */
-            const SushiEngine::Render::ClothStrandView* strands = nullptr;
-            std::size_t strand_count = 0;
+            const SushiEngine::Render::DeformableMeshView* deformable = nullptr;
+            std::size_t deformable_count = 0;
 
             /** Punctual lights to shade with, and how many. */
             const SushiEngine::Render::PunctualLight* lights = nullptr;
@@ -179,6 +180,22 @@ namespace SushiEngine
              * that is not a per-frame cost; `CookBakeState` rebuilds them on selection.
              */
             const std::vector<float>* collision_wireframe = nullptr;
+
+            /**
+             * @brief The selected soft body's interior, for §9.3/§9.4's debug views (P6-G5).
+             *
+             * Read live off the simulated body each frame rather than cached, unlike the
+             * collision wireframe above: this changes every tick because it *is* the
+             * simulation, so caching it would be caching the thing the view exists to
+             * watch. Null or empty draws nothing, as does a @ref soft_body_view of
+             * @c SoftBodyDebugView::Off.
+             */
+            const std::vector<SushiEngine::Vector3>* soft_body_positions = nullptr;
+            const std::vector<SushiEngine::Simulation::SoftBodyElementSample>* soft_body_elements =
+                nullptr;
+            /** The selected body's material, which the heat scales normalize against. */
+            SushiEngine::Physics::SoftBodyMaterialT<SushiEngine::Scalar> soft_body_material{};
+            SoftBodyDebugView soft_body_view = SoftBodyDebugView::Off;
 
             /** The isolated effect preview drawn in this viewport, or null. */
             EffectPreview* particle_preview = nullptr;

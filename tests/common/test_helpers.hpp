@@ -32,6 +32,7 @@
 #include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/execution/context.hpp>
 
 namespace SushiEngine
 {
@@ -55,6 +56,22 @@ namespace SushiEngine
         {
             static SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
             return runtime;
+        }
+
+        /**
+         * @brief The process-wide execution context every test shares.
+         *
+         * What a World, Schedule, or solver is built against now that the ECS names
+         * the execution seam rather than a runtime. Bound to shared_runtime() for the
+         * same reason that one is shared — one device discovery, one hazard tracker,
+         * one set of columns for the whole suite.
+         *
+         * @return A reference to the shared execution context.
+         */
+        inline Execution::Context& shared_context()
+        {
+            static Execution::Context context(shared_runtime());
+            return context;
         }
 
         /**

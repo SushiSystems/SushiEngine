@@ -47,6 +47,7 @@
 // The statistics value type only, not the physics boundary: physics_services.hpp
 // includes this header, so naming it here would close a cycle.
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/soft/soft_body_material.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -120,14 +121,33 @@ namespace SushiEngine
             Render::Material material{}; /**< PBR metallic-roughness surface (albedo synced from @ref color). */
         };
 
-        /** @brief One simulated cloth grid's world-space points, ready to draw. */
-        struct ClothInstance
+        /**
+         * @brief One simulated surface's world-space geometry this frame, ready to draw.
+         *
+         * The extract channel for anything the host deforms per frame. It used to carry
+         * a grid's rows and columns, which is a description only a cloth sheet fits; a
+         * tetrahedral body's surface is a closed triangle mesh with no grid structure,
+         * and a fractured one is not even connected. So it carries a vertex range and a
+         * triangle range into the scene's concatenated arrays, and says nothing about
+         * how either was arranged.
+         */
+        struct DeformableInstance
         {
-            EntityId id = NULL_ENTITY;      /**< The entity this cloth grid draws, for picking. */
-            std::uint32_t rows = 0;         /**< Grid rows. */
-            std::uint32_t cols = 0;         /**< Grid columns. */
-            std::uint32_t first_vertex = 0; /**< Offset of this grid's points into @ref RenderScene::cloth_vertices. */
-            Vector3 color{Vector3{0.85, 0.85, 0.9}}; /**< Base colour; cloth entities carry no Tint yet, so this is a fixed default. */
+            EntityId id = NULL_ENTITY;      /**< The entity this surface draws, for picking. */
+            std::uint32_t first_vertex = 0; /**< Offset into @ref RenderScene::deformable_vertices. */
+            std::uint32_t vertex_count = 0; /**< Length of this surface's vertex range. */
+            std::uint32_t first_index = 0;  /**< Offset into @ref RenderScene::deformable_indices. */
+            std::uint32_t index_count = 0;  /**< Length of this surface's triangle range. */
+            /**
+             * @brief Bumped when the triangle list changes at unchanged counts.
+             *
+             * Passed straight through to `Render::DeformableMeshView`, which keys its
+             * cached vertex-to-triangle table on it. Fracture, the one thing that
+             * changes topology here, always changes the counts too, so this stays zero
+             * for every producer the engine has today.
+             */
+            std::uint64_t topology_revision = 0;
+            Vector3 color{Vector3{0.85, 0.85, 0.9}}; /**< Base colour, from the entity's Tint or material. */
         };
 
         /**
@@ -336,6 +356,52 @@ namespace SushiEngine
             std::size_t cols = 4;      /**< Grid columns (>= 1). */
             Scalar spacing = Scalar(0.5); /**< Distance between adjacent grid points. */
             Scalar compliance = Scalar(0); /**< XPBD compliance of every constraint; 0 is rigid. */
+        };
+
+        /**
+         * @brief One tetrahedron's particles and what the last tick measured in it.
+         *
+         * The unit a debug view draws (§9.3's stress heat map, §9.4's plastic-strain
+         * heat map) and the unit a gameplay rule reads when "is this part broken" is a
+         * question about a *place* rather than about the body as a whole.
+         */
+        struct SoftBodyElementSample
+        {
+            std::uint32_t vertex[4] = {0, 0, 0, 0}; /**< Particle indices into the surface positions. */
+            Scalar von_mises_stress = 0;           /**< Pascals, from the tick's final pose (§9.3). */
+            Scalar plastic_strain = 0;             /**< Accumulated permanent strain, dimensionless (§9.4). */
+        };
+
+        /**
+         * @brief The authorable parameters of a tetrahedral soft body (§9).
+         *
+         * Unlike @ref ClothParams, which describes a shape the physics can build from
+         * four numbers, a soft body cannot exist without its cook: the tetrahedral
+         * lattice, the rest-state inverses, the surface hierarchy and the embedding
+         * table are all things a cooker produced and nothing can re-derive at runtime.
+         * So the asset is *part of the parameters* rather than a reference resolved
+         * elsewhere — an entity that has lost its blob has lost its body, and that is
+         * the honest thing for the type to say.
+         *
+         * The blob is held by value. It is the largest thing an entity record carries,
+         * and holding it anywhere else would mean the world could hand the physics a
+         * dangling asset across a scene reload.
+         */
+        struct SoftBodyParams
+        {
+            /** @brief A validated `.sushisoft` blob; empty means the entity has no body. */
+            std::vector<std::byte> asset;
+            std::uint32_t level = 0;             /**< Which cooked simulation level to build (0 is finest). */
+            Physics::SoftBodyMaterialT<Scalar> material{}; /**< Constitutive parameters (§9.2). */
+            Scalar thickness = Scalar(0.01);     /**< Contact half-width of the surface (§9.6). */
+            bool self_collision = false;         /**< Whether the surface is tested against itself. */
+            /**
+             * @brief Asks for §6.5's narrow column.
+             *
+             * A request rather than a setting: a body the deterministic island replays
+             * is simulated in `double` however loudly this is set.
+             */
+            bool cosmetic = false;
         };
 
         /**
@@ -554,8 +620,18 @@ namespace SushiEngine
             std::vector<DisplayCamera> display_cameras;  /**< The resolved camera per display. */
             CameraState camera;                          /**< The default game camera (lowest display), only meaningful when @ref has_camera is true. */
             bool has_camera = false;                     /**< Whether any active camera resolved this frame; false means nothing should be drawn as "the game". */
-            std::vector<ClothInstance> cloth_instances;  /**< Every simulated cloth grid this frame, as a wireframe topology. */
-            std::vector<Vector3> cloth_vertices;         /**< World-space points for every @ref cloth_instances entry, concatenated. */
+            std::vector<DeformableInstance> deformable_instances; /**< Every host-simulated surface this frame. */
+            std::vector<Vector3> deformable_vertices;    /**< World-space points for every @ref deformable_instances entry, concatenated. */
+            /**
+             * @brief Triangle lists for every @ref deformable_instances entry, concatenated.
+             *
+             * Each instance's slice is numbered relative to its own @ref
+             * DeformableInstance::first_vertex, not into the concatenated vertex array. That
+             * keeps a surface's topology independent of what else happened to be extracted
+             * this frame — the same list can be reused across frames without rewriting, and
+             * the renderer applies the offset once per draw rather than once per index.
+             */
+            std::vector<std::uint32_t> deformable_indices;
             std::vector<Render::PunctualLight> lights;   /**< Every punctual light this frame, placed by its entity's transform. */
             std::vector<Render::Decal> decals;           /**< Every projected decal this frame, placed by its entity's transform. */
             std::vector<ParticleBillboard> particle_billboards; /**< Every live deterministic-emitter particle this frame. */
@@ -1046,6 +1122,62 @@ namespace SushiEngine
                  */
                 virtual std::vector<Vector3> cloth_particle_positions(EntityId id) const = 0;
 
+                /** @brief Whether @p id owns a tetrahedral soft body (§9). */
+                virtual bool has_soft_body(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief The soft body's authored parameters, including its cooked asset.
+                 * @param id The entity to read; a non-soft-body one reads as defaults.
+                 */
+                virtual SoftBodyParams soft_body_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Replaces the soft body's parameters and rebuilds it.
+                 *
+                 * Everything here is topology: a different asset, a different level, even
+                 * a different precision column is a body with a different particle count
+                 * and a different element list. So this rebuilds rather than edits, and
+                 * whatever deformation the old body had accumulated is gone — which is
+                 * what "the cook is part of the parameters" means in practice.
+                 */
+                virtual void set_soft_body_params(EntityId id, const SoftBodyParams& params) = 0;
+
+                /** @brief Attaches or detaches a soft body on @p id. */
+                virtual void set_has_soft_body(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief The soft body's deformed surface as of the last completed tick.
+                 *
+                 * The same pair the renderer draws, offered here so a debug view or a
+                 * gameplay query reads the *simulated* surface rather than a copy of it
+                 * — §8.6's third invariant is that there is nothing to fall out of step
+                 * with, and a second source of truth is exactly what would create one.
+                 *
+                 * @param id       The entity to read.
+                 * @param positions Receives world-space particle positions; cleared first.
+                 * @param indices   Receives the surface triangle list; cleared first.
+                 * @return False when @p id owns no soft body.
+                 */
+                virtual bool soft_body_surface(EntityId id, std::vector<Vector3>& positions,
+                                               std::vector<std::uint32_t>& indices) const = 0;
+
+                /** @brief The largest von Mises stress in @p id's body, from its last tick (§9.3). */
+                virtual Scalar soft_body_maximum_stress(EntityId id) const = 0;
+
+                /**
+                 * @brief Every tetrahedron of @p id's body, with its last tick's readouts.
+                 *
+                 * What the editor's debug views draw. The interior is the point: a body's
+                 * surface can look untouched while the elements behind it are past yield,
+                 * and a heat map over the surface alone would show none of it.
+                 *
+                 * @param id       The entity to read.
+                 * @param elements Receives one entry per tetrahedron; cleared first.
+                 * @return False when @p id owns no soft body.
+                 */
+                virtual bool soft_body_elements(
+                    EntityId id, std::vector<SoftBodyElementSample>& elements) const = 0;
+
                 /**
                  * @brief Whether @p id is a Crowd entity (design §12.3/§12.4).
                  *
@@ -1223,6 +1355,23 @@ namespace SushiEngine
                  * @return The new entity's stable id.
                  */
                 virtual EntityId create_cloth(const std::string& name) = 0;
+
+                /**
+                 * @brief Creates a Soft Body entity from a cooked asset.
+                 *
+                 * The asset is required rather than optional, and that asymmetry with
+                 * @ref create_cloth is the point: a cloth with default parameters is a
+                 * sheet, while a soft body with no cook is nothing at all. An entity
+                 * created with an unusable blob would be a Soft Body that can never
+                 * become one, so the call refuses instead.
+                 *
+                 * @param name  Display name for the new entity.
+                 * @param asset A validated `.sushisoft` blob, copied into the entity.
+                 * @return The new entity's stable id, or `NULL_ENTITY` when @p asset is
+                 *         not a blob this build can load.
+                 */
+                virtual EntityId create_soft_body(const std::string& name,
+                                                  const std::vector<std::byte>& asset) = 0;
 
                 /**
                  * @brief Creates a Crowd entity: a device-batch-sampled skinned character.

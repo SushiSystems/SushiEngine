@@ -41,7 +41,8 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 | Cooking     | `physics/cooking/cooking_parameters.hpp`, `physics/cooking/cooking_report.hpp`, `physics/cooking/cooker_interface.hpp`, `physics/cooking/cooked_asset_store.hpp`, `physics/cooking/collision_cooker.hpp`, `physics/cooking/soft_body_cooker.hpp`, `physics/cooking/mesh_post_processor.hpp`, `physics/cooking/cooking_service.hpp` | The offline pipeline that turns an imported mesh into a simulation asset: §8.2's fidelity dial, the cook report and the thresholds that fail a bad cook loudly, the `ICookingStage`/`IMeshCooker`/`ICookedAssetStore` seams, the content-hash cache, the two cookers that produce `.sushicollision` and `.sushisoft`, and the ordered import chain that runs them on a worker thread. Host-only, links only Geometry (plus Threads), and never linked into a shipping runtime path — an importer that needs a GPU is an importer that fails on a build machine. Getting triangles out of a file is a `MeshLoader` seam the consumer wires, which is why this module needs no cgltf (see §8 of `docs/slop/physics_system.md`). |
 | Atmosphere  | `atmosphere/fourier_transform.hpp`, `atmosphere/quasigeostrophic_core.hpp` | T1, the global dynamical core: two-layer moist quasi-geostrophic flow on a latitude/longitude grid, from which cyclones, fronts, the jet and storm tracks emerge rather than being placed (see §5 of `docs/slop/atmosphere_system.md`). Links nothing, for the same reason Geometry does — its consumers are gameplay queries, the regional nest's parent forcing, and a headless probe, and none should need a device to ask what the weather is. The regional nest (T2) is a Vulkan compute service and stays under `render/atmosphere/`. |
 | Animation   | `animation/skeleton*.hpp`, `animation/clip*.hpp`, `animation/animator_*.hpp`, `animation/blend_tree.hpp`, `animation/avatar_mask.hpp`, `animation/additive.hpp`, `animation/pose_modifier.hpp`, `animation/ik_*.hpp`, `animation/morph.hpp`, `animation/generic_track.hpp`, `animation/humanoid.hpp`, `animation/retarget.hpp`, `animation/edit_preview.hpp`, `animation/animation_database.hpp` | Skeletal-animation stack (phases A0–A9): skeleton/clip/controller/mask assets, the deterministic `animator_step`, the `AnimatorEvaluator` (blend trees, mask-gated layers, additive), the IK / pose-modifier stack, morph + generic tracks, humanoid retargeting, and controller JSON authoring, behind the `IAnimationDatabase` seam (see §12). |
-| Schedule    | `ecs/schedule.hpp` | Compiles systems to a runtime graph and replays it. |
+| Execution   | `execution/access.hpp`, `execution/interval.hpp`, `execution/node_descriptor.hpp`, `execution/hazard.hpp`, `execution/context.hpp` | The seam every subsystem allocates and schedules through: the access algebra (`AccessIntent`, `BufferInterval`, `DeterminismClass`), the normative hazard semantic, and the `Context`/`Graph`/`Buffer` names a compile-time backend policy resolves. SushiRuntime is one implementation of it (`execution/backend/runtime_backend.hpp`), not the thing the engine is typed against (see §3 and `docs/slop/unified_hazard_model.md`). |
+| Schedule    | `ecs/schedule.hpp` | Compiles systems to an execution graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
 | World       | `ecs/world.hpp` | Entities, archetypes, spawn/destroy, component access. |
 | Storage     | `ecs/archetype.hpp`, `ecs/chunk.hpp` | Archetype chunks of structure-of-arrays columns. |
@@ -55,19 +56,33 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 This is where the engine's "the graph behaves like a game engine" thesis is built —
 on the runtime, not in it.
 
+**The ECS is typed against the execution seam, not against a runtime.** `World`,
+`Archetype`, `Chunk`, and `Schedule` name `Execution::Context`, `Execution::Graph`,
+and `Execution::Buffer` — the engine's own vocabulary — and which implementation
+those denote is a compile-time build policy (`SE_EXECUTION_BACKEND`). SushiRuntime's
+task graph is today's only implementation; the seam exists so a platform the runtime
+cannot reach gets a different one without the ECS changing. The seam is compile-time
+rather than virtual for a concrete reason: a device backend forwards each kernel into
+its own launch as the original callable, and a type-erased one cannot be captured
+into device code.
+
 **Storage is archetype chunks.** Entities sharing one component set form an
 *archetype*; an archetype stores its entities in fixed-capacity *chunks*. Within a
-chunk each component is a separate contiguous column backed by its own runtime
-allocation (structure-of-arrays). A column's base pointer is therefore a distinct
-resource the runtime's dependency tracker keys on, which is what makes chunks the
-unit of parallelism: two systems touching different chunks run in parallel, two
-touching the same column are ordered — with no scheduler written in the engine.
+chunk each component is a separate contiguous column backed by its own
+execution-backend allocation (structure-of-arrays). A column is therefore a distinct
+byte interval the hazard tracker keys on, which is what makes chunks the unit of
+parallelism: two systems touching different chunks run in parallel, two touching the
+same column are ordered — with no scheduler written in the engine.
 
 **A system is a graph node.** A system declares the components it reads and writes
-(`Read<T>` / `Write<T>`); the Schedule emits one node per matching chunk, keyed on
-that chunk's columns. The runtime's dependency tracker *is* the system scheduler:
-it derives the ordering from component access. A read-after-write on a component
-orders the two systems; disjoint access leaves them parallel.
+(`Read<T>` / `Write<T>`); the Schedule emits one node per matching chunk, declaring
+that chunk's column intervals as compute reads and writes. The backend's hazard
+tracker *is* the system scheduler: it derives the ordering from those declarations.
+A read-after-write on a component orders the two systems; disjoint access leaves them
+parallel. What counts as a conflict is fixed by the engine, not by the backend — the
+semantic is stated normatively in `execution/hazard.hpp` and pinned by a conformance
+suite, so two backends may build different edge sets but never disagree about which
+pairs must be ordered.
 
 **Counts are late-bound; structure is compiled.** Each node iterates its chunk's
 live entity count, re-read every step, so spawning and destroying entities within
@@ -263,26 +278,46 @@ tick rate.
 
 Cloth's world-space particle positions are exposed read-only via
 `IWorldEditor::cloth_particle_positions(id)` (row-major, matching
-`Physics::ClothGrid`), and also flow into `RenderScene::cloth_instances`/
-`cloth_vertices` every `extract()`: a `Simulation::ClothInstance` per live grid
-(rows, cols, and an offset into the shared `cloth_vertices` array) rather than
-through `RenderScene::instances` — that type remains one entity, one fixed-mesh
-instance, and still cannot express a multi-vertex deforming mesh. `Simulation::
-ClothInstance` also carries the owning entity's `id` (for picking) and a `color`,
-defaulted to the same fixed tint the wireframe used to hardcode — cloth entities
-carry no `Tint` component yet, so there is nothing else to read a colour from. The
-editor copies `cloth_instances`/`cloth_vertices`/`id`/`color` into
-`Render::ClothStrandView`s each frame (`editor/main.cpp`) and hands them to
-`ISceneView::render`'s optional strands parameter. The Vulkan scene view
-triangulates each strand's grid (`render/cloth_mesh.hpp`'s
-`triangulate_cloth_grid` — two triangles per quad, per-vertex normals averaged
-from the adjacent triangles) into a host-visible vertex/index buffer pair and
-draws it through the same lit `mesh_pipeline_` Box/Sphere/Cylinder use (already
-double-sided, since a triangulated cloth sheet is single-sided geometry that can
-flip), so a cloth grid now shades and picks like any other object instead of
-drawing as a bare grid-edge wireframe; its outline pass is extended the same way
-as the primitive shapes'. `.sushiscene` carries `has_cloth`/`cloth` as an
-independent field pair, the same shape as `has_physics_body`/`physics_body`.
+`Physics::ClothGrid`), and also flow into `RenderScene::deformable_instances` /
+`deformable_vertices` / `deformable_indices` every `extract()`: a
+`Simulation::DeformableInstance` per live surface rather than through
+`RenderScene::instances` — that type remains one entity, one fixed-mesh instance,
+and still cannot express a multi-vertex deforming mesh.
+
+That channel used to be `ClothInstance`, carrying a grid's rows and columns. It no
+longer does, because rows and columns describe only a sheet: a tetrahedral soft
+body's surface is a closed triangle mesh with no grid structure, and a fractured
+one is not even connected. So an instance now carries a vertex range and a triangle
+range, and says nothing about how either was arranged; `extract()` runs a grid
+through `Render::build_grid_indices` to produce the triangle list a sheet used to
+imply. Each surface's indices are numbered relative to its own `first_vertex`, not
+into the concatenated array, so a surface's topology is independent of what else
+happened to be extracted this frame. `DeformableInstance` also carries the owning
+entity's `id` (for picking) and a `color`.
+
+The editor copies those ranges into `Render::DeformableMeshView`s each frame
+(`editor/main.cpp`) and hands them to `ISceneView::render`'s optional deformable
+parameter. Shading is GPU-side (`render/shaders/deformable.comp`): one thread per
+vertex sums the face normals of the triangles touching it, area-weighted by leaving
+each face normal un-normalised. One thread per *vertex* rather than per triangle is
+what keeps the pass atomic-free — accumulating into shared vertices from a
+per-triangle thread would need float atomics, and float atomics make the result
+depend on scheduling order. The price is the inverse map, vertex to triangles,
+which `Render::build_vertex_triangle_adjacency` builds on the host and
+`DeformableBuffers` caches: it is a pure function of the index list, so it is
+rebuilt only when the topology changes, keyed on the mesh's id, its
+`topology_revision`, and its two counts. A cache miss costs a rebuild and nothing
+else — it can make a frame slower, never wrong.
+
+Indices reach the GPU verbatim, mesh-local, in a host-visible buffer that doubles
+as the index buffer the draw binds; the draw supplies `base_vertex` as its vertex
+offset. That replaced a second compute dispatch whose only job was to rewrite every
+index into the shared numbering. Surfaces draw through the same lit
+`mesh_pipeline_` Box/Sphere/Cylinder use (already double-sided, since a cloth sheet
+is single-sided geometry that can flip), so a soft body shades and picks like any
+other object instead of drawing as a bare wireframe; its outline pass is extended
+the same way as the primitive shapes'. `.sushiscene` carries `has_cloth`/`cloth` as
+an independent field pair, the same shape as `has_physics_body`/`physics_body`.
 
 ### 4.3. Primitive shapes, colliders, and Terrain
 
@@ -391,7 +426,7 @@ owning a cloth grid. So a fresh cloth is visible without pressing Play, `extract
 synthesises a flat resting sheet from `ClothParams` (matching `build_cloth_grid`'s
 `origin + (col, 0, row) * spacing` layout) whenever the physics grid has not been built
 yet; once the world is played the simulated particle positions take over. The wireframe
-already reached the renderer as `ClothStrandView`s (§5), so no render change was needed.
+already reached the renderer as deformable surfaces (§5), so no render change was needed.
 
 **UI (Canvas + elements).** UI is a host-side record on the entity — `UIElementKind`
 (Canvas/Panel/Image/Text/Button) plus a `UIElementParams` that is a uGUI RectTransform
@@ -461,8 +496,8 @@ consumer. The layering, from abstract to concrete:
   carrying each instance's picking id, copied to a host buffer each frame so
   `pick(x, y)` resolves a click to the entity under the cursor (GPU id-buffer
   picking); `render` also takes the selected id, which the mesh shader highlights,
-  and an optional `ClothStrandView` list, triangulated per frame and drawn shaded
-  and pickable through the same mesh pipeline Box/Sphere/Cylinder use (see §4.2).
+  and an optional `DeformableMeshView` list, shaded on the GPU per frame and drawn
+  pickable through the same mesh pipeline Box/Sphere/Cylinder use (see §4.2).
 - **Lighting, materials, and the sky (§5.1).** `render` also takes a
   `const Render::Environment&` and the camera's world position, and draws the frame
   in three HDR passes rather than one, giving PBR meshes and a WGS84 planet with a
@@ -563,7 +598,8 @@ Live simulation state reaches the renderer through the **simulation seam**
 plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.
 The concrete world lives in one compiled library, `sushi_sim` (`sim/`), the single
 place device code exists outside an example: it owns a `SushiRuntime::API::Runtime`,
-an ECS `World`, and a `Schedule`, and starts with no entities — every archetype is
+the `Execution::Context` built over it, an ECS `World`, and a `Schedule`, and starts
+with no entities — every archetype is
 pre-reserved up front so the editor's own creates never trigger a mid-run chunk
 allocation, but nothing is seeded into them. Two systems over disjoint components
 (`spin` writes orientation, `orbit` writes position) are registered for entities
@@ -1557,8 +1593,10 @@ work (M1 onward) builds on:
   buffer shape that networked input capture and rollback replay (M3/M4) will read
   and write; the command type itself is left to the game.
 - **`Loop::App<Command>`** (`loop/app.hpp`) is the authoring API that ties the above
-  together into the settled surface a game is written against. It owns the
-  `SushiRuntime`, `World`, and `Schedule`, and drives one fixed-step deterministic
+  together into the settled surface a game is written against. It is the composition
+  root: it owns the `SushiRuntime`, builds the `Execution::Context` over it (handed
+  out by `execution()` for a subsystem that needs its own graph or columns), and owns
+  the `World` and `Schedule`. It drives one fixed-step deterministic
   loop: each `step_once()` captures the tick's command into `InputHistory` (and a
   `RollbackBuffer` snapshot when enabled), applies it via the game's `on_command`,
   runs the `Schedule`, and applies the `CommandBuffer` barrier. Systems are declared
@@ -1690,7 +1728,7 @@ the world and the layout solver, drawing one needs three structs. That split is 
 lets `render/scene_view.hpp` name a UI draw list without pulling the ECS in behind it.
 
 `Render::UiView` carries it across the render seam as a non-owning POD, the same shape
-as `ClothStrandView`, plus the screen size the layout was solved against — an editor
+as `DeformableMeshView`, plus the screen size the layout was solved against — an editor
 viewport solves its UI against the viewport, not the window, so the renderer cannot
 infer it from the target.
 
@@ -1706,7 +1744,7 @@ the `Stb` vcpkg package the image loader already uses, so the font path costs no
 dependency) and reserves texel (0,0) as opaque white, which is what untextured
 geometry samples — without it a solid panel would need a second pipeline.
 `Geometry::UiBuffers` tessellates the list into per-frame-slot host-visible buffers
-that only grow, the arrangement `ClothBuffers` uses and for the same reason.
+that only grow, the arrangement `DeformableBuffers` uses and for the same reason.
 
 It degrades rather than fails. With no font the atlas slot falls back to the texture
 library's opaque-white default, so panels still draw and only the labels go missing;
@@ -2435,7 +2473,7 @@ off the ECS chunk), plus the effect handle and play head. `step_particle_emitter
 particle. A built-in effect library (Fire/Sparks/Smoke, Deterministic domain) lives on the sim's
 `EffectDatabase`. The renderer draws these through a new `ParticleBillboard` extract channel on
 `ISceneView::render` — already-simulated world-space particles billboarded directly (the particle
-analogue of `ClothStrandView`), uploaded to a host-visible `GpuParticle` buffer by
+analogue of `DeformableMeshView`), uploaded to a host-visible `GpuParticle` buffer by
 `ParticleSystem::prepare_billboards` and drawn by a `vkCmdDraw` in `ParticlePass`. The editor adds
 "GameObject ▸ Particle Emitter", an Add-Component entry, an Inspector section (effect/seed/playing),
 and `.sushiscene` persistence.

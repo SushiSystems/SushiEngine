@@ -239,6 +239,24 @@ namespace SushiEngine
                     ImGui::MenuItem("Bake", nullptr, &context.panels.bake);
                     ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
                     ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
+                    ImGui::Separator();
+                    // §9.3/§9.4's debug views for the selected soft body. Radio rather than
+                    // checkboxes: the three draw over the same edges, so any two at once
+                    // would be one hiding the other.
+                    if (ImGui::BeginMenu("Soft Body View"))
+                    {
+                        const auto item = [&context](const char* label, SoftBodyDebugView view)
+                        {
+                            if (ImGui::MenuItem(label, nullptr,
+                                                context.soft_body_debug_view == view))
+                                context.soft_body_debug_view = view;
+                        };
+                        item("Off", SoftBodyDebugView::Off);
+                        item("Tetrahedra", SoftBodyDebugView::Wireframe);
+                        item("Stress", SoftBodyDebugView::Stress);
+                        item("Plastic Strain", SoftBodyDebugView::PlasticStrain);
+                        ImGui::EndMenu();
+                    }
                     ImGui::EndMenu();
                 }
                 ImGui::Separator();

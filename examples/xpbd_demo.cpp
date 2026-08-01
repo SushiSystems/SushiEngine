@@ -101,7 +101,8 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
-    auto bodies = runtime.buffer<RigidBody>(N);
+    Execution::Context execution(runtime);
+    auto bodies = execution.allocate<RigidBody>(N);
 
     std::vector<RigidBody> ref_bodies(N);
     std::vector<XpbdDistanceConstraint> constraints;
@@ -123,7 +124,7 @@ int main()
     std::vector<Scalar> ref_lambda(constraints.size(), Scalar(0));
 
     XpbdSolver<XpbdDistanceConstraint> solver(
-        runtime, bodies, constraints, N, ITERATIONS, DT, XpbdDistanceProjection{});
+        execution, bodies, constraints, N, ITERATIONS, DT, XpbdDistanceProjection{});
 
     double solve_ms = 0.0;
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
@@ -139,7 +140,7 @@ int main()
         }
 
         // Device solve.
-        const SushiRuntime::RunReport report = solver.solve();
+        const Execution::RunReport report = solver.solve();
         solve_ms += report.total_duration_ms;
 
         // Reference solve: the same colours, in the same order, sequentially.

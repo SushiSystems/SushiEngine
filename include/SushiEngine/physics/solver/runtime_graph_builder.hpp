@@ -25,15 +25,17 @@
 
 /**
  * @file runtime_graph_builder.hpp
- * @brief The one file in the physics layer that names SushiRuntime.
+ * @brief The one file in the physics layer that builds an execution graph.
  *
- * Every `Buffer`, `Graph`, `Dynamic`, `Reads`/`Writes` and `Extent` the physics uses
- * lives inside this class. Nothing under `physics/` includes a runtime header
- * except this one, so when the runtime's API moves — and it is explicitly unstable —
- * one file moves with it and the conformance suite proves the behaviour did not.
- * That is not a preference invented here; it is the codebase restoring a decision it
- * had drifted from, since `physics_world.hpp` and `xpbd_solver.hpp` both include
- * `SushiRuntime.h` today.
+ * Every `Buffer`, `Graph`, and node declaration the physics uses lives inside this
+ * class. It is written against `SushiEngine::Execution` — the engine's own seam — so
+ * it names no runtime type at all: which backend executes the solve is a build-time
+ * choice, and the API instability that made this file's isolation worth having in the
+ * first place now stops one layer further out, at the seam's adapter.
+ *
+ * The isolation itself is unchanged and still the point: nothing else under
+ * `physics/` builds a graph, so when the execution surface moves, one file moves with
+ * it and the conformance suite proves the behaviour did not.
  *
  * ### The shape of the graph, and why
  *
@@ -48,6 +50,7 @@
  *         project colour 0              (per distance constraint in colour 0)
  *         project colour 1
  *         ...
+ *         project elements, per colour  (deviatoric then hydrostatic, per tetrahedron)
  *         project joints, per colour    (attachment, limits, position drives)
  *         project contacts, per colour  (non-penetration + static friction)
  *         derive velocity               (per body)
@@ -56,10 +59,13 @@
  *     measure motion       (per body, once)
  *     reduce the maximum   (Graph::add_reduce, fixed order)
  *
- * Three kinds share that schedule and each is a constraint kind like any other
+ * Four kinds share that schedule and each is a constraint kind like any other
  * (§6.3) — the same colouring, the same fixed bands, the same late binding. They
- * differ only in lifetime: a distance constraint and a joint are written when added,
- * a contact's buffer is refilled every tick. That is exactly what `Dynamic` was for:
+ * differ in lifetime: a distance constraint, a joint and a FEM element are written
+ * when added, a contact's buffer is refilled every tick. They differ also in how many
+ * bodies they name, which they did not until P6-J1: an element is a four-body
+ * hyperedge, and `constraint_bodies.hpp` is where the colouring and the store learn
+ * that without either of them growing a per-kind branch. That is exactly what `Dynamic` was for:
  * the counts change every tick, the *structure* never does, and `compile_count()`
  * stays one. Where each kind's stages sit in the substep is not a choice made here —
  * it is `contact_projection.hpp`'s and `joint_projection.hpp`'s schedule, and the host
@@ -94,13 +100,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <optional>
 #include <utility>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
-
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/execution/context.hpp>
 #include <SushiEngine/physics/constraints/distance_projection.hpp>
 #include <SushiEngine/physics/constraints/joint_projection.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
@@ -109,6 +115,7 @@
 #include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/soft/fem_projection.hpp>
 #include <SushiEngine/physics/solver/constraint_store.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
 #include <SushiEngine/physics/solver/contact_store.hpp>
@@ -155,6 +162,9 @@ namespace SushiEngine
                 /** @brief The articulated persistent kind this solver admits. */
                 using Joint = JointConstraintT<T>;
 
+                /** @brief The deformable persistent kind this solver admits (§9.1). */
+                using Element = FemTetrahedronT<T>;
+
                 /**
                  * @brief Allocates every buffer at capacity and compiles the solve graph.
                  *
@@ -164,12 +174,12 @@ namespace SushiEngine
                  * compiled node captured — so the graph can be built immediately and
                  * stays valid for every body and constraint that will ever be added.
                  *
-                 * @param runtime       The runtime backing the buffers and the graph.
+                 * @param context       The execution context backing the buffers and the graph.
                  * @param configuration The scene's budgets and substep schedule.
                  */
-                RuntimeGraphBuilder(SushiRuntime::API::Runtime& runtime,
+                RuntimeGraphBuilder(Execution::Context& context,
                                     const PhysicsConfigurationT<T>& configuration)
-                    : runtime_(runtime),
+                    : context_(context),
                       configuration_(configuration),
                       body_slots_(configuration.capacities.bodies),
                       constraints_store_(configuration.capacities.bodies,
@@ -178,6 +188,9 @@ namespace SushiEngine
                       joints_store_(constraints_store_.shared_coloring(),
                                     configuration.capacities.joints,
                                     configuration.capacities.colors),
+                      elements_store_(constraints_store_.shared_coloring(),
+                                      configuration.capacities.elements,
+                                      configuration.capacities.colors),
                       contacts_store_(configuration.capacities.bodies,
                                       configuration.capacities.contacts,
                                       configuration.capacities.colors),
@@ -185,13 +198,14 @@ namespace SushiEngine
                                          constraints_store_.color_count()),
                       joint_mirror_(joints_store_.band_capacity() *
                                     joints_store_.color_count()),
+                      element_mirror_(elements_store_.band_capacity() *
+                                      elements_store_.color_count()),
                       contact_mirror_(contacts_store_.capacity()),
                       body_mirror_(configuration.capacities.bodies)
                 {
-                    // The rebalancer migrates tasks mid-run on a millisecond
-                    // heartbeat. For a fixed-rate tick the cost is jitter, and jitter
-                    // is the one thing a fixed-rate tick cannot absorb.
-                    runtime_.rebalancer(configuration_.rebalancer);
+                    // Migrating work mid-run costs jitter, and jitter is the one thing
+                    // a fixed-rate tick cannot absorb.
+                    context_.set_work_migration(configuration_.rebalancer);
 
                     allocate_buffers();
                     build_graph();
@@ -234,6 +248,7 @@ namespace SushiEngine
                     // that slot next, which is a corruption with no symptom.
                     remove_constraints_touching(handle.index);
                     remove_joints_touching(handle.index);
+                    remove_elements_touching(handle.index);
 
                     // Retiring the slot rather than compacting: constraints address
                     // bodies by slot index, so moving a body would rewrite every
@@ -250,7 +265,7 @@ namespace SushiEngine
                     // it would mean tracking which slots are stale.
                     const T still = T(0);
                     motion_->write_range(
-                        SushiRuntime::API::ElementRange{handle.index, 1}, &still);
+                        Execution::ElementRange{handle.index, 1}, &still);
 
                     return body_slots_.release(handle);
                 }
@@ -276,6 +291,61 @@ namespace SushiEngine
                         return false;
                     remove_constraint_unchecked(handle);
                     return true;
+                }
+
+                /** @copydoc IConstraintSolver::add_element */
+                ConstraintHandle add_element(const Element& element) override
+                {
+                    const ConstraintPlacement placement =
+                        elements_store_.place_bodies(element.vertex, 4);
+                    if (!placement.handle.valid())
+                    {
+                        ++statistics_.capacity_overflows;
+                        return placement.handle;
+                    }
+                    stage_element(placement.slot, element);
+                    return placement.handle;
+                }
+
+                /** @copydoc IConstraintSolver::remove_element */
+                bool remove_element(ConstraintHandle handle) override
+                {
+                    if (!elements_store_.alive(handle))
+                        return false;
+                    remove_element_unchecked(handle);
+                    return true;
+                }
+
+                /**
+                 * @copydoc IConstraintSolver::read_element
+                 *
+                 * From the mirror, which `step` refreshed from the device — the same
+                 * arrangement @ref read_joint has and for the same reason: an element is
+                 * written from both sides. The host owns its rest state and its Lamé
+                 * pair, the device owns its multipliers, and the mirror holds whichever
+                 * is newer so a staged edit is not lost to a readback.
+                 */
+                bool read_element(ConstraintHandle handle, Element& element) const override
+                {
+                    if (!elements_store_.alive(handle))
+                        return false;
+                    const std::size_t slot = elements_store_.slot_of(handle);
+                    if (slot >= element_mirror_.size())
+                        return false;
+                    element = element_mirror_[slot];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::element_capacity */
+                std::size_t element_capacity() const noexcept override
+                {
+                    return elements_store_.capacity();
+                }
+
+                /** @brief Live elements in colour @p color. */
+                std::size_t element_color_size(std::size_t color) const noexcept
+                {
+                    return elements_store_.band_size(color);
                 }
 
                 /** @copydoc IConstraintSolver::add_joint */
@@ -417,7 +487,7 @@ namespace SushiEngine
                     // the conformance suite is where this surfaced.
                     flush_staged_writes();
                     const std::vector<RigidBodyT<T>> range = bodies_->read_range(
-                        SushiRuntime::API::ElementRange{first, count});
+                        Execution::ElementRange{first, count});
                     for (std::size_t i = 0; i < count && i < range.size(); ++i)
                         bodies[i] = range[i];
                 }
@@ -458,6 +528,7 @@ namespace SushiEngine
 
                     download_contacts();
                     download_joints();
+                    download_elements();
                     refresh_statistics();
                 }
 
@@ -515,7 +586,7 @@ namespace SushiEngine
                 }
 
                 /** @brief The report from the most recent @ref step. */
-                const SushiRuntime::RunReport& last_report() const noexcept
+                const Execution::RunReport& last_report() const noexcept
                 {
                     return last_report_;
                 }
@@ -531,39 +602,44 @@ namespace SushiEngine
                  */
                 void allocate_buffers()
                 {
-                    using SushiRuntime::API::Residency;
+                    using Execution::MemoryVisibility;
 
                     // One device for every allocation in the scene. Unified shared
                     // memory is context-bound, and the scheduler fails a run whose
                     // node straddles two contexts — so this is the constraint being
                     // honoured, not a default being accepted.
-                    const SushiRuntime::API::DeviceIndex device{
+                    const Execution::DeviceIndex device{
                         std::uint32_t(configuration_.device_index)};
 
                     const std::size_t bodies = body_slots_.capacity();
                     const std::size_t constraints = constraint_mirror_.size();
 
-                    bodies_.emplace(runtime_.buffer<RigidBodyT<T>>(
-                        bodies > 0 ? bodies : 1, device, Residency::Device));
-                    constraints_.emplace(runtime_.buffer<Constraint>(
-                        constraints > 0 ? constraints : 1, device, Residency::Device));
-                    lambdas_.emplace(runtime_.buffer<T>(
-                        constraints > 0 ? constraints : 1, device, Residency::Device));
+                    bodies_.emplace(context_.allocate<RigidBodyT<T>>(
+                        bodies > 0 ? bodies : 1, MemoryVisibility::DeviceResident, device));
+                    constraints_.emplace(context_.allocate<Constraint>(
+                        constraints > 0 ? constraints : 1, MemoryVisibility::DeviceResident,
+                        device));
+                    lambdas_.emplace(context_.allocate<T>(
+                        constraints > 0 ? constraints : 1, MemoryVisibility::DeviceResident,
+                        device));
                     const std::size_t joints = joint_mirror_.size();
-                    joints_.emplace(runtime_.buffer<Joint>(joints > 0 ? joints : 1, device,
-                                                           Residency::Device));
+                    joints_.emplace(context_.allocate<Joint>(
+                        joints > 0 ? joints : 1, MemoryVisibility::DeviceResident, device));
+                    const std::size_t elements = element_mirror_.size();
+                    elements_.emplace(context_.allocate<Element>(
+                        elements > 0 ? elements : 1, MemoryVisibility::DeviceResident, device));
                     const std::size_t contacts = contact_mirror_.size();
-                    contacts_.emplace(runtime_.buffer<Contact>(
-                        contacts > 0 ? contacts : 1, device, Residency::Device));
-                    motion_.emplace(runtime_.buffer<T>(bodies > 0 ? bodies : 1, device,
-                                                       Residency::Device));
+                    contacts_.emplace(context_.allocate<Contact>(
+                        contacts > 0 ? contacts : 1, MemoryVisibility::DeviceResident, device));
+                    motion_.emplace(context_.allocate<T>(
+                        bodies > 0 ? bodies : 1, MemoryVisibility::DeviceResident, device));
                     // No partial column: `Graph::add_reduce` allocates and owns the
                     // intermediate levels itself, on the same device and with the
                     // same residency as the input.
-                    uniforms_.emplace(runtime_.buffer<StepUniforms<T>>(
-                        1, device, Residency::Shared));
+                    uniforms_.emplace(context_.allocate<StepUniforms<T>>(
+                        1, MemoryVisibility::HostShared, device));
                     motion_maximum_.emplace(
-                        runtime_.buffer<T>(1, device, Residency::Shared));
+                        context_.allocate<T>(1, MemoryVisibility::HostShared, device));
 
                     (*uniforms_)[0] = StepUniforms<T>{};
                     (*motion_maximum_)[0] = T(0);
@@ -576,12 +652,71 @@ namespace SushiEngine
                     retired.flags = BodyFlags::static_body;
                     for (std::size_t i = 0; i < bodies; ++i)
                         body_mirror_[i] = retired;
-                    bodies_->write_range(SushiRuntime::API::ElementRange{0, bodies},
+                    bodies_->write_range(Execution::ElementRange{0, bodies},
                                          body_mirror_.data());
 
                     const std::vector<T> zeros(bodies, T(0));
-                    motion_->write_range(SushiRuntime::API::ElementRange{0, bodies},
+                    motion_->write_range(Execution::ElementRange{0, bodies},
                                          zeros.data());
+                }
+
+                /**
+                 * @brief Declares a read of one buffer window by a solver kernel.
+                 * @param interval The window the kernel reads.
+                 * @return The access, as a device-compute read.
+                 */
+                static Execution::ResourceAccess read_of(Execution::BufferInterval interval) noexcept
+                {
+                    return Execution::ResourceAccess{interval,
+                                                     Execution::AccessIntent::ComputeRead};
+                }
+
+                /**
+                 * @brief Declares a write of one buffer window by a solver kernel.
+                 * @param interval The window the kernel writes.
+                 * @return The access, as a device-compute write.
+                 */
+                static Execution::ResourceAccess write_of(Execution::BufferInterval interval) noexcept
+                {
+                    return Execution::ResourceAccess{interval,
+                                                     Execution::AccessIntent::ComputeWrite};
+                }
+
+                /**
+                 * @brief Emits one late-bound solver node.
+                 *
+                 * The declared accesses are load-bearing, not decoration: the tracker
+                 * cannot infer what a kernel touches — the callable is a `void(size_t)`
+                 * capturing raw pointers — so a node that reads the bodies without
+                 * naming them has no edge to the solve at all and is free to run beside
+                 * it. The conformance suite has caught exactly that.
+                 *
+                 * The access list is not copied. An initializer list's backing array
+                 * lives to the end of the full expression that created it, which
+                 * outlasts the submission the backend copies from.
+                 *
+                 * @tparam Kernel  The per-element callable's type.
+                 * @param name     Diagnostic name for the node.
+                 * @param accesses What the kernel reads and writes.
+                 * @param capacity Pre-sized upper bound the live count must fit.
+                 * @param count    Live element count for this run.
+                 * @param enabled  Whether the node runs at all this run; unbound means always.
+                 * @param kernel   The per-element callable.
+                 */
+                template <typename Kernel>
+                void emit_node(const char* name,
+                               std::initializer_list<Execution::ResourceAccess> accesses,
+                               std::size_t capacity, Execution::CountProvider count,
+                               Execution::EnabledProvider enabled, Kernel&& kernel)
+                {
+                    Execution::NodeDescriptor node;
+                    node.name = name;
+                    node.accesses = accesses.begin();
+                    node.access_count = accesses.size();
+                    node.capacity = capacity;
+                    node.count = count;
+                    node.enabled = enabled;
+                    graph_->add_parallel(node, std::forward<Kernel>(kernel));
                 }
 
                 /**
@@ -592,15 +727,13 @@ namespace SushiEngine
                  */
                 void build_graph()
                 {
-                    using SushiRuntime::API::Reads;
-                    using SushiRuntime::API::Writes;
-
-                    graph_.emplace(runtime_.graph());
+                    graph_.emplace(context_.create_graph());
 
                     RigidBodyT<T>* bodies = bodies_->data();
                     Constraint* constraints = constraints_->data();
                     T* lambdas = lambdas_->data();
                     Joint* joints = joints_->data();
+                    Element* elements = elements_->data();
                     Contact* contacts = contacts_->data();
                     T* motion = motion_->data();
                     const StepUniforms<T>* uniforms = uniforms_->data();
@@ -619,17 +752,19 @@ namespace SushiEngine
                         for (std::size_t color = 0; color < contacts_store_.color_count();
                              ++color)
                         {
-                            const SushiRuntime::API::ElementRange band{
+                            const Execution::ElementRange band{
                                 contacts_store_.band_base(color),
                                 contacts_store_.band_capacity()};
                             const std::size_t base = contacts_store_.band_base(color);
                             const bool first = substep == 0;
 
-                            graph_->add(
-                                SushiRuntime::API::when(contact_predicate(substep, color))
-                                    .and_sized(contact_count_provider(color)),
-                                Reads(*bodies_), Writes(contacts_->region(band)),
+                            emit_node(
+                                "contact_prepare",
+                                {read_of(bodies_->interval()),
+                                 write_of(contacts_->interval(band))},
                                 contacts_store_.band_capacity(),
+                                contact_count_provider(color),
+                                contact_predicate(substep, color),
                                 [bodies, contacts, base, first](std::size_t i)
                                 {
                                     ContactPreparationT<T> prepare;
@@ -637,30 +772,33 @@ namespace SushiEngine
                                 });
                         }
 
-                        graph_->add(
-                            SushiRuntime::API::when(substep_predicate(substep))
-                                .and_sized(body_count_provider()),
-                            Reads(*uniforms_), Writes(*bodies_), body_slots_.capacity(),
-                            [bodies, uniforms](std::size_t i)
-                            {
-                                predict(bodies[i], uniforms->gravity,
-                                        uniforms->substep_duration);
-                            });
+                        emit_node("predict",
+                                  {read_of(uniforms_->interval()),
+                                   write_of(bodies_->interval())},
+                                  body_slots_.capacity(), body_count_provider(),
+                                  substep_predicate(substep),
+                                  [bodies, uniforms](std::size_t i)
+                                  {
+                                      predict(bodies[i], uniforms->gravity,
+                                              uniforms->substep_duration);
+                                  });
 
                         for (std::size_t color = 0; color < constraints_store_.color_count();
                              ++color)
                         {
                             const std::size_t base = constraints_store_.band_base(color);
-                            const SushiRuntime::API::ElementRange band{
+                            const Execution::ElementRange band{
                                 base, constraints_store_.band_capacity()};
 
-                            graph_->add(
-                                SushiRuntime::API::when(
-                                    color_predicate(substep, color))
-                                    .and_sized(color_count_provider(color)),
-                                Reads(*uniforms_, constraints_->region(band)),
-                                Writes(*bodies_, lambdas_->region(band)),
+                            emit_node(
+                                "distance_project",
+                                {read_of(uniforms_->interval()),
+                                 read_of(constraints_->interval(band)),
+                                 write_of(bodies_->interval()),
+                                 write_of(lambdas_->interval(band))},
                                 constraints_store_.band_capacity(),
+                                color_count_provider(color),
+                                color_predicate(substep, color),
                                 [bodies, constraints, lambdas, uniforms,
                                  base](std::size_t i)
                                 {
@@ -680,6 +818,58 @@ namespace SushiEngine
                                 });
                         }
 
+                        // The elements, after the distance lattice and before the
+                        // joints. Both are constitutive - they say what the material
+                        // *is* - so they belong together and ahead of the articulation
+                        // hanging off it.
+                        //
+                        // One node per colour rather than two, with both projections in
+                        // it. Splitting them would double the node count for no
+                        // parallelism: within a colour no two elements share a particle,
+                        // so a deviatoric pass and a hydrostatic pass over the same
+                        // colour would be two barriers where the material wants one
+                        // Gauss-Seidel sweep - and the ordering *within* an element,
+                        // deviatoric then hydrostatic, is part of the answer.
+                        //
+                        // Skipped structurally when the element budget is zero, which
+                        // is the default. A node over an empty band would never run —
+                        // its predicate could not become true — but it would still be a
+                        // zero-extent region in the composition of every scene in the
+                        // engine that has no soft bodies, which is most of them.
+                        for (std::size_t color = 0;
+                             elements_store_.band_capacity() > 0 &&
+                             color < elements_store_.color_count();
+                             ++color)
+                        {
+                            const std::size_t base = elements_store_.band_base(color);
+                            const Execution::ElementRange band{
+                                base, elements_store_.band_capacity()};
+
+                            emit_node(
+                                "element_project",
+                                {read_of(uniforms_->interval()),
+                                 write_of(bodies_->interval()),
+                                 write_of(elements_->interval(band))},
+                                elements_store_.band_capacity(),
+                                element_count_provider(color),
+                                element_predicate(substep, color),
+                                [bodies, elements, uniforms, base](std::size_t i)
+                                {
+                                    Element& element = elements[base + i];
+                                    // Reset per substep, not per tick: one iteration per
+                                    // substep is XPBD's small-step arrangement, so
+                                    // nothing may carry across - the same rule the
+                                    // distance kind states by starting its multiplier at
+                                    // zero every time.
+                                    element.deviatoric_lambda = 0;
+                                    element.hydrostatic_lambda = 0;
+                                    project_fem_deviatoric(bodies, element,
+                                                           uniforms->substep_duration);
+                                    project_fem_hydrostatic(bodies, element,
+                                                            uniforms->substep_duration);
+                                });
+                        }
+
                         // After the distance constraints and before the contacts: a
                         // joint is a structural constraint and a contact is a reactive
                         // one, so the assembly is assembled before it is pushed on.
@@ -688,16 +878,18 @@ namespace SushiEngine
                         for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
                         {
                             const std::size_t base = joints_store_.band_base(color);
-                            const SushiRuntime::API::ElementRange band{
+                            const Execution::ElementRange band{
                                 base, joints_store_.band_capacity()};
                             const bool first = substep == 0;
 
-                            graph_->add(
-                                SushiRuntime::API::when(joint_predicate(substep, color))
-                                    .and_sized(joint_count_provider(color)),
-                                Reads(*uniforms_),
-                                Writes(*bodies_, joints_->region(band)),
+                            emit_node(
+                                "joint_project",
+                                {read_of(uniforms_->interval()),
+                                 write_of(bodies_->interval()),
+                                 write_of(joints_->interval(band))},
                                 joints_store_.band_capacity(),
+                                joint_count_provider(color),
+                                joint_predicate(substep, color),
                                 [bodies, joints, uniforms, base, first](std::size_t i)
                                 {
                                     JointProjectionT<T> projection;
@@ -713,17 +905,19 @@ namespace SushiEngine
                         for (std::size_t color = 0; color < contacts_store_.color_count();
                              ++color)
                         {
-                            const SushiRuntime::API::ElementRange band{
+                            const Execution::ElementRange band{
                                 contacts_store_.band_base(color),
                                 contacts_store_.band_capacity()};
                             const std::size_t base = contacts_store_.band_base(color);
 
-                            graph_->add(
-                                SushiRuntime::API::when(contact_predicate(substep, color))
-                                    .and_sized(contact_count_provider(color)),
-                                Reads(*uniforms_),
-                                Writes(*bodies_, contacts_->region(band)),
+                            emit_node(
+                                "contact_position",
+                                {read_of(uniforms_->interval()),
+                                 write_of(bodies_->interval()),
+                                 write_of(contacts_->interval(band))},
                                 contacts_store_.band_capacity(),
+                                contact_count_provider(color),
+                                contact_predicate(substep, color),
                                 [bodies, contacts, base](std::size_t i)
                                 {
                                     ContactPositionProjectionT<T> projection;
@@ -731,14 +925,15 @@ namespace SushiEngine
                                 });
                         }
 
-                        graph_->add(
-                            SushiRuntime::API::when(substep_predicate(substep))
-                                .and_sized(body_count_provider()),
-                            Reads(*uniforms_), Writes(*bodies_), body_slots_.capacity(),
-                            [bodies, uniforms](std::size_t i)
-                            {
-                                update_velocity(bodies[i], uniforms->substep_duration);
-                            });
+                        emit_node("update_velocity",
+                                  {read_of(uniforms_->interval()),
+                                   write_of(bodies_->interval())},
+                                  body_slots_.capacity(), body_count_provider(),
+                                  substep_predicate(substep),
+                                  [bodies, uniforms](std::size_t i)
+                                  {
+                                      update_velocity(bodies[i], uniforms->substep_duration);
+                                  });
 
                         // The velocity pass, in the same order as the positional one.
                         // A joint's rate drive and its friction are statements about a
@@ -747,15 +942,17 @@ namespace SushiEngine
                         for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
                         {
                             const std::size_t base = joints_store_.band_base(color);
-                            const SushiRuntime::API::ElementRange band{
+                            const Execution::ElementRange band{
                                 base, joints_store_.band_capacity()};
 
-                            graph_->add(
-                                SushiRuntime::API::when(joint_predicate(substep, color))
-                                    .and_sized(joint_count_provider(color)),
-                                Reads(*uniforms_),
-                                Writes(*bodies_, joints_->region(band)),
+                            emit_node(
+                                "joint_velocity",
+                                {read_of(uniforms_->interval()),
+                                 write_of(bodies_->interval()),
+                                 write_of(joints_->interval(band))},
                                 joints_store_.band_capacity(),
+                                joint_count_provider(color),
+                                joint_predicate(substep, color),
                                 [bodies, joints, uniforms, base](std::size_t i)
                                 {
                                     JointVelocityProjectionT<T> projection;
@@ -771,17 +968,19 @@ namespace SushiEngine
                         for (std::size_t color = 0; color < contacts_store_.color_count();
                              ++color)
                         {
-                            const SushiRuntime::API::ElementRange band{
+                            const Execution::ElementRange band{
                                 contacts_store_.band_base(color),
                                 contacts_store_.band_capacity()};
                             const std::size_t base = contacts_store_.band_base(color);
 
-                            graph_->add(
-                                SushiRuntime::API::when(contact_predicate(substep, color))
-                                    .and_sized(contact_count_provider(color)),
-                                Reads(*uniforms_),
-                                Writes(*bodies_, contacts_->region(band)),
+                            emit_node(
+                                "contact_velocity",
+                                {read_of(uniforms_->interval()),
+                                 write_of(bodies_->interval()),
+                                 write_of(contacts_->interval(band))},
                                 contacts_store_.band_capacity(),
+                                contact_count_provider(color),
+                                contact_predicate(substep, color),
                                 [bodies, contacts, uniforms, base](std::size_t i)
                                 {
                                     ContactVelocityProjectionT<T> projection;
@@ -803,10 +1002,11 @@ namespace SushiEngine
                     // suite caught it: the two solvers derived different substep
                     // counts because one of them was measuring velocities that were
                     // still being written.
-                    graph_->add(SushiRuntime::API::sized(body_count_provider()),
-                                Reads(*bodies_), Writes(*motion_),
-                                body_slots_.capacity(),
-                                [bodies, motion](std::size_t i)
+                    emit_node("motion_measure",
+                              {read_of(bodies_->interval()), write_of(motion_->interval())},
+                              body_slots_.capacity(), body_count_provider(),
+                              Execution::EnabledProvider{},
+                              [bodies, motion](std::size_t i)
                                 {
                                     const RigidBodyT<T>& body = bodies[i];
                                     motion[i] = is_simulated(body.flags)
@@ -866,6 +1066,25 @@ namespace SushiEngine
                     {
                         return substep < live_substeps_ &&
                                constraints_store_.band_size(color) > 0;
+                    };
+                }
+
+                /** @brief A provider reporting colour @p color's live element count. */
+                auto element_count_provider(std::size_t color) const
+                {
+                    return [this, color]() -> std::size_t
+                    {
+                        return elements_store_.band_size(color);
+                    };
+                }
+
+                /** @brief A predicate enabling an element colour's node only when it has work. */
+                auto element_predicate(std::size_t substep, std::size_t color) const
+                {
+                    return [this, substep, color]() -> bool
+                    {
+                        return substep < live_substeps_ &&
+                               elements_store_.band_size(color) > 0;
                     };
                 }
 
@@ -964,6 +1183,23 @@ namespace SushiEngine
                         constraint_dirty_high_ = slot + 1;
                 }
 
+                /** @brief Stages an element write; see @ref stage_body for why. */
+                void stage_element(std::size_t slot, const Element& element)
+                {
+                    element_mirror_[slot] = element;
+                    if (!element_dirty_)
+                    {
+                        element_dirty_ = true;
+                        element_dirty_low_ = slot;
+                        element_dirty_high_ = slot + 1;
+                        return;
+                    }
+                    if (slot < element_dirty_low_)
+                        element_dirty_low_ = slot;
+                    if (slot + 1 > element_dirty_high_)
+                        element_dirty_high_ = slot + 1;
+                }
+
                 /** @brief Stages a joint write; see @ref stage_body for why. */
                 void stage_joint(std::size_t slot, const Joint& joint)
                 {
@@ -994,7 +1230,7 @@ namespace SushiEngine
                     if (body_dirty_)
                     {
                         bodies_->write_range(
-                            SushiRuntime::API::ElementRange{
+                            Execution::ElementRange{
                                 body_dirty_low_, body_dirty_high_ - body_dirty_low_},
                             body_mirror_.data() + body_dirty_low_);
                         body_dirty_ = false;
@@ -1002,16 +1238,25 @@ namespace SushiEngine
                     if (constraint_dirty_)
                     {
                         constraints_->write_range(
-                            SushiRuntime::API::ElementRange{
+                            Execution::ElementRange{
                                 constraint_dirty_low_,
                                 constraint_dirty_high_ - constraint_dirty_low_},
                             constraint_mirror_.data() + constraint_dirty_low_);
                         constraint_dirty_ = false;
                     }
+                    if (element_dirty_)
+                    {
+                        elements_->write_range(
+                            Execution::ElementRange{
+                                element_dirty_low_,
+                                element_dirty_high_ - element_dirty_low_},
+                            element_mirror_.data() + element_dirty_low_);
+                        element_dirty_ = false;
+                    }
                     if (joint_dirty_)
                     {
                         joints_->write_range(
-                            SushiRuntime::API::ElementRange{
+                            Execution::ElementRange{
                                 joint_dirty_low_, joint_dirty_high_ - joint_dirty_low_},
                             joint_mirror_.data() + joint_dirty_low_);
                         joint_dirty_ = false;
@@ -1027,6 +1272,71 @@ namespace SushiEngine
                  * readout are all that one quantity. One transfer per non-empty band
                  * rather than one per joint.
                  */
+                void download_elements()
+                {
+                    for (std::size_t color = 0; color < elements_store_.color_count(); ++color)
+                    {
+                        const std::size_t live = elements_store_.band_size(color);
+                        if (live == 0)
+                            continue;
+                        const std::size_t base = elements_store_.band_base(color);
+                        const std::vector<Element> range = elements_->read_range(
+                            Execution::ElementRange{base, live});
+                        for (std::size_t i = 0; i < live && i < range.size(); ++i)
+                            element_mirror_[base + i] = range[i];
+                    }
+                }
+
+                /**
+                 * @brief Removes an element whose handle is known live, keeping the band dense.
+                 *
+                 * @param handle The element to remove, in the store's own handle space.
+                 */
+                void remove_element_unchecked(ConstraintHandle handle)
+                {
+                    const std::size_t slot = elements_store_.slot_of(handle);
+                    if (slot >= element_mirror_.size())
+                        return;
+                    const Element removed = element_mirror_[slot];
+                    const ConstraintRemoval removal =
+                        elements_store_.remove_bodies(handle, removed.vertex, 4);
+                    if (!removal.removed)
+                        return;
+                    if (removal.slot != removal.moved_from)
+                        stage_element(removal.slot, element_mirror_[removal.moved_from]);
+                }
+
+                /**
+                 * @brief Removes every live element naming body slot @p body.
+                 *
+                 * All four vertices are tested, not two. That is P6-J1 restated at the
+                 * removal end: an element left naming a freed slot would act on whichever
+                 * particle claims it next, and testing only the first two would leave
+                 * three quarters of them behind.
+                 */
+                void remove_elements_touching(std::uint32_t body)
+                {
+                    for (std::size_t color = 0; color < elements_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = elements_store_.band_base(color);
+                        // Downward, for the reason @ref remove_constraints_touching gives.
+                        std::size_t offset = elements_store_.band_size(color);
+                        while (offset > 0)
+                        {
+                            --offset;
+                            const std::size_t slot = base + offset;
+                            const Element& element = element_mirror_[slot];
+                            if (element.vertex[0] != body && element.vertex[1] != body &&
+                                element.vertex[2] != body && element.vertex[3] != body)
+                                continue;
+                            const ConstraintRemoval removal = elements_store_.remove_bodies(
+                                elements_store_.handle_at(slot), element.vertex, 4);
+                            if (removal.removed && removal.slot != removal.moved_from)
+                                stage_element(removal.slot, element_mirror_[removal.moved_from]);
+                        }
+                    }
+                }
+
                 void download_joints()
                 {
                     for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
@@ -1036,7 +1346,7 @@ namespace SushiEngine
                             continue;
                         const std::size_t base = joints_store_.band_base(color);
                         const std::vector<Joint> range = joints_->read_range(
-                            SushiRuntime::API::ElementRange{base, live});
+                            Execution::ElementRange{base, live});
                         for (std::size_t i = 0; i < live && i < range.size(); ++i)
                             joint_mirror_[base + i] = range[i];
                     }
@@ -1106,7 +1416,7 @@ namespace SushiEngine
                             continue;
                         const std::size_t base = contacts_store_.band_base(color);
                         contacts_->write_range(
-                            SushiRuntime::API::ElementRange{base, live},
+                            Execution::ElementRange{base, live},
                             contact_mirror_.data() + base);
                     }
                 }
@@ -1130,7 +1440,7 @@ namespace SushiEngine
                             continue;
                         const std::size_t base = contacts_store_.band_base(color);
                         const std::vector<Contact> range = contacts_->read_range(
-                            SushiRuntime::API::ElementRange{base, live});
+                            Execution::ElementRange{base, live});
                         for (std::size_t i = 0; i < live && i < range.size(); ++i)
                             contact_mirror_[base + i] = range[i];
                     }
@@ -1246,8 +1556,9 @@ namespace SushiEngine
                     statistics_.awake_bodies = body_slots_.live_count();
                     statistics_.sleeping_bodies = 0;
                     statistics_.joints = joints_store_.live_count();
-                    statistics_.constraints =
-                        constraints_store_.live_count() + statistics_.joints;
+                    statistics_.elements = elements_store_.live_count();
+                    statistics_.constraints = constraints_store_.live_count() +
+                                              statistics_.joints + statistics_.elements;
                     statistics_.colors = constraints_store_.colors_used();
                     statistics_.substeps = live_substeps_;
 
@@ -1285,7 +1596,7 @@ namespace SushiEngine
                         statistics_.timings.solve_ms = T(last_report_.total_duration_ms);
                 }
 
-                SushiRuntime::API::Runtime& runtime_;
+                Execution::Context& context_;
                 PhysicsConfigurationT<T> configuration_;
 
                 HandleTable<BodyTag> body_slots_;
@@ -1294,6 +1605,10 @@ namespace SushiEngine
                 // kinds colour over their union (§6.3). Declared after it because the
                 // sharing is a reference taken at construction.
                 ConstraintStore joints_store_;
+                // The four-body kind, colouring into the same union for the same
+                // reason: an element and a distance constraint that share a particle
+                // must not share a colour.
+                ConstraintStore elements_store_;
                 ContactStore contacts_store_;
 
                 std::vector<Constraint> constraint_mirror_;
@@ -1301,6 +1616,10 @@ namespace SushiEngine
                 // written by the host *and* by the device, so this holds whichever is
                 // newer and is what `read_joint` answers from.
                 std::vector<Joint> joint_mirror_;
+                // Nor is the element mirror staging alone, for the same reason: the host
+                // owns an element's rest state and its Lame pair, the device owns its
+                // multipliers, and `read_element` answers from whichever is newer.
+                std::vector<Element> element_mirror_;
                 std::vector<Contact> contact_mirror_;
                 std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> body_mirror_;
@@ -1315,6 +1634,9 @@ namespace SushiEngine
                 mutable bool joint_dirty_ = false;
                 mutable std::size_t joint_dirty_low_ = 0;
                 mutable std::size_t joint_dirty_high_ = 0;
+                mutable bool element_dirty_ = false;
+                mutable std::size_t element_dirty_low_ = 0;
+                mutable std::size_t element_dirty_high_ = 0;
 
                 std::size_t body_high_water_ = 0;
                 std::size_t live_substeps_ = 1;
@@ -1322,17 +1644,18 @@ namespace SushiEngine
                 // The two staged-into buffers are mutable for the same reason the
                 // dirty marks are: a const read flushes them, and moving already-
                 // decided state to where it is readable is not a change of state.
-                mutable std::optional<SushiRuntime::API::Buffer<RigidBodyT<T>>> bodies_;
-                mutable std::optional<SushiRuntime::API::Buffer<Constraint>> constraints_;
-                mutable std::optional<SushiRuntime::API::Buffer<Joint>> joints_;
-                std::optional<SushiRuntime::API::Buffer<T>> lambdas_;
-                std::optional<SushiRuntime::API::Buffer<Contact>> contacts_;
-                std::optional<SushiRuntime::API::Buffer<T>> motion_;
-                std::optional<SushiRuntime::API::Buffer<StepUniforms<T>>> uniforms_;
-                std::optional<SushiRuntime::API::Buffer<T>> motion_maximum_;
-                std::optional<SushiRuntime::API::Graph> graph_;
+                mutable std::optional<Execution::Buffer<RigidBodyT<T>>> bodies_;
+                mutable std::optional<Execution::Buffer<Constraint>> constraints_;
+                mutable std::optional<Execution::Buffer<Joint>> joints_;
+                mutable std::optional<Execution::Buffer<Element>> elements_;
+                std::optional<Execution::Buffer<T>> lambdas_;
+                std::optional<Execution::Buffer<Contact>> contacts_;
+                std::optional<Execution::Buffer<T>> motion_;
+                std::optional<Execution::Buffer<StepUniforms<T>>> uniforms_;
+                std::optional<Execution::Buffer<T>> motion_maximum_;
+                std::optional<Execution::Graph> graph_;
 
-                SushiRuntime::RunReport last_report_{};
+                Execution::RunReport last_report_{};
                 PhysicsStatisticsT<T> statistics_{};
         };
     } // namespace Physics

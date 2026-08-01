@@ -27,7 +27,7 @@
  *
  * The animation evaluator hands the renderer object-space joint palettes per skinned
  * instance (current and previous frame) through the `SkinnedInstance` extract channel.
- * This system, modeled on `ClothBuffers`, packs those palettes into host-visible storage
+ * This system, modeled on `DeformableBuffers`, packs those palettes into host-visible storage
  * buffers and lays out one transient device-local output vertex buffer sliced per
  * instance; the `SkinningPass` compute dispatch fills it, and the opaque pass draws each
  * slice as a static mesh (design §6.2/§6.3). No history is kept here — the evaluator is

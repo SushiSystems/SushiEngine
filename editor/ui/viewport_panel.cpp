@@ -32,6 +32,7 @@
 #include <SushiEngine/ui/layout.hpp>
 
 #include "../physics/collision_overlay.hpp"
+#include "../physics/soft_body_overlay.hpp"
 #include "game_view_toolbar.hpp"
 
 namespace SushiEngine
@@ -687,8 +688,8 @@ namespace SushiEngine
                 ui_view.height = static_cast<float>(height);
             }
 
-            view_->render(camera_view, environment, inputs.instances, inputs.instance_count, selected_id, inputs.strands,
-                          inputs.strand_count, inputs.lights, inputs.light_count, inputs.decals, inputs.decal_count, inputs.show_grid,
+            view_->render(camera_view, environment, inputs.instances, inputs.instance_count, selected_id, inputs.deformable,
+                          inputs.deformable_count, inputs.lights, inputs.light_count, inputs.decals, inputs.decal_count, inputs.show_grid,
                           skinned, skinned_count, emitters, emitter_count, all_billboards,
                           all_billboard_count, ui_view.empty() ? nullptr : &ui_view);
 
@@ -945,6 +946,16 @@ namespace SushiEngine
             // it, which the bake surface does not.
             if (inputs.collision_wireframe != nullptr && !inputs.collision_wireframe->empty())
                 draw_collision_overlay(*inputs.collision_wireframe, SushiEngine::Mat4{},
+                                       camera_view, image_origin, static_cast<float>(width),
+                                       static_cast<float>(height), ImGui::GetWindowDrawList());
+
+            // The selected soft body's interior (P6-G5). Already in world space — these
+            // are the live particles, not an asset in its own frame — so unlike the
+            // collider above there is no placement to apply.
+            if (inputs.soft_body_view != SoftBodyDebugView::Off &&
+                inputs.soft_body_positions != nullptr && inputs.soft_body_elements != nullptr)
+                draw_soft_body_overlay(*inputs.soft_body_positions, *inputs.soft_body_elements,
+                                       inputs.soft_body_material, inputs.soft_body_view,
                                        camera_view, image_origin, static_cast<float>(width),
                                        static_cast<float>(height), ImGui::GetWindowDrawList());
 

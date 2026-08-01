@@ -45,7 +45,7 @@ namespace
 
 TEST(Unit_World, SpawnReturnsLiveHandleWithStoredComponents)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
 
     const Entity e = world.spawn(Position{Vector3{1, 2, 3}}, Velocity{Vector3{4, 5, 6}});
 
@@ -56,7 +56,7 @@ TEST(Unit_World, SpawnReturnsLiveHandleWithStoredComponents)
 
 TEST(Unit_World, GetReturnsMutableReference)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     const Entity e = world.spawn(Position{Vector3{0, 0, 0}});
 
     world.get<Position>(e).v = Vector3{7, 8, 9};
@@ -66,7 +66,7 @@ TEST(Unit_World, GetReturnsMutableReference)
 
 TEST(Unit_World, DestroyClearsLivenessAndStaleHandleStaysDead)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     const Entity e = world.spawn(Position{});
 
     world.destroy(e);
@@ -80,7 +80,7 @@ TEST(Unit_World, DestroyClearsLivenessAndStaleHandleStaysDead)
 
 TEST(Unit_World, SwapRemoveRepointsTheMovedRow)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     const Entity a = world.spawn(Health{Scalar(10)});
     const Entity b = world.spawn(Health{Scalar(20)});
     const Entity c = world.spawn(Health{Scalar(30)});
@@ -98,7 +98,7 @@ TEST(Unit_World, SwapRemoveRepointsTheMovedRow)
 
 TEST(Unit_World, ReserveAndNewChunkBumpStructureVersion)
 {
-    World world(Harness::shared_runtime(), 4);
+    World world(Harness::shared_context(), 4);
 
     const std::uint64_t v0 = world.structure_version();
     world.reserve<Position>(4);
@@ -117,7 +117,7 @@ TEST(Unit_World, ReserveAndNewChunkBumpStructureVersion)
 
 TEST(Unit_World, QueryMatchesArchetypesContainingTheRequestedComponents)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     world.spawn(Position{}, Velocity{}); // archetype {Position, Velocity}
     world.spawn(Position{});             // archetype {Position}
 

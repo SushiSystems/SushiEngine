@@ -45,7 +45,7 @@ namespace SushiEngine
     {
         namespace Geometry
         {
-            class ClothBuffers;
+            class DeformableBuffers;
             class MeshRegistry;
         }
 
@@ -101,7 +101,7 @@ namespace SushiEngine
                      * @param pipelines Factory the pipelines are built through.
                      * @param layout    The shared scene descriptor and pipeline layout.
                      * @param meshes    Registry holding the primitives and imported meshes.
-                     * @param cloth     This view's per-frame soft-body buffers.
+                     * @param deformable     This view's per-frame soft-body buffers.
                      * @param materials System packing this frame's material array.
                      * @param motion    System packing this frame's previous transforms.
                      * @param cloud_shadow The pass owning the baked cloud shadow map, to
@@ -115,7 +115,7 @@ namespace SushiEngine
                     OpaquePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                Resources::GraphicsPipelineFactory& pipelines,
                                Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
-                               Geometry::ClothBuffers& cloth,
+                               Geometry::DeformableBuffers& deformable,
                                Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                CloudShadowMapPass& cloud_shadow, IblPass& ibl,
                                IrradianceVolumePass& gi, Lighting::LightSystem& lights,
@@ -138,7 +138,7 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
                     Geometry::MeshRegistry& meshes_;
-                    Geometry::ClothBuffers& cloth_;
+                    Geometry::DeformableBuffers& deformable_;
                     Assets::MaterialSystem& materials_;
                     Scene::MotionSystem& motion_;
                     CloudShadowMapPass& cloud_shadow_;

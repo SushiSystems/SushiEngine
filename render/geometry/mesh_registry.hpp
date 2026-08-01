@@ -32,7 +32,7 @@
  * makes the material system possible. Built-in primitives are generated with
  * analytic tangents and UVs; imported meshes arrive through add_mesh(). The registry
  * is an asset store shared by every view on the device, so it holds nothing that
- * varies per frame — the per-frame soft-body geometry lives in ClothBuffers.
+ * varies per frame — the per-frame soft-body geometry lives in DeformableBuffers.
  */
 
 #include <cstddef>

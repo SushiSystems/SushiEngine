@@ -142,22 +142,23 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
+    Execution::Context execution(runtime);
 
     // --- Baseline: an uninterrupted, authoritative-only run --------------------
-    World baseline_world(runtime, CHUNK_CAPACITY);
+    World baseline_world(execution, CHUNK_CAPACITY);
     baseline_world.reserve<Position>(CHUNK_CAPACITY);
     const Entity baseline_player = baseline_world.spawn(Position{});
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         apply_command(baseline_world, baseline_player, authoritative_command(tick));
 
     // --- The server: driven straight through by its own authoritative stream ---
-    World server_world(runtime, CHUNK_CAPACITY);
+    World server_world(execution, CHUNK_CAPACITY);
     server_world.reserve<Position>(CHUNK_CAPACITY);
     server_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
     const Entity server_player = server_world.spawn(Position{});
 
     // --- The client: predicts locally, rolls back and replays on correction ----
-    World client_world(runtime, CHUNK_CAPACITY);
+    World client_world(execution, CHUNK_CAPACITY);
     client_world.reserve<Position>(CHUNK_CAPACITY);
     client_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
     const Entity client_player = client_world.spawn(Position{});

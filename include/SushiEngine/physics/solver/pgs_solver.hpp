@@ -29,7 +29,7 @@
 
 #include <sycl/sycl.hpp>
 
-#include <SushiRuntime/SushiRuntime.h>
+#include <SushiEngine/execution/context.hpp>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/constraints/constraint.hpp>
@@ -63,7 +63,7 @@ namespace SushiEngine
                 const Vector3 pb = position[c.b];
                 const Vector3 delta = pa - pb;
                 const Scalar dist =
-                    sycl::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+                    Math::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
                 if (dist <= Scalar(1e-8))
                     return;
 
@@ -107,7 +107,7 @@ namespace SushiEngine
                 /**
                  * @brief Colours the constraints and builds the replayable solve graph.
                  * @tparam Projection A device-callable projection for @p Constraint.
-                 * @param runtime     The runtime that backs the graph and buffers.
+                 * @param context     The execution context backing the graph and buffers.
                  * @param position    Body positions, updated in place each solve.
                  * @param inv_mass    Per-body inverse masses (zero pins a body).
                  * @param constraints The constraints to satisfy.
@@ -116,13 +116,13 @@ namespace SushiEngine
                  * @param projection  The per-constraint projection to apply.
                  */
                 template <typename Projection>
-                ConstraintSolver(SushiRuntime::API::Runtime& runtime,
-                                 SushiRuntime::API::Buffer<Vector3>& position,
-                                 SushiRuntime::API::Buffer<Scalar>& inv_mass,
+                ConstraintSolver(Execution::Context& context,
+                                 Execution::Buffer<Vector3>& position,
+                                 Execution::Buffer<Scalar>& inv_mass,
                                  const std::vector<Constraint>& constraints,
                                  std::size_t body_count, std::size_t iterations,
                                  Projection projection)
-                    : runtime_(runtime),
+                    : context_(context),
                       position_(position),
                       inv_mass_(inv_mass),
                       iterations_(iterations),
@@ -130,8 +130,8 @@ namespace SushiEngine
                 {
                     for (const std::vector<std::uint32_t>& batch : colors_)
                     {
-                        SushiRuntime::API::Buffer<Constraint> buffer =
-                            runtime.buffer<Constraint>(batch.size());
+                        Execution::Buffer<Constraint> buffer =
+                            context.allocate<Constraint>(batch.size());
                         for (std::size_t k = 0; k < batch.size(); ++k)
                             buffer[k] = constraints[batch[k]];
                         color_buffers_.push_back(std::move(buffer));
@@ -143,10 +143,10 @@ namespace SushiEngine
                  * @brief Runs the iteration sweeps once over the current positions.
                  * @return The run report for the solve.
                  */
-                SushiRuntime::RunReport solve()
+                Execution::RunReport solve()
                 {
                     if (!graph_ || graph_->size() == 0)
-                        return SushiRuntime::RunReport{};
+                        return Execution::RunReport{};
                     return graph_->run();
                 }
 
@@ -171,7 +171,11 @@ namespace SushiEngine
                 template <typename Projection>
                 void build_graph(Projection projection)
                 {
-                    graph_.emplace(runtime_.graph());
+                    graph_.emplace(context_.create_graph());
+
+                    Vector3* position = position_.data();
+                    const Scalar* inv_mass = inv_mass_.data();
+
                     for (std::size_t iteration = 0; iteration < iterations_; ++iteration)
                         for (std::size_t color = 0; color < color_buffers_.size(); ++color)
                         {
@@ -179,27 +183,37 @@ namespace SushiEngine
                             if (n == 0)
                                 continue;
 
-                            SushiRuntime::API::Buffer<Constraint>& batch = color_buffers_[color];
-                            graph_->add(
-                                SushiRuntime::Extent{n},
-                                SushiRuntime::InOut(position_),
-                                SushiRuntime::In(inv_mass_),
-                                SushiRuntime::In(batch),
-                                [projection](sycl::id<1> id, Vector3* position,
-                                             const Scalar* inv_mass, const Constraint* cons)
+                            Execution::Buffer<Constraint>& batch = color_buffers_[color];
+                            const Constraint* cons = batch.data();
+
+                            const Execution::ResourceAccess accesses[] = {
+                                {position_.interval(), Execution::AccessIntent::ComputeRead},
+                                {position_.interval(), Execution::AccessIntent::ComputeWrite},
+                                {inv_mass_.interval(), Execution::AccessIntent::ComputeRead},
+                                {batch.interval(), Execution::AccessIntent::ComputeRead}};
+
+                            Execution::NodeDescriptor node;
+                            node.name = "pgs_project";
+                            node.accesses = accesses;
+                            node.access_count = 4;
+                            node.capacity = n;
+
+                            graph_->add_parallel(
+                                node,
+                                [projection, position, inv_mass, cons](std::size_t i)
                                 {
-                                    projection(cons[id[0]], position, inv_mass);
+                                    projection(cons[i], position, inv_mass);
                                 });
                         }
                 }
 
-                SushiRuntime::API::Runtime& runtime_;
-                SushiRuntime::API::Buffer<Vector3>& position_;
-                SushiRuntime::API::Buffer<Scalar>& inv_mass_;
+                Execution::Context& context_;
+                Execution::Buffer<Vector3>& position_;
+                Execution::Buffer<Scalar>& inv_mass_;
                 std::size_t iterations_;
                 ColorBatches colors_;
-                std::vector<SushiRuntime::API::Buffer<Constraint>> color_buffers_;
-                std::optional<SushiRuntime::API::Graph> graph_;
+                std::vector<Execution::Buffer<Constraint>> color_buffers_;
+                std::optional<Execution::Graph> graph_;
         };
     } // namespace Physics
 } // namespace SushiEngine

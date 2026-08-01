@@ -52,7 +52,7 @@ namespace
 
 TEST(Unit_CommandBuffer, RecordedSpawnsAreDeferredUntilApply)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     CommandBuffer commands;
 
     commands.spawn(Tag{1});
@@ -71,7 +71,7 @@ TEST(Unit_CommandBuffer, RecordedSpawnsAreDeferredUntilApply)
 
 TEST(Unit_CommandBuffer, RecordedDestroyTakesEffectAtApply)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     const Entity e = world.spawn(Tag{42});
     CommandBuffer commands;
 
@@ -84,7 +84,7 @@ TEST(Unit_CommandBuffer, RecordedDestroyTakesEffectAtApply)
 
 TEST(Unit_CommandBuffer, DoubleDestroyIsHarmless)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     const Entity e = world.spawn(Tag{7});
     CommandBuffer commands;
 

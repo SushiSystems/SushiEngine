@@ -51,7 +51,7 @@ namespace
 
 TEST(Integration_AudioEcs, ExtractReadsListenerFacingAndListenerLocalEmitters)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
 
     // Listener at (10,0,0), identity orientation → world glTF facing (−Z forward, +Y up).
     world.spawn(Transform{Vector3{10, 0, 0}}, Orientation{}, AudioListener{});
@@ -76,7 +76,7 @@ TEST(Integration_AudioEcs, ExtractReadsListenerFacingAndListenerLocalEmitters)
 
 TEST(Integration_AudioEcs, ExtractPicksTheContainingReverbZoneAndLeavesTheWorldUnchanged)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     world.spawn(Transform{Vector3{0, 0, 0}}, Orientation{}, AudioListener{});
     const Entity emitter = world.spawn(Transform{Vector3{0, 0, -4}}, AudioEmitter{});
 
@@ -98,7 +98,7 @@ TEST(Integration_AudioEcs, ExtractPicksTheContainingReverbZoneAndLeavesTheWorldU
 
 TEST(Integration_AudioEcs, ExtractOutsideAnyZoneReportsNoReverb)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     world.spawn(Transform{Vector3{0, 0, 0}}, Orientation{}, AudioListener{});
 
     ReverbZone zone;
@@ -113,7 +113,7 @@ TEST(Integration_AudioEcs, ExtractOutsideAnyZoneReportsNoReverb)
 
 TEST(Integration_AudioEcs, ExtractDrivesAudioSceneVoicesAsEmittersMove)
 {
-    World world(Harness::shared_runtime(), 256);
+    World world(Harness::shared_context(), 256);
     world.spawn(Transform{Vector3{0, 0, 0}}, Orientation{}, AudioListener{});
     const Entity emitter = world.spawn(Transform{Vector3{0, 0, -3}}, AudioEmitter{});
 

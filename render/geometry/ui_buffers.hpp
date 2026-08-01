@@ -28,7 +28,7 @@
  * The overlay's geometry is rebuilt from scratch every frame on the host — a UI is a few
  * hundred quads, far below the point where keeping it resident and diffing it would pay.
  * The buffers themselves are per frame slot and only ever grow, the same arrangement
- * `ClothBuffers` uses for soft-body vertices and for the same reason: a frame in flight
+ * `DeformableBuffers` uses for soft-body vertices and for the same reason: a frame in flight
  * must not have its geometry rewritten underneath it.
  *
  * Rectangles and glyphs land in the *same* buffer with the same vertex format. A plain

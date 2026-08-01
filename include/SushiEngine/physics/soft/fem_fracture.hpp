@@ -33,23 +33,33 @@
  * how large the resulting pieces are, so a removal that would leave a sliver
  * below the minimum is skipped rather than performed and regretted.
  *
- * **What this file deliberately does not scope in yet.** §9.5's other
- * clause — "its shared vertices are duplicated along the crack surface,
- * splitting the topology" — is a harder problem than element removal: it
- * requires knowing which of a vertex's surviving incident elements belong on
- * *which side* of the crack, which in general needs face-adjacency data
- * (which element is across which of a tetrahedron's four faces) that
- * `FemTetrahedronT`'s flat vertex list does not carry. Until that adjacency
- * exists, a fracture that genuinely severs a body into two independently
- * falling pieces will still show the two pieces held together at whatever
- * vertices they happen to still share — correct removal, incomplete
- * separation. This is recorded here as a real, named gap rather than papered
- * over with an untested guess at the splitting rule, and
- * `FemFractureReport::fragment_count` is reported precisely so a caller can
- * see when a fracture produced more than one piece and still finds them
- * connected.
+ * **Vertex duplication along the crack (P6-G4).** §9.5's other clause — "its
+ * shared vertices are duplicated along the crack surface, splitting the
+ * topology" — needed to know which of a vertex's surviving incident elements
+ * belong on *which side* of the crack. That looked like it needed cooked
+ * face-adjacency data `FemTetrahedronT`'s flat vertex list does not carry, and
+ * was left open for exactly that reason. It does not: a vertex's *star* — the
+ * elements touching it — is small (a handful, not a mesh), and two elements in
+ * it are on the same side precisely when they share a **face through that
+ * vertex**, which is to say three vertices one of which is the vertex itself.
+ * Counting shared vertices between the members of one small star answers that
+ * directly, so the connected components of the star are computable from the
+ * vertex lists alone, at a cost proportional to the crack rather than to the
+ * body.
+ *
+ * Splitting is then: one particle per component beyond the first, each a copy
+ * of the original, with each component's elements repointed at its own copy.
+ * The copies start at the same position, so the split itself moves nothing —
+ * the pieces separate because nothing holds them together any more, which is
+ * what a crack is.
+ *
+ * **Only vertices of removed elements are considered.** A pristine mesh can
+ * legitimately contain a vertex whose star is disconnected, and splitting those
+ * would be this pass rewriting topology it was never asked about. The crack is
+ * where elements went away, so that is where it looks.
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -121,6 +131,50 @@ namespace SushiEngine
              * whatever vertices this report does not know to have split.
              */
             std::uint32_t fragment_count = 1;
+
+            /**
+             * @brief Particles added by splitting a vertex along the crack.
+             *
+             * Zero when a fracture removed elements but severed nothing that was
+             * still holding two pieces together — a corner chipped off a block
+             * removes elements and splits no vertex.
+             */
+            std::uint32_t vertices_duplicated = 0;
+        };
+
+        /**
+         * @brief What a fracture pass did to the indices its consumers hold.
+         *
+         * Fracture is the one operation in the soft-body system that invalidates
+         * *indices* rather than only values: elements go away and the ones after
+         * them shift down, and particles are added. Anything holding those indices
+         * — the render binding above all (§8.6 invariant 4) — needs to be told, and
+         * being told is cheaper and far safer than rediscovering it by comparing
+         * before and after.
+         */
+        struct FemFractureRemap
+        {
+            /** @brief What @ref element holds for an element that was removed. */
+            static constexpr std::uint32_t REMOVED = 0xFFFFFFFFu;
+
+            /**
+             * @brief Per original element index: where it is now, or @ref REMOVED.
+             *
+             * Sized to the element count *before* the pass, so a caller can map an
+             * index it captured before calling.
+             */
+            std::vector<std::uint32_t> element;
+
+            /**
+             * @brief Per particle added, the particle it was copied from.
+             *
+             * In creation order, so the particle added first is at
+             * `original_particle_count`, the next at `+ 1`, and so on.
+             */
+            std::vector<std::uint32_t> duplicated_from;
+
+            /** @brief How many particles the model had before the pass. */
+            std::uint32_t original_particle_count = 0;
         };
 
         namespace detail
@@ -195,7 +249,259 @@ namespace SushiEngine
                 }
                 return next_component;
             }
+
+            /**
+             * @brief How many vertices two elements have in common.
+             *
+             * Sixteen comparisons on four-element arrays, which beats building a
+             * set for a problem this size by more than it looks — a star has a
+             * handful of elements and this runs inside a pairwise sweep over it.
+             */
+            template <typename T>
+            inline int shared_vertex_count(const FemTetrahedronT<T>& a,
+                                           const FemTetrahedronT<T>& b) noexcept
+            {
+                int shared = 0;
+                for (int i = 0; i < 4; ++i)
+                    for (int j = 0; j < 4; ++j)
+                        if (a.vertex[i] == b.vertex[j])
+                        {
+                            ++shared;
+                            break;
+                        }
+                return shared;
+            }
+
+            /**
+             * @brief Whether two elements of one vertex's star lie on the same side of it.
+             *
+             * They do when they share a face containing the vertex — three common
+             * vertices, one of which is the one being asked about. Three common
+             * vertices in a tetrahedral mesh *is* a shared face, and requiring the
+             * vertex to be among them is what makes this a statement about the star
+             * rather than about the mesh: two elements can share a face that does
+             * not touch this vertex only by not touching this vertex at all, which
+             * the star excludes by construction.
+             */
+            template <typename T>
+            inline bool joined_through_vertex(const FemTetrahedronT<T>& a,
+                                              const FemTetrahedronT<T>& b) noexcept
+            {
+                return shared_vertex_count(a, b) >= 3;
+            }
         } // namespace detail
+
+        /**
+         * @brief Rebuilds a model's boundary from the elements it has left.
+         *
+         * A face named by exactly one element is on the boundary; a face named by
+         * two is interior. After a fracture the elements that used to cover a face
+         * may be gone, so the surface the body presents to §9.6's collision and to
+         * §8.6's binding is no longer the one it was cooked with — and a collision
+         * surface that still describes the body's shape before it broke is worse
+         * than none, because it is confidently wrong.
+         *
+         * Faces are emitted in the winding a positive-rest-volume tetrahedron
+         * implies, so the boundary comes out consistently outward-facing without
+         * consulting a single position.
+         *
+         * @param model The body; its `surface_indices` and `surface_vertices` are replaced.
+         */
+        template <typename T>
+        inline void rebuild_soft_body_surface(FiniteElementModel<T>& model)
+        {
+            // The four faces of (v0, v1, v2, v3), each wound so its normal points
+            // away from the vertex it omits.
+            static const int FACE[4][3] = {{1, 2, 3}, {0, 3, 2}, {0, 1, 3}, {0, 2, 1}};
+
+            struct Face
+            {
+                std::uint32_t sorted[3];
+                std::uint32_t wound[3];
+
+                bool operator<(const Face& other) const noexcept
+                {
+                    for (int i = 0; i < 3; ++i)
+                        if (sorted[i] != other.sorted[i])
+                            return sorted[i] < other.sorted[i];
+                    return false;
+                }
+                bool same_face(const Face& other) const noexcept
+                {
+                    return sorted[0] == other.sorted[0] && sorted[1] == other.sorted[1] &&
+                           sorted[2] == other.sorted[2];
+                }
+            };
+
+            std::vector<Face> faces;
+            faces.reserve(model.elements.size() * 4);
+            for (const FemTetrahedronT<T>& element : model.elements)
+                for (int f = 0; f < 4; ++f)
+                {
+                    Face face;
+                    for (int i = 0; i < 3; ++i)
+                        face.wound[i] = element.vertex[FACE[f][i]];
+                    face.sorted[0] = face.wound[0];
+                    face.sorted[1] = face.wound[1];
+                    face.sorted[2] = face.wound[2];
+                    // Three values sorted by three comparisons; std::sort on three
+                    // elements is all overhead.
+                    if (face.sorted[0] > face.sorted[1])
+                        std::swap(face.sorted[0], face.sorted[1]);
+                    if (face.sorted[1] > face.sorted[2])
+                        std::swap(face.sorted[1], face.sorted[2]);
+                    if (face.sorted[0] > face.sorted[1])
+                        std::swap(face.sorted[0], face.sorted[1]);
+                    faces.push_back(face);
+                }
+
+            std::sort(faces.begin(), faces.end());
+
+            model.surface_indices.clear();
+            for (std::size_t i = 0; i < faces.size();)
+            {
+                std::size_t j = i + 1;
+                while (j < faces.size() && faces[j].same_face(faces[i]))
+                    ++j;
+                if (j - i == 1)
+                    for (int k = 0; k < 3; ++k)
+                        model.surface_indices.push_back(faces[i].wound[k]);
+                i = j;
+            }
+
+            // Ascending and unique by construction, which is the order §9.6's
+            // tests are required to walk it in (§12.1).
+            std::vector<bool> on_surface(model.particles.size(), false);
+            for (const std::uint32_t index : model.surface_indices)
+                if (index < model.particles.size())
+                    on_surface[index] = true;
+            model.surface_vertices.clear();
+            for (std::uint32_t i = 0; i < model.particles.size(); ++i)
+                if (on_surface[i])
+                    model.surface_vertices.push_back(i);
+        }
+
+        /**
+         * @brief Duplicates every vertex a removal left holding two pieces together.
+         *
+         * For each vertex of a removed element, the surviving elements that still
+         * touch it are grouped into face-connected components; every component past
+         * the first gets its own copy of the particle and has its elements repointed
+         * at it.
+         *
+         * **The copies share the original's position and velocity**, so the split
+         * changes nothing about where the body is on the tick it happens — the
+         * pieces drift apart over the following ticks because nothing constrains
+         * them to each other any more, which is the only way a crack can open
+         * without a visible jump.
+         *
+         * **Mass is divided, not copied.** Each component takes the share of the
+         * original's mass that its element count represents, so a vertex split three
+         * ways does not triple the body's weight. A pinned vertex (`inv_mass` zero)
+         * stays pinned in every copy: it is held by the world, and the world does
+         * not divide.
+         *
+         * @param model    The body; `particles` grows.
+         * @param removed  The elements that were removed, whose vertices are the crack.
+         * @param remap    Receives one entry per particle added.
+         * @return How many particles were added.
+         */
+        template <typename T>
+        inline std::uint32_t split_fractured_vertices(
+            FiniteElementModel<T>& model, const std::vector<FemTetrahedronT<T>>& removed,
+            FemFractureRemap& remap)
+        {
+            std::vector<std::uint32_t> crack_vertices;
+            crack_vertices.reserve(removed.size() * 4);
+            for (const FemTetrahedronT<T>& element : removed)
+                for (int i = 0; i < 4; ++i)
+                    crack_vertices.push_back(element.vertex[i]);
+            std::sort(crack_vertices.begin(), crack_vertices.end());
+            crack_vertices.erase(std::unique(crack_vertices.begin(), crack_vertices.end()),
+                                 crack_vertices.end());
+
+            std::uint32_t added = 0;
+            std::vector<std::uint32_t> star;
+            std::vector<std::uint32_t> component;
+            for (const std::uint32_t vertex : crack_vertices)
+            {
+                if (vertex >= model.particles.size())
+                    continue;
+
+                star.clear();
+                for (std::uint32_t e = 0; e < model.elements.size(); ++e)
+                    for (int i = 0; i < 4; ++i)
+                        if (model.elements[e].vertex[i] == vertex)
+                        {
+                            star.push_back(e);
+                            break;
+                        }
+                if (star.size() < 2)
+                    continue;
+
+                // Connected components of the star under face-sharing, by flooding
+                // from each unassigned member. The star is small enough that the
+                // quadratic sweep this implies is cheaper than any index built to
+                // avoid it.
+                component.assign(star.size(), 0xFFFFFFFFu);
+                std::uint32_t component_count = 0;
+                std::vector<std::uint32_t> frontier;
+                for (std::size_t seed = 0; seed < star.size(); ++seed)
+                {
+                    if (component[seed] != 0xFFFFFFFFu)
+                        continue;
+                    const std::uint32_t label = component_count++;
+                    component[seed] = label;
+                    frontier.clear();
+                    frontier.push_back(std::uint32_t(seed));
+                    while (!frontier.empty())
+                    {
+                        const std::uint32_t current = frontier.back();
+                        frontier.pop_back();
+                        for (std::size_t other = 0; other < star.size(); ++other)
+                        {
+                            if (component[other] != 0xFFFFFFFFu)
+                                continue;
+                            if (!detail::joined_through_vertex(model.elements[star[current]],
+                                                               model.elements[star[other]]))
+                                continue;
+                            component[other] = label;
+                            frontier.push_back(std::uint32_t(other));
+                        }
+                    }
+                }
+                if (component_count < 2)
+                    continue; // still one piece here: nothing to split
+
+                std::vector<std::uint32_t> component_size(component_count, 0);
+                for (const std::uint32_t label : component)
+                    ++component_size[label];
+
+                const T inverse_mass = model.particles[vertex].inv_mass;
+                const T star_size = T(star.size());
+                for (std::uint32_t label = 0; label < component_count; ++label)
+                {
+                    const T share = T(component_size[label]) / star_size;
+                    // Component zero keeps the original particle; the rest get copies.
+                    std::uint32_t target = vertex;
+                    if (label > 0)
+                    {
+                        target = std::uint32_t(model.particles.size());
+                        model.particles.push_back(model.particles[vertex]);
+                        remap.duplicated_from.push_back(vertex);
+                        ++added;
+                        for (std::size_t s = 0; s < star.size(); ++s)
+                            if (component[s] == label)
+                                for (int i = 0; i < 4; ++i)
+                                    if (model.elements[star[s]].vertex[i] == vertex)
+                                        model.elements[star[s]].vertex[i] = target;
+                    }
+                    if (inverse_mass > T(0))
+                        model.particles[target].inv_mass = inverse_mass / share;
+                }
+            }
+            return added;
+        }
 
         /**
          * @brief Removes every element over `fracture_stress` this tick allows,
@@ -213,14 +519,32 @@ namespace SushiEngine
          *                           model has ever lost to fracture; updated
          *                           in place so the scene-level cap can be
          *                           enforced across many calls.
+         * @param remap              Optional; receives the element and particle
+         *                           index changes so a render binding can follow
+         *                           (§8.6 invariant 4). Null when the caller has
+         *                           nothing bound to the body.
          * @return A report of what happened.
+         *
+         * Not `noexcept`: this builds several vectors, and one that promised
+         * otherwise would turn an allocation failure into a termination. (It
+         * always did build them — the promise was wrong before the vertex
+         * splitting below was added, not because of it.)
          */
         template <typename T>
         inline FemFractureReport apply_fem_fracture(FiniteElementModel<T>& model,
-                                                     const FemFractureBudget& budget,
-                                                     std::uint32_t& total_fractured_so_far) noexcept
+                                                    const FemFractureBudget& budget,
+                                                    std::uint32_t& total_fractured_so_far,
+                                                    FemFractureRemap* remap = nullptr)
         {
             FemFractureReport report;
+            if (remap != nullptr)
+            {
+                remap->element.assign(model.elements.size(), 0);
+                for (std::uint32_t i = 0; i < model.elements.size(); ++i)
+                    remap->element[i] = i;
+                remap->duplicated_from.clear();
+                remap->original_particle_count = std::uint32_t(model.particles.size());
+            }
             if (model.material.fracture_stress <= T(0))
                 return report; // this material never fractures
 
@@ -283,11 +607,33 @@ namespace SushiEngine
             {
                 std::vector<FemTetrahedronT<T>> surviving;
                 surviving.reserve(model.elements.size() - report.elements_removed);
+                std::vector<FemTetrahedronT<T>> removed;
+                removed.reserve(report.elements_removed);
                 for (std::size_t i = 0; i < model.elements.size(); ++i)
-                    if (!marked_for_removal[i])
-                        surviving.push_back(model.elements[i]);
+                {
+                    if (marked_for_removal[i])
+                    {
+                        removed.push_back(model.elements[i]);
+                        if (remap != nullptr)
+                            remap->element[i] = FemFractureRemap::REMOVED;
+                        continue;
+                    }
+                    if (remap != nullptr)
+                        remap->element[i] = std::uint32_t(surviving.size());
+                    surviving.push_back(model.elements[i]);
+                }
                 model.elements = std::move(surviving);
                 total_fractured_so_far += report.elements_removed;
+
+                // The order here is the only one that works. Splitting rewrites
+                // element vertex indices, so the surface has to be rebuilt after
+                // it — a boundary computed first would name particles that the
+                // split then moved elements away from, and the body would collide
+                // against the shape it had before it broke.
+                FemFractureRemap discard;
+                report.vertices_duplicated =
+                    split_fractured_vertices(model, removed, remap != nullptr ? *remap : discard);
+                rebuild_soft_body_surface(model);
             }
 
             // Every candidate that did not end up removed was skipped, for

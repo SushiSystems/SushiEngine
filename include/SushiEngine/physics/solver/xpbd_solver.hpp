@@ -29,7 +29,7 @@
 
 #include <sycl/sycl.hpp>
 
-#include <SushiRuntime/SushiRuntime.h>
+#include <SushiEngine/execution/context.hpp>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/solver/graph_coloring.hpp>
@@ -74,12 +74,12 @@ namespace SushiEngine
                  * @param projection  The per-constraint projection to apply.
                  */
                 template <typename Projection>
-                XpbdSolver(SushiRuntime::API::Runtime& runtime,
-                          SushiRuntime::API::Buffer<RigidBodyT<Real>>& bodies,
-                          const std::vector<Constraint>& constraints,
-                          std::size_t body_count, std::size_t iterations, Real h,
-                          Projection projection)
-                    : runtime_(runtime),
+                XpbdSolver(Execution::Context& context,
+                           Execution::Buffer<RigidBodyT<Real>>& bodies,
+                           const std::vector<Constraint>& constraints,
+                           std::size_t body_count, std::size_t iterations, Real h,
+                           Projection projection)
+                    : context_(context),
                       bodies_(bodies),
                       iterations_(iterations),
                       h_(h),
@@ -87,10 +87,10 @@ namespace SushiEngine
                 {
                     for (const std::vector<std::uint32_t>& batch : colors_)
                     {
-                        SushiRuntime::API::Buffer<Constraint> constraint_buffer =
-                            runtime.buffer<Constraint>(batch.size());
-                        SushiRuntime::API::Buffer<Real> lambda_buffer =
-                            runtime.buffer<Real>(batch.size());
+                        Execution::Buffer<Constraint> constraint_buffer =
+                            context.allocate<Constraint>(batch.size());
+                        Execution::Buffer<Real> lambda_buffer =
+                            context.allocate<Real>(batch.size());
                         for (std::size_t k = 0; k < batch.size(); ++k)
                         {
                             constraint_buffer[k] = constraints[batch[k]];
@@ -111,14 +111,14 @@ namespace SushiEngine
                  *
                  * @return The run report for the solve.
                  */
-                SushiRuntime::RunReport solve()
+                Execution::RunReport solve()
                 {
-                    for (SushiRuntime::API::Buffer<Real>& lambda_buffer : lambda_buffers_)
+                    for (Execution::Buffer<Real>& lambda_buffer : lambda_buffers_)
                         for (std::size_t k = 0; k < lambda_buffer.size(); ++k)
                             lambda_buffer[k] = Real(0);
 
                     if (!graph_ || graph_->size() == 0)
-                        return SushiRuntime::RunReport{};
+                        return Execution::RunReport{};
                     return graph_->run();
                 }
 
@@ -143,7 +143,10 @@ namespace SushiEngine
                 template <typename Projection>
                 void build_graph(Projection projection)
                 {
-                    graph_.emplace(runtime_.graph());
+                    graph_.emplace(context_.create_graph());
+
+                    RigidBodyT<Real>* bodies = bodies_.data();
+
                     for (std::size_t iteration = 0; iteration < iterations_; ++iteration)
                         for (std::size_t color = 0; color < constraint_buffers_.size(); ++color)
                         {
@@ -151,30 +154,42 @@ namespace SushiEngine
                             if (n == 0)
                                 continue;
 
-                            SushiRuntime::API::Buffer<Constraint>& cbuf = constraint_buffers_[color];
-                            SushiRuntime::API::Buffer<Real>& lbuf = lambda_buffers_[color];
+                            Execution::Buffer<Constraint>& cbuf = constraint_buffers_[color];
+                            Execution::Buffer<Real>& lbuf = lambda_buffers_[color];
+                            const Constraint* cons = cbuf.data();
+                            Real* lambda = lbuf.data();
                             const Real h = h_;
-                            graph_->add(
-                                SushiRuntime::Extent{n},
-                                SushiRuntime::InOut(bodies_),
-                                SushiRuntime::In(cbuf),
-                                SushiRuntime::InOut(lbuf),
-                                [projection, h](sycl::id<1> id, RigidBodyT<Real>* bodies,
-                                                const Constraint* cons, Real* lambda)
+
+                            const Execution::ResourceAccess accesses[] = {
+                                {bodies_.interval(), Execution::AccessIntent::ComputeRead},
+                                {bodies_.interval(), Execution::AccessIntent::ComputeWrite},
+                                {cbuf.interval(), Execution::AccessIntent::ComputeRead},
+                                {lbuf.interval(), Execution::AccessIntent::ComputeRead},
+                                {lbuf.interval(), Execution::AccessIntent::ComputeWrite}};
+
+                            Execution::NodeDescriptor node;
+                            node.name = "xpbd_project";
+                            node.accesses = accesses;
+                            node.access_count = 5;
+                            node.capacity = n;
+
+                            graph_->add_parallel(
+                                node,
+                                [projection, h, bodies, cons, lambda](std::size_t i)
                                 {
-                                    projection(cons[id[0]], bodies, lambda[id[0]], h);
+                                    projection(cons[i], bodies, lambda[i], h);
                                 });
                         }
                 }
 
-                SushiRuntime::API::Runtime& runtime_;
-                SushiRuntime::API::Buffer<RigidBodyT<Real>>& bodies_;
+                Execution::Context& context_;
+                Execution::Buffer<RigidBodyT<Real>>& bodies_;
                 std::size_t iterations_;
                 Real h_;
                 ColorBatches colors_;
-                std::vector<SushiRuntime::API::Buffer<Constraint>> constraint_buffers_;
-                std::vector<SushiRuntime::API::Buffer<Real>> lambda_buffers_;
-                std::optional<SushiRuntime::API::Graph> graph_;
+                std::vector<Execution::Buffer<Constraint>> constraint_buffers_;
+                std::vector<Execution::Buffer<Real>> lambda_buffers_;
+                std::optional<Execution::Graph> graph_;
         };
     } // namespace Physics
 } // namespace SushiEngine

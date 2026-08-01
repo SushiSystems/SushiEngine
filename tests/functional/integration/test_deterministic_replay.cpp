@@ -66,10 +66,10 @@ namespace
 
     // Runs a full, independent simulation: fresh world, fresh RngState seeds, the
     // same recorded input stream, and returns the final Position of every entity.
-    std::vector<Vector3> run(SushiRuntime::API::Runtime& runtime,
-                           const Loop::InputHistory<Scalar>& input)
+    std::vector<Vector3> run(Execution::Context& execution,
+                             const Loop::InputHistory<Scalar>& input)
     {
-        World world(runtime, CAPACITY);
+        World world(execution, CAPACITY);
         world.reserve<Position, Random>(CAPACITY);
 
         std::vector<Entity> entities;
@@ -116,8 +116,8 @@ TEST(Integration_DeterministicReplay, SameInputStreamProducesSameWorldState)
     for (Loop::TickId tick = 0; tick < TICKS; ++tick)
         input.record(tick, Scalar(Loop::next_unit(input_rng)) - Scalar(0.5));
 
-    const std::vector<Vector3> first = run(Harness::shared_runtime(), input);
-    const std::vector<Vector3> second = run(Harness::shared_runtime(), input);
+    const std::vector<Vector3> first = run(Harness::shared_context(), input);
+    const std::vector<Vector3> second = run(Harness::shared_context(), input);
 
     ASSERT_EQ(first.size(), second.size());
     for (std::size_t i = 0; i < first.size(); ++i)

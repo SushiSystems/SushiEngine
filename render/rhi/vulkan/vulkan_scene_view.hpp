@@ -51,7 +51,7 @@
 
 #include "frame/frame_context.hpp"
 #include "frame/resolution_controller.hpp"
-#include "geometry/cloth_buffers.hpp"
+#include "geometry/deformable_buffers.hpp"
 #include "geometry/ui_buffers.hpp"
 #include "material/font_atlas.hpp"
 #include "graph/gpu_profiler.hpp"
@@ -70,7 +70,7 @@
 #include "passes/cloud_taa_pass.hpp"
 #include "passes/cloudscape_compile_pass.hpp"
 #include "passes/weather_field_pass.hpp"
-#include "passes/cloth_pass.hpp"
+#include "passes/deformable_pass.hpp"
 #include "passes/contact_shadow_pass.hpp"
 #include "passes/cull_pass.hpp"
 #include "passes/depth_prepass.hpp"
@@ -153,8 +153,8 @@ namespace SushiEngine
                     void render(const CameraView& camera, const Environment& environment,
                                 const MeshInstance* instances, std::size_t count,
                                 std::uint32_t selected_id,
-                                const ClothStrandView* strands = nullptr,
-                                std::size_t strand_count = 0,
+                                const DeformableMeshView* deformable = nullptr,
+                                std::size_t deformable_count = 0,
                                 const PunctualLight* lights = nullptr,
                                 std::size_t light_count = 0,
                                 const Decal* decals = nullptr,
@@ -205,7 +205,7 @@ namespace SushiEngine
                     VulkanDevice& device_;
                     Assets::AssetLibrary& assets_;
                     Resources::DescriptorAllocator descriptors_;
-                    Geometry::ClothBuffers cloth_;
+                    Geometry::DeformableBuffers deformable_;
                     Assets::MaterialSystem materials_;
                     Scene::MotionSystem motion_;
                     /**
@@ -253,7 +253,7 @@ namespace SushiEngine
                     Passes::HizPass hiz_pass_;
                     Passes::OcclusionPass occlusion_pass_;
                     Passes::CullPass cull_pass_;
-                    Passes::ClothPass cloth_pass_;
+                    Passes::DeformablePass deformable_pass_;
                     Passes::SkinningPass skinning_pass_;
                     Passes::ParticleSimPass particle_sim_pass_;
                     Passes::ParticleSortPass particle_sort_pass_;

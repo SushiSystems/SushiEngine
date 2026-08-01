@@ -63,6 +63,7 @@
 #include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/soft/fem_projection.hpp>
 #include <SushiEngine/physics/solver/constraint_store.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
 #include <SushiEngine/physics/solver/contact_store.hpp>
@@ -90,6 +91,9 @@ namespace SushiEngine
                 /** @brief The articulated persistent kind this solver admits. */
                 using Joint = JointConstraintT<T>;
 
+                /** @brief The deformable persistent kind this solver admits (§9.1). */
+                using Element = FemTetrahedronT<T>;
+
                 /**
                  * @brief Creates a solver sized by @p configuration.
                  *
@@ -109,12 +113,17 @@ namespace SushiEngine
                       joints_store_(constraints_store_.shared_coloring(),
                                     configuration.capacities.joints,
                                     configuration.capacities.colors),
+                      elements_store_(constraints_store_.shared_coloring(),
+                                      configuration.capacities.elements,
+                                      configuration.capacities.colors),
                       contacts_store_(configuration.capacities.bodies,
                                       configuration.capacities.contacts,
                                       configuration.capacities.colors),
                       constraints_(constraints_store_.band_capacity() *
                                    constraints_store_.color_count()),
                       joints_(joints_store_.band_capacity() * joints_store_.color_count()),
+                      elements_(elements_store_.band_capacity() *
+                                elements_store_.color_count()),
                       contacts_(contacts_store_.capacity()),
                       bodies_(configuration.capacities.bodies)
                 {
@@ -149,6 +158,7 @@ namespace SushiEngine
                         return false;
                     remove_constraints_touching(handle.index);
                     remove_joints_touching(handle.index);
+                    remove_elements_touching(handle.index);
 
                     RigidBodyT<T> retired;
                     retired.flags = BodyFlags::static_body;
@@ -184,6 +194,60 @@ namespace SushiEngine
                     if (removal.slot != removal.moved_from)
                         constraints_[removal.slot] = constraints_[removal.moved_from];
                     return true;
+                }
+
+                /** @copydoc IConstraintSolver::add_element */
+                ConstraintHandle add_element(const Element& element) override
+                {
+                    const ConstraintPlacement placement =
+                        elements_store_.place_bodies(element.vertex, 4);
+                    if (!placement.handle.valid())
+                    {
+                        ++statistics_.capacity_overflows;
+                        return placement.handle;
+                    }
+                    elements_[placement.slot] = element;
+                    return placement.handle;
+                }
+
+                /** @copydoc IConstraintSolver::remove_element */
+                bool remove_element(ConstraintHandle handle) override
+                {
+                    const std::size_t slot = elements_store_.slot_of(handle);
+                    if (slot >= elements_.size())
+                        return false;
+                    const Element removed = elements_[slot];
+                    const ConstraintRemoval removal =
+                        elements_store_.remove_bodies(handle, removed.vertex, 4);
+                    if (!removal.removed)
+                        return false;
+                    if (removal.slot != removal.moved_from)
+                        elements_[removal.slot] = elements_[removal.moved_from];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::read_element */
+                bool read_element(ConstraintHandle handle, Element& element) const override
+                {
+                    if (!elements_store_.alive(handle))
+                        return false;
+                    const std::size_t slot = elements_store_.slot_of(handle);
+                    if (slot >= elements_.size())
+                        return false;
+                    element = elements_[slot];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::element_capacity */
+                std::size_t element_capacity() const noexcept override
+                {
+                    return elements_store_.capacity();
+                }
+
+                /** @brief Live elements in colour @p color. */
+                std::size_t element_color_size(std::size_t color) const noexcept
+                {
+                    return elements_store_.band_size(color);
                 }
 
                 /** @copydoc IConstraintSolver::add_joint */
@@ -384,6 +448,27 @@ namespace SushiEngine
                             }
                         }
 
+                        // The elements, after the distance lattice and before the
+                        // joints. Both are constitutive — they say what the material
+                        // *is* — so they belong together and ahead of the articulation
+                        // that hangs off it. Deviatoric then hydrostatic, per element,
+                        // in slot order: the same sweep `FiniteElementModel` runs, and
+                        // the reason a soft body solved here and solved there converge
+                        // to the same shape.
+                        for_each_element([&](Element& element)
+                                         {
+                                             // Reset per substep, not per tick: one
+                                             // iteration per substep is XPBD's
+                                             // small-step arrangement, so nothing may
+                                             // carry across — the same rule the
+                                             // distance kind expresses by starting its
+                                             // multiplier at zero every time.
+                                             element.deviatoric_lambda = 0;
+                                             element.hydrostatic_lambda = 0;
+                                             project_fem_deviatoric(bodies_.data(), element, h);
+                                             project_fem_hydrostatic(bodies_.data(), element, h);
+                                         });
+
                         // After the distance constraints and before the contacts: a
                         // joint is a structural constraint and a contact is a reactive
                         // one, so the assembly is assembled before it is pushed on.
@@ -520,6 +605,53 @@ namespace SushiEngine
                     }
                 }
 
+                /**
+                 * @brief Applies @p visit to every live element, in solve order.
+                 *
+                 * @param visit A callable taking `Element&`.
+                 */
+                template <typename Visit>
+                void for_each_element(Visit visit)
+                {
+                    for (std::size_t color = 0; color < elements_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = elements_store_.band_base(color);
+                        const std::size_t live = elements_store_.band_size(color);
+                        for (std::size_t offset = 0; offset < live; ++offset)
+                            visit(elements_[base + offset]);
+                    }
+                }
+
+                /**
+                 * @brief Removes every live element naming body slot @p body.
+                 *
+                 * All four vertices are tested, not two. That is the whole of P6-J1
+                 * restated at the removal end: an element left naming a freed slot would
+                 * act on whichever particle claims it next, and testing only `vertex[0]`
+                 * and `vertex[1]` would leave three quarters of them behind.
+                 */
+                void remove_elements_touching(std::uint32_t body)
+                {
+                    for (std::size_t color = 0; color < elements_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = elements_store_.band_base(color);
+                        std::size_t offset = elements_store_.band_size(color);
+                        while (offset > 0)
+                        {
+                            --offset;
+                            const std::size_t slot = base + offset;
+                            const Element& element = elements_[slot];
+                            if (element.vertex[0] != body && element.vertex[1] != body &&
+                                element.vertex[2] != body && element.vertex[3] != body)
+                                continue;
+                            const ConstraintRemoval removal = elements_store_.remove_bodies(
+                                elements_store_.handle_at(slot), element.vertex, 4);
+                            if (removal.removed && removal.slot != removal.moved_from)
+                                elements_[removal.slot] = elements_[removal.moved_from];
+                        }
+                    }
+                }
+
                 /** @brief Removes every live joint naming body slot @p body. */
                 void remove_joints_touching(std::uint32_t body)
                 {
@@ -623,8 +755,9 @@ namespace SushiEngine
                 {
                     statistics_.awake_bodies = body_slots_.live_count();
                     statistics_.joints = joints_store_.live_count();
-                    statistics_.constraints =
-                        constraints_store_.live_count() + statistics_.joints;
+                    statistics_.elements = elements_store_.live_count();
+                    statistics_.constraints = constraints_store_.live_count() +
+                                              statistics_.joints + statistics_.elements;
                     statistics_.colors = constraints_store_.colors_used();
                     statistics_.substeps = live_substeps_;
 
@@ -659,9 +792,14 @@ namespace SushiEngine
                 // kinds colour over their union (§6.3). Declared after it because the
                 // sharing is a reference taken at construction.
                 ConstraintStore joints_store_;
+                // The four-body kind, colouring into the same union for the same
+                // reason: an element and a distance constraint that share a particle
+                // must not share a colour.
+                ConstraintStore elements_store_;
                 ContactStore contacts_store_;
                 std::vector<Constraint> constraints_;
                 std::vector<Joint> joints_;
+                std::vector<Element> elements_;
                 std::vector<Contact> contacts_;
                 std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> bodies_;

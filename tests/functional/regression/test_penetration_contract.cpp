@@ -106,7 +106,7 @@ namespace
 // half of §7.6's contract.
 TEST(Regression_PenetrationContract, StackedCratesRestWithinTolerance)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     constexpr int CRATE_COUNT = 3;
     std::vector<RigidBodyDesc> bodies;
@@ -153,7 +153,7 @@ TEST(Regression_PenetrationContract, FastSphereDoesNotTunnelThroughAThinPlate)
     {
         SCOPED_TRACE("target speed " + std::to_string(double(target_speed)) + " m/s");
 
-        auto physics = create_physics_simulation(Harness::shared_runtime());
+        auto physics = create_physics_simulation(Harness::shared_context());
 
         RigidBodyDesc plate;
         plate.id = 1;

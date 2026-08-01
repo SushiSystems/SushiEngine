@@ -54,7 +54,7 @@ namespace
 
 TEST(Integration_Cloth, GridTopologyHasExpectedBodyAndConstraintCounts)
 {
-    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_runtime());
+    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_context());
     const ClothGrid grid =
         build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));
 
@@ -74,7 +74,7 @@ TEST(Integration_Cloth, GridTopologyHasExpectedBodyAndConstraintCounts)
 
 TEST(Integration_Cloth, PinnedTopRowNeverMovesWhileGridHangs)
 {
-    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_runtime());
+    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_context());
     const ClothGrid grid =
         build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));
     world.finalize(ITERATIONS, SUBSTEP_DT, XpbdDistanceProjection{});

@@ -46,6 +46,8 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/physics/collision/manifold.hpp>
+#include <SushiEngine/physics/soft/fem_projection.hpp>
+#include <SushiEngine/physics/soft/soft_body_material.hpp>
 #include <SushiEngine/physics/solver/host_solver.hpp>
 #include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
 
@@ -61,6 +63,9 @@ namespace
         configuration.capacities.bodies = 64;
         configuration.capacities.constraints = 256;
         configuration.capacities.contacts = 256;
+        // Opt-in in the engine, always on here: a conformance scene that could not
+        // hold an element would let the four-body kind go untested by omission.
+        configuration.capacities.elements = 256;
         configuration.capacities.colors = 8;
         configuration.substeps.minimum = 4;
         configuration.substeps.maximum = 16;
@@ -76,10 +81,11 @@ namespace
     struct RuntimeBackedSolver
     {
         SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
+        Execution::Context execution{runtime};
         std::unique_ptr<RuntimeGraphBuilder<Scalar>> solver;
 
         explicit RuntimeBackedSolver(const PhysicsConfiguration& configuration)
-            : solver(new RuntimeGraphBuilder<Scalar>(runtime, configuration))
+            : solver(new RuntimeGraphBuilder<Scalar>(execution, configuration))
         {
         }
 
@@ -127,6 +133,55 @@ namespace
         constraint.local_anchor_a = anchor_a;
         constraint.local_anchor_b = anchor_b;
         return constraint;
+    }
+
+    /**
+     * @brief A tetrahedron over four body slots, cooked from its own rest positions.
+     *
+     * The rest-state inverse and the rest volume are what `cooking/tetrahedral_mesh.hpp`
+     * would bake; computing them here from the rest corners keeps the scene readable and
+     * keeps the test on the solver rather than on the cooker.
+     *
+     * @param v        The four body slot indices, in the tetrahedron's own winding.
+     * @param rest     Those four bodies' rest positions.
+     * @param material The constitutive parameters; its Lame pair is carried per element.
+     */
+    FemTetrahedron tetrahedron(const std::uint32_t v[4], const Vector3 rest[4],
+                               const SoftBodyMaterial& material)
+    {
+        FemTetrahedron element;
+        for (int i = 0; i < 4; ++i)
+            element.vertex[i] = v[i];
+
+        FemMatrix3<Scalar> rest_shape;
+        rest_shape.column0 = rest[1] - rest[0];
+        rest_shape.column1 = rest[2] - rest[0];
+        rest_shape.column2 = rest[3] - rest[0];
+
+        FemMatrix3<Scalar> inverse;
+        invert_fem_matrix3(rest_shape, inverse);
+        element.rest_inverse_column_0 = inverse.column0;
+        element.rest_inverse_column_1 = inverse.column1;
+        element.rest_inverse_column_2 = inverse.column2;
+        element.plastic_inverse_column_0 = inverse.column0;
+        element.plastic_inverse_column_1 = inverse.column1;
+        element.plastic_inverse_column_2 = inverse.column2;
+
+        element.rest_volume = std::abs(determinant(rest_shape)) / Scalar(6);
+
+        const LameParameters<Scalar> lame = lame_parameters(material);
+        element.mu = lame.mu;
+        element.lambda = lame.lambda;
+        return element;
+    }
+
+    /** @brief A soft material soft enough that one tick visibly deforms it. */
+    SoftBodyMaterial rubber()
+    {
+        SoftBodyMaterial material;
+        material.young_modulus = Scalar(5e5);
+        material.poisson_ratio = Scalar(0.35);
+        return material;
     }
 
     /**
@@ -954,4 +1009,217 @@ TEST(Integration_SolverConformance, AChangingContactCountNeverRecomposes)
     EXPECT_EQ((*runtime).statistics().manifolds, 0u);
     EXPECT_EQ((*runtime).statistics().compile_count, 1u)
         << "a tick whose contact count changed recompiled the graph";
+}
+
+// ---------------------------------------------------------------------------
+// P6-J2: the FEM element as a constraint kind, on both implementations.
+//
+// The four-body kind, and the reason the colouring and the store were generalized
+// past two endpoints in P6-J1. These sit here rather than beside the element's own
+// unit tests because what is being checked is not the projection -- that has its own
+// tests -- but that a tetrahedron scheduled by the graph and a tetrahedron swept on
+// the host arrive at the same shape.
+// ---------------------------------------------------------------------------
+
+TEST(Integration_SolverConformance, ASingleTetrahedronAgrees)
+{
+    // One element, one pinned corner. The simplest scene in which the deviatoric and
+    // hydrostatic projections both do work: gravity pulls three corners down and away
+    // from the fourth, so the element is sheared and stretched at once.
+    StepParameters<Scalar> parameters;
+    expect_solvers_agree(30, parameters, [](IConstraintSolver<Scalar>& solver)
+    {
+        const Vector3 rest[4] = {Vector3{0, Scalar(5), 0}, Vector3{1, Scalar(5), 0},
+                                 Vector3{0, Scalar(5), 1}, Vector3{0, Scalar(6), 0}};
+
+        std::vector<BodyHandle> handles;
+        for (const Vector3& corner : rest)
+            handles.push_back(solver.add_body(point_body(corner)));
+
+        // The first corner is pinned, so the element hangs and deforms instead of
+        // falling as a rigid group -- which would exercise predict and nothing else.
+        RigidBody anchor = point_body(rest[0]);
+        anchor.inv_mass = 0;
+        solver.write_body(handles[0], anchor);
+
+        std::uint32_t slots[4];
+        for (int i = 0; i < 4; ++i)
+            slots[i] = std::uint32_t(solver.body_slot(handles[i]));
+        solver.add_element(tetrahedron(slots, rest, rubber()));
+        return handles;
+    });
+}
+
+TEST(Integration_SolverConformance, ATetrahedralLatticeAgreesAcrossEveryColour)
+{
+    // Elements sharing particles, which is what forces more than one colour and makes
+    // the order the colours are applied in part of the answer. A strip of tetrahedra
+    // each sharing a face with the next shares particles in *every* slot, including
+    // the two an a/b reading would never look at.
+    StepParameters<Scalar> parameters;
+    expect_solvers_agree(24, parameters, [](IConstraintSolver<Scalar>& solver)
+    {
+        // A column of points; each consecutive four of them is a tetrahedron, so
+        // element k and element k+1 share three particles.
+        std::vector<Vector3> rest;
+        for (int i = 0; i < 10; ++i)
+            rest.push_back(Vector3{Scalar(i % 2) * Scalar(0.6), Scalar(5) + Scalar(i) * Scalar(0.5),
+                                   Scalar((i / 2) % 2) * Scalar(0.6)});
+
+        std::vector<BodyHandle> handles;
+        for (const Vector3& corner : rest)
+            handles.push_back(solver.add_body(point_body(corner)));
+
+        RigidBody anchor = point_body(rest[0]);
+        anchor.inv_mass = 0;
+        solver.write_body(handles[0], anchor);
+
+        const SoftBodyMaterial material = rubber();
+        for (std::size_t k = 0; k + 3 < handles.size(); ++k)
+        {
+            const std::uint32_t slots[4] = {
+                std::uint32_t(solver.body_slot(handles[k])),
+                std::uint32_t(solver.body_slot(handles[k + 1])),
+                std::uint32_t(solver.body_slot(handles[k + 2])),
+                std::uint32_t(solver.body_slot(handles[k + 3]))};
+            const Vector3 corners[4] = {rest[k], rest[k + 1], rest[k + 2], rest[k + 3]};
+            solver.add_element(tetrahedron(slots, corners, material));
+        }
+        return handles;
+    });
+}
+
+TEST(Integration_SolverConformance, AnElementAndAConstraintOnOneParticleNeverShareAColour)
+{
+    // The union rule of section 6.3, at the point P6-J1 widened. An element takes its
+    // colour from the same colourer a distance constraint does, so a link attached to
+    // the element's *fourth* particle must be pushed out of the element's colour --
+    // and the two must agree that it was, or one of them is projecting in parallel
+    // what the other is projecting in sequence.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    const Vector3 rest[4] = {Vector3{0, Scalar(5), 0}, Vector3{1, Scalar(5), 0},
+                             Vector3{0, Scalar(5), 1}, Vector3{0, Scalar(6), 0}};
+
+    for (IConstraintSolver<Scalar>* solver : {&(*host), &(*runtime)})
+    {
+        std::vector<BodyHandle> handles;
+        for (const Vector3& corner : rest)
+            handles.push_back(solver->add_body(point_body(corner)));
+        const BodyHandle hanging =
+            solver->add_body(point_body(Vector3{0, Scalar(7), 0}));
+
+        std::uint32_t slots[4];
+        for (int i = 0; i < 4; ++i)
+            slots[i] = std::uint32_t(solver->body_slot(handles[i]));
+        ASSERT_TRUE(solver->add_element(tetrahedron(slots, rest, rubber())).valid());
+
+        // Attached to vertex[3] -- the slot a two-body reading of the element would
+        // never have marked.
+        ASSERT_TRUE(solver
+                        ->add_constraint(link(solver->body_slot(handles[3]),
+                                              solver->body_slot(hanging), Scalar(1)))
+                        .valid());
+    }
+
+    EXPECT_EQ(host.solver->element_color_size(0), 1u);
+    EXPECT_EQ(runtime.solver->element_color_size(0), 1u);
+    EXPECT_EQ(host.solver->color_size(0), 0u)
+        << "the link shares the element's fourth particle and must not share its colour";
+    EXPECT_EQ(runtime.solver->color_size(0), 0u)
+        << "the link shares the element's fourth particle and must not share its colour";
+    EXPECT_EQ(host.solver->color_size(1), 1u);
+    EXPECT_EQ(runtime.solver->color_size(1), 1u);
+}
+
+TEST(Integration_SolverConformance, RemovingABodyTakesItsElementsOnBoth)
+{
+    // Removal through a *late* vertex. An element left naming a freed slot would act
+    // on whichever particle claims it next, and a removal sweep that tested only the
+    // first two vertices would leave three quarters of them behind -- silently, since
+    // the wrong element still projects perfectly well against the wrong particle.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    const Vector3 rest[4] = {Vector3{0, Scalar(5), 0}, Vector3{1, Scalar(5), 0},
+                             Vector3{0, Scalar(5), 1}, Vector3{0, Scalar(6), 0}};
+
+    for (IConstraintSolver<Scalar>* solver : {&(*host), &(*runtime)})
+    {
+        std::vector<BodyHandle> handles;
+        for (const Vector3& corner : rest)
+            handles.push_back(solver->add_body(point_body(corner)));
+
+        std::uint32_t slots[4];
+        for (int i = 0; i < 4; ++i)
+            slots[i] = std::uint32_t(solver->body_slot(handles[i]));
+        ASSERT_TRUE(solver->add_element(tetrahedron(slots, rest, rubber())).valid());
+        // Stepped because the statistics are refreshed by the step, not by the edit.
+        StepParameters<Scalar> parameters;
+        solver->step(parameters);
+        ASSERT_EQ(solver->statistics().elements, 1u);
+
+        // The last corner, not the first.
+        ASSERT_TRUE(solver->remove_body(handles[3]));
+        solver->step(parameters);
+        EXPECT_EQ(solver->statistics().elements, 0u)
+            << "an element survived the removal of its fourth particle";
+    }
+}
+
+TEST(Integration_SolverConformance, AnElementReportsTheSameMultipliersOnBoth)
+{
+    // What an element carried is settled where the solve is, so read_element is the
+    // only way a caller learns it -- and the two solvers must report the same load or
+    // the stress readout built on it means two different things.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    const Vector3 rest[4] = {Vector3{0, Scalar(5), 0}, Vector3{1, Scalar(5), 0},
+                             Vector3{0, Scalar(5), 1}, Vector3{0, Scalar(6), 0}};
+
+    ConstraintHandle host_handle;
+    ConstraintHandle runtime_handle;
+    for (int which = 0; which < 2; ++which)
+    {
+        IConstraintSolver<Scalar>& solver = which == 0 ? *host : *runtime;
+        std::vector<BodyHandle> handles;
+        for (const Vector3& corner : rest)
+            handles.push_back(solver.add_body(point_body(corner)));
+
+        RigidBody anchor = point_body(rest[0]);
+        anchor.inv_mass = 0;
+        solver.write_body(handles[0], anchor);
+
+        std::uint32_t slots[4];
+        for (int i = 0; i < 4; ++i)
+            slots[i] = std::uint32_t(solver.body_slot(handles[i]));
+        (which == 0 ? host_handle : runtime_handle) =
+            solver.add_element(tetrahedron(slots, rest, rubber()));
+    }
+
+    StepParameters<Scalar> parameters;
+    for (int tick = 0; tick < 10; ++tick)
+    {
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+    }
+
+    FemTetrahedron from_host;
+    FemTetrahedron from_runtime;
+    ASSERT_TRUE((*host).read_element(host_handle, from_host));
+    ASSERT_TRUE((*runtime).read_element(runtime_handle, from_runtime));
+
+    // Non-zero first: two solvers that both did nothing would agree perfectly.
+    EXPECT_GT(std::abs(double(from_host.deviatoric_lambda)), 0.0)
+        << "the element carried no load, so agreeing about it proves nothing";
+    EXPECT_NEAR(double(from_host.deviatoric_lambda), double(from_runtime.deviatoric_lambda),
+                std::abs(double(from_host.deviatoric_lambda)) * 1e-6 + 1e-12);
+    EXPECT_NEAR(double(from_host.hydrostatic_lambda),
+                double(from_runtime.hydrostatic_lambda),
+                std::abs(double(from_host.hydrostatic_lambda)) * 1e-6 + 1e-12);
 }

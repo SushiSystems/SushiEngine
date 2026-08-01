@@ -129,8 +129,8 @@ namespace
 
 TEST(Integration_XpbdSolver, HangingChainMatchesReferenceAndPgsShape)
 {
-    auto& runtime = Harness::shared_runtime();
-    auto bodies = runtime.buffer<RigidBody>(N);
+    auto& execution = Harness::shared_context();
+    auto bodies = execution.allocate<RigidBody>(N);
 
     std::vector<RigidBody> ref_bodies(N);
     std::vector<XpbdDistanceConstraint> constraints;
@@ -151,7 +151,7 @@ TEST(Integration_XpbdSolver, HangingChainMatchesReferenceAndPgsShape)
     std::vector<Scalar> ref_lambda(constraints.size(), Scalar(0));
 
     XpbdSolver<XpbdDistanceConstraint> solver(
-        runtime, bodies, constraints, N, ITERATIONS, DT, XpbdDistanceProjection{});
+        execution, bodies, constraints, N, ITERATIONS, DT, XpbdDistanceProjection{});
 
     EXPECT_EQ(solver.color_count(), 2u);
 

@@ -74,7 +74,7 @@
 #include "ibl_irradiance.comp.h"
 #include "ibl_prefilter.comp.h"
 #include "sh_project.comp.h"
-#include "cloth.comp.h"
+#include "deformable.comp.h"
 #include "mesh_skinned.vert.h"
 #include "skinning.comp.h"
 #include "particle_emit.comp.h"
@@ -260,8 +260,8 @@ namespace SushiEngine
                  Shaders::occlusion_comp_spv_word_count, "occlusion.comp"},
                 {"cull.comp", ShaderStage::Compute, Shaders::cull_comp_spv,
                  Shaders::cull_comp_spv_word_count, "cull.comp"},
-                {"cloth.comp", ShaderStage::Compute, Shaders::cloth_comp_spv,
-                 Shaders::cloth_comp_spv_word_count, "cloth.comp"},
+                {"deformable.comp", ShaderStage::Compute, Shaders::deformable_comp_spv,
+                 Shaders::deformable_comp_spv_word_count, "deformable.comp"},
                 {"skinning.comp", ShaderStage::Compute, Shaders::skinning_comp_spv,
                  Shaders::skinning_comp_spv_word_count, "skinning.comp"},
                 {"mesh_skinned.vert", ShaderStage::Vertex, Shaders::mesh_skinned_vert_spv,

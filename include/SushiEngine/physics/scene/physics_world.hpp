@@ -41,7 +41,7 @@
 #include <optional>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
+#include <SushiEngine/execution/context.hpp>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
@@ -73,14 +73,14 @@ namespace SushiEngine
         {
             public:
                 /**
-                 * @brief Creates an empty world backed by @p runtime.
-                 * @param runtime The runtime that will back the body buffer and solve graph.
+                 * @brief Creates an empty world backed by @p context.
+                 * @param context The execution context backing the body buffer and solve graph.
                  */
                 /** @brief The scalar precision, derived from the constraint type. */
                 using Real = typename Constraint::Real;
 
-                explicit PhysicsWorld(SushiRuntime::API::Runtime& runtime) noexcept
-                    : runtime_(runtime) {}
+                explicit PhysicsWorld(Execution::Context& context) noexcept
+                    : context_(context) {}
 
                 PhysicsWorld(const PhysicsWorld&) = delete;
                 PhysicsWorld& operator=(const PhysicsWorld&) = delete;
@@ -124,11 +124,11 @@ namespace SushiEngine
                 void finalize(std::size_t iterations, Real h, Projection projection)
                 {
                     h_ = h;
-                    bodies_.emplace(runtime_.buffer<RigidBodyT<Real>>(pending_bodies_.size()));
+                    bodies_.emplace(context_.allocate<RigidBodyT<Real>>(pending_bodies_.size()));
                     for (std::size_t i = 0; i < pending_bodies_.size(); ++i)
                         (*bodies_)[i] = pending_bodies_[i];
 
-                    solver_.emplace(runtime_, *bodies_, constraints_, pending_bodies_.size(),
+                    solver_.emplace(context_, *bodies_, constraints_, pending_bodies_.size(),
                                     iterations, h_, projection);
                 }
 
@@ -268,11 +268,11 @@ namespace SushiEngine
                 }
 
             private:
-                SushiRuntime::API::Runtime& runtime_;
+                Execution::Context& context_;
                 std::vector<RigidBodyT<Real>> pending_bodies_;
                 std::vector<Constraint> constraints_;
                 Real h_ = 0;
-                std::optional<SushiRuntime::API::Buffer<RigidBodyT<Real>>> bodies_;
+                std::optional<Execution::Buffer<RigidBodyT<Real>>> bodies_;
                 std::optional<XpbdSolver<Constraint>> solver_;
         };
     } // namespace Physics

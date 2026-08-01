@@ -87,6 +87,17 @@ namespace SushiEngine
              */
             T solve_ms = 0;
             T write_back_ms = 0;
+
+            /**
+             * @brief The soft-body world's whole tick: every body, every substep.
+             *
+             * Its own line rather than folded into @ref solve_ms, because it is not the
+             * same solve. Soft bodies run a host XPBD schedule outside the rigid
+             * composition — a tick can be entirely this and nothing else — so charging it
+             * to the device solve would report device time for work no device did.
+             */
+            T soft_body_ms = 0;
+
             T total_ms = 0;      /**< The whole tick, including anything not broken out above. */
         };
 
@@ -135,6 +146,17 @@ namespace SushiEngine
              * a different tick from one with four hundred distance links.
              */
             std::size_t joints = 0;
+
+            /**
+             * @brief Live FEM elements, of the @ref constraints above.
+             *
+             * Broken out for the same reason @ref joints is, from the other end of the
+             * range: an element is four-body and carries two projections, so a tick
+             * whose constraint count is mostly elements is a different tick from one of
+             * the same count in distance links, and a soft body's cost is invisible in
+             * the total.
+             */
+            std::size_t elements = 0;
 
             /** @brief Colours the constraint set partitioned into. */
             std::size_t colors = 0;

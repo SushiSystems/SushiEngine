@@ -46,7 +46,7 @@ namespace
 // across a full churn, not just a single removal.
 TEST(Regression_Ecs, SwapRemoveSurvivesInterleavedChurn)
 {
-    World world(Harness::shared_runtime(), 1024);
+    World world(Harness::shared_context(), 1024);
 
     std::vector<Entity> entities;
     for (std::uint32_t i = 0; i < 200; ++i)
@@ -74,8 +74,8 @@ TEST(Regression_Ecs, SwapRemoveSurvivesInterleavedChurn)
 // throwing, so an idle frame is safe even before anything is spawned.
 TEST(Regression_Ecs, EmptyScheduleRunIsANoOp)
 {
-    World world(Harness::shared_runtime(), 64);
-    Schedule schedule(Harness::shared_runtime());
+    World world(Harness::shared_context(), 64);
+    Schedule schedule(Harness::shared_context());
 
     schedule.each<Write<Value>>("touch", [](std::size_t, Value*) {});
 

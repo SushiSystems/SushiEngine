@@ -27,10 +27,9 @@
 #include <memory>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
-
 #include <SushiEngine/ecs/chunk.hpp>
 #include <SushiEngine/ecs/component.hpp>
+#include <SushiEngine/execution/context.hpp>
 
 namespace SushiEngine
 {
@@ -49,14 +48,14 @@ namespace SushiEngine
         public:
             /**
              * @brief Creates an empty archetype for the given component set.
-             * @param runtime        The runtime that backs its chunks.
+             * @param context        The execution context that backs its chunks.
              * @param signature      The sorted component ids, its identity.
              * @param comps          The components' ids and sizes, for chunk layout.
              * @param chunk_capacity Entities per chunk.
              */
-            Archetype(SushiRuntime::API::Runtime& runtime, Signature signature,
+            Archetype(Execution::Context& context, Signature signature,
                       std::vector<ComponentInfo> comps, std::size_t chunk_capacity)
-                : runtime_(runtime),
+                : context_(context),
                   signature_(std::move(signature)),
                   comps_(std::move(comps)),
                   chunk_capacity_(chunk_capacity)
@@ -83,7 +82,7 @@ namespace SushiEngine
                 for (std::unique_ptr<Chunk>& c : chunks_)
                     if (!c->full()) return *c;
 
-                chunks_.push_back(std::make_unique<Chunk>(runtime_, comps_, chunk_capacity_));
+                chunks_.push_back(std::make_unique<Chunk>(context_, comps_, chunk_capacity_));
                 allocated = true;
                 return *chunks_.back();
             }
@@ -99,11 +98,11 @@ namespace SushiEngine
             void reserve(std::size_t entities)
             {
                 while (chunks_.size() * chunk_capacity_ < entities)
-                    chunks_.push_back(std::make_unique<Chunk>(runtime_, comps_, chunk_capacity_));
+                    chunks_.push_back(std::make_unique<Chunk>(context_, comps_, chunk_capacity_));
             }
 
         private:
-            SushiRuntime::API::Runtime& runtime_;
+            Execution::Context& context_;
             Signature signature_;
             std::vector<ComponentInfo> comps_;
             std::size_t chunk_capacity_;

@@ -27,10 +27,9 @@
 #include <cstring>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
-
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/entity.hpp>
+#include <SushiEngine/execution/context.hpp>
 
 namespace SushiEngine
 {
@@ -38,13 +37,12 @@ namespace SushiEngine
      * @brief A fixed-capacity block of entities laid out structure-of-arrays.
      *
      * A chunk holds up to @p capacity entities of one archetype. Each component is
-     * a separate contiguous column backed by its own runtime allocation, so a
-     * column's base pointer is a unique resource the dependency tracker keys on:
-     * systems touching different chunks (different base pointers) run in parallel
-     * automatically, and systems touching the same column are ordered. This is how
-     * chunks become the runtime's unit of parallelism without any bespoke
-     * scheduler. The columns are shared USM, so the host seeds and reads them while
-     * a device kernel drives the arrays.
+     * a separate contiguous column backed by its own execution-backend allocation, so
+     * a column is a distinct interval the hazard tracker keys on: systems touching
+     * different chunks (different allocations) run in parallel automatically, and
+     * systems touching the same column are ordered. This is how chunks become the
+     * unit of parallelism without any bespoke scheduler. The columns are host-shared,
+     * so the host seeds and reads them while device work drives the arrays.
      *
      * Entities are packed at the front: a live count tracks how many of the
      * capacity rows are occupied, and removal is an O(1) swap with the last row.
@@ -54,11 +52,11 @@ namespace SushiEngine
         public:
             /**
              * @brief Allocates one column per component, each sized to @p capacity.
-             * @param runtime  The runtime that owns the column allocations.
+             * @param context  The execution context that owns the column allocations.
              * @param comps    The archetype's components (id and byte size each).
              * @param capacity Maximum number of entities this chunk can hold.
              */
-            Chunk(SushiRuntime::API::Runtime& runtime,
+            Chunk(Execution::Context& context,
                   const std::vector<ComponentInfo>& comps, std::size_t capacity)
                 : capacity_(capacity), entities_(capacity)
             {
@@ -68,7 +66,7 @@ namespace SushiEngine
                     Column col;
                     col.id = info.id;
                     col.size = info.size;
-                    col.data = runtime.buffer<std::byte>(capacity * info.size);
+                    col.data = context.allocate<std::byte>(capacity * info.size);
                     columns_.push_back(std::move(col));
                 }
             }
@@ -92,6 +90,24 @@ namespace SushiEngine
                 for (Column& c : columns_)
                     if (c.id == id) return c.data.data();
                 return nullptr;
+            }
+
+            /**
+             * @brief The byte interval that identifies the column for component @p id.
+             *
+             * What a system declares when it names this column, rather than the bare
+             * base address: the interval carries the column's exact extent, so a node
+             * touching a slice of it and a node touching all of it are comparable
+             * without either side recomputing the layout.
+             *
+             * @param id The component whose column is wanted.
+             * @return The column's byte interval, or an empty interval if absent.
+             */
+            Execution::BufferInterval column_interval(ComponentId id) const noexcept
+            {
+                for (const Column& c : columns_)
+                    if (c.id == id) return c.data.interval();
+                return Execution::BufferInterval{};
             }
 
             /**
@@ -184,9 +200,9 @@ namespace SushiEngine
             /** @brief One component's contiguous backing array for this chunk. */
             struct Column
             {
-                ComponentId id = 0;                       /**< Component identity. */
-                std::size_t size = 0;                     /**< Element byte size. */
-                SushiRuntime::API::Buffer<std::byte> data; /**< The column storage. */
+                ComponentId id = 0;                        /**< Component identity. */
+                std::size_t size = 0;                      /**< Element byte size. */
+                Execution::Buffer<std::byte> data;         /**< The column storage. */
             };
 
             std::size_t capacity_ = 0;

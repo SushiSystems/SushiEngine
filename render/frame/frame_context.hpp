@@ -133,8 +133,9 @@ namespace SushiEngine
             {
                 const MeshInstance* instances = nullptr;
                 std::size_t instance_count = 0;
-                const ClothStrandView* strands = nullptr;
-                std::size_t strand_count = 0;
+                /** @brief The frame's host-simulated surfaces, shaded by the compute pass then drawn. */
+                const DeformableMeshView* deformable = nullptr;
+                std::size_t deformable_count = 0;
                 /** @brief The frame's skinned characters, skinned by the compute pass then drawn. */
                 const SkinnedInstance* skinned = nullptr;
                 std::size_t skinned_count = 0;

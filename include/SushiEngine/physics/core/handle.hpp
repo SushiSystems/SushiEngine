@@ -113,7 +113,7 @@ namespace SushiEngine
          * device buffer while the bookkeeping stays on the host.
          *
          * Capacity is fixed at construction and never grows. That is not a
-         * simplification: a `SushiRuntime::Buffer` cannot be resized in place, and a
+         * simplification: an `Execution::Buffer` cannot be resized in place, and a
          * growth would reallocate and move, invalidating the raw pointer every
          * compiled graph node captured (§6.4). Running out of slots is therefore a
          * budgeted, reported event, which @ref allocate signals by returning an

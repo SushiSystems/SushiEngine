@@ -78,8 +78,9 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
-    World world(runtime, CHUNK_CAPACITY);
-    Schedule schedule(runtime);
+    Execution::Context execution(runtime);
+    World world(execution, CHUNK_CAPACITY);
+    Schedule schedule(execution);
 
     // One archetype for the whole world; pre-reserve so spawns never allocate a
     // new chunk mid-run (which would force a recompile).
@@ -128,7 +129,7 @@ int main()
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
     {
         // ECS systems for this frame.
-        const SushiRuntime::RunReport report = schedule.run(world);
+        const Execution::RunReport report = schedule.run(world);
         sim_ms += report.total_duration_ms;
 
         // Scalar reference: same three systems, same order, per entity.

@@ -34,12 +34,11 @@
 #include <utility>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
-
 #include <SushiEngine/ecs/archetype.hpp>
 #include <SushiEngine/ecs/chunk.hpp>
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/world.hpp>
+#include <SushiEngine/execution/context.hpp>
 
 namespace SushiEngine
 {
@@ -52,29 +51,28 @@ namespace SushiEngine
                                                 const typename Access::type*>;
 
         /**
-         * @brief Resolves one access declaration to its column base address.
+         * @brief Declares one access to a chunk's column and returns its base address.
          *
-         * Looks up the component's column in @p chunk and records its base address
-         * as a read or write dependency key. The address is returned untyped; the
-         * kernel reconstructs the typed pointer (see invoke_system), so only a plain
-         * pointer array is captured into device code.
+         * Records the column's byte interval and what the system does to it, which is
+         * everything the hazard semantic needs to order this node against the others.
+         * The address is returned untyped; the kernel reconstructs the typed pointer
+         * (see invoke_system), so only a plain pointer array is captured into device
+         * code.
          *
          * @tparam Access A Read<T> or Write<T> declaration.
-         * @param chunk  The chunk whose column is wanted.
-         * @param reads  Collects read dependency keys.
-         * @param writes Collects write dependency keys.
+         * @param chunk    The chunk whose column is wanted.
+         * @param accesses Collects the declared accesses, in declaration order.
          * @return The column's base address.
          */
         template <typename Access>
-        void* column_base(Chunk& chunk, std::vector<void*>& reads,
-                          std::vector<void*>& writes)
+        void* declare_column(Chunk& chunk, std::vector<Execution::ResourceAccess>& accesses)
         {
-            void* base = chunk.column(component_id<typename Access::type>());
-            if constexpr (Access::is_write)
-                writes.push_back(base);
-            else
-                reads.push_back(base);
-            return base;
+            const ComponentId id = component_id<typename Access::type>();
+            accesses.push_back(Execution::ResourceAccess{
+                chunk.column_interval(id),
+                Access::is_write ? Execution::AccessIntent::ComputeWrite
+                                 : Execution::AccessIntent::ComputeRead});
+            return chunk.column(id);
         }
 
         /**
@@ -102,26 +100,26 @@ namespace SushiEngine
     } // namespace Detail
 
     /**
-     * @brief Registers systems and compiles them to a replayable runtime graph.
+     * @brief Registers systems and compiles them to a replayable execution graph.
      *
      * A system is a kernel that declares which components it reads and writes; the
-     * Schedule emits one graph node per matching chunk, keyed on that chunk's
-     * column pointers. The runtime's dependency tracker then orders the systems by
-     * their component access — conflicting systems run in order, disjoint ones (and
-     * disjoint chunks of the same system) run in parallel — so no scheduler is
-     * written here. Each node's iteration count is late-bound to its chunk's live
-     * entity count, so spawning and destroying entities within existing chunks
-     * varies the work without recompiling. The graph is rebuilt only when the
-     * world's chunk set changes, which the structure version reports.
+     * Schedule emits one graph node per matching chunk, declaring that chunk's column
+     * intervals. The backend's hazard tracker then orders the systems by their
+     * component access — conflicting systems run in order, disjoint ones (and disjoint
+     * chunks of the same system) run in parallel — so no scheduler is written here.
+     * Each node's iteration count is late-bound to its chunk's live entity count, so
+     * spawning and destroying entities within existing chunks varies the work without
+     * recompiling. The graph is rebuilt only when the world's chunk set changes, which
+     * the structure version reports.
      */
     class Schedule
     {
         public:
             /**
-             * @brief Creates a schedule bound to @p runtime.
-             * @param runtime The runtime whose graph this builds and replays.
+             * @brief Creates a schedule bound to @p context.
+             * @param context The execution context whose graph this builds and replays.
              */
-            explicit Schedule(SushiRuntime::API::Runtime& runtime) : runtime_(runtime) {}
+            explicit Schedule(Execution::Context& context) : context_(context) {}
 
             /**
              * @brief Registers a system over the components named by @p Access.
@@ -141,21 +139,27 @@ namespace SushiEngine
             Schedule& each(std::string name, Fn fn)
             {
                 Signature required = make_signature<typename Access::type...>();
-                systems_.push_back(System{
-                    std::move(name),
-                    [required, fn](World& world, SushiRuntime::API::Graph& graph)
+                std::function<void(World&, Execution::Graph&)> emit =
+                    [required, fn, label = name](World& world, Execution::Graph& graph)
                     {
                         for (Archetype* a : world.query(required))
                             for (const std::unique_ptr<Chunk>& chunk : a->chunks())
                             {
                                 Chunk* c = chunk.get();
-                                std::vector<void*> reads, writes;
+                                std::vector<Execution::ResourceAccess> accesses;
+                                accesses.reserve(sizeof...(Access));
                                 const std::array<void*, sizeof...(Access)> cols = {
-                                    Detail::column_base<Access>(*c, reads, writes)...};
+                                    Detail::declare_column<Access>(*c, accesses)...};
 
-                                graph.add(
-                                    SushiRuntime::API::sized([c] { return c->count(); }),
-                                    reads, writes, world.chunk_capacity(),
+                                Execution::NodeDescriptor node;
+                                node.name = label.c_str();
+                                node.accesses = accesses.data();
+                                node.access_count = accesses.size();
+                                node.capacity = world.chunk_capacity();
+                                node.count =
+                                    Execution::CountProvider::bind<&Chunk::count>(c);
+
+                                graph.add_parallel(node,
                                     [fn, cols](std::size_t i)
                                     {
                                         Detail::invoke_system<Access...>(
@@ -163,7 +167,8 @@ namespace SushiEngine
                                             std::make_index_sequence<sizeof...(Access)>{});
                                     });
                             }
-                    }});
+                    };
+                systems_.push_back(System{std::move(name), std::move(emit)});
                 built_version_ = K_NEVER_BUILT;
                 return *this;
             }
@@ -179,17 +184,17 @@ namespace SushiEngine
              * @param world The world to step.
              * @return The run report for this step.
              */
-            SushiRuntime::RunReport run(World& world)
+            Execution::RunReport run(World& world)
             {
                 if (!graph_ || built_version_ != world.structure_version())
                 {
-                    graph_.emplace(runtime_.graph());
+                    graph_.emplace(context_.create_graph());
                     for (System& s : systems_)
                         s.emit(world, *graph_);
                     built_version_ = world.structure_version();
                 }
                 if (graph_->size() == 0)
-                    return SushiRuntime::RunReport{};
+                    return Execution::RunReport{};
                 return graph_->run();
             }
 
@@ -209,12 +214,12 @@ namespace SushiEngine
             struct System
             {
                 std::string name;
-                std::function<void(World&, SushiRuntime::API::Graph&)> emit;
+                std::function<void(World&, Execution::Graph&)> emit;
             };
 
-            SushiRuntime::API::Runtime& runtime_;
+            Execution::Context& context_;
             std::vector<System> systems_;
-            std::optional<SushiRuntime::API::Graph> graph_;
+            std::optional<Execution::Graph> graph_;
             std::uint64_t built_version_ = K_NEVER_BUILT;
     };
 } // namespace SushiEngine

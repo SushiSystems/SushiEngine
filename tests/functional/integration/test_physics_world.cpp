@@ -52,7 +52,7 @@ namespace
 
 TEST(Integration_PhysicsWorld, PinnedPairSettlesAtRestLength)
 {
-    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_runtime());
+    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_context());
 
     RigidBody anchor;
     anchor.position = Vector3{0, 0, 0};

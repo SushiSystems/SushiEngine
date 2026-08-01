@@ -44,13 +44,14 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
+    Execution::Context execution(runtime);
 
     // --- Soft body: a pinned-top lattice that holds its shape under gravity --------
     const Scalar spacing = Scalar(0.5);
     const Scalar h = Scalar(1.0 / 60.0) / Scalar(SUBSTEPS);
     const Vector3 origin{0, Scalar(3), 0};
 
-    PhysicsWorld<XpbdDistanceConstraint> world(runtime);
+    PhysicsWorld<XpbdDistanceConstraint> world(execution);
     // Pin the y == 0 layer (the bottom of the lattice's own frame) so the block hangs.
     const SoftBodyLattice lattice =
         build_soft_body_lattice(world, N, N, N, spacing, origin, Scalar(0), /*pin_bottom=*/true);

@@ -62,6 +62,7 @@
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/schedule.hpp>
 #include <SushiEngine/ecs/world.hpp>
+#include <SushiEngine/execution/context.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/loop/input.hpp>
 #include <SushiEngine/loop/net.hpp>
@@ -167,8 +168,9 @@ namespace SushiEngine
                     : owned_runtime_(new SushiRuntime::API::Runtime(
                           SushiRuntime::API::Runtime::create())),
                       runtime_(*owned_runtime_),
-                      world_(runtime_, config.chunk_capacity),
-                      schedule_(runtime_),
+                      context_(runtime_),
+                      world_(context_, config.chunk_capacity),
+                      schedule_(context_),
                       clock_(config.fixed_dt_seconds),
                       rng_(seed_rng(config.rng_seed))
                 {
@@ -190,8 +192,9 @@ namespace SushiEngine
                 App(SushiRuntime::API::Runtime& runtime, const AppConfig& config)
                     : owned_runtime_(nullptr),
                       runtime_(runtime),
-                      world_(runtime_, config.chunk_capacity),
-                      schedule_(runtime_),
+                      context_(runtime_),
+                      world_(context_, config.chunk_capacity),
+                      schedule_(context_),
                       clock_(config.fixed_dt_seconds),
                       rng_(seed_rng(config.rng_seed))
                 {
@@ -224,6 +227,21 @@ namespace SushiEngine
 
                 /** @copydoc runtime() */
                 const SushiRuntime::API::Runtime& runtime() const noexcept { return runtime_; }
+
+                /**
+                 * @brief The execution context the world and schedule are built on.
+                 *
+                 * What a subsystem that needs its own graph or its own columns asks for
+                 * — a physics solver, a batch animation evaluator — so it shares the
+                 * App's device and hazard tracker instead of standing up a second one.
+                 * Unlike runtime(), this stays meaningful on every execution backend.
+                 *
+                 * @return A reference to the App's execution context.
+                 */
+                Execution::Context& execution() noexcept { return context_; }
+
+                /** @copydoc execution() */
+                const Execution::Context& execution() const noexcept { return context_; }
 
                 /** @brief The deferred command buffer, applied at the per-tick barrier. */
                 CommandBuffer& commands() noexcept { return commands_; }
@@ -428,6 +446,7 @@ namespace SushiEngine
 
                 std::unique_ptr<SushiRuntime::API::Runtime> owned_runtime_;
                 SushiRuntime::API::Runtime& runtime_;
+                Execution::Context context_;
                 World world_;
                 Schedule schedule_;
                 CommandBuffer commands_;

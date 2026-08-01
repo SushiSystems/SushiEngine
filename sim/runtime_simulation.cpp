@@ -53,7 +53,9 @@
 #include <SushiEngine/astro/scene_frame.hpp>
 #include <SushiEngine/astro/surface_frame.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
+#include <SushiEngine/physics/cooking/soft_body_asset.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
+#include <SushiEngine/render/deformable_mesh.hpp>
 #include <SushiEngine/sim/physics_extract.hpp>
 #include <SushiEngine/sim/climatology_asset.hpp>
 #include <SushiEngine/sim/components.hpp>
@@ -108,11 +110,12 @@ namespace SushiEngine
                 public:
                     explicit RuntimeSimulation()
                         : runtime_(SushiRuntime::API::Runtime::create()),
-                          world_(runtime_, CHUNK_CAPACITY),
-                          schedule_(runtime_),
+                          execution_(runtime_),
+                          world_(execution_, CHUNK_CAPACITY),
+                          schedule_(execution_),
                           clock_(FIXED_TICK_DT_SECONDS),
-                          physics_(create_physics_simulation(runtime_)),
-                          crowd_evaluator_(runtime_)
+                          physics_(create_physics_simulation(execution_)),
+                          crowd_evaluator_(execution_)
                     {
                         // Reserve every archetype up front so neither the seed, the
                         // editor's first create, nor a later Add/Remove Component
@@ -754,6 +757,74 @@ namespace SushiEngine
                         return physics_->cloth_positions(id);
                     }
 
+                    bool has_soft_body(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_soft_body;
+                    }
+
+                    SoftBodyParams soft_body_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->soft_body_params : SoftBodyParams{};
+                    }
+
+                    void set_soft_body_params(EntityId id, const SoftBodyParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->soft_body_params = params;
+                        // Every field here is topology or precision, and both are things a
+                        // body is built with rather than things it can be told. So an edit
+                        // is a rebuild, unlike a Rigid Body's mass.
+                        if (record->has_soft_body)
+                            soft_dirty_ = true;
+                    }
+
+                    void set_has_soft_body(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_soft_body == value)
+                            return;
+                        record->has_soft_body = value;
+                        soft_dirty_ = true;
+                    }
+
+                    bool soft_body_surface(EntityId id, std::vector<Vector3>& positions,
+                                           std::vector<std::uint32_t>& indices) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !record->has_soft_body)
+                        {
+                            positions.clear();
+                            indices.clear();
+                            return false;
+                        }
+                        return physics_->soft_body_surface(id, positions, indices);
+                    }
+
+                    Scalar soft_body_maximum_stress(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !record->has_soft_body)
+                            return Scalar(0);
+                        return physics_->soft_body_maximum_stress(id);
+                    }
+
+                    bool soft_body_elements(
+                        EntityId id,
+                        std::vector<SoftBodyElementSample>& elements) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || !record->has_soft_body)
+                        {
+                            elements.clear();
+                            return false;
+                        }
+                        return physics_->soft_body_elements(id, elements);
+                    }
+
                     bool has_crowd(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -1066,6 +1137,31 @@ namespace SushiEngine
                         record.has_cloth = true;
                         records_.emplace(id, record);
                         cloth_dirty_ = true;
+                        extract();
+                        return id;
+                    }
+
+                    EntityId create_soft_body(const std::string& display_name,
+                                              const std::vector<std::byte>& asset) override
+                    {
+                        // Refused rather than created empty: an entity whose blob does not
+                        // load is a Soft Body that can never become one, and leaving it in
+                        // the scene would turn a cook failure into a mystery at play time.
+                        if (!Physics::Cooking::validate_soft_body_blob(asset.data(),
+                                                                       asset.size()))
+                            return NULL_ENTITY;
+
+                        const Entity entity = world_.spawn(
+                            Transform{}, Orientation{},
+                            Tint{Vector3{Scalar(0.85), Scalar(0.85), Scalar(0.9)}});
+                        const EntityId id = next_id_++;
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        record.has_renderer = true;
+                        record.has_soft_body = true;
+                        record.soft_body_params.asset = asset;
+                        records_.emplace(id, record);
+                        soft_dirty_ = true;
                         extract();
                         return id;
                     }
@@ -1581,6 +1677,13 @@ namespace SushiEngine
                         // has_physics_body: cloth needs no ECS component migration.
                         bool has_cloth = false;
                         ClothParams cloth_params{};
+                        // A tetrahedral soft body (§9). Same plain-host-bookkeeping shape as
+                        // cloth, but it carries its own cooked asset by value: a soft body
+                        // cannot be rebuilt from numbers the way a grid can, so the blob is
+                        // part of the record rather than a reference into something that
+                        // might be reloaded out from under it.
+                        bool has_soft_body = false;
+                        SoftBodyParams soft_body_params{};
                         // A crowd-batched skinned character (design §12.3/§12.4): same plain
                         // host bookkeeping as cloth (no ECS migration) — playback time is
                         // advanced on the fixed tick and sampled through crowd_evaluator_ at
@@ -2338,6 +2441,11 @@ namespace SushiEngine
                                                        substep_dt());
                             physics_dirty_ = false;
                         }
+                        if (soft_dirty_)
+                        {
+                            physics_->set_soft_bodies(gather_soft_body_descs());
+                            soft_dirty_ = false;
+                        }
                         if (cloth_dirty_)
                         {
                             physics_->set_cloth_grids(gather_cloth_descs(), PHYSICS_ITERATIONS,
@@ -2530,6 +2638,42 @@ namespace SushiEngine
                      *
                      * @return One descriptor per live cloth entity with a non-degenerate grid.
                      */
+                    /**
+                     * @brief Collects a descriptor per live soft-body entity for a rebuild.
+                     *
+                     * The descriptors point *into* each record's blob rather than copying
+                     * it, which is safe for exactly as long as the call: `set_soft_bodies`
+                     * reads the bytes to instantiate and retains nothing. Copying here
+                     * instead would duplicate every asset in the scene once per rebuild.
+                     *
+                     * @return One descriptor per live soft-body entity with a non-empty asset.
+                     */
+                    std::vector<SoftBodyDesc> gather_soft_body_descs() const
+                    {
+                        std::vector<SoftBodyDesc> descs;
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_soft_body ||
+                                record->soft_body_params.asset.empty())
+                                continue;
+                            const SoftBodyParams& params = record->soft_body_params;
+                            SoftBodyDesc desc;
+                            desc.id = id;
+                            desc.asset = params.asset.data();
+                            desc.asset_size = params.asset.size();
+                            desc.level = params.level;
+                            desc.material = params.material;
+                            desc.thickness = params.thickness;
+                            desc.self_collision = params.self_collision;
+                            desc.cosmetic = params.cosmetic;
+                            if (world_.alive(record->entity))
+                                desc.origin = world_.get<Transform>(record->entity).position;
+                            descs.push_back(desc);
+                        }
+                        return descs;
+                    }
+
                     std::vector<ClothDesc> gather_cloth_descs() const
                     {
                         std::vector<ClothDesc> descs;
@@ -2797,8 +2941,11 @@ namespace SushiEngine
                             scene_.instances.push_back(instance);
                         }
 
-                        scene_.cloth_instances.clear();
-                        scene_.cloth_vertices.clear();
+                        scene_.deformable_instances.clear();
+                        scene_.deformable_vertices.clear();
+                        scene_.deformable_indices.clear();
+                        // Reused across entities so a scene full of cloth allocates once.
+                        std::vector<std::uint32_t> grid_indices;
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
@@ -2833,19 +2980,76 @@ namespace SushiEngine
                             }
                             if (positions.empty())
                                 continue;
-                            ClothInstance cloth_instance;
-                            cloth_instance.id = id;
-                            cloth_instance.rows = rows;
-                            cloth_instance.cols = cols;
-                            cloth_instance.first_vertex =
-                                static_cast<std::uint32_t>(scene_.cloth_vertices.size());
+                            // The grid's triangulation, emitted once here rather than derived
+                            // downstream: the renderer's seam takes a triangle list, and a grid
+                            // is now just one of the shapes that can produce one.
+                            Render::build_grid_indices(rows, cols, grid_indices);
+                            if (grid_indices.empty())
+                                continue;
+
+                            DeformableInstance surface;
+                            surface.id = id;
+                            surface.first_vertex =
+                                static_cast<std::uint32_t>(scene_.deformable_vertices.size());
+                            surface.vertex_count = static_cast<std::uint32_t>(positions.size());
+                            surface.first_index =
+                                static_cast<std::uint32_t>(scene_.deformable_indices.size());
+                            surface.index_count =
+                                static_cast<std::uint32_t>(grid_indices.size());
                             if (record->has_renderer && world_.alive(record->entity))
-                                cloth_instance.color = world_.get<Tint>(record->entity).color;
+                                surface.color = world_.get<Tint>(record->entity).color;
                             else
-                                cloth_instance.color = record->material.albedo;
-                            scene_.cloth_vertices.insert(scene_.cloth_vertices.end(),
-                                                         positions.begin(), positions.end());
-                            scene_.cloth_instances.push_back(cloth_instance);
+                                surface.color = record->material.albedo;
+                            scene_.deformable_vertices.insert(scene_.deformable_vertices.end(),
+                                                              positions.begin(), positions.end());
+                            scene_.deformable_indices.insert(scene_.deformable_indices.end(),
+                                                             grid_indices.begin(),
+                                                             grid_indices.end());
+                            scene_.deformable_instances.push_back(surface);
+                        }
+
+                        // Tetrahedral soft bodies, into the same channel the cloth above
+                        // just filled. That they share it is the point of P6-G2: a sheet
+                        // and a tetrahedral surface differ in how their triangles were
+                        // produced and in nothing the renderer can see.
+                        //
+                        // Read straight off the live bodies, with no cache between. That is
+                        // §8.6's third invariant made structural rather than promised: the
+                        // render mesh cannot lag the simulation by a tick because there is
+                        // no second copy of it to be a tick behind.
+                        std::vector<Vector3> soft_positions;
+                        std::vector<std::uint32_t> soft_indices;
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_soft_body || !record->visible)
+                                continue;
+                            if (!physics_->soft_body_surface(id, soft_positions, soft_indices))
+                                continue;
+                            if (soft_positions.empty() || soft_indices.size() < 3)
+                                continue;
+
+                            DeformableInstance surface;
+                            surface.id = id;
+                            surface.first_vertex =
+                                static_cast<std::uint32_t>(scene_.deformable_vertices.size());
+                            surface.vertex_count =
+                                static_cast<std::uint32_t>(soft_positions.size());
+                            surface.first_index =
+                                static_cast<std::uint32_t>(scene_.deformable_indices.size());
+                            surface.index_count =
+                                static_cast<std::uint32_t>(soft_indices.size());
+                            if (record->has_renderer && world_.alive(record->entity))
+                                surface.color = world_.get<Tint>(record->entity).color;
+                            else
+                                surface.color = record->material.albedo;
+                            scene_.deformable_vertices.insert(scene_.deformable_vertices.end(),
+                                                              soft_positions.begin(),
+                                                              soft_positions.end());
+                            scene_.deformable_indices.insert(scene_.deformable_indices.end(),
+                                                             soft_indices.begin(),
+                                                             soft_indices.end());
+                            scene_.deformable_instances.push_back(surface);
                         }
 
                         extract_crowd();
@@ -3443,6 +3647,7 @@ namespace SushiEngine
 
 
                     SushiRuntime::API::Runtime runtime_;
+                    Execution::Context execution_;
                     World world_;
                     Schedule schedule_;
                     Loop::FixedTimestepClock clock_;
@@ -3465,6 +3670,7 @@ namespace SushiEngine
                     std::unique_ptr<IPhysicsScene> physics_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
+                    bool soft_dirty_ = false;
 
                     // The weather seam: ticked from step_once() and compiled into
                     // scene_.environment.clouds from extract() whenever set. Null (the default)

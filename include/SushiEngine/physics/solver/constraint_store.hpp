@@ -190,9 +190,9 @@ namespace SushiEngine
                 ConstraintStore& operator=(ConstraintStore&&) = delete;
 
                 /**
-                 * @brief Finds a colour and a slot for a constraint between @p a and @p b.
+                 * @brief Finds a colour and a slot for a constraint on @p bodies.
                  *
-                 * The colour is the lowest one that is free on both bodies **and whose
+                 * The colour is the lowest one that is free on every body **and whose
                  * band has room**, and the slot is the next free position in it.
                  *
                  * That second condition is not a refinement, it is the difference
@@ -209,18 +209,24 @@ namespace SushiEngine
                  * from the start, for the same reason: contacts against one ground
                  * plane are disjoint too.
                  *
-                 * @param a The first body's slot index.
-                 * @param b The second body's slot index.
+                 * Named apart from @ref place rather than overloaded on it: a literal
+                 * `0` is both a body index and a null pointer constant, so `place(0, 1)`
+                 * would be ambiguous between the two shapes.
+                 *
+                 * @param bodies The constraint's body slot indices.
+                 * @param count  How many there are.
                  * @return Where to write the constraint, or an invalid handle.
                  */
-                ConstraintPlacement place(std::uint32_t a, std::uint32_t b)
+                ConstraintPlacement place_bodies(const std::uint32_t* bodies, std::size_t count)
                 {
                     ConstraintPlacement placement;
-                    if (!coloring_->tracks(a) || !coloring_->tracks(b))
+                    if (bodies == nullptr || count == 0)
                         return placement;
+                    for (std::size_t i = 0; i < count; ++i)
+                        if (!coloring_->tracks(bodies[i]))
+                            return placement;
 
-                    const std::uint64_t taken =
-                        coloring_->mask_of(a) | coloring_->mask_of(b);
+                    const std::uint64_t taken = coloring_->mask_of_all(bodies, count);
 
                     for (std::uint32_t color = 0; color < color_count_; ++color)
                     {
@@ -236,7 +242,7 @@ namespace SushiEngine
                         const ConstraintHandle handle = slots_.allocate();
                         if (!handle.valid())
                             return placement;
-                        coloring_->take(a, b, color);
+                        coloring_->take_bodies(bodies, count, color);
 
                         const std::size_t slot =
                             std::size_t(color) * band_capacity_ + band_live_[color];
@@ -255,15 +261,28 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Finds a colour and a slot for a constraint between @p a and @p b.
+                 *
+                 * The two-body spelling, forwarding to the N-body form so there is one
+                 * placement rule rather than two that have to be kept in agreement.
+                 */
+                ConstraintPlacement place(std::uint32_t a, std::uint32_t b)
+                {
+                    const std::uint32_t bodies[2] = {a, b};
+                    return place_bodies(bodies, 2);
+                }
+
+                /**
                  * @brief Releases @p handle, reporting the compaction the caller must mirror.
                  *
                  * @param handle The constraint to remove.
-                 * @param a      The removed constraint's first body slot.
-                 * @param b      The removed constraint's second body slot.
+                 * @param bodies The removed constraint's body slot indices.
+                 * @param count  How many there are.
                  * @return What moved, so the caller can copy its descriptor to match.
                  */
-                ConstraintRemoval remove(ConstraintHandle handle, std::uint32_t a,
-                                         std::uint32_t b)
+                ConstraintRemoval remove_bodies(ConstraintHandle handle,
+                                                const std::uint32_t* bodies,
+                                                std::size_t count)
                 {
                     ConstraintRemoval removal;
                     if (!slots_.alive(handle))
@@ -274,7 +293,7 @@ namespace SushiEngine
                     const std::size_t base = std::size_t(color) * band_capacity_;
                     const std::size_t last = base + band_live_[color] - 1;
 
-                    coloring_->release(a, b, color);
+                    coloring_->release_bodies(bodies, count, color);
 
                     if (slot != last)
                     {
@@ -290,6 +309,14 @@ namespace SushiEngine
                     removal.slot = slot;
                     removal.moved_from = last;
                     return removal;
+                }
+
+                /** @copydoc remove_bodies */
+                ConstraintRemoval remove(ConstraintHandle handle, std::uint32_t a,
+                                         std::uint32_t b)
+                {
+                    const std::uint32_t bodies[2] = {a, b};
+                    return remove_bodies(handle, bodies, 2);
                 }
 
                 /** @brief Whether @p handle still names a live constraint. */

@@ -34,9 +34,14 @@
  * every tick, and structure changes are what force the solve graph to recompose.
  *
  * The incremental rule is the same greedy rule applied to a single constraint: take
- * the lowest colour not already used by either of its bodies. Doing it one
- * constraint at a time gives a colouring no worse than greedy over an arbitrary
- * insertion order, which is the guarantee greedy offers anyway.
+ * the lowest colour not already used by *any* of its bodies. Doing it one constraint
+ * at a time gives a colouring no worse than greedy over an arbitrary insertion
+ * order, which is the guarantee greedy offers anyway.
+ *
+ * "Any of its bodies" rather than "either", because a constraint is not necessarily
+ * an edge. A tetrahedron touches four particles and its projections write to all of
+ * them, so the two-body form here is a convenience overload over the N-body one and
+ * not the other way round — there is one rule, and the short spelling forwards to it.
  *
  * The per-body "which colours are taken" set is a 64-bit mask, so the lowest free
  * colour is one bitwise-or and one scan. This is why the colour count is bounded at
@@ -86,7 +91,62 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Picks the lowest colour free on every one of @p bodies and takes it.
+                 *
+                 * The N-body form, and the one the two-body @ref assign forwards to. A
+                 * constraint touching four particles must be free on all four: taking a
+                 * colour that only two of them agree on would leave the other two sharing
+                 * a colour with something else, which is exactly the race the colouring
+                 * exists to prevent.
+                 *
+                 * Named apart from @ref assign rather than overloaded on it, because
+                 * `assign(0, 1)` would be ambiguous: a literal `0` is both a body index
+                 * and a null pointer constant, so the two candidates tie. A name is
+                 * cheaper than every call site having to cast.
+                 *
+                 * @param bodies The constraint's body slot indices.
+                 * @param count  How many there are.
+                 * @return The colour taken, or @ref NO_COLOR when the bodies together
+                 *         already occupy every colour up to the limit, when @p count is
+                 *         zero, or when any index is out of range.
+                 */
+                std::uint32_t assign_bodies(const std::uint32_t* bodies,
+                                            std::size_t count) noexcept
+                {
+                    // Zero bodies is refused rather than trivially satisfied: a colour
+                    // handed to a constraint that constrains nothing would be a colour
+                    // permanently taken on no body, and the caller has a bug either way.
+                    if (bodies == nullptr || count == 0)
+                        return NO_COLOR;
+
+                    std::uint64_t taken = 0;
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        if (!tracks(bodies[i]))
+                            return NO_COLOR;
+                        taken |= used_colors_[bodies[i]];
+                    }
+
+                    for (std::uint32_t color = 0; color < color_limit_; ++color)
+                    {
+                        const std::uint64_t bit = std::uint64_t(1) << color;
+                        if ((taken & bit) != 0)
+                            continue;
+                        for (std::size_t i = 0; i < count; ++i)
+                            used_colors_[bodies[i]] |= bit;
+                        if (color >= highest_used_)
+                            highest_used_ = color + 1;
+                        return color;
+                    }
+                    return NO_COLOR;
+                }
+
+                /**
                  * @brief Picks the lowest colour free on both @p a and @p b and takes it.
+                 *
+                 * The two-body shape, kept because most constraints have it and writing
+                 * an array at every such call site would be noise. It forwards, so there
+                 * is one rule rather than two that have to agree.
                  *
                  * @param a The first body's slot index.
                  * @param b The second body's slot index.
@@ -95,51 +155,52 @@ namespace SushiEngine
                  */
                 std::uint32_t assign(std::uint32_t a, std::uint32_t b) noexcept
                 {
-                    if (a >= used_colors_.size() || b >= used_colors_.size())
-                        return NO_COLOR;
-
-                    const std::uint64_t taken = used_colors_[a] | used_colors_[b];
-                    for (std::uint32_t color = 0; color < color_limit_; ++color)
-                    {
-                        const std::uint64_t bit = std::uint64_t(1) << color;
-                        if ((taken & bit) == 0)
-                        {
-                            used_colors_[a] |= bit;
-                            used_colors_[b] |= bit;
-                            if (color >= highest_used_)
-                                highest_used_ = color + 1;
-                            return color;
-                        }
-                    }
-                    return NO_COLOR;
+                    const std::uint32_t bodies[2] = {a, b};
+                    return assign_bodies(bodies, 2);
                 }
 
                 /**
-                 * @brief Takes @p color for a constraint on @p a and @p b, without choosing it.
+                 * @brief Takes @p color for a constraint on @p bodies, without choosing it.
                  *
-                 * @ref assign picks the lowest free colour and takes it in one step,
+                 * @ref assign_bodies picks the lowest free colour and takes it in one step,
                  * which is right when *any* free colour will do. It is not right when
                  * the caller has a second constraint on the choice — a colour whose
                  * storage band is full is free to the colourer and useless to the
                  * store — so the caller reads @ref mask_of, applies its own rule, and
                  * takes the colour it settled on through this.
                  *
-                 * @param a     The first body's slot index.
-                 * @param b     The second body's slot index.
-                 * @param color The colour to take; must be free on both bodies.
-                 * @return False when either index is out of range or @p color is past
-                 *         the limit, in which case nothing was taken.
+                 * @param bodies The constraint's body slot indices.
+                 * @param count  How many there are.
+                 * @param color  The colour to take; must be free on every body.
+                 * @return False when @p count is zero, any index is out of range, or
+                 *         @p color is past the limit — in which case nothing was taken.
                  */
-                bool take(std::uint32_t a, std::uint32_t b, std::uint32_t color) noexcept
+                bool take_bodies(const std::uint32_t* bodies, std::size_t count,
+                                 std::uint32_t color) noexcept
                 {
-                    if (!tracks(a) || !tracks(b) || color >= color_limit_)
+                    if (bodies == nullptr || count == 0 || color >= color_limit_)
                         return false;
+                    // Checked in full before anything is written, so a rejected call
+                    // leaves no colour half-taken — a colour marked on some of a
+                    // constraint's bodies and not the others is worse than either
+                    // outcome, because every later assignment would route around it.
+                    for (std::size_t i = 0; i < count; ++i)
+                        if (!tracks(bodies[i]))
+                            return false;
+
                     const std::uint64_t bit = std::uint64_t(1) << color;
-                    used_colors_[a] |= bit;
-                    used_colors_[b] |= bit;
+                    for (std::size_t i = 0; i < count; ++i)
+                        used_colors_[bodies[i]] |= bit;
                     if (color >= highest_used_)
                         highest_used_ = color + 1;
                     return true;
+                }
+
+                /** @copydoc take_bodies */
+                bool take(std::uint32_t a, std::uint32_t b, std::uint32_t color) noexcept
+                {
+                    const std::uint32_t bodies[2] = {a, b};
+                    return take_bodies(bodies, 2, color);
                 }
 
                 /** @brief Whether @p index names a body slot this colourer tracks. */
@@ -149,26 +210,37 @@ namespace SushiEngine
                 }
 
                 /**
-                 * @brief Gives back the colour a constraint on @p a and @p b held.
+                 * @brief Gives back the colour a constraint on @p bodies held.
                  *
                  * @ref highest_used deliberately does not shrink here. Recomputing it
                  * means scanning every body, and the number exists to size the solve
                  * graph — a value that fell and rose again would make the graph
                  * recompose for no gain. It is reset only by @ref recolor.
                  *
-                 * @param a     The first body's slot index.
-                 * @param b     The second body's slot index.
-                 * @param color The colour to release.
+                 * @param bodies The constraint's body slot indices.
+                 * @param count  How many there are.
+                 * @param color  The colour to release.
                  */
-                void release(std::uint32_t a, std::uint32_t b, std::uint32_t color) noexcept
+                void release_bodies(const std::uint32_t* bodies, std::size_t count,
+                                    std::uint32_t color) noexcept
                 {
-                    if (color >= MAXIMUM_COLORS)
+                    if (bodies == nullptr || color >= MAXIMUM_COLORS)
                         return;
                     const std::uint64_t bit = ~(std::uint64_t(1) << color);
-                    if (a < used_colors_.size())
-                        used_colors_[a] &= bit;
-                    if (b < used_colors_.size())
-                        used_colors_[b] &= bit;
+                    // Out-of-range indices are skipped rather than refusing the whole
+                    // call, the opposite of `take`: releasing as much as possible is
+                    // always safe, while leaving a colour held on a body that no
+                    // constraint uses would block that colour for ever.
+                    for (std::size_t i = 0; i < count; ++i)
+                        if (bodies[i] < used_colors_.size())
+                            used_colors_[bodies[i]] &= bit;
+                }
+
+                /** @copydoc release_bodies */
+                void release(std::uint32_t a, std::uint32_t b, std::uint32_t color) noexcept
+                {
+                    const std::uint32_t bodies[2] = {a, b};
+                    release_bodies(bodies, 2, color);
                 }
 
                 /**
@@ -216,6 +288,30 @@ namespace SushiEngine
                 std::uint64_t mask_of(std::uint32_t index) const noexcept
                 {
                     return index < used_colors_.size() ? used_colors_[index] : 0;
+                }
+
+                /**
+                 * @brief The union of the colours every one of @p bodies holds.
+                 *
+                 * What a caller layering its own rule on top needs: a colour is free to a
+                 * constraint only if it is free on *all* of the constraint's bodies, so
+                 * the union is the question rather than any single mask. Out-of-range
+                 * indices contribute nothing, which is the conservative direction — an
+                 * untracked body constrains no colour.
+                 *
+                 * @param bodies The constraint's body slot indices.
+                 * @param count  How many there are.
+                 * @return The combined used-colour mask; zero for an empty list.
+                 */
+                std::uint64_t mask_of_all(const std::uint32_t* bodies,
+                                          std::size_t count) const noexcept
+                {
+                    std::uint64_t taken = 0;
+                    if (bodies == nullptr)
+                        return taken;
+                    for (std::size_t i = 0; i < count; ++i)
+                        taken |= mask_of(bodies[i]);
+                    return taken;
                 }
 
                 /** @brief Whether body @p index currently holds a constraint of @p color. */

@@ -41,6 +41,10 @@ endfunction()
 add_executable(se_functional_tests
     common/test_main.cpp
 
+    # The hazard semantic every execution backend answers to: the safety and
+    # determinism floors of SushiEngine::Execution, driven through the vocabulary so
+    # the same cases can be re-pointed at each backend's compiler as they land.
+    functional/unit/test_hazard_semantics.cpp
     functional/unit/test_world.cpp
     functional/unit/test_command_buffer.cpp
     functional/unit/test_graph_coloring.cpp
@@ -153,7 +157,7 @@ add_executable(se_functional_tests
     functional/unit/test_climatology.cpp
     # The path from the epoch to T0's month axis, and the determinism the quantization buys.
     functional/unit/test_season.cpp
-    functional/unit/test_cloth_mesh.cpp
+    functional/unit/test_deformable_mesh.cpp
     functional/unit/test_math_primitives.cpp
     # P6-A: §9.1's deformation gradient and its two neo-Hookean constraints,
     # against closed-form cases (rest, uniform scale, pure rotation) and a
@@ -173,6 +177,21 @@ add_executable(se_functional_tests
     # hand-constructed element sets whose connectivity is known by
     # inspection -- fracture's own bookkeeping never reads a position.
     functional/unit/test_fem_fracture.cpp
+    # P6-G: §8.6's invariants 1 and 2 — every render vertex bound or counted,
+    # and the embedding round-tripping the source mesh at rest — plus the
+    # deformed-normal pass, whose area weighting is only checkable against a
+    # case where the right answer is stated rather than recorded.
+    functional/unit/test_mesh_embedding.cpp
+    # P6-H: §9.1's bending constraint, the thing today's cloth lacks. The
+    # weights are asserted by the property that defines them (they annihilate
+    # the rest stencil) rather than by a formula, and P6's own acceptance
+    # clause -- zero stiffness reproduces the old behaviour -- is checked
+    # structurally: at zero, no bending constraints exist to run.
+    functional/unit/test_bending_constraint.cpp
+    # P6-I: §6.5's cosmetic float column -- the rule that picks it, the clause
+    # that overrides the rule (a body a rollback replays stays in double), and
+    # the holder that keeps the decision from spreading past instantiation.
+    functional/unit/test_soft_body_precision.cpp
     # The animation stack, whose every phase shipped with a demo and no test. Starting at
     # the bottom: the asset layer everything else reads through (the skeleton cook's
     # topological reorder, the clip formats and their refusals, the sampling contract, the
@@ -371,6 +390,35 @@ add_executable(se_functional_tests
     # dent," run through step()'s real substep loop rather than by calling
     # apply_fem_plasticity directly.
     functional/integration/test_fem_plasticity_integration.cpp
+    # §9.6.1: a soft surface against a rigid body's cooked distance field —
+    # depth and normal at any penetration, a body resting at its thickness,
+    # and the reaction the rigid half of the pair takes (P6-E).
+    functional/integration/test_soft_rigid_collision.cpp
+    # §9.6.2: two deformable surfaces, the closest-feature weights a correction
+    # is split by, and the swept test that catches a crossing a discrete one
+    # cannot see at all (P6-E).
+    functional/integration/test_soft_soft_collision.cpp
+    # §9.6.3: a surface against itself, behind the flag that keeps it off for
+    # every body that does not need it (P6-E).
+    functional/integration/test_soft_self_collision.cpp
+    # §4.4's conformance suite for ISoftBodyModel: one set of cases run against
+    # all three implementations, which is what licenses §9.7 to swap between
+    # them at runtime (P6-F).
+    functional/integration/test_soft_body_model_conformance.cpp
+    # §9.7: the tier selection's hysteresis band, the barycentric state transfer
+    # in both directions, and the claim the transfer exists for — that a body
+    # does not pop when its tier changes (P6-F).
+    functional/integration/test_soft_body_lod.cpp
+    # P6-G3: a cooked asset through create_soft_body, the world, the physics
+    # service and the extract, to the renderer's DeformableMeshView channel —
+    # including §8.6's third invariant, that the render mesh cannot lag the
+    # simulation because it is derived from it rather than copied out of it.
+    functional/integration/test_soft_body_service.cpp
+    # P6-G5: what the editor's soft-body debug views mean, with the drawing left
+    # out — that full scale is a material threshold rather than the body's own
+    # worst element, which is the one mistake here that produces a plausible
+    # picture instead of an obviously broken one.
+    functional/unit/test_soft_body_heat.cpp
     functional/integration/test_cloth.cpp
     functional/integration/test_app.cpp
     functional/integration/test_input_determinism.cpp

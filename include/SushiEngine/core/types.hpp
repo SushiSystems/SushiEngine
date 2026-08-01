@@ -43,6 +43,12 @@
  * and delete core/blas_placeholder.hpp. Nothing else in the engine changes.
  */
 
+#include <cmath>
+
+#if defined(SYCL_LANGUAGE_VERSION)
+#    include <sycl/sycl.hpp>
+#endif
+
 #include <SushiEngine/core/blas_placeholder.hpp>
 
 namespace SushiEngine
@@ -127,4 +133,29 @@ namespace SushiEngine
     using placeholder::Minimum;
     using placeholder::Product;
     using placeholder::Sum;
+
+    /**
+     * @brief The scalar maths a kernel may call, wherever the kernel ends up running.
+     *
+     * A kernel body is ordinary C++ compiled for whichever backend the build selected,
+     * so it cannot name one backend's maths library directly — a SYCL translation unit
+     * needs `sycl::` overloads for device code, and a host translation unit has no such
+     * namespace at all. Routing the handful of calls kernels actually make through here
+     * keeps that a single-file decision, which is already this file's job as the one
+     * place the engine's numeric vocabulary is decided.
+     *
+     * Only the functions kernels use are here. This is not a maths library.
+     */
+    namespace Math
+    {
+#if defined(SYCL_LANGUAGE_VERSION)
+        using ::sycl::floor;
+        using ::sycl::fmod;
+        using ::sycl::sqrt;
+#else
+        using std::floor;
+        using std::fmod;
+        using std::sqrt;
+#endif
+    } // namespace Math
 } // namespace SushiEngine

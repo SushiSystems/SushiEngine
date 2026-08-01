@@ -26,7 +26,9 @@
 /**
  * @file SushiEngine.hpp
  * @brief Umbrella header for the engine. One include pulls in the value-type seam,
- *        the full ECS surface (entities, components, archetype storage, the world,
+ *        the execution vocabulary (the access algebra and hazard semantic every
+ *        backend answers to), the full ECS surface (entities, components,
+ *        archetype storage, the world,
  *        the deferred command buffer, and the system schedule), the physics
  *        constraint solver, and SushiLoop's core (the `Loop::App` authoring API over
  *        a fixed-step deterministic loop, seeded RNG, per-tick input capture,
@@ -34,6 +36,7 @@
  */
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/execution/context.hpp>
 #include <SushiEngine/ecs/entity.hpp>
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/chunk.hpp>

@@ -58,6 +58,7 @@
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
+#include <SushiEngine/physics/soft/fem_element.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
 
 namespace SushiEngine
@@ -123,6 +124,18 @@ namespace SushiEngine
                 /** @brief The articulated persistent kind this solver admits (§10.1). */
                 using Joint = JointConstraintT<T>;
 
+                /**
+                 * @brief The deformable persistent kind this solver admits (§9.1).
+                 *
+                 * The four-body kind, and the reason P6-J1 generalized the colouring
+                 * and the store past two endpoints. It is projected twice per substep —
+                 * deviatoric then hydrostatic — from one node per colour, and its
+                 * particles are ordinary bodies in the same buffer: a soft-body particle
+                 * is a `RigidBodyT` with no inertia, which is why an element can push a
+                 * crate and a crate can push an element with no coupling code at all.
+                 */
+                using Element = FemTetrahedronT<T>;
+
                 virtual ~IConstraintSolver() = default;
 
                 /**
@@ -162,6 +175,41 @@ namespace SushiEngine
                  * @return True when a live constraint was removed by this call.
                  */
                 virtual bool remove_constraint(ConstraintHandle handle) = 0;
+
+                /**
+                 * @brief Admits a FEM element over four live bodies.
+                 *
+                 * @param element The element; its `vertex` entries are body slot indices
+                 *                and its rest state, Lamé pair and rest volume are read
+                 *                as given. Its two multipliers are reset each tick.
+                 * @return A handle to it, or an invalid handle when the element capacity
+                 *         (`PhysicsCapacities::elements`, zero by default) or the colour
+                 *         ceiling is exhausted.
+                 */
+                virtual ConstraintHandle add_element(const Element& element) = 0;
+
+                /**
+                 * @brief Removes an element.
+                 * @param handle The element to remove.
+                 * @return True when a live element was removed by this call.
+                 */
+                virtual bool remove_element(ConstraintHandle handle) = 0;
+
+                /**
+                 * @brief Reads an element back, including what the solve wrote to it.
+                 *
+                 * The multipliers and — once §9.3's readout runs on the device — the von
+                 * Mises stress are settled where the solve is, so this is the only way a
+                 * caller learns what an element carried.
+                 *
+                 * @param handle  The element to read.
+                 * @param element Receives its state; untouched when the handle is dead.
+                 * @return True when @p element was written.
+                 */
+                virtual bool read_element(ConstraintHandle handle, Element& element) const = 0;
+
+                /** @brief How many elements this solver can hold at once. */
+                virtual std::size_t element_capacity() const noexcept = 0;
 
                 /**
                  * @brief Admits a joint between two live bodies.

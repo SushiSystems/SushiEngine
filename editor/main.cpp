@@ -462,19 +462,25 @@ int main(int argc, char** argv)
             context.world_entity_count = simulation->entity_count();
             context.physics_statistics = simulation->physics_statistics();
 
-            // Soft-body meshes: one strand view per cloth grid, pointing directly
-            // into the snapshot's concatenated vertex buffer for this frame's lifetime.
-            std::vector<SushiEngine::Render::ClothStrandView> strands;
-            strands.reserve(scene.cloth_instances.size());
-            for (const SushiEngine::Simulation::ClothInstance& cloth : scene.cloth_instances)
+            // Soft-body surfaces: one view per simulated mesh, pointing directly into the
+            // snapshot's concatenated vertex and index buffers for this frame's lifetime.
+            // Both offsets are applied here and nowhere else — the sim numbers each
+            // surface's triangles from its own first vertex, so the pointer arithmetic is
+            // all it takes to hand the renderer a self-contained mesh.
+            std::vector<SushiEngine::Render::DeformableMeshView> deformable;
+            deformable.reserve(scene.deformable_instances.size());
+            for (const SushiEngine::Simulation::DeformableInstance& surface :
+                 scene.deformable_instances)
             {
-                SushiEngine::Render::ClothStrandView strand;
-                strand.rows = cloth.rows;
-                strand.cols = cloth.cols;
-                strand.vertices = scene.cloth_vertices.data() + cloth.first_vertex;
-                strand.color = cloth.color;
-                strand.id = static_cast<std::uint32_t>(cloth.id);
-                strands.push_back(strand);
+                SushiEngine::Render::DeformableMeshView view;
+                view.vertices = scene.deformable_vertices.data() + surface.first_vertex;
+                view.vertex_count = surface.vertex_count;
+                view.indices = scene.deformable_indices.data() + surface.first_index;
+                view.index_count = surface.index_count;
+                view.topology_revision = surface.topology_revision;
+                view.color = surface.color;
+                view.id = static_cast<std::uint32_t>(surface.id);
+                deformable.push_back(view);
             }
 
             // Deterministic particles: one billboard per live particle in every emitter
@@ -853,12 +859,36 @@ int main(int argc, char** argv)
                 scene_inputs.gizmo_mode = context.gizmo_mode;
                 scene_inputs.gizmo_space = gizmo_space;
                 scene_inputs.gizmo_snap = &snap;
-                scene_inputs.strands = strands.data();
-                scene_inputs.strand_count = strands.size();
+                scene_inputs.deformable = deformable.data();
+                scene_inputs.deformable_count = deformable.size();
                 // The selected cooked collider, drawn over the mesh it came from (§14). Scene
                 // view only: the Game view is what the player sees, and a debug overlay there
                 // would be showing them the workings.
                 scene_inputs.collision_wireframe = &cook_bake_state.collision_wireframe();
+                // The selected soft body's interior (§9.3/§9.4, P6-G5), read live off the
+                // simulated body. Only when a view is actually on: the read copies every
+                // particle and every element out of the physics, which is a per-frame cost
+                // worth paying for a view somebody is looking at and not otherwise. Scene
+                // view only, for the same reason as the collider above.
+                std::vector<SushiEngine::Vector3> soft_body_positions;
+                std::vector<SushiEngine::Simulation::SoftBodyElementSample> soft_body_elements;
+                if (context.soft_body_debug_view != SushiEngine::Editor::SoftBodyDebugView::Off &&
+                    simulation != nullptr && context.selected_entity != SushiEngine::Simulation::NULL_ENTITY)
+                {
+                    SushiEngine::Simulation::IWorldEditor& soft_world = simulation->world();
+                    std::vector<std::uint32_t> unused_indices;
+                    if (soft_world.has_soft_body(context.selected_entity) &&
+                        soft_world.soft_body_surface(context.selected_entity, soft_body_positions,
+                                                     unused_indices) &&
+                        soft_world.soft_body_elements(context.selected_entity, soft_body_elements))
+                    {
+                        scene_inputs.soft_body_positions = &soft_body_positions;
+                        scene_inputs.soft_body_elements = &soft_body_elements;
+                        scene_inputs.soft_body_material =
+                            soft_world.soft_body_params(context.selected_entity).material;
+                        scene_inputs.soft_body_view = context.soft_body_debug_view;
+                    }
+                }
                 scene_inputs.lights = scene.lights.data();
                 scene_inputs.light_count = scene.lights.size();
                 scene_inputs.decals = scene.decals.data();
@@ -912,8 +942,8 @@ int main(int argc, char** argv)
                     game_inputs.instance_count = instances.size();
                     game_inputs.pickable = false;
                     game_inputs.display = &selector;
-                    game_inputs.strands = strands.data();
-                    game_inputs.strand_count = strands.size();
+                    game_inputs.deformable = deformable.data();
+                    game_inputs.deformable_count = deformable.size();
                     game_inputs.lights = scene.lights.data();
                     game_inputs.light_count = scene.lights.size();
                     game_inputs.decals = scene.decals.data();

@@ -187,3 +187,155 @@ TEST(Unit_FemFracture, SceneLevelCapHoldsAcrossCalls)
     EXPECT_EQ(second.elements_removed, 0u);
     EXPECT_EQ(model.elements.size(), 1u);
 }
+
+// ---------------------------------------------------------------------------
+// P6-G4: the clause §9.5 names and this file used to record as an open gap —
+// "its shared vertices are duplicated along the crack surface, splitting the
+// topology" — plus the two things that clause implies and nothing else does:
+// the boundary a broken body presents afterward, and §8.6 invariant 4, that a
+// render vertex follows the side of the crack its element ended up on.
+// ---------------------------------------------------------------------------
+
+// Three tetrahedra meeting at particle 0. A and B touch each other *only*
+// there — one shared vertex, no shared face — and are held together through C.
+// Removing C therefore leaves particle 0 as the single point joining two pieces
+// that have nothing else in common, which is precisely the vertex that has to
+// become two.
+namespace
+{
+    FiniteElementModel<Scalar> hinge_at_particle_zero()
+    {
+        FiniteElementModel<Scalar> model;
+        model.material.fracture_stress = 100.0;
+        model.particles.resize(8);
+        for (RigidBodyT<Scalar>& particle : model.particles)
+            particle.inv_mass = Scalar(4); // a quarter of a kilogramme each
+        model.elements.push_back(element_with_vertices(0, 1, 2, 3, 50.0));  // A, survives
+        model.elements.push_back(element_with_vertices(0, 4, 5, 6, 50.0));  // B, survives
+        model.elements.push_back(element_with_vertices(0, 1, 4, 7, 1.0e6)); // C, fractures
+        return model;
+    }
+} // namespace
+
+TEST(Unit_FemFracture, DuplicatesTheVertexTwoPiecesWereHangingFrom)
+{
+    FiniteElementModel<Scalar> model = hinge_at_particle_zero();
+    FemFractureBudget budget;
+    budget.minimum_fragment_element_count = 1;
+    std::uint32_t total = 0;
+    FemFractureRemap remap;
+
+    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total, &remap);
+
+    ASSERT_EQ(report.elements_removed, 1u);
+    EXPECT_EQ(report.vertices_duplicated, 1u);
+    ASSERT_EQ(model.particles.size(), 9u);
+    ASSERT_EQ(remap.duplicated_from.size(), 1u);
+    EXPECT_EQ(remap.duplicated_from[0], 0u);
+    EXPECT_EQ(remap.original_particle_count, 8u);
+
+    // One of the two survivors keeps particle 0 and the other takes the copy;
+    // which is which is an implementation detail, that they differ is not.
+    ASSERT_EQ(model.elements.size(), 2u);
+    EXPECT_NE(model.elements[0].vertex[0], model.elements[1].vertex[0]);
+    EXPECT_TRUE(model.elements[0].vertex[0] == 0u || model.elements[1].vertex[0] == 0u);
+    EXPECT_TRUE(model.elements[0].vertex[0] == 8u || model.elements[1].vertex[0] == 8u);
+}
+
+TEST(Unit_FemFracture, TheSplitDividesTheVertexMassRatherThanCopyingIt)
+{
+    // A copy would make the body heavier every time it broke, which is the sort
+    // of error that only shows up as a car that falls faster after a crash.
+    FiniteElementModel<Scalar> model = hinge_at_particle_zero();
+    FemFractureBudget budget;
+    budget.minimum_fragment_element_count = 1;
+    std::uint32_t total = 0;
+
+    ASSERT_EQ(apply_fem_fracture<Scalar>(model, budget, total).vertices_duplicated, 1u);
+    ASSERT_EQ(model.particles.size(), 9u);
+
+    // Two components of one element each: half the mass apiece, so twice the
+    // inverse mass apiece.
+    EXPECT_NEAR(double(model.particles[0].inv_mass), 8.0, 1e-12);
+    EXPECT_NEAR(double(model.particles[8].inv_mass), 8.0, 1e-12);
+}
+
+TEST(Unit_FemFracture, SplitsNothingWhenTheRemovalOnlyChippedACorner)
+{
+    // Three disjoint tetrahedra: removing one leaves no vertex holding two
+    // pieces together, so the pass must add no particles at all. A splitter that
+    // fired on every fracture would grow the particle array without bound.
+    FiniteElementModel<Scalar> model;
+    model.material.fracture_stress = 100.0;
+    model.particles.resize(12);
+    model.elements.push_back(element_with_vertices(0, 1, 2, 3, 1.0e6));
+    model.elements.push_back(element_with_vertices(4, 5, 6, 7, 50.0));
+    model.elements.push_back(element_with_vertices(8, 9, 10, 11, 50.0));
+
+    FemFractureBudget budget;
+    budget.minimum_fragment_element_count = 1;
+    std::uint32_t total = 0;
+    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+
+    EXPECT_EQ(report.elements_removed, 1u);
+    EXPECT_EQ(report.vertices_duplicated, 0u);
+    EXPECT_EQ(model.particles.size(), 12u);
+}
+
+TEST(Unit_FemFracture, APinnedVertexStaysPinnedInEveryCopy)
+{
+    // Mass is divided; being held by the world is not. A copy that came back
+    // with a finite mass would fall off the wall the original was nailed to.
+    FiniteElementModel<Scalar> model = hinge_at_particle_zero();
+    model.particles[0].inv_mass = Scalar(0);
+    FemFractureBudget budget;
+    budget.minimum_fragment_element_count = 1;
+    std::uint32_t total = 0;
+
+    ASSERT_EQ(apply_fem_fracture<Scalar>(model, budget, total).vertices_duplicated, 1u);
+    ASSERT_EQ(model.particles.size(), 9u);
+    EXPECT_EQ(double(model.particles[0].inv_mass), 0.0);
+    EXPECT_EQ(double(model.particles[8].inv_mass), 0.0);
+}
+
+TEST(Unit_SoftBodySurface, KeepsOnlyTheFacesNamedByOneElement)
+{
+    // Two tetrahedra sharing a face: eight faces between them, one of which is
+    // interior, so six triangles remain. This is the whole rule, and it is the
+    // rule a fractured body needs re-applied — the surface it was cooked with
+    // describes the shape it had before it broke.
+    FiniteElementModel<Scalar> model;
+    model.particles.resize(5);
+    model.elements.push_back(element_with_vertices(0, 1, 2, 3, 0.0));
+    model.elements.push_back(element_with_vertices(1, 2, 3, 4, 0.0));
+
+    rebuild_soft_body_surface(model);
+
+    EXPECT_EQ(model.surface_indices.size(), 18u);
+    ASSERT_EQ(model.surface_vertices.size(), 5u);
+    for (std::uint32_t i = 0; i < 5; ++i)
+        EXPECT_EQ(model.surface_vertices[i], i) << "surface vertices must be ascending and unique";
+}
+
+TEST(Unit_SoftBodySurface, ASingleElementIsAllBoundary)
+{
+    FiniteElementModel<Scalar> model;
+    model.particles.resize(4);
+    model.elements.push_back(element_with_vertices(0, 1, 2, 3, 0.0));
+
+    rebuild_soft_body_surface(model);
+    EXPECT_EQ(model.surface_indices.size(), 12u);
+}
+
+TEST(Unit_FemFracture, RebuildsTheBoundaryAroundTheHoleItLeft)
+{
+    // Two disjoint tetrahedra after the fracture, no face shared: every one of
+    // their eight faces is boundary.
+    FiniteElementModel<Scalar> model = hinge_at_particle_zero();
+    FemFractureBudget budget;
+    budget.minimum_fragment_element_count = 1;
+    std::uint32_t total = 0;
+
+    ASSERT_EQ(apply_fem_fracture<Scalar>(model, budget, total).elements_removed, 1u);
+    EXPECT_EQ(model.surface_indices.size(), 24u);
+}

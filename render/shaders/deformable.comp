@@ -1,0 +1,123 @@
+#version 450
+
+// GPU shading of host-simulated surfaces. This replaces cloth.comp, which could only
+// handle a rows-by-cols grid: it derived the up-to-six triangles touching a vertex from
+// the row stride, which is a formula an arbitrary triangle list does not have.
+//
+// The gather stays atomic-free, which is the whole reason for the shape of this shader.
+// The obvious way to area-weight normals is to run one thread per *triangle* and add its
+// face normal into three shared vertices — but "add into shared" across threads means
+// atomics, and float atomics make the result depend on scheduling order, so two frames
+// with identical input could shade differently. So instead one thread per *vertex* reads
+// the triangles that touch it and sums them itself: every vertex is written by exactly
+// one thread, nothing is shared, and the sum happens in a fixed order. The price is the
+// inverse map, which the host builds and caches (build_vertex_triangle_adjacency) because
+// it changes only when the topology does, not when the body moves.
+
+layout(local_size_x = 64) in;
+
+// The renderer's MeshVertex, 60 bytes, as scalar arrays so the std430 layout matches the
+// C++ struct byte-for-byte (a vec3 would force 16-byte alignment and break the stride).
+struct Vertex
+{
+    float position[3];
+    float normal[3];
+    float tangent[4];
+    float uv0[2];
+    float uv1[2];
+    uint color;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer Positions
+{
+    vec4 positions[]; // xyz = mesh-local particle position
+} position_block;
+
+// Mesh-local triangle list: entry (base_index + 3 * t + k) is a vertex index in
+// [0, vertex_count), which is also what the draw binds, offset by base_vertex there.
+layout(std430, set = 0, binding = 1) readonly buffer Indices
+{
+    uint indices[];
+} index_block;
+
+// Two entries per vertex — first, count — into the triangle array below.
+layout(std430, set = 0, binding = 2) readonly buffer AdjacencyRange
+{
+    uint ranges[];
+} range_block;
+
+layout(std430, set = 0, binding = 3) readonly buffer AdjacencyTriangle
+{
+    uint triangles[];
+} adjacency_block;
+
+layout(std430, set = 0, binding = 4) writeonly buffer Vertices
+{
+    Vertex vertices[];
+} vertex_block;
+
+layout(push_constant) uniform Push
+{
+    uvec4 a;     // x = vertex count, y = base vertex, z = base index, w = adjacency range base
+    uvec4 b;     // x = adjacency triangle base
+    vec4 origin; // xyz = camera-relative mesh origin
+} pc;
+
+void main()
+{
+    uint v = gl_GlobalInvocationID.x;
+    uint vertex_count = pc.a.x;
+    if (v >= vertex_count)
+        return;
+
+    uint base_vertex = pc.a.y;
+    uint base_index = pc.a.z;
+    uint range_base = pc.a.w;
+    uint triangle_base = pc.b.x;
+
+    vec3 p = position_block.positions[base_vertex + v].xyz;
+
+    // The un-normalised face normals are summed, so each triangle's contribution is
+    // weighted by twice its area — the same weighting the host reference applies, and
+    // the reason nothing here normalises before the sum.
+    uint first = range_block.ranges[range_base + v * 2u];
+    uint count = range_block.ranges[range_base + v * 2u + 1u];
+    vec3 n = vec3(0.0);
+    for (uint k = 0u; k < count; ++k)
+    {
+        uint t = adjacency_block.triangles[triangle_base + first + k];
+        uint i0 = index_block.indices[base_index + t * 3u];
+        uint i1 = index_block.indices[base_index + t * 3u + 1u];
+        uint i2 = index_block.indices[base_index + t * 3u + 2u];
+        vec3 a = position_block.positions[base_vertex + i0].xyz;
+        vec3 b = position_block.positions[base_vertex + i1].xyz;
+        vec3 c = position_block.positions[base_vertex + i2].xyz;
+        n += cross(b - a, c - a);
+    }
+
+    // A vertex no triangle uses keeps a usable normal rather than a zero one: a fractured
+    // body leaves interior particles in the array with nothing on the surface referencing
+    // them, and they are still written so the buffer has no uninitialised slots.
+    float len = length(n);
+    vec3 normal = len > 1e-8 ? n / len : vec3(0.0, 1.0, 0.0);
+    vec3 camera_relative = pc.origin.xyz + p;
+
+    uint out_index = base_vertex + v;
+    vertex_block.vertices[out_index].position[0] = camera_relative.x;
+    vertex_block.vertices[out_index].position[1] = camera_relative.y;
+    vertex_block.vertices[out_index].position[2] = camera_relative.z;
+    vertex_block.vertices[out_index].normal[0] = normal.x;
+    vertex_block.vertices[out_index].normal[1] = normal.y;
+    vertex_block.vertices[out_index].normal[2] = normal.z;
+    // No authored UVs on a simulated surface, so a zero tangent tells the fragment shader
+    // to derive one from screen-space derivatives — exactly what the grid path wrote.
+    vertex_block.vertices[out_index].tangent[0] = 0.0;
+    vertex_block.vertices[out_index].tangent[1] = 0.0;
+    vertex_block.vertices[out_index].tangent[2] = 0.0;
+    vertex_block.vertices[out_index].tangent[3] = 0.0;
+    vertex_block.vertices[out_index].uv0[0] = 0.0;
+    vertex_block.vertices[out_index].uv0[1] = 0.0;
+    vertex_block.vertices[out_index].uv1[0] = 0.0;
+    vertex_block.vertices[out_index].uv1[1] = 0.0;
+    vertex_block.vertices[out_index].color = 0xFFFFFFFFu;
+}

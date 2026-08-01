@@ -29,7 +29,7 @@
  *
  * A punctual light is a *record*, not an object: plain trivially-copyable data that
  * crosses the `render()` boundary once per frame, exactly the way @ref MeshInstance
- * and @ref ClothStrandView do. The renderer never holds a polymorphic light — it packs
+ * and @ref DeformableMeshView do. The renderer never holds a polymorphic light — it packs
  * the list into one storage buffer, culls it against the froxel cluster grid, and the
  * shading pass loops the few lights that reach each pixel. This is the data-oriented
  * mandate: culling, the cluster grid, and shading all depend on the *list*, never on a

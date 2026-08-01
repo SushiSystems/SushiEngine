@@ -30,16 +30,13 @@
  * The FEM analogue of `XpbdDistanceConstraintT` (`physics/constraints/xpbd_constraint.hpp`):
  * a trivially-copyable descriptor holding exactly the per-element constants the
  * projection needs. Where a distance constraint names two bodies, an element
- * names four — the tetrahedron's own vertices — which is the one respect in
- * which this cannot yet be registered as a constraint *kind* in the shared
- * solver (`physics/solver/`): `ConstraintStore`, `IncrementalColoring`, and
- * `color_constraints` are written for exactly two body indices per constraint
- * end to end, and generalizing that to N bodies is real, separate work this
- * element deliberately does not take on. §16's P6-A entry runs this element
- * through a small host-only reference solver instead
- * (`finite_element_model.hpp`) — the same relationship `HostXpbdSolver` has to
- * `RuntimeGraphBuilder`, but for now the only implementation, not a mirror of
- * one.
+ * names four — the tetrahedron's own vertices. `ConstraintStore`,
+ * `IncrementalColoring` and `color_constraints` were written for exactly two
+ * body indices per constraint end to end; P6-J1 generalized them to N, and this
+ * element opts in through @ref FemTetrahedronT::BODY_COUNT, so it can be
+ * coloured and stored as the four-body hyperedge it is. §16's P6-A entry runs it
+ * through a small host-only reference solver (`finite_element_model.hpp`) — the
+ * same relationship `HostXpbdSolver` has to `RuntimeGraphBuilder`.
  */
 
 #include <cstdint>
@@ -71,6 +68,17 @@ namespace SushiEngine
         {
             using Real = T;
 
+            /**
+             * @brief How many bodies this constraint touches — its opt-in to the N-body machinery.
+             *
+             * Read by `constraint_bodies()`, which the colouring and the constraint store
+             * go through. Without it a tetrahedron would be coloured as though it had two
+             * endpoints, leaving the other two particles unprotected: a colour would stop
+             * meaning "no two constraints here share a body", and the parallel sweep the
+             * colouring licenses would race on them.
+             */
+            static constexpr std::size_t BODY_COUNT = 4;
+
             /** @brief The tetrahedron's four particle indices, into the owning solver's array. */
             std::uint32_t vertex[4] = {0, 0, 0, 0};
 
@@ -85,11 +93,35 @@ namespace SushiEngine
             T rest_volume = 0;
 
             /**
+             * @brief The material's Lamé `mu`, carried per element.
+             *
+             * The two constants §9.1's projections need, held here rather than passed
+             * alongside, which is what makes this descriptor self-describing the way
+             * every other constraint kind in the solver already is — a distance
+             * constraint carries its compliance, a joint carries its limits. That is
+             * not tidiness: `RuntimeGraphBuilder`'s kernels capture the buffer and
+             * nothing else, and one device buffer holds the elements of *every* soft
+             * body in the scene, so a Lamé pair passed per call would have to become a
+             * per-element indirection into a material table to say anything at all.
+             *
+             * The host model rewrites both at the top of every sweep from its own
+             * material, so a material edited between ticks still takes effect and there
+             * is one authority rather than two that have to agree.
+             */
+            T mu = 0;
+
+            /** @brief The material's raw Lamé `lambda`; @ref project_fem_hydrostatic reparameterizes it. */
+            T lambda = 0;
+
+            /**
              * @brief The deviatoric constraint's accumulated Lagrange multiplier.
              *
-             * Reset to zero at the first substep of every tick, exactly like a
-             * contact's or a joint's — an element's internal stress is a
-             * per-tick quantity, not one that should compound tick over tick.
+             * Reset to zero at the start of every *substep*, not every tick: one
+             * iteration per substep is XPBD's small-step arrangement, so a multiplier
+             * must not carry across — the same rule the distance kind states by
+             * starting its own multiplier at zero every time it is projected. It is
+             * still stored rather than local, because the value the substep settled on
+             * is what §9.3's stress readout and the impulse query are computed from.
              */
             T deviatoric_lambda = 0;
 

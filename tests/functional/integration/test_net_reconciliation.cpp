@@ -98,11 +98,11 @@ namespace
 
 TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
 {
-    auto& runtime = Harness::shared_runtime();
+    auto& execution = Harness::shared_context();
 
     // Baseline: a "server-only" world, driven straight through by the
     // authoritative command stream, no misprediction at all.
-    World server_only_world(runtime, CHUNK_CAPACITY);
+    World server_only_world(execution, CHUNK_CAPACITY);
     std::vector<Entity> server_only_entities = seed_world(server_only_world);
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         apply_command(server_only_world, server_only_entities, authoritative_command(tick));
@@ -110,7 +110,7 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
     // The client: predicts locally (sometimes wrong), captures a rollback
     // snapshot before applying each tick, and periodically reconciles against
     // acks arriving over a loopback channel.
-    World client_world(runtime, CHUNK_CAPACITY);
+    World client_world(execution, CHUNK_CAPACITY);
     std::vector<Entity> client_entities = seed_world(client_world);
 
     Loop::RollbackBuffer rollback(TOTAL_TICKS);
@@ -161,8 +161,8 @@ TEST(Integration_NetReconciliation, ReconciledClientMatchesServerOnlySimulation)
 
 TEST(Integration_NetReconciliation, NoReconciliationWhenServerAgreesWithClient)
 {
-    auto& runtime = Harness::shared_runtime();
-    World world(runtime, CHUNK_CAPACITY);
+    auto& execution = Harness::shared_context();
+    World world(execution, CHUNK_CAPACITY);
     std::vector<Entity> entities = seed_world(world);
 
     Loop::RollbackBuffer rollback(TOTAL_TICKS);

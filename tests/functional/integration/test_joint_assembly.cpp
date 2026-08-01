@@ -173,7 +173,7 @@ namespace
 
 TEST(Integration_JointAssembly, TheHingedDoorHangsFromTheChassisAndCarriesItsWeight)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
 
     const JointId hinge = physics->create_joint(door_hinge(0));
@@ -204,7 +204,7 @@ TEST(Integration_JointAssembly, TheHingedDoorHangsFromTheChassisAndCarriesItsWei
 
 TEST(Integration_JointAssembly, TheDoorSwingsOnlyWithinItsLimits)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
 
     const JointId hinge = physics->create_joint(door_hinge(0));
@@ -246,7 +246,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
 
     for (int with_friction = 0; with_friction < 2; ++with_friction)
     {
-        auto physics = create_physics_simulation(Harness::shared_runtime());
+        auto physics = create_physics_simulation(Harness::shared_context());
         physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
 
         JointDesc joint = door_hinge(0);
@@ -293,7 +293,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
 
 TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
 
     // The door's own weight puts about 340 N through the hinge, so a threshold well
@@ -352,7 +352,7 @@ TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
 
 TEST(Integration_JointAssembly, DestroyingAPartTakesItsJointsWithIt)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
 
     const JointId hinge = physics->create_joint(door_hinge(0));
@@ -373,7 +373,7 @@ TEST(Integration_JointAssembly, DestroyingAPartTakesItsJointsWithIt)
 
 TEST(Integration_JointAssembly, AJointNeedsBothOfItsBodiesToExist)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_rigid_bodies({chassis_desc()}, ITERATIONS, SUBSTEP_DT);
 
     // An immovable endpoint is a body with zero inverse mass, not a missing one, so a
@@ -475,7 +475,7 @@ namespace
 
 TEST(Integration_JointAssembly, AnInstancedAssemblyIsHeldTogetherByItsOwnJoints)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     std::vector<JointId> joints;
     const std::vector<EntityId> parts = instance_into(
@@ -509,7 +509,7 @@ TEST(Integration_JointAssembly, AnInstancedAssemblyIsHeldTogetherByItsOwnJoints)
 
 TEST(Integration_JointAssembly, ARagdollBuiltFromASkeletonHangsTogetherAndFalls)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     std::vector<std::byte> blob;
     ASSERT_TRUE(Animation::build_skeleton_blob(chain_desc(), blob));

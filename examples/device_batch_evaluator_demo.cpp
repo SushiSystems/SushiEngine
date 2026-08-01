@@ -118,7 +118,8 @@ int main()
 
     // --- Device batch: a crowd at different times, one bound skeleton + clip ----------
     auto runtime = SushiRuntime::API::Runtime::create();
-    DeviceBatchEvaluator device(runtime);
+    Execution::Context execution(runtime);
+    DeviceBatchEvaluator device(execution);
     check(device.bind_skeleton(skeleton), "bind skeleton");
     const std::uint32_t clip_handle = device.bind_clip(clip);
     check(clip_handle != INVALID_CLIP_HANDLE, "bind clip");
@@ -140,7 +141,7 @@ int main()
     instances[0].loop = 1u;
     instances[COUNT - 1].loop = 1u;
     device.set_instances(instances);
-    const SushiRuntime::RunReport report = device.evaluate();
+    const Execution::RunReport report = device.evaluate();
     (void)report;
     check(device.instance_count() == COUNT, "device batch sized to the instance list");
     check(device.palettes().size() == COUNT * skeleton.joint_count, "palette readback sized correctly");

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* cloth_pass.hpp                                                         */
+/* deformable_pass.hpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -20,15 +20,18 @@
 #pragma once
 
 /**
- * @file cloth_pass.hpp
- * @brief Triangulates the frame's soft bodies on the GPU (Phase 10 item 6).
+ * @file deformable_pass.hpp
+ * @brief Shades the frame's host-simulated surfaces on the GPU.
  *
- * Runs just before the opaque pass. For each soft-body grid the host packed positions for,
- * it dispatches one thread per vertex to compute the area-weighted normal and write the
- * MeshVertex, and one thread per quad to write the indices — the work the CPU used to do
- * every frame. The vertex and index buffers it fills are the ones the opaque pass then
- * draws, so it hand-barriers them from the compute write to the vertex-input read (they are
- * ClothBuffers-owned, not graph resources, so the graph cannot derive that dependency).
+ * Runs just before the opaque pass. For each deformable mesh the host packed positions for,
+ * it dispatches one thread per vertex to gather the area-weighted normal and write the
+ * MeshVertex — the work the CPU used to do every frame. The indices are not touched: they
+ * are uploaded mesh-local and the draw supplies the vertex offset, so what used to be a
+ * second dispatch mode is now a memcpy the buffers do.
+ *
+ * The vertex buffer it fills is the one the opaque pass draws, so it hand-barriers the
+ * compute write to the vertex-input read — the buffer is DeformableBuffers-owned, not a
+ * graph resource, so the graph cannot derive that dependency.
  */
 
 #include <cstdint>
@@ -54,29 +57,29 @@ namespace SushiEngine
 
         namespace Geometry
         {
-            class ClothBuffers;
+            class DeformableBuffers;
         }
 
         namespace Passes
         {
-            /** @brief Fills the soft-body vertex and index buffers from packed positions. */
-            class ClothPass : public IRenderPass
+            /** @brief Fills the deformable vertex buffer from packed positions and topology. */
+            class DeformablePass : public IRenderPass
             {
                 public:
                     /**
-                     * @brief Builds the triangulation pipeline.
-                     * @param device    The live Vulkan device.
-                     * @param shaders   The catalogue the cloth module comes from.
-                     * @param pipelines The factory owning the compute pipeline.
-                     * @param cloth     The per-frame soft-body buffers to fill.
+                     * @brief Builds the shading pipeline.
+                     * @param device     The live Vulkan device.
+                     * @param shaders    The catalogue the deformable module comes from.
+                     * @param pipelines  The factory owning the compute pipeline.
+                     * @param deformable The per-frame deformable buffers to fill.
                      */
-                    ClothPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
-                              Resources::GraphicsPipelineFactory& pipelines,
-                              Geometry::ClothBuffers& cloth);
-                    ~ClothPass() override;
+                    DeformablePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                                   Resources::GraphicsPipelineFactory& pipelines,
+                                   Geometry::DeformableBuffers& deformable);
+                    ~DeformablePass() override;
 
-                    ClothPass(const ClothPass&) = delete;
-                    ClothPass& operator=(const ClothPass&) = delete;
+                    DeformablePass(const DeformablePass&) = delete;
+                    DeformablePass& operator=(const DeformablePass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;
@@ -85,9 +88,9 @@ namespace SushiEngine
                 private:
                     struct Push
                     {
-                        std::uint32_t a[4]; /**< mode, rows, cols, base vertex. */
-                        std::uint32_t b[4]; /**< base index. */
-                        float origin[4];    /**< camera-relative strand origin. */
+                        std::uint32_t a[4]; /**< vertex count, base vertex, base index, adjacency range base. */
+                        std::uint32_t b[4]; /**< adjacency triangle base. */
+                        float origin[4];    /**< camera-relative mesh origin. */
                     };
 
                     void create_pipeline();
@@ -96,7 +99,7 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
-                    Geometry::ClothBuffers& cloth_;
+                    Geometry::DeformableBuffers& deformable_;
 
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;

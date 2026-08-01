@@ -35,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/physics/constraints/constraint.hpp>
+#include <SushiEngine/physics/soft/fem_element.hpp>
 #include <SushiEngine/physics/solver/constraint_store.hpp>
 #include <SushiEngine/physics/solver/graph_coloring.hpp>
 
@@ -367,4 +368,162 @@ TEST(Unit_IncrementalColoring, RemovingAConstraintReleasesItsColourForReuse)
         store.remove(placed.handle, 0, 1);
     }
     EXPECT_EQ(store.live_count(), 0u);
+}
+
+// -- P6-J1: the same machinery over constraints with more than two endpoints ----
+//
+// A tetrahedron touches four particles and both of its projections write to all
+// four. Coloured as though it were an edge, the two ignored particles are
+// unprotected: a colour stops meaning "no two constraints here share a body", and
+// the parallel sweep the colouring licenses races on exactly the constraints that
+// look independent. Every case below is built so that a two-endpoint reading would
+// pass — the conflicts are all in the vertices an edge reading would drop.
+
+namespace
+{
+    FemTetrahedron tet(std::uint32_t v0, std::uint32_t v1, std::uint32_t v2, std::uint32_t v3)
+    {
+        FemTetrahedron element;
+        element.vertex[0] = v0;
+        element.vertex[1] = v1;
+        element.vertex[2] = v2;
+        element.vertex[3] = v3;
+        return element;
+    }
+} // namespace
+
+TEST(Unit_GraphColoring, TetrahedraSharingOnlyALateVertexStillConflict)
+{
+    // The regression the whole task is about. These two share particle 7, and they
+    // share it in slots 2 and 3 — the ones an `a`/`b` reading never looks at. Given
+    // the same colour they would be projected in parallel and both write particle 7.
+    std::vector<FemTetrahedron> elements;
+    elements.push_back(tet(0, 1, 7, 2));
+    elements.push_back(tet(3, 4, 5, 7));
+
+    const ColorBatches colors = color_constraints(elements, 8);
+
+    ASSERT_EQ(colors.size(), 2u) << "the shared particle was not seen, so both fit one colour";
+    EXPECT_EQ(colors[0].size(), 1u);
+    EXPECT_EQ(colors[1].size(), 1u);
+}
+
+TEST(Unit_GraphColoring, DisjointTetrahedraStillShareAColour)
+{
+    // The other half of the claim, and the one that stops the fix from being "give
+    // everything its own colour": elements that genuinely share nothing must still
+    // batch together, or the sweep's depth becomes the element count.
+    std::vector<FemTetrahedron> elements;
+    for (std::uint32_t i = 0; i < 5; ++i)
+        elements.push_back(tet(i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3));
+
+    const ColorBatches colors = color_constraints(elements, 20);
+
+    ASSERT_EQ(colors.size(), 1u) << "disjoint elements were spread over several colours";
+    EXPECT_EQ(colors[0].size(), 5u);
+}
+
+TEST(Unit_GraphColoring, EveryColourOfATetrahedralLatticeIsConflictFree)
+{
+    // A lattice, where sharing is the rule rather than the exception: check the
+    // property directly over all four vertices instead of trusting a count.
+    std::vector<FemTetrahedron> elements;
+    const std::uint32_t body_count = 64;
+    for (std::uint32_t i = 0; i + 3 < body_count; i += 2)
+        elements.push_back(tet(i, i + 1, i + 2, i + 3));
+
+    const ColorBatches colors = color_constraints(elements, body_count);
+
+    std::set<std::uint32_t> seen;
+    for (const std::vector<std::uint32_t>& batch : colors)
+    {
+        std::set<std::uint32_t> bodies;
+        for (const std::uint32_t index : batch)
+        {
+            EXPECT_TRUE(seen.insert(index).second) << "element " << index << " coloured twice";
+            for (const std::uint32_t vertex : elements[index].vertex)
+                EXPECT_TRUE(bodies.insert(vertex).second)
+                    << "particle " << vertex << " reused within a colour";
+        }
+    }
+    EXPECT_EQ(seen.size(), elements.size()) << "an element went uncoloured";
+}
+
+TEST(Unit_IncrementalColoring, AnNBodyAssignmentIsFreeOnEveryOneOfItsBodies)
+{
+    IncrementalColoring coloring(16, 8);
+
+    const std::uint32_t first[4] = {0, 1, 2, 3};
+    const std::uint32_t second[4] = {4, 5, 6, 3}; // shares only particle 3
+    const std::uint32_t third[4] = {8, 9, 10, 11}; // shares nothing
+
+    EXPECT_EQ(coloring.assign_bodies(first, 4), 0u);
+    EXPECT_EQ(coloring.assign_bodies(second, 4), 1u) << "the shared particle did not force a new colour";
+    EXPECT_EQ(coloring.assign_bodies(third, 4), 0u) << "a disjoint element should reuse colour 0";
+
+    // Every one of the first element's particles now holds colour 0, not just two.
+    for (const std::uint32_t body : first)
+        EXPECT_TRUE(coloring.holds(body, 0)) << "particle " << body << " was left unmarked";
+}
+
+TEST(Unit_IncrementalColoring, ReleasingAnNBodyConstraintFreesEveryOneOfItsBodies)
+{
+    IncrementalColoring coloring(16, 8);
+    const std::uint32_t bodies[4] = {2, 3, 5, 7};
+
+    ASSERT_EQ(coloring.assign_bodies(bodies, 4), 0u);
+    coloring.release_bodies(bodies, 4, 0);
+    for (const std::uint32_t body : bodies)
+        EXPECT_FALSE(coloring.holds(body, 0)) << "particle " << body << " kept the colour";
+
+    // And the colour is genuinely reusable, which is the observable consequence.
+    EXPECT_EQ(coloring.assign_bodies(bodies, 4), 0u);
+}
+
+TEST(Unit_IncrementalColoring, ARejectedTakeLeavesNoColourHalfHeld)
+{
+    // A colour marked on some of a constraint's bodies and not the others is worse
+    // than either outcome: nothing owns it, so nothing will ever release it, and
+    // every later assignment routes around a colour that is doing no work.
+    IncrementalColoring coloring(4, 8);
+    const std::uint32_t bodies[3] = {0, 1, 99}; // 99 is past the capacity
+
+    EXPECT_FALSE(coloring.take_bodies(bodies, 3, 2u));
+    EXPECT_FALSE(coloring.holds(0, 2)) << "the first body was marked before the range check";
+    EXPECT_FALSE(coloring.holds(1, 2));
+    EXPECT_EQ(coloring.assign_bodies(bodies, 3), IncrementalColoring::NO_COLOR)
+        << "an out-of-range body must refuse rather than colour what it can";
+}
+
+TEST(Unit_IncrementalColoring, AnEmptyBodyListIsRefused)
+{
+    // Refused rather than trivially satisfied: a colour handed to a constraint that
+    // constrains nothing is a colour permanently taken on no body.
+    IncrementalColoring coloring(4, 8);
+    EXPECT_EQ(coloring.assign_bodies(nullptr, 0), IncrementalColoring::NO_COLOR);
+    EXPECT_FALSE(coloring.take_bodies(nullptr, 0, 0u));
+    EXPECT_EQ(coloring.highest_used(), 0u);
+}
+
+TEST(Unit_ConstraintStore, PlacesAndRemovesAFourBodyConstraint)
+{
+    ConstraintStore store(16, 64, 8);
+    const std::uint32_t first[4] = {0, 1, 2, 3};
+    const std::uint32_t second[4] = {3, 4, 5, 6}; // shares particle 3
+
+    const ConstraintPlacement a = store.place_bodies(first, 4);
+    ASSERT_TRUE(a.handle.valid());
+    EXPECT_EQ(a.color, 0u);
+
+    const ConstraintPlacement b = store.place_bodies(second, 4);
+    ASSERT_TRUE(b.handle.valid());
+    EXPECT_EQ(b.color, 1u) << "the shared particle did not force a second colour";
+
+    store.remove_bodies(a.handle, first, 4);
+    EXPECT_FALSE(store.alive(a.handle));
+    // Colour 0 is free again on all four of the removed element's particles, so an
+    // element overlapping it can take it.
+    const ConstraintPlacement c = store.place_bodies(first, 4);
+    ASSERT_TRUE(c.handle.valid());
+    EXPECT_EQ(c.color, 0u) << "removal did not give the colour back on every particle";
 }

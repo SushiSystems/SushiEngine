@@ -58,24 +58,33 @@
 #include <SushiEngine/physics/soft/fem_plasticity.hpp>
 #include <SushiEngine/physics/soft/fem_projection.hpp>
 #include <SushiEngine/physics/soft/fem_stress.hpp>
+#include <SushiEngine/physics/soft/soft_body_collision.hpp>
 #include <SushiEngine/physics/soft/soft_body_material.hpp>
+#include <SushiEngine/physics/soft/soft_body_model.hpp>
 
 namespace SushiEngine
 {
     namespace Physics
     {
         /**
-         * @brief A tetrahedral soft body: particles, elements, and the material
-         *        every element's constraints read.
+         * @brief A tetrahedral soft body: elements and the material their
+         *        constraints read, over the particles `SoftBodyBase` carries.
+         *
+         * What is left here after the base takes the schedule is exactly what
+         * makes this model kind the one it is — §9.1's two constraints per
+         * tetrahedron, and §9.3/§9.4's stress and plasticity readouts, which are
+         * the only per-tick work in the engine that needs a constitutive law.
+         * Everything a consumer holds it by is `ISoftBodyModel` (§3.3), so §9.7
+         * can put a mass-spring or a shape-matching body in its place without the
+         * consumer changing.
          *
          * @tparam T The scalar element type.
          */
         template <typename T>
-        class FiniteElementModel
+        class FiniteElementModel : public SoftBodyBase<T>
         {
             public:
-                /** @brief The body's particles; `.position`/`.velocity` are read after @ref step. */
-                std::vector<RigidBodyT<T>> particles;
+                using SoftBodyBase<T>::particles;
 
                 /** @brief The body's tetrahedra. */
                 std::vector<FemTetrahedronT<T>> elements;
@@ -83,69 +92,53 @@ namespace SushiEngine
                 /** @brief The constitutive parameters every element's constraints read. */
                 SoftBodyMaterialT<T> material;
 
-                /** @brief Uniform acceleration applied to every unpinned particle (e.g. gravity). */
-                Vector3T<T> external_acceleration{Vector3T<T>{T(0), T(0), T(0)}};
+                /**
+                 * @brief One Gauss-Seidel sweep of §9.1's two constraints, in element order.
+                 *
+                 * Fixed order and one iteration: §0.2's schedule (many substeps, one
+                 * iteration each) and §0.5's determinism rule, both by construction
+                 * rather than by discipline.
+                 *
+                 * @param h The substep duration, in seconds.
+                 */
+                void project_constraints(T h) noexcept override
+                {
+                    const LameParameters<T> lame = lame_parameters(material);
+                    for (FemTetrahedronT<T>& element : elements)
+                    {
+                        element.deviatoric_lambda = 0;
+                        element.hydrostatic_lambda = 0;
+                        // Refreshed here rather than only at build, so a material
+                        // edited between ticks takes effect and the model stays the
+                        // one authority over its own constitutive constants.
+                        element.mu = lame.mu;
+                        element.lambda = lame.lambda;
+                    }
+                    for (FemTetrahedronT<T>& element : elements)
+                    {
+                        project_fem_deviatoric(particles.data(), element, h);
+                        project_fem_hydrostatic(particles.data(), element, h);
+                    }
+                }
+
+                /** @brief The constitutive material's damping, per second (§9.2). */
+                T damping_rate() const noexcept override { return material.damping; }
 
                 /**
-                 * @brief Advances the body by one tick.
+                 * @brief The once-per-tick readouts: §9.3's stress and §9.4's plasticity.
                  *
-                 * @param dt        The tick's duration, in seconds.
-                 * @param substeps  How many sub-steps to divide it into; at least one.
+                 * The tick's final pose is the one measurement the stress means anything
+                 * against, and `F` costs nothing new to recompute here since every
+                 * element's projection already built it this same tick. Plasticity is
+                 * gated on the stress just measured — see `fem_plasticity.hpp` for why
+                 * it runs once per tick rather than once per substep.
                  */
-                void step(T dt, std::size_t substeps) noexcept
+                void end_tick() noexcept override
                 {
-                    if (substeps == 0)
-                        substeps = 1;
-                    const T h = dt / T(substeps);
                     const LameParameters<T> lame = lame_parameters(material);
-                    const T damping_factor =
-                        material.damping > T(0)
-                            ? (T(1) - material.damping * h > T(0) ? T(1) - material.damping * h
-                                                                  : T(0))
-                            : T(1);
-
-                    for (std::size_t s = 0; s < substeps; ++s)
-                    {
-                        for (RigidBodyT<T>& particle : particles)
-                            predict(particle, external_acceleration, h);
-
-                        for (FemTetrahedronT<T>& element : elements)
-                        {
-                            element.deviatoric_lambda = 0;
-                            element.hydrostatic_lambda = 0;
-                        }
-
-                        // One Gauss-Seidel sweep, fixed element order: §0.2's schedule
-                        // (many sub-steps, one iteration each) and §0.5's determinism
-                        // rule, both by construction rather than by discipline.
-                        for (FemTetrahedronT<T>& element : elements)
-                        {
-                            project_fem_deviatoric(particles.data(), element, lame.mu, h);
-                            project_fem_hydrostatic(particles.data(), element, lame.mu,
-                                                    lame.lambda, h);
-                        }
-
-                        for (RigidBodyT<T>& particle : particles)
-                        {
-                            update_velocity(particle, h);
-                            if (damping_factor < T(1))
-                                particle.velocity = particle.velocity * damping_factor;
-                        }
-                    }
-
-                    // §9.3's readout, once per tick rather than once per sub-step:
-                    // the tick's final pose is the one measurement of it means
-                    // anything against, and `F` costs nothing new to recompute
-                    // here since every element's projection already built it
-                    // this same tick.
                     for (FemTetrahedronT<T>& element : elements)
-                        element.von_mises_stress =
-                            tetrahedron_von_mises_stress(particles.data(), element, lame.mu,
-                                                         lame.lambda);
-
-                    // §9.4's plasticity, gated on the stress just measured above —
-                    // see fem_plasticity.hpp's own header comment for why this runs
-                    // once per tick rather than once per sub-step.
+                        element.von_mises_stress = tetrahedron_von_mises_stress(
+                            particles.data(), element, lame.mu, lame.lambda);
                     for (FemTetrahedronT<T>& element : elements)
                         apply_fem_plasticity(particles.data(), element, material);
                 }
@@ -159,7 +152,7 @@ namespace SushiEngine
                  *
                  * @return Zero for a body with no elements.
                  */
-                T maximum_stress() const noexcept
+                T maximum_stress() const noexcept override
                 {
                     T worst = 0;
                     for (const FemTetrahedronT<T>& element : elements)
@@ -198,7 +191,7 @@ namespace SushiEngine
         template <typename T>
         inline FiniteElementModel<T> build_finite_element_model(
             const Cooking::SoftBodyAssetView& view, std::uint32_t level,
-            const SoftBodyMaterialT<T>& material, const Vector3T<T>& origin) noexcept
+            const SoftBodyMaterialT<T>& material, const Vector3T<T>& origin)
         {
             FiniteElementModel<T> model;
             model.material = material;
@@ -222,6 +215,10 @@ namespace SushiEngine
             }
 
             model.elements.resize(record.tetrahedron_count);
+            // Written into every element here as well as at each sweep, so a model
+            // handed straight to a solver — which is what the device path does — is
+            // complete before a single substep runs.
+            const LameParameters<T> lame = lame_parameters(material);
             for (std::uint32_t t = 0; t < record.tetrahedron_count; ++t)
             {
                 const std::uint32_t* source_vertex =
@@ -250,7 +247,26 @@ namespace SushiEngine
                 element.plastic_inverse_column_2 = element.rest_inverse_column_2;
 
                 element.rest_volume = T(view.rest_volume[record.first_tetrahedron + t]);
+                element.mu = lame.mu;
+                element.lambda = lame.lambda;
             }
+
+            model.surface_indices.reserve(record.surface_index_count);
+            for (std::uint32_t i = 0; i < record.surface_index_count; ++i)
+                model.surface_indices.push_back(
+                    view.surface_indices[record.first_surface_index + i] - record.first_vertex);
+
+            // The unique surface particles, collected by a sweep over a presence
+            // flag rather than by sorting the index list, so the result is
+            // ascending by construction — which is the order §9.6's tests are
+            // required to walk it in — and costs one pass instead of a sort.
+            std::vector<bool> on_surface(record.vertex_count, false);
+            for (const std::uint32_t index : model.surface_indices)
+                if (index < record.vertex_count)
+                    on_surface[index] = true;
+            for (std::uint32_t i = 0; i < record.vertex_count; ++i)
+                if (on_surface[i])
+                    model.surface_vertices.push_back(i);
 
             return model;
         }

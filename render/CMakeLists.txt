@@ -244,8 +244,8 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cull.comp"
     cull_comp_spv CULL_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/occlusion.comp"
     occlusion_comp_spv OCCLUSION_HEADER)
-sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloth.comp"
-    cloth_comp_spv CLOTH_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/deformable.comp"
+    deformable_comp_spv DEFORMABLE_HEADER)
 sushi_compile_shader(task "${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet.task"
     meshlet_task_spv MESHLET_TASK_HEADER)
 sushi_compile_shader(mesh "${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet.mesh"
@@ -280,7 +280,7 @@ add_library(sushi_render STATIC
     frame/quality.cpp
     geometry/mesh_registry.cpp
     geometry/meshlet.cpp
-    geometry/cloth_buffers.cpp
+    geometry/deformable_buffers.cpp
     geometry/ui_buffers.cpp
     material/asset_library.cpp
     material/font_atlas.cpp
@@ -304,7 +304,7 @@ add_library(sushi_render STATIC
     passes/hiz_pass.cpp
     passes/occlusion_pass.cpp
     passes/cull_pass.cpp
-    passes/cloth_pass.cpp
+    passes/deformable_pass.cpp
     passes/skinning_pass.cpp
     passes/particle_sim_pass.cpp
     passes/particle_sort_pass.cpp
@@ -427,7 +427,7 @@ add_library(sushi_render STATIC
     "${MOTION_BLUR_HEADER}"
     "${CULL_HEADER}"
     "${OCCLUSION_HEADER}"
-    "${CLOTH_HEADER}"
+    "${DEFORMABLE_HEADER}"
     "${MESHLET_TASK_HEADER}"
     "${MESHLET_MESH_HEADER}")
 target_include_directories(sushi_render

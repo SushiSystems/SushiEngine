@@ -27,6 +27,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <SushiEngine/physics/solver/constraint_bodies.hpp>
+
 namespace SushiEngine
 {
     namespace Physics
@@ -44,16 +46,24 @@ namespace SushiEngine
         /**
          * @brief Greedily colours constraints so each colour is conflict-free.
          *
-         * Treats the constraints as edges of a graph over the bodies and edge-colours
-         * them: each constraint takes the lowest colour not already used by another
-         * constraint on either of its two bodies. Greedy colouring uses at most one
-         * more colour than the busiest body's constraint count, which is the natural
-         * sequential depth of a Gauss-Seidel sweep. The result drives the solver,
-         * where a colour becomes one parallel task and the runtime orders the colours.
+         * Treats the constraints as *hyperedges* over the bodies and colours them:
+         * each constraint takes the lowest colour not already used by another
+         * constraint on **any** of its bodies. Greedy colouring uses at most one more
+         * colour than the busiest body's constraint count, which is the natural
+         * sequential depth of a Gauss-Seidel sweep. The result drives the solver, where
+         * a colour becomes one parallel task and the runtime orders the colours.
          *
-         * @tparam Constraint A constraint type exposing body indices `a` and `b`.
+         * Hyperedges rather than edges, because a tetrahedron touches four particles
+         * and its projections write to all of them. Colouring one as though it had two
+         * endpoints leaves the other two unprotected, and a colour that no longer means
+         * "no two constraints here share a body" is a colour whose parallel sweep races.
+         * How many bodies a kind has is `constraint_bodies()`'s answer, so a two-body
+         * constraint reaches exactly the code it always did.
+         *
+         * @tparam Constraint Any kind `constraint_bodies()` understands — the default
+         *                    two-body shape (`a`, `b`) or one declaring `BODY_COUNT`.
          * @param constraints The constraints to colour.
-         * @param body_count  Number of bodies (the index space of `a` / `b`).
+         * @param body_count  Number of bodies (the index space the constraints address).
          * @return The constraint indices grouped by colour.
          */
         template <typename Constraint>
@@ -63,23 +73,30 @@ namespace SushiEngine
             ColorBatches batches;
             std::vector<std::vector<std::uint32_t>> colors_of_body(body_count);
 
+            std::uint32_t bodies[MAXIMUM_CONSTRAINT_BODIES];
             for (std::uint32_t i = 0; i < constraints.size(); ++i)
             {
-                const Constraint& c = constraints[i];
+                const std::size_t count = constraint_bodies(constraints[i], bodies);
 
-                // Mark the colours already taken on either endpoint, then pick the
-                // lowest free one (which may be a brand-new colour).
+                // Mark the colours already taken on any endpoint, then pick the lowest
+                // free one (which may be a brand-new colour). A body index past the
+                // declared count is skipped rather than trusted: it would index outside
+                // `colors_of_body`, and a constraint naming a body that does not exist
+                // is a caller error that must not become a buffer overrun here.
                 std::vector<bool> forbidden(batches.size() + 1, false);
-                for (std::uint32_t used : colors_of_body[c.a]) forbidden[used] = true;
-                for (std::uint32_t used : colors_of_body[c.b]) forbidden[used] = true;
+                for (std::size_t k = 0; k < count; ++k)
+                    if (bodies[k] < body_count)
+                        for (std::uint32_t used : colors_of_body[bodies[k]])
+                            forbidden[used] = true;
 
                 std::uint32_t chosen = 0;
                 while (chosen < forbidden.size() && forbidden[chosen]) ++chosen;
 
                 if (chosen == batches.size()) batches.emplace_back();
                 batches[chosen].push_back(i);
-                colors_of_body[c.a].push_back(chosen);
-                colors_of_body[c.b].push_back(chosen);
+                for (std::size_t k = 0; k < count; ++k)
+                    if (bodies[k] < body_count)
+                        colors_of_body[bodies[k]].push_back(chosen);
             }
 
             return batches;

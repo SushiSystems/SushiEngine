@@ -89,7 +89,7 @@ namespace
 
 TEST(Integration_PhysicsSimulation, BoxSettlesOnItsFaceNotItsBoundingRadius)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     RigidBodyDesc desc;
     desc.id = 1;
@@ -112,7 +112,7 @@ TEST(Integration_PhysicsSimulation, BoxSettlesOnItsFaceNotItsBoundingRadius)
 
 TEST(Integration_PhysicsSimulation, TiltedBoxSettlesOnItsEdge)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     RigidBodyDesc desc;
     desc.id = 1;
@@ -140,7 +140,7 @@ TEST(Integration_PhysicsSimulation, ClothAndRigidBodyPushOnEachOther)
     // them. The rigid body starts overlapping a free (unpinned) cloth particle: after
     // the step both must have moved apart. A one-way coupling would leave the rigid
     // body exactly where it started.
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     ClothDesc cloth;
     cloth.id = 10;
@@ -194,7 +194,7 @@ TEST(Integration_PhysicsSimulation, ClothAndRigidBodyPushOnEachOther)
 
 TEST(Integration_PhysicsSimulation, ClothDimensionsAndPoseRoundTrip)
 {
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     ClothDesc cloth;
     cloth.id = 10;
@@ -231,7 +231,7 @@ TEST(Integration_PhysicsSimulation, StackedBoxesSettleWithoutInterpenetrating)
 {
     // Two boxes and the ground: the broadphase must hand the narrowphase the box-box
     // pair every sub-step, or the upper box sinks through the lower one.
-    auto physics = create_physics_simulation(Harness::shared_runtime());
+    auto physics = create_physics_simulation(Harness::shared_context());
 
     std::vector<RigidBodyDesc> bodies;
     for (int i = 0; i < 2; ++i)
@@ -267,7 +267,8 @@ TEST(Integration_PhysicsSimulation, AFastBodyIsStillFoundByTheOncePerTickBroadph
     // whole tick. A body fast enough to cross its target within the tick is the case
     // that tight, once-per-tick bounds would miss outright.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+    Execution::Context execution(runtime);
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
     RigidBodyDesc bullet;
     bullet.id = 1;
@@ -307,7 +308,8 @@ TEST(Integration_PhysicsSimulation, TheStepReportsWhatItContained)
     // reads is a counter that drifts. This is the smallest honest assertion: the body
     // count and the sub-step count are what the caller just asked for.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+    Execution::Context execution(runtime);
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
     RigidBodyDesc first;
     first.id = 1;
@@ -362,7 +364,8 @@ TEST(Integration_PhysicsSimulation, ALandingBoxBeginsOnceAndThenPersists)
     // every tick would play an impact sound sixty times a second; a Persist that
     // never arrived would make "is standing on something" unanswerable.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+    Execution::Context execution(runtime);
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
     RigidBodyDesc desc;
     desc.id = 1;
@@ -404,7 +407,8 @@ TEST(Integration_PhysicsSimulation, ALandingBoxBeginsOnceAndThenPersists)
 TEST(Integration_PhysicsSimulation, TakingABodyAwayEndsItsContact)
 {
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+    Execution::Context execution(runtime);
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
     RigidBodyDesc desc;
     desc.id = 1;
@@ -440,7 +444,8 @@ TEST(Integration_PhysicsSimulation, ATriggerIsReportedAndNotResolved)
     // The whole point of a trigger: the listener hears about it, the physics does
     // not act on it. A trigger that pushed would be a collider with extra reporting.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+    Execution::Context execution(runtime);
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
     RigidBodyDesc falling;
     falling.id = 1;
@@ -485,7 +490,8 @@ TEST(Integration_PhysicsSimulation, EventsComeInASceneOrderNotATraversalOrder)
     // the determinism contract (section 12.1). The broadphase emits pairs in an
     // order that is a function of its own insertion history; the events must not be.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(runtime);
+    Execution::Context execution(runtime);
+    std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
     std::vector<RigidBodyDesc> bodies;
     for (int i = 0; i < 5; ++i)

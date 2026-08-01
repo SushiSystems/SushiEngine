@@ -47,6 +47,7 @@
 #include "../gizmo/gizmo_controller.hpp"
 #include "game_view_settings.hpp"
 #include "meteorology_log.hpp"
+#include "../physics/soft_body_heat.hpp"
 #include "panel_state.hpp"
 #include "panel_visibility.hpp"
 #include "preferences.hpp"
@@ -439,6 +440,13 @@ namespace SushiEngine
             // matching gizmo.
             GizmoMode gizmo_mode = GizmoMode::Translate;
             GizmoSpace gizmo_space = GizmoSpace::World;
+
+            // Which of the soft-body debug views the Scene view draws over the selected
+            // body (§9.3/§9.4, P6-G5). Off by default: an overlay that is always on is an
+            // overlay nobody reads, and this one draws over the surface it is explaining.
+            // Scene view only, like the collider overlay — the Game view is what the
+            // player sees, and a debug view there would be showing them the workings.
+            SoftBodyDebugView soft_body_debug_view = SoftBodyDebugView::Off;
 
             // Input (Phase 6): the device-abstracted action layer the editor consumes instead of
             // polling ImGui keys. main() sets these each frame after folding input, so panels read

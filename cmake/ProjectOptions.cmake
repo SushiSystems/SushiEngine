@@ -42,6 +42,18 @@ option(SE_BUILD_INPUT "Build the SushiEngine compiled input backend (SDL transla
 # option — they ride the SushiEngine INTERFACE target.
 option(SE_BUILD_AUDIO "Build the SushiEngine compiled audio backend (SDL device)" OFF)
 
+# Which implementation SushiEngine::Execution's Context/Graph/Buffer denote. The seam
+# is a compile-time policy rather than a virtual interface because a device backend has
+# to forward each kernel into its own launch as the original callable, and a type-erased
+# one cannot be captured into device code; one binary needs one backend regardless,
+# since a device translation unit already requires that compiler for the whole unit.
+#
+#   runtime — SushiRuntime's task graph and shared USM (the only backend today).
+#   native  — the thread-pool backend for platforms SushiRuntime cannot reach (RUNTIME-PORT1).
+set(SE_EXECUTION_BACKEND "runtime" CACHE STRING
+    "Execution backend for SushiEngine::Execution (runtime|native)")
+set_property(CACHE SE_EXECUTION_BACKEND PROPERTY STRINGS runtime native)
+
 # Determinism guard rail (SushiLoop M0/M1, docs/slop/SUSHILOOP.md): reassociation and
 # fused contraction let the compiler evaluate the same floating-point expression
 # differently between builds or optimisation levels, which breaks the "same input,

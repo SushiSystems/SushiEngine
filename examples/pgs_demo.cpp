@@ -80,8 +80,9 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
-    auto positions = runtime.buffer<Vector3>(N);
-    auto inv_mass = runtime.buffer<Scalar>(N);
+    Execution::Context execution(runtime);
+    auto positions = execution.allocate<Vector3>(N);
+    auto inv_mass = execution.allocate<Scalar>(N);
 
     std::vector<Vector3> ref_pos(N);
     std::vector<Scalar> ref_inv(N);
@@ -101,7 +102,7 @@ int main()
         constraints.push_back(DistanceConstraint{i, i + 1, SPACING});
 
     ConstraintSolver<DistanceConstraint> solver(
-        runtime, positions, inv_mass, constraints, N, ITERATIONS, DistanceProjection{});
+        execution, positions, inv_mass, constraints, N, ITERATIONS, DistanceProjection{});
 
     double solve_ms = 0.0;
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
@@ -117,7 +118,7 @@ int main()
         }
 
         // Device solve.
-        const SushiRuntime::RunReport report = solver.solve();
+        const Execution::RunReport report = solver.solve();
         solve_ms += report.total_duration_ms;
 
         // Reference solve: the same colours, in the same order, sequentially.

@@ -29,11 +29,10 @@
 #include <memory>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
-
 #include <SushiEngine/ecs/archetype.hpp>
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/entity.hpp>
+#include <SushiEngine/execution/context.hpp>
 
 namespace SushiEngine
 {
@@ -42,7 +41,7 @@ namespace SushiEngine
      *
      * The World owns the archetypes (and through them the chunks and component
      * columns) and a directory that maps each entity handle to where its row lives.
-     * It backs storage with a SushiRuntime instance, which must outlive it.
+     * It backs storage with an execution context, which must outlive it.
      *
      * Structural changes (spawn, destroy, and the chunk allocations they trigger)
      * happen on the host. A `structure_version` counter ticks only when the set of
@@ -54,13 +53,13 @@ namespace SushiEngine
     {
         public:
             /**
-             * @brief Creates an empty world backed by @p runtime.
-             * @param runtime        The runtime owning all component storage.
+             * @brief Creates an empty world backed by @p context.
+             * @param context        The execution context owning all component storage.
              * @param chunk_capacity Entities per chunk for every archetype.
              */
-            explicit World(SushiRuntime::API::Runtime& runtime,
+            explicit World(Execution::Context& context,
                            std::size_t chunk_capacity = 1024)
-                : runtime_(runtime), chunk_capacity_(chunk_capacity)
+                : context_(context), chunk_capacity_(chunk_capacity)
             {
             }
 
@@ -83,7 +82,7 @@ namespace SushiEngine
                     if (a->signature() == sig) return *a;
 
                 archetypes_.push_back(std::make_unique<Archetype>(
-                    runtime_, sig, make_component_infos<Ts...>(), chunk_capacity_));
+                    context_, sig, make_component_infos<Ts...>(), chunk_capacity_));
                 ++structure_version_;
                 return *archetypes_.back();
             }
@@ -160,7 +159,7 @@ namespace SushiEngine
              * @brief Host access to entity @p e's component of type @p T.
              * @tparam T The component type to read or modify.
              * @param e An alive entity that has component @p T.
-             * @return A reference into the shared-USM column.
+             * @return A reference into the host-shared column.
              */
             template <typename T>
             T& get(Entity e) noexcept
@@ -176,7 +175,7 @@ namespace SushiEngine
              * @brief Read-only host access to entity @p e's component of type @p T.
              * @tparam T The component type to read.
              * @param e An alive entity that has component @p T.
-             * @return A const reference into the shared-USM column.
+             * @return A const reference into the host-shared column.
              */
             template <typename T>
             const T& get(Entity e) const noexcept
@@ -249,7 +248,7 @@ namespace SushiEngine
                 rec.alive = true;
             }
 
-            SushiRuntime::API::Runtime& runtime_;
+            Execution::Context& context_;
             std::size_t chunk_capacity_;
             std::uint64_t structure_version_ = 0;
             std::vector<std::unique_ptr<Archetype>> archetypes_;

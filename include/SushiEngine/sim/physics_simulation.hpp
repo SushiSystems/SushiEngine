@@ -90,7 +90,6 @@
 #include <utility>
 #include <vector>
 
-#include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/collision/bvh_broadphase.hpp>
@@ -104,7 +103,10 @@
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/scene/islands.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
+#include <SushiEngine/physics/soft/soft_body_instance.hpp>
+#include <SushiEngine/physics/soft/soft_body_scene.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
+#include <SushiEngine/execution/context.hpp>
 #include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
 #include <SushiEngine/sim/collider.hpp>
 #include <SushiEngine/sim/physics_services.hpp>
@@ -125,11 +127,12 @@ namespace SushiEngine
         {
             public:
                 /**
-                 * @brief Creates an empty physics simulation backed by @p runtime.
-                 * @param runtime The runtime backing the body buffers and the solve graph.
+                 * @brief Creates an empty physics simulation backed by @p context.
+                 * @param context The execution context backing the body buffers and the
+                 *                solve graph.
                  */
-                explicit PhysicsSimulation(SushiRuntime::API::Runtime& runtime) noexcept
-                    : runtime_(runtime)
+                explicit PhysicsSimulation(Execution::Context& context) noexcept
+                    : context_(context)
                 {
                 }
 
@@ -355,6 +358,107 @@ namespace SushiEngine
                     return true;
                 }
 
+                // -- ISoftBodyService (§9) -----------------------------------------
+
+                /** @copydoc ISoftBodyService::set_soft_bodies */
+                void set_soft_bodies(const std::vector<SoftBodyDesc>& bodies) override
+                {
+                    if (bodies.empty() && soft_.empty())
+                        return;
+                    if (soft_matches(bodies))
+                        return;
+
+                    soft_.clear();
+                    soft_index_.clear();
+                    soft_scene_.clear();
+
+                    // Reserved before anything is built, because the scene borrows
+                    // pointers into this vector: a reallocation partway through would
+                    // leave the scene holding addresses of moved-from instances.
+                    soft_.reserve(bodies.size());
+
+                    for (const SoftBodyDesc& desc : bodies)
+                    {
+                        const Physics::Cooking::SoftBodyAssetView view =
+                            Physics::Cooking::load_soft_body_blob(desc.asset, desc.asset_size);
+                        if (!view.valid)
+                            continue;
+
+                        SoftEntry entry;
+                        entry.entity = desc.id;
+                        entry.key = soft_key(desc);
+                        Physics::SoftBodyPrecisionRequest request;
+                        request.cosmetic = desc.cosmetic;
+                        request.participates_in_rollback = desc.participates_in_rollback;
+                        if (!entry.instance.create(
+                                view, desc.level, desc.material, desc.origin,
+                                Physics::resolve_soft_body_precision(view, request)))
+                            continue;
+
+                        Physics::SoftBodyCollisionSettings<T> settings;
+                        settings.thickness = T(desc.thickness);
+                        settings.self_collision = desc.self_collision;
+                        entry.instance.set_collision(settings);
+
+                        soft_index_.emplace(desc.id, soft_.size());
+                        soft_.push_back(std::move(entry));
+                    }
+
+                    rebuild_soft_scene();
+                }
+
+                /** @copydoc ISoftBodyService::soft_body_surface */
+                bool soft_body_surface(EntityId id, std::vector<Vector3>& positions,
+                                       std::vector<std::uint32_t>& indices) const override
+                {
+                    positions.clear();
+                    indices.clear();
+                    const auto it = soft_index_.find(id);
+                    if (it == soft_index_.end())
+                        return false;
+
+                    const Physics::SoftBodyInstance& instance = soft_[it->second].instance;
+                    const std::size_t count = instance.particle_count();
+                    positions.reserve(count);
+                    for (std::size_t i = 0; i < count; ++i)
+                        positions.push_back(instance.particle_position(i));
+
+                    const std::uint32_t* source = instance.surface_indices();
+                    if (source != nullptr)
+                        indices.assign(source, source + instance.surface_index_count());
+                    return true;
+                }
+
+                /** @copydoc ISoftBodyService::soft_body_maximum_stress */
+                Scalar soft_body_maximum_stress(EntityId id) const override
+                {
+                    const auto it = soft_index_.find(id);
+                    return it == soft_index_.end() ? Scalar(0)
+                                                   : soft_[it->second].instance.maximum_stress();
+                }
+
+                /** @copydoc ISoftBodyService::soft_body_elements */
+                bool soft_body_elements(
+                    EntityId id, std::vector<SoftBodyElementSample>& elements) const override
+                {
+                    elements.clear();
+                    const auto it = soft_index_.find(id);
+                    if (it == soft_index_.end())
+                        return false;
+
+                    const Physics::SoftBodyInstance& instance = soft_[it->second].instance;
+                    const std::size_t count = instance.element_count();
+                    elements.reserve(count);
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        SoftBodyElementSample sample;
+                        if (instance.element_sample(i, sample.vertex, sample.von_mises_stress,
+                                                    sample.plastic_strain))
+                            elements.push_back(sample);
+                    }
+                    return true;
+                }
+
                 // -- IStaticGeometryService ----------------------------------------
 
                 void set_static_planes(const std::vector<PlaneDesc>& planes) override
@@ -525,14 +629,6 @@ namespace SushiEngine
                  */
                 void step(const GravitySampler& gravity, std::size_t substeps) override
                 {
-                    if (!solver_ || (rigid_.empty() && cloth_.empty()))
-                    {
-                        statistics_ = Physics::PhysicsStatistics{};
-                        events_.clear();
-                        joint_events_.clear();
-                        return;
-                    }
-
                     const std::size_t floor = substeps > 0 ? substeps : 1;
                     const T delta_time = T(floor) * substep_dt_;
 
@@ -541,6 +637,28 @@ namespace SushiEngine
                     // here because this is where they run; the device half is the
                     // solver's own measurement and arrives with its statistics.
                     StageTimer timer(profiling_requested_);
+
+                    // Before the rigid early-out, not after it. Soft bodies live in their
+                    // own world with their own substep schedule and never enter the rigid
+                    // solver, so a scene made only of them has an empty `rigid_` and an
+                    // empty `cloth_` and would otherwise return without stepping anything.
+                    step_soft_bodies(gravity, delta_time, floor);
+                    timer.lap(stage_timings_.soft_body_ms);
+
+                    if (!solver_ || (rigid_.empty() && cloth_.empty()))
+                    {
+                        const T soft_ms = stage_timings_.soft_body_ms;
+                        statistics_ = Physics::PhysicsStatistics{};
+                        // Reinstated after the wipe rather than left out of it: a scene of
+                        // nothing but soft bodies still did work this tick, and reporting
+                        // zero for it would make the one case where the soft solve is the
+                        // whole cost the one case where it is invisible.
+                        statistics_.timings.soft_body_ms = soft_ms;
+                        statistics_.timings.total_ms = timer.total();
+                        events_.clear();
+                        joint_events_.clear();
+                        return;
+                    }
 
                     bodies_dirty_ = true;
                     refresh_bodies();
@@ -792,6 +910,45 @@ namespace SushiEngine
                     EntityId b = NULL_ENTITY;
                 };
 
+                /** @brief What a soft body was built from, for the rebuild comparison. */
+                struct SoftKey
+                {
+                    std::size_t asset_size = 0;
+                    std::uint32_t level = 0;
+                    Vector3 origin;
+                    Scalar thickness = Scalar(0.01);
+                    bool self_collision = false;
+                    bool cosmetic = false;
+                    bool rollback = false;
+                    Physics::SoftBodyMaterialT<Scalar> material{};
+
+                    bool operator==(const SoftKey& other) const noexcept
+                    {
+                        return asset_size == other.asset_size && level == other.level &&
+                               origin.x == other.origin.x && origin.y == other.origin.y &&
+                               origin.z == other.origin.z && thickness == other.thickness &&
+                               self_collision == other.self_collision &&
+                               cosmetic == other.cosmetic && rollback == other.rollback &&
+                               material.young_modulus == other.material.young_modulus &&
+                               material.poisson_ratio == other.material.poisson_ratio &&
+                               material.density == other.material.density &&
+                               material.damping == other.material.damping &&
+                               material.yield_stress == other.material.yield_stress &&
+                               material.plastic_creep == other.material.plastic_creep &&
+                               material.maximum_plastic_strain ==
+                                   other.material.maximum_plastic_strain &&
+                               material.fracture_stress == other.material.fracture_stress;
+                    }
+                };
+
+                /** @brief One tetrahedral soft body and what it was built from. */
+                struct SoftEntry
+                {
+                    EntityId entity = NULL_ENTITY;
+                    SoftKey key;
+                    Physics::SoftBodyInstance instance;
+                };
+
                 /** @brief One cloth grid and the shape of it. */
                 struct ClothEntry
                 {
@@ -964,7 +1121,7 @@ namespace SushiEngine
                     // construction-time property of the solve graph (off = no timestamps
                     // on the hot path at all — configuration.hpp).
                     configuration.profiling = profiling_requested_;
-                    solver_.reset(new Solver(runtime_, configuration));
+                    solver_.reset(new Solver(context_, configuration));
                     bodies_.assign(configuration.capacities.bodies, Body{});
                     // The sleep thresholds are kept rather than re-derived: the island
                     // pass runs on the host, outside the solver, and a second copy of
@@ -1094,6 +1251,95 @@ namespace SushiEngine
                     body.drag_coefficient = T(desc.drag_coefficient);
                     solver_->write_body(entry.handle, body);
                     bodies_dirty_ = true;
+                }
+
+                /**
+                 * @brief Everything about a `SoftBodyDesc` that a rebuild would change.
+                 *
+                 * Deliberately not the asset *pointer*: the caller owns those bytes and is
+                 * free to move them between frames, so comparing addresses would rebuild
+                 * every body every tick for a scene that did not change. The size stands in
+                 * for the asset's identity, which is weaker than a hash and stronger than
+                 * nothing — an edit that changed a cook without changing its byte count
+                 * would be missed, and that is a cook-time change the editor already
+                 * re-issues the whole set for.
+                 */
+                static SoftKey soft_key(const SoftBodyDesc& desc) noexcept
+                {
+                    SoftKey key;
+                    key.asset_size = desc.asset_size;
+                    key.level = desc.level;
+                    key.origin = desc.origin;
+                    key.thickness = desc.thickness;
+                    key.self_collision = desc.self_collision;
+                    key.cosmetic = desc.cosmetic;
+                    key.rollback = desc.participates_in_rollback;
+                    key.material = desc.material;
+                    return key;
+                }
+
+                /** @brief Whether @p bodies describes exactly the soft bodies already built. */
+                bool soft_matches(const std::vector<SoftBodyDesc>& bodies) const
+                {
+                    std::size_t wanted = 0;
+                    for (const SoftBodyDesc& desc : bodies)
+                        if (desc.asset != nullptr && desc.asset_size != 0)
+                            ++wanted;
+                    if (wanted != soft_.size())
+                        return false;
+                    for (const SoftBodyDesc& desc : bodies)
+                    {
+                        if (desc.asset == nullptr || desc.asset_size == 0)
+                            continue;
+                        const auto it = soft_index_.find(desc.id);
+                        if (it == soft_index_.end())
+                            return false;
+                        if (!(soft_[it->second].key == soft_key(desc)))
+                            return false;
+                    }
+                    return true;
+                }
+
+                /**
+                 * @brief Re-admits the gameplay-column bodies to the interleaved scene.
+                 *
+                 * Only the gameplay column, and the omission is the design rather than a
+                 * gap. `SoftBodyScene<T>` interleaves substeps so that two bodies in
+                 * contact see each other's mid-substep state — without which a stack of
+                 * soft bodies cannot be correct however good the contact code is (§9.6).
+                 * But it interleaves bodies of *one* width, and a cosmetic body is stored
+                 * at another. A body that opted out of precision has, by §6.5's own
+                 * definition, opted out of being something another body's correctness
+                 * depends on, so it steps alone.
+                 */
+                void rebuild_soft_scene()
+                {
+                    soft_scene_.clear();
+                    for (SoftEntry& entry : soft_)
+                        if (Physics::FiniteElementModel<T>* model = entry.instance.gameplay_model())
+                            soft_scene_.add_body(model);
+                }
+
+                /** @brief Advances every soft body by one tick, gameplay column together. */
+                void step_soft_bodies(const GravitySampler& gravity, T delta_time,
+                                      std::size_t substeps)
+                {
+                    for (SoftEntry& entry : soft_)
+                    {
+                        // Sampled at the body's own position, like a rigid body's, so a
+                        // soft body on a planet feels the same field the crate beside it
+                        // does rather than a scene-wide constant.
+                        const Vector3 origin = entry.instance.particle_count() > 0
+                                                   ? entry.instance.particle_position(0)
+                                                   : Vector3{0, 0, 0};
+                        entry.instance.set_external_acceleration(gravity(origin));
+                    }
+
+                    if (soft_scene_.body_count() != 0)
+                        soft_scene_.step(delta_time, substeps);
+                    for (SoftEntry& entry : soft_)
+                        if (entry.instance.gameplay_model() == nullptr)
+                            entry.instance.step(Scalar(delta_time), substeps);
                 }
 
                 /** @brief Whether @p grids describes exactly the cloths already built. */
@@ -1822,6 +2068,7 @@ namespace SushiEngine
                     statistics_.timings.narrowphase_ms = stage_timings_.narrowphase_ms;
                     statistics_.timings.island_build_ms = stage_timings_.island_build_ms;
                     statistics_.timings.write_back_ms = stage_timings_.write_back_ms;
+                    statistics_.timings.soft_body_ms = stage_timings_.soft_body_ms;
                     statistics_.timings.total_ms = stage_timings_.total_ms;
                     // The partition is the host's, so its four counters are too. The
                     // solver reports every live slot as awake because from inside the
@@ -1917,13 +2164,17 @@ namespace SushiEngine
                                               Physics::CollisionFilter{}, flags, payload);
                 }
 
-                SushiRuntime::API::Runtime& runtime_;
+                Execution::Context& context_;
                 std::unique_ptr<Solver> solver_;
 
                 std::vector<RigidEntry> rigid_;
                 std::unordered_map<EntityId, std::size_t> rigid_index_;
                 std::vector<ClothEntry> cloth_;
                 std::unordered_map<EntityId, std::size_t> cloth_index_;
+                std::vector<SoftEntry> soft_;
+                std::unordered_map<EntityId, std::size_t> soft_index_;
+                /** @brief Borrows into @ref soft_; rebuilt whenever that vector is. */
+                Physics::SoftBodyScene<T> soft_scene_;
                 std::vector<Physics::PlaneCollider<T>> planes_;
                 std::unordered_set<EntityId> seen_;
 
@@ -1989,13 +2240,13 @@ namespace SushiEngine
 
         /**
          * @brief Creates the physics simulation.
-         * @param runtime The runtime backing the physics buffers and graphs.
+         * @param context The execution context backing the physics buffers and graphs.
          * @return An owned physics simulation; never null.
          */
         inline std::unique_ptr<IPhysicsScene> create_physics_simulation(
-            SushiRuntime::API::Runtime& runtime)
+            Execution::Context& context)
         {
-            return std::unique_ptr<IPhysicsScene>(new PhysicsSimulation(runtime));
+            return std::unique_ptr<IPhysicsScene>(new PhysicsSimulation(context));
         }
     } // namespace Simulation
 } // namespace SushiEngine

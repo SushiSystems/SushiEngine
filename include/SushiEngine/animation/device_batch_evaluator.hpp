@@ -33,7 +33,7 @@
  * `BatchEvaluator`) is a host-side C++ loop — correct and CPU-verified, but not the
  * SushiRuntime device kernel the design's §9 performance budget assumes. This is that
  * kernel, following the same shape `physics/pgs_solver.hpp`'s `ConstraintSolver` already
- * proved out: a compiled-once, replayed-every-frame `SushiRuntime::API::Graph` node, one
+ * proved out: a compiled-once, replayed-every-frame `Execution::Graph` node, one
  * thread per instance, sequential per-instance work inside the thread (the design's own
  * "parallel across instances, sequential 256-max inner loop" — matches
  * `AnimatorEvaluator`'s compose step exactly, just moved on-device).
@@ -63,7 +63,7 @@
 
 #include <sycl/sycl.hpp>
 
-#include <SushiRuntime/SushiRuntime.h>
+#include <SushiEngine/execution/context.hpp>
 
 #include <SushiEngine/animation/clip.hpp>
 #include <SushiEngine/animation/skeleton.hpp>
@@ -98,11 +98,11 @@ namespace SushiEngine
         {
             public:
                 /**
-                 * @brief Binds the runtime this evaluator's buffers and graph live on.
-                 * @param runtime The live SushiRuntime, kept by reference for the object's life.
+                 * @brief Binds the execution context this evaluator's buffers and graph live on.
+                 * @param context The context, kept by reference for the object's life.
                  */
-                explicit DeviceBatchEvaluator(SushiRuntime::API::Runtime& runtime) noexcept
-                    : runtime_(runtime)
+                explicit DeviceBatchEvaluator(Execution::Context& context) noexcept
+                    : context_(context)
                 {
                 }
 
@@ -127,11 +127,11 @@ namespace SushiEngine
                         return false;
 
                     joint_count_ = skeleton.joint_count;
-                    parents_.emplace(runtime_.buffer<std::uint16_t>(joint_count_));
-                    bind_t_.emplace(runtime_.buffer<Vector3f>(joint_count_));
-                    bind_r_.emplace(runtime_.buffer<Quaternionf>(joint_count_));
-                    bind_s_.emplace(runtime_.buffer<Vector3f>(joint_count_));
-                    inverse_bind_.emplace(runtime_.buffer<JointMatrix>(joint_count_));
+                    parents_.emplace(context_.allocate<std::uint16_t>(joint_count_));
+                    bind_t_.emplace(context_.allocate<Vector3f>(joint_count_));
+                    bind_r_.emplace(context_.allocate<Quaternionf>(joint_count_));
+                    bind_s_.emplace(context_.allocate<Vector3f>(joint_count_));
+                    inverse_bind_.emplace(context_.allocate<JointMatrix>(joint_count_));
                     for (std::uint32_t j = 0; j < joint_count_; ++j)
                     {
                         (*parents_)[j] = skeleton.parents[j];
@@ -220,14 +220,14 @@ namespace SushiEngine
                     if (!instances_buffer_.has_value() ||
                         instances_buffer_->size() != instance_count_)
                         instances_buffer_.emplace(
-                            runtime_.buffer<DeviceInstanceDesc>(instance_count_));
+                            context_.allocate<DeviceInstanceDesc>(instance_count_));
                     for (std::size_t i = 0; i < instance_count_; ++i)
                         (*instances_buffer_)[i] = host_instances_[i];
 
                     if (!palette_buffer_.has_value() ||
                         palette_buffer_->size() != instance_count_ * joint_count_)
                         palette_buffer_.emplace(
-                            runtime_.buffer<JointMatrix>(instance_count_ * joint_count_));
+                            context_.allocate<JointMatrix>(instance_count_ * joint_count_));
 
                     if (needs_recompile)
                         rebuild_graph();
@@ -238,11 +238,11 @@ namespace SushiEngine
                  * current instance list.
                  * @return The run report (device time, etc.) from the SushiRuntime graph.
                  */
-                SushiRuntime::RunReport evaluate()
+                Execution::RunReport evaluate()
                 {
                     if (!graph_.has_value())
-                        return SushiRuntime::RunReport{};
-                    const SushiRuntime::RunReport report = graph_->run();
+                        return Execution::RunReport{};
+                    const Execution::RunReport report = graph_->run();
                     host_palettes_.resize(instance_count_ * joint_count_);
                     for (std::size_t i = 0; i < host_palettes_.size(); ++i)
                         host_palettes_[i] = (*palette_buffer_)[i];
@@ -276,10 +276,10 @@ namespace SushiEngine
                 /** @brief Re-uploads the concatenated host track mirrors to fresh device buffers. */
                 void rebuild_clip_buffers()
                 {
-                    translations_.emplace(runtime_.buffer<Vector3f>(host_translations_.size()));
-                    rotations_.emplace(runtime_.buffer<Quaternionf>(host_rotations_.size()));
-                    scales_.emplace(runtime_.buffer<Vector3f>(host_scales_.size()));
-                    clip_meta_.emplace(runtime_.buffer<ClipMeta>(host_clip_meta_.size()));
+                    translations_.emplace(context_.allocate<Vector3f>(host_translations_.size()));
+                    rotations_.emplace(context_.allocate<Quaternionf>(host_rotations_.size()));
+                    scales_.emplace(context_.allocate<Vector3f>(host_scales_.size()));
+                    clip_meta_.emplace(context_.allocate<ClipMeta>(host_clip_meta_.size()));
                     for (std::size_t i = 0; i < host_translations_.size(); ++i)
                         (*translations_)[i] = host_translations_[i];
                     for (std::size_t i = 0; i < host_rotations_.size(); ++i)
@@ -306,24 +306,49 @@ namespace SushiEngine
                  */
                 void rebuild_graph()
                 {
-                    graph_.emplace(runtime_.graph());
+                    graph_.emplace(context_.create_graph());
                     const std::uint32_t joint_count = joint_count_;
-                    graph_->add(
-                        SushiRuntime::Extent{instance_count_},
-                        SushiRuntime::In(*instances_buffer_), SushiRuntime::In(*parents_),
-                        SushiRuntime::In(*bind_t_), SushiRuntime::In(*bind_r_),
-                        SushiRuntime::In(*bind_s_), SushiRuntime::In(*inverse_bind_),
-                        SushiRuntime::In(*translations_), SushiRuntime::In(*rotations_),
-                        SushiRuntime::In(*scales_), SushiRuntime::In(*clip_meta_),
-                        SushiRuntime::Out(*palette_buffer_),
-                        [joint_count](sycl::id<1> id, const DeviceInstanceDesc* instances,
-                                     const std::uint16_t* parents, const Vector3f* bind_t,
-                                     const Quaternionf* bind_r, const Vector3f* bind_s,
-                                     const JointMatrix* inverse_bind, const Vector3f* translations,
-                                     const Quaternionf* rotations, const Vector3f* scales,
-                                     const ClipMeta* clip_meta, JointMatrix* palette)
+
+                    const DeviceInstanceDesc* instances = instances_buffer_->data();
+                    const std::uint16_t* parents = parents_->data();
+                    const Vector3f* bind_t = bind_t_->data();
+                    const Quaternionf* bind_r = bind_r_->data();
+                    const Vector3f* bind_s = bind_s_->data();
+                    const JointMatrix* inverse_bind = inverse_bind_->data();
+                    const Vector3f* translations = translations_->data();
+                    const Quaternionf* rotations = rotations_->data();
+                    const Vector3f* scales = scales_->data();
+                    const ClipMeta* clip_meta = clip_meta_->data();
+                    JointMatrix* palette = palette_buffer_->data();
+
+                    const Execution::ResourceAccess accesses[] = {
+                        {instances_buffer_->interval(), Execution::AccessIntent::ComputeRead},
+                        {parents_->interval(), Execution::AccessIntent::ComputeRead},
+                        {bind_t_->interval(), Execution::AccessIntent::ComputeRead},
+                        {bind_r_->interval(), Execution::AccessIntent::ComputeRead},
+                        {bind_s_->interval(), Execution::AccessIntent::ComputeRead},
+                        {inverse_bind_->interval(), Execution::AccessIntent::ComputeRead},
+                        {translations_->interval(), Execution::AccessIntent::ComputeRead},
+                        {rotations_->interval(), Execution::AccessIntent::ComputeRead},
+                        {scales_->interval(), Execution::AccessIntent::ComputeRead},
+                        {clip_meta_->interval(), Execution::AccessIntent::ComputeRead},
+                        {palette_buffer_->interval(), Execution::AccessIntent::ComputeWrite}};
+
+                    Execution::NodeDescriptor node;
+                    node.name = "animation_batch_evaluate";
+                    node.accesses = accesses;
+                    node.access_count = sizeof(accesses) / sizeof(accesses[0]);
+                    node.capacity = instance_count_;
+                    // A pose is not replayed and never feeds a simulation node; skinning
+                    // already runs as a cosmetic Vulkan pass with this as its oracle.
+                    node.determinism = Execution::DeterminismClass::Cosmetic;
+
+                    graph_->add_parallel(
+                        node,
+                        [joint_count, instances, parents, bind_t, bind_r, bind_s, inverse_bind,
+                         translations, rotations, scales, clip_meta, palette](std::size_t index)
                         {
-                            const std::size_t instance = id[0];
+                            const std::size_t instance = index;
                             const DeviceInstanceDesc& desc = instances[instance];
                             JointMatrix* out = palette + instance * joint_count;
 
@@ -364,7 +389,7 @@ namespace SushiEngine
                             else if (desc.loop != 0)
                             {
                                 const float span = static_cast<float>(meta.frame_count);
-                                float local = sycl::fmod(desc.time_seconds * meta.sample_rate, span);
+                                float local = Math::fmod(desc.time_seconds * meta.sample_rate, span);
                                 if (local < 0.0f)
                                     local += span;
                                 frame_position = local;
@@ -383,7 +408,7 @@ namespace SushiEngine
                                 frame0 = static_cast<std::uint32_t>(local);
                                 frame1 = frame0 + 1 < meta.frame_count ? frame0 + 1 : frame0;
                             }
-                            const float alpha = frame_position - sycl::floor(frame_position);
+                            const float alpha = frame_position - Math::floor(frame_position);
 
                             const std::size_t base0 =
                                 static_cast<std::size_t>(meta.base_offset) +
@@ -412,31 +437,31 @@ namespace SushiEngine
                         });
                 }
 
-                SushiRuntime::API::Runtime& runtime_;
+                Execution::Context& context_;
                 std::uint32_t joint_count_ = 0;
 
-                std::optional<SushiRuntime::API::Buffer<std::uint16_t>> parents_;
-                std::optional<SushiRuntime::API::Buffer<Vector3f>> bind_t_;
-                std::optional<SushiRuntime::API::Buffer<Quaternionf>> bind_r_;
-                std::optional<SushiRuntime::API::Buffer<Vector3f>> bind_s_;
-                std::optional<SushiRuntime::API::Buffer<JointMatrix>> inverse_bind_;
+                std::optional<Execution::Buffer<std::uint16_t>> parents_;
+                std::optional<Execution::Buffer<Vector3f>> bind_t_;
+                std::optional<Execution::Buffer<Quaternionf>> bind_r_;
+                std::optional<Execution::Buffer<Vector3f>> bind_s_;
+                std::optional<Execution::Buffer<JointMatrix>> inverse_bind_;
 
                 std::vector<Vector3f> host_translations_;
                 std::vector<Quaternionf> host_rotations_;
                 std::vector<Vector3f> host_scales_;
                 std::vector<ClipMeta> host_clip_meta_;
-                std::optional<SushiRuntime::API::Buffer<Vector3f>> translations_;
-                std::optional<SushiRuntime::API::Buffer<Quaternionf>> rotations_;
-                std::optional<SushiRuntime::API::Buffer<Vector3f>> scales_;
-                std::optional<SushiRuntime::API::Buffer<ClipMeta>> clip_meta_;
+                std::optional<Execution::Buffer<Vector3f>> translations_;
+                std::optional<Execution::Buffer<Quaternionf>> rotations_;
+                std::optional<Execution::Buffer<Vector3f>> scales_;
+                std::optional<Execution::Buffer<ClipMeta>> clip_meta_;
 
                 std::vector<DeviceInstanceDesc> host_instances_;
-                std::optional<SushiRuntime::API::Buffer<DeviceInstanceDesc>> instances_buffer_;
-                std::optional<SushiRuntime::API::Buffer<JointMatrix>> palette_buffer_;
+                std::optional<Execution::Buffer<DeviceInstanceDesc>> instances_buffer_;
+                std::optional<Execution::Buffer<JointMatrix>> palette_buffer_;
                 std::vector<JointMatrix> host_palettes_;
                 std::size_t instance_count_ = 0;
 
-                std::optional<SushiRuntime::API::Graph> graph_;
+                std::optional<Execution::Graph> graph_;
         };
     } // namespace Animation
 } // namespace SushiEngine

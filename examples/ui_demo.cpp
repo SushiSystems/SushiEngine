@@ -53,7 +53,8 @@ namespace
 int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
-    World world(runtime, 64);
+    Execution::Context execution(runtime);
+    World world(execution, 64);
 
     UI::UI ui(world);
     const Entity canvas = ui.canvas(UI::Vector2{Scalar(1280), Scalar(720)});

@@ -56,7 +56,7 @@ namespace SushiEngine
             VulkanSceneView::VulkanSceneView(VulkanDevice& device,
                                              Assets::AssetLibrary& assets)
                 : device_(device), assets_(assets), descriptors_(device, SLOTS),
-                  cloth_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
+                  deformable_(device, SLOTS), materials_(device, assets.textures(), SLOTS),
                   motion_(device, SLOTS), ui_geometry_(device, SLOTS),
                   instance_system_(device, SLOTS),
                   skinning_(device, SLOTS), particles_(device, SLOTS, 1u << 16),
@@ -95,14 +95,14 @@ namespace SushiEngine
                   occlusion_pass_(device, assets.shaders(), assets.pipelines()),
                   cull_pass_(device, assets.shaders(), assets.pipelines(), occlusion_pass_,
                              instance_system_),
-                  cloth_pass_(device, assets.shaders(), assets.pipelines(), cloth_),
+                  deformable_pass_(device, assets.shaders(), assets.pipelines(), deformable_),
                   skinning_pass_(device, assets.shaders(), assets.pipelines(), skinning_,
                                  assets.meshes()),
                   particle_sim_pass_(device, assets.shaders(), assets.pipelines(), particles_,
                                      hiz_pass_, irradiance_volume_pass_),
                   particle_sort_pass_(device, assets.shaders(), assets.pipelines(), particles_),
                   opaque_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
-                               assets.meshes(), cloth_, materials_, motion_,
+                               assets.meshes(), deformable_, materials_, motion_,
                                cloud_shadow_map_pass_, ibl_pass_, irradiance_volume_pass_, lights_,
                                instance_system_, skinning_),
                   transparent_pass_(device, assets.shaders(), assets.pipelines(), assets.layout(),
@@ -198,7 +198,7 @@ namespace SushiEngine
                            &light_shadow_pass_,
                            &gtao_pass_,
                            &hiz_pass_,
-                           &cloth_pass_,
+                           &deformable_pass_,
                            &opaque_pass_,
                            // Mesh particles are solid geometry, so they belong with the opaque
                            // surfaces and before anything that reads a finished depth buffer.
@@ -350,7 +350,8 @@ namespace SushiEngine
             void VulkanSceneView::render(const CameraView& camera, const Environment& environment,
                                          const MeshInstance* instances, std::size_t count,
                                          std::uint32_t selected_id,
-                                         const ClothStrandView* strands, std::size_t strand_count,
+                                         const DeformableMeshView* deformable,
+                                         std::size_t deformable_count,
                                          const PunctualLight* lights, std::size_t light_count,
                                          const Decal* decals, std::size_t decal_count,
                                          bool show_grid, const SkinnedInstance* skinned,
@@ -406,8 +407,8 @@ namespace SushiEngine
                 Scene::camera_eye(camera.view, frame.eye);
                 frame.draws.instances = instances;
                 frame.draws.instance_count = count;
-                frame.draws.strands = strands;
-                frame.draws.strand_count = strand_count;
+                frame.draws.deformable = deformable;
+                frame.draws.deformable_count = deformable_count;
                 frame.draws.skinned = skinned;
                 frame.draws.skinned_count = skinned_count;
                 frame.draws.emitters = emitters;
@@ -536,11 +537,21 @@ namespace SushiEngine
                     static_cast<float>(resolved.params.shadow_blocker_taps);
                 resources_.upload_shadow(index, shadow_uniforms);
 
+                // The eye's own frame-to-frame travel, formed in double before the narrowing
+                // cast: the block's matrix is translation-free (camera-relative rendering), so
+                // this is the only way a ray-marched reprojection can see the camera move.
+                double previous_temporal_eye[3];
+                Scene::camera_eye(previous_camera_.view, previous_temporal_eye);
+                const float temporal_eye_delta[3] = {
+                    static_cast<float>(frame.eye[0] - previous_temporal_eye[0]),
+                    static_cast<float>(frame.eye[1] - previous_temporal_eye[1]),
+                    static_cast<float>(frame.eye[2] - previous_temporal_eye[2])};
                 Scene::TemporalUniforms temporal;
                 Scene::fill_temporal_uniforms(effective, previous_camera_.view,
                                               previous_camera_.projection, frame.jitter,
                                               previous_jitter_, render_width_, render_height_,
-                                              width_, height_, frame.history_valid, temporal);
+                                              width_, height_, frame.history_valid,
+                                              temporal_eye_delta, temporal);
                 resources_.upload_temporal(index, temporal);
 
                 // The exposure the display transform applies. Manual exposure multiplies the
@@ -711,9 +722,9 @@ namespace SushiEngine
                     frame.gpu_instance_count = instance_system_.instance_count();
                 }
 
-                // Pack this frame's soft-body particle positions and lay out their geometry; the
-                // cloth pass triangulates them on the GPU and the opaque pass draws the result.
-                cloth_.prepare(index, strands, strand_count, frame.eye);
+                // Pack this frame's simulated surfaces and lay out their geometry; the
+                // deformable pass shades them on the GPU and the opaque pass draws the result.
+                deformable_.prepare(index, deformable, deformable_count, frame.eye);
 
                 // Pack this frame's skinned characters' palettes and lay out their output; the
                 // skinning pass deforms them into the output buffer and the opaque pass draws it.

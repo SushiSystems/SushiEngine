@@ -52,7 +52,7 @@ namespace
 
 TEST(Integration_UI, PressAndReleaseInsideFiresClickOnce)
 {
-    World world(Harness::shared_runtime(), 64);
+    World world(Harness::shared_context(), 64);
     UI::UI ui(world);
     const Entity canvas = ui.canvas();
 
@@ -71,7 +71,7 @@ TEST(Integration_UI, PressAndReleaseInsideFiresClickOnce)
 
 TEST(Integration_UI, ReleaseOutsideDoesNotClick)
 {
-    World world(Harness::shared_runtime(), 64);
+    World world(Harness::shared_context(), 64);
     UI::UI ui(world);
     const Entity canvas = ui.canvas();
 
@@ -89,7 +89,7 @@ TEST(Integration_UI, ReleaseOutsideDoesNotClick)
 
 TEST(Integration_UI, ButtonStateFollowsPointer)
 {
-    World world(Harness::shared_runtime(), 64);
+    World world(Harness::shared_context(), 64);
     UI::UI ui(world);
     const Entity canvas = ui.canvas();
     const Entity button = ui.button(canvas, centred_button(), "Play", nullptr);

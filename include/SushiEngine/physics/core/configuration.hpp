@@ -30,7 +30,7 @@
  * Two kinds of number live here and they are not the same kind of decision.
  *
  * The **capacities** are budgets. A scene allocates its device buffers once at these
- * sizes and never grows them, because a `SushiRuntime::Buffer` cannot be resized in
+ * sizes and never grows them, because an `Execution::Buffer` cannot be resized in
  * place and a growth would invalidate the raw pointer every compiled graph node
  * captured (§6.4). Exceeding a capacity is therefore a reported, recomposing event
  * rather than a routine one, and the number that was exceeded is the number to
@@ -81,6 +81,32 @@ namespace SushiEngine
 
             /** @brief Maximum contacts retained in one tick. */
             std::size_t contacts = 16384;
+
+            /**
+             * @brief Maximum simultaneously live FEM elements (§9.1's tetrahedra).
+             *
+             * Its own budget for the same reason @ref joints has one, in the other
+             * direction: an element is a four-body constraint carrying a rest-state
+             * matrix, a plastic one, two multipliers and a Lamé pair, so it is several
+             * times a distance constraint's size and spent by the ten thousand — a
+             * default share of @ref constraints would make every scene in the engine
+             * carry megabytes for a kind most of them never use.
+             *
+             * Zero by default, therefore, and opt-in: a scene with soft bodies sets it.
+             * That is not a silent trap, because `add_element` on a full budget reports
+             * a capacity overflow like every other kind rather than dropping the
+             * element quietly.
+             *
+             * Worth setting deliberately rather than to the element count. Like every
+             * banded kind (`constraint_store.hpp`), this budget is divided evenly into
+             * one fixed band per @ref colors, so what has to fit is the *busiest*
+             * band and not the total; a budget of exactly the element count leaves
+             * each colour `1 / colors` of it and rejects a lattice partway in. For
+             * tetrahedra the bound is easy to state: a colour class is a set of
+             * vertex-disjoint elements, so no band can exceed a quarter of the
+             * particles, whatever order they arrive in.
+             */
+            std::size_t elements = 0;
 
             /**
              * @brief Maximum colours the constraint set may partition into.

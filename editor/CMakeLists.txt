@@ -90,6 +90,7 @@ add_executable(se_editor
     physics/cook_bake_state.cpp
     physics/cook_bake_panel.cpp
     physics/collision_overlay.cpp
+    physics/soft_body_overlay.cpp
     gizmo/gizmo_controller.cpp
     core/preferences.cpp
     serialization/scene_serializer.cpp

@@ -29,7 +29,7 @@
  * morph weights (design §6.5/§12.1, position-only), then linear-blend-skins the (possibly
  * morphed) vertex by its instance's joint palette (current and previous frame) and writes an
  * interleaved SkinnedVertex into the frame's output buffer. The opaque pass then draws each
- * instance's slice as a static mesh. Like `ClothPass`, the output buffer is
+ * instance's slice as a static mesh. Like `DeformablePass`, the output buffer is
  * SkinningSystem-owned rather than a graph resource, so the write is hand-barriered from the
  * compute stage to the vertex-input read.
  */
