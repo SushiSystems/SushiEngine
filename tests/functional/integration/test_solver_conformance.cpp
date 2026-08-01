@@ -66,6 +66,10 @@ namespace
         // Opt-in in the engine, always on here: a conformance scene that could not
         // hold an element would let the four-body kind go untested by omission.
         configuration.capacities.elements = 256;
+        // Opt-in in the engine and always on here, for the same reason the element
+        // budget is: a conformance scene that could not hold a beam would let the
+        // structural kind go untested by omission.
+        configuration.capacities.beams = 256;
         configuration.capacities.colors = 8;
         configuration.substeps.minimum = 4;
         configuration.substeps.maximum = 16;
@@ -173,6 +177,19 @@ namespace
         element.mu = lame.mu;
         element.lambda = lame.lambda;
         return element;
+    }
+
+    /** @brief A compliant, damped beam of @p rest between two node slots. */
+    BeamConstraint beam(std::size_t a, std::size_t b, Scalar rest)
+    {
+        BeamConstraint link;
+        link.a = std::uint32_t(a);
+        link.b = std::uint32_t(b);
+        link.rest_length = rest;
+        link.initial_rest_length = rest;
+        link.compliance = Scalar(1e-5);
+        link.damping = Scalar(4);
+        return link;
     }
 
     /** @brief A soft material soft enough that one tick visibly deforms it. */
@@ -1222,4 +1239,128 @@ TEST(Integration_SolverConformance, AnElementReportsTheSameMultipliersOnBoth)
     EXPECT_NEAR(double(from_host.hydrostatic_lambda),
                 double(from_runtime.hydrostatic_lambda),
                 std::abs(double(from_host.hydrostatic_lambda)) * 1e-6 + 1e-12);
+}
+
+TEST(Integration_SolverConformance, ABeamChainAgreesAcrossEveryColour)
+{
+    // The beam's own colouring test. Consecutive beams share a node, so they must
+    // land in different colours -- and the damping pass runs per colour too, after
+    // the velocity derivation, so a chain exercises both halves of the kind in the
+    // order the graph imposes.
+    StepParameters<Scalar> parameters;
+    expect_solvers_agree(30, parameters, [](IConstraintSolver<Scalar>& solver)
+    {
+        std::vector<BodyHandle> handles;
+        for (int i = 0; i < 6; ++i)
+            handles.push_back(
+                solver.add_body(point_body(Vector3{Scalar(i) * Scalar(0.5), Scalar(6), 0})));
+
+        RigidBody anchor = point_body(Vector3{0, Scalar(6), 0});
+        anchor.inv_mass = 0;
+        solver.write_body(handles[0], anchor);
+
+        for (int i = 0; i + 1 < 6; ++i)
+            solver.add_beam(beam(solver.body_slot(handles[i]),
+                                 solver.body_slot(handles[i + 1]), Scalar(0.5)));
+        return handles;
+    });
+}
+
+TEST(Integration_SolverConformance, ABeamAndAConstraintOnOneNodeNeverShareAColour)
+{
+    // The union-colouring claim (§6.3) at the beam's expense: a beam and a distance
+    // constraint that share a node must not share a colour, or the parallel sweep the
+    // colouring licenses would have two kinds writing one body at once.
+    StepParameters<Scalar> parameters;
+    expect_solvers_agree(25, parameters, [](IConstraintSolver<Scalar>& solver)
+    {
+        std::vector<BodyHandle> handles;
+        for (int i = 0; i < 3; ++i)
+            handles.push_back(
+                solver.add_body(point_body(Vector3{Scalar(i), Scalar(6), 0})));
+
+        RigidBody anchor = point_body(Vector3{0, Scalar(6), 0});
+        anchor.inv_mass = 0;
+        solver.write_body(handles[0], anchor);
+
+        // Both kinds meet at the middle node.
+        solver.add_constraint(link(solver.body_slot(handles[0]),
+                                   solver.body_slot(handles[1]), Scalar(1)));
+        solver.add_beam(beam(solver.body_slot(handles[1]),
+                             solver.body_slot(handles[2]), Scalar(1)));
+        return handles;
+    });
+}
+
+TEST(Integration_SolverConformance, ABeamReportsTheSameLoadOnBoth)
+{
+    // The whole reason a beam is read back off the device: the dent, the break, and
+    // the structural readout are all the same recovered load, so the two solvers
+    // must report the same number or §11.1's thresholds mean two different things.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    ConstraintHandle host_handle;
+    ConstraintHandle runtime_handle;
+    for (int which = 0; which < 2; ++which)
+    {
+        IConstraintSolver<Scalar>& solver = which == 0 ? *host : *runtime;
+
+        RigidBody anchor = point_body(Vector3{0, Scalar(6), 0});
+        anchor.inv_mass = 0;
+        const BodyHandle top = solver.add_body(anchor);
+        const BodyHandle hanging =
+            solver.add_body(point_body(Vector3{0, Scalar(5), 0}));
+
+        (which == 0 ? host_handle : runtime_handle) = solver.add_beam(
+            beam(solver.body_slot(top), solver.body_slot(hanging), Scalar(1)));
+    }
+
+    StepParameters<Scalar> parameters;
+    for (int tick = 0; tick < 10; ++tick)
+    {
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+    }
+
+    BeamConstraint from_host;
+    BeamConstraint from_runtime;
+    ASSERT_TRUE((*host).read_beam(host_handle, from_host));
+    ASSERT_TRUE((*runtime).read_beam(runtime_handle, from_runtime));
+
+    // Non-zero first: two solvers that both reported nothing would agree perfectly.
+    EXPECT_GT(double(from_host.peak_force), 0.0)
+        << "the beam carried no load, so agreeing about it proves nothing";
+    EXPECT_NEAR(double(from_host.axial_force), double(from_runtime.axial_force),
+                std::abs(double(from_host.axial_force)) * 1e-6 + 1e-12);
+    EXPECT_NEAR(double(from_host.peak_force), double(from_runtime.peak_force),
+                double(from_host.peak_force) * 1e-6 + 1e-12);
+    EXPECT_EQ(from_host.force_samples, from_runtime.force_samples);
+}
+
+TEST(Integration_SolverConformance, RemovingABodyTakesItsBeamsOnBoth)
+{
+    // A beam left naming a freed slot would pull on whichever node claims it next --
+    // which is how a broken-off panel would start dragging an unrelated body around.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    for (IConstraintSolver<Scalar>* solver : {&(*host), &(*runtime)})
+    {
+        const BodyHandle a = solver->add_body(point_body(Vector3{0, Scalar(6), 0}));
+        const BodyHandle b = solver->add_body(point_body(Vector3{1, Scalar(6), 0}));
+        ASSERT_TRUE(solver->add_beam(
+            beam(solver->body_slot(a), solver->body_slot(b), Scalar(1))).valid());
+
+        solver->step(parameters);
+        ASSERT_EQ(solver->statistics().beams, 1u);
+
+        ASSERT_TRUE(solver->remove_body(b));
+        solver->step(parameters);
+        EXPECT_EQ(solver->statistics().beams, 0u)
+            << "a beam survived the removal of one of its nodes";
+    }
 }

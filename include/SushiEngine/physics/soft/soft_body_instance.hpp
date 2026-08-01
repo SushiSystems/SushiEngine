@@ -65,6 +65,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/cooking/soft_body_asset.hpp>
+#include <SushiEngine/physics/soft/fem_fracture.hpp>
 #include <SushiEngine/physics/soft/finite_element_model.hpp>
 #include <SushiEngine/physics/soft/soft_body_model.hpp>
 
@@ -219,6 +220,42 @@ namespace SushiEngine
                     else if (cosmetic_ != nullptr)
                         cosmetic_->step(float(dt), substeps);
                 }
+
+                /**
+                 * @brief Removes whatever this tick's stress put over `fracture_stress` (§9.5).
+                 *
+                 * Called once per tick, after the body has stepped — a gameplay-column
+                 * body steps through the interleaved `SoftBodyScene`, not through
+                 * @ref step, so this is deliberately a separate call rather than the
+                 * tail of @ref step, and the owner (`sim/`) is the one that knows
+                 * both happened this tick.
+                 *
+                 * `fracture_budget` and the running total are shared across whichever
+                 * column is active; `FemFractureBudget` carries no scalar type of its
+                 * own to disagree between them.
+                 *
+                 * @return Whether any element was actually removed. A caller holding
+                 *         raw pointers into `surface_indices`/`surface_vertices` (§9.6's
+                 *         colliders) must treat `true` as those pointers now being
+                 *         stale — `rebuild_soft_body_surface` replaces both vectors,
+                 *         and a replaced `std::vector`'s old `.data()` is not a
+                 *         promise, it is a coincidence.
+                 */
+                bool step_fracture()
+                {
+                    if (gameplay_ != nullptr)
+                        return Physics::apply_fem_fracture(*gameplay_, fracture_budget,
+                                                           total_fractured_)
+                                   .elements_removed > 0;
+                    if (cosmetic_ != nullptr)
+                        return Physics::apply_fem_fracture(*cosmetic_, fracture_budget,
+                                                           total_fractured_)
+                                   .elements_removed > 0;
+                    return false;
+                }
+
+                /** @brief The deterministic limits this body's fracture pass is held to (§9.5). */
+                FemFractureBudget fracture_budget{};
 
                 /** @brief Sets the uniform acceleration every unpinned particle feels. */
                 void set_external_acceleration(const Vector3& acceleration) noexcept
@@ -382,6 +419,8 @@ namespace SushiEngine
                 std::unique_ptr<FiniteElementModel<Scalar>> gameplay_;
                 std::unique_ptr<FiniteElementModel<float>> cosmetic_;
                 SoftBodyPrecision precision_ = SoftBodyPrecision::Gameplay;
+                /** @brief §9.5's scene-level cap: how many elements this body has ever lost. */
+                std::uint32_t total_fractured_ = 0;
         };
     } // namespace Physics
 } // namespace SushiEngine

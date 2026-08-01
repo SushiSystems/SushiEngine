@@ -121,13 +121,31 @@ namespace SushiEngine
                 /** @brief Simulation levels of detail produced, or zero for a rigid cook. */
                 std::uint32_t level_of_detail_count = 0;
 
+                /** @brief Nodes placed by a node-beam cook, or zero for any other. */
+                std::uint32_t node_count = 0;
+
+                /** @brief Beams connecting them, structural and bracing together. */
+                std::uint32_t beam_count = 0;
+
                 /**
-                 * @brief Render-mesh vertices no tetrahedron could be found for.
+                 * @brief How many of @ref beam_count are bracing diagonals.
                  *
-                 * §8.6 invariant 1. Above a threshold this fails the cook, because a
-                 * vertex bound to nothing is a hole that opens the first time the body
-                 * deforms — and it opens in the render mesh, where the simulation looks
-                 * correct and the asset looks broken.
+                 * Reported separately because it is the number that says whether §11.3's
+                 * diagonal rule fired at all. A structure that is all structural beams is
+                 * an edge network with no shear rigidity — it will hold its length and
+                 * fold flat — and the count is the only place that shows before someone
+                 * drives it.
+                 */
+                std::uint32_t bracing_beam_count = 0;
+
+                /**
+                 * @brief Render-mesh vertices no simulation geometry could be found for.
+                 *
+                 * §8.6 invariant 1: no tetrahedron for a soft-body cook, no node within
+                 * reach for a node-beam one. Above a threshold this fails the cook,
+                 * because a vertex bound to nothing is a hole that opens the first time
+                 * the body deforms — and it opens in the render mesh, where the
+                 * simulation looks correct and the asset looks broken.
                  */
                 std::uint32_t unembedded_vertex_count = 0;
 

@@ -56,6 +56,7 @@
 #include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/constraints/beam_constraint.hpp>
 #include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/soft/fem_element.hpp>
@@ -136,6 +137,17 @@ namespace SushiEngine
                  */
                 using Element = FemTetrahedronT<T>;
 
+                /**
+                 * @brief The structural persistent kind this solver admits (§11.1).
+                 *
+                 * A beam is a two-body axial link that also *changes*: its rest length
+                 * creeps once it yields and it is removed once it breaks. That is why it
+                 * has a `write_beam` and an element does not — a dent and a failure are
+                 * decided at the tick boundary, by the scene, from the load the solve
+                 * recovered.
+                 */
+                using Beam = BeamConstraintT<T>;
+
                 virtual ~IConstraintSolver() = default;
 
                 /**
@@ -210,6 +222,56 @@ namespace SushiEngine
 
                 /** @brief How many elements this solver can hold at once. */
                 virtual std::size_t element_capacity() const noexcept = 0;
+
+                /**
+                 * @brief Admits a beam between two live nodes.
+                 *
+                 * @param beam The beam; its `a`/`b` are body slot indices. Its rest
+                 *             length, compliance and thresholds are read as given —
+                 *             `beam_properties.hpp` is what derives them from a material,
+                 *             and doing it here would put a material in a seam that
+                 *             deliberately names none.
+                 * @return A handle to it, or an invalid handle when the beam capacity
+                 *         (`PhysicsCapacities::beams`, zero by default) or the colour
+                 *         ceiling is exhausted.
+                 */
+                virtual ConstraintHandle add_beam(const Beam& beam) = 0;
+
+                /**
+                 * @brief Removes a beam. What a beam breaking actually does.
+                 * @param handle The beam to remove.
+                 * @return True when a live beam was removed by this call.
+                 */
+                virtual bool remove_beam(ConstraintHandle handle) = 0;
+
+                /**
+                 * @brief Reads a beam back, including the load the last tick left on it.
+                 *
+                 * The reason a beam is transferred off the device at all: the axial load
+                 * is recovered inside the projection, and the dent, the break and the
+                 * structural readout are all that one quantity.
+                 *
+                 * @param handle The beam to read.
+                 * @param beam   Receives the beam; untouched when the handle is stale.
+                 * @return True when @p handle named a live beam.
+                 */
+                virtual bool read_beam(ConstraintHandle handle, Beam& beam) const = 0;
+
+                /**
+                 * @brief Overwrites a beam — a crept rest length, a broken flag.
+                 *
+                 * The whole descriptor rather than a field at a time, on @ref write_joint's
+                 * reasoning: a caller reads, applies §11.1's tick-boundary rules, and
+                 * writes back.
+                 *
+                 * @param handle The beam to write.
+                 * @param beam   The descriptor to store.
+                 * @return True when @p handle named a live beam.
+                 */
+                virtual bool write_beam(ConstraintHandle handle, const Beam& beam) = 0;
+
+                /** @brief The fixed number of beam slots this solver was built with. */
+                virtual std::size_t beam_capacity() const noexcept = 0;
 
                 /**
                  * @brief Admits a joint between two live bodies.
@@ -350,6 +412,24 @@ namespace SushiEngine
                  *         the handle is stale.
                  */
                 virtual std::size_t body_slot(BodyHandle handle) const = 0;
+
+                /**
+                 * @brief The handle for a slot, the inverse of @ref body_slot.
+                 *
+                 * Contacts name their bodies by *slot*, because they are rebuilt every
+                 * tick and read by a device kernel that has no notion of a generation. So
+                 * anything that reads a contact and then wants to act on the body it names
+                 * — a tyre model spending its reaction on whatever it is standing on
+                 * (§11.5), a damage system asking what hit what — has a slot and needs a
+                 * handle. Rebuilding it outside is not possible and should not be: the
+                 * solver is the authority on which generation a slot is on, and a caller
+                 * that guessed would address a body that had already been recycled.
+                 *
+                 * @param slot The slot to name.
+                 * @return A live handle to it, or an invalid handle when the slot is free
+                 *         or out of range.
+                 */
+                virtual BodyHandle body_handle(std::size_t slot) const = 0;
 
                 /**
                  * @brief Advances every live body by one tick.

@@ -192,6 +192,52 @@ add_executable(se_functional_tests
     # that overrides the rule (a body a rollback replays stays in double), and
     # the holder that keeps the decision from spreading past instantiation.
     functional/unit/test_soft_body_precision.cpp
+    # P7-A/P7-B: §11.1's beam and §11.2's claim that its numbers come from a
+    # material. The load recovery is checked against Hooke's law rather than
+    # against itself -- a compliant beam must report `E*A*d/L` -- which is the
+    # whole argument for deriving a compliance from a Young's modulus at all.
+    functional/unit/test_beam_constraint.cpp
+    # P7-C: the `.sushinodebeam` blob. The assertions worth having are not the round
+    # trip -- every format passes that on the day it is written -- but the three
+    # things a wide binary format actually gets wrong: a count raised without the
+    # bytes behind it, a cross-reference nobody re-checked on the way in, and record
+    # padding that makes two identical cooks differ in bytes nobody wrote.
+    functional/unit/test_node_beam_asset.cpp
+    # P7-D: §11.3's cooker, and §11.2's claim that a vehicle's numbers come from a
+    # material rather than from a person. The assertions that earn their keep are
+    # the ones that would catch a *plausible* structure: beams whose compliance is
+    # not the axial bar's `L/(E*A)`, cross-sections that do not add up to the body
+    # they were divided out of, and a render mesh that does not come back where the
+    # artist put it.
+    functional/unit/test_node_beam_cooker.cpp
+    # P7-E: the hybrid instanced. The assertions that matter are the ones about what
+    # only exists once the asset is in a world: the core's principal frame surviving
+    # a spawn pose, the load that dents a beam building over ticks rather than
+    # arriving with the first one, a part reported detached exactly when its last tie
+    # goes, and two runs of the same crash breaking the same things in the same order.
+    functional/unit/test_node_beam_structure.cpp
+    # P7-F: §11.2's suspension row. The assertions are quantitative where the physics
+    # has a closed form, because a strut with its spring rate read as a compliance or
+    # its travel signed the wrong way still holds a car up and still moves when pushed
+    # -- what it does not do is settle at `m*g/k`.
+    functional/unit/test_vehicle_suspension.cpp
+    # P7-G: §11.4's one-dimensional chain. Three closed forms carry it -- a clutch below
+    # its capacity locks exactly, a differential's outputs sum to what came down the
+    # shaft whatever its lock setting, and the impulse the wheels gain is the impulse
+    # the chassis loses, which is what stops a car driving itself around in mid-air.
+    functional/unit/test_vehicle_powertrain.cpp
+    # P7-H: §11.5's contact patch. The brush model is checked against its own closed
+    # forms -- linear below the limit, exactly mu*N above it, one circle rather than two
+    # axes -- and the world half against the two things a patch must not get wrong: the
+    # load is the one the solver recovered, and whatever it pushes against takes the
+    # other end of it.
+    functional/unit/test_vehicle_tyre.cpp
+    # P7-I: §11.6's cross-system tie-in, from the physics side. The wind term is a
+    # difference against the still-air drag `predict` applies anyway, so the property
+    # that matters most is that still air costs *exactly* nothing -- anything else would
+    # perturb every determinism test in the suite by an amount small enough to blame on
+    # anything at all.
+    functional/unit/test_vehicle_aerodynamics.cpp
     # The animation stack, whose every phase shipped with a demo and no test. Starting at
     # the bottom: the asset layer everything else reads through (the skeleton cook's
     # topological reorder, the clip formats and their refusals, the sampling contract, the
@@ -361,6 +407,7 @@ add_executable(se_functional_tests
     functional/unit/test_scene_frame.cpp
     functional/unit/test_reference_frame.cpp
 
+
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp
     functional/integration/test_xpbd_solver.cpp
@@ -378,6 +425,13 @@ add_executable(se_functional_tests
     # driven through IJointService on the live simulation rather than through the
     # solver, because the claim is about the whole path and not the arithmetic.
     functional/integration/test_joint_assembly.cpp
+    # P7's own acceptance criterion, in the roadmap's own words: a drivable vehicle that
+    # deforms permanently on impact and loses parts, deterministic under replay. Every
+    # earlier P7 file tests one piece against its own closed form; this one tests that the
+    # pieces are a car. The §13.1 timing row is measured and printed rather than asserted,
+    # because the target is quoted for a desktop GPU through SushiRuntime and this suite
+    # runs the host reference solver on the CPU.
+    functional/integration/test_vehicle_acceptance.cpp
     functional/integration/test_rollback.cpp
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp
@@ -448,6 +502,7 @@ add_executable(se_functional_tests
     ../editor/core/command_history.cpp
     ../editor/core/preferences.cpp
     functional/integration/test_scene_serializer_roundtrip.cpp
+
     functional/unit/test_atmosphere_quality.cpp
     functional/unit/test_autosave.cpp
     functional/unit/test_preferences_roundtrip.cpp
@@ -475,6 +530,9 @@ target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
 # editor-relative paths.
 target_link_libraries(se_functional_tests PRIVATE sushi_sim)
 target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/editor")
+# The terrain frame maths, by include path only -- it is header-only and Vulkan-free on
+# purpose, so this buys the coverage without linking the renderer into the test binary.
+target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/render")
 # The glTF importers `sushi_sim` needs, as a module that links nothing rather than as
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.

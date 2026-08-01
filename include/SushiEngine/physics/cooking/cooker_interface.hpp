@@ -61,6 +61,9 @@ namespace SushiEngine
 
                 /** @brief A `.sushisoft`: a tetrahedral mesh and its embedding. */
                 SoftBody,
+
+                /** @brief A `.sushinodebeam`: a node cloud, its beams, and a rigid core. */
+                NodeBeam,
             };
 
             /**

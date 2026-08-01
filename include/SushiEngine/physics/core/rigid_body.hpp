@@ -384,6 +384,55 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Turns @p q by the world-frame angular velocity @p omega over @p h, exactly.
+         *
+         * The exponential map, and **not** @ref apply_angular_correction's first-order
+         * form, because the two are used for different sizes of rotation and only one of
+         * them is small. A constraint correction is a fraction of a degree and the
+         * first-order form is the standard, cheap, correct choice for it. A *prediction*
+         * is a whole sub-step of free rotation, and for a wheel that is not small: a car
+         * at 100 km/h spins its wheels at 82 rad/s, which is a tenth of a radian per
+         * sub-step even at §11.1's effective rate.
+         *
+         * That difference is not cosmetic, and the arithmetic says why. The first-order
+         * step normalizes `q + ½(ωh)q`, whose vector part is `θ/2` before normalization
+         * and `sin(atan(θ/2))` after — a rotation *smaller* than `θ = |ω|h`. The velocity
+         * recovery then reads the shortened angle back, so each sub-step multiplies the
+         * angular velocity by `1/sqrt(1 + (θ/2)²)`. Measured before this was written: a
+         * free body with no constraints at all, spinning at 50 rad/s at 480 Hz, was down
+         * to 33 rad/s within a second — a third of a wheel's speed lost to nothing but
+         * the integrator, and a drivetrain tuned against it would have been tuned against
+         * a leak.
+         *
+         * Left-multiplied, so @p omega is read in the world frame — the same convention
+         * @ref apply_angular_correction states and @ref update_velocity inverts.
+         *
+         * @tparam T The scalar element type.
+         * @param q     The orientation to advance.
+         * @param omega The world-frame angular velocity, in radians per second.
+         * @param h     The sub-step duration, in seconds.
+         * @return The advanced, renormalized orientation.
+         */
+        template <typename T>
+        inline QuaternionT<T> integrate_orientation(const QuaternionT<T>& q,
+                                                    const Vector3T<T>& omega, T h) noexcept
+        {
+            const T rate = length(omega);
+            const T angle = rate * h;
+            // Below this the exact and first-order forms agree to the last bit a `float`
+            // can hold, and the division below has nothing left to normalize.
+            if (!(angle > T(1e-12)))
+                return q;
+
+            const Vector3T<T> axis = omega * (T(1) / rate);
+            const T half = angle * T(0.5);
+            const T sine = std::sin(half);
+            const QuaternionT<T> delta{axis.x * sine, axis.y * sine, axis.z * sine,
+                                       std::cos(half)};
+            return normalize(mul(delta, q));
+        }
+
+        /**
          * @brief Predicts a body's pose for one XPBD sub-step, before constraint solving.
          *
          * Semi-implicit Euler on velocity and position/orientation, exactly the "predict"
@@ -434,7 +483,7 @@ namespace SushiEngine
                 body.inv_inertia.z > T(0))
             {
                 body.orientation =
-                    apply_angular_correction(body.orientation, body.angular_velocity * h);
+                    integrate_orientation(body.orientation, body.angular_velocity, h);
             }
         }
 
@@ -463,7 +512,19 @@ namespace SushiEngine
 
             const QuaternionT<T> delta = mul(body.orientation, conjugate(body.prev_orientation));
             const T sign = delta.w < T(0) ? T(-1) : T(1);
-            body.angular_velocity = Vector3T<T>{delta.x, delta.y, delta.z} * (sign * T(2) / h);
+            const Vector3T<T> vector = Vector3T<T>{delta.x, delta.y, delta.z} * sign;
+            // The logarithmic map, the exact inverse of `integrate_orientation`'s
+            // exponential one. `2·vec(q)/h` is its small-angle approximation and reads
+            // `2·sin(θ/2)` where the rotation was `θ` — which is where a fast body's
+            // spin was leaking away before this was written; see `integrate_orientation`.
+            const T sine = length(vector);
+            if (!(sine > T(1e-12)))
+            {
+                body.angular_velocity = vector * (T(2) / h);
+                return;
+            }
+            const T angle = T(2) * std::atan2(sine, delta.w * sign);
+            body.angular_velocity = vector * (angle / (sine * h));
         }
 
         /**

@@ -370,6 +370,63 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The fraction of a coordinate's relative rate a damper removes this substep.
+         *
+         * Written once because both damping rows below are the same statement about
+         * different coordinates, and clamped at one because a damper cannot reverse a
+         * motion — only stop it. Zero for a joint with no damping, which the rows read
+         * as nothing to do.
+         *
+         * @tparam T The scalar element type.
+         * @param motor The drive whose damping rate to resolve.
+         * @param h     The substep duration, in seconds.
+         */
+        template <typename T>
+        inline T joint_damping_fraction(const JointMotorT<T>& motor, T h) noexcept
+        {
+            if (!(motor.damping > T(0)) || !(h > T(0)))
+                return T(0);
+            const T fraction = motor.damping * h;
+            return fraction > T(1) ? T(1) : fraction;
+        }
+
+        /** @brief Viscous resistance to sliding along the primary axis: the damper half of a strut. */
+        template <typename T>
+        inline void joint_row_axial_damping(JointConstraintT<T>& joint,
+                                            const JointWorldFrames<T>& frames,
+                                            RigidBodyT<T>& body_a, RigidBodyT<T>& body_b, T h,
+                                            JointLoad<T>& load) noexcept
+        {
+            const T fraction = joint_damping_fraction(joint.motor, h);
+            if (fraction == T(0))
+                return;
+            const T rate = dot(point_velocity(body_b, frames.lever_b) -
+                                   point_velocity(body_a, frames.lever_a),
+                               frames.axis_a);
+            // Expressed as a target the existing row drives toward, rather than as an
+            // impulse computed here: a damper and a rate drive differ only in what
+            // rate they ask for, and two pieces of arithmetic for that would be two
+            // places to get the generalized inverse mass wrong.
+            apply_joint_linear_velocity_row(body_a, body_b, frames.lever_a, frames.lever_b,
+                                            frames.axis_a, rate * (T(1) - fraction), T(0), h, load);
+        }
+
+        /** @brief Viscous resistance to twisting about the primary axis: a damped hinge. */
+        template <typename T>
+        inline void joint_row_twist_damping(JointConstraintT<T>& joint,
+                                            const JointWorldFrames<T>& frames,
+                                            RigidBodyT<T>& body_a, RigidBodyT<T>& body_b, T h,
+                                            JointLoad<T>& load) noexcept
+        {
+            const T fraction = joint_damping_fraction(joint.motor, h);
+            if (fraction == T(0))
+                return;
+            const T rate = dot(body_b.angular_velocity - body_a.angular_velocity, frames.axis_a);
+            apply_joint_angular_velocity_row(body_a, body_b, frames.axis_a,
+                                             rate * (T(1) - fraction), T(0), h, load);
+        }
+
+        /**
          * @brief Per-axis offset limits in body @c a's joint frame (the general case).
          *
          * A disabled limit leaves that axis free; `lower == upper` locks it. Which is
@@ -501,6 +558,7 @@ namespace SushiEngine
                                            JointLoad<T>& load) noexcept
             {
                 joint_row_twist_rate_drive(joint, frames, body_a, body_b, h, load);
+                joint_row_twist_damping(joint, frames, body_a, body_b, h, load);
             }
         };
 
@@ -536,6 +594,7 @@ namespace SushiEngine
                                            JointLoad<T>& load) noexcept
             {
                 joint_row_axial_rate_drive(joint, frames, body_a, body_b, h, load);
+                joint_row_axial_damping(joint, frames, body_a, body_b, h, load);
             }
         };
 
@@ -599,6 +658,7 @@ namespace SushiEngine
                                            JointLoad<T>& load) noexcept
             {
                 joint_row_twist_rate_drive(joint, frames, body_a, body_b, h, load);
+                joint_row_twist_damping(joint, frames, body_a, body_b, h, load);
             }
         };
 
@@ -634,6 +694,7 @@ namespace SushiEngine
                                            JointLoad<T>& load) noexcept
             {
                 joint_row_twist_rate_drive(joint, frames, body_a, body_b, h, load);
+                joint_row_twist_damping(joint, frames, body_a, body_b, h, load);
             }
         };
 

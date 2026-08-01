@@ -158,6 +158,16 @@ namespace SushiEngine
              */
             std::size_t elements = 0;
 
+            /**
+             * @brief Live beams, of the @ref constraints above.
+             *
+             * Broken out because a vehicle is the one thing that spends this kind, and
+             * a reader looking at a tick that got slower wants to know whether a car
+             * arrived. A beam costs about what a distance constraint costs, so the
+             * number is a population count rather than a warning.
+             */
+            std::size_t beams = 0;
+
             /** @brief Colours the constraint set partitioned into. */
             std::size_t colors = 0;
 

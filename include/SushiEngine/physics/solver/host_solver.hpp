@@ -57,6 +57,7 @@
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/constraints/distance_projection.hpp>
 #include <SushiEngine/physics/constraints/joint_projection.hpp>
+#include <SushiEngine/physics/constraints/beam_projection.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/core/body_flags.hpp>
 #include <SushiEngine/physics/core/configuration.hpp>
@@ -94,6 +95,9 @@ namespace SushiEngine
                 /** @brief The deformable persistent kind this solver admits (§9.1). */
                 using Element = FemTetrahedronT<T>;
 
+                /** @brief The structural persistent kind this solver admits (§11.1). */
+                using Beam = BeamConstraintT<T>;
+
                 /**
                  * @brief Creates a solver sized by @p configuration.
                  *
@@ -116,6 +120,9 @@ namespace SushiEngine
                       elements_store_(constraints_store_.shared_coloring(),
                                       configuration.capacities.elements,
                                       configuration.capacities.colors),
+                      beams_store_(constraints_store_.shared_coloring(),
+                                   configuration.capacities.beams,
+                                   configuration.capacities.colors),
                       contacts_store_(configuration.capacities.bodies,
                                       configuration.capacities.contacts,
                                       configuration.capacities.colors),
@@ -124,6 +131,7 @@ namespace SushiEngine
                       joints_(joints_store_.band_capacity() * joints_store_.color_count()),
                       elements_(elements_store_.band_capacity() *
                                 elements_store_.color_count()),
+                      beams_(beams_store_.band_capacity() * beams_store_.color_count()),
                       contacts_(contacts_store_.capacity()),
                       bodies_(configuration.capacities.bodies)
                 {
@@ -159,6 +167,7 @@ namespace SushiEngine
                     remove_constraints_touching(handle.index);
                     remove_joints_touching(handle.index);
                     remove_elements_touching(handle.index);
+                    remove_beams_touching(handle.index);
 
                     RigidBodyT<T> retired;
                     retired.flags = BodyFlags::static_body;
@@ -248,6 +257,71 @@ namespace SushiEngine
                 std::size_t element_color_size(std::size_t color) const noexcept
                 {
                     return elements_store_.band_size(color);
+                }
+
+                /** @copydoc IConstraintSolver::add_beam */
+                ConstraintHandle add_beam(const Beam& beam) override
+                {
+                    const ConstraintPlacement placement = beams_store_.place(beam.a, beam.b);
+                    if (!placement.handle.valid())
+                    {
+                        ++statistics_.capacity_overflows;
+                        return placement.handle;
+                    }
+                    beams_[placement.slot] = beam;
+                    return placement.handle;
+                }
+
+                /** @copydoc IConstraintSolver::remove_beam */
+                bool remove_beam(ConstraintHandle handle) override
+                {
+                    const std::size_t slot = beams_store_.slot_of(handle);
+                    if (slot >= beams_.size())
+                        return false;
+                    const Beam removed = beams_[slot];
+                    const ConstraintRemoval removal =
+                        beams_store_.remove(handle, removed.a, removed.b);
+                    if (!removal.removed)
+                        return false;
+                    if (removal.slot != removal.moved_from)
+                        beams_[removal.slot] = beams_[removal.moved_from];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::read_beam */
+                bool read_beam(ConstraintHandle handle, Beam& beam) const override
+                {
+                    if (!beams_store_.alive(handle))
+                        return false;
+                    const std::size_t slot = beams_store_.slot_of(handle);
+                    if (slot >= beams_.size())
+                        return false;
+                    beam = beams_[slot];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::write_beam */
+                bool write_beam(ConstraintHandle handle, const Beam& beam) override
+                {
+                    if (!beams_store_.alive(handle))
+                        return false;
+                    const std::size_t slot = beams_store_.slot_of(handle);
+                    if (slot >= beams_.size())
+                        return false;
+                    beams_[slot] = beam;
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::beam_capacity */
+                std::size_t beam_capacity() const noexcept override
+                {
+                    return beams_store_.capacity();
+                }
+
+                /** @brief Live beams in colour @p color. */
+                std::size_t beam_color_size(std::size_t color) const noexcept
+                {
+                    return beams_store_.band_size(color);
                 }
 
                 /** @copydoc IConstraintSolver::add_joint */
@@ -389,6 +463,14 @@ namespace SushiEngine
                                                      : body_slots_.capacity();
                 }
 
+                /** @copydoc IConstraintSolver::body_handle */
+                BodyHandle body_handle(std::size_t slot) const override
+                {
+                    if (slot >= body_slots_.capacity())
+                        return BodyHandle{};
+                    return body_slots_.handle_of(std::uint32_t(slot));
+                }
+
                 /**
                  * @brief Advances every live body by one tick, sequentially.
                  *
@@ -448,6 +530,17 @@ namespace SushiEngine
                             }
                         }
 
+                        // The beams, immediately after the distance lattice, because a
+                        // beam *is* an axial row: grouping the two kinds that say "these
+                        // two points are this far apart" keeps the schedule readable and
+                        // costs nothing, since within a colour no two of either share a
+                        // body.
+                        for_each_beam([&](Beam& beam)
+                                      {
+                                          BeamProjectionT<T> projection;
+                                          projection(beam, bodies_.data(), h, substep == 0);
+                                      });
+
                         // The elements, after the distance lattice and before the
                         // joints. Both are constitutive — they say what the material
                         // *is* — so they belong together and ahead of the articulation
@@ -492,9 +585,16 @@ namespace SushiEngine
                             update_velocity(bodies_[i], h);
 
                         // The velocity pass, in the same order as the positional one:
-                        // joint rate drives and friction, then contact dynamic friction
-                        // and restitution. Both are statements about a velocity that
-                        // does not exist until the pose change has been read back as one.
+                        // beam damping, joint rate drives and friction, then contact
+                        // dynamic friction and restitution. All are statements about a
+                        // velocity that does not exist until the pose change has been
+                        // read back as one.
+                        for_each_beam([&](Beam& beam)
+                                      {
+                                          BeamVelocityProjectionT<T> projection;
+                                          projection(beam, bodies_.data(), h);
+                                      });
+
                         for_each_joint([&](Joint& joint)
                                        {
                                            JointVelocityProjectionT<T> projection;
@@ -652,6 +752,45 @@ namespace SushiEngine
                     }
                 }
 
+                /**
+                 * @brief Applies @p visit to every live beam, in solve order.
+                 *
+                 * @param visit A callable taking `Beam&`.
+                 */
+                template <typename Visit>
+                void for_each_beam(Visit visit)
+                {
+                    for (std::size_t color = 0; color < beams_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = beams_store_.band_base(color);
+                        const std::size_t live = beams_store_.band_size(color);
+                        for (std::size_t offset = 0; offset < live; ++offset)
+                            visit(beams_[base + offset]);
+                    }
+                }
+
+                /** @brief Removes every live beam naming body slot @p body. */
+                void remove_beams_touching(std::uint32_t body)
+                {
+                    for (std::size_t color = 0; color < beams_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = beams_store_.band_base(color);
+                        std::size_t offset = beams_store_.band_size(color);
+                        while (offset > 0)
+                        {
+                            --offset;
+                            const std::size_t slot = base + offset;
+                            const Beam& beam = beams_[slot];
+                            if (beam.a != body && beam.b != body)
+                                continue;
+                            const ConstraintRemoval removal = beams_store_.remove(
+                                beams_store_.handle_at(slot), beam.a, beam.b);
+                            if (removal.removed && removal.slot != removal.moved_from)
+                                beams_[removal.slot] = beams_[removal.moved_from];
+                        }
+                    }
+                }
+
                 /** @brief Removes every live joint naming body slot @p body. */
                 void remove_joints_touching(std::uint32_t body)
                 {
@@ -756,8 +895,10 @@ namespace SushiEngine
                     statistics_.awake_bodies = body_slots_.live_count();
                     statistics_.joints = joints_store_.live_count();
                     statistics_.elements = elements_store_.live_count();
+                    statistics_.beams = beams_store_.live_count();
                     statistics_.constraints = constraints_store_.live_count() +
-                                              statistics_.joints + statistics_.elements;
+                                              statistics_.joints + statistics_.elements +
+                                              statistics_.beams;
                     statistics_.colors = constraints_store_.colors_used();
                     statistics_.substeps = live_substeps_;
 
@@ -796,10 +937,15 @@ namespace SushiEngine
                 // reason: an element and a distance constraint that share a particle
                 // must not share a colour.
                 ConstraintStore elements_store_;
+                // The structural kind, colouring into the same union: a beam and a
+                // contact that share a node must not share a colour any more than a
+                // joint and a distance constraint may.
+                ConstraintStore beams_store_;
                 ContactStore contacts_store_;
                 std::vector<Constraint> constraints_;
                 std::vector<Joint> joints_;
                 std::vector<Element> elements_;
+                std::vector<Beam> beams_;
                 std::vector<Contact> contacts_;
                 std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> bodies_;

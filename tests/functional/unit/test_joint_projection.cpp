@@ -840,3 +840,140 @@ TEST(Unit_JointProjection, ExhaustingTheJointBudgetIsCountedRatherThanFatal)
     EXPECT_EQ(placed, solver.joint_capacity());
     EXPECT_GT(solver.statistics().capacity_overflows, std::size_t(0));
 }
+
+// -- The damper: the other half of §11.2's "spring-damper drive" ------------
+
+TEST(Unit_JointProjection, MotorDampingBleedsOffAHingeSpin)
+{
+    // A drive that is not driving at all, and a joint that still slows down: a damping
+    // rate with a disabled mode is a pure damper -- a steering damper, a door closer --
+    // and the mode gate must not swallow it.
+    Scalar remaining[2] = {0, 0};
+    for (int damped = 0; damped < 2; ++damped)
+    {
+        HostXpbdSolver<Scalar> solver(joint_scene());
+        const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
+        const BodyHandle b =
+            solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(1.2)));
+
+        JointConstraint joint =
+            make_joint(JointKind::Hinge, solver.body_slot(a), solver.body_slot(b));
+        joint.motor.mode = JointMotorMode::Disabled;
+        joint.motor.damping = damped != 0 ? Scalar(4) : Scalar(0);
+        const JointHandle handle = solver.add_joint(joint);
+
+        RigidBody wheel;
+        ASSERT_TRUE(solver.read_body(b, wheel));
+        wheel.angular_velocity = Vector3{Scalar(20), 0, 0};
+        ASSERT_TRUE(solver.write_body(b, wheel));
+
+        run(solver, 60, WEIGHTLESS);
+        ASSERT_TRUE(solver.read_body(b, wheel));
+        remaining[damped] = wheel.angular_velocity.x;
+        EXPECT_TRUE(solver.read_joint(handle, joint));
+    }
+
+    EXPECT_NEAR(double(remaining[0]), 20.0, 1e-6) << "an undamped hinge must not slow at all";
+    EXPECT_LT(double(remaining[1]), 5.0) << "a damped one must";
+}
+
+TEST(Unit_JointProjection, MotorDampingIsARateAndNotAPerSubstepFraction)
+{
+    // The claim `JointMotorT::damping` makes: the same damping over the same wall time
+    // must remove the same motion whatever the substep schedule. A per-substep fraction
+    // would damp four times as hard at four times the substeps -- and the substep count
+    // is derived from scene motion (§6.2), so that error would make a suspension's
+    // firmness depend on what else was moving nearby.
+    Scalar remaining[2] = {0, 0};
+    const std::size_t schedules[2] = {4, 16};
+
+    for (int schedule = 0; schedule < 2; ++schedule)
+    {
+        PhysicsConfiguration configuration = joint_scene();
+        configuration.substeps.minimum = schedules[schedule];
+        configuration.substeps.maximum = schedules[schedule];
+        HostXpbdSolver<Scalar> solver(configuration);
+
+        const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
+        const BodyHandle b =
+            solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(1.2)));
+        JointConstraint joint =
+            make_joint(JointKind::Hinge, solver.body_slot(a), solver.body_slot(b));
+        joint.motor.damping = Scalar(3);
+        solver.add_joint(joint);
+
+        RigidBody wheel;
+        ASSERT_TRUE(solver.read_body(b, wheel));
+        wheel.angular_velocity = Vector3{Scalar(20), 0, 0};
+        ASSERT_TRUE(solver.write_body(b, wheel));
+
+        run(solver, 30, WEIGHTLESS);
+        ASSERT_TRUE(solver.read_body(b, wheel));
+        remaining[schedule] = wheel.angular_velocity.x;
+    }
+
+    // Not equal -- a rate integrated in four steps and in sixteen is the same
+    // exponential sampled differently -- but within a tenth of what is left, which a
+    // per-substep fraction would miss by a factor of four.
+    EXPECT_NEAR(double(remaining[0]), double(remaining[1]), 0.1 * double(remaining[0]));
+}
+
+TEST(Unit_JointProjection, ASpringDamperStrutSettlesWhereASpringAloneRings)
+{
+    // §11.2's suspension row, as one joint: a slider whose position drive is the spring
+    // and whose damping is the damper. The undamped strut must still be swinging when
+    // the damped one has stopped.
+    Scalar swing[2] = {0, 0};
+    for (int damped = 0; damped < 2; ++damped)
+    {
+        HostXpbdSolver<Scalar> solver(joint_scene());
+        const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
+        const BodyHandle b =
+            solver.add_body(moving_body(Vector3{0, Scalar(-0.4), 0}, Scalar(300), Scalar(50)));
+
+        JointConstraint joint = make_joint(JointKind::Slider, solver.body_slot(a),
+                                           solver.body_slot(b), Vector3{0, 1, 0});
+        joint.motor.mode = JointMotorMode::Position;
+        joint.motor.target = Scalar(-0.4);
+        joint.motor.compliance = Scalar(1) / Scalar(30000);
+        joint.motor.damping = damped != 0 ? Scalar(8) : Scalar(0);
+        const JointHandle handle = solver.add_joint(joint);
+
+        run(solver, 90, EARTH);
+        Scalar low = Scalar(1e9);
+        Scalar high = Scalar(-1e9);
+        for (int i = 0; i < 90; ++i)
+        {
+            run(solver, 1, EARTH);
+            RigidBody body;
+            ASSERT_TRUE(solver.read_body(b, body));
+            low = body.position.y < low ? body.position.y : low;
+            high = body.position.y > high ? body.position.y : high;
+        }
+        swing[damped] = high - low;
+        EXPECT_TRUE(solver.read_joint(handle, joint));
+    }
+
+    EXPECT_LT(double(swing[1]), 0.1 * double(swing[0]));
+}
+
+TEST(Unit_JointProjection, AFreeBodyKeepsItsSpinExactly)
+{
+    // Not a joint test, and here because this is where it was found. `predict` and
+    // `update_velocity` are an exponential map and its logarithm, and a first-order
+    // pair instead of an exact one leaks angular velocity in proportion to the spin --
+    // measured at a third of a wheel's speed per second before it was fixed, on a body
+    // with no constraint on it at all.
+    HostXpbdSolver<Scalar> solver(joint_scene());
+    const BodyHandle b = solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(1.2)));
+
+    RigidBody body;
+    ASSERT_TRUE(solver.read_body(b, body));
+    body.angular_velocity = Vector3{Scalar(50), 0, 0};
+    ASSERT_TRUE(solver.write_body(b, body));
+
+    run(solver, 120, WEIGHTLESS);
+    ASSERT_TRUE(solver.read_body(b, body));
+    EXPECT_NEAR(double(body.angular_velocity.x), 50.0, 1e-9);
+    EXPECT_NEAR(double(body.angular_velocity.y), 0.0, 1e-9);
+}

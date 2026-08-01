@@ -109,6 +109,17 @@ namespace SushiEngine
             std::size_t elements = 0;
 
             /**
+             * @brief Maximum simultaneously live beams (§11.1's node-beam links).
+             *
+             * Zero by default and opt-in, on exactly @ref elements' reasoning: a scene
+             * with no vehicles should not carry a band per colour for a kind it never
+             * uses. A beam is a two-body constraint like a distance constraint, so the
+             * busiest band is bounded the same way — by how many beams meet at one
+             * node, which for §11.3's lattice is the node's degree.
+             */
+            std::size_t beams = 0;
+
+            /**
              * @brief Maximum colours the constraint set may partition into.
              *
              * A ceiling on colours is a ceiling on graph *structure*, which is the

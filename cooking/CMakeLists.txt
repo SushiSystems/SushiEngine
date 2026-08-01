@@ -28,6 +28,8 @@ add_library(sushi_cooking STATIC
     tetrahedral_mesh.cpp
     soft_body_asset.cpp
     soft_body_cooker.cpp
+    node_beam_asset.cpp
+    node_beam_cooker.cpp
     mesh_post_processor.cpp
     cooking_service.cpp)
 

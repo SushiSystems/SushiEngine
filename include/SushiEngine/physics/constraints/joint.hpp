@@ -260,6 +260,32 @@ namespace SushiEngine
             /** @brief XPBD compliance of the drive row; zero is an infinitely stiff servo. */
             T compliance = 0;
 
+            /**
+             * @brief Viscous resistance on the driven coordinate, as a rate in inverse seconds.
+             *
+             * What makes §11.2's "a slider joint with a **spring-damper** drive" one
+             * joint rather than two. A position drive at a compliance is a spring, and
+             * a spring alone rings forever; the damper is the other half of the same
+             * authoring statement, so it lives on the same descriptor.
+             *
+             * Applied in the velocity pass as a fraction `min(1, damping * h)` of the
+             * coordinate's relative rate removed per substep — a *rate*, so a strut
+             * damped at 8 s⁻¹ damps the same amount per second whatever the substep
+             * count, which is the same step-size independence the positional rows get
+             * from compliance. `BeamConstraintT::damping` is the identical statement
+             * for the identical reason, and it is deliberately the identical
+             * arithmetic.
+             *
+             * Independent of @ref mode: a drive disabled with a damping set is a pure
+             * damper, which is a real mechanism (a steering damper, a door closer) and
+             * not a misconfiguration.
+             *
+             * Read only by the kinds that have a driven coordinate at all. A fixed or
+             * ball joint has none — there is no surviving degree of freedom to resist
+             * — and a distance joint's range is a limit rather than a drive.
+             */
+            T damping = 0;
+
             /** @brief What the drive holds. */
             JointMotorMode mode = JointMotorMode::Disabled;
         };

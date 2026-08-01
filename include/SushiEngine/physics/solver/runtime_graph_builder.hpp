@@ -50,19 +50,21 @@
  *         project colour 0              (per distance constraint in colour 0)
  *         project colour 1
  *         ...
+ *         project beams, per colour     (the axial row, and the load it carried)
  *         project elements, per colour  (deviatoric then hydrostatic, per tetrahedron)
  *         project joints, per colour    (attachment, limits, position drives)
  *         project contacts, per colour  (non-penetration + static friction)
  *         derive velocity               (per body)
+ *         beam velocity, per colour     (axial damping)
  *         joint velocity, per colour    (rate drives, friction)
  *         contact velocity, per colour  (dynamic friction + restitution)
  *     measure motion       (per body, once)
  *     reduce the maximum   (Graph::add_reduce, fixed order)
  *
- * Four kinds share that schedule and each is a constraint kind like any other
+ * Five kinds share that schedule and each is a constraint kind like any other
  * (§6.3) — the same colouring, the same fixed bands, the same late binding. They
- * differ in lifetime: a distance constraint, a joint and a FEM element are written
- * when added, a contact's buffer is refilled every tick. They differ also in how many
+ * differ in lifetime: a distance constraint, a joint, a beam and a FEM element are
+ * written when added, a contact's buffer is refilled every tick. They differ also in how many
  * bodies they name, which they did not until P6-J1: an element is a four-body
  * hyperedge, and `constraint_bodies.hpp` is where the colouring and the store learn
  * that without either of them growing a per-kind branch. That is exactly what `Dynamic` was for:
@@ -107,6 +109,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/execution/context.hpp>
+#include <SushiEngine/physics/constraints/beam_projection.hpp>
 #include <SushiEngine/physics/constraints/distance_projection.hpp>
 #include <SushiEngine/physics/constraints/joint_projection.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
@@ -165,6 +168,9 @@ namespace SushiEngine
                 /** @brief The deformable persistent kind this solver admits (§9.1). */
                 using Element = FemTetrahedronT<T>;
 
+                /** @brief The structural persistent kind this solver admits (§11.1). */
+                using Beam = BeamConstraintT<T>;
+
                 /**
                  * @brief Allocates every buffer at capacity and compiles the solve graph.
                  *
@@ -191,6 +197,9 @@ namespace SushiEngine
                       elements_store_(constraints_store_.shared_coloring(),
                                       configuration.capacities.elements,
                                       configuration.capacities.colors),
+                      beams_store_(constraints_store_.shared_coloring(),
+                                   configuration.capacities.beams,
+                                   configuration.capacities.colors),
                       contacts_store_(configuration.capacities.bodies,
                                       configuration.capacities.contacts,
                                       configuration.capacities.colors),
@@ -200,6 +209,8 @@ namespace SushiEngine
                                     joints_store_.color_count()),
                       element_mirror_(elements_store_.band_capacity() *
                                       elements_store_.color_count()),
+                      beam_mirror_(beams_store_.band_capacity() *
+                                   beams_store_.color_count()),
                       contact_mirror_(contacts_store_.capacity()),
                       body_mirror_(configuration.capacities.bodies)
                 {
@@ -249,6 +260,7 @@ namespace SushiEngine
                     remove_constraints_touching(handle.index);
                     remove_joints_touching(handle.index);
                     remove_elements_touching(handle.index);
+                    remove_beams_touching(handle.index);
 
                     // Retiring the slot rather than compacting: constraints address
                     // bodies by slot index, so moving a body would rewrite every
@@ -346,6 +358,72 @@ namespace SushiEngine
                 std::size_t element_color_size(std::size_t color) const noexcept
                 {
                     return elements_store_.band_size(color);
+                }
+
+                /** @copydoc IConstraintSolver::add_beam */
+                ConstraintHandle add_beam(const Beam& beam) override
+                {
+                    const ConstraintPlacement placement = beams_store_.place(beam.a, beam.b);
+                    if (!placement.handle.valid())
+                    {
+                        ++statistics_.capacity_overflows;
+                        return placement.handle;
+                    }
+                    stage_beam(placement.slot, beam);
+                    return placement.handle;
+                }
+
+                /** @copydoc IConstraintSolver::remove_beam */
+                bool remove_beam(ConstraintHandle handle) override
+                {
+                    if (!beams_store_.alive(handle))
+                        return false;
+                    remove_beam_unchecked(handle);
+                    return true;
+                }
+
+                /**
+                 * @copydoc IConstraintSolver::read_beam
+                 *
+                 * From the mirror, which `step` refreshed from the device — the same
+                 * arrangement @ref read_joint has and for the same reason: a beam is
+                 * written from both sides. The host owns its rest length and its
+                 * thresholds, the device owns the load it carried, and the mirror holds
+                 * whichever is newer so a staged edit is not lost to a readback.
+                 */
+                bool read_beam(ConstraintHandle handle, Beam& beam) const override
+                {
+                    if (!beams_store_.alive(handle))
+                        return false;
+                    const std::size_t slot = beams_store_.slot_of(handle);
+                    if (slot >= beam_mirror_.size())
+                        return false;
+                    beam = beam_mirror_[slot];
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::write_beam */
+                bool write_beam(ConstraintHandle handle, const Beam& beam) override
+                {
+                    if (!beams_store_.alive(handle))
+                        return false;
+                    const std::size_t slot = beams_store_.slot_of(handle);
+                    if (slot >= beam_mirror_.size())
+                        return false;
+                    stage_beam(slot, beam);
+                    return true;
+                }
+
+                /** @copydoc IConstraintSolver::beam_capacity */
+                std::size_t beam_capacity() const noexcept override
+                {
+                    return beams_store_.capacity();
+                }
+
+                /** @brief Live beams in colour @p color. */
+                std::size_t beam_color_size(std::size_t color) const noexcept
+                {
+                    return beams_store_.band_size(color);
                 }
 
                 /** @copydoc IConstraintSolver::add_joint */
@@ -508,6 +586,14 @@ namespace SushiEngine
                                                      : body_slots_.capacity();
                 }
 
+                /** @copydoc IConstraintSolver::body_handle */
+                BodyHandle body_handle(std::size_t slot) const override
+                {
+                    if (slot >= body_slots_.capacity())
+                        return BodyHandle{};
+                    return body_slots_.handle_of(std::uint32_t(slot));
+                }
+
                 /** @copydoc IConstraintSolver::step */
                 void step(const StepParameters<T>& parameters) override
                 {
@@ -529,6 +615,7 @@ namespace SushiEngine
                     download_contacts();
                     download_joints();
                     download_elements();
+                    download_beams();
                     refresh_statistics();
                 }
 
@@ -628,6 +715,9 @@ namespace SushiEngine
                     const std::size_t elements = element_mirror_.size();
                     elements_.emplace(context_.allocate<Element>(
                         elements > 0 ? elements : 1, MemoryVisibility::DeviceResident, device));
+                    const std::size_t beams = beam_mirror_.size();
+                    beams_.emplace(context_.allocate<Beam>(
+                        beams > 0 ? beams : 1, MemoryVisibility::DeviceResident, device));
                     const std::size_t contacts = contact_mirror_.size();
                     contacts_.emplace(context_.allocate<Contact>(
                         contacts > 0 ? contacts : 1, MemoryVisibility::DeviceResident, device));
@@ -734,6 +824,7 @@ namespace SushiEngine
                     T* lambdas = lambdas_->data();
                     Joint* joints = joints_->data();
                     Element* elements = elements_->data();
+                    Beam* beams = beams_->data();
                     Contact* contacts = contacts_->data();
                     T* motion = motion_->data();
                     const StepUniforms<T>* uniforms = uniforms_->data();
@@ -815,6 +906,42 @@ namespace SushiEngine
                                     projection(constraints[k], bodies, lambda,
                                                uniforms->substep_duration);
                                     lambdas[k] = lambda;
+                                });
+                        }
+
+                        // The beams, immediately after the distance lattice, because a
+                        // beam *is* an axial row: the two kinds that say "these two
+                        // points are this far apart" belong together, and within a
+                        // colour no two of either share a body.
+                        //
+                        // Skipped structurally when the beam budget is zero, which is the
+                        // default — for the same reason the element block is: a node over
+                        // an empty band could never run, but it would still be a
+                        // zero-extent region in the composition of every scene in the
+                        // engine that has no vehicle in it.
+                        for (std::size_t color = 0;
+                             beams_store_.band_capacity() > 0 &&
+                             color < beams_store_.color_count();
+                             ++color)
+                        {
+                            const std::size_t base = beams_store_.band_base(color);
+                            const Execution::ElementRange band{
+                                base, beams_store_.band_capacity()};
+                            const bool first = substep == 0;
+
+                            emit_node(
+                                "beam_project",
+                                {read_of(uniforms_->interval()),
+                                 write_of(bodies_->interval()),
+                                 write_of(beams_->interval(band))},
+                                beams_store_.band_capacity(),
+                                beam_count_provider(color),
+                                beam_predicate(substep, color),
+                                [bodies, beams, uniforms, base, first](std::size_t i)
+                                {
+                                    BeamProjectionT<T> projection;
+                                    projection(beams[base + i], bodies,
+                                               uniforms->substep_duration, first);
                                 });
                         }
 
@@ -936,9 +1063,34 @@ namespace SushiEngine
                                   });
 
                         // The velocity pass, in the same order as the positional one.
-                        // A joint's rate drive and its friction are statements about a
-                        // velocity, so they wait for `update_velocity` exactly as the
-                        // contact velocity pass below does.
+                        // A beam's damping, a joint's rate drive and its friction are
+                        // statements about a velocity, so they wait for
+                        // `update_velocity` exactly as the contact velocity pass does.
+                        for (std::size_t color = 0;
+                             beams_store_.band_capacity() > 0 &&
+                             color < beams_store_.color_count();
+                             ++color)
+                        {
+                            const std::size_t base = beams_store_.band_base(color);
+                            const Execution::ElementRange band{
+                                base, beams_store_.band_capacity()};
+
+                            emit_node(
+                                "beam_velocity",
+                                {read_of(uniforms_->interval()),
+                                 read_of(beams_->interval(band)),
+                                 write_of(bodies_->interval())},
+                                beams_store_.band_capacity(),
+                                beam_count_provider(color),
+                                beam_predicate(substep, color),
+                                [bodies, beams, uniforms, base](std::size_t i)
+                                {
+                                    BeamVelocityProjectionT<T> projection;
+                                    projection(beams[base + i], bodies,
+                                               uniforms->substep_duration);
+                                });
+                        }
+
                         for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
                         {
                             const std::size_t base = joints_store_.band_base(color);
@@ -1088,6 +1240,24 @@ namespace SushiEngine
                     };
                 }
 
+                /** @brief A provider reporting colour @p color's live beam count. */
+                auto beam_count_provider(std::size_t color) const
+                {
+                    return [this, color]() -> std::size_t
+                    {
+                        return beams_store_.band_size(color);
+                    };
+                }
+
+                /** @brief A predicate enabling a beam colour's node only when it has work. */
+                auto beam_predicate(std::size_t substep, std::size_t color) const
+                {
+                    return [this, substep, color]() -> bool
+                    {
+                        return substep < live_substeps_ && beams_store_.band_size(color) > 0;
+                    };
+                }
+
                 /** @brief A provider reporting colour @p color's live joint count. */
                 auto joint_count_provider(std::size_t color) const
                 {
@@ -1200,6 +1370,23 @@ namespace SushiEngine
                         element_dirty_high_ = slot + 1;
                 }
 
+                /** @brief Stages a beam write; see @ref stage_body for why. */
+                void stage_beam(std::size_t slot, const Beam& beam)
+                {
+                    beam_mirror_[slot] = beam;
+                    if (!beam_dirty_)
+                    {
+                        beam_dirty_ = true;
+                        beam_dirty_low_ = slot;
+                        beam_dirty_high_ = slot + 1;
+                        return;
+                    }
+                    if (slot < beam_dirty_low_)
+                        beam_dirty_low_ = slot;
+                    if (slot + 1 > beam_dirty_high_)
+                        beam_dirty_high_ = slot + 1;
+                }
+
                 /** @brief Stages a joint write; see @ref stage_body for why. */
                 void stage_joint(std::size_t slot, const Joint& joint)
                 {
@@ -1252,6 +1439,14 @@ namespace SushiEngine
                                 element_dirty_high_ - element_dirty_low_},
                             element_mirror_.data() + element_dirty_low_);
                         element_dirty_ = false;
+                    }
+                    if (beam_dirty_)
+                    {
+                        beams_->write_range(
+                            Execution::ElementRange{
+                                beam_dirty_low_, beam_dirty_high_ - beam_dirty_low_},
+                            beam_mirror_.data() + beam_dirty_low_);
+                        beam_dirty_ = false;
                     }
                     if (joint_dirty_)
                     {
@@ -1333,6 +1528,70 @@ namespace SushiEngine
                                 elements_store_.handle_at(slot), element.vertex, 4);
                             if (removal.removed && removal.slot != removal.moved_from)
                                 stage_element(removal.slot, element_mirror_[removal.moved_from]);
+                        }
+                    }
+                }
+
+                /**
+                 * @brief Brings the solved beams back, so their load readout survives.
+                 *
+                 * Not optional: the axial load is recovered inside the projection, on the
+                 * device, and the dent, the break and the structural readout are all that
+                 * one quantity. One transfer per non-empty band rather than one per beam.
+                 */
+                void download_beams()
+                {
+                    for (std::size_t color = 0; color < beams_store_.color_count(); ++color)
+                    {
+                        const std::size_t live = beams_store_.band_size(color);
+                        if (live == 0)
+                            continue;
+                        const std::size_t base = beams_store_.band_base(color);
+                        const std::vector<Beam> range = beams_->read_range(
+                            Execution::ElementRange{base, live});
+                        for (std::size_t i = 0; i < live && i < range.size(); ++i)
+                            beam_mirror_[base + i] = range[i];
+                    }
+                }
+
+                /**
+                 * @brief Removes a beam whose handle is known live, keeping the band dense.
+                 *
+                 * @param handle The beam to remove, in the store's own handle space.
+                 */
+                void remove_beam_unchecked(ConstraintHandle handle)
+                {
+                    const std::size_t slot = beams_store_.slot_of(handle);
+                    if (slot >= beam_mirror_.size())
+                        return;
+                    const Beam removed = beam_mirror_[slot];
+                    const ConstraintRemoval removal =
+                        beams_store_.remove(handle, removed.a, removed.b);
+                    if (!removal.removed)
+                        return;
+                    if (removal.slot != removal.moved_from)
+                        stage_beam(removal.slot, beam_mirror_[removal.moved_from]);
+                }
+
+                /** @brief Removes every live beam naming body slot @p body. */
+                void remove_beams_touching(std::uint32_t body)
+                {
+                    for (std::size_t color = 0; color < beams_store_.color_count(); ++color)
+                    {
+                        const std::size_t base = beams_store_.band_base(color);
+                        // Downward, for the reason @ref remove_constraints_touching gives.
+                        std::size_t offset = beams_store_.band_size(color);
+                        while (offset > 0)
+                        {
+                            --offset;
+                            const std::size_t slot = base + offset;
+                            const Beam& beam = beam_mirror_[slot];
+                            if (beam.a != body && beam.b != body)
+                                continue;
+                            const ConstraintRemoval removal = beams_store_.remove(
+                                beams_store_.handle_at(slot), beam.a, beam.b);
+                            if (removal.removed && removal.slot != removal.moved_from)
+                                stage_beam(removal.slot, beam_mirror_[removal.moved_from]);
                         }
                     }
                 }
@@ -1557,8 +1816,10 @@ namespace SushiEngine
                     statistics_.sleeping_bodies = 0;
                     statistics_.joints = joints_store_.live_count();
                     statistics_.elements = elements_store_.live_count();
+                    statistics_.beams = beams_store_.live_count();
                     statistics_.constraints = constraints_store_.live_count() +
-                                              statistics_.joints + statistics_.elements;
+                                              statistics_.joints + statistics_.elements +
+                                              statistics_.beams;
                     statistics_.colors = constraints_store_.colors_used();
                     statistics_.substeps = live_substeps_;
 
@@ -1609,6 +1870,9 @@ namespace SushiEngine
                 // reason: an element and a distance constraint that share a particle
                 // must not share a colour.
                 ConstraintStore elements_store_;
+                // The structural kind, colouring into the same union for the same
+                // reason: a beam and a contact that share a node must not share a colour.
+                ConstraintStore beams_store_;
                 ContactStore contacts_store_;
 
                 std::vector<Constraint> constraint_mirror_;
@@ -1620,6 +1884,10 @@ namespace SushiEngine
                 // owns an element's rest state and its Lame pair, the device owns its
                 // multipliers, and `read_element` answers from whichever is newer.
                 std::vector<Element> element_mirror_;
+                // Nor is the beam mirror staging alone: the host owns a beam's rest
+                // length and thresholds, the device owns the load it carried, and
+                // `read_beam` answers from whichever is newer.
+                std::vector<Beam> beam_mirror_;
                 std::vector<Contact> contact_mirror_;
                 std::vector<std::size_t> submission_slots_;
                 std::vector<RigidBodyT<T>> body_mirror_;
@@ -1637,6 +1905,9 @@ namespace SushiEngine
                 mutable bool element_dirty_ = false;
                 mutable std::size_t element_dirty_low_ = 0;
                 mutable std::size_t element_dirty_high_ = 0;
+                mutable bool beam_dirty_ = false;
+                mutable std::size_t beam_dirty_low_ = 0;
+                mutable std::size_t beam_dirty_high_ = 0;
 
                 std::size_t body_high_water_ = 0;
                 std::size_t live_substeps_ = 1;
@@ -1648,6 +1919,7 @@ namespace SushiEngine
                 mutable std::optional<Execution::Buffer<Constraint>> constraints_;
                 mutable std::optional<Execution::Buffer<Joint>> joints_;
                 mutable std::optional<Execution::Buffer<Element>> elements_;
+                mutable std::optional<Execution::Buffer<Beam>> beams_;
                 std::optional<Execution::Buffer<T>> lambdas_;
                 std::optional<Execution::Buffer<Contact>> contacts_;
                 std::optional<Execution::Buffer<T>> motion_;
