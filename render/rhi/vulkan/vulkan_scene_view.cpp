@@ -746,6 +746,10 @@ namespace SushiEngine
                 particles_.prepare_billboards(index, billboards, billboard_count);
 
                 graph_.begin_frame(resources_.textures(index), resources_.buffers(index));
+                // Before the passes register, like the graph's own frame reset: the slot a
+                // copy is recorded into has to be the slot the caller will later resolve.
+                if (capture_)
+                    capture_->begin_frame(index);
                 // Decided before the passes register, because a pass's queue declaration is
                 // collapsed at declaration time: the second queue has to exist on the device,
                 // the tier has to permit it, and the author has to have asked for it.
@@ -906,6 +910,64 @@ namespace SushiEngine
             std::uint32_t VulkanSceneView::pick(std::uint32_t x, std::uint32_t y)
             {
                 return resources_.pick(current_slot_, x, y, width_, height_);
+            }
+
+            bool VulkanSceneView::read_output(std::uint32_t slot, FrameImage& image)
+            {
+                return resources_.read_output(slot, image);
+            }
+
+            bool VulkanSceneView::enable_pass_capture(bool enabled)
+            {
+                if (!enabled)
+                {
+                    // Detached from the graph before it is destroyed, in that order: the
+                    // graph holds a raw pointer and a frame recorded against a freed
+                    // capture is the one failure this seam could actually cause.
+                    graph_.set_capture(nullptr);
+                    if (capture_)
+                    {
+                        // Its staging buffers may still be the destination of copies a
+                        // frame in flight recorded.
+                        vkDeviceWaitIdle(device_.device());
+                        capture_.reset();
+                    }
+                    return true;
+                }
+
+                if (!capture_)
+                    capture_ = std::unique_ptr<Graph::PassCapture>(
+                        new Graph::PassCapture(device_, SLOTS));
+                graph_.set_capture(capture_.get());
+                return true;
+            }
+
+            bool VulkanSceneView::read_pass_hashes(std::uint32_t slot,
+                                                   PassCaptureReport& report)
+            {
+                if (!capture_ || slot >= SLOTS || !resources_.ever_rendered(slot))
+                    return false;
+
+                resources_.wait_for_slot(slot);
+                std::vector<Graph::CapturedPass> captured;
+                if (!capture_->resolve(slot, captured))
+                    return false;
+
+                report.passes.clear();
+                report.passes.reserve(captured.size());
+                for (const Graph::CapturedPass& entry : captured)
+                {
+                    PassOutputHash out;
+                    out.pass = entry.pass;
+                    out.resource = entry.resource;
+                    out.hash = entry.hash;
+                    report.passes.push_back(std::move(out));
+                }
+                report.dropped_by_budget = capture_->dropped_by_budget(slot);
+                report.dropped_by_format = capture_->dropped_by_format(slot);
+                report.bytes_used = capture_->bytes_used(slot);
+                report.bytes_budget = capture_->budget();
+                return true;
             }
         } // namespace Vulkan
     } // namespace Render

@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "graph/gpu_profiler.hpp"
+#include "graph/pass_capture.hpp"
 #include "resources/transient_pool.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
 
@@ -219,6 +220,11 @@ namespace SushiEngine
                 async_compute_enabled_ = enabled;
             }
 
+            void RenderGraph::set_capture(PassCapture* capture) noexcept
+            {
+                capture_ = capture;
+            }
+
             TextureHandle RenderGraph::create_texture(const TextureDesc& desc)
             {
                 TextureResource resource;
@@ -296,7 +302,15 @@ namespace SushiEngine
                     return;
                 TextureResource& resource = texture_resources_[handle.index];
                 if (!resource.imported)
+                {
                     resource.desc.usage |= texture_access_usage(access);
+                    // Capture copies out of every transient a pass writes, so under capture
+                    // every transient has to be a legal copy source. This is also why the
+                    // instrument is not free: usage is part of the pool's reuse key, so a
+                    // captured frame aliases differently from an uncaptured one.
+                    if (capture_ != nullptr)
+                        resource.desc.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                }
 
                 PassNode& node = passes_[pass];
                 std::vector<TextureUse>& list = is_write ? node.texture_writes : node.texture_reads;
@@ -877,6 +891,66 @@ namespace SushiEngine
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
             }
 
+            void RenderGraph::capture_pass(VkCommandBuffer cmd, const PassNode& node)
+            {
+                if (capture_ == nullptr)
+                    return;
+
+                // One capture per texture rather than per declared access: a pass that
+                // writes one target both as an attachment and as a storage image still
+                // produced one image, and hashing it twice would say so twice.
+                std::vector<std::uint32_t> seen;
+                for (const TextureUse& use : node.texture_writes)
+                {
+                    const std::uint32_t index = use.handle.index;
+                    if (index >= texture_resources_.size())
+                        continue;
+                    if (std::find(seen.begin(), seen.end(), index) != seen.end())
+                        continue;
+                    seen.push_back(index);
+
+                    TextureResource& resource = texture_resources_[index];
+                    if (resource.image == VK_NULL_HANDLE || !capture_->wants(resource.desc))
+                        continue;
+
+                    TextureState& current = texture_state(resource);
+
+                    VkImageMemoryBarrier2 barrier{};
+                    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    barrier.srcStageMask = current.stage != VK_PIPELINE_STAGE_2_NONE
+                                               ? current.stage
+                                               : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                    barrier.srcAccessMask = current.access;
+                    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                    barrier.oldLayout = current.layout;
+                    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    barrier.image = resource.image;
+                    barrier.subresourceRange.aspectMask = resource.desc.aspect;
+                    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+                    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+                    VkDependencyInfo dependency{};
+                    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                    dependency.imageMemoryBarrierCount = 1;
+                    dependency.pImageMemoryBarriers = &barrier;
+                    vkCmdPipelineBarrier2(cmd, &dependency);
+
+                    capture_->record(cmd, node.name.c_str(), resource.desc, resource.image);
+
+                    // Recorded, never undone. The graph is the thing that tracks this
+                    // image's layout, so telling it where the copy left the image is all
+                    // the next pass's derived barrier needs — the restore a caller outside
+                    // the graph would owe is exactly what being inside it saves.
+                    current.stage = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    current.access = VK_ACCESS_2_TRANSFER_READ_BIT;
+                    current.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    current.queue = node.queue;
+                }
+            }
+
             void RenderGraph::execute(VkCommandBuffer cmd, std::uint32_t index)
             {
                 if (index >= submissions_.size())
@@ -907,6 +981,10 @@ namespace SushiEngine
 
                     if (profiler_ != nullptr)
                         profiler_->end_pass(cmd, timer);
+
+                    // After the pass's timer closes, so the copies a debug run adds are
+                    // never mistaken for the pass having become slower.
+                    capture_pass(cmd, node);
                 }
             }
         } // namespace Graph

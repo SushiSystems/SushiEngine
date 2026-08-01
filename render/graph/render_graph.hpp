@@ -64,6 +64,7 @@ namespace SushiEngine
         namespace Graph
         {
             class GpuProfiler;
+            class PassCapture;
             class RenderGraph;
 
             /** @brief The largest number of colour attachments one pass may declare. */
@@ -372,6 +373,22 @@ namespace SushiEngine
                     void set_async_compute_enabled(bool enabled) noexcept;
 
                     /**
+                     * @brief Attaches (or detaches) the per-pass output capture.
+                     *
+                     * Must be set before the frame's passes register, not merely before
+                     * execute(): a transient's usage flags are unioned at declaration time,
+                     * and capture needs @c TRANSFER_SRC among them. Set mid-frame it would
+                     * ask to copy from images that were never made copy-sources.
+                     *
+                     * Nullptr — the default — costs the graph one null test per pass and
+                     * changes nothing else, which is the point: the instrument is absent
+                     * from a shipping frame rather than merely quiet in one.
+                     *
+                     * @param capture The capture to record into, or nullptr for none.
+                     */
+                    void set_capture(PassCapture* capture) noexcept;
+
+                    /**
                      * @brief Declares a transient texture the graph allocates and may alias.
                      * @param desc What the texture must be; usage is unioned with the
                      *             declared accesses before allocation.
@@ -562,6 +579,7 @@ namespace SushiEngine
                     TextureState& texture_state(const TextureResource& resource);
                     BufferState& buffer_state(const BufferResource& resource);
                     void emit_barriers(VkCommandBuffer cmd, const PassNode& pass);
+                    void capture_pass(VkCommandBuffer cmd, const PassNode& pass);
                     void begin_rendering(VkCommandBuffer cmd, const PassNode& pass,
                                          VkExtent2D area);
                     VkExtent2D resolve_render_area(const PassNode& pass) const;
@@ -570,6 +588,7 @@ namespace SushiEngine
                     Resources::TexturePool* textures_ = nullptr;
                     Resources::BufferPool* buffers_ = nullptr;
                     GpuProfiler* profiler_ = nullptr;
+                    PassCapture* capture_ = nullptr;
                     std::vector<PassNode> passes_;
                     std::vector<TextureResource> texture_resources_;
                     std::vector<BufferResource> buffer_resources_;

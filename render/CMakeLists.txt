@@ -257,6 +257,7 @@ add_library(sushi_render STATIC
     graph/render_graph.cpp
     graph/resource_state.cpp
     graph/gpu_profiler.cpp
+    graph/pass_capture.cpp
     resources/transient_pool.cpp
     resources/descriptor_allocator.cpp
     resources/descriptor_heap.cpp
@@ -471,6 +472,21 @@ set_target_properties(render_probe PROPERTIES
 # seconds of wall clock and prints the observer column's vertical profile. A measuring
 # instrument rather than a test — it takes the editor out of the loop for the questions
 # docs/slop/atmosphere_system.md §11's Phase B2c leaves open.
+# RHI0's golden-image harness: renders a fixed scene headlessly and compares the frame
+# against a recorded reference. Not a ctest case, deliberately -- an exact-hash golden
+# is a statement about one GPU and one driver, and a suite that goes red on hardware is
+# a suite people learn to ignore (the same reasoning as soft_body_budget's). It is run
+# on purpose, before and after a render refactor, which is the only time it can answer
+# the question it exists for. `--goldens` points it at the checked-in references.
+add_executable(render_golden probe/golden_main.cpp)
+target_include_directories(render_golden PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(render_golden PRIVATE sushi_render)
+target_compile_definitions(render_golden PRIVATE
+    SE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/probe/goldens")
+set_target_properties(render_golden PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON)
+
 add_executable(atmosphere_probe probe/atmosphere_main.cpp)
 target_include_directories(atmosphere_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(atmosphere_probe PRIVATE sushi_render)

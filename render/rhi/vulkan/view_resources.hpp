@@ -227,6 +227,21 @@ namespace SushiEngine
                                        std::uint32_t output_width,
                                        std::uint32_t output_height) const;
 
+                    /**
+                     * @brief Copies a completed slot's resolve image back to host memory.
+                     *
+                     * Unlike @ref pick, which reads a buffer the frame itself filled, nothing
+                     * in a normal frame copies the resolve anywhere — the editor samples it in
+                     * place. So this owns its own staging buffer and one-shot submit, created
+                     * and destroyed within the call, and leaves the image in the layout it
+                     * found it in so the next frame's graph sees no change.
+                     *
+                     * @param slot  The slot to read.
+                     * @param image Receives the pixels; untouched when the read is refused.
+                     * @return Whether the image was produced.
+                     */
+                    bool read_output(std::uint32_t slot, FrameImage& image);
+
                 private:
                     /**
                      * @brief One frame slot: its persistent targets and recording state.

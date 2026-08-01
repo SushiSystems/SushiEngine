@@ -738,6 +738,11 @@ a lower tier scales the expensive half down from it.
   schedule assigning physical resources: a transient is returned to its pool the
   moment its last reader is scheduled, so two disjoint lifetimes land on one
   allocation. That is the graph's memory aliasing.
+  `pass_capture.*` is the graph's debug instrument, absent unless something attaches
+  it: it copies out every texture a pass wrote and hashes it on the host, so a golden
+  mismatch can name the pass rather than only the frame. It lives inside the graph
+  because only the graph tracks image layouts across passes — a capture outside it
+  would have to restore what it changed, while one inside simply records it.
 - **`render/resources/`** — `TexturePool` / `BufferPool` (the physical backing, one
   set per frame slot so a pool never hands this frame a resource the previous frame's
   submit is still reading), `DescriptorAllocator` (per-slot pools reset wholesale, so

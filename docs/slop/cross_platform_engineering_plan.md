@@ -244,7 +244,7 @@ Recommendation: **SPIRV-Cross now, Slang later, delete the bridge in the same mi
 
 | Code | Delivers | Size |
 |---|---|---|
-| **RHI0** | Golden-image regression harness (per-pass hashes, deterministic N-frame render) + `TraceCommandList` (a text-diffable second `ICommandList` implementation, provable in CI with no GPU). **Zero production code changes.** This is the safety net the rest of the programme runs on. | Medium |
+| **RHI0** | **Code complete 2026-08-01** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. *Not yet green — no baseline has been recorded, because recording one requires running the harness on the machine it will be compared against.* Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
 | **RHI1** | Neutral vocabulary (`Rhi::types.hpp`/`handles.hpp`); collapse `TextureState`/`BufferState`; one Vulkan conversion TU. Slang GLSL-front-end spike. Exit: `render/graph/` no longer includes `vulkan.h`; trace byte-identical. | Small–Medium |
 | **RHI2** | `ICommandList` (21 verbs); port **recording only** across all 39 passes (95 `VkCommandBuffer` sites). Exit: zero `vkCmd*` under `render/passes/`; golden images identical. | Large |
 | **RHI3** | `IDevice` + generation-tagged handle tables; port all resource-owning systems (texture/buffer pools, samplers, pipelines, descriptor heap, material/light/instance systems, all pass-owned resources). Exit: zero `vulkan.h`/`vk_mem_alloc.h` outside `render/rhi/vulkan/`; `sushi_render` links Vulkan **PRIVATE**. | Large |
@@ -256,6 +256,76 @@ Recommendation: **SPIRV-Cross now, Slang later, delete the bridge in the same mi
 | **RHI9** | Slang migration, one shader at a time, each gated on an unchanged golden image; SPIRV-Cross + glslang deleted from the renderer and tool in this same milestone. | Large |
 | **RHI10** | Metal tiered features (mesh/object shaders, acceleration structures, rasterization-rate-map VRS analogue) — opportunistic, each behind an existing capability flag. | Medium |
 | **RHI11** | Console-seam proof, **no console code**: the backend factory (`create_render_device()`) becomes a registry a private CMake subdirectory can populate without the public tree ever naming the backend. This single change is the entire console-readiness budget for the renderer. | Small |
+
+#### RHI0's second half was mis-sequenced (corrected 2026-08-01)
+
+`TraceCommandList` is described above as "a second `ICommandList` implementation" and
+scheduled into RHI0. `ICommandList` does not exist until **RHI2**, so as written RHI0
+asks for an implementation of an interface two milestones ahead of its declaration.
+
+It is not merely a dependency to satisfy early, either: a trace is worth having only
+where it can be diffed against a previous trace of *the same recording*, and nothing
+records through the interface until RHI2 ports the 95 `vkCmd*` sites. Written now, it
+would trace nothing, and by RHI2 it would be a fixture nobody had ever seen fail.
+
+So `TraceCommandList` moves to **RHI2**, where it becomes that milestone's own
+no-op oracle — record every pass twice, once through the Vulkan backend and once
+through the trace backend, and diff the trace against the pre-port trace. RHI0 keeps
+the golden images, which is the half that genuinely gates everything: it is the only
+oracle that can tell a behaviour-preserving refactor from a silent regression before
+RHI1 touches a line.
+
+#### What landed, and what RHI0 still owes (2026-08-01)
+
+`render/probe/golden_main.cpp` + `render/probe/goldens/`. Two cases so far, both the
+mesh-shading half of the frame at 512×288 over 12 frames: `opaque_lit` and
+`opaque_unshadowed`, the second existing only so a shadow regression is distinguishable
+from a shading one instead of reddening a single case. Sky and cloud are switched off
+at the `Environment` for as long as the cloudscape is being rewritten.
+
+The enabling discovery was that `VulkanSceneView` takes a device and an asset library
+and **nothing else** — no surface, no swapchain — so the full scene renderer was always
+headless-capable and only the readback was missing. `ISceneView::read_output` is that
+readback, a capability with a `false` default rather than an obligation, on the
+precedent `cull_statistics` already set.
+
+**Per-pass hashes landed the same day** (`render/graph/pass_capture.cpp`), closing the
+debt the paragraph above originally recorded. The obstacle it named was real — pass
+outputs are transient graph textures, not owned images — and the answer was to put the
+capture *inside* the graph rather than beside it. `RenderGraph::capture_pass` runs after
+each pass's timer closes, transitions every texture that pass wrote to `TRANSFER_SRC`,
+copies it into a per-slot staging buffer, and hashes it on the host once the submit has
+completed. `PassCapture` is deliberately shaped exactly like `GpuProfiler` — one store
+per frame slot, `begin_frame(slot)`, `resolve(slot)` — because it has the same lifecycle
+for the same reason.
+
+Being inside the graph is what makes it cheap to get right. `ViewResources::read_output`
+has to *restore* the resolve image's layout by hand, because the graph tracks that image
+across frames and would otherwise derive a transition that never happened. The in-graph
+capture instead just **records** where the copy left the image, and the next pass's
+barrier is derived correctly with no restore at all.
+
+Three things are true about it and are written down in `probe/goldens/README.md` rather
+than left to be discovered:
+
+- It covers **mip 0, the depth aspect of depth/stencil targets, and formats the capture
+  can size**. Anything else is reported as un-copyable and counted, never guessed at.
+- It **changes how the frame allocates**: capture adds `TRANSFER_SRC` to every transient,
+  usage is part of the transient pool's reuse key, so a captured frame aliases
+  differently from an uncaptured one. Contents are unaffected — except by a pass reading
+  a transient it never wrote, which is a bug, and `--no-capture` is how to catch it.
+- Outputs past the per-slot staging budget are **dropped and counted**, not truncated.
+
+`ISceneView` gains two more capabilities with `false` defaults — `enable_pass_capture`
+and `read_pass_hashes` — on the same precedent as `read_output`. The golden format is at
+version 2; a version-1 file is refused rather than adapted, and `--update` refuses to run
+with `--no-capture`, because a golden without a pass section is one that can never fail.
+
+Also corrected: "zero production code changes" is not achievable and was never the
+real requirement. A harness needs to *read back* what the renderer drew, and the
+readback path today exists only for picking and for the triangle probe. The seam is
+additive and touches no drawing code, so the requirement is restated as **zero change
+to rendering behaviour** — which is what the golden images are there to prove.
 
 Rough calibration: RHI0–5 ≈ 6–9 engineer-months solo; RHI0–8 (Metal parity) ≈ 12–18; RHI0–9 (Slang done) approaching two years solo, roughly halved with two engineers after RHI2 since RHI3/RHI4 partially parallelize.
 
@@ -378,7 +448,7 @@ Rows are ordered by platform priority (§0.0): Windows/Linux, then Android, then
 
 ### 8.2 Recommended overall order
 
-1. **Immediately, in parallel, on Windows/Linux only:** `RUNTIME-PORT0` (Execution seam extraction) and `RHI0` (golden-image + trace harness). Neither touches behavior; both are prerequisites for everything else and have clean pass/fail oracles.
+1. **Immediately, in parallel, on Windows/Linux only:** `RUNTIME-PORT0` (Execution seam extraction) and `RHI0` (golden-image harness). Neither touches behavior; both are prerequisites for everything else and have clean pass/fail oracles.
 2. **Next:** `RUNTIME-PORT1` (native Execution backend, Linux-first control) and `RHI1–RHI3` (vocabulary → command list → device) can proceed in parallel — they don't share files. `PLATFORM0` (player split) can also start in parallel; its main technical risk (`present_scene_view()`) is renderer-adjacent but not RHI-abstraction-dependent, so it doesn't need to wait for RHI1–3.
 3. **Once RHI3 lands:** `RHI4` (binding split) and `RUNTIME-PORT2` (macOS native backend) proceed in parallel. `PLATFORM1` (Linux parity/CI) is independent and can land anytime after PLATFORM0.
 4. **Once RHI4–5 land:** `RHI6` (Android Vulkan) and `PLATFORM2` (windowing/lifecycle split, desktop-validated) proceed; then `PLATFORM4` (Android) — with the RUNTIME-PORT4-vs-stub-sim decision made explicitly before this milestone starts, not during it.
@@ -394,7 +464,7 @@ Rows are ordered by platform priority (§0.0): Windows/Linux, then Android, then
 | Risk | Wall | Severity | Mitigation |
 |---|---|---|---|
 | `std::function` in a naive execution seam silently breaks SYCL device codegen | 1 | Critical | Compile-time backend policy, not a vtable at node granularity (§4.3) |
-| Zero render tests today; a 39,894-line refactor with no safety net | 2 | Critical | `RHI0` (golden images + `TraceCommandList`) ships *before* any pass is touched, non-negotiably |
+| Zero render tests today; a 39,894-line refactor with no safety net | 2 | Critical | `RHI0` (whole-frame goldens + per-pass hashes) shipped 2026-08-01, *before* any pass was touched |
 | Cross-backend float divergence breaks existing deterministic-replay tests | 1 | High | Explicit tolerance contract: bit-determinism within a backend, tolerance-comparison across backends — renegotiate the test assumption directly, don't paper over it |
 | O(N²) DAG compile stalls the native Execution backend at scale | 1 | High | Last-writer/reader-set linear construction (mirrors SushiRuntime's own tracker design) |
 | Android/PLATFORM4 silently assumes RUNTIME-PORT4 is done when it isn't (or vice versa) | 1+3 | High | Make the stub-sim-vs-full-Execution decision explicit at PLATFORM4 kickoff, in writing, not by default |
@@ -413,7 +483,7 @@ Rows are ordered by platform priority (§0.0): Windows/Linux, then Android, then
 These three can start today, in parallel, without waiting on any decision this document doesn't already make:
 
 1. **`RUNTIME-PORT0`** — *code complete 2026-08-01; the remaining exit criterion is running the suite, not writing code.* Extract the `Execution` seam behind the existing SYCL path, zero behavior change, **minting the vocabulary defined in `unified_hazard_model.md` §4 (milestone UHM0)**. Self-contained, has a pass/fail oracle (`sandbox`), and immediately collapses SushiRuntime's engine-wide blast radius from 66 files to ~4. The runtime-side R1–R7 merge (2026-08-01) also unblocks the engine's adoption pass (delete the hand reduction, `sized_from_device` chains, region-per-island) — route that adoption *through* the new seam rather than adding direct call sites the seam must then chase.
-2. **`RHI0`** — extend `render/probe/main.cpp` into a deterministic, per-pass-hashed golden-image harness, and build `TraceCommandList`. Zero production code changes; makes every subsequent RHI milestone provably a no-op or not.
+2. **`RHI0`** — *done 2026-08-01.* `render_golden`: a deterministic, per-pass-hashed golden-image harness. (`TraceCommandList` moved to RHI2; see §5.6's correction.) The one thing it still needs from a person is the first `--update` run, which records the baselines on the machine they will be compared against.
 3. **`PLATFORM0`**, starting with the `IWindowRenderer::present_scene_view()` gap specifically — it's the highest-risk, most architecturally-uncertain piece of the whole player-split effort, and resolving it early de-risks everything else in that milestone.
 
 None of these three requires a decision on Metal-vs-MoltenVK, Slang-vs-SPIRV-Cross, or the Android stub-sim question — those decisions can be made later, closer to when they're actually load-bearing.

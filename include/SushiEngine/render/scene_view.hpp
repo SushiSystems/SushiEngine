@@ -38,6 +38,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/deformable_mesh.hpp>
@@ -235,6 +237,58 @@ namespace SushiEngine
             float milliseconds = 0.0f; /**< GPU time between the pass's two timestamps. */
         };
 
+        /**
+         * @brief One finished frame copied back to host memory, tightly packed RGBA8.
+         *
+         * Exists for the golden-image harness (`docs/slop/cross_platform_engineering_plan.md`
+         * RHI0), which is the only thing in the engine that needs to *look* at what the
+         * renderer drew rather than display it. Deliberately the view's output image and
+         * not an HDR intermediate: the hash has to be over the pixels a person would have
+         * seen, so that a golden mismatch is always a visible difference.
+         */
+        struct FrameImage
+        {
+            std::uint32_t width = 0;  /**< Image width in pixels. */
+            std::uint32_t height = 0; /**< Image height in pixels. */
+            /** @brief @ref width × @ref height RGBA8 pixels, row-major, no padding. */
+            std::vector<std::uint8_t> rgba;
+        };
+
+        /**
+         * @brief One texture one pass wrote, and a hash of what it held afterwards.
+         *
+         * The whole-frame @ref FrameImage says an image changed; this says which pass
+         * changed it. @c pass and @c resource together are the identity, so a golden
+         * survives passes being reordered but not renamed — renaming a pass is a change
+         * to what the frame is made of, and the harness is right to notice.
+         */
+        struct PassOutputHash
+        {
+            std::string pass;     /**< The pass name the graph registered. */
+            std::string resource; /**< The written texture's debug name. */
+            std::uint64_t hash = 0;
+        };
+
+        /**
+         * @brief A frame's per-pass hashes, and what the capture could not reach.
+         *
+         * The counts are part of the result rather than a query beside it, because a
+         * caller recording a reference from an incomplete capture would be recording one
+         * that cannot notice the passes it never saw. Making them impossible to receive
+         * without seeing is the whole reason this is a struct.
+         */
+        struct PassCaptureReport
+        {
+            /** @brief One entry per captured output, in the order the frame produced them. */
+            std::vector<PassOutputHash> passes;
+            /** @brief Outputs the frame could not afford; the capture was incomplete. */
+            std::uint32_t dropped_by_budget = 0;
+            /** @brief Outputs whose format or usage made them un-copyable. */
+            std::uint32_t dropped_by_format = 0;
+            std::uint64_t bytes_used = 0;
+            std::uint64_t bytes_budget = 0;
+        };
+
         /** @brief Native handles a UI backend needs to sample one target slot. */
         struct SceneViewTexture
         {
@@ -413,6 +467,67 @@ namespace SushiEngine
                 {
                     drawn = 0;
                     tested = 0;
+                }
+
+                /**
+                 * @brief Copies a finished slot's output image back to host memory.
+                 *
+                 * The seam the golden-image harness reads through, and the only reason it
+                 * exists — nothing that displays a frame needs this, which is why it is a
+                 * capability with a default rather than an obligation on every backend.
+                 *
+                 * Synchronous by design: it waits for @p slot's submit and then does its own
+                 * one-shot copy, so a caller may read any slot at any time without knowing
+                 * how deep the frame chain runs. That makes it unfit for anything per-frame,
+                 * which is correct — a harness renders a fixed number of frames and looks at
+                 * one of them.
+                 *
+                 * @param slot  The slot to read; normally @ref current_slot after a render().
+                 * @param image Receives the pixels; untouched when the read is refused.
+                 * @return Whether the image was produced. False when the backend cannot read
+                 *         back at all (the default) or when @p slot has never been rendered.
+                 */
+                virtual bool read_output(std::uint32_t slot, FrameImage& image)
+                {
+                    (void)slot;
+                    (void)image;
+                    return false;
+                }
+
+                /**
+                 * @brief Turns per-pass output hashing on or off for following frames.
+                 *
+                 * A debug instrument, off by default and refusable: a backend that cannot
+                 * capture returns false and is not thereby broken. Enabling it costs
+                 * bandwidth and perturbs how the frame's transients are allocated, so it
+                 * is for a golden run and a bisect, not for a shipping frame.
+                 *
+                 * Takes effect from the next render(): the frame in progress has already
+                 * decided what its resources are.
+                 *
+                 * @param enabled Whether following frames should capture.
+                 * @return Whether the backend honoured the request.
+                 */
+                virtual bool enable_pass_capture(bool enabled)
+                {
+                    (void)enabled;
+                    return false;
+                }
+
+                /**
+                 * @brief Reads the per-pass hashes of a rendered slot.
+                 *
+                 * @param slot   The slot to read; normally @ref current_slot after render().
+                 * @param report Receives the hashes and what the capture could not reach;
+                 *               untouched when the read is refused.
+                 * @return Whether hashes were produced. False when the backend cannot
+                 *         capture, when capture is off, or when @p slot holds no capture.
+                 */
+                virtual bool read_pass_hashes(std::uint32_t slot, PassCaptureReport& report)
+                {
+                    (void)slot;
+                    (void)report;
+                    return false;
                 }
         };
     } // namespace Render

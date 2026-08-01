@@ -160,8 +160,13 @@ namespace SushiEngine
                     image_info.arrayLayers = 1;
                     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
                     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-                    image_info.usage =
-                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                    // TRANSFER_SRC is not optional here: read_output() copies out of this
+                    // image, and copying from an image whose usage does not include it is
+                    // undefined — the kind of undefined that returns the right pixels on
+                    // the driver it was written against and nowhere else.
+                    image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                       VK_IMAGE_USAGE_SAMPLED_BIT |
+                                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
                     VmaAllocationCreateInfo image_alloc{};
                     image_alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -635,8 +640,14 @@ namespace SushiEngine
                 resolve.image = slots_[frame.slot].resolve;
                 resolve.view = slots_[frame.slot].resolve_view;
                 resolve.desc = color_target(width_, height_, Frame::RESOLVE_FORMAT, "resolve");
-                resolve.desc.usage =
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                // Declared to match how the image was actually created, TRANSFER_SRC
+                // included — an import's description is what anything downstream of the
+                // graph has to reason from, and per-pass capture is the first thing to
+                // ask. Without it the whole post-processing tail, which writes into this
+                // image, is invisible to the golden's per-pass half.
+                resolve.desc.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                     VK_IMAGE_USAGE_SAMPLED_BIT |
+                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
                 resolve.state = &slots_[frame.slot].resolve_state;
                 targets.resolve = graph.import_texture(resolve);
 
@@ -893,6 +904,145 @@ namespace SushiEngine
                 const std::uint32_t* pixels =
                     static_cast<const std::uint32_t*>(s.readback_mapped);
                 return pixels[static_cast<std::size_t>(sample_y) * s.readback_width + sample_x];
+            }
+
+            bool ViewResources::read_output(std::uint32_t slot, FrameImage& image)
+            {
+                if (slot >= SLOTS)
+                    return false;
+                Slot& s = slots_[slot];
+                if (!s.ever_rendered || s.resolve == VK_NULL_HANDLE || width_ == 0 ||
+                    height_ == 0)
+                    return false;
+
+                wait_for_slot(slot);
+
+                const VkDevice device = device_.device();
+                const VmaAllocator allocator = device_.allocator();
+                const VkDeviceSize size =
+                    VkDeviceSize(width_) * VkDeviceSize(height_) * 4;
+
+                VkBufferCreateInfo buffer_info{};
+                buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                buffer_info.size = size;
+                buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+                VmaAllocationCreateInfo buffer_alloc{};
+                buffer_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                buffer_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+                                     VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+                VkBuffer staging = VK_NULL_HANDLE;
+                VmaAllocation staging_allocation = VK_NULL_HANDLE;
+                VmaAllocationInfo staging_info{};
+                check(vmaCreateBuffer(allocator, &buffer_info, &buffer_alloc, &staging,
+                                      &staging_allocation, &staging_info),
+                      "vmaCreateBuffer(read_output)");
+
+                VkCommandPoolCreateInfo pool_info{};
+                pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+                pool_info.queueFamilyIndex = device_.graphics_queue_family();
+                VkCommandPool pool = VK_NULL_HANDLE;
+                check(vkCreateCommandPool(device, &pool_info, nullptr, &pool),
+                      "vkCreateCommandPool(read_output)");
+
+                VkCommandBufferAllocateInfo cmd_info{};
+                cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                cmd_info.commandPool = pool;
+                cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                cmd_info.commandBufferCount = 1;
+                VkCommandBuffer cmd = VK_NULL_HANDLE;
+                check(vkAllocateCommandBuffers(device, &cmd_info, &cmd),
+                      "vkAllocateCommandBuffers(read_output)");
+
+                VkCommandBufferBeginInfo begin_info{};
+                begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                check(vkBeginCommandBuffer(cmd, &begin_info),
+                      "vkBeginCommandBuffer(read_output)");
+
+                // Out of whatever the frame left the resolve in, and back into it again.
+                // Restoring it is not politeness: the graph tracks this image's state across
+                // frames, so returning it in a different layout would make the next frame's
+                // barrier describe a transition that did not happen.
+                const Graph::TextureState resting = s.resolve_state;
+                const auto barrier = [&](VkImageLayout from, VkImageLayout to,
+                                         VkPipelineStageFlags2 src_stage,
+                                         VkAccessFlags2 src_access,
+                                         VkPipelineStageFlags2 dst_stage,
+                                         VkAccessFlags2 dst_access)
+                {
+                    VkImageMemoryBarrier2 image_barrier{};
+                    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    image_barrier.srcStageMask = src_stage;
+                    image_barrier.srcAccessMask = src_access;
+                    image_barrier.dstStageMask = dst_stage;
+                    image_barrier.dstAccessMask = dst_access;
+                    image_barrier.oldLayout = from;
+                    image_barrier.newLayout = to;
+                    image_barrier.image = s.resolve;
+                    image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    image_barrier.subresourceRange.levelCount = 1;
+                    image_barrier.subresourceRange.layerCount = 1;
+
+                    VkDependencyInfo dependency{};
+                    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                    dependency.imageMemoryBarrierCount = 1;
+                    dependency.pImageMemoryBarriers = &image_barrier;
+                    vkCmdPipelineBarrier2(cmd, &dependency);
+                };
+
+                barrier(resting.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        resting.stage == VK_PIPELINE_STAGE_2_NONE
+                            ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+                            : resting.stage,
+                        resting.access, VK_PIPELINE_STAGE_2_COPY_BIT,
+                        VK_ACCESS_2_TRANSFER_READ_BIT);
+
+                VkBufferImageCopy copy{};
+                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.imageSubresource.layerCount = 1;
+                copy.imageExtent = {width_, height_, 1};
+                vkCmdCopyImageToBuffer(cmd, s.resolve,
+                                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1,
+                                       &copy);
+
+                barrier(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, resting.layout,
+                        VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                        resting.stage == VK_PIPELINE_STAGE_2_NONE
+                            ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+                            : resting.stage,
+                        resting.access);
+
+                check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(read_output)");
+
+                VkFenceCreateInfo fence_info{};
+                fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+                VkFence fence = VK_NULL_HANDLE;
+                check(vkCreateFence(device, &fence_info, nullptr, &fence),
+                      "vkCreateFence(read_output)");
+
+                VkSubmitInfo submit{};
+                submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                submit.commandBufferCount = 1;
+                submit.pCommandBuffers = &cmd;
+                check(vkQueueSubmit(device_.graphics_queue(), 1, &submit, fence),
+                      "vkQueueSubmit(read_output)");
+                check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(read_output)");
+
+                vmaInvalidateAllocation(allocator, staging_allocation, 0, size);
+
+                image.width = width_;
+                image.height = height_;
+                image.rgba.resize(static_cast<std::size_t>(size));
+                std::memcpy(image.rgba.data(), staging_info.pMappedData,
+                            static_cast<std::size_t>(size));
+
+                vkDestroyFence(device, fence, nullptr);
+                vkDestroyCommandPool(device, pool, nullptr);
+                vmaDestroyBuffer(allocator, staging, staging_allocation);
+                return true;
             }
         } // namespace Vulkan
     } // namespace Render

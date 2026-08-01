@@ -42,6 +42,7 @@
  */
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -55,6 +56,7 @@
 #include "geometry/ui_buffers.hpp"
 #include "material/font_atlas.hpp"
 #include "graph/gpu_profiler.hpp"
+#include "graph/pass_capture.hpp"
 #include "graph/render_graph.hpp"
 #include "lighting/light_system.hpp"
 #include "material/material_system.hpp"
@@ -174,6 +176,10 @@ namespace SushiEngine
                     ScenePassTiming pass_timing(std::size_t index) const noexcept override;
                     void cull_statistics(std::uint32_t& drawn,
                                          std::uint32_t& tested) const noexcept override;
+                    bool read_output(std::uint32_t slot, FrameImage& image) override;
+                    bool enable_pass_capture(bool enabled) override;
+                    bool read_pass_hashes(std::uint32_t slot,
+                                          PassCaptureReport& report) override;
 
                 private:
                     /** @brief The most frames that may be in flight; see @ref frame_slots_. */
@@ -222,6 +228,14 @@ namespace SushiEngine
                     RayTracing::SceneAccelerator accelerator_;
                     Graph::GpuProfiler profiler_;
                     Graph::RenderGraph graph_;
+                    /**
+                     * @brief The per-pass capture, allocated only once someone asks for it.
+                     *
+                     * A pointer rather than a member because its staging buffers are large
+                     * and a view that never captures should never pay for them — the
+                     * instrument is absent from an ordinary run, not merely idle in one.
+                     */
+                    std::unique_ptr<Graph::PassCapture> capture_;
                     Passes::AtmosphereLutPass atmosphere_lut_pass_;
                     Passes::VolumetricFogPass volumetric_fog_pass_;
                     /**
