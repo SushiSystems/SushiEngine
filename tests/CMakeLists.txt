@@ -73,6 +73,14 @@ add_executable(se_functional_tests
     # And the table that says which routine collides which pair, so a new shape is a
     # registration rather than a branch (P2, §4.2).
     functional/unit/test_narrowphase_dispatch.cpp
+    # §7.5 tier 2: an exact time of impact via conservative advancement, for the
+    # motion tier 1's per-tick linear widening cannot bound — chiefly rotation,
+    # which a linear speculative margin never sees at all (P5, §7.5 item 2).
+    functional/unit/test_conservative_advancement.cpp
+    # §7.5's signed-distance-field narrowphase path: the gradient-as-normal
+    # arithmetic against a field with a known closed form, both dispatch
+    # orders, and the empty-field refusal (P5).
+    functional/unit/test_sdf_manifold.cpp
     # Static triangle-mesh geometry: the cooked hierarchy and the internal-edge
     # correction that stops a crate tripping on the seams (P2, §7.2).
     functional/unit/test_mesh_collision.cpp
@@ -147,6 +155,24 @@ add_executable(se_functional_tests
     functional/unit/test_season.cpp
     functional/unit/test_cloth_mesh.cpp
     functional/unit/test_math_primitives.cpp
+    # P6-A: §9.1's deformation gradient and its two neo-Hookean constraints,
+    # against closed-form cases (rest, uniform scale, pure rotation) and a
+    # finite-difference check of the hand-derived gradients themselves.
+    functional/unit/test_fem_projection.cpp
+    # P6-B: §9.3's Green strain / Cauchy stress / von Mises readout, against
+    # the uniaxial-strain linear-elasticity closed form and the same
+    # rest/rotation-invariance/degenerate-guard cases §9.1's own tests use.
+    functional/unit/test_fem_stress.cpp
+    # P6-C: §9.4's permanent dent — the runtime 3x3 inverse plasticity needs
+    # and nothing else in this phase does, the below-yield no-op, full creep
+    # exactly zeroing the elastic strain it just absorbed, and the
+    # accumulated-strain ceiling converging to rather than overshooting.
+    functional/unit/test_fem_plasticity.cpp
+    # P6-D: §9.5's removal mechanics and its three named guard rails
+    # (per-tick budget, minimum fragment size, scene-level cap), against
+    # hand-constructed element sets whose connectivity is known by
+    # inspection -- fracture's own bookkeeping never reads a position.
+    functional/unit/test_fem_fracture.cpp
     # The animation stack, whose every phase shipped with a demo and no test. Starting at
     # the bottom: the asset layer everything else reads through (the skeleton cook's
     # topological reorder, the clip formats and their refusals, the sampling contract, the
@@ -337,6 +363,14 @@ add_executable(se_functional_tests
     functional/integration/test_deterministic_replay.cpp
     functional/integration/test_net_reconciliation.cpp
     functional/integration/test_net_client_server.cpp
+    # P6's own acceptance criterion: the cantilever-deflection test against
+    # Euler-Bernoulli theory, run on FiniteElementModel end to end (the
+    # *mukavemet* test, §15 item 3, §16's P6 row).
+    functional/integration/test_finite_element_model.cpp
+    # P6-C's own acceptance phrase, "a body past yield keeps a permanent
+    # dent," run through step()'s real substep loop rather than by calling
+    # apply_fem_plasticity directly.
+    functional/integration/test_fem_plasticity_integration.cpp
     functional/integration/test_cloth.cpp
     functional/integration/test_app.cpp
     functional/integration/test_input_determinism.cpp
@@ -371,6 +405,10 @@ add_executable(se_functional_tests
     functional/unit/test_preferences_roundtrip.cpp
 
     functional/regression/test_regression.cpp
+    # §15.4's golden-metric penetration-contract scenes: resting penetration
+    # within tolerance, nothing tunnels at escalating speeds, and the cooker's
+    # Hausdorff error is a real per-asset measurement rather than a constant (P5).
+    functional/regression/test_penetration_contract.cpp
 )
 sushi_configure_test_target(se_functional_tests)
 # The input-bindings serialization test includes nlohmann/json directly.

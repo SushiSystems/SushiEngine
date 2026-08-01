@@ -94,6 +94,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/collision/bvh_broadphase.hpp>
+#include <SushiEngine/physics/collision/conservative_advancement.hpp>
 #include <SushiEngine/physics/collision/manifold.hpp>
 #include <SushiEngine/physics/collision/narrowphase_dispatch.hpp>
 #include <SushiEngine/physics/collision/scene_query.hpp>
@@ -838,6 +839,16 @@ namespace SushiEngine
                      * exactly right: neither is going anywhere.
                      */
                     T speculative_margin = 0;
+
+                    /**
+                     * @brief Whether this proxy's motion needs §7.5 tier 2 this tick.
+                     *
+                     * Derived once per proxy in `refresh_contact_index` rather than
+                     * recomputed per pair — a fast body can appear in several pairs a
+                     * tick, and the thinnest-dimension check is the same answer every
+                     * time. False for static geometry and for anything asleep.
+                     */
+                    bool needs_conservative_advancement = false;
                 };
 
                 /**
@@ -1359,6 +1370,7 @@ namespace SushiEngine
                             // it slept, widening every manifold around a stack that is not
                             // going anywhere.
                             proxy.speculative_margin = 0;
+                            proxy.needs_conservative_advancement = false;
                             continue;
                         }
                         proxy.shape = shape_for_slot(proxy.slot);
@@ -1368,8 +1380,37 @@ namespace SushiEngine
                         // the point: the narrowphase must look as far as the broadphase did,
                         // or the pair is found and then discarded for being far apart.
                         proxy.speculative_margin = length(travel);
-                        contact_index_.update_proxy(
-                            proxy.id, Physics::shape_world_bounds(proxy.shape), travel);
+                        // §7.5 tier 2's own trigger: state-derived, so the decision does
+                        // not depend on anything but this tick's velocities and shape —
+                        // widened by the author's own opt-in, for a body (a bullet) whose
+                        // *shape* is not thin but whose consequence of tunnelling is severe
+                        // enough that the motion-derived fraction should not be the only say.
+                        proxy.needs_conservative_advancement =
+                            Physics::has_any_flag(bodies_[proxy.slot].flags,
+                                                  Physics::BodyFlags::continuous_collision) ||
+                            Physics::needs_conservative_advancement<T>(
+                                proxy.shape, bodies_[proxy.slot].velocity,
+                                bodies_[proxy.slot].angular_velocity, delta_time);
+                        // The broadphase must be told, not just the narrowphase. Its own
+                        // enlargement is a fixed multiple of one tick's travel, refreshed
+                        // only once the body has actually left its last stored box (§7.1) —
+                        // which for an ordinary body lags a tick or two behind, and a tick
+                        // or two of travel is exactly what a thin, fast-moving pair cannot
+                        // spare: `submit_contacts` only ever looks at pairs the broadphase
+                        // already proposed, so a pair the broadphase never proposes is a
+                        // pair neither tier of §7.5 gets a chance to fix, however wide the
+                        // narrowphase's own speculative margin is. Recomputed every tick
+                        // from `proxy.flags` (the author's own opt-in, if any) rather than
+                        // accumulated onto whatever the broadphase currently holds, so a
+                        // body that slows back down stops paying for a swept box the tick
+                        // after it no longer needs one.
+                        const std::uint32_t broadphase_flags =
+                            proxy.needs_conservative_advancement
+                                ? (proxy.flags | Physics::BodyFlags::continuous_collision)
+                                : proxy.flags;
+                        contact_index_.set_proxy_state(proxy.id, proxy.filter, broadphase_flags);
+                        contact_index_.update_proxy(proxy.id, Physics::shape_world_bounds(proxy.shape),
+                                                    travel);
                     }
                     contact_index_.update();
                 }
@@ -1544,6 +1585,63 @@ namespace SushiEngine
                             CONTACT_OFFSET + lhs.speculative_margin + rhs.speculative_margin;
                         record.manifold = Physics::generate_shape_manifold<T>(
                             lhs.shape, rhs.shape, speculative);
+
+                        // §7.5 tier 2. Tier 1 above already covers the overwhelming
+                        // majority of fast motion; this runs whenever at least one
+                        // side's motion this tick is large enough, relative to its own
+                        // thinnest dimension, that the start-pose manifold cannot be
+                        // trusted — and deliberately *not* gated on tier 1 having found
+                        // nothing. It can find something and still be wrong: tier 1
+                        // samples the pair's geometry only at the tick's start pose, so
+                        // a pair whose relative motion this tick is many multiples of
+                        // the thinner shape's own size can have *already crossed* by
+                        // that sample, and a deep-penetration manifold generated from
+                        // the wrong side of the crossing resolves the body out through
+                        // the nearest face of *that* configuration — which is the far
+                        // face, not the one it approached through. Conservative
+                        // advancement finds the exact time of impact by construction,
+                        // so when it reports one it is trusted over tier 1's answer
+                        // rather than only filling in for it.
+                        if (lhs.needs_conservative_advancement || rhs.needs_conservative_advancement)
+                        {
+                            const Vector3T<T> lhs_velocity = bodies_[lhs.slot].velocity;
+                            const Vector3T<T> lhs_angular = bodies_[lhs.slot].angular_velocity;
+                            const Vector3T<T> rhs_velocity =
+                                rhs.slot == Physics::null_contact_body
+                                    ? Vector3T<T>{}
+                                    : bodies_[rhs.slot].velocity;
+                            const Vector3T<T> rhs_angular =
+                                rhs.slot == Physics::null_contact_body
+                                    ? Vector3T<T>{}
+                                    : bodies_[rhs.slot].angular_velocity;
+                            const auto advancement = Physics::conservative_advance<T>(
+                                lhs.shape, lhs_velocity, lhs_angular, rhs.shape, rhs_velocity,
+                                rhs_angular, CONTACT_OFFSET, delta_time);
+                            if (advancement.impact)
+                            {
+                                const Physics::CollisionShape<T> moved_lhs =
+                                    Physics::advance_collision_shape<T>(
+                                        lhs.shape, lhs_velocity, lhs_angular,
+                                        advancement.time_of_impact);
+                                const Physics::CollisionShape<T> moved_rhs =
+                                    Physics::advance_collision_shape<T>(
+                                        rhs.shape, rhs_velocity, rhs_angular,
+                                        advancement.time_of_impact);
+                                record.manifold = Physics::make_point_manifold<T>(
+                                    advancement.contact.normal, advancement.contact.point_a,
+                                    advancement.contact.point_b, advancement.contact.separation,
+                                    moved_lhs.center, moved_lhs.orientation, moved_rhs.center,
+                                    moved_rhs.orientation, Physics::make_feature_id(0, 0, 0, false));
+                                // The anchors are material points, valid at any pose; what
+                                // they mean *right now* — the separation the touching test
+                                // and the first substep actually see — is what the tick's
+                                // start pose says, not the advanced one they were sampled at.
+                                Physics::refresh_manifold(record.manifold, lhs.shape.center,
+                                                          lhs.shape.orientation, rhs.shape.center,
+                                                          rhs.shape.orientation);
+                            }
+                        }
+
                         if (record.manifold.point_count == 0)
                             continue;
 

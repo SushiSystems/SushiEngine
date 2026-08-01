@@ -63,6 +63,7 @@
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/collision/convex_manifold.hpp>
 #include <SushiEngine/physics/collision/manifold.hpp>
+#include <SushiEngine/physics/collision/sdf_manifold.hpp>
 #include <SushiEngine/physics/geometry/shapes.hpp>
 
 namespace SushiEngine
@@ -104,6 +105,11 @@ namespace SushiEngine
 
             Vector3T<T> plane_normal{Vector3T<T>{T(0), T(1), T(0)}};
             T plane_offset = 0;
+
+            const float* sdf_distances = nullptr; /**< Signed-distance field, §7.5. */
+            std::int32_t sdf_resolution = 0;
+            Vector3T<T> sdf_field_min{Vector3T<T>{T(0), T(0), T(0)}};
+            Vector3T<T> sdf_field_max{Vector3T<T>{T(0), T(0), T(0)}};
         };
 
         /** @brief A sphere collider as a type-erased shape. */
@@ -180,6 +186,34 @@ namespace SushiEngine
         }
 
         /**
+         * @brief A cooked signed-distance field as a type-erased shape (§7.5).
+         *
+         * @param distances  The baked cube, `resolution^3` values, in the asset's
+         *                   own local frame; not owned, must outlive the shape.
+         * @param resolution Voxels per axis.
+         * @param field_min  Padded local-space bounds minimum.
+         * @param field_max  Padded local-space bounds maximum.
+         * @param center     World placement of the asset's local origin.
+         * @param orientation World placement of the asset's local frame.
+         */
+        template <typename T>
+        inline CollisionShape<T> make_sdf_shape(
+            const float* distances, std::int32_t resolution, const Vector3T<T>& field_min,
+            const Vector3T<T>& field_max, const Vector3T<T>& center,
+            const QuaternionT<T>& orientation = QuaternionT<T>{T(0), T(0), T(0), T(1)}) noexcept
+        {
+            CollisionShape<T> shape;
+            shape.type = ShapeType::signed_distance_field;
+            shape.center = center;
+            shape.orientation = orientation;
+            shape.sdf_distances = distances;
+            shape.sdf_resolution = resolution;
+            shape.sdf_field_min = field_min;
+            shape.sdf_field_max = field_max;
+            return shape;
+        }
+
+        /**
          * @brief How a concrete shape type relates to the type-erased one.
          *
          * The registration point: a specialization names the enumerator and says
@@ -226,6 +260,23 @@ namespace SushiEngine
         };
 
         template <typename T>
+        struct ShapeTraits<T, SdfCollider<T>>
+        {
+            static constexpr ShapeType type = ShapeType::signed_distance_field;
+            static SdfCollider<T> from(const CollisionShape<T>& shape) noexcept
+            {
+                SdfCollider<T> field;
+                field.distances = shape.sdf_distances;
+                field.resolution = shape.sdf_resolution;
+                field.field_min = shape.sdf_field_min;
+                field.field_max = shape.sdf_field_max;
+                field.center = shape.center;
+                field.orientation = shape.orientation;
+                return field;
+            }
+        };
+
+        template <typename T>
         struct ShapeTraits<T, ConvexHullView<T>>
         {
             static constexpr ShapeType type = ShapeType::convex_hull;
@@ -264,6 +315,8 @@ namespace SushiEngine
                     return world_bounds(ShapeTraits<T, CapsuleCollider<T>>::from(shape));
                 case ShapeType::convex_hull:
                     return world_bounds(ShapeTraits<T, ConvexHullView<T>>::from(shape));
+                case ShapeType::signed_distance_field:
+                    return world_bounds(ShapeTraits<T, SdfCollider<T>>::from(shape));
                 default:
                     break;
             }
@@ -342,6 +395,42 @@ namespace SushiEngine
             return manifold;
         }
 
+        /** @brief Table entry for a convex shape against a signed-distance field. */
+        template <typename T, typename ShapeA>
+        inline ContactManifold<T> convex_sdf_entry(const CollisionShape<T>& a,
+                                                   const CollisionShape<T>& b, T contact_offset,
+                                                   T /*face_tolerance*/) noexcept
+        {
+            return generate_convex_sdf_manifold<T>(ShapeTraits<T, ShapeA>::from(a),
+                                                    ShapeTraits<T, SdfCollider<T>>::from(b),
+                                                    a.center, a.orientation, contact_offset);
+        }
+
+        /**
+         * @brief Table entry for a field against a convex shape: the flip of the above.
+         *
+         * Same reasoning as @ref plane_convex_entry: the table is indexed by the
+         * ordered pair, so both orders must resolve without the caller sorting
+         * its shapes first.
+         */
+        template <typename T, typename ShapeB>
+        inline ContactManifold<T> sdf_convex_entry(const CollisionShape<T>& a,
+                                                   const CollisionShape<T>& b, T contact_offset,
+                                                   T /*face_tolerance*/) noexcept
+        {
+            ContactManifold<T> manifold = generate_convex_sdf_manifold<T>(
+                ShapeTraits<T, ShapeB>::from(b), ShapeTraits<T, SdfCollider<T>>::from(a), b.center,
+                b.orientation, contact_offset);
+            manifold.normal = manifold.normal * T(-1);
+            for (std::size_t i = 0; i < manifold.point_count; ++i)
+            {
+                const Vector3T<T> swap = manifold.points[i].anchor_a_local;
+                manifold.points[i].anchor_a_local = manifold.points[i].anchor_b_local;
+                manifold.points[i].anchor_b_local = swap;
+            }
+            return manifold;
+        }
+
         /**
          * @brief The narrowphase dispatch table: one function pointer per ordered shape pair.
          *
@@ -381,6 +470,10 @@ namespace SushiEngine
                       &convex_plane_entry<T, ShapeA>);
             table.set(ShapeType::plane, ShapeTraits<T, ShapeA>::type,
                       &plane_convex_entry<T, ShapeA>);
+            table.set(ShapeTraits<T, ShapeA>::type, ShapeType::signed_distance_field,
+                      &convex_sdf_entry<T, ShapeA>);
+            table.set(ShapeType::signed_distance_field, ShapeTraits<T, ShapeA>::type,
+                      &sdf_convex_entry<T, ShapeA>);
         }
 
         /** @brief Fills the whole convex block, plus every convex/plane pairing. */

@@ -306,6 +306,40 @@ namespace SushiEngine
             }
 
             /**
+             * @brief The asset's distance field as a shape, placed in the world (§7.5).
+             *
+             * The same placement contract as @ref collision_asset_hull: the field's
+             * bounds are stored in the asset's own local frame, and putting the
+             * asset in the world is the caller's job, which is what lets one cooked
+             * asset's field be shared by every instance of it.
+             *
+             * @param view        A validated asset.
+             * @param center      World placement of the asset's local origin.
+             * @param orientation World placement of the asset's local frame.
+             * @return The field view, pointing into the blob; empty (a null
+             *         `distances` pointer) when the asset carries no field.
+             */
+            inline SdfCollider<Scalar> collision_asset_field(const CollisionAssetView& view,
+                                                              const Vector3& center,
+                                                              const Quaternion& orientation) noexcept
+            {
+                SdfCollider<Scalar> field;
+                if (view.distances == nullptr || view.field_resolution == 0)
+                    return field;
+                field.distances = view.distances;
+                field.resolution = std::int32_t(view.field_resolution);
+                field.field_min =
+                    Vector3{Scalar(view.field_min[0]), Scalar(view.field_min[1]),
+                           Scalar(view.field_min[2])};
+                field.field_max =
+                    Vector3{Scalar(view.field_max[0]), Scalar(view.field_max[1]),
+                           Scalar(view.field_max[2])};
+                field.center = center;
+                field.orientation = orientation;
+                return field;
+            }
+
+            /**
              * @brief The asset's static triangle geometry as a shape, or an empty view.
              *
              * @param view A validated asset.

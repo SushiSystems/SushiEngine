@@ -38,8 +38,11 @@
  * `double`), so a shape crosses into device code untouched.
  */
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 
 #include <SushiEngine/core/types.hpp>
 
@@ -63,6 +66,14 @@ namespace SushiEngine
             oriented_box,
             capsule,
             convex_hull,
+            /**
+             * @brief A cooked signed-distance field, placed in the world (§7.5).
+             *
+             * Not a bounded convex set — like `plane`, it takes explicit dispatch
+             * entries rather than a `support()` overload, because there is no
+             * meaningful "furthest point along a direction" for an implicit volume.
+             */
+            signed_distance_field,
             count
         };
 
@@ -302,6 +313,173 @@ namespace SushiEngine
              */
             T convex_radius = 0;
         };
+
+        /**
+         * @brief A cooked signed-distance field, placed in the world.
+         *
+         * A non-owning view over a `.sushicollision` blob's baked field (§8.4,
+         * `physics/cooking/collision_asset.hpp`), the same reference-not-own
+         * pattern `ConvexHullView` uses for a hull's vertices. `distances` holds
+         * `resolution^3` values in the asset's own local frame, indexed
+         * `x + resolution * (y + resolution * z)`; @ref center and @ref
+         * orientation place that frame in the world, exactly as they do for every
+         * other shape here.
+         *
+         * Deliberately not part of `ConvexShapes` (§4.2): an implicit volume has
+         * no support function, so it takes explicit narrowphase entries instead —
+         * `physics/collision/sdf_manifold.hpp` — the same treatment a half-space
+         * plane gets and for the same reason.
+         */
+        template <typename T>
+        struct SdfCollider
+        {
+            const float* distances = nullptr;
+            std::int32_t resolution = 0;
+            /** @brief Padded bounds of the baked cube, in the asset's own local frame. */
+            Vector3T<T> field_min{Vector3T<T>{T(0), T(0), T(0)}};
+            Vector3T<T> field_max{Vector3T<T>{T(0), T(0), T(0)}};
+            Vector3T<T> center{Vector3T<T>{T(0), T(0), T(0)}};
+            QuaternionT<T> orientation{QuaternionT<T>{T(0), T(0), T(0), T(1)}};
+        };
+
+        /**
+         * @brief Half a voxel, in world units — the step a central-difference
+         *        gradient samples at.
+         *
+         * Half a voxel rather than a fixed epsilon: a field baked at the fidelity
+         * dial's lowest resolution has voxels centimetres wide, and a fixed
+         * millimetre step would sample the same voxel twice and report a zero
+         * gradient there.
+         */
+        template <typename T>
+        inline T sdf_gradient_epsilon(const SdfCollider<T>& field) noexcept
+        {
+            if (field.resolution <= 0)
+                return T(1e-3);
+            const Vector3T<T> span = field.field_max - field.field_min;
+            const T smallest = std::min(span.x, std::min(span.y, span.z));
+            const T voxel = smallest / T(field.resolution);
+            return voxel * T(0.5);
+        }
+
+        /**
+         * @brief Nearest-voxel sample of the field at a point in its own local frame.
+         *
+         * The same convention `Cooking::collision_asset_distance` uses — clamped
+         * to the brick rather than refused, because a query outside the padded
+         * bounds (a shape still approaching from a distance) is the ordinary
+         * case, and the nearest boundary voxel is the furthest-outside value
+         * available, which is the right answer there.
+         *
+         * @return The signed distance, or the largest finite @p T when the field
+         *         is empty — a caller must treat that as "nothing to collide
+         *         with" rather than as a real, very-far-away sample.
+         */
+        template <typename T>
+        inline T sdf_sample_local(const SdfCollider<T>& field,
+                                  const Vector3T<T>& local_point) noexcept
+        {
+            if (field.distances == nullptr || field.resolution <= 0)
+                return std::numeric_limits<T>::max();
+
+            const T component[3] = {local_point.x, local_point.y, local_point.z};
+            const T low[3] = {field.field_min.x, field.field_min.y, field.field_min.z};
+            const T high[3] = {field.field_max.x, field.field_max.y, field.field_max.z};
+            std::int32_t voxel[3];
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                const T span = high[axis] - low[axis];
+                if (!(span > T(0)))
+                    return std::numeric_limits<T>::max();
+                const T normalized = (component[axis] - low[axis]) / span;
+                std::int32_t index = static_cast<std::int32_t>(normalized * T(field.resolution));
+                if (index < 0)
+                    index = 0;
+                if (index >= field.resolution)
+                    index = field.resolution - 1;
+                voxel[axis] = index;
+            }
+            const std::size_t offset =
+                std::size_t(voxel[0]) +
+                std::size_t(field.resolution) *
+                    (std::size_t(voxel[1]) + std::size_t(field.resolution) * std::size_t(voxel[2]));
+            return T(field.distances[offset]);
+        }
+
+        /** @brief Nearest-voxel sample of the field at a point in world space. */
+        template <typename T>
+        inline T sdf_sample_world(const SdfCollider<T>& field,
+                                  const Vector3T<T>& world_point) noexcept
+        {
+            const Vector3T<T> local = rotate(conjugate(field.orientation), world_point - field.center);
+            return sdf_sample_local(field, local);
+        }
+
+        /**
+         * @brief The field's gradient at a world point, by central difference.
+         *
+         * A signed distance field's gradient is unit length and points away from
+         * the nearest surface point — outward whether the query is inside or
+         * outside the solid (the eikonal property `|grad d| = 1`) — so this
+         * doubles as the surface normal at whatever point turns out to be
+         * nearest, with no separate normal computation.
+         *
+         * Returns a fixed axis when the field is empty or the sample is outside
+         * the brick on every side (a degenerate case, not a direction to trust),
+         * so a caller never receives a zero vector to divide by.
+         */
+        template <typename T>
+        inline Vector3T<T> sdf_gradient_world(const SdfCollider<T>& field,
+                                              const Vector3T<T>& world_point) noexcept
+        {
+            const T epsilon = sdf_gradient_epsilon(field);
+            const Vector3T<T> local =
+                rotate(conjugate(field.orientation), world_point - field.center);
+            const T dx = sdf_sample_local(field, local + Vector3T<T>{epsilon, T(0), T(0)}) -
+                        sdf_sample_local(field, local - Vector3T<T>{epsilon, T(0), T(0)});
+            const T dy = sdf_sample_local(field, local + Vector3T<T>{T(0), epsilon, T(0)}) -
+                        sdf_sample_local(field, local - Vector3T<T>{T(0), epsilon, T(0)});
+            const T dz = sdf_sample_local(field, local + Vector3T<T>{T(0), T(0), epsilon}) -
+                        sdf_sample_local(field, local - Vector3T<T>{T(0), T(0), epsilon});
+            Vector3T<T> local_gradient{dx, dy, dz};
+            const T length_squared = dot(local_gradient, local_gradient);
+            // A flat sample (every neighbour reads the same value, at the edge of
+            // an empty field or a degenerate brick) has no direction to trust; a
+            // fixed axis is at least a stable, reproducible answer rather than a
+            // division by zero.
+            local_gradient = length_squared > T(1e-24)
+                                 ? local_gradient * (T(1) / std::sqrt(length_squared))
+                                 : Vector3T<T>{T(0), T(1), T(0)};
+            return rotate(field.orientation, local_gradient);
+        }
+
+        /** @brief The world-space box enclosing a signed-distance field's padded brick. */
+        template <typename T>
+        inline Aabb<T> world_bounds(const SdfCollider<T>& field) noexcept
+        {
+            if (field.resolution <= 0)
+                return Aabb<T>{field.center, field.center};
+            const Vector3T<T> corners_local[8] = {
+                Vector3T<T>{field.field_min.x, field.field_min.y, field.field_min.z},
+                Vector3T<T>{field.field_max.x, field.field_min.y, field.field_min.z},
+                Vector3T<T>{field.field_min.x, field.field_max.y, field.field_min.z},
+                Vector3T<T>{field.field_max.x, field.field_max.y, field.field_min.z},
+                Vector3T<T>{field.field_min.x, field.field_min.y, field.field_max.z},
+                Vector3T<T>{field.field_max.x, field.field_min.y, field.field_max.z},
+                Vector3T<T>{field.field_min.x, field.field_max.y, field.field_max.z},
+                Vector3T<T>{field.field_max.x, field.field_max.y, field.field_max.z}};
+            Vector3T<T> low = field.center + rotate(field.orientation, corners_local[0]);
+            Vector3T<T> high = low;
+            for (int i = 1; i < 8; ++i)
+            {
+                const Vector3T<T> world = field.center + rotate(field.orientation, corners_local[i]);
+                low = Vector3T<T>{std::min(low.x, world.x), std::min(low.y, world.y),
+                                  std::min(low.z, world.z)};
+                high = Vector3T<T>{std::max(high.x, world.x), std::max(high.y, world.y),
+                                   std::max(high.z, world.z)};
+            }
+            return Aabb<T>{low, high};
+        }
 
         /**
          * @brief One triangle of a mesh, in world space.
