@@ -21,7 +21,9 @@ add_library(sushi_sim STATIC runtime_simulation.cpp)
 # sushi_cooking is PUBLIC for the same reason: `physics_simulation.hpp` loads a
 # `.sushisoft` and a `.sushinodebeam` blob to build a soft body or a vehicle, and
 # `load_soft_body_blob`/`load_node_beam_blob` are compiled there rather than inline.
-target_link_libraries(sushi_sim PUBLIC SushiEngine sushi_atmosphere sushi_cooking)
+# sushi_import is PUBLIC because runtime_simulation.cpp calls import_gltf_skeleton
+# and import_gltf_animated directly to build crowd skeletons/clips from glTF.
+target_link_libraries(sushi_sim PUBLIC SushiEngine sushi_atmosphere sushi_cooking sushi_import)
 target_include_directories(sushi_sim PUBLIC "${CMAKE_SOURCE_DIR}/include")
 set_target_properties(sushi_sim PROPERTIES
     CXX_STANDARD 17

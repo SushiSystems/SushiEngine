@@ -194,6 +194,7 @@ namespace
                 out = it->second;
                 return true;
             }
+            bool rigid_debug_state(EntityId, RigidDebugState&) const override { return false; }
     };
 
     /** @brief Entity ids `1..count`, the shape a caller hands instancing. */

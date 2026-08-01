@@ -24,6 +24,7 @@
 #include "project_panel.hpp"
 
 #include "../animation/animated_mesh_preview.hpp"
+#include "../physics/cook_bake_state.hpp"
 #include "../scene/scene_commands.hpp"
 #include "../ui/panel_widgets.hpp"
 
@@ -64,11 +65,24 @@ namespace SushiEngine
                 return ext == ".gltf" || ext == ".glb";
             }
 
+            // Queues a mesh for the physics cooking pipeline the moment the project panel
+            // actually opens it, rather than only when an artist finds the Bake panel and
+            // presses its button. `CookBakeState::bake` is a no-op past the first call for
+            // an unchanged asset (§8.1's cache), so opening the same file twice costs one
+            // cache lookup, not a second cook.
+            void queue_mesh_for_cooking(EditorContext& context, const fs::path& path)
+            {
+                if (context.cook_bake_state == nullptr)
+                    return;
+                context.cook_bake_state->bake(path.string());
+            }
+
             // Routes a rigged glTF into the animated preview and opens the surfaces that
             // show the result — the Project panel's share of the character-loading flow
             // (the Animator panel's Load Character field is the other entry).
             void open_character_in_preview(EditorContext& context, const fs::path& path)
             {
+                queue_mesh_for_cooking(context, path);
                 if (context.animated_mesh_preview == nullptr || context.assets == nullptr)
                     return;
                 if (context.animated_mesh_preview->load_gltf(path.string().c_str(),
