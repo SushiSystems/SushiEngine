@@ -83,6 +83,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -100,14 +101,20 @@
 #include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
 #include <SushiEngine/physics/core/configuration.hpp>
+#include <SushiEngine/physics/aero/wind.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/scene/islands.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
 #include <SushiEngine/physics/soft/soft_body_instance.hpp>
 #include <SushiEngine/physics/soft/soft_body_scene.hpp>
+#include <SushiEngine/physics/soft/soft_rigid_shape_collision.hpp>
+#include <SushiEngine/physics/soft/soft_self_collision.hpp>
+#include <SushiEngine/physics/soft/soft_soft_collision.hpp>
+#include <SushiEngine/physics/cooking/node_beam_asset.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
 #include <SushiEngine/execution/context.hpp>
 #include <SushiEngine/physics/solver/runtime_graph_builder.hpp>
+#include <SushiEngine/physics/vehicle/vehicle_instance.hpp>
 #include <SushiEngine/sim/collider.hpp>
 #include <SushiEngine/sim/physics_services.hpp>
 #include <SushiEngine/sim/simulation.hpp>
@@ -202,6 +209,7 @@ namespace SushiEngine
                             continue;
                         entry.collider = desc.collider;
                         entry.filter = desc.collider.filter;
+                        entry.material = to_material(desc.material);
                         rigid_.push_back(entry);
                         rigid_index_.emplace(desc.id, rigid_.size() - 1);
                     }
@@ -245,6 +253,35 @@ namespace SushiEngine
                         return false;
                     out.position = from_vector(bodies_[slot].position);
                     out.orientation = from_quaternion(bodies_[slot].orientation);
+                    return true;
+                }
+
+                /** @copydoc IRigidBodyService::rigid_debug_state */
+                bool rigid_debug_state(EntityId id, RigidDebugState& out) const override
+                {
+                    if (!solver_)
+                        return false;
+                    const auto it = rigid_index_.find(id);
+                    if (it == rigid_index_.end())
+                        return false;
+                    refresh_bodies();
+                    const std::size_t slot = solver_->body_slot(rigid_[it->second].handle);
+                    if (slot >= bodies_.size())
+                        return false;
+
+                    // The bound comes from the same routine the broadphase uses on the same
+                    // shape, rather than from a stored proxy: a proxy is only as fresh as the
+                    // last index update, and a debug view whose boxes lag the bodies they
+                    // belong to is worse than none — it looks like a broadphase bug.
+                    const Physics::Aabb<T> bounds =
+                        Physics::shape_world_bounds(shape_for_slot(std::uint32_t(slot)));
+                    out.bounds_min = from_vector(bounds.min);
+                    out.bounds_max = from_vector(bounds.max);
+                    out.island = bodies_[slot].island_index;
+                    out.sleeping =
+                        Physics::has_any_flag(bodies_[slot].flags, Physics::BodyFlags::sleeping);
+                    out.is_static =
+                        Physics::has_any_flag(bodies_[slot].flags, Physics::BodyFlags::static_body);
                     return true;
                 }
 
@@ -604,6 +641,132 @@ namespace SushiEngine
                     return joint_events_;
                 }
 
+                // -- IVehicleService -----------------------------------------------
+
+                /** @copydoc IVehicleService::set_vehicles */
+                void set_vehicles(const std::vector<VehicleDesc>& vehicles) override
+                {
+                    if (vehicles.empty() && vehicles_.empty())
+                        return;
+                    if (vehicles_match(vehicles))
+                        return;
+                    ensure_solver();
+
+                    for (VehicleEntry& entry : vehicles_)
+                        if (entry.instance)
+                            entry.instance->destroy(*solver_);
+                    vehicles_.clear();
+                    vehicle_index_.clear();
+
+                    for (const VehicleDesc& desc : vehicles)
+                    {
+                        const Physics::Cooking::NodeBeamAssetView view =
+                            Physics::Cooking::load_node_beam_blob(desc.asset, desc.asset_size);
+                        if (!view.valid)
+                            continue;
+
+                        VehicleEntry entry;
+                        entry.entity = desc.id;
+                        entry.asset = desc.asset;
+                        entry.asset_size = desc.asset_size;
+                        entry.position = desc.position;
+                        entry.orientation = desc.orientation;
+                        entry.instance = std::make_unique<Physics::VehicleInstanceT<T>>();
+
+                        Physics::NodeBeamStructureSettings<T> settings;
+                        settings.position = to_vector(desc.position);
+                        settings.orientation = to_quaternion(desc.orientation);
+                        settings.velocity = to_vector(desc.velocity);
+
+                        if (!entry.instance->create(*solver_, view,
+                                                    to_vehicle_setup(desc.setup), settings))
+                            continue;
+
+                        entry.surface_indices.assign(
+                            view.surface_indices,
+                            view.surface_indices + view.surface_index_count);
+                        vehicle_index_.emplace(desc.id, vehicles_.size());
+                        vehicles_.push_back(std::move(entry));
+                    }
+                    // A vehicle is hundreds of bodies, so every proxy index the broadphase
+                    // holds is now stale - the same rebuild a rigid-body change forces.
+                    proxies_dirty_ = true;
+                    bodies_dirty_ = true;
+                }
+
+                /** @copydoc IVehicleService::set_vehicle_input */
+                bool set_vehicle_input(EntityId id, const VehicleInput& input) override
+                {
+                    const auto it = vehicle_index_.find(id);
+                    if (it == vehicle_index_.end())
+                        return false;
+                    vehicles_[it->second].input = input;
+                    return true;
+                }
+
+                /** @copydoc IVehicleService::vehicle_report */
+                bool vehicle_report(EntityId id, VehicleReport& out) const override
+                {
+                    const auto it = vehicle_index_.find(id);
+                    if (it == vehicle_index_.end())
+                        return false;
+                    out = vehicles_[it->second].report;
+                    return true;
+                }
+
+                /** @copydoc IVehicleService::vehicle_core_pose */
+                bool vehicle_core_pose(EntityId id, SolvedPose& out) const override
+                {
+                    const auto it = vehicle_index_.find(id);
+                    if (it == vehicle_index_.end() || !solver_)
+                        return false;
+                    const VehicleEntry& entry = vehicles_[it->second];
+                    if (!entry.instance || !entry.instance->structure().has_core())
+                        return false;
+                    Body core;
+                    if (!solver_->read_body(entry.instance->structure().core(), core))
+                        return false;
+                    out.position = from_vector(core.position);
+                    out.orientation = from_quaternion(core.orientation);
+                    return true;
+                }
+
+                /** @copydoc IVehicleService::vehicle_node_positions */
+                bool vehicle_node_positions(EntityId id, std::vector<Vector3>& out) const override
+                {
+                    const auto it = vehicle_index_.find(id);
+                    if (it == vehicle_index_.end() || !solver_)
+                        return false;
+                    const VehicleEntry& entry = vehicles_[it->second];
+                    if (!entry.instance)
+                        return false;
+                    const Physics::NodeBeamStructureT<T>& structure = entry.instance->structure();
+                    out.clear();
+                    out.reserve(structure.node_count());
+                    Body node;
+                    for (std::size_t i = 0; i < structure.node_count(); ++i)
+                    {
+                        if (!solver_->read_body(structure.node(i), node))
+                            continue;
+                        out.push_back(from_vector(node.position));
+                    }
+                    return true;
+                }
+
+                /** @copydoc IVehicleService::vehicle_surface */
+                bool vehicle_surface(EntityId id, std::vector<Vector3>& positions,
+                                     std::vector<std::uint32_t>& indices) const override
+                {
+                    const auto it = vehicle_index_.find(id);
+                    if (it == vehicle_index_.end())
+                        return false;
+                    const VehicleEntry& entry = vehicles_[it->second];
+                    if (entry.surface_indices.empty() || !vehicle_node_positions(id, positions))
+                        return false;
+                    indices = entry.surface_indices;
+                    return true;
+                }
+
                 // -- IPhysicsStepper -----------------------------------------------
 
                 /**
@@ -627,7 +790,8 @@ namespace SushiEngine
                  * @param substeps A floor under the derived substep count, not the
                  *                 count itself; see this file's header.
                  */
-                void step(const GravitySampler& gravity, std::size_t substeps) override
+                void step(const GravitySampler& gravity, const WindSampler& wind,
+                          std::size_t substeps) override
                 {
                     const std::size_t floor = substeps > 0 ? substeps : 1;
                     const T delta_time = T(floor) * substep_dt_;
@@ -662,7 +826,7 @@ namespace SushiEngine
 
                     bodies_dirty_ = true;
                     refresh_bodies();
-                    apply_gravity_field(gravity);
+                    apply_gravity_field(gravity, wind);
                     timer.lap(stage_timings_.write_back_ms);
                     refresh_contact_index(delta_time);
                     timer.lap(stage_timings_.broadphase_ms);
@@ -675,6 +839,12 @@ namespace SushiEngine
                     // body. Passing it here as well would apply it twice.
                     parameters.gravity = Vector3T<T>{T(0), T(0), T(0)};
                     parameters.substep_floor = floor;
+                    // The vehicles' own half of the tick, spent *after* the contacts are
+                    // submitted and before the solve: the tyre model reads the normal load
+                    // off this tick's manifolds (§11.5), so it cannot run before they
+                    // exist, and it puts velocity impulses on the wheels, so it cannot run
+                    // after they have been solved.
+                    step_vehicles_begin(delta_time);
                     solver_->step(parameters);
                     // Discarded rather than recorded: the solve's cost is the solver's
                     // own measurement, and a host clock around a `run()` would also be
@@ -687,6 +857,11 @@ namespace SushiEngine
                     // topology change never happens against a running graph (§6.6).
                     // The load it is tested against came off the device with the joint.
                     break_overloaded_joints();
+                    // Beams dent, mounts tear out, and a part that has lost its last tie is
+                    // reported as having come off - all of it at the tick boundary, for the
+                    // same reason breaking a joint is: a topology change never happens
+                    // against a running graph (§6.6).
+                    step_vehicles_end();
 
                     bodies_dirty_ = true;
                     refresh_bodies();
@@ -893,6 +1068,18 @@ namespace SushiEngine
                     Physics::BodyHandle handle;
                     Collider collider{};
                     Physics::CollisionFilter filter{};
+
+                    /**
+                     * @brief The surface this body contacts as.
+                     *
+                     * Held per body rather than referenced by `RigidBodyT::material_index`
+                     * into a scene table, because there is no scene table: the index exists
+                     * so a *device* kernel can reach a material without a pointer, and the
+                     * manifold pass that needs one here runs on the host, where the body's
+                     * own record is already in hand. A table would be a second place a
+                     * material could live and a second thing to keep in step.
+                     */
+                    Physics::PhysicsMaterialT<T> material{};
                 };
 
                 /**
@@ -947,6 +1134,38 @@ namespace SushiEngine
                     EntityId entity = NULL_ENTITY;
                     SoftKey key;
                     Physics::SoftBodyInstance instance;
+                };
+
+                /**
+                 * @brief One hybrid vehicle, its controls, and what its drivetrain did.
+                 *
+                 * The instance is held behind a pointer because `VehicleInstanceT` deletes
+                 * its copy constructor and therefore has no implicit move either — a value
+                 * of it cannot live in a vector at all. That is the right property for the
+                 * type (it owns solver handles; copying one would double-free a world) and
+                 * the pointer is what lets a set of them be reconciled.
+                 */
+                struct VehicleEntry
+                {
+                    EntityId entity = NULL_ENTITY;
+                    std::unique_ptr<Physics::VehicleInstanceT<T>> instance;
+                    VehicleInput input;
+                    VehicleReport report;
+
+                    /**
+                     * @brief The shell's surface triangles, copied out of the blob at create.
+                     *
+                     * Copied rather than borrowed because the view is not retained past the
+                     * call that built the vehicle — the caller owns those bytes and is free
+                     * to free them — and the render extract asks for these every frame.
+                     */
+                    std::vector<std::uint32_t> surface_indices;
+
+                    /** @brief What the last `set_vehicles` built this from, to diff against. */
+                    const std::byte* asset = nullptr;
+                    std::size_t asset_size = 0;
+                    Vector3 position;
+                    Quaternion orientation;
                 };
 
                 /** @brief One cloth grid and the shape of it. */
@@ -1161,6 +1380,7 @@ namespace SushiEngine
                     out.target = T(motor.target);
                     out.max_force = T(motor.max_force);
                     out.compliance = T(motor.compliance);
+                    out.damping = T(motor.damping);
                     out.mode = static_cast<Physics::JointMotorMode>(
                         static_cast<std::uint32_t>(motor.type));
                     return out;
@@ -1243,6 +1463,7 @@ namespace SushiEngine
                 {
                     entry.collider = desc.collider;
                     entry.filter = desc.collider.filter;
+                    entry.material = to_material(desc.material);
                     Body body;
                     if (!solver_->read_body(entry.handle, body))
                         return;
@@ -1251,6 +1472,128 @@ namespace SushiEngine
                     body.drag_coefficient = T(desc.drag_coefficient);
                     solver_->write_body(entry.handle, body);
                     bodies_dirty_ = true;
+                }
+
+                /**
+                 * @brief Whether @p vehicles is the set already built, in the same order.
+                 *
+                 * A vehicle is four hundred bodies placed relative to a cooked structure, so
+                 * there is no patching one: the question this answers is only "may the
+                 * rebuild be skipped entirely". Compared by asset bytes and root pose,
+                 * because those are what instancing reads — a setup change *does* need the
+                 * rebuild, and is caught by the caller reissuing the set.
+                 *
+                 * @param vehicles The requested set.
+                 */
+                bool vehicles_match(const std::vector<VehicleDesc>& vehicles) const noexcept
+                {
+                    if (vehicles.size() != vehicles_.size())
+                        return false;
+                    for (std::size_t i = 0; i < vehicles.size(); ++i)
+                    {
+                        const VehicleEntry& entry = vehicles_[i];
+                        const VehicleDesc& desc = vehicles[i];
+                        if (entry.entity != desc.id || entry.asset != desc.asset ||
+                            entry.asset_size != desc.asset_size)
+                            return false;
+                        if (entry.position.x != desc.position.x ||
+                            entry.position.y != desc.position.y ||
+                            entry.position.z != desc.position.z)
+                            return false;
+                    }
+                    return true;
+                }
+
+                /**
+                 * @brief The authored vehicle setup at this solver's precision.
+                 *
+                 * A field-by-field conversion for the same reason `to_material` is one: `T`
+                 * is not always the boundary's `Scalar`, and a `VehicleAssetT<double>` is
+                 * not a `VehicleAssetT<float>` whatever their layouts happen to be.
+                 *
+                 * @param setup The authored vehicle.
+                 */
+                static const Physics::VehicleAssetT<T>& to_vehicle_setup(
+                    const Physics::VehicleAssetT<Scalar>& setup) noexcept
+                {
+                    static_assert(std::is_same_v<T, Scalar>,
+                                  "the vehicle setup crosses the boundary as a value rather "
+                                  "than as a blob, so this pass-through is only correct while "
+                                  "the solve runs at the boundary's own precision; a narrower "
+                                  "solve needs a real field-by-field conversion here, and "
+                                  "silently reinterpreting one would be a wrong car");
+                    return setup;
+                }
+
+                /**
+                 * @brief Spends every vehicle's input and runs its drivetrain, tyres and drag.
+                 *
+                 * The input is *spent*, not consumed: throttle is a state an input device
+                 * holds down, so a caller that stops calling `set_vehicle_input` keeps the
+                 * pedal where it left it, which is what a pedal does.
+                 *
+                 * @param delta_time The tick's duration, in seconds.
+                 */
+                void step_vehicles_begin(T delta_time)
+                {
+                    for (VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        Physics::VehicleInstanceT<T>& vehicle = *entry.instance;
+                        vehicle.set_throttle(T(entry.input.throttle));
+                        vehicle.set_clutch(T(entry.input.clutch));
+                        vehicle.select_gear(entry.input.gear);
+                        vehicle.set_steer_angle(*solver_, T(entry.input.steer));
+                        vehicle.set_brake_torque(*solver_, T(entry.input.brake));
+
+                        const Physics::PowertrainReportT<T> report =
+                            vehicle.begin_tick(*solver_, delta_time);
+                        entry.report.engine_rate = Scalar(report.engine_rate);
+                        entry.report.engine_torque = Scalar(report.engine_torque);
+                        entry.report.clutch_torque = Scalar(report.clutch_torque);
+                        entry.report.clutch_slip = Scalar(report.clutch_slip);
+                        entry.report.clutch_slipping = report.clutch_slipping;
+                    }
+                }
+
+                /** @brief Runs every vehicle's tick boundary: plasticity, breakage, detachment. */
+                void step_vehicles_end()
+                {
+                    for (VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        const Physics::NodeBeamTickReport report =
+                            entry.instance->end_tick(*solver_);
+                        entry.report.beams_broken += report.beams_broken;
+                        entry.report.parts_detached += report.parts_detached;
+                    }
+                }
+
+                /**
+                 * @brief The boundary's surface material at this solver's precision.
+                 *
+                 * A field-by-field conversion rather than a cast of the whole struct, because
+                 * `T` is not always the boundary's `Scalar` — the cosmetic column runs at
+                 * `float` (§6.5) — and a `PhysicsMaterialT<double>` is not a
+                 * `PhysicsMaterialT<float>` whatever their layouts happen to be.
+                 *
+                 * @param material The authored surface.
+                 */
+                static Physics::PhysicsMaterialT<T> to_material(
+                    const Physics::PhysicsMaterialT<Scalar>& material) noexcept
+                {
+                    Physics::PhysicsMaterialT<T> out;
+                    out.static_friction = T(material.static_friction);
+                    out.dynamic_friction = T(material.dynamic_friction);
+                    out.restitution = T(material.restitution);
+                    out.density = T(material.density);
+                    out.rolling_friction = T(material.rolling_friction);
+                    out.spinning_friction = T(material.spinning_friction);
+                    out.friction_combine = material.friction_combine;
+                    out.restitution_combine = material.restitution_combine;
+                    return out;
                 }
 
                 /**
@@ -1300,30 +1643,219 @@ namespace SushiEngine
                     return true;
                 }
 
+                /** @brief Which closed-form shape a rigid collider becomes for a soft-rigid contact (§9.6.1). */
+                static Physics::SoftRigidPrimitiveKind to_primitive_kind(ColliderShape shape) noexcept
+                {
+                    switch (shape)
+                    {
+                        case ColliderShape::Sphere:
+                            return Physics::SoftRigidPrimitiveKind::Sphere;
+                        case ColliderShape::Capsule:
+                            return Physics::SoftRigidPrimitiveKind::Capsule;
+                        case ColliderShape::Plane:
+                            return Physics::SoftRigidPrimitiveKind::Plane;
+                        case ColliderShape::Box:
+                        case ColliderShape::CookedAsset:
+                            break;
+                    }
+                    // A cooked asset has no baked field reachable from this seam yet, so
+                    // it takes the same bounding-box placeholder `collider_shape<T>`
+                    // already uses for the rigid narrowphase — a stated approximation,
+                    // not a silently invented one.
+                    return Physics::SoftRigidPrimitiveKind::Box;
+                }
+
                 /**
-                 * @brief Re-admits the gameplay-column bodies to the interleaved scene.
+                 * @brief Re-admits the gameplay-column bodies to the interleaved scene,
+                 *        and rebuilds every soft-body collider alongside them (§9.6).
                  *
-                 * Only the gameplay column, and the omission is the design rather than a
-                 * gap. `SoftBodyScene<T>` interleaves substeps so that two bodies in
-                 * contact see each other's mid-substep state — without which a stack of
-                 * soft bodies cannot be correct however good the contact code is (§9.6).
-                 * But it interleaves bodies of *one* width, and a cosmetic body is stored
-                 * at another. A body that opted out of precision has, by §6.5's own
-                 * definition, opted out of being something another body's correctness
-                 * depends on, so it steps alone.
+                 * Only the gameplay column joins `soft_scene_` or gets a collider, and
+                 * the omission is the design rather than a gap. `SoftBodyScene<T>`
+                 * interleaves substeps so that two bodies in contact see each other's
+                 * mid-substep state — without which a stack of soft bodies cannot be
+                 * correct however good the contact code is (§9.6). But it interleaves
+                 * bodies of *one* width, and a cosmetic body is stored at another. A
+                 * body that opted out of precision has, by §6.5's own definition,
+                 * opted out of being something another body's correctness depends on,
+                 * so it steps alone and free of collision, for now.
+                 *
+                 * Every non-trigger rigid body in the scene is a candidate soft-rigid
+                 * partner; there is no broadphase pairing here yet; a soft body is
+                 * already the expensive half of a tick (§16.21), and a handful of
+                 * closed-form point tests per rigid body is not what that cost is
+                 * dominated by. Two-way coupling is deliberately not attempted: pushing
+                 * a rigid body from the host, mid-tick, would fight whatever pose the
+                 * device solver is about to write back over it. A soft body rests on
+                 * and slides against rigid geometry today; it does not yet move it.
                  */
                 void rebuild_soft_scene()
                 {
                     soft_scene_.clear();
-                    for (SoftEntry& entry : soft_)
-                        if (Physics::FiniteElementModel<T>* model = entry.instance.gameplay_model())
-                            soft_scene_.add_body(model);
+                    soft_rigid_colliders_.clear();
+                    soft_rigid_targets_.clear();
+                    soft_self_colliders_.clear();
+                    soft_soft_colliders_.clear();
+                    soft_collider_sets_.assign(soft_.size(), Physics::SoftBodyColliderSet<T>{});
+
+                    const T restitution_threshold = T(2) * T(9.81) * substep_dt_;
+
+                    for (std::size_t i = 0; i < soft_.size(); ++i)
+                    {
+                        Physics::FiniteElementModel<T>* model = soft_[i].instance.gameplay_model();
+                        if (model == nullptr)
+                            continue;
+                        soft_scene_.add_body(model);
+
+                        if (soft_[i].key.self_collision)
+                        {
+                            soft_self_colliders_.push_back(Physics::SoftSelfCollider<T>{});
+                            Physics::SoftSelfCollider<T>& self = soft_self_colliders_.back();
+                            self.surface.surface_indices = model->surface_indices.data();
+                            self.surface.index_count = model->surface_indices.size();
+                            self.surface.collision = model->collision;
+                            self.restitution_threshold = restitution_threshold;
+                            soft_collider_sets_[i].add(&self);
+                        }
+
+                        for (std::size_t j = 0; j < rigid_.size(); ++j)
+                        {
+                            if (Physics::has_any_flag(rigid_[j].collider.flags,
+                                                      Physics::BodyFlags::trigger))
+                                continue;
+
+                            soft_rigid_colliders_.push_back(Physics::SoftRigidPrimitiveCollider<T>{});
+                            Physics::SoftRigidPrimitiveCollider<T>& partner =
+                                soft_rigid_colliders_.back();
+                            partner.kind = to_primitive_kind(rigid_[j].collider.shape);
+                            partner.surface_vertices = model->surface_vertices.data();
+                            partner.surface_vertex_count = model->surface_vertices.size();
+                            partner.contact_offset = model->collision.thickness;
+                            partner.params = Physics::make_contact_params(
+                                model->collision.surface, Physics::PhysicsMaterialT<T>{},
+                                model->collision.thickness, restitution_threshold);
+                            // `configured` stays false — set by the first per-tick
+                            // refresh, never by this shape's default placement.
+                            soft_rigid_targets_.push_back(j);
+                            soft_collider_sets_[i].add(&partner);
+                        }
+
+                        model->attach_collider(&soft_collider_sets_[i]);
+                    }
+
+                    // §9.6.2: every pair of gameplay-column bodies, unconditionally —
+                    // unlike self-collision there is no opt-out in `SoftBodyCollisionSettings`,
+                    // since two distinct bodies touching is the ordinary case a scene needs
+                    // rather than the expensive extra self-collision is.
+                    for (std::size_t i = 0; i < soft_.size(); ++i)
+                    {
+                        Physics::FiniteElementModel<T>* model_i = soft_[i].instance.gameplay_model();
+                        if (model_i == nullptr)
+                            continue;
+                        for (std::size_t k = i + 1; k < soft_.size(); ++k)
+                        {
+                            Physics::FiniteElementModel<T>* model_k =
+                                soft_[k].instance.gameplay_model();
+                            if (model_k == nullptr)
+                                continue;
+
+                            soft_soft_colliders_.push_back(Physics::SoftSoftCollider<T>{});
+                            Physics::SoftSoftCollider<T>& pair = soft_soft_colliders_.back();
+                            pair.first = model_i->surface();
+                            pair.second = model_k->surface();
+                            pair.restitution_threshold = restitution_threshold;
+                            pair.build();
+                            soft_scene_.add_pair_collider(&pair);
+                        }
+                    }
+
+                    refresh_soft_colliders(substep_dt_);
+                }
+
+                /**
+                 * @brief Places every soft-rigid primitive collider at its rigid
+                 *        partner's current pose, and refreshes every soft collider's
+                 *        anti-jitter floor, once per tick.
+                 *
+                 * Reads `bodies_` as it stands at the top of the tick — last tick's
+                 * solved poses, refreshed at the end of `step` (§6.1's "read once per
+                 * tick" contract, the same one the SDF collider's own docs name). A
+                 * rigid slot not yet in `bodies_` (the very first tick a body exists)
+                 * is left `configured == false` rather than read at its default pose,
+                 * so nothing collides against the world origin for one stray tick.
+                 *
+                 * @param substep This tick's actual substep duration — the quantity
+                 *                both the restitution floor and the depenetration
+                 *                budget (§7.6, §16.19) are derived from, freshly
+                 *                each tick rather than from the configured target.
+                 */
+                void refresh_soft_colliders(T substep)
+                {
+                    const T restitution_threshold = T(2) * T(9.81) * substep;
+                    const T max_depenetration = MAX_DEPENETRATION_VELOCITY * substep;
+
+                    for (std::size_t n = 0; n < soft_rigid_colliders_.size(); ++n)
+                    {
+                        const std::size_t j = soft_rigid_targets_[n];
+                        Physics::SoftRigidPrimitiveCollider<T>& shape = soft_rigid_colliders_[n];
+                        shape.params.restitution_threshold = restitution_threshold;
+                        shape.params.max_depenetration = max_depenetration;
+                        if (!solver_ || j >= rigid_.size())
+                            continue;
+
+                        const std::size_t slot = solver_->body_slot(rigid_[j].handle);
+                        if (slot >= bodies_.size())
+                            continue;
+
+                        const Body& body = bodies_[slot];
+                        const Collider& collider = rigid_[j].collider;
+                        const Vector3T<T> offset =
+                            rotate(body.orientation, to_vector(collider.local_offset));
+
+                        switch (shape.kind)
+                        {
+                            case Physics::SoftRigidPrimitiveKind::Sphere:
+                                shape.sphere.center = body.position + offset;
+                                shape.sphere.radius = T(collider.radius);
+                                break;
+                            case Physics::SoftRigidPrimitiveKind::Capsule:
+                                shape.capsule.center = body.position + offset;
+                                shape.capsule.orientation = body.orientation;
+                                shape.capsule.half_height = T(collider.half_height);
+                                shape.capsule.radius = T(collider.radius);
+                                break;
+                            case Physics::SoftRigidPrimitiveKind::Plane:
+                                // A plane is authored directly in world space (§8.6) and
+                                // never reads the body's pose — see
+                                // `soft_rigid_shape_collision.hpp`'s file header.
+                                shape.plane.normal = normalize(to_vector(collider.half_extents));
+                                shape.plane.offset = T(collider.radius);
+                                break;
+                            case Physics::SoftRigidPrimitiveKind::Box:
+                                shape.box.center = body.position + offset;
+                                shape.box.orientation = body.orientation;
+                                shape.box.half_extents = to_vector(collider.half_extents);
+                                break;
+                        }
+                        shape.configured = true;
+                    }
+
+                    // The self- and soft-soft colliders carry the same anti-jitter
+                    // floor; refreshed alongside the rigid partners' poses so all
+                    // three read this tick's actual substep length rather than the
+                    // configured target `rebuild_soft_scene` seeded them with.
+                    for (Physics::SoftSelfCollider<T>& self : soft_self_colliders_)
+                        self.restitution_threshold = restitution_threshold;
+                    for (Physics::SoftSoftCollider<T>& pair : soft_soft_colliders_)
+                        pair.restitution_threshold = restitution_threshold;
                 }
 
                 /** @brief Advances every soft body by one tick, gameplay column together. */
                 void step_soft_bodies(const GravitySampler& gravity, T delta_time,
                                       std::size_t substeps)
                 {
+                    if (!soft_.empty())
+                        refresh_soft_colliders(delta_time / T(substeps > 0 ? substeps : 1));
+
                     for (SoftEntry& entry : soft_)
                     {
                         // Sampled at the body's own position, like a rigid body's, so a
@@ -1340,6 +1872,20 @@ namespace SushiEngine
                     for (SoftEntry& entry : soft_)
                         if (entry.instance.gameplay_model() == nullptr)
                             entry.instance.step(Scalar(delta_time), substeps);
+
+                    // §9.5, after every body has stepped: fracture reads the stress
+                    // `end_tick` just measured. `rebuild_soft_body_surface` (called
+                    // inside a fracture pass that actually removed something) replaces
+                    // `surface_indices`/`surface_vertices`, which is exactly what every
+                    // §9.6 collider above holds a raw pointer into — so a real fracture
+                    // this tick invalidates those pointers, and the only safe answer is
+                    // the same rebuild a membership change already triggers, not a
+                    // narrower patch-up that has to be right about which pointers moved.
+                    bool topology_changed = false;
+                    for (SoftEntry& entry : soft_)
+                        topology_changed |= entry.instance.step_fracture();
+                    if (topology_changed)
+                        rebuild_soft_scene();
                 }
 
                 /** @brief Whether @p grids describes exactly the cloths already built. */
@@ -1379,6 +1925,14 @@ namespace SushiEngine
                     // that never touched.
                     current_.clear();
                     previous_.clear();
+
+                    // §9.6's soft-rigid pairing depends on `rigid_` as much as on
+                    // `soft_`, and this is the one hook every setter that can change
+                    // `rigid_` (bodies, cloth) already calls — `set_soft_bodies` calls
+                    // `rebuild_soft_scene` directly instead of through here, so this is
+                    // not a double rebuild on that path, only coverage for the paths
+                    // that used to leave the pairing silently stale.
+                    rebuild_soft_scene();
                 }
 
                 /** @brief Brings the solver's bodies to the host mirror, if they moved. */
@@ -1407,20 +1961,32 @@ namespace SushiEngine
                 }
 
                 /**
-                 * @brief Samples the gravity field per body and folds it into each one.
+                 * @brief Samples both fields per body and folds them into each one.
                  *
                  * Per body, once per tick. The alternative — the uniform vector
                  * `StepParameters` carries — cannot express a planetary field, and
                  * sampling inside the substep loop is not available at all now that
                  * `predict` runs on the device (§6.6).
+                 *
+                 * Gravity and wind land in the same field and in the same pass because
+                 * they are the same kind of thing: a per-body acceleration the live world
+                 * knows and the solver must not (§4.5). Wind arrives as a *difference*
+                 * against the still-air drag `predict` will apply anyway, so a scene with
+                 * no wind installed is bit-for-bit the scene that had no wind seam at all
+                 * — see `physics/aero/wind.hpp`.
                  */
-                void apply_gravity_field(const GravitySampler& gravity)
+                void apply_gravity_field(const GravitySampler& gravity, const WindSampler& wind)
                 {
                     const std::size_t count = live_slot_count();
                     for (std::size_t slot = 0; slot < count; ++slot)
                     {
-                        const Vector3T<T> sampled =
-                            to_vector(gravity(from_vector(bodies_[slot].position)));
+                        const Vector3 position = from_vector(bodies_[slot].position);
+                        Vector3T<T> sampled = to_vector(gravity(position));
+                        if (wind)
+                        {
+                            sampled = sampled + Physics::wind_drag_acceleration(
+                                                    bodies_[slot], to_vector(wind(position)));
+                        }
                         bodies_[slot].external_acceleration = sampled;
                     }
                     write_every_body();
@@ -1671,12 +2237,16 @@ namespace SushiEngine
                     // What each slot collides as, resolved before any proxy is built,
                     // because building one asks the question.
                     collider_of_slot_.clear();
+                    material_of_slot_.clear();
                     cloth_radius_.assign(bodies_.size(), T(0));
                     for (const RigidEntry& entry : rigid_)
                     {
                         const std::size_t slot = solver_->body_slot(entry.handle);
                         if (slot < bodies_.size())
+                        {
                             collider_of_slot_.emplace(std::uint32_t(slot), entry.collider);
+                            material_of_slot_.emplace(std::uint32_t(slot), entry.material);
+                        }
                     }
                     for (const ClothEntry& entry : cloth_)
                         for (const Physics::BodyHandle handle : entry.grid.bodies)
@@ -1760,6 +2330,25 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief The surface @p slot contacts as, or the default for anything else.
+                 *
+                 * The default rather than a refusal, because the slots without an entry are
+                 * cloth particles, soft-body vertices and the standing plane body — none of
+                 * which is a rigid body an author gave a material to, and all of which have
+                 * to contact *something*. `PhysicsMaterialT`'s own defaults describe an
+                 * ordinary solid, so an unauthored surface behaves plausibly rather than
+                 * like frictionless glass.
+                 *
+                 * @param slot The body slot to resolve.
+                 */
+                const Physics::PhysicsMaterialT<T>& material_of(std::uint32_t slot) const noexcept
+                {
+                    static const Physics::PhysicsMaterialT<T> DEFAULT_MATERIAL{};
+                    const auto it = material_of_slot_.find(slot);
+                    return it == material_of_slot_.end() ? DEFAULT_MATERIAL : it->second;
+                }
+
+                /**
                  * @brief Generates this tick's manifolds and submits them as contacts.
                  *
                  * @param delta_time The tick's duration, in seconds.
@@ -1772,19 +2361,17 @@ namespace SushiEngine
                     current_.clear();
 
                     const T substep = delta_time / T(floor > 0 ? floor : 1);
-                    Physics::ContactSolveParams<T> params;
-                    params.rest_offset = REST_OFFSET;
-                    params.static_friction = T(0.6);
-                    params.dynamic_friction = T(0.5);
-                    params.restitution = T(0);
-                    // A resting body's contacts carry a closing speed of about
-                    // `g * h` every substep purely because gravity had a substep to
-                    // act; returning that is how a settled stack buzzes for ever.
-                    params.restitution_threshold = T(2) * T(9.81) * substep;
+                    // The two numbers that are properties of the *step* rather than of the
+                    // surfaces, resolved once here and folded into every pair's params below.
+                    //
+                    // A resting body's contacts carry a closing speed of about `g * h` every
+                    // substep purely because gravity had a substep to act; returning that is
+                    // how a settled stack buzzes for ever.
+                    const T restitution_threshold = T(2) * T(9.81) * substep;
                     // A velocity in the contract, a distance in the projection: the
                     // multiplication happens once, here, where the substep length is already
                     // known, so the projection stays a pure function of its parameters.
-                    params.max_depenetration = MAX_DEPENETRATION_VELOCITY * substep;
+                    const T max_depenetration = MAX_DEPENETRATION_VELOCITY * substep;
 
                     for (const Physics::BroadphasePair& pair : contact_index_.pairs())
                     {
@@ -1936,7 +2523,19 @@ namespace SushiEngine
                         contact.a = lhs.slot;
                         contact.b = rhs.slot;
                         contact.key = record.key;
-                        contact.params = params;
+                        // §5.3's materials, combined per pair rather than one constant for
+                        // the whole scene. Until now every contact in the world solved at
+                        // 0.6/0.5/0 whatever its surfaces said, which made `PhysicsMaterial`
+                        // a type nothing read. A side with no rigid body — the standing
+                        // plane, a cloth particle — resolves to the default surface, which
+                        // is deliberately a fixed ground rather than a mirror of whatever is
+                        // standing on it: an ice cube should be slippery *against the floor*,
+                        // and a floor that copied the cube's friction would cancel exactly
+                        // the difference the author authored.
+                        contact.params = Physics::make_contact_params(
+                            material_of(lhs.slot), material_of(rhs.slot), REST_OFFSET,
+                            restitution_threshold);
+                        contact.params.max_depenetration = max_depenetration;
                         contact.manifold = record.manifold;
                         solver_->add_contact(contact);
                     }
@@ -2175,6 +2774,20 @@ namespace SushiEngine
                 std::unordered_map<EntityId, std::size_t> soft_index_;
                 /** @brief Borrows into @ref soft_; rebuilt whenever that vector is. */
                 Physics::SoftBodyScene<T> soft_scene_;
+
+                // §9.6's colliders, one generation at a time. `std::deque` rather than
+                // `std::vector`: `soft_collider_sets_` and `soft_scene_` hold raw
+                // pointers into these three, taken while `rebuild_soft_scene` is still
+                // appending, and a deque never invalidates a reference to an element
+                // already in it — a vector would need every member counted before the
+                // first pointer could safely be handed out.
+                std::deque<Physics::SoftRigidPrimitiveCollider<T>> soft_rigid_colliders_;
+                /** @brief Parallel to @ref soft_rigid_colliders_: which @ref rigid_ entry each one tests against. */
+                std::vector<std::size_t> soft_rigid_targets_;
+                std::deque<Physics::SoftSelfCollider<T>> soft_self_colliders_;
+                std::deque<Physics::SoftSoftCollider<T>> soft_soft_colliders_;
+                /** @brief One set per @ref soft_ entry, combining its self- and rigid colliders. */
+                std::vector<Physics::SoftBodyColliderSet<T>> soft_collider_sets_;
                 std::vector<Physics::PlaneCollider<T>> planes_;
                 std::unordered_set<EntityId> seen_;
 
@@ -2210,7 +2823,17 @@ namespace SushiEngine
                 Physics::BvhBroadphase<T> contact_index_;
                 std::vector<ContactProxy> contact_proxies_;
                 std::vector<T> cloth_radius_;
+                // The scene's vehicles, and the index that finds one by entity. Held behind
+                // pointers because `VehicleInstanceT` is neither copyable nor movable, which
+                // is correct for a type that owns solver handles.
+                std::vector<VehicleEntry> vehicles_;
+                std::unordered_map<EntityId, std::size_t> vehicle_index_;
+
                 std::unordered_map<std::uint32_t, Collider> collider_of_slot_;
+                // What each rigid slot contacts as, rebuilt beside the colliders above and
+                // for the same reason: the manifold pass asks the question per pair, and
+                // walking `rigid_` for an answer would make it quadratic.
+                std::unordered_map<std::uint32_t, Physics::PhysicsMaterialT<T>> material_of_slot_;
                 std::vector<ContactRecord> current_;
                 std::vector<ContactRecord> previous_;
                 std::vector<ContactEvent> events_;

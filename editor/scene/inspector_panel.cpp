@@ -24,6 +24,7 @@
 #include "inspector_panel.hpp"
 
 #include "../audio/audio_panels.hpp"
+#include "../physics/joint_widgets.hpp"
 #include "../render/lighting_panel.hpp"
 #include "../scripting/script_panel.hpp"
 #include "../ui/component_editor.hpp"
@@ -31,6 +32,7 @@
 #include "../ui/panel_widgets.hpp"
 #include "../vfx/particle_panel.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -119,6 +121,60 @@ namespace SushiEngine
                 bool has_shape = true;
                 SushiEngine::Simulation::ShapeParams shape;
             };
+
+            /** @brief The amber the editor says "this will not do what you meant" in. */
+            ImVec4 warning_color() { return ImVec4(1.0f, 0.75f, 0.3f, 1.0f); }
+
+            /**
+             * @brief Draws the partner picker: which body this entity is jointed to.
+             *
+             * Only entities that carry a Rigid Body are offered, because only they can be an
+             * endpoint — an immovable endpoint is a body of zero inverse mass, not a missing
+             * one. An entity the author already picked that has since lost its body is still
+             * shown as the current value rather than silently reset to None, since resetting
+             * it would destroy authoring in response to an edit made somewhere else.
+             *
+             * @param context   Shared editor state; a combo commits in one frame, so the undo
+             *                  step is recorded on the pick rather than through the drag
+             *                  bracket the numeric rows use.
+             * @param world     The world, for the entity list and their names.
+             * @param owner     The entity that owns the joint; never offered as its own partner.
+             * @param connected The partner id, edited in place.
+             * @return Whether the partner changed this frame.
+             */
+            bool draw_joint_partner(EditorContext& context, IWorldEditor& world, EntityId owner,
+                                    EntityId& connected)
+            {
+                const std::string current =
+                    connected == NULL_ENTITY ? std::string("None") : world.name(connected);
+                bool changed = false;
+                if (ImGui::BeginCombo("Connected Body", current.c_str()))
+                {
+                    if (ImGui::Selectable("None", connected == NULL_ENTITY))
+                    {
+                        connected = NULL_ENTITY;
+                        changed = true;
+                    }
+                    for (const EntityId candidate : world.entities())
+                    {
+                        if (candidate == owner || !world.has_physics_body(candidate))
+                            continue;
+                        if (!ImGui::Selectable(world.name(candidate).c_str(),
+                                               candidate == connected))
+                            continue;
+                        connected = candidate;
+                        changed = true;
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The other body this one is attached to. Both ends must "
+                                      "have a Rigid Body; pin one by giving it an inverse mass "
+                                      "of zero rather than by leaving it out.");
+                if (changed)
+                    context.history.record(world);
+                return changed;
+            }
         } // namespace
 
         void draw_inspector_panel(EditorContext& context)
@@ -639,7 +695,213 @@ namespace SushiEngine
                                                 "in metres."
                                               : "X is the radius, Y the half height, in metres.");
                         }
+
+                        // §5.3's surface. Authored on the collider because that is where a
+                        // surface is: two crates of the same mesh can be ice and rubber, and
+                        // nothing about them is shared but the shape.
+                        ImGui::SeparatorText("Surface");
+                        editor.number("Static Friction",
+                                      &decltype(editor)::Values::static_friction, 0.01f, 0.0f,
+                                      2.0f, "%.2f",
+                                      "Resistance to a contact that is not yet sliding. Ice is "
+                                      "about 0.05, wood on wood 0.5, rubber on asphalt 1.0.");
+                        editor.number("Dynamic Friction",
+                                      &decltype(editor)::Values::dynamic_friction, 0.01f, 0.0f,
+                                      2.0f, "%.2f",
+                                      "Resistance once it is already sliding; at or a little "
+                                      "below the static value for a real surface.");
+                        editor.number("Restitution", &decltype(editor)::Values::restitution, 0.01f,
+                                      0.0f, 1.0f, "%.2f",
+                                      "How much closing speed comes back. Zero is a sandbag, "
+                                      "0.8 a superball. Below the anti-jitter threshold a "
+                                      "resting body does not bounce whatever this says.");
+                        static const char* const COMBINE_NAMES[] = {"Average", "Minimum",
+                                                                     "Multiply", "Maximum"};
+                        editor.choice("Friction Combine",
+                                      &decltype(editor)::Values::friction_combine, COMBINE_NAMES,
+                                      4,
+                                      "Both bodies have an opinion and the pair needs one "
+                                      "number. The stricter of the two modes wins, so a "
+                                      "surface that insists on Minimum cannot be overruled "
+                                      "into grip by whatever it touches.");
+                        editor.choice("Restitution Combine",
+                                      &decltype(editor)::Values::restitution_combine,
+                                      COMBINE_NAMES, 4,
+                                      "Maximum by default, deliberately: the mean of a "
+                                      "superball and concrete is neither, and an author who "
+                                      "made one object bouncy expects it to bounce.");
+
+                        // §14 asks for a Physics Material preview — "a ball dropped on a
+                        // ramp at the authored friction and restitution". These are that
+                        // scene's *answers*, derived rather than simulated, and the reason
+                        // is that they are exact: the angle at which an object begins to
+                        // slide is `atan(static friction)` and the height it returns to is
+                        // `restitution squared`, so a simulated ramp could only reproduce
+                        // these two numbers with noise on them. It would also need its own
+                        // render target and its own physics world, and neither buys an
+                        // author anything the two rows below do not already say.
+                        //
+                        // The same dimmed derived-column convention the Vehicle window
+                        // established: a coefficient nobody can picture, next to the
+                        // consequence everybody can.
+                        const double slide_degrees =
+                            std::atan(double(editor.values().static_friction)) * 57.2957795;
+                        const double bounce = double(editor.values().restitution) *
+                                              double(editor.values().restitution);
+                        ImGui::TextDisabled("Slides on a ramp past %.1f deg", slide_degrees);
+                        if (bounce > 0.0)
+                            ImGui::TextDisabled("Returns to %.0f%% of the height it fell from",
+                                                bounce * 100.0);
+                        else
+                            ImGui::TextDisabled("Does not bounce");
+
+                        // §7.7's filter. Two bodies interact only when *each* one's layer is
+                        // in the other's mask, which is what makes the relation symmetric by
+                        // construction — and what makes a one-sided exclusion do nothing.
+                        ImGui::SeparatorText("Collision Filter");
+                        editor.integer("Layer", &decltype(editor)::Values::layer, 0.1f, 0, 31,
+                                       "Which layer this body is in. One layer per body: "
+                                       "layer 0 is where everything unauthored lands and "
+                                       "layer 1 is the engine's own cloth layer.");
+                        std::uint32_t mask = editor.values().collides_with;
+                        bool mask_changed = false;
+                        if (ImGui::TreeNode("Collides With"))
+                        {
+                            for (int bit = 0; bit < 32; ++bit)
+                            {
+                                if (bit % 8 != 0)
+                                    ImGui::SameLine();
+                                ImGui::PushID(bit);
+                                bool on = (mask & (std::uint32_t(1) << bit)) != 0;
+                                if (ImGui::Checkbox("##layer", &on))
+                                {
+                                    mask = on ? (mask | (std::uint32_t(1) << bit))
+                                              : (mask & ~(std::uint32_t(1) << bit));
+                                    mask_changed = true;
+                                }
+                                if (ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("Layer %d", bit);
+                                ImGui::PopID();
+                            }
+                            ImGui::TreePop();
+                        }
+                        if (mask_changed)
+                        {
+                            context.history.record(*world);
+                            SushiEngine::Simulation::ColliderParams updated = editor.values();
+                            updated.collides_with = mask;
+                            editor.write_all(updated);
+                        }
                     }
+                }
+            }
+
+            if (world->has_joint(id))
+            {
+                const ComponentSection section = component_header(context, "Physics Joint");
+                if (section.remove)
+                {
+                    set_presence(&IWorldEditor::set_has_joint, false);
+                }
+                else
+                {
+                    using SushiEngine::Simulation::JointState;
+                    using SushiEngine::Simulation::PhysicsJointParams;
+
+                    const ComponentAccess<PhysicsJointParams> access{
+                        &IWorldEditor::has_joint, &IWorldEditor::joint_params,
+                        &IWorldEditor::set_joint_params};
+                    ComponentEditor<PhysicsJointParams> editor(context, *world, access, id);
+                    apply_component_section(context, section, "Physics Joint", editor);
+                    if (section.open)
+                    {
+                        // Edited through `mutable_values`/`write_primary` — the escape hatch
+                        // ComponentEditor documents — rather than through its pointer-to-
+                        // member field methods, which address one level. That is not merely
+                        // a workaround here: fanning a joint out across a selection would
+                        // attach every selected entity to the *same* partner at the *same*
+                        // anchor, which is never what an author means. A joint is authored
+                        // per entity because both of its endpoints are.
+                        PhysicsJointParams& values = editor.mutable_values();
+                        bool changed =
+                            draw_joint_partner(context, *world, id, values.connected_body);
+
+                        changed |= draw_joint_params(context, *world, values.joint);
+
+                        if (changed)
+                            editor.write_primary();
+
+                        // The live half. Three states an author has to be able to tell apart,
+                        // because all three look like "no load" from a number alone.
+                        ImGui::Separator();
+                        JointState load;
+                        if (world->joint_broken(id))
+                        {
+                            ImGui::TextColored(warning_color(),
+                                               "Broken. Edit any field above to put it back.");
+                        }
+                        else if (world->joint_load(id, load))
+                        {
+                            ImGui::Text("Load %.1f N, %.1f N.m", double(length(load.force)),
+                                        double(length(load.torque)));
+                            ImGui::TextDisabled("Peak this tick %.1f N, %.1f N.m",
+                                                double(load.peak_force),
+                                                double(load.peak_torque));
+                            if (values.joint.break_force > SushiEngine::Scalar(0))
+                                ImGui::TextDisabled(
+                                    "%.0f%% of its break force",
+                                    100.0 * double(load.peak_force / values.joint.break_force));
+                        }
+                        else if (values.connected_body == NULL_ENTITY)
+                        {
+                            ImGui::TextDisabled("Not connected: pick a body above.");
+                        }
+                        else if (!world->has_physics_body(id) ||
+                                 !world->has_physics_body(values.connected_body))
+                        {
+                            ImGui::TextColored(warning_color(),
+                                               "Both ends need a Rigid Body before this holds "
+                                               "anything.");
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("Live on the next step.");
+                        }
+                    }
+                }
+            }
+
+            if (world->has_vehicle(id))
+            {
+                // No `ComponentEditor` here: a vehicle's authoring is a path plus a large
+                // nested setup the Vehicle window owns, and fanning one across a selection
+                // would build every selected entity into the same car. This section says
+                // what is on the entity and sends the author to the window that edits it.
+                const ComponentSection section = component_header(context, "Vehicle", false);
+                if (section.remove)
+                {
+                    set_presence(&IWorldEditor::set_has_vehicle, false);
+                }
+                else if (section.open)
+                {
+                    const SushiEngine::Simulation::VehicleInstanceParams params =
+                        world->vehicle_params(id);
+                    if (params.asset_path.empty())
+                        ImGui::TextDisabled("No structure named yet.");
+                    else
+                        ImGui::TextWrapped("%s", params.asset_path.c_str());
+
+                    SushiEngine::Simulation::VehicleReport report;
+                    if (world->vehicle_report(id, report))
+                        ImGui::Text("%.0f rpm, %d parts off",
+                                    double(report.engine_rate) * 9.5493,
+                                    int(report.parts_detached));
+                    else if (!params.asset_path.empty())
+                        ImGui::TextColored(warning_color(),
+                                           "The structure did not load as a node-beam asset.");
+
+                    if (ImGui::Button("Open Vehicle Window"))
+                        context.panels.vehicle = true;
                 }
             }
 
@@ -1070,6 +1332,10 @@ namespace SushiEngine
                     set_presence(&IWorldEditor::set_has_decal, true);
                 if (!world->has_collider(id) && ImGui::MenuItem("Collider"))
                     set_presence(&IWorldEditor::set_has_collider, true);
+                if (!world->has_joint(id) && ImGui::MenuItem("Physics Joint"))
+                    set_presence(&IWorldEditor::set_has_joint, true);
+                if (!world->has_vehicle(id) && ImGui::MenuItem("Vehicle"))
+                    set_presence(&IWorldEditor::set_has_vehicle, true);
                 if (!world->surface_anchored(id) && ImGui::MenuItem("Surface Anchor"))
                     set_presence(&IWorldEditor::set_surface_anchored, true);
                 if (!world->has_ui(id) && ImGui::MenuItem("UI Element"))

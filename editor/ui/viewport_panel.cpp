@@ -959,6 +959,15 @@ namespace SushiEngine
                                        camera_view, image_origin, static_cast<float>(width),
                                        static_cast<float>(height), ImGui::GetWindowDrawList());
 
+            // §14's physics debug draw and the joint gizmo, before the transform gizmo so
+            // its handles stay on top. Every category is off unless the Physics window asked
+            // for it, and the whole pass is skipped when none is.
+            if (inputs.physics_world != nullptr && inputs.physics_overlay.any())
+                draw_physics_overlay(*inputs.physics_world, inputs.selected_entity,
+                                     inputs.physics_overlay, camera_view, image_origin,
+                                     static_cast<float>(width), static_cast<float>(height),
+                                     ImGui::GetWindowDrawList());
+
             // Particle emitter gizmo: mark where the previewed effect spawns, before the
             // transform gizmo so its handles stay on top.
             if (inputs.particle_preview != nullptr)

@@ -31,6 +31,7 @@
 #include <cmath>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 namespace SushiEngine
@@ -110,19 +111,47 @@ namespace SushiEngine
             return section;
         }
 
+        namespace
+        {
+            /**
+             * @brief Opens a labelled field row, in a table when there is one and inline when not.
+             *
+             * These two fields were written for the Inspector's two-column Transform block and
+             * opened unconditionally with `ImGui::TableNextRow`, which dereferences the current
+             * table — so calling one from a panel that draws no table was not a layout glitch
+             * but an access violation. It happened, in the Assembly window.
+             *
+             * The fix is to make the widget *total* rather than to ask every future caller to
+             * remember a precondition. A widget that works in one context and crashes in
+             * another is a trap whose only defence is documentation nobody re-reads; a widget
+             * that lays itself out according to where it finds itself has no precondition to
+             * forget. The table form stays exactly as it was, so the Inspector is unchanged.
+             *
+             * @param label The row's label, drawn in the label column or before the field.
+             * @return Whether the caller is inside a table, which decides the field's width.
+             */
+            bool begin_field_row(const char* label)
+            {
+                if (ImGui::GetCurrentTable() == nullptr)
+                    return false;
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(label);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                return true;
+            }
+        } // namespace
+
         bool vector3_field(EditorContext& context, Simulation::IWorldEditor& world,
                            const char* label, float values[3], float speed, bool mixed,
                            const char* format, const char* tooltip)
         {
             ImGui::PushID(label);
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(label);
-            ImGui::TableSetColumnIndex(1);
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            const bool changed =
-                ImGui::DragFloat3("##v", values, speed, 0.0f, 0.0f, mixed ? "-" : format);
+            const bool tabled = begin_field_row(label);
+            const bool changed = ImGui::DragFloat3(tabled ? "##v" : label, values, speed, 0.0f,
+                                                   0.0f, mixed ? "-" : format);
             track_item_undo(context, world);
             if (tooltip != nullptr && ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", tooltip);
@@ -135,14 +164,9 @@ namespace SushiEngine
                           float max_value, const char* format, bool mixed, const char* tooltip)
         {
             ImGui::PushID(label);
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(label);
-            ImGui::TableSetColumnIndex(1);
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            const bool changed = ImGui::DragFloat("##v", value, speed, min_value, max_value,
-                                                  mixed ? "-" : format);
+            const bool tabled = begin_field_row(label);
+            const bool changed = ImGui::DragFloat(tabled ? "##v" : label, value, speed, min_value,
+                                                  max_value, mixed ? "-" : format);
             track_item_undo(context, world);
             if (tooltip != nullptr && ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", tooltip);

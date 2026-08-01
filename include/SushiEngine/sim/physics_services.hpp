@@ -47,9 +47,11 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/physics/core/material.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/soft/soft_body_material.hpp>
 #include <SushiEngine/sim/collider.hpp>
+#include <SushiEngine/sim/joint_params.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine
@@ -77,6 +79,19 @@ namespace SushiEngine
              * as a box of one size while reporting a radius from another.
              */
             Collider collider{};
+
+            /**
+             * @brief The surface this body contacts as (§5.3).
+             *
+             * Carried by value, exactly as `SoftBodyDesc` carries its constitutive material,
+             * rather than as an index into a scene material table. There is no such table,
+             * and the reason there is none is worth stating: `RigidBodyT::material_index`
+             * exists so a *device* kernel can reach a material without following a pointer,
+             * and the manifold pass that resolves a contact's surfaces runs on the host,
+             * where the body's own record is already in hand. A table would be a second
+             * place a material could live and a second thing to keep in step with the first.
+             */
+            Physics::PhysicsMaterialT<Scalar> material{};
         };
 
         /** @brief A cloth grid to (re)build, addressed by its owning entity. */
@@ -122,6 +137,27 @@ namespace SushiEngine
          * any field smooth enough to be worth sampling has not meaningfully changed.
          */
         using GravitySampler = std::function<Vector3(const Vector3& position)>;
+
+        /**
+         * @brief The air's own velocity sampled at a body's world position, in m/s.
+         *
+         * §11.6's cross-system tie-in, and §4.5's second example of the same principle
+         * @ref GravitySampler is the first of: *"vehicle drag and downforce, and cloth and
+         * rope wind response, sample it through a `WindSampler` seam that mirrors the
+         * existing `GravitySampler` exactly — the physics names the abstraction, never the
+         * meteorology behind it. A flag on a pole in a storm and a car's high-speed lift
+         * come from the same field."*
+         *
+         * It is deliberately the same shape as @ref GravitySampler down to the signature,
+         * because the two are the same *kind* of thing: a field the live world knows about
+         * and the solver must not. Still air is a sampler that returns zero, which is what
+         * every scene without weather installed gets and costs it nothing.
+         *
+         * Sampled once per body per tick, for @ref GravitySampler's reason — `predict` runs
+         * on the device and there is no point inside the substep loop at which a host
+         * sampler could be called.
+         */
+        using WindSampler = std::function<Vector3(const Vector3& position)>;
 
         /**
          * @brief Rigid bodies: what exists, what it weighs, and where it ended up.
@@ -186,6 +222,14 @@ namespace SushiEngine
                  */
                 virtual void set_rigid_pose(EntityId id, const Vector3& position,
                                             const Quaternion& orientation) = 0;
+
+                /**
+                 * @brief Reads what a body is doing, for a debug view.
+                 * @param id  The entity whose body to read.
+                 * @param out Receives the state when @p id has a body.
+                 * @return Whether @p id owns a rigid body (and @p out was written).
+                 */
+                virtual bool rigid_debug_state(EntityId id, RigidDebugState& out) const = 0;
         };
 
         /** @brief Cloth grids: topology in, particle positions out. */
@@ -368,62 +412,6 @@ namespace SushiEngine
             bool include_triggers = true;
         };
 
-        /** @brief Where in a contact's life an event was reported. */
-        enum class ContactPhase : std::uint8_t
-        {
-            /** @brief The two surfaces met this tick and were not touching last tick. */
-            Begin,
-            /** @brief They were touching last tick and still are. */
-            Persist,
-            /** @brief They were touching last tick and are not now. */
-            End
-        };
-
-        /**
-         * @brief One thing touching another, reported to gameplay.
-         *
-         * Reported per *pair of colliders*, not per contact point: a crate landing
-         * flat on the ground produces four points and one event, because "the crate
-         * landed" is one thing that happened. The point and normal are the manifold's
-         * deepest point, which is the one a sound, a decal or a damage number wants.
-         *
-         * A pair against static geometry has `b == NULL_ENTITY`. That is not a
-         * missing value — static geometry is not an entity, and inventing one so the
-         * field is never null would mean every listener filtering out a fiction.
-         */
-        struct ContactEvent
-        {
-            EntityId a = NULL_ENTITY;
-            EntityId b = NULL_ENTITY;
-            ContactPhase phase = ContactPhase::Begin;
-
-            /** @brief The manifold's deepest point, in world space. */
-            Vector3 point;
-
-            /** @brief Unit normal, pointing from @ref a toward @ref b. */
-            Vector3 normal{Vector3{0, 1, 0}};
-
-            /**
-             * @brief Total normal impulse the contact carried, in newton-seconds.
-             *
-             * What separates a scrape from a crash, and the reason the solved
-             * manifolds are read back off the device at all. Zero on a trigger
-             * overlap, which is detected and never resolved, and on an `End`, which
-             * reports the impulse the contact carried on its last live tick.
-             */
-            Scalar impulse = 0;
-
-            /**
-             * @brief Whether one side was a trigger, so the pair was reported and not resolved.
-             *
-             * A separate flag rather than a separate event stream: a listener that
-             * wants both — a damage volume that also pushes — should not have to
-             * subscribe twice and correlate, and one that wants only triggers has a
-             * one-line filter.
-             */
-            bool trigger = false;
-        };
-
         /**
          * @brief What touched what this tick.
          *
@@ -450,110 +438,6 @@ namespace SushiEngine
         };
 
         /**
-         * @brief Which degrees of freedom a joint removes, at the boundary.
-         *
-         * A mirror of `Physics::JointKind` rather than a using-declaration of it, for
-         * the reason `RigidBodyDesc` is not `Physics::RigidBodyT`: this header is the
-         * boundary vocabulary and names no solver type, so a gameplay system that
-         * creates a hinge does not thereby depend on the solver that projects one.
-         */
-        enum class JointType : std::uint8_t
-        {
-            Fixed = 0,               /**< All six degrees; a compliant one is a flexible weld. */
-            Ball = 1,                /**< Attached, rotation free. Limits make it a cone-twist. */
-            Hinge = 2,               /**< One surviving rotation, limited and drivable. A door. */
-            Slider = 3,              /**< One surviving translation. Suspension travel. */
-            Distance = 4,            /**< A range along the line between the anchors. A rope. */
-            ConeTwist = 5,           /**< Attached, with a swing cone and a twist range. Ragdolls. */
-            SixDegreeOfFreedom = 6   /**< Every axis free, limited, or locked. The general case. */
-        };
-
-        /** @brief What a joint's drive holds: nothing, a coordinate, or its rate. */
-        enum class JointMotorType : std::uint8_t
-        {
-            Disabled = 0,
-            /** @brief A servo on the coordinate. */
-            Position = 1,
-            /** @brief A rate drive; with a target of zero and a small limit, joint friction. */
-            Velocity = 2
-        };
-
-        /**
-         * @brief A bound on one of a joint's degrees of freedom.
-         *
-         * `lower == upper` locks the axis and a disabled limit leaves it free, so
-         * free/limited/locked are three readings of one range rather than a mode word
-         * that could disagree with the numbers.
-         */
-        struct JointLimitDesc
-        {
-            Scalar lower = 0;      /**< Radians for an angle, metres for a translation. */
-            Scalar upper = 0;
-            Scalar compliance = 0; /**< Zero is a rigid stop; positive is a bumper. */
-            bool enabled = false;
-        };
-
-        /** @brief A drive on a joint's primary axis, with a saturation limit. */
-        struct JointMotorDesc
-        {
-            JointMotorType type = JointMotorType::Disabled;
-            Scalar target = 0;     /**< A coordinate, or a rate, per @ref type. */
-            /** @brief N or N·m; at or below zero is an unsaturated, ideal drive. */
-            Scalar max_force = 0;
-            Scalar compliance = 0;
-        };
-
-        /**
-         * @brief What is held between a joint's two endpoints, whoever they turn out to be.
-         *
-         * Split from the endpoints deliberately. A joint is *two bodies plus what is
-         * held between them*, and the second half is authored in places that do not yet
-         * know the first: an assembly asset (§10.2) describes its joints against **part
-         * indices** and only learns which entities those parts became when it is
-         * instanced. Keeping the parameters in their own value is what lets the asset
-         * carry the joint vocabulary rather than a copy of it — and a copy is how a new
-         * parameter ends up honoured by a hand-built joint and silently ignored by an
-         * assembled one.
-         *
-         * The two axes are the joint's *primary* axis in each body's local space: the
-         * hinge's rotation axis, the slider's travel axis, the cone-twist's twist axis.
-         * The frame each implies is the shortest rotation onto that axis, computed the
-         * same way on both sides, so a joint whose bodies are in their authored relative
-         * pose reads a twist angle of zero — which is what an author means by "the door
-         * is shut".
-         */
-        struct JointParams
-        {
-            JointType type = JointType::Fixed;
-
-            Vector3 anchor_a;                    /**< Attachment point on the first body, local. */
-            Vector3 anchor_b;                    /**< Attachment point on the second body, local. */
-            Vector3 axis_a{Vector3{1, 0, 0}};    /**< Primary axis on the first body, local. */
-            Vector3 axis_b{Vector3{1, 0, 0}};    /**< Primary axis on the second body, local. */
-
-            /** @brief Compliance of the structural rows; zero is rigid. */
-            Scalar compliance = 0;
-
-            /** @brief Travel along the primary axis (slider), or the anchor range (distance). */
-            JointLimitDesc linear_limit;
-
-            /** @brief Rotation about the primary axis (hinge angle, cone-twist twist). */
-            JointLimitDesc twist_limit;
-
-            /** @brief The cone half-angle the primary axis may stray by; only `upper` is read. */
-            JointLimitDesc swing_limit;
-
-            /** @brief The drive on the primary axis. */
-            JointMotorDesc motor;
-
-            /** @brief Force (N) above which the joint breaks; zero is unbreakable. */
-            Scalar break_force = 0;
-
-            /** @brief Torque (N·m) above which the joint breaks; zero is unbreakable. */
-            Scalar break_torque = 0;
-        };
-
-        /**
          * @brief A joint to create between two entities that already own rigid bodies.
          *
          * Both endpoints are bodies. An immovable endpoint is a body with zero inverse
@@ -576,37 +460,6 @@ namespace SushiEngine
         inline constexpr JointId NULL_JOINT = 0;
 
         /**
-         * @brief What a joint is carrying, read back after a step.
-         *
-         * The rigid-body half of *mukavemet*: XPBD settles on Lagrange multipliers and
-         * §10.4's recovery turns them into a force and a torque exactly, so "how much
-         * load is this mount carrying" is a readout rather than an estimate. The mean
-         * over the tick's substeps, not a peak — a single substep's multiplier during a
-         * stiff transient is noise.
-         */
-        struct JointState
-        {
-            Vector3 force;   /**< Mean over the tick, in newtons, world space. */
-            Vector3 torque;  /**< Mean over the tick, in newton-metres, world space. */
-
-            /**
-             * @brief The worst single substep's force magnitude, in newtons.
-             *
-             * What a break threshold is measured against, and what tells a scrape from
-             * a crash. Reported alongside the mean rather than instead of it because
-             * the two answer different questions: the mean says which way and how hard
-             * the mount is being pulled, and the peak says what the worst instant was.
-             * An impact's mean is nearly zero — the correction reverses direction the
-             * substep after the hit — so a listener that watched only the mean would
-             * never see the hit at all.
-             */
-            Scalar peak_force = 0;
-
-            /** @brief The worst single substep's torque magnitude, in newton-metres. */
-            Scalar peak_torque = 0;
-        };
-
-        /**
          * @brief A joint that exceeded a break threshold and is gone.
          *
          * Reported once, on the tick it broke, after which the joint no longer exists
@@ -622,6 +475,126 @@ namespace SushiEngine
             Scalar force = 0;
             /** @brief The peak torque magnitude that broke it, in newton-metres. */
             Scalar torque = 0;
+        };
+
+        /**
+         * @brief A hybrid vehicle to (re)build, addressed by its owning entity.
+         *
+         * The asset is bytes for the same reason `SoftBodyDesc`'s is: this header names no
+         * file system and no cache, and where a `.sushinodebeam` blob came from is the
+         * caller's business. Read during the `set_vehicles` call and not retained —
+         * instancing copies out everything the solve needs.
+         *
+         * The *vehicle* asset beside it is not bytes, because it is not a cooked blob: the
+         * corners, the tyres, the drivetrain and the aerodynamics are authored numbers, and
+         * §11's whole split is that the structure is cooked and the setup is not.
+         */
+        struct VehicleDesc
+        {
+            EntityId id = NULL_ENTITY;        /**< The entity that owns this vehicle. */
+            const std::byte* asset = nullptr; /**< A `.sushinodebeam` blob; not retained. */
+            std::size_t asset_size = 0;       /**< Length of @ref asset in bytes. */
+            Vector3 position;                 /**< World position of the structure's origin. */
+            Quaternion orientation;           /**< World orientation about that origin. */
+            Vector3 velocity;                 /**< Speed every body starts with, in m/s. */
+
+            /** @brief The authored setup: corners, tyres, drivetrain, aerodynamics (§11). */
+            Physics::VehicleAssetT<Scalar> setup{};
+        };
+
+        /**
+         * @brief Vehicles: a cooked structure in, a drivable body out.
+         *
+         * Its own service for §4.3's reason, and a sharp one: a vehicle needs the node-beam
+         * structure, the suspension, the drivetrain and the tyres, and *nothing else in a
+         * game does*. Folding this into the rigid-body service would make every consumer
+         * that wants a solved pose depend on §11 as well.
+         */
+        class IVehicleService
+        {
+            public:
+                virtual ~IVehicleService() = default;
+
+                /**
+                 * @brief Reconciles the vehicle world with @p vehicles.
+                 *
+                 * A rebuild rather than a diff, unlike `set_rigid_bodies`, and the reason is
+                 * worth stating: a vehicle is four hundred bodies, two thousand beams and a
+                 * drivetrain whose every part is placed relative to a cooked structure, so
+                 * "the same vehicle with one number changed" is not a thing that can be
+                 * patched in place. Called only when the *set* changes, which for vehicles
+                 * is rare — an author placing one, not a frame passing.
+                 *
+                 * @param vehicles The full set of vehicles after the change.
+                 */
+                virtual void set_vehicles(const std::vector<VehicleDesc>& vehicles) = 0;
+
+                /**
+                 * @brief Records what the driver is asking for; spent by the next step.
+                 * @param id    The entity whose vehicle to drive.
+                 * @param input The controls.
+                 * @return Whether @p id owns a vehicle.
+                 */
+                virtual bool set_vehicle_input(EntityId id, const VehicleInput& input) = 0;
+
+                /**
+                 * @brief Reads what the drivetrain did last step.
+                 * @param id  The entity whose vehicle to read.
+                 * @param out Receives the report when @p id owns a vehicle.
+                 * @return Whether @p out was written.
+                 */
+                virtual bool vehicle_report(EntityId id, VehicleReport& out) const = 0;
+
+                /**
+                 * @brief Reads the vehicle's rigid core pose, which is where the vehicle *is*.
+                 *
+                 * The core rather than a node, because the core is the one body whose pose
+                 * is the vehicle's own: §11.2's hybrid puts the mass and the inertia there
+                 * and hangs a deformable shell off it, so a node's position is a panel's
+                 * position and only the core's is the car's.
+                 *
+                 * @param id  The entity whose vehicle to read.
+                 * @param out Receives the pose when @p id owns a vehicle with a core.
+                 * @return Whether @p out was written.
+                 */
+                virtual bool vehicle_core_pose(EntityId id, SolvedPose& out) const = 0;
+
+                /**
+                 * @brief Reads the world positions of the vehicle's shell nodes.
+                 *
+                 * For the editor's node/beam view (§14) and for anything that draws a
+                 * deformed body. Filled rather than returned, so a caller drawing every
+                 * frame reuses its buffer instead of allocating one per frame per vehicle.
+                 *
+                 * @param id  The entity whose vehicle to read.
+                 * @param out Receives one position per node.
+                 * @return Whether @p id owns a vehicle.
+                 */
+                virtual bool vehicle_node_positions(EntityId id,
+                                                    std::vector<Vector3>& out) const = 0;
+
+                /**
+                 * @brief The shell's collision surface, live, as triangles.
+                 *
+                 * The same shape `ISoftBodyService::soft_body_surface` produces and for the
+                 * same consumer: a deformable mesh the renderer draws. What is drawn is the
+                 * surface the vehicle *collides* as, read straight off the live node bodies
+                 * with no cache in between — so a dented panel is dented on screen in the
+                 * tick it was dented, and the drawing cannot disagree with the collision,
+                 * because they are the same triangles.
+                 *
+                 * The cooked asset also carries a per-vertex skinning for a separate visual
+                 * mesh (`NodeBeamSkinRecord`), which is the prettier answer and needs that
+                 * mesh's own index buffer — which lives in the visual asset, not here. This
+                 * is the surface the physics owns end to end.
+                 *
+                 * @param id        The entity whose vehicle to read.
+                 * @param positions Receives one position per node.
+                 * @param indices   Receives the surface triangles, indexing @p positions.
+                 * @return Whether @p id owns a live vehicle with a surface.
+                 */
+                virtual bool vehicle_surface(EntityId id, std::vector<Vector3>& positions,
+                                             std::vector<std::uint32_t>& indices) const = 0;
         };
 
         /**
@@ -782,6 +755,10 @@ namespace SushiEngine
                  *
                  * @param gravity  The per-body gravitational field, sampled at each
                  *                 body's position once this tick.
+                 * @param wind     The per-body wind field (§11.6), sampled the same way.
+                 *                 Still air is a sampler returning zero; an empty one is
+                 *                 the same thing and is what a scene with no weather
+                 *                 installed passes.
                  * @param substeps A **floor** under the sub-step count, not the count
                  *                 itself. The count is derived from simulation state,
                  *                 because a caller setting it outright would make the
@@ -792,7 +769,8 @@ namespace SushiEngine
                  *                 raise the floor, and neither lowers what the other
                  *                 asked for.
                  */
-                virtual void step(const GravitySampler& gravity, std::size_t substeps) = 0;
+                virtual void step(const GravitySampler& gravity, const WindSampler& wind,
+                                  std::size_t substeps) = 0;
 
                 /**
                  * @brief What the last @ref step contained and what it cost.
@@ -834,6 +812,7 @@ namespace SushiEngine
                               public IClothService,
                               public ISoftBodyService,
                               public IJointService,
+                              public IVehicleService,
                               public IStaticGeometryService,
                               public ICollisionQueryService,
                               public IContactEventService,

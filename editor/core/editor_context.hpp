@@ -47,6 +47,7 @@
 #include "../gizmo/gizmo_controller.hpp"
 #include "game_view_settings.hpp"
 #include "meteorology_log.hpp"
+#include "physics_overlay_settings.hpp"
 #include "../physics/soft_body_heat.hpp"
 #include "panel_state.hpp"
 #include "panel_visibility.hpp"
@@ -71,6 +72,9 @@ namespace SushiEngine
 
         /** @brief The live editor audio system, owned by main() (see audio/audio_editor_system.hpp). */
         class AudioEditorSystem;
+
+        /** @brief The Bake surface's model, owned by main() (see physics/cook_bake_state.hpp). */
+        class CookBakeState;
 
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.
@@ -137,6 +141,10 @@ namespace SushiEngine
             SushiEngine::Simulation::ShapeParams shape_params;
             bool has_collider = false;
             SushiEngine::Simulation::ColliderParams collider_params;
+            bool has_joint = false;
+            SushiEngine::Simulation::PhysicsJointParams joint_params;
+            bool has_vehicle = false;
+            SushiEngine::Simulation::VehicleInstanceParams vehicle_params;
             bool has_particle_emitter = false;
             SushiEngine::Simulation::ParticleEmitterParams particle_emitter_params;
             SushiEngine::Vfx::ParticleEffect particle_effect;
@@ -223,6 +231,12 @@ namespace SushiEngine
             // The live editor audio system, owned by main() and injected here so the audio
             // panels and the Inspector's audio sections drive and hear the same engine.
             AudioEditorSystem* audio = nullptr;
+
+            // The Bake surface's model, owned by main() and injected here so a panel that
+            // brings a mesh into the project (today: the Project panel's glTF open/preview
+            // flow) can queue it for cooking without owning a worker thread itself. Null in
+            // a headless editor, which is why every use is guarded.
+            CookBakeState* cook_bake_state = nullptr;
 
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
@@ -428,6 +442,28 @@ namespace SushiEngine
              * them.
              */
             SushiEngine::Physics::PhysicsStatistics physics_statistics;
+
+            /**
+             * @brief Which §14 physics debug categories the Scene view draws.
+             *
+             * On the context rather than on the Physics panel that toggles them, because
+             * the panel that *sets* them and the viewport that *reads* them are two
+             * different windows — and a setting owned by one of them would be a setting the
+             * other could not see with the first one closed.
+             */
+            PhysicsOverlaySettings physics_overlay;
+
+            /**
+             * @brief The driving controls' ramped positions, between frames.
+             *
+             * A key is a bit and a throttle is not, so the two live here rather than being
+             * recomputed from the key each frame: a ramp needs to remember where it got to.
+             * On the context rather than inside the driving function because that function
+             * is a plain call rather than an object — the same reason the panels' state is
+             * held out here (see `drive_selected_vehicle`).
+             */
+            float drive_throttle = 0.0f;
+            float drive_steer = 0.0f;
 
             // Which display the Game view renders, chosen from the resolved cameras.
             std::uint32_t game_display = 0;

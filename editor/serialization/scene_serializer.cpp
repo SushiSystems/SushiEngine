@@ -67,6 +67,56 @@ namespace SushiEngine
                 return json{{"x", q.x}, {"y", q.y}, {"z", q.z}, {"w", q.w}};
             }
 
+            json joint_limit_to_json(const SushiEngine::Simulation::JointLimitDesc& limit)
+            {
+                return json{{"lower", limit.lower},
+                            {"upper", limit.upper},
+                            {"compliance", limit.compliance},
+                            {"enabled", limit.enabled}};
+            }
+
+            /**
+             * @brief Reads a joint limit, keeping @p limit's values for absent fields.
+             *
+             * The defaults come from the caller's own value rather than from a fresh
+             * `JointLimitDesc`, which is the convention `sky_from_json` follows: a file
+             * written by an older build is missing fields, not asserting zeros for them.
+             */
+            SushiEngine::Simulation::JointLimitDesc joint_limit_from_json(
+                const json& j, SushiEngine::Simulation::JointLimitDesc limit)
+            {
+                if (!j.is_object())
+                    return limit;
+                limit.lower = j.value("lower", limit.lower);
+                limit.upper = j.value("upper", limit.upper);
+                limit.compliance = j.value("compliance", limit.compliance);
+                limit.enabled = j.value("enabled", limit.enabled);
+                return limit;
+            }
+
+            json joint_motor_to_json(const SushiEngine::Simulation::JointMotorDesc& motor)
+            {
+                return json{{"type", static_cast<std::uint32_t>(motor.type)},
+                            {"target", motor.target},
+                            {"max_force", motor.max_force},
+                            {"compliance", motor.compliance},
+                            {"damping", motor.damping}};
+            }
+
+            SushiEngine::Simulation::JointMotorDesc joint_motor_from_json(
+                const json& j, SushiEngine::Simulation::JointMotorDesc motor)
+            {
+                if (!j.is_object())
+                    return motor;
+                motor.type = static_cast<SushiEngine::Simulation::JointMotorType>(
+                    j.value("type", static_cast<std::uint32_t>(motor.type)));
+                motor.target = j.value("target", motor.target);
+                motor.max_force = j.value("max_force", motor.max_force);
+                motor.compliance = j.value("compliance", motor.compliance);
+                motor.damping = j.value("damping", motor.damping);
+                return motor;
+            }
+
             json sky_to_json(const SceneSkyState& sky)
             {
                 return json{{"enabled", sky.enabled},
@@ -624,8 +674,58 @@ namespace SushiEngine
                 if (has_collider)
                 {
                     const auto params = world.collider_params(id);
-                    entry["collider"] = json{{"kind", static_cast<std::uint32_t>(params.kind)},
-                                             {"params", vec3_to_json(params.params)}};
+                    entry["collider"] =
+                        json{{"kind", static_cast<std::uint32_t>(params.kind)},
+                             {"params", vec3_to_json(params.params)},
+                             {"layer", params.layer},
+                             {"collides_with", params.collides_with},
+                             {"static_friction", params.static_friction},
+                             {"dynamic_friction", params.dynamic_friction},
+                             {"restitution", params.restitution},
+                             {"friction_combine", params.friction_combine},
+                             {"restitution_combine", params.restitution_combine}};
+                }
+
+                const bool has_vehicle = world.has_vehicle(id);
+                entry["has_vehicle"] = has_vehicle;
+                if (has_vehicle)
+                {
+                    // The path only. The authored setup - corners, tyres, drivetrain,
+                    // aerodynamics - is a large nested record the Vehicle window owns, and
+                    // writing it field by field here would be a second definition of it to
+                    // keep in step. Until that record has a serializer of its own, a saved
+                    // vehicle reloads as its cooked structure at the default setup, and the
+                    // Vehicle window says so rather than the file losing it silently.
+                    const auto params = world.vehicle_params(id);
+                    entry["vehicle"] = json{{"asset_path", params.asset_path}};
+                }
+
+                const bool has_joint = world.has_joint(id);
+                entry["has_joint"] = has_joint;
+                if (has_joint)
+                {
+                    const auto params = world.joint_params(id);
+                    // The partner is written as an *index into this array*, exactly like
+                    // the parent link above, because an EntityId is assigned at creation
+                    // and is not a property of the scene — a file that stored one would
+                    // reconnect to whatever entity happened to be handed that number on
+                    // the next load. Resolved in the same second pass, for the same
+                    // reason: a joint can be written before the body it names.
+                    const auto partner = index_of.find(params.connected_body);
+                    entry["joint"] =
+                        json{{"connected", partner != index_of.end() ? partner->second : -1},
+                             {"type", static_cast<std::uint32_t>(params.joint.type)},
+                             {"anchor_a", vec3_to_json(params.joint.anchor_a)},
+                             {"anchor_b", vec3_to_json(params.joint.anchor_b)},
+                             {"axis_a", vec3_to_json(params.joint.axis_a)},
+                             {"axis_b", vec3_to_json(params.joint.axis_b)},
+                             {"compliance", params.joint.compliance},
+                             {"linear_limit", joint_limit_to_json(params.joint.linear_limit)},
+                             {"twist_limit", joint_limit_to_json(params.joint.twist_limit)},
+                             {"swing_limit", joint_limit_to_json(params.joint.swing_limit)},
+                             {"motor", joint_motor_to_json(params.joint.motor)},
+                             {"break_force", params.joint.break_force},
+                             {"break_torque", params.joint.break_torque}};
                 }
 
                 const bool has_light = world.has_light(id);
@@ -897,6 +997,18 @@ namespace SushiEngine
                     }
                 }
 
+                if (entry.value("has_vehicle", false))
+                {
+                    world.set_has_vehicle(id, true);
+                    if (entry.contains("vehicle"))
+                    {
+                        SushiEngine::Simulation::VehicleInstanceParams params =
+                            world.vehicle_params(id);
+                        params.asset_path = entry["vehicle"].value("asset_path", std::string());
+                        world.set_vehicle_params(id, params);
+                    }
+                }
+
                 if (entry.value("has_collider", false))
                 {
                     world.set_has_collider(id, true);
@@ -908,6 +1020,17 @@ namespace SushiEngine
                             c.value("kind", static_cast<std::uint32_t>(params.kind)));
                         if (c.contains("params"))
                             params.params = vec3_from_json(c["params"]);
+                        params.layer = c.value("layer", params.layer);
+                        params.collides_with = c.value("collides_with", params.collides_with);
+                        params.static_friction = c.value("static_friction",
+                                                         params.static_friction);
+                        params.dynamic_friction = c.value("dynamic_friction",
+                                                          params.dynamic_friction);
+                        params.restitution = c.value("restitution", params.restitution);
+                        params.friction_combine = c.value("friction_combine",
+                                                          params.friction_combine);
+                        params.restitution_combine = c.value("restitution_combine",
+                                                             params.restitution_combine);
                         world.set_collider_params(id, params);
                     }
                 }
@@ -993,13 +1116,57 @@ namespace SushiEngine
                         world.add_script_component(id, script_from_json(s));
             }
 
-            // Parent links are resolved only after every entity exists, since a child
-            // can be written before its parent in the array.
+            // Links between entities are resolved only after every entity exists, since
+            // either end can be written before the other in the array. Both kinds live
+            // in this one pass: a parent link and a joint's partner are the same problem
+            // and a second pass that handled only one of them would be an invitation to
+            // resolve the next such link in the first pass and have it half work.
             for (std::size_t i = 0; i < entity_list.size(); ++i)
             {
-                const int parent_index = entity_list[i].value("parent", -1);
+                const json& entry = entity_list[i];
+                const int parent_index = entry.value("parent", -1);
                 if (parent_index >= 0 && static_cast<std::size_t>(parent_index) < created.size())
                     world.set_parent(created[i], created[static_cast<std::size_t>(parent_index)]);
+
+                if (!entry.value("has_joint", false))
+                    continue;
+                world.set_has_joint(created[i], true);
+                if (!entry.contains("joint"))
+                    continue;
+
+                const json& j = entry["joint"];
+                SushiEngine::Simulation::PhysicsJointParams params;
+                const int connected = j.value("connected", -1);
+                if (connected >= 0 && static_cast<std::size_t>(connected) < created.size())
+                    params.connected_body = created[static_cast<std::size_t>(connected)];
+                params.joint.type = static_cast<SushiEngine::Simulation::JointType>(
+                    j.value("type", static_cast<std::uint32_t>(params.joint.type)));
+                if (j.contains("anchor_a"))
+                    params.joint.anchor_a = vec3_from_json(j["anchor_a"]);
+                if (j.contains("anchor_b"))
+                    params.joint.anchor_b = vec3_from_json(j["anchor_b"]);
+                if (j.contains("axis_a"))
+                    params.joint.axis_a = vec3_from_json(j["axis_a"]);
+                if (j.contains("axis_b"))
+                    params.joint.axis_b = vec3_from_json(j["axis_b"]);
+                params.joint.compliance = j.value("compliance", params.joint.compliance);
+                // `value` with a json default rather than `operator[]`: indexing a *const*
+                // json with an absent key is undefined, and a scene written before a limit
+                // existed is exactly the file that will not have the key.
+                params.joint.linear_limit =
+                    joint_limit_from_json(j.value("linear_limit", json{}),
+                                          params.joint.linear_limit);
+                params.joint.twist_limit =
+                    joint_limit_from_json(j.value("twist_limit", json{}),
+                                          params.joint.twist_limit);
+                params.joint.swing_limit =
+                    joint_limit_from_json(j.value("swing_limit", json{}),
+                                          params.joint.swing_limit);
+                params.joint.motor =
+                    joint_motor_from_json(j.value("motor", json{}), params.joint.motor);
+                params.joint.break_force = j.value("break_force", params.joint.break_force);
+                params.joint.break_torque = j.value("break_torque", params.joint.break_torque);
+                world.set_joint_params(created[i], params);
             }
         }
 

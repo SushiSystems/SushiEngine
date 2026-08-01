@@ -249,6 +249,10 @@ namespace SushiEngine
                 entry.shape_params = world->shape_params(id);
                 entry.has_collider = world->has_collider(id);
                 entry.collider_params = world->collider_params(id);
+                entry.has_joint = world->has_joint(id);
+                entry.joint_params = world->joint_params(id);
+                entry.has_vehicle = world->has_vehicle(id);
+                entry.vehicle_params = world->vehicle_params(id);
                 entry.has_particle_emitter = world->has_particle_emitter(id);
                 if (entry.has_particle_emitter)
                 {
@@ -339,6 +343,19 @@ namespace SushiEngine
                 world->set_has_collider(id, entry.has_collider);
                 if (entry.has_collider)
                     world->set_collider_params(id, entry.collider_params);
+                world->set_has_vehicle(id, entry.has_vehicle);
+                if (entry.has_vehicle)
+                    world->set_vehicle_params(id, entry.vehicle_params);
+                world->set_has_joint(id, entry.has_joint);
+                if (entry.has_joint)
+                {
+                    // The partner is carried as it was authored, so duplicating a door
+                    // gives a second door hinged to the *same* chassis rather than to
+                    // nothing. Copying a door and its chassis together and expecting the
+                    // copy to be self-contained is the case this does not serve, and it
+                    // needs the whole selection remapped rather than a per-entity paste.
+                    world->set_joint_params(id, entry.joint_params);
+                }
                 world->set_has_particle_emitter(id, entry.has_particle_emitter);
                 if (entry.has_particle_emitter)
                 {

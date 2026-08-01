@@ -1610,11 +1610,12 @@ progress is recorded.
 | **P0** | **Foundations.** Neutral `geometry/` module + the distance-baker move (§3.4). `physics/` restructured into §3.1's modules. `IPhysicsSimulation` split per §4.3. **`RuntimeGraphBuilder`: the single adapter naming `SushiRuntime::`, the solver migrated to the `Dynamic` `add()` form, the substep loop unrolled into one composition, predict/derive moved off the host, device residency for the hot columns (with the four-byte count slots left `Shared`), the rebalancer switched off, and the accumulation paths wired to the runtime's segmented fixed-order reduce rather than a hand-built one (§6.6, §12.2, §18).** Mutable world with generational handles, fixed-capacity buffers, and incremental recolouring (§6.4). `PhysicsMaterial`, body flags, `center_of_mass_local`. Deterministic contact ordering. `PhysicsStatistics` + profiler wiring (§13.3). Substepping schedule (§6.1, §6.2). The §1.3 correctness fixes. | Existing tests stay green; a body can be added and removed mid-simulation without a rebuild; **one `run()` per tick and a `compose_count()` that stops climbing**; statistics appear in the editor. | **Complete** — see §16.1 |
 | **P1** | **Contact quality.** Persistent manifolds with face clipping and reduction (§7.3), warm starting, static friction in the positional pass, dynamic friction and restitution in the velocity pass (§7.4), `contact_offset`/`rest_offset` (§7.6), contact events. Broadphase made incremental and three-axis, once per tick. | The restitution, angle-of-repose, and ten-crate-stack tests pass. Contact cost drops measurably against the P0 baseline. | **Complete** — manifolds, warm starting and friction; **contacts as a constraint kind inside the solve graph** (§6.3, §16.5); **the live `sim/` tick on one `IConstraintSolver`**; and contact events (§16.6). |
 | **P2** | **Shapes and scale.** Capsule, convex hull with GJK/EPA, static triangle mesh with a bounding-volume hierarchy and edge-normal correction, height field, compound shapes. `Transform::scale` honoured. Islands and sleeping, mapped onto `DynamicGraph` regions (§6.6). Bounding-volume-hierarchy broadphase. Collision filters and layers. Scene queries and triggers (§7.7). | 1 000 mixed-shape bodies at the §13.1 target; 10 000 mostly-sleeping bodies at target; queries return correct hits under a conformance suite. | **Complete** — see §16.4, and §16.10 for the half of it that had been built without being connected: the island partition and sleeping reached only their own unit tests until 2026-07-30. |
-| **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | **Complete but for the editor.** The joint library, force/torque recovery, breakable joints and `IJointService` (§16.8); the `PhysicsAssembly` asset, its blob and its instancing, and the ragdoll wired to `RagdollBlend` (§16.9). The §14 assembly editor is the one item outstanding, and §16.10 sizes it honestly: it needs §5.5's `PhysicsJoint` component, its serialization and an `ISimulation` surface for joints before it can be a panel at all, because `ISimulation` deliberately does not expose the physics boundary. |
+| **P3** | **Joints, assemblies, MBD.** The §10.1 joint library with limits, motors, and drives. Joint force/torque recovery (§10.4). Breakable joints. `PhysicsAssembly` asset, instancing, and the editor (§14). Ragdoll wired to `Animation::RagdollBlend`. | **The chassis-plus-hinged-door scene works end to end**: the door swings within its limits, carries load, reports its hinge force, and tears off above its break threshold. Joint accuracy tests pass. | **Complete.** The joint library, force/torque recovery, breakable joints and `IJointService` (§16.8); the `PhysicsAssembly` asset, its blob and its instancing, and the ragdoll wired to `RagdollBlend` (§16.9). The §14 assembly editor is the one item outstanding, and §16.10 sizes it honestly: it needs §5.5's `PhysicsJoint` component, its serialization and an `ISimulation` surface for joints before it can be a panel at all, because `ISimulation` deliberately does not expose the physics boundary. **Those three now exist** (PX-1 — see §16.31): the component, an `IWorldEditor` surface including the live load readout, scene serialization that stores the partner as an array index, and a per-step reconcile that keeps an unchanged joint's warm start. It also recovered a field the boundary had been silently dropping — `JointMotorDesc::damping`, without which every drive that reached the solver through `IJointService` was a spring with no damper. **And the panel now exists** (PX-2 - see §16.32): parts, joints against part indices, the collision-filter matrix, a live joint-load list over the scene, and instancing that produces ordinary entities rather than a scene-graph node of its own. **P3 is closed.** |
 | **P4** | **The cooking pipeline.** `geometry/` triangle mesh utilities, the import-processor chain, `CollisionCooker` (mass properties, convex decomposition, distance field), `SoftBodyCooker` (§8.3, all ten stages), the fidelity dial, the content-hash cache, `CookingReport`, and the editor bake surface. | **Dropping a mesh into the project produces a `.sushisoft` and a `.sushicollision` without a manual step**, at the authored fidelity, cached, with a report; the cooker invariants of §15.1 hold on a corpus of deliberately dirty meshes. | **In progress.** The foundation layer (§16.11): `geometry/`'s mesh utilities and distance hierarchy, the fidelity dial, `CookingReport` and its thresholds, the three seams, the content-hash cache, polyhedral mass properties with principal axes. **The rigid half (§16.12): `CollisionCooker`, the convex decomposition, and the `.sushicollision` blob — a mesh now cooks to a loadable collision asset, cached, with its error measured.** **The soft half (§16.13): `SoftBodyCooker`, the tetrahedralizer, the render-mesh embedding, the level chain and the `.sushisoft` blob.** **The import chain (§16.14): `IMeshPostProcessor`, the ordered chain, the import profile with per-asset overrides, `CookingService` on a worker thread, and `Geometry::import_gltf_mesh` — so a mesh path in produces both assets with nobody pressing anything.** **The bake surface (§16.15): the Bake window's fidelity dial, cook reports, progress, Re-cook, and the collider overlay.** | **Complete** — see §16.11 (foundations), §16.12 (rigid), §16.13 (soft), §16.14 (import chain), §16.15 (bake surface). **94 of 94** tests pass across nine suites, dirty-mesh corpus included. Two things deliberately outside the phase: nothing consumes `.sushisoft` until P6 writes the element solver, and §14's soft-body *debug views* (stress and plastic-strain heat maps) read quantities only that solver produces. |
 | **P5** | **Penetration hardening.** Speculative contacts, conservative advancement, substep escalation (§7.5). Signed-distance-field collision as a first-class narrowphase path. Maximum depenetration velocity. The regression scenes of §15.4. | **Nothing tunnels** at the tested speeds; measured resting penetration stays within `rest_offset + tolerance`; the Hausdorff error is reported per asset. | **Complete** — see §16.16 for the build and §16.19's RESOLVED addendum for the last failure. Maximum depenetration velocity, speculative contacts, conservative advancement, and the SDF narrowphase path are all written and tested, and all three §15.4 regression scenes pass — including the tunnelling scene at 200 m/s, which held out longest and turned out not to be a CCD bug at all: the manifold was correct at every speed, and §7.6's depenetration budget was the culprit, correcting 6 mm of a 0.4 m last-substep violation and letting the next tick's nearest-face manifold walk the buried sphere out the far side. The budget now also covers however much the pair closed during the substep, so a spawned overlap still pays out at 3 m/s while a moving body can always be stopped by what it hit. Global substep escalation from the motion maximum already exists in `derive_substep_count`; the **per-island** part stays P8's, not P5's. |
 | **P6** | **FEM soft bodies and strength.** The neo-Hookean two-constraint model (§9.1), `SoftBodyMaterial` and presets, stress readout and heat map (§9.3), plasticity (§9.4), fracture (§9.5), soft-vs-rigid and soft-vs-soft collision (§9.6), levels of detail (§9.7), and **the mesh binding of §8.6 driven end to end** — the embedding kernel, deformed normals, and `ClothStrandView` generalized to `DeformableMeshView`. Cloth gains bending. Cosmetic bodies gain the `float` column (§6.5). | **The cantilever-deflection test matches theory**; a body past yield keeps a permanent dent; a fractured body's render mesh follows correctly; 20 000 tetrahedra at the §13.1 target. | **Complete but for one unmeasured number.** The cantilever-vs-Euler-Bernoulli acceptance test **passes** — §16.19 records the three fixes (the deviatoric constraint is `‖F‖`, not `‖F‖ − √3`; the hydrostatic term uses Smith's `λ + μ` reparameterization; the case runs at 60 substeps). §9.1–§9.5 as before, and now §9.6's three collision problems, §9.7's tiers and pop-free transfer, §8.6's embedding kernel and deformed normals, §9.5's vertex duplication along the crack with the binding following it, §9.1's bending constraint, and §6.5's cosmetic `float` column — all written, all with tests. See §16.20. `DeformableMeshView`, `ISoftBodyService` and the editor's debug views closed P6-G2/G3/G5; **P6-J1 generalized the colourer and the constraint store from two body indices to N, and P6-J2 made the FEM element a constraint kind in the device graph**, so a 20 250-tetrahedron lattice now places, colours and steps through `RuntimeGraphBuilder` with zero rejections and zero recompositions. **The one acceptance item still open is the number itself:** §16.21 records **29.4 ms/tick** for that scene at 32 substeps against a 3 ms budget — but on the **CPU backend**, because SushiRuntime finds no GPU device on the machine it was run on, and §13.1's target is written against a desktop GPU. Not a miss; an unmeasured line on the hardware that was meant to measure it. |
-| **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | Not started |
+| **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | **Complete.** The beam exists as a constraint kind and its numbers come from a material (P7-A, P7-B, P7-A2 — see §16.22): the descriptor with its deform and break thresholds, the axial projection and its load recovery, the rate-based damping pass, tick-boundary plasticity, the derivation from a `SoftBodyMaterial` and a cross-section, and the fifth kind wired into both solvers with four conformance scenes holding them to each other. The `.sushinodebeam` asset exists too (P7-C — see §16.23): nodes, beams, the collision surface, the rigid core's mass properties, the shell-to-core attachments and the render-mesh skinning, in one blob that refuses what it would not itself load. And `NodeBeamCooker` produces one from a mesh, a dial and a `SoftBodyMaterial` (P7-D — see §16.24): the tetrahedralizer's lattice as the node cloud, its edges as the beams classified by length into structural and bracing, a frame-relative render skinning that reproduces the rest pose to 1e-8 m, and the mass split between a rigid core and the shell hung off it. And the hybrid is alive in a solver (P7-E — see §16.25): nodes as particles, beams as the fifth kind, the core in its principal frame, the shell held on by ball-joint mounts, and a tick boundary where beams dent, mounts tear out, and a part that has lost its last tie is reported once as having come off. Suspension and wheels are built (P7-F — see §16.26): a corner is a slider with a spring-damper drive plus a hinge for the axle, steering is that slider's frame turned about its own axis, `JointMotorT` grew the damping rate a spring-damper drive needs, and a leak in the core angular integrator that cost a spinning wheel a third of its speed per second was found and fixed. And the drivetrain turns them (P7-G — see §16.27): §10.5's first escape hatch applied, a one-dimensional chain with the crankshaft as its only free coordinate, a clutch whose torque is solved and clamped rather than sprung, a differential that is one lock number instead of three kinds and that balances to conserve, and a coupling that puts a torque on each driven wheel and the exact negative of it on the chassis. And the tyres are under it (P7-H — see §16.28): a brush model whose curve is derived rather than fitted, one slip vector saturated once so combined slip cannot be got wrong, load sensitivity read off the normal force the solver already recovered, and the reaction shared back by load so the world loses exactly what the wheel gains. And the row is closed (P7-I and P7-J — see §16.29 and §16.30): §11.6's `WindSampler` seam mirroring `GravitySampler`, with the wind term written as a *difference* against the still-air drag `predict` already applies so that still air costs exactly nothing; the cooker's per-node drag area finally read; the car's own drag as a body constant and its downforce at a centre of pressure that is not its centre of mass; the acceptance scene proving all four clauses of this row at once; and the Vehicle window, whose derived column is the half of it that catches mistakes. |
+| **PX** | **Exposure.** Everything P0-P7 built, reachable without writing C++: §5.5's `PhysicsJoint`, `VehicleInstance` and `CollisionFilter` components with their `IWorldEditor` surfaces and scene serialization; §5.3's surface materials carried per body and combined per pair; the Assembly editor; §14's physics debug draw and joint gizmo; the vehicle drawn, driven from the keyboard and instanced from a path; and the demonstration scene as a file. | **An author can build, see and drive every physics feature the engine has from the editor**, and anything they cannot is a named gap rather than a shortcut. | **Complete but for PX-9** - see §16.31 (joints), §16.32 (materials, filters, the Assembly editor, debug draw), §16.33 (the vehicle in a scene), §16.34 (drawn, driven, shipped) and §16.35 for the remainder. The one item outstanding is the node-beam cooker's editor entry point: `.sushinodebeam` can still only be produced from C++, so step one of `docs/VEHICLES.md` cannot be done from the editor. Three smaller gaps are tabulated in §16.35: the vehicle setup has no serializer, the cooked render skinning is not drawn, and joint gizmos are not draggable. |
 | **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | Not started |
 | **P9** | **Gameplay surface.** Kinematic bodies, character controller, the full event stream into gameplay/audio/VFX through `IPhysicsEventSink`, rollback integration and its snapshot, and the networking validation harness. | Snapshot-rollback-replay byte equality across 10 000 ticks including contacts and fracture; impact events drive audio and VFX in a demo scene. | Not started |
 
@@ -3531,6 +3532,1024 @@ this probe does not distinguish, and guessing would be worth less than profiling
 **What P6 does not owe any more.** The stale list that stood here — `ClothStrandView` not yet
 generalized, no `ISoftBodyService`, no editor tetrahedra view, the FEM element not a constraint kind —
 was closed by P6-G2, P6-G3, P6-G5 and P6-J1/J2 respectively.
+
+### 16.22 P7-A, P7-B, P7-A2: the beam, and the four decisions it forced
+
+P7 opens with the one thing every later part of it stands on. A vehicle is a node cloud held by
+beams, and until a beam exists as something the solver actually projects, the cooker has nothing to
+emit and the hybrid has nothing to attach. This entry records what was built and the four choices
+that were not obvious, each of which could have gone the other way.
+
+**A beam has no anchors, and therefore applies no torque.** `XpbdDistanceConstraintT` carries a local
+anchor per body so it can hold two *points on two rigid bodies*. §11.1 defines a node as a particle —
+zero inverse inertia, no meaningful orientation — and an anchor on a body that cannot rotate is a
+constant offset that could have been folded into the node's position. So the two anchors are dropped,
+48 bytes per beam are not spent to express nothing, and the consequence is written into the header
+rather than left to be discovered: attaching a deformable shell to a rigid chassis core is §10.3's
+attachment constraint, which does carry a lever, and never a beam.
+
+**Plasticity runs once per tick, not once per substep.** `plastic_creep` is read as the fraction of
+the current excess that becomes permanent *per tick*, which is exactly how `apply_fem_plasticity`
+already reads it. Running it per substep would make a beam's permanent set a function of the substep
+count — and the substep count is derived from scene motion (§6.2). A dent that deepened because
+something unrelated in the scene sped up would be the least explicable behaviour in the system.
+
+**The two plastic parameters live on the beam, not in a material it points at.** The element solver
+can afford to take a `SoftBodyMaterialT` argument because it sits in `physics/soft`, which includes
+`physics/constraints`. A constraint kind that named a soft-body material would invert that dependency.
+Two scalars per beam is the price of the layering, and `physics/soft/beam_properties.hpp` is where
+both are named at once — the derivation from a material lives on the side of the seam that may name
+both.
+
+**The load is `-lambda / h²`, and the sign is load-bearing.** §10.4's recovery, with the negation
+that makes tension positive, because a member's load has a direction an engineer expects to read. It
+is also what the two thresholds are measured against, and both are measured against the *peak*
+substep load rather than the mean — for the reason `JointConstraintT::break_force` records at length:
+an impact's mean over a tick that also contains the rebound is near zero, and what tears a member out
+is the magnitude.
+
+**What the derivation buys.** §11.2's first row against BeamNG is that a vehicle there is thousands of
+hand-tuned numbers with no stated relation to any material. `beam_properties_from_material` is the
+correction, and it is small: `compliance = L / (E·A)`, `deform_force = yield_stress · A`,
+`break_force = fracture_stress · A`. The one thing that is not a material's to know is the
+cross-section, which is a property of the *structure* — how much of the body this member stands in
+for — so `beam_tributary_area` states the conservation rule (`Σ A·L` is the body's volume) here
+rather than inside the cooker, because it is a claim about physics and not about voxel grids. The
+honest limitation is recorded with it: an even split is right in aggregate for a roughly isotropic
+lattice and no better than roughly right when beam lengths differ by a large factor.
+
+One sentinel needed handling rather than passing through. A material that does not yield carries
+`yield_stress = 1e30`, and converting that into a threshold would give `1e30 · A` — a *finite* force
+a big enough impact reaches. It is passed through as zero, which is what the beam reads as never.
+
+**The fifth kind, wired.** `IConstraintSolver` gained `add_beam`/`remove_beam`/`read_beam`/
+`write_beam`/`beam_capacity`; both solvers project beams immediately after the distance band (the two
+kinds that say "these two points are this far apart" belong together) and damp them immediately after
+the velocity derivation. `write_beam` exists where `write_element` does not, and that asymmetry is the
+point: a dent and a failure are decided at the tick boundary, by the scene, from the load the solve
+recovered. The band is skipped structurally when the budget is zero — the default — so a scene with no
+vehicle in it does not carry a zero-extent region per colour per substep for a kind it never uses.
+
+**Verification status, stated plainly.** Written with tests, compiling clean, with **no suite result
+recorded here**: sixteen unit
+cases in `test_beam_constraint.cpp` and four conformance scenes in `test_solver_conformance.cpp` (a
+beam chain across every colour, a beam and a distance constraint sharing a node, the load readout
+agreeing between the two solvers, and a removed body taking its beams with it). The unit suite pins
+the load against Hooke's law rather than against itself — a compliant beam must report `E·A·Δ/L` —
+which is the only assertion in the set that would catch a compliance derivation that is
+self-consistent and wrong.
+
+### 16.23 P7-C: the `.sushinodebeam` asset, and why five things travel together
+
+A vehicle is not one array. It is a node cloud, a beam network over that cloud, the collision surface
+the cloud presents, a rigid core the shell hangs from, and the render mesh's binding onto the nodes.
+The first decision was whether those are five assets or one, and one is not a convenience: the four
+cross-referencing sections all index the node array, so splitting them gives them four chances to be
+loaded at different versions. A shell whose attachment records name nodes from an older cook is a
+vehicle that loses its doors on load, and it loses them silently, because every index is still in
+range — just of the wrong cloud.
+
+**The rigid core is a mass, not a body.** `NodeBeamCoreRecord` carries mass, centre of mass, principal
+inertia and principal rotation, and no shape at all. The core's *collision* is a `.sushicollision`
+asset the vehicle asset (P7-F) names alongside this one, because the same node-beam structure is
+legitimately reused with different core colliders and because a cooked collider is already a format
+with an owner. What is in this blob is only what the solver needs to create the core body and attach
+the shell to it.
+
+**A core of zero mass is a pure node-beam vehicle**, and that is §11.2's promise kept as a number
+rather than as a branch. The architecture does not choose between the hybrid and the pure structure;
+the asset does, and an artist can walk between them — a core carrying nine tenths of the mass and a
+core carrying none are the same asset with the dial in different places. `node_beam_has_core` is the
+only test anything performs.
+
+**The beam records are not `BeamConstraintT`, and the reason is not tidiness.** A record carries the
+cooked half — topology, rest length, the four derived numbers, the two plastic parameters — and none
+of the runtime half: no accumulated strain, no force accumulators, no live rest length. Storing the
+solver's struct would make the blob's bytes change the day that struct grows a field, which
+invalidates every cached asset in the project for a change no artist made. The second reason is the
+layering: `physics/cooking` includes `physics/constraints` nowhere, and making a cooked record *be* a
+constraint would be the first time, to save one assignment loop in the instancing code P7-E owns.
+
+**Three failures a wide binary format actually has, and what is done about each.**
+
+1. *A count raised without the bytes behind it.* Every section's extent is checked against the blob's
+   own `total_size` before a pointer is handed out, so a header claiming four thousand nodes over a
+   four-node payload fails validation instead of reading the next section as node records.
+2. *A cross-reference nobody re-checked on the way in.* Beams, surface indices, attachments and skin
+   slots are validated at load as well as at write, because a blob can come from an older writer or a
+   hand edit. Each unchecked reference is a read into a neighbouring section, which produces a
+   *plausible vehicle* rather than a crash — the worse of the two failures by a wide margin.
+3. *Padding.* Every record is packed with no interior holes — 56, 72, 48, 44 and 88 bytes, asserted
+   rather than assumed. Padding does not break a round trip; the bytes come back as they went in. It
+   makes two cooks of the same input differ in bytes nobody wrote, and §8.1's cache then serves
+   entries that look changed and are not.
+
+Two smaller decisions worth recording. A beam onto itself is **refused at the cook**, and that is not
+a memory-safety check: a self-beam has no axis, projects nothing, and would sit in the structure
+reporting zero load forever while the panel it was meant to hold flaps. And every skin slot must name
+a real node **whatever its weight**, so a reader never has to test a weight before trusting an index —
+a rule enforced only where the weight is non-zero is one that fails the first time someone iterates
+all four influences.
+
+**The skin weights are renormalized at load**, by `read_node_beam_skin_weights`, for exactly the
+reason `read_binding_weights` exists (§8.5). The weights are stored as `float` so a record is
+thirty-two bytes and an array of them is a `memcpy`; four floats that summed to one in the cooker sum
+to one within six decimal digits after the round trip. The reconstruction is a weighted sum of
+*absolute* positions, so that shortfall scales with distance from the world origin: ten micrometres at
+a hundred metres, centimetres at planet scale. It appears as the render mesh sliding off the structure
+the further the world is from its origin, which is to say nowhere near where it would be tested.
+
+**What this is not.** The instancing that turns these records into bodies and constraints is P7-E, so
+the honest status is "produced and validated, not yet consumed" — §16.10's distinction, stated in
+advance this time rather than found in a later audit. Twenty-three unit cases in
+`test_node_beam_asset.cpp` cover the round trip, the packing, the eight refusals, the four
+corruptions, the rest-pose reconstruction, the rigid-motion property, the degenerate frame and the
+far-from-origin renormalization.
+
+### 16.24 P7-D: the cooker, and the skinning that had to be thrown away
+
+§11.3 in six stages — Repair, PlaceNodes, ConnectBeams, Skin, BuildCore, Serialize — and the point of
+all six is §11.2's first row: a vehicle stops being thousands of hand-typed numbers and becomes a mesh,
+a dial, and a material.
+
+**Two things were reused rather than written, and both were the whole decision.**
+
+*The lattice is the tetrahedralizer's.* §8.3's stage 2 already voxelizes, flood-fills the interior,
+conforms the boundary, and hands back per-vertex masses with an outward-wound surface. A node cloud is
+exactly those four things, so the cooker asks for them. The alternative — sampling the distance field
+on a grid and keeping what reads negative — is four lines and wrong in the one case that matters:
+`MeshDistanceQuery` documents that its sign comes from the nearest triangle's plane and says outright
+that deciding what is interior to a *dirty* mesh is what the flood fill is for. Two implementations of
+"inside" would agree on every test mesh and disagree on every shipped one.
+
+*The bracing was already there.* A lattice tetrahedralization's edge set contains both kinds §11.1
+names — the ones along a grid axis, and the diagonals. So "add bracing beams by a diagonal rule" is a
+**classification by length**, not a second construction pass; generating more diagonals would
+double-brace a network that is already braced, and the symptom of that is a structure that will not
+deform, which gets diagnosed as a compliance bug. On a 2×1×4 box at fidelity 0.35: 96 nodes, 429 beams,
+209 of them bracing.
+
+**The cache key had to grow, and the cooker had to be the one to grow it.** A material is not in
+`CookingParameters` — no other cooker has a use for one, and putting it there would make every
+collision asset in the project carry a field it ignores. But §8.1's key is built from that record, so
+nothing *else* can fold the material in. `NodeBeamCooker::cache_key` therefore hashes its own settings
+into the parameters half. Without it, the same mesh cooked as steel and as aluminium resolves to one
+key and the second cook is served the first one's asset: a cache that returns the wrong answer rather
+than a slow one, which is the only kind of cache bug worth designing against.
+
+**The skinning was written, measured, and thrown away.** The first formulation was the obvious one — a
+render vertex is the weighted sum of the nodes nearest it — and it is wrong in a way that only a
+measurement shows. The centroid of the four nodes nearest a box corner sits *inside* that corner; at
+the lattice spacing this cook produces, the rest pose reconstructed **0.4 m** off. That is not a
+tolerance to tighten, it is a mesh that is visibly shrunk before anything has moved, and it violates
+§0.4's contract that the render mesh is embedded in the simulated one.
+
+The replacement stores a vertex as a displacement from that centroid, expressed in a frame the nodes
+themselves define: Gram-Schmidt on the two edges from the first influence. It reproduces the rest pose
+to **1.3e-8 m** — the bound is the `float` the offset is stored in, not the formulation — rotates with
+the structure, and stretches with it. Three properties had to be checked rather than assumed, and each
+is a test: the rest pose is exact, a rigid motion of the nodes carries the vertex with it (a stored
+world-space displacement would pass every straight-line test and fail the first corner), and three
+collinear nodes fall back to the asset's own axes **identically on both sides** — which is why the
+frame is one function the cook and the runtime both call rather than the same six lines written twice.
+
+**What the cooker does not decide.** It produces one part. Splitting a vehicle into doors and panels
+cannot be inferred from a mesh, and a split invented from connectivity would produce parts no artist
+asked for and cannot rename; that is P7-J. The core/shell split it *can* make is the lattice's own:
+interior is chassis, boundary is shell, and only the interior is attached. A lattice one cell thick has
+no interior and therefore no attachments, which is a pure node-beam shell and is reported by the
+attachment count rather than by a failure.
+
+Fifteen unit cases in `test_node_beam_cooker.cpp`. The ones that would catch a *plausible* cook: the
+compliance against `L/(E·A)` at the area the beam was actually given, `Σ A·L` against the structure
+volume, the mass fraction the dial asked for, the rest-pose reconstruction end to end, and the two
+cache-key inequalities.
+
+### 16.25 P7-E: the hybrid alive, and the three things instancing had to decide
+
+The asset describes a vehicle. This is the step that makes it exist: every node record becomes a
+particle in the solver, every beam record becomes the fifth constraint kind, and — when the asset
+carries one — the rigid core becomes a body the shell hangs from. §11 opens by saying nothing in it
+is new physics, it is new *assembly*, and this entry is the assembly.
+
+**The shell-to-core attachment is a ball joint, and that is a decision rather than a shortcut.**
+§10.3 describes an attachment that averages its correction across a small vertex neighbourhood so a
+mount does not tear a single vertex out of a mesh. That averaging answers a *soft-body* question:
+which patch of a continuum the mount acts on, when the continuum has no natural unit at that scale. A
+node-beam shell has no such ambiguity. The cooker already chose which node the mount acts on, and a
+node is a whole body with a mass and an inverse mass. So the attachment is `JointKind::Ball` with the
+lever on the core and none on the node — which is exactly the constraint that was wanted, and which
+arrives with §10.4's force recovery, `joint_should_break`, and a compliance already built. A new
+constraint kind would have re-derived all three, and it would have needed its own colouring band, its
+own conformance scenes and its own device node to do it.
+
+The one thing that needed care is which frame the anchors are in. `RigidBodyT` stores its inertia as a
+body-frame *diagonal*, which is a statement that the body frame is the principal frame — so the core
+is instanced rotated into it, its centre of mass expressed there, and the attachment anchors rotated
+with it. The check that this is right is not an inspection, it is a round trip: `body_origin` of a core
+spawned at an arbitrary position and orientation must come back on the asset's authored origin, and it
+does, to 1e-12 m.
+
+**The tick boundary belongs to the owner, not the solver.** A solver projects; it does not decide
+policy. `end_tick` reads each beam back, applies §11.1's plasticity to it, removes the ones that
+passed their break threshold, and does the same for the mounts. That is the asymmetry
+`IConstraintSolver::write_beam` exists to serve and `write_element` deliberately does not have, and
+this is its first real caller — before P7-E, `apply_beam_plasticity` was called only by its own unit
+test. It runs in index order throughout, because the pass *removes* constraints and a removal order
+that varied would leave a device solver with a different slot layout on a replay, which is §0.5's
+whole failure mode rather than a cosmetic difference.
+
+`apply_beam_plasticity` grew a position-pair form for this, with the existing node-array form
+deferring to it. A structure holds solver slots and reads them back a pair at a time; it has no array
+indexed by `beam.a` to hand over. Writing the rule a second time against two positions would have been
+four lines and a divergence waiting to happen.
+
+**A part comes off by losing its last tie, and then nothing is done to it.** This is the part of the
+acceptance criterion — *loses parts* — that looked like it needed machinery and does not. When every
+mount holding a part and every beam joining it to another part have broken, the part is already free:
+its nodes are still bodies, still beamed to each other, still colliding, and they now fly away as the
+loose node cloud a torn-off door is. There is nothing to remove, nothing to respawn, and no second
+representation to keep in step. What the structure adds is the *report* — a caller that wants to play
+a sound or spawn debris has to be told, and reconstructing "is this part still held" from outside
+would mean walking the whole beam list every tick. It is a counter per part, decremented as ties go.
+
+A part that was never tied to anything is never reported detached, which is deliberate and not an
+oversight: a single-part vehicle with no core is held together by nothing *by design*, and answering
+"detached" for the whole thing on its first tick would make the readout useless for the case it exists
+to report.
+
+**Refusal rolls the whole vehicle back.** A budget that runs out part way through removes everything
+already added. A vehicle missing the beams that did not fit is a structure that folds the first time
+it is touched, and it folds in a way that reads as a physics bug rather than as a capacity one. The
+test measures that by what fits *afterwards* rather than by a flag — a solver sized for four bodies
+that refused a five-body vehicle must still have four free, and the only way to see that is to put
+four in.
+
+**What the measurements say.** Fifteen unit cases in `test_node_beam_structure.cpp`, on the host
+solver. A mount holds its node to 1.4e-8 m in the core's frame across 19.5 m of travel. A beam loaded
+past its yield threshold does not dent on the first tick — it dents on the third, because a beam
+starts at its rest length and the load that yields it is the one that builds as its node pulls away —
+and it then work-hardens at exactly the authored maximum strain. A door thrown at 50 m/s tears off its
+one beam and its one mount and is reported detached exactly once, however long it keeps falling, while
+the chassis mounts authored unbreakable do not move. Two runs of that crash agree bit for bit on every
+node position.
+
+One thing the tests had to learn the hard way and is worth writing down: **gravity cannot load a
+vehicle.** It is uniform, so a vehicle with no ground under it falls as one piece and every beam and
+mount in it carries exactly nothing. The first draft of these tests asserted against free fall and
+passed trivially while measuring nothing. An impact is a relative velocity, and the smallest way to
+make one is to throw a single body.
+
+**What P7-E does not do.** Suspension, wheels, and the `VehicleAsset` that names both a
+`.sushinodebeam` and the core's `.sushicollision` are P7-F. The node cloud's collision surface is
+carried in the asset and instanced with it, but nothing generates contacts from it yet — that is the
+`physics/scene` wiring, and it belongs with the vehicle the scene can actually drive. Node drag areas
+travel with the nodes and are read by nothing until §11.6's wind coupling in P7-I.
+
+### 16.26 P7-F: the corner, the drive the library could not express, and a leak in the integrator
+
+§11.2's third row is one sentence: *"Suspension is joints and drives (§10.1), not beams — a slider
+joint with a spring-damper drive is more controllable and more stable than a beam network, and it is
+what every shipping racing game does."* Building it turned up two things that were not in the plan.
+
+**A corner is two joints, and the second one is why.** The strut is a `Slider` between the chassis
+core and a carrier, and the axle is a `Hinge` between that carrier and the wheel. The carrier is not
+padding: the two statements a corner makes are about *different pairs*. The spring acts between the
+chassis and something that does not spin; the axle is between that something and something that does.
+One body cannot be both, and a slider that also let its body spin would be a six-degree-of-freedom
+joint whose single drive would then have to be the spring *and* the brake.
+
+**Steering costs no third joint.** The slider locks all three rotations, which means the carrier's
+orientation *is* the slider's frame on the chassis side. Rotating that frame about its own primary
+axis therefore steers the corner — and because the primary axis is the strut axis, the rotation moves
+nothing else: the travel direction is unchanged, the spring is unchanged, and the axle turns because
+it is fixed in the carrier. That is a MacPherson strut, where the kingpin and the damper axis
+coincide, and it is worth saying that the geometry was *chosen* for this rather than assumed. A double
+wishbone would need the steering axis authored separately from the travel axis and a third joint to
+hold it. Measured: a 0.4 rad steer turns the two front axles by 0.3998 rad and leaves the rear two at
+0.0002.
+
+**The library could not express a spring-damper drive, so the drive grew a damper.** A position drive
+at a compliance is a spring. A spring alone rings forever. §10.1 offers the velocity drive with a
+force limit as damping — and that is *Coulomb* friction, a constant force, not the viscous resistance
+a damper is; and in any case a joint has one motor and one mode, so a strut could have the spring or
+the damper and not both. Two joints between the same pair was the alternative and it is worse: a
+second slider would duplicate the rotation locks and the perpendicular locks, which is not a cost but
+a *bug* — the same degree of freedom constrained twice.
+
+So `JointMotorT` gained `damping`, read independently of the mode. It is deliberately the same
+statement `BeamConstraintT::damping` makes and deliberately the same arithmetic: a fraction
+`min(1, damping·h)` of the coordinate's relative rate removed per substep, which makes it a **rate**
+rather than a per-substep fraction. That distinction is the one a test has to pin, because the substep
+count is derived from scene motion (§6.2) and a suspension whose firmness depended on what else was
+moving nearby would be the second-least explicable behaviour in the system. Measured: the same damping
+over the same wall time at 4 and at 16 substeps leaves within 0.71 % of the same motion. A disabled
+mode with a damping set is a pure damper, which is a real mechanism — a steering damper, a door closer
+— and not a misconfiguration.
+
+**And a defect in the core integrator, found by a wheel.** The first version of the free-spinning-axle
+test asserted that an unbraked wheel keeps its speed, and it failed: 50 rad/s became 33 rad/s in a
+second. It was not the hinge. A **free rigid body with no constraint on it at all** lost spin at
+exactly the same rate.
+
+`predict` advanced orientation with `apply_angular_correction`'s first-order form — normalize
+`q + ½(ωh)q` — whose applied rotation is `2·atan(θ/2)` and not `θ`. `update_velocity` then recovered
+`2·vec(δq)/h`, which reads `2·sin(θ/2)` and not `θ`. Together they multiply angular velocity by
+`1/sqrt(1 + (θ/2)²)` every substep. At 50 rad/s and 480 Hz that is 4 % a tick. A car at 100 km/h turns
+its wheels at 82 rad/s, so every number in §11.4's powertrain would have been tuned against a leak,
+and the leak would have looked like drivetrain drag.
+
+The fix is the exact pair: the exponential map in `predict` (`integrate_orientation`), its logarithm
+in `update_velocity`. Spin is now conserved to 2e-12 over two seconds. **Constraint corrections keep
+the first-order form**, and that is not an oversight — a correction is a fraction of a degree, where
+the first-order map is the standard, cheaper, and entirely adequate choice, and changing it would
+alter every solver result for no accuracy anyone can measure. The two uses differ by two orders of
+magnitude in angle and it is right that they differ in method. This one is recorded at length because
+it is the kind of defect that never announces itself: nothing crashes, nothing is unstable, and every
+rotating body in the engine was quietly slowing down in proportion to how fast it was going.
+
+**What the measurements say.** Ten unit cases in `test_vehicle_suspension.cpp` and four added to
+`test_joint_projection.cpp`. Four planted corners settle at 0.0617 m against the 0.0617 m that
+`m·g/k` predicts, and report a corner load of 2159 N against 2158 N of corner weight — the assertion
+that earns its keep, because a strut with its spring rate read as a compliance or its travel signed
+the wrong way still holds a car up and still moves when it is pushed. The damped strut's swing is
+0.00006 m where the undamped one's is 0.082 m. A soft spring rides down onto its bump stop at 0.1200 m
+of its 0.12 m travel and stops there. A body budget one short of a four-corner car refuses the vehicle
+and gives every slot back.
+
+**What P7-F does not do.** Nothing here generates a contact, so the tests bolt the wheels to the world
+to stand in for the ground — the tyre is §11.5's and P7-H's. Drive torque is §11.4's and P7-G's; the
+hinge each corner exposes is where it lands, and `set_brake_torque` already writes that motor, so the
+seam is present rather than promised. Ackermann geometry is a steering *rack* and belongs with §11.4's
+rack constraint, which is why `set_steer_angle` takes one angle and not one per corner.
+
+### 16.27 P7-G: the drivetrain, and why it is not made of constraints
+
+§10.5 decides the shape of this before §11.4 describes it. A powertrain has mass ratios in the
+thousands — a crankshaft against a car — and couplings that are exactly rigid, and pushing that
+through the three-dimensional solver buys a stiffness the substep count then has to pay for. Its
+first escape hatch: *"a powertrain is a chain of rotational inertias, not a spatial mechanism.
+Simulating it as an independent one-dimensional multibody system and coupling it to the wheels
+through a torque constraint is both cheaper and more accurate."* So `PowertrainT` knows nothing about
+bodies, handles or solvers. It is handed each driven wheel's spin rate and its inertia about its own
+axle and hands back a torque per wheel; which body, about which axis, and where the reaction lands
+are `VehicleInstanceT::begin_tick`'s, and that is the whole three-dimensional half.
+
+**The state is one number.** Gearbox and final drive are exact ratios and the differential's outputs
+*are* the wheels, so every speed downstream of the clutch is determined by speeds the caller already
+measured. The crankshaft is the only free rotational coordinate in the chain. A member per stage
+would have been a cache of derived values that went stale the first time anything else moved a
+wheel — a `GearJoint`-shaped mistake made in scalars instead of constraints.
+
+**The clutch is solved, not damped.** The torque for which the crank and the clutch's output arrive
+at the same speed at the end of the step is available in closed form from the two inertias and the
+engine's torque; compute it, then clamp it to the plate's capacity. Below capacity the clutch locks
+exactly; above it, it slips at exactly its rating. There is no stiffness to tune and nothing to go
+unstable — the same trade XPBD makes everywhere else in this engine. Modelled as a stiff spring
+instead it would ring, and the ringing would be blamed on the tyres. Measured: after twenty ticks the
+crank and the geared wheel speed agree to 1e-6 rad/s.
+
+**The differential is one number, not three kinds.** Open splits torque evenly and lets its outputs
+turn at any speeds; locked forces them together; limited-slip is the first with a bounded amount of
+the second. Three kinds would have been a branch, a constraint the solver does not have — §10.2's
+table defers `GearJoint` to exactly here — and two of the three untested most of the time.
+`DifferentialSettingsT::lock_torque` is one clamp: zero is open, large is a spool, between is a
+limited-slip, and the number is the one a differential is actually specified by. The lock torques are
+balanced to sum to zero before they leave, because a differential *divides* torque and can never be a
+source of it; with unequal wheel inertias or one wheel's clamp biting, the raw values do not cancel
+on their own. Balancing can push a wheel past the authored bound by at most that bound again, which
+is the right way to be wrong — a differential that invented torque would accelerate a car with its
+wheels in the air.
+
+**The gearbox's own shafts take their share, and leaving that out is what broke the clutch.** The
+shafts are geared to the wheels, so they accelerate with them: referred to the wheels they weigh
+`inertia × ratio²`, which in first gear is comparable to the wheels themselves. The first draft
+delivered the full shaft torque to the wheels *and* charged the clutch solve for the shafts' inertia.
+The two halves of the chain then disagreed about how fast the driveline was turning, and the symptom
+was that the clutch never quite locked — a 3 rad/s residual that no amount of staring at the clutch
+solve would have explained, because the clutch solve was right.
+
+**Both wheels of an axle point their axles the same way now.** `SuspensionSetupT::axle` was
+documented as pointing out of the wheel's outboard face. A wheel is symmetric about its axle, so
+nothing physical asked for that — and it meant the two wheels of one axle spun in opposite senses
+when the car rolled forward. §11.4 reads one signed speed per wheel and writes one signed torque
+back, so a car built that way handed its differential a mean of zero and its chassis two reactions
+that cancelled exactly. It was caught by the reaction test reading a clean zero, which is the useful
+kind of failure: not noise, but the one number that says "these two terms are equal and opposite when
+they should have added". The axle is now a *convention the vehicle shares*, not a description of
+which way the hub cap faces, and it costs nothing because no other reader of it cares about the sign.
+
+**The reaction lands on the chassis, not the carrier.** A driven wheel is turned by a shaft from the
+differential and the differential's casing is bolted to the chassis, so what a driver feels as squat
+under power is a sprung reaction. Summing the wheel impulses and negating them on the core also means
+a vehicle's own engine cannot change its total angular momentum — the statement that stops a car from
+driving itself around in mid-air. Measured: the core takes -13.402212 N·m·s against the wheels'
++13.402212, about the axle and about nothing else.
+
+**The engine.** A torque curve and not a peak-torque number, because the shape *is* the engine's
+character — where it peaks decides which gear a corner is taken in — and one number makes every
+engine feel like the same electric motor. Held flat outside its ends rather than extrapolated: a
+linear extrapolation past the last sample crosses zero and goes negative, and an engine that produces
+reverse torque above its highest authored speed is a bug that only shows up on a long straight. Idle
+is a proportional governor over an authored band, so its droop is a number the author chose rather
+than a surprise — a proportional controller settles wherever its output balances the load, and
+leaving the band implicit is how an engine ends up idling ten per cent low with nothing to point at.
+The limiter is a throttle cut, and its overshoot — up to one tick of peak torque on a light crank,
+22.7 rad/s here — is what a real limiter does, so the test asserts that bound rather than a round
+number. The engine does not stall: stalling needs an ignition state and a starter, and those are
+driver-input surface rather than §11.4.
+
+**Reverse is a negative ratio and neutral is a ratio of exactly zero**, both in the one ordered list
+a driver moves through. Selecting a gear is then an index and never a mode plus an index.
+
+**What the measurements say.** Seventeen unit cases in `test_vehicle_powertrain.cpp`. The clutch
+locks to 1e-6 rad/s and reports itself unslipped; an overwhelmed clutch carries exactly its 40 N·m
+and a released one carries exactly zero; open and locked differentials both sum to the shaft torque
+to 1e-9 N·m, and the locked one gives the slower wheel 1085 N·m against the faster one's 599;
+lifting off in gear turns the chain into a brake; forty ticks in reverse leave the wheel turning
+backwards and the crank turning forwards; the chassis takes the exact negative of the drive impulse;
+and two identical runs agree bit for bit.
+
+**What P7-G does not do.** There is still no ground: the driven wheels spin up against nothing,
+because the tyre is §11.5's and P7-H's, and until it exists a throttle produces wheel speed rather
+than vehicle speed. One differential is shared over every driven corner, which is exactly a
+front or rear differential on two wheels and a simplification on four — a cascade with a centre
+differential is not modelled, and §11.4 names one. There is no torque converter and no automatic
+gear selection; both are policy over this chain rather than physics in it. And the coupling is
+explicit at the tick boundary: the tyre load reaches the chain as the wheel speeds it measures, one
+tick late, which is the same lag every explicit coupling in this engine already accepts.
+
+### 16.28 P7-H: the patch, and the load that was already there
+
+§11.5 asks for *"a slip-based force model, evaluated per wheel: compute longitudinal and
+lateral slip from the wheel's contact patch velocity, look up the force curve, apply the
+force at the contact point. Combined-slip handling by the friction ellipse. Load
+sensitivity from the contact normal force the solver already recovered."* Split in two,
+along the same seam P7-G used: `tyre.hpp` is slip and load in, force out, and knows
+nothing about bodies; `tyre_projection.hpp` finds the patch, asks the model, and spends
+the answer.
+
+**The brush model rather than the magic formula.** Pacejka's curve is a *fit*. Its
+coefficients have no physical meaning on their own, they are measured on a rig from a real
+tyre, and an author who has not measured one is left tuning fourteen numbers that
+interact. The brush model is a *derivation*: bristles on the tread deflect until the local
+shear reaches the friction limit and then slide, and integrating that over a parabolic
+pressure distribution gives the whole curve from two stiffnesses and a friction
+coefficient. Every number in `TyreSettingsT` is therefore something an author can reason
+about, and the shape — a linear rise, a rounded peak, a fall into sliding — is a real
+tyre's shape because it comes from the same argument and not because someone matched it.
+The cubic reaches exactly `μN` with slope exactly zero, because its derivative is
+`(1 − θ)²`; a kink at the limit is a discontinuity a car crosses several times a second
+under hard driving and is felt as a tyre that grips and lets go rather than one that gives
+way. The magic formula stays reachable — it would be a second `tyre_force` with the same
+signature and nothing above it would change.
+
+**One slip vector, saturated once.** Longitudinal and lateral slip are two components of
+one vector and the saturation is applied to its magnitude, so combined slip is automatic
+and cannot be got wrong. A tyre already at its limit under braking has nothing left to
+steer with, which is what understeer under braking *is*, and it falls out rather than
+being detected. Computing the two axes separately and clipping afterwards is the classic
+mistake: it lets a wheel produce `μN` sideways *and* `μN` forwards, which is 1.41 times
+the friction the surface has. Measured: two fully saturated axes together carry 4800 N
+against 4800 N of `μN`, where a square limit gives 6788 N.
+
+**The load is read back, not invented.** A wheel is a real rigid body with a real contact
+(§11.2's fourth row), so the normal force is already a number the solver produced. Nothing
+here raycasts for the ground or models a spring to it — a raycast wheel is the arcade
+shortcut and it is the reason arcade cars cannot drive over a kerb: the ray finds the
+ground and the wheel is not really there.
+
+**And the units of that load were the one real defect.** `ContactPoint::normal_lambda` is
+a *positional* XPBD multiplier, not an impulse: the solver spends it as a displacement, so
+it carries an extra factor of the substep and the force is `λ/h²`. The contact solver's
+own dynamic-friction pass is the proof — it compares `normal_lambda / h` against a
+quantity in kilogram-metres per second. Getting it wrong does not look wrong: a load off
+by the substep is a load off by a few hundred, and a tyre asked for grip proportional to
+half a newton simply produces almost nothing. A car that rolls but will not drive, with
+every formula in the model correct. `contact_point_load` is now the one place the
+conversion is written.
+
+**`IConstraintSolver` gained `body_handle`, the inverse of `body_slot`.** Contacts name
+their bodies by slot, because they are rebuilt every tick and read by a device kernel that
+has no notion of a generation. So anything that reads a contact and then wants to act on
+the body it names — a tyre spending its reaction on whatever it is standing on, a damage
+system asking what hit what — has a slot and needs a handle. Rebuilding it outside is not
+possible and should not be: the solver is the authority on which generation a slot is on,
+and a caller that guessed would address a body that had already been recycled.
+
+**One patch per wheel, not one per point.** A manifold has up to four points and a wheel
+can touch several bodies at once, but slip is a property of *the patch* — one velocity,
+one slip angle. So the points fold into a single load-weighted patch, the model is asked
+once, and the reaction is shared back by each contact's share of the load. Evaluating the
+curve per point would saturate each separately and give a wheel across a kerb edge more
+total grip than a wheel flat on the road, which is exactly backwards. Sharing the reaction
+by load keeps the impulse the wheel gains equal to the impulse the world loses: measured
+as 300.000000000 unchanged, to the last digit printed, across a wheel sliding on a movable
+floor.
+
+**The wheel must not also have Coulomb friction.** The solver's own friction runs inside
+the substep loop on the same contact the tyre reads, so a gripping wheel gets both and
+ends up with grip nobody authored and no single wrong number to find.
+`SuspensionSetupT::material_index` exists so a wheel can point at a frictionless material.
+This is the one mistake the file cannot detect for you, and it is stated where a reader
+will meet it.
+
+**What the measurements say.** Fourteen unit cases in `test_vehicle_tyre.cpp`. Small slip
+reads the stiffness straight off; no slip in five decades takes the tyre past `μN`; the
+curve rises monotonically and its largest single step near the peak is 30 N; friction
+falls from 1.29 at half rated load to 1.02 at double and never to zero; a crawling wheel
+reports a slip of 5e-4 rather than a singularity. In a solver: a parked wheel reports
+196.2000 N against 196.2000 N of its own weight and drifts by nothing at all; a driven
+wheel accelerates from rest to 2.0468 m/s against the 2.0400 m/s its held spin rolls at; a
+locked wheel at 25 m/s is dragged at exactly `−μN` and slows.
+
+**What P7-H does not do.** There is no carcass relaxation length, so a slip angle builds
+instantly rather than over a few centimetres of travel — audible in a hard flick of the
+wheel and not much else, and it is one first-order lag when it is wanted. There is no
+camber thrust and no self-aligning torque, so a steering wheel has no weight to it; both
+are additions to the same model rather than replacements. §11.5's pressurized node-beam
+tyre is untouched and remains the other branch the asset may choose. And the coupling is
+explicit at the tick boundary, like the powertrain's: the patch and its load are a tick
+old.
+
+**One thing found and not fixed, deliberately.** §7.3's manifold refresh anchors a contact
+to a *material point* on a body, so a fast-spinning round body carries that point round its
+rim within a tick and the bottom of the wheel stops being where the contact is — 38° in one
+tick at 40 rad/s, which is a wheel at 50 km/h. It belongs to the narrowphase, where the fix
+is to derive a round shape's anchor from the normal rather than carry it, and changing that
+would move every rolling contact in the engine. It is recorded here because it is the reason
+the tyre tests carry a rest offset, and because a vehicle at speed will meet it.
+
+### 16.29 P7-I: the wind seam, and the term that had to be a difference
+
+§4.5 names it before §11.6 describes it: *"`sim/` continues to hand the physics a
+`GravitySampler` — an existing, good example of this principle already in the codebase —
+and gains a `WindSampler` alongside it, backed by the atmosphere system's wind field."* So
+`WindSampler` is the same shape as `GravitySampler` down to the signature, because the two
+are the same *kind* of thing: a field the live world knows about and the solver must not.
+Still air is a sampler that returns zero; a scene with no weather installed passes an empty
+one, which is cheaper still.
+
+**The force term had to be a difference, and that is the whole design.**
+`RigidBodyT::drag_coefficient` already existed and `predict` already spent it, once per
+substep, as `-k|v|v` — still-air drag on the body's own velocity. What a wind field changes
+is not *that* there is drag but *what the drag is measured against*: the real force is
+`-k|v − w|(v − w)`. Adding a second drag term on top would double-count. Replacing the first
+is not available, because `predict` runs on the device inside one composition (§6.6) and
+cannot call a host sampler at all. So `wind_drag_acceleration` returns exactly the gap
+between the two, folded into `external_acceleration` beside gravity, and the two together
+are the right force.
+
+That decision buys the property that matters most: **still air costs exactly nothing.** Not
+nearly nothing — a term that perturbed a scene with no weather in it would move every
+determinism test in the suite by an amount small enough to be blamed on anything at all.
+Measured: a tailwind at the body's own speed gives back exactly what `predict` takes
+(0.800000000 against 0.800000000), a headwind costs exactly the difference of the two
+squared airspeeds, and a wind of zero returns a hard zero.
+
+**The cooker's `drag_area` finally reaches a body.** It has travelled in the
+`.sushinodebeam` since P7-C and been read by nothing. Shell nodes now carry a drag constant
+derived from it, from an air density and a plate's drag coefficient on the structure's
+settings — derived rather than authored, because what an asset has is an area and what
+`predict` spends is an acceleration.
+
+**The car's own aerodynamics split in two, and the split is physical.** Drag is written
+into the core's drag constant *at create time*, because drag is a constant and not a
+per-tick force — and because that is the path the wind sampler already reaches, so a car
+meets a gust through exactly the mechanism a flag on a pole does. Downforce is applied per
+tick, because it is not drag: it acts along the car's *own* down axis, so a car on a banked
+corner keeps it and one over a crest keeps it pointing at the road; and it acts at a centre
+of pressure that is not the centre of mass, which is why a wing pitches a car under load.
+That lever is the whole of aerodynamic balance, and modelling downforce without it would be
+modelling extra grip. Measured at 60 m/s against `½ρClAv²` to 1e-9 relative, with the pitch
+present when the wing is behind the centre of mass and exactly zero when it is on it.
+
+Airspeed for downforce is the car's own speed and not its speed through the air, because
+the wind sampler is `sim/`'s and `physics/vehicle` is not allowed to name it. A headwind
+therefore adds drag, where the sampler does reach, but not downforce. That is an
+understatement rather than an invention, and the alternative is this layer reaching for the
+meteorology.
+
+### 16.30 P7-J: the acceptance scene, and the editor
+
+P7's row asks for one thing in one sentence: *"a drivable vehicle that deforms permanently
+on impact and loses parts, at the §13.1 target, deterministic under replay."* Every earlier
+P7 file tests one piece against its own closed form. `Integration_VehicleAcceptance` tests
+that the pieces are a car, and it asks the four questions in the roadmap's own words.
+
+**Drivable.** The throttle reaches the driven wheels through the clutch, the gearbox and
+the differential: 51.4 rad/s at the rear, and the front two do not turn. Steering moves two
+corners and not four. Off the throttle and out of gear, the brake stops the rear wheels to
+0.005 rad/s — *out of gear*, because braking with the clutch engaged is braking against a
+flywheel at 680 rad/s and the wheel settles where the two balance rather than stopping,
+which is right and is not what that assertion is about.
+
+**Deforms permanently.** A hull beam's rest length after the impact is *different*, and its
+accumulated plastic strain is positive and bounded by the authored maximum. The magnitude
+is micrometres, because the shell in that fixture is bolted to a rigid core and cannot move
+far — and permanence is not a matter of degree. The assertion that earns its keep is `!=`:
+a structure that merely bent and sprang back passes every test about forces and fails this
+one.
+
+**Loses parts.** A door tied to the hull by two beams and nothing else loses both, is
+reported detached exactly once — not once per tick — and is 38 m away by the end, still a
+pair of bodies still beamed to each other, which is what a torn-off door is.
+
+**Deterministic under replay.** Two runs of the same crash agree bit for bit on every node
+position, on the crankshaft, and on the wheel.
+
+**The §13.1 row is measured and printed rather than asserted.** The target — 2 ms/tick for
+400 nodes, 2 000 beams, four wheels and a powertrain — is quoted for one desktop-class GPU
+through SushiRuntime, and the suite runs the host reference solver on a CPU. §16 already
+says why that matters: a number from one solver that the other cannot produce is a number
+nobody can compare. So what is asserted is the *shape* — that the scene really is 400 nodes
+and 2 000 beams and four corners, all instanced and stepping — and the cost is reported for
+a human to read. It is **0.460 ms/tick**, which is a useful thing to know and is not the
+target being met.
+
+Building that scene surfaced a real constraint worth writing down: **the colour count must
+be at least the number of constraints touching any one body.** Graph colouring cannot put
+two constraints sharing a body in the same colour, so fifty shell mounts on one rigid core
+need fifty colours, and a configuration with sixteen instances nothing at all. It is not a
+defect — it is what colouring means — but it is invisible from the capacity numbers, and a
+vehicle is the first scene in this engine where one body carries dozens of constraints.
+
+**The Vehicle window** is the authoring surface: corners, tyres, drivetrain, aerodynamics,
+and the two asset identifiers `physics/vehicle` never dereferences. Its distinguishing
+feature is the derived column. A vehicle editor that only echoed back what was typed would
+be a form, and the numbers that catch mistakes are not the ones that were typed: `m·g/k`
+beside the spring rate, the road speed at the limiter beside the gear ratio, the friction at
+*this corner's* load beside the tyre's rated figure. A spring rate read as a compliance and
+a ratio with the decimal point in the wrong place are both invisible in their own fields and
+both obvious in those.
+
+**What the editor does not do, and why.** It edits a *document* rather than a selected
+entity's component, because there is no `Vehicle` component in the ECS: a vehicle reaches a
+scene through `VehicleInstanceT` against a solver, and the authoring record has no owner in
+the entity world to hang from. When that component exists the panel becomes an inspector
+over it and nothing else in it changes. It has no viewport either — a live vehicle preview
+needs its own render target and never the Scene view — and part and mounting-point authoring
+lives in the cooked structure, where a part is a node's part index and a mount is an
+attachment record, so the panel names the `.sushinodebeam` and the Cook & Bake window cooks
+it.
+
+### 16.31 PX-1: the joint component, and the field the boundary was dropping
+
+P7 closed the last *building* phase before P8, and closing it exposed something the roadmap
+had been recording without acting on since §16.8: a great deal of this system is built,
+tested, and unreachable. §16.10 sized it for P3 — "the §14 assembly editor is the one item
+outstanding, and it needs §5.5's `PhysicsJoint` component, its serialization and an
+`ISimulation` surface for joints before it can be a panel at all, because `ISimulation`
+deliberately does not expose the physics boundary" — and §16.15 repeated it for §14's seven
+surfaces. This is the first of those, and the one every other one waits behind.
+
+**What was actually missing was narrow.** `IJointService` exists and is complete: create,
+destroy, read the load, replace the drive and the limits, and the broken-event stream. The
+gap was one layer up. An entity could not *carry* a joint, so nothing an author did could
+produce one, and nothing the scene file stored could restore one.
+
+**The vocabulary had to move before anything could use it.** `JointType`, `JointLimitDesc`,
+`JointMotorDesc`, `JointParams` and `JointState` were defined in `physics_services.hpp` —
+which includes `simulation.hpp`. So the authoring boundary could not name a joint without
+closing an include cycle, and duplicating the types is exactly how a new limit ends up
+honoured by a hand-built joint and silently ignored by an authored one. They now live in
+`sim/joint_params.hpp`, which both include. Nothing in it names an entity, which is what
+keeps it includable from the header where `EntityId` is defined — and that constraint is not
+a compromise: *what is held between two bodies* is separable from *which two bodies*, which
+is the same split `JointParams` was already making so an assembly asset could describe joints
+against part indices it has not yet resolved.
+
+**The joint lives on one of its two bodies.** Not on a third entity naming both, because the
+question is ownership: a door's hinge belongs to the door, and deleting the door should take
+its hinge with it — which it does, for free, when the hinge is the door's own record. The
+alternative leaves a joint behind pointing at something that is gone. The owner is body `a`,
+so `anchor_a` and `axis_a` are read in the owner's own local space.
+
+**Reconciliation is a diff, in the same shape and for the same reason as
+`set_rigid_bodies`.** A joint that has not changed keeps its solver handle and therefore its
+warm start, so merely stepping a scene rebuilds nothing. Staleness is a **revision counter**
+rather than a comparison of the parameters: `PhysicsJointParams` is trivially copyable but
+not free of padding, so a byte comparison can report a difference that is not one, and a
+field-by-field comparison is a second place every future joint parameter must be remembered.
+A counter cannot be forgotten, because the one function that bumps it is the one that writes.
+The walk is over the authoring order, not the record map — joint identities are handed out in
+call order, so a hash-order walk would be an unstable joint numbering, which is precisely the
+kind of leak §12.1's first rule exists to forbid.
+
+**A broken joint stays broken.** The solver destroys it and reports it once; the authoring
+survives, because an author who set a threshold has not thereby deleted their hinge. A
+runtime flag records the break and keeps the next reconcile from building the mount back —
+without it a breakable joint tears off and reappears on the following tick, forever. The flag
+clears when any field is edited, which is what an author changing the threshold means.
+
+**One real bug, found by exercising the seam rather than by reading it.** `JointMotorT`
+carries `damping`, added in P7-F so §11.2's spring-damper strut is one joint rather than two.
+`JointMotorDesc` did not, and the boundary conversion therefore wrote zero. Everything
+reaching the solver through `IJointService` — every assembly, and every joint this phase now
+lets an author create — has been building spring drives with no damper, and a spring alone
+rings forever. The field is now carried, converted, serialized and authored.
+
+**The partner is serialized as an array index.** An `EntityId` is assigned at creation and is
+not a property of the scene, so a file that stored one would reconnect to whatever entity
+happened to be handed that number on the next load. It is written as an index into the entity
+array and resolved in the same second pass the parent link already uses, since either end can
+be written before the other — and the test that proves it deliberately creates the joint's
+owner *first*.
+
+**On verification.** Ten integration tests against the real simulation: a joint holds a body
+up that a third, identically built and jointed to nothing, falls a metre without; the load
+readout reports what the mount carries; a joint below its break threshold tears out, drops
+the body, and does not come back until edited; destroying the partner releases the joint
+without marking it broken, because nothing exceeded a limit; and every authored field —
+including the recovered `damping` — survives capture and apply. The three states an
+unconnected joint can be in are distinguished by the tests, not merely by the panel, because
+all three read as a load of zero.
+
+**What this does not do.** The Inspector's joint section edits the primary entity rather than
+fanning out across a multi-selection, and that is a decision rather than a limitation:
+`ComponentEditor` addresses a field by pointer-to-member and a joint's parameters are nested
+one level, but the reason not to reach for the general mechanism is that fanning a joint out
+would attach every selected entity to the *same* partner at the *same* anchor, which is never
+what is meant. Joint *gizmos* — the axis and the limit arc, drawn and draggable in the
+viewport — are §14's assembly-editor bullet and are PX-2's, not this one's.
+
+### 16.32 PX-2, PX-5, PX-6, PX-7: the surfaces, and the type nothing was reading
+
+§16.31 opened the exposure work by observing that a great deal of this system is built,
+tested, and unreachable. This closes four more of §14's seven surfaces, and the most
+important thing it found was not a missing panel.
+
+**`PhysicsMaterial` was a type nothing read.** §5.3's material has existed since P0 with
+static and dynamic friction, restitution, and four combine modes with a stricter-wins rule.
+`submit_contacts` built **one** `ContactSolveParams` per tick at a hard-coded 0.6 / 0.5 / 0
+and gave it to every contact in the world. So an ice cube and a rubber block on the same
+slope did the same thing, always had, and no test caught it because every test that cared
+about friction set the constant it was already using.
+
+The fix is per-body materials on `RigidBodyDesc`, combined per pair by
+`make_contact_params` — which already existed and had exactly one caller, in the soft-body
+path. Carried by value rather than as an index into a scene table, for the same reason
+`SoftBodyDesc` carries its constitutive material by value: `RigidBodyT::material_index`
+exists so a *device* kernel can reach a material without following a pointer, and the
+manifold pass that resolves a contact's surfaces runs on the host with the body's record
+already in hand. A table would be a second place a material could live and a second thing
+to keep in step.
+
+One decision inside that is worth recording because the other answer is tempting. A side
+with no rigid body — the standing plane, a cloth particle — resolves to the *default*
+surface rather than to a mirror of the body it is touching. Mirroring reads as neutral and
+is not: an ice cube should be slippery against the floor, and a floor that copied the
+cube's friction would cancel exactly the difference the author authored.
+
+**The filter was authorable only by the assembly instancer.** `CollisionFilter` has been
+honoured by the broadphase since P2 and `instantiate_assembly` was the only thing that
+could set one. `ColliderParams` now carries it, as a layer *index* rather than a mask —
+a body is in exactly one layer, and offering a 32-bit field for a value with one bit set is
+offering an author a way to write something the filter cannot mean. The shift happens once,
+in `collider_from_params`. The Inspector's matrix states the rule in the words the rule is
+actually in: two bodies interact only when *each* one's layer is in the other's mask, which
+makes the relation symmetric by construction and makes a one-sided exclusion do nothing.
+
+**The Assembly editor instances into entities.** This is the panel's whole architecture and
+it is a choice rather than an implementation detail. An assembly instanced as an opaque
+scene-graph node would be a second kind of thing the Hierarchy, the Inspector, undo, save,
+serialization and the debug draw would each need a case for. Instanced as one ordinary
+entity per part — Transform, Collider, Rigid Body, and one Physics Joint per assembly joint
+— it is *already* all of those, and the parts stay editable afterwards, which is what an
+author does with a ragdoll five minutes after placing one. The cost is stated in the
+panel's own header rather than discovered: the instance forgets it was an assembly, so
+re-instancing does not update one already in the scene. A prefab relationship is a real
+feature and it is a scene-system feature, not a physics one.
+
+The joint editor is shared. §10.1's argument for a single `JointParams` is that an entity
+joint and an assembly joint are the same joint; a second copy of the *widget list* is
+exactly how a new limit ends up editable in one of them and invisible in the other, so the
+widgets moved to `editor/physics/joint_widgets.cpp` before there were two callers rather
+than after.
+
+**The debug draw needed one new boundary call and no more.** Contacts reuse the stream
+gameplay already receives — the same one, not a second — so what is drawn is exactly what a
+listener would be told about, and an `End` event is drawn rather than filtered because a
+contact that vanishes for one tick and returns is a symptom a filtered stream would hide.
+What was genuinely invisible from outside the solver is a body's *bound*, its island and
+whether it is asleep: a bound is not the collider, an island is not a component, and
+"asleep" is the difference between a settled stack and a broken one.
+`IRigidBodyService::rigid_debug_state` reports the three, and computes the bound with the
+same routine the broadphase uses rather than reading a stored proxy — a debug view whose
+boxes lag the bodies they belong to is worse than none, because it looks like a broadphase
+bug.
+
+The joint gizmo's arc is the half of it worth the code. A hinge's limits are two numbers in
+radians, which is the quantity nobody can picture; an arc drawn from the joint's own zero,
+in the joint's own plane, turns "0 to 1.7" into a door that opens most of the way — and a
+sign error into a door that opens backwards, visibly, before anyone plays it.
+
+**§14's material preview is a derivation, not a simulation.** §14 asks for "a ball dropped
+on a ramp at the authored friction and restitution". The two rows beside the fields are
+that scene's *answers*: an object begins to slide at `atan(static friction)` and returns to
+`restitution²` of the height it fell from. Those are exact, so a simulated ramp could only
+reproduce them with noise on top; it would also want its own render target and its own
+physics world, and neither buys an author anything the two rows do not already say. The
+sample scene carries the simulated version — two blocks differing in nothing but their
+material, on one slope — where it can be watched rather than parameterized.
+
+**On verification.** Six integration tests over the authoring surface, and the two that
+matter most are comparisons rather than absolutes, because gravity here is the celestial
+sum sampled per body and not a constant: a body at 0.9 restitution returns visibly more
+height than one at 0, and a 17-degree ramp holds a block at 1.4 static friction while
+losing one at 0.02. The filter test carries a control pair — identical geometry on default
+layers — because a filter bug that dropped *every* contact would otherwise read the same as
+a working exclusion.
+
+**What the exposure work still owes.** `VehicleInstance` is not built: a vehicle reaches a
+scene through `VehicleInstanceT` against a solver, and putting one in a scene needs a
+vehicle service on `IPhysicsScene`, `.sushinodebeam` loading, per-tick stepping and a pose
+write-back for four hundred nodes — the largest single item in this stream and the one
+whose absence keeps the Vehicle window a document editor rather than an inspector. Drive
+input follows it. Joint gizmos are drawn and not draggable; dragging needs hit-testing and
+a drag state machine, which the transform gizmo has and this does not share yet.
+
+### 16.33 PX-3 and PX-4: the vehicle in a scene, and the two ticks it has to fit between
+
+§16.32 closed with a list of what the exposure work still owed, and `VehicleInstance` was
+the largest item on it. P7 built a drivable vehicle and proved every clause of its
+acceptance row — but against solvers the tests constructed themselves. Nothing could put
+one in a scene.
+
+**The component stores a path, and that is the one asset reference at this boundary that
+does.** A soft body's `.sushisoft` crosses as bytes, because whoever cooked it owns them
+and the physics copies out what it needs. A vehicle is different in a way that decides the
+representation: it is *placed by an author, in a scene file, that has to survive being
+reopened on another machine* — and the only thing that survives that is a path relative to
+the project. The bytes are read once per path and held on the record, because a vehicle
+blob is megabyte-scale and a reconcile fires whenever any vehicle in the scene changes; a
+read that fails is remembered as having failed, so a path typo is one `open` rather than
+one per tick.
+
+**`set_vehicles` is a rebuild and says so.** Every other reconcile at this boundary is a
+diff — `set_rigid_bodies` is explicitly "a diff, not a rebuild", and that property is what
+lets a body keep its live velocity across a scene edit. A vehicle cannot have it. Four
+hundred bodies and two thousand beams are placed *relative to a cooked structure*, so "the
+same vehicle with one number changed" is not a thing that exists to be patched, and a
+partial rebuild would leave half a car built to one setup and half to another. The
+interface says rebuild, the panel's button says rebuild, and the cost is paid where an
+author asks for it rather than per tick.
+
+**The tick order is forced, not chosen.** This is the part worth recording, because it
+looks arbitrary and is not. `VehicleInstanceT::begin_tick` does three things — downforce,
+tyres, drivetrain — and the tyre model reads its normal load off the *contact multipliers
+of this tick's manifolds* (§11.5, §16.28). So it cannot run before `submit_contacts`,
+because the manifolds do not exist yet. It applies velocity impulses at the contact patch,
+so it cannot run after `solver_->step`, because the velocities it would be correcting have
+already been solved. There is exactly one point in the tick that satisfies both, and that
+is where it went. The structure's own boundary — beams denting, mounts tearing out, a part
+that has lost its last tie reported once — runs after the solve, beside
+`break_overloaded_joints`, for §6.6's standing reason: a topology change never happens
+against a running graph.
+
+**The pose that comes back is the core's.** §11.2's hybrid puts the mass and the inertia in
+one rigid body and hangs a deformable shell off it, so a node's position is a *panel's*
+position and only the core's is the car's. Writing back a node would make a dented door
+move the entity.
+
+**Input is held, not consumed.** `set_vehicle_input` records; the step spends. Throttle is
+a state an input device holds down rather than an event it delivers, so a caller that stops
+calling keeps the pedal where it left it — which is what a pedal does, and what lets the
+Vehicle window's slider and a future input action drive the same car without either of them
+having to know whose turn it is. The record is kept on the *authoring* side as well, so a
+panel can show back what it asked for even on a tick where the vehicle is not live: an
+author dragging a throttle at a car whose asset failed to load should see the slider move
+and be told why nothing else does.
+
+**The panel edits a component here and a document everywhere else.** §16.30 recorded the
+Vehicle window as a document editor and named the missing component as the reason. It now
+has both, and the split is deliberate rather than transitional: the corners, the tyres and
+the drivetrain are the same numbers whether or not anything is placed, and only the Scene
+tab is about a car that is in the world. §14's node/beam visualization lives there as a
+side elevation drawn in the panel rather than in the viewport, following the editor's own
+rule that a preview gets its own surface — and a side elevation is the view in which a
+sagging suspension and a caved panel are both visible at once.
+
+**On verification.** Six integration tests, and the asset is **cooked into a real file**
+rather than handed over as bytes, because a path is precisely what this phase is about. A
+named structure becomes six shell bodies and a readable drivetrain; the entity falls
+because its core does, against a control entity that does not move at all; full throttle
+against a disconnected clutch spins the crankshaft up and lifting off lets it fall back;
+the three ways to have no vehicle — no path, a path that did not load, no component — are
+distinguished rather than collapsed, because all three read as a stationary car; the path
+survives capture and apply and the vehicle is live again after it; and detaching the
+component takes its bodies out of the solver rather than merely hiding them.
+
+**What is still open.** The authored *setup* is not serialized — the scene file stores the
+structure path, and a reloaded vehicle comes back at the default corners and drivetrain
+until `VehicleAssetT` has a serializer of its own. That is stated in the writer where it
+happens rather than left as a silent loss. Drive input reaches the vehicle from the panel
+and not yet from the input manager, so a car is driven with sliders rather than with keys.
+And joint gizmos are drawn but not draggable, which §16.32 already recorded.
+
+### 16.34 PX-8, PX-10, PX-11: the car became visible, drivable, and openable
+
+Three gaps closed, all of the same kind: the vehicle worked and nobody could *see* it, drive
+it, or open the scene it was in. Worth recording together because the pattern is the point —
+§16.33 scoped PX-3 to "reaches the solver", and that turned out to be two steps short of
+"reaches a person".
+
+**The shell is drawn as the surface it collides as.** `IVehicleService::vehicle_surface`
+publishes the node cloud's collision triangles on the same deformable channel cloth and soft
+bodies already use, which is P6-G2's argument reused: how a surface's triangles were produced
+is not something the renderer can see. Read straight off the live node bodies with no cache
+in between, so a dented panel is dented on screen in the tick it dented — and the drawing
+cannot disagree with the collision, because they are literally the same triangles.
+
+The cooked asset also carries a *render* skinning — up to four nodes per vertex, stored as a
+displacement in the frame those nodes' arrangement implies, which reproduces the rest pose
+exactly where a weighted sum of node positions would visibly shrink the mesh at every corner.
+That is the prettier answer and it is not drawn yet, because it needs the visual mesh's own
+index buffer, which lives in the visual asset and not in the `.sushinodebeam`. What is drawn
+is the surface the physics owns end to end.
+
+**The controls are ramped, and the ramp is in the input layer.** A key is a bit and a
+throttle is not. Setting the pedal to 1 the instant a key goes down is what makes keyboard
+driving in a physically simulated car undriveable: every input is a step, every step is a
+shock through a drivetrain that models its own inertia, and the tyres spend their life at the
+limit. Each control moves toward its target at a rate, and the rates differ because the
+mechanisms do — a throttle cable is quick, a steering rack slower, and both return to centre
+faster than they leave it.
+
+The placement matters more than the rates. The ramp is a property of the *input device*, not
+of the car, so it lives in the editor's input layer: a wheel-and-pedal set would deliver the
+same `VehicleInput` with no ramp at all, and the vehicle must not be able to tell which it is
+talking to. That is §4.5's rule applied to a seam nobody had thought of it as.
+
+Arrow keys rather than WASD, on their own input context that is a no-op unless the selection
+carries a Vehicle. W, E and R are the gizmo keys; a driving binding that stole them would
+make the tool keys stop working the moment an author selected a car, which is exactly the
+modal surprise a rebindable context exists to prevent.
+
+**The sample scene ships as a file, generated rather than written.** A scene is a *file*, and
+shipping the demonstration as a builder behind a menu item made it the one scene in the
+engine that could not be opened, edited, saved or diffed like the thing it demonstrates.
+`examples/physics_sample_scene` writes it, from the same builder the integration suite steps
+and asserts on — a hand-authored blob would be a second definition of the scene, free to
+drift from the tested one, and the drift would surface as a demo that quietly stopped
+demonstrating something.
+
+Removing the menu item before this existed was the wrong order, and building the replacement
+found a latent break worth recording: the builder took an `EditorContext`, which drags ImGui
+in behind it, which made a *scene builder* impossible to use from anything that is not the
+editor shell — including the test target that had just started compiling it. `se editor`
+builds with tests off, so it had not fired. The builder takes a world and nothing else now;
+recording undo and moving a selection are the caller's business, and were never the scene's.
+
+**And one crash, whose cause is a class rather than an instance.** `scalar_field` and
+`vector3_field` open with `ImGui::TableNextRow` — they are *row emitters* for the two-column
+table the Inspector's Transform block sets up. Their doc said so, as a description of what
+they do rather than as a condition on where they may be called, and the Assembly window
+called one outside a table: a null current table, dereferenced, on the first frame the panel
+was opened.
+
+The fix was to make the widgets **total** rather than to teach every future caller a rule.
+They lay themselves out according to where they find themselves now — a table row inside a
+table, a plain labelled drag outside one — so there is no precondition left to forget. A
+widget that works in one context and crashes in another is a trap whose only defence is
+documentation nobody re-reads.
+
+### 16.35 Where this stands, and what to pick up next
+
+The exposure stream (PX) took everything P0–P7 built and made it reachable without writing
+C++. Eleven of its twelve items are done and recorded in §16.31 to §16.34. What follows is
+the honest remainder, in the order it should be picked up.
+
+**PX-9, the one item left in the stream, and the one that blocks an author outright.**
+`NodeBeamCooker` exists (P7-D, §16.24) and has no entry point outside C++: the Cook & Bake
+window produces `.sushicollision` and `.sushisoft` only. So step one of `docs/VEHICLES.md` —
+cook a mesh into a `.sushinodebeam` — cannot be done from the editor at all, and the test
+suite cooks its own asset in C++ because that is the only way there is. Wiring it needs the
+cooker's settings on the bake surface (the material, the core mass fraction, the
+structural/bracing length ratio, the skin radius) and its cook report beside the other two.
+Nothing structural stands in the way; it is the same shape as the two cookers already there.
+
+**Three smaller things, each stated where it lives rather than left to be discovered.**
+
+| Open | Where it bites | Why it was deferred |
+|---|---|---|
+| `VehicleAssetT` has no serializer | A saved scene stores the structure path; the vehicle reloads at the *default* corners and drivetrain | It is a large nested record, and writing it field by field in the scene serializer would be a second definition of it |
+| The cooked render skinning is not drawn | The car is visible as its collision surface rather than as its art | Needs the visual mesh's index buffer, which is in the visual asset, not the `.sushinodebeam` |
+| Joint gizmos are drawn, not draggable | A hinge's limits are typed rather than dragged | Dragging needs hit-testing and a drag state machine; the transform gizmo has both and this does not share them yet |
+
+**Then P8.** Its twelve items are broken down in the roadmap row and none has started. Two
+things about it are worth having written down before anybody begins:
+
+1. **P8-A is not negotiable as the first step.** §16.21 measured 29.4 ms against a 3 ms budget
+   and stated plainly that it could not distinguish whether the cost was the arithmetic or the
+   1 024 barriers per tick. Building the device broadphase, narrowphase and contact solve
+   without that answer is months of optimization not knowing which bottleneck is being
+   removed.
+2. **P8's acceptance cannot close on the current machine.** Every §13.1 target is written
+   against "one desktop-class GPU through SushiRuntime", and SushiRuntime finds exactly one
+   device here — an `AMD Ryzen 5 7600X`, the CPU backend. The work is doable and measurable;
+   the *acceptance* stays open the same way P6's soft-body line does, and reporting a CPU
+   number as if it had met a GPU target would be the one thing §16 has never done.
 
 ---
 

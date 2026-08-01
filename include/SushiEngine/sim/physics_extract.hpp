@@ -124,6 +124,32 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The surface an entity contacts as (§5.3).
+         *
+         * Read off the Collider, because that is where the surface is: two crates of the
+         * same mesh can be ice and rubber, and nothing about them is shared but the shape.
+         * An entity with no Collider gets the defaults, which describe an ordinary solid —
+         * the same precedence @ref resolve_collider follows for the shape itself.
+         *
+         * @param entity The entity to resolve.
+         * @return Its surface material.
+         */
+        inline Physics::PhysicsMaterialT<Scalar> resolve_material(
+            const PhysicsSourceEntity& entity) noexcept
+        {
+            Physics::PhysicsMaterialT<Scalar> material;
+            if (!entity.has_collider)
+                return material;
+            material.static_friction = entity.collider_params.static_friction;
+            material.dynamic_friction = entity.collider_params.dynamic_friction;
+            material.restitution = entity.collider_params.restitution;
+            material.friction_combine = to_combine_mode(entity.collider_params.friction_combine);
+            material.restitution_combine =
+                to_combine_mode(entity.collider_params.restitution_combine);
+            return material;
+        }
+
+        /**
          * @brief The radius a body collides as, when it collides as a sphere.
          *
          * Kept as a named function because the contact path still has a sphere
@@ -180,6 +206,7 @@ namespace SushiEngine
                 desc.drag_coefficient = entity.physics_params.drag_coefficient;
 
                 desc.collider = resolve_collider(entity);
+                desc.material = resolve_material(entity);
 
                 const Physics::MassProperties<Scalar> mass =
                     collider_mass_properties(desc.collider, entity.physics_params.density);

@@ -68,6 +68,18 @@ namespace
     /** @brief The layer the chassis and the door share, and which they exclude. */
     constexpr std::uint32_t CAR_LAYER = 1u << 4;
 
+    /**
+     * @brief Still air, which is what every scene without weather installed passes.
+     *
+     * An *empty* sampler rather than one returning zero: the physics skips it entirely,
+     * so a scene with no wind is bit-for-bit the scene that had no wind seam at all
+     * (§11.6, `physics/aero/wind.hpp`).
+     */
+    WindSampler still_air()
+    {
+        return WindSampler{};
+    }
+
     GravitySampler earth_gravity()
     {
         return [](const Vector3&) { return Vector3{0, Scalar(-9.81), 0}; };
@@ -180,7 +192,7 @@ TEST(Integration_JointAssembly, TheHingedDoorHangsFromTheChassisAndCarriesItsWei
     ASSERT_NE(hinge, NULL_JOINT);
 
     for (int tick = 0; tick < 240; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     // The door has not fallen: the hinge holds it where it was hung, to within the
     // sag a compliant-by-nothing positional solve leaves behind.
@@ -223,7 +235,7 @@ TEST(Integration_JointAssembly, TheDoorSwingsOnlyWithinItsLimits)
     double narrowest = 0.0;
     for (int tick = 0; tick < 480; ++tick)
     {
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
         const double angle = door_angle(*physics);
         widest = angle > widest ? angle : widest;
         narrowest = angle < narrowest ? angle : narrowest;
@@ -264,7 +276,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
         shove.max_force = Scalar(200);
         ASSERT_TRUE(physics->set_joint_motor(hinge, shove));
         for (int tick = 0; tick < 20; ++tick)
-            physics->step(no_gravity(), SUBSTEPS);
+            physics->step(no_gravity(), still_air(), SUBSTEPS);
 
         JointMotorDesc released;
         if (with_friction != 0)
@@ -277,7 +289,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
 
         const double released_at = door_angle(*physics);
         for (int tick = 0; tick < 240; ++tick)
-            physics->step(no_gravity(), SUBSTEPS);
+            physics->step(no_gravity(), still_air(), SUBSTEPS);
         const double travel = door_angle(*physics) - released_at;
 
         if (with_friction != 0)
@@ -302,7 +314,7 @@ TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
     ASSERT_NE(hinge, NULL_JOINT);
 
     for (int tick = 0; tick < 60; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
     ASSERT_TRUE(physics->joint_broken_events().empty())
         << "a door broke off under its own weight";
 
@@ -315,7 +327,7 @@ TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
     JointBrokenEvent event;
     for (int tick = 0; tick < 30 && !broke; ++tick)
     {
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
         if (!physics->joint_broken_events().empty())
         {
             broke = true;
@@ -335,7 +347,7 @@ TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
     EXPECT_FALSE(physics->joint_state(hinge, gone));
     EXPECT_FALSE(physics->destroy_joint(hinge));
 
-    physics->step(earth_gravity(), SUBSTEPS);
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
     EXPECT_TRUE(physics->joint_broken_events().empty())
         << "a broken joint reported itself twice";
 
@@ -343,7 +355,7 @@ TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
     SolvedPose before;
     ASSERT_TRUE(physics->rigid_pose(DOOR, before));
     for (int tick = 0; tick < 120; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
     SolvedPose after;
     ASSERT_TRUE(physics->rigid_pose(DOOR, after));
     EXPECT_LT(double(after.position.y), double(before.position.y) - 0.1)
@@ -357,13 +369,13 @@ TEST(Integration_JointAssembly, DestroyingAPartTakesItsJointsWithIt)
 
     const JointId hinge = physics->create_joint(door_hinge(0));
     ASSERT_NE(hinge, NULL_JOINT);
-    physics->step(earth_gravity(), SUBSTEPS);
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
     EXPECT_EQ(physics->statistics().joints, std::size_t(1));
 
     // The door is destroyed by the ECS: the solver drops every joint naming its slot,
     // and the boundary record goes with it, so a stale identity is not readable.
     physics->set_rigid_bodies({chassis_desc()}, ITERATIONS, SUBSTEP_DT);
-    physics->step(earth_gravity(), SUBSTEPS);
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     EXPECT_EQ(physics->statistics().joints, std::size_t(0));
     JointState state;
@@ -485,7 +497,7 @@ TEST(Integration_JointAssembly, AnInstancedAssemblyIsHeldTogetherByItsOwnJoints)
     ASSERT_NE(joints[0], NULL_JOINT);
 
     for (int tick = 0; tick < 240; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     // The door is still on its hinge, at the offset the asset placed it, and the hinge
     // reports the weight it carries — the same statics the hand-built scene checks,
@@ -542,7 +554,7 @@ TEST(Integration_JointAssembly, ARagdollBuiltFromASkeletonHangsTogetherAndFalls)
     }
 
     for (int tick = 0; tick < 300; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     // It fell: nothing is pinned, so a ragdoll under gravity goes down.
     SolvedPose root_pose;

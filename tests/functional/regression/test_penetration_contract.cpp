@@ -61,6 +61,18 @@ namespace
     constexpr Scalar SUBSTEP_DT = Scalar(1.0 / 240.0);
     constexpr Scalar TICK_DT = Scalar(1.0 / 60.0); // SUBSTEP_DT * SUBSTEPS
 
+    /**
+     * @brief Still air, which is what every scene without weather installed passes.
+     *
+     * An *empty* sampler rather than one returning zero: the physics skips it entirely,
+     * so a scene with no wind is bit-for-bit the scene that had no wind seam at all
+     * (§11.6, `physics/aero/wind.hpp`).
+     */
+    WindSampler still_air()
+    {
+        return WindSampler{};
+    }
+
     GravitySampler earth_gravity()
     {
         return [](const Vector3&) { return Vector3{0, Scalar(-9.8), 0}; };
@@ -125,7 +137,7 @@ TEST(Regression_PenetrationContract, StackedCratesRestWithinTolerance)
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 900; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     for (int i = 0; i < CRATE_COUNT; ++i)
     {
@@ -176,7 +188,8 @@ TEST(Regression_PenetrationContract, FastSphereDoesNotTunnelThroughAThinPlate)
         constexpr std::size_t RAMP_TICKS = 4;
         const Scalar ramp_acceleration = target_speed / (Scalar(RAMP_TICKS) * TICK_DT);
         for (std::size_t tick = 0; tick < RAMP_TICKS; ++tick)
-            physics->step(constant_downward_acceleration(ramp_acceleration), SUBSTEPS);
+            physics->step(constant_downward_acceleration(ramp_acceleration), still_air(),
+                          SUBSTEPS);
 
         // Coast at that exact speed the rest of the way down and well past it,
         // so the scene both approaches and settles within the same run.
@@ -184,7 +197,7 @@ TEST(Regression_PenetrationContract, FastSphereDoesNotTunnelThroughAThinPlate)
         const std::size_t coast_ticks =
             std::size_t(double(start_height) / double(travel_per_tick)) + 40;
         for (std::size_t tick = 0; tick < coast_ticks; ++tick)
-            physics->step(no_gravity(), SUBSTEPS);
+            physics->step(no_gravity(), still_air(), SUBSTEPS);
 
         SolvedPose pose;
         ASSERT_TRUE(physics->rigid_pose(2, pose));

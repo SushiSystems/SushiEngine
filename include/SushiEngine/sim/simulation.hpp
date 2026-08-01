@@ -48,10 +48,18 @@
 // includes this header, so naming it here would close a cycle.
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/soft/soft_body_material.hpp>
+// The authored vehicle setup only. `vehicle_asset.hpp` names the corner, the tyre
+// and the drivetrain and nothing that solves them, so this costs the vocabulary and
+// not the solver - the same trade the soft-body material above already makes.
+#include <SushiEngine/physics/vehicle/vehicle_asset.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/sim/components.hpp>
+// The joint vocabulary only, for the same reason and by the same route as the
+// statistics above: physics_services.hpp includes this header, so the types a
+// joint is authored from live in their own header that both of them include.
+#include <SushiEngine/sim/joint_params.hpp>
 #include <SushiEngine/sim/weather_provider.hpp>
 #include <SushiEngine/vfx/particle_effect.hpp>
 
@@ -501,6 +509,274 @@ namespace SushiEngine
         {
             PrimitiveKind kind = PrimitiveKind::Box;
             Vector3 params{Vector3{0.5, 0.5, 0.5}};
+
+            /**
+             * @brief Which collision layer this body is in, as an index rather than a mask.
+             *
+             * An *index*, 0 to 31, because a body is in exactly one layer — that is what
+             * `Physics::CollisionFilter::layer` means by "the single layer this body belongs
+             * to, as a one-bit mask", and offering an author a 32-bit field for a value with
+             * one bit set is offering them a way to author something the filter cannot mean.
+             * The shift happens once, in `collider_from_params`.
+             */
+            std::uint32_t layer = 0;
+
+            /**
+             * @brief The layers this body collides with, as a mask; all by default.
+             *
+             * A mask here and not an index, because "what do I collide with" genuinely is a
+             * set. Two bodies interact only when *each* one's layer is in the other's mask,
+             * so a one-sided exclusion silently does nothing — clearing a bit here is a
+             * request that has to be honoured on both sides, and the Collider inspector says
+             * so where an author can read it.
+             */
+            std::uint32_t collides_with = 0xFFFFFFFFu;
+
+            /**
+             * @brief Coulomb friction of this surface; combined with the other body's.
+             *
+             * §5.3's material, authored on the collider rather than as a shared asset
+             * because that is where the surface is: two crates of the same mesh can be ice
+             * and rubber, and nothing about them is shared but the shape. A project-wide
+             * material library is a strictly later step and does not change this field —
+             * it would name it.
+             */
+            Scalar static_friction = Scalar(0.6);
+
+            /** @brief Resistance once the contact is already sliding. */
+            Scalar dynamic_friction = Scalar(0.5);
+
+            /** @brief How much of the closing speed is returned; 0 is dead, 1 is lossless. */
+            Scalar restitution = Scalar(0);
+
+            /**
+             * @brief How this surface's friction combines with the one it touches.
+             *
+             * `Physics::MaterialCombineMode`'s underlying value: Average, Minimum, Multiply,
+             * Maximum. Both bodies have an opinion and the pair needs one number, so the
+             * *stricter* of the two modes wins — a surface that insists on Minimum cannot be
+             * overruled into slipperiness by whatever it happens to touch.
+             */
+            std::uint32_t friction_combine = 0;
+
+            /**
+             * @brief The same, for restitution; `maximum` by default, and deliberately.
+             *
+             * Averaging bounce is the answer nobody wants: a superball dropped on concrete
+             * should bounce, and the mean of a superball and a floor is neither. The
+             * grippier-wins rule for restitution means the *bouncier* surface decides, which
+             * is what an author who authors one bouncy object expects of it everywhere.
+             * Mirrors `Physics::PhysicsMaterialT`'s own default rather than restating it.
+             */
+            std::uint32_t restitution_combine = 3;
+        };
+
+        /**
+         * @brief What a body is doing, for a debug view rather than for gameplay.
+         *
+         * §14's debug-draw bullet asks for "island colouring, sleeping state, broadphase
+         * bounds", and all three are properties the solver already tracks and nothing
+         * outside it could see. Its own value rather than fields on @ref SolvedPose,
+         * because a pose is read every tick by everything that draws and this is read by
+         * one panel when it is open — putting them together would make every frame pay for
+         * a view that is usually off.
+         */
+        struct RigidDebugState
+        {
+            /** @brief The world-space bound the broadphase tests, in metres. */
+            Vector3 bounds_min;
+            Vector3 bounds_max;
+
+            /**
+             * @brief Which island the body was placed in this tick.
+             *
+             * Drawn as a colour, which is the only useful presentation: the *number* means
+             * nothing across ticks — islands are renumbered whenever the partition changes
+             * — but two bodies sharing one is the fact worth seeing, and equal colours say
+             * that without implying the number is stable.
+             */
+            std::uint32_t island = 0;
+
+            /** @brief Whether the body is asleep: not integrated, not projected, until woken. */
+            bool sleeping = false;
+
+            /** @brief Whether it is a static body, which never moves and never sleeps. */
+            bool is_static = false;
+        };
+
+        /** @brief Where in a contact's life an event was reported. */
+        enum class ContactPhase : std::uint8_t
+        {
+            /** @brief The two surfaces met this tick and were not touching last tick. */
+            Begin,
+            /** @brief They were touching last tick and still are. */
+            Persist,
+            /** @brief They were touching last tick and are not now. */
+            End
+        };
+
+        /**
+         * @brief One thing touching another, reported to gameplay.
+         *
+         * Reported per *pair of colliders*, not per contact point: a crate landing
+         * flat on the ground produces four points and one event, because "the crate
+         * landed" is one thing that happened. The point and normal are the manifold's
+         * deepest point, which is the one a sound, a decal or a damage number wants.
+         *
+         * A pair against static geometry has `b == NULL_ENTITY`. That is not a
+         * missing value — static geometry is not an entity, and inventing one so the
+         * field is never null would mean every listener filtering out a fiction.
+         */
+        struct ContactEvent
+        {
+            EntityId a = NULL_ENTITY;
+            EntityId b = NULL_ENTITY;
+            ContactPhase phase = ContactPhase::Begin;
+
+            /** @brief The manifold's deepest point, in world space. */
+            Vector3 point;
+
+            /** @brief Unit normal, pointing from @ref a toward @ref b. */
+            Vector3 normal{Vector3{0, 1, 0}};
+
+            /**
+             * @brief Total normal impulse the contact carried, in newton-seconds.
+             *
+             * What separates a scrape from a crash, and the reason the solved
+             * manifolds are read back off the device at all. Zero on a trigger
+             * overlap, which is detected and never resolved, and on an `End`, which
+             * reports the impulse the contact carried on its last live tick.
+             */
+            Scalar impulse = 0;
+
+            /**
+             * @brief Whether one side was a trigger, so the pair was reported and not resolved.
+             *
+             * A separate flag rather than a separate event stream: a listener that
+             * wants both — a damage volume that also pushes — should not have to
+             * subscribe twice and correlate, and one that wants only triggers has a
+             * one-line filter.
+             */
+            bool trigger = false;
+        };
+
+
+        /**
+         * @brief §5.5's `PhysicsJoint`: what this entity is attached to, and how.
+         *
+         * The joint lives on **one** of its two bodies and names the other, rather than
+         * on a third entity naming both. That is the authoring convention because it is
+         * the ownership one: a door's hinge belongs to the door, and deleting the door
+         * should take its hinge with it — which it does, for free, when the hinge is the
+         * door's own record. The alternative leaves a joint entity behind pointing at
+         * something that is gone.
+         *
+         * The owning entity is the joint's **first** body and @ref connected_body its
+         * second, so @ref JointParams::anchor_a and @ref JointParams::axis_a are read in
+         * the owner's local space. Both endpoints must own rigid bodies: an immovable
+         * endpoint is a body of zero inverse mass, not a missing one, which keeps every
+         * joint two-sided (see `JointDesc`).
+         */
+        /**
+         * @brief §5.5's `VehicleInstance`: which cooked vehicle this entity is.
+         *
+         * A path rather than bytes or a handle, unlike every other asset reference at this
+         * boundary, and the difference is deliberate. A soft body's `.sushisoft` is loaded
+         * by whoever cooked it and handed across as bytes the physics copies out of; a
+         * vehicle is placed by an *author*, in a scene file, that has to survive being
+         * reopened on another machine — and the only thing that survives that is a path
+         * relative to the project.
+         *
+         * The setup beside it is authored numbers, not a cooked blob: §11's whole split is
+         * that the structure is cooked and the corners, tyres, drivetrain and aerodynamics
+         * are not. It is carried inline rather than in a second file because that is what
+         * the Vehicle window edits, and a separate `.sushivehicle` would be a second thing
+         * to keep in step with the scene that names it.
+         */
+        struct VehicleInstanceParams
+        {
+            /** @brief Project-relative path to the `.sushinodebeam` this vehicle is built from. */
+            std::string asset_path;
+
+            /** @brief The authored setup: corners, tyres, drivetrain, aerodynamics (§11). */
+            Physics::VehicleAssetT<Scalar> setup{};
+        };
+
+        /**
+         * @brief What a driver is asking the vehicle to do, this tick.
+         *
+         * Held rather than applied: `set_vehicle_input` records it and the step spends it,
+         * because throttle is a *state* an input device holds down and not an event. A
+         * caller that stops calling therefore keeps the pedal where it left it, which is
+         * what a pedal does.
+         */
+        struct VehicleInput
+        {
+            /** @brief 0 to 1. Below the idle band the governor holds the engine up anyway. */
+            Scalar throttle = 0;
+
+            /**
+             * @brief Brake torque at every wheel, in N·m.
+             *
+             * A torque and not a fraction, because a brake is a torque: expressing it as
+             * "50% braking" would hide that the number an author has to get right is how
+             * much torque the discs can make, which is a property of the car.
+             */
+            Scalar brake = 0;
+
+            /** @brief Steering angle in radians, applied to whichever corners steer. */
+            Scalar steer = 0;
+
+            /** @brief Clutch engagement, 0 to 1; zero disconnects the engine entirely. */
+            Scalar clutch = 1;
+
+            /**
+             * @brief Which gear ratio is selected, as an index into the gearbox.
+             *
+             * An index rather than a signed gear number, because reverse is a *ratio* the
+             * gearbox holds like any other and a separate sign would be a second way to say
+             * the same thing. Out of range is refused rather than clamped — silently
+             * selecting a gear nobody asked for is worse than refusing.
+             */
+            std::size_t gear = 0;
+        };
+
+        /**
+         * @brief What the drivetrain did with the last tick's input.
+         *
+         * The readout §11.4's chain produces anyway, so a dashboard, a gear-shift sound and
+         * a traction-control system are all reading a measurement rather than re-deriving
+         * one from wheel speeds.
+         */
+        struct VehicleReport
+        {
+            Scalar engine_rate = 0;    /**< Crankshaft speed, in radians per second. */
+            Scalar engine_torque = 0;  /**< What the curve gave at that speed, in N·m. */
+            Scalar clutch_torque = 0;  /**< What the plate actually carried, in N·m. */
+            Scalar clutch_slip = 0;    /**< Speed difference across it, in rad/s. */
+            bool clutch_slipping = false; /**< Whether it was at its capacity and slipping. */
+
+            /** @brief How many parts have come off since the vehicle was built. */
+            std::size_t parts_detached = 0;
+
+            /** @brief How many beams have broken since it was built. */
+            std::size_t beams_broken = 0;
+        };
+
+        struct PhysicsJointParams
+        {
+            /**
+             * @brief The entity this one is attached to; @ref NULL_ENTITY attaches nothing.
+             *
+             * A joint naming no partner, or naming an entity with no rigid body, is
+             * *authoring in progress* rather than an error — an author picks the kind
+             * before they pick the partner. It simply does not become a live joint, and
+             * the inspector says why rather than the scene silently omitting it.
+             */
+            EntityId connected_body = NULL_ENTITY;
+
+            /** @brief What is held between the two bodies. */
+            JointParams joint;
         };
 
         /**
@@ -1430,6 +1706,183 @@ namespace SushiEngine
                  * @param value Whether it should have a Collider after this call.
                  */
                 virtual void set_has_collider(EntityId id, bool value) = 0;
+
+                /** @brief Whether @p id carries a Physics Joint. */
+                virtual bool has_joint(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's joint authoring (defaults if it has no Physics Joint). */
+                virtual PhysicsJointParams joint_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes a joint's authoring; a no-op for entities without one.
+                 *
+                 * Takes effect on the next step: the live joint the previous authoring
+                 * produced is destroyed and a new one created, because the solver's joint
+                 * carries accumulated multipliers and warm-start state that belong to the
+                 * limits they were solved under. Editing a limit while playing therefore
+                 * costs the joint its warm start, which is a settling tick — the honest
+                 * alternative being a joint whose stored load was measured against a range
+                 * it no longer has.
+                 */
+                virtual void set_joint_params(EntityId id, const PhysicsJointParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a Physics Joint on an existing entity.
+                 *
+                 * Independent of whether either endpoint has a rigid body yet. A joint
+                 * with nothing to hold is authoring in progress, not an error — it
+                 * becomes live the moment both endpoints are bodies.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should have a Physics Joint after this call.
+                 */
+                virtual void set_has_joint(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief The load the last step left on @p id's joint.
+                 *
+                 * §10.4's force and torque recovery, at the authoring boundary: the mean
+                 * the mount is being pulled by and the worst single substep it survived.
+                 * This is the readout §14's assembly editor calls "a live joint-load
+                 * readout while playing", and it is a measurement rather than an estimate
+                 * — XPBD's multipliers convert to force exactly.
+                 *
+                 * @param id  The entity whose joint to read.
+                 * @param out Receives the load when @p id owns a *live* joint.
+                 * @return False when the entity has no joint, when its joint is not live
+                 *         (an endpoint has no body), or when it has broken — three states
+                 *         a caller distinguishes with @ref joint_broken and
+                 *         @ref PhysicsJointParams::connected_body rather than by a load of
+                 *         zero, which is also what a joint at rest reads.
+                 */
+                virtual bool joint_load(EntityId id, JointState& out) const = 0;
+
+                /**
+                 * @brief Whether @p id's joint has broken and is gone from the solve.
+                 *
+                 * A joint past its break threshold is destroyed by the physics and
+                 * reported once (`IJointService::joint_broken_events`). The *authoring*
+                 * survives — an author who set a threshold has not thereby deleted their
+                 * hinge — so this is the flag that keeps the broken joint from being
+                 * immediately recreated by the next reconcile. It clears when the joint's
+                 * authoring is edited or the scene is reloaded, both of which are the
+                 * author saying "put it back".
+                 */
+                virtual bool joint_broken(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief Where a body is, how big its broadphase bound is, and whether it sleeps.
+                 *
+                 * §14's debug-draw bullet, at the authoring boundary. Everything it reports is
+                 * a property the solver already tracks and nothing outside the physics could
+                 * see, which is why it needs a call of its own rather than being derivable
+                 * from the collider and the transform: a *bound* is not the collider, an
+                 * island is not a component, and "asleep" is the difference between a settled
+                 * stack and a broken one.
+                 *
+                 * @param id  The entity to read.
+                 * @param out Receives the state when @p id owns a rigid body.
+                 * @return Whether @p out was written.
+                 */
+                /** @brief Whether @p id carries a Vehicle. */
+                virtual bool has_vehicle(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's vehicle authoring (defaults if it has none). */
+                virtual VehicleInstanceParams vehicle_params(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes a vehicle's authoring; a no-op for entities without one.
+                 *
+                 * Takes effect on the next step, and rebuilds the vehicle outright rather
+                 * than patching it. That is not a shortcut: a vehicle is four hundred bodies
+                 * and two thousand beams placed relative to a cooked structure, so "the same
+                 * vehicle with one number changed" is not a thing that can be edited in
+                 * place — and a rebuild that pretended otherwise would leave half the car
+                 * built to one setup and half to another.
+                 */
+                virtual void set_vehicle_params(EntityId id,
+                                                const VehicleInstanceParams& params) = 0;
+
+                /**
+                 * @brief Attaches or detaches a Vehicle on an existing entity.
+                 *
+                 * A vehicle with no asset path is authoring in progress rather than an
+                 * error, exactly like a joint with no partner: an author picks the drivetrain
+                 * before they pick the body it goes in.
+                 */
+                virtual void set_has_vehicle(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Records what the driver is asking of @p id's vehicle.
+                 *
+                 * Held, not applied: throttle is a *state* an input device holds down, so a
+                 * caller that stops calling leaves the pedal where it was — which is what a
+                 * pedal does, and what makes this callable from a UI slider and from an
+                 * input action without the two disagreeing about whose turn it is.
+                 *
+                 * @param id    The entity whose vehicle to drive.
+                 * @param input The controls.
+                 * @return Whether @p id owns a live vehicle.
+                 */
+                virtual bool set_vehicle_input(EntityId id, const VehicleInput& input) = 0;
+
+                /** @brief The controls last recorded for @p id, so a UI can show them back. */
+                virtual VehicleInput vehicle_input(EntityId id) const = 0;
+
+                /**
+                 * @brief What @p id's drivetrain did on the last step.
+                 * @param id  The entity whose vehicle to read.
+                 * @param out Receives the report when @p id owns a *live* vehicle.
+                 * @return False when the entity has no vehicle or its asset failed to load —
+                 *         two states the panel distinguishes, because both read as a
+                 *         stationary car.
+                 */
+                virtual bool vehicle_report(EntityId id, VehicleReport& out) const = 0;
+
+                /**
+                 * @brief The world positions of @p id's shell nodes, for §14's node/beam view.
+                 *
+                 * Filled rather than returned, so a panel drawing every frame reuses its
+                 * buffer instead of allocating four hundred vectors per frame per vehicle.
+                 *
+                 * @param id  The entity whose vehicle to read.
+                 * @param out Receives one position per node.
+                 * @return Whether @p id owns a live vehicle.
+                 */
+                virtual bool vehicle_node_positions(EntityId id,
+                                                    std::vector<Vector3>& out) const = 0;
+
+                /**
+                 * @brief The shell's collision surface, live, as triangles.
+                 *
+                 * What the renderer draws a vehicle as, and what the physics collides it as
+                 * — the same triangles, read straight off the live nodes with no cache
+                 * between, so a dented panel is dented on screen in the tick it was dented
+                 * and the drawing cannot disagree with the collision.
+                 *
+                 * @param id        The entity whose vehicle to read.
+                 * @param positions Receives one position per node.
+                 * @param indices   Receives the surface triangles, indexing @p positions.
+                 * @return Whether @p id owns a live vehicle with a surface.
+                 */
+                virtual bool vehicle_surface(EntityId id, std::vector<Vector3>& positions,
+                                             std::vector<std::uint32_t>& indices) const = 0;
+
+                virtual bool physics_body_debug(EntityId id, RigidDebugState& out) const = 0;
+
+                /**
+                 * @brief Everything touching, as of the last step.
+                 *
+                 * The contact stream the physics already produces for gameplay, exposed for
+                 * the debug view — the *same* stream, not a second one, so what is drawn is
+                 * exactly what a listener would be told about. Valid until the next step.
+                 *
+                 * `Begin` and `Persist` are the live contacts; an `End` names a pair that has
+                 * just stopped touching and is included rather than filtered, because a
+                 * contact that vanishes for one tick and returns is a symptom worth seeing
+                 * and a filtered stream would hide it.
+                 */
+                virtual const std::vector<ContactEvent>& physics_contacts() const noexcept = 0;
 
                 /**
                  * @brief Whether @p id's orientation is anchored to the planet surface.

@@ -68,6 +68,40 @@ namespace SushiEngine
 
             const Physics::PhysicsStatistics& stats = context.physics_statistics;
 
+            // §14's debug draw, toggled per category. Here rather than in a window of its
+            // own because the counts below are what make an author want to *see* something:
+            // "largest island 47" and "sleeping 0" are the two rows that send somebody
+            // looking for which bodies those are, and the answer is one checkbox away.
+            if (ImGui::CollapsingHeader("Debug Draw"))
+            {
+                PhysicsOverlaySettings& overlay = context.physics_overlay;
+                ImGui::Checkbox("Contacts", &overlay.contacts);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Contact points and normals from the live stream. The "
+                                      "normal's length scales with the impulse, so a crash "
+                                      "reads longer than a scrape.");
+                ImGui::Checkbox("Broadphase Bounds", &overlay.bounds);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The box each body is tested by. Much larger than the "
+                                      "body means a bound that is not being tightened.");
+                ImGui::Checkbox("Islands", &overlay.islands);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("One colour per island. The colour is a hash of the "
+                                      "index, not a stable identity — islands are renumbered "
+                                      "whenever the partition changes.");
+                ImGui::Checkbox("Sleeping", &overlay.sleeping);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Rings the bodies that are asleep. The interesting case "
+                                      "is the one that is *not*, in a stack where everything "
+                                      "else is.");
+                ImGui::Checkbox("Joint Gizmo", &overlay.joints);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The selected entity's joint: its two anchors, the line "
+                                      "between them (which is its error, drawn), its primary "
+                                      "axis, and its twist-limit arc.");
+                ImGui::Separator();
+            }
+
             ImGui::TextDisabled("Bodies");
             count_row("Awake", stats.awake_bodies);
             count_row("Sleeping", stats.sleeping_bodies);

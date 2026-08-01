@@ -87,6 +87,9 @@
 
 #include "physics/cook_bake_panel.hpp"
 #include "physics/physics_statistics_panel.hpp"
+#include "physics/assembly_panel.hpp"
+#include "physics/vehicle_drive.hpp"
+#include "physics/vehicle_panel.hpp"
 
 namespace
 {
@@ -222,6 +225,8 @@ int main(int argc, char** argv)
         SushiEngine::Input::InputContext editor_viewport{"EditorViewport"};
         SushiEngine::Editor::build_editor_global_context(editor_global);
         SushiEngine::Editor::build_editor_viewport_context(editor_viewport);
+        SushiEngine::Input::InputContext editor_drive{"EditorDrive"};
+        SushiEngine::Editor::build_editor_drive_context(editor_drive);
 
         // Two Unity viewports, each a ViewportPanel over the same world but a
         // different injected camera: the Scene view flies freely, the Game view
@@ -287,6 +292,7 @@ int main(int argc, char** argv)
         }
         input.push_context(editor_global);
         input.push_context(editor_viewport);
+        input.push_context(editor_drive);
         context.input_manager = &input;
         context.editor_global_context = &editor_global;
         context.editor_viewport_context = &editor_viewport;
@@ -331,6 +337,24 @@ int main(int argc, char** argv)
             [](const std::string& path, SushiEngine::Geometry::TriangleMesh& out)
             { return SushiEngine::Geometry::import_gltf_mesh(path.c_str(), out); },
             "cooked");
+        // Injected so a panel that brings a mesh into the project can queue it for
+        // cooking automatically (see project_panel.cpp's glTF open handler) instead of
+        // an artist having to find and press the Bake panel's button for every asset.
+        context.cook_bake_state = &cook_bake_state;
+
+        // The vehicle under authoring (§11). A document rather than a selected
+        // entity's component, because there is no `Vehicle` component in the ECS
+        // yet -- a vehicle reaches a scene through `VehicleInstanceT` against a
+        // solver, and the authoring record has no owner in the entity world to
+        // hang from. When that component exists the panel becomes an inspector
+        // over it and this line goes away.
+        SushiEngine::Editor::VehicleAuthoringState vehicle_authoring;
+
+        // The assembly under authoring (§10.2), and the one place P3's joint library
+        // can be reached from. Instancing it produces ordinary entities rather than a
+        // scene-graph node of its own, so the parts stay editable afterwards -- see
+        // assembly_panel.hpp for why that is the decision and what it costs.
+        SushiEngine::Editor::AssemblyAuthoringState assembly_authoring;
 
         // The live GPU-skinned character preview: the A1 "load a rigged, animated glTF and see
         // it looping, skinned on the GPU" surface (design `slop/animation_system.md` §12.1) —
@@ -562,6 +586,14 @@ int main(int argc, char** argv)
                     SushiEngine::Editor::request_new_scene(context);
                 if (actions.pressed("SceneFullscreen"))
                     context.scene_view_fullscreen = !context.scene_view_fullscreen;
+
+                // The selected car, driven. A no-op unless the selection carries a Vehicle,
+                // which is what lets the arrow keys stay ordinary keys the rest of the time.
+                // Clamped like the other wall-clock consumers above: a frame that took half a
+                // second is a stall, not half a second of somebody holding the throttle.
+                SushiEngine::Editor::drive_selected_vehicle(
+                    context, editor_world, actions,
+                    static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
             }
 
             // The menu bar, toolbar strip, and status bar are viewport side bars, so
@@ -865,6 +897,13 @@ int main(int argc, char** argv)
                 // view only: the Game view is what the player sees, and a debug overlay there
                 // would be showing them the workings.
                 scene_inputs.collision_wireframe = &cook_bake_state.collision_wireframe();
+                // §14's physics debug draw and the joint gizmo. Scene view only, for the same
+                // reason as the collider above, and the world is handed over live rather than
+                // snapshotted: a contact list, an island partition and a sleep flag are all
+                // this tick's, and a copy would be a second thing to keep in step.
+                scene_inputs.physics_world = &world;
+                scene_inputs.physics_overlay = context.physics_overlay;
+                scene_inputs.selected_entity = context.selected_entity;
                 // The selected soft body's interior (§9.3/§9.4, P6-G5), read live off the
                 // simulated body. Only when a view is actually on: the read copies every
                 // particle and every element out of the physics, which is a per-frame cost
@@ -1152,6 +1191,8 @@ int main(int argc, char** argv)
                                                             &context.panels.audio_authoring);
             SushiEngine::Editor::draw_physics_statistics_panel(context);
             SushiEngine::Editor::draw_cook_bake_panel(context, cook_bake_state);
+            SushiEngine::Editor::draw_vehicle_panel(context, vehicle_authoring);
+            SushiEngine::Editor::draw_assembly_panel(context, assembly_authoring);
             SushiEngine::Editor::draw_preferences_window(context);
             SushiEngine::Editor::draw_input_manager_window(context);
             SushiEngine::Editor::draw_save_scene_as_modal(context, running);

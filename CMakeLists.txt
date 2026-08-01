@@ -427,6 +427,26 @@ endif()
 # sushi_atmosphere only), so building it in the tests lane costs one static library.
 if(SE_BUILD_EDITOR OR SE_BUILD_TESTS)
     add_subdirectory(sim)
+
+    # physics_sample_scene writes the physics demonstration to a `.sushiscene`. Generated
+    # rather than hand-authored, and deliberately: the file comes out of the same builder
+    # the integration suite steps and asserts on, so the shipped scene cannot drift from
+    # the code that is tested. Here rather than beside the other examples because it needs
+    # `sushi_sim`, which only exists inside this condition; it links the editor's
+    # serializer and scene builder, which are UI-free translation units — the same ones the
+    # test target already compiles.
+    find_package(nlohmann_json CONFIG REQUIRED)
+    add_sushi_sycl_executable(physics_sample_scene examples/physics_sample_scene.cpp)
+    target_sources(physics_sample_scene PRIVATE
+        editor/scene/physics_sample_scene.cpp
+        editor/serialization/scene_serializer.cpp
+        editor/serialization/effect_serializer.cpp
+        editor/serialization/environment_serializer.cpp
+        editor/core/command_history.cpp
+        editor/core/preferences.cpp)
+    target_include_directories(physics_sample_scene
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/editor")
+    target_link_libraries(physics_sample_scene PRIVATE sushi_sim nlohmann_json::nlohmann_json)
 endif()
 
 # The Unity-style ImGui editor shell. OFF by default (see ProjectOptions). It links

@@ -84,6 +84,12 @@ add_executable(se_editor
     audio/audio_panels.cpp
     audio/audio_authoring_panel.cpp
     physics/physics_statistics_panel.cpp
+    physics/assembly_panel.cpp
+    physics/physics_overlay.cpp
+    scene/physics_sample_scene.cpp
+    physics/joint_widgets.cpp
+    physics/vehicle_drive.cpp
+    physics/vehicle_panel.cpp
     # The bake surface (§14): the model, the widgets over it, and the collider overlay. The
     # model is a UI-free translation unit on purpose — it holds every decision the panel makes
     # and is tested without ImGui, the way the scene serializer already is.

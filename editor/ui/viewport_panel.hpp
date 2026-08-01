@@ -36,6 +36,7 @@
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../animation/skeleton_debug_draw.hpp"
+#include "../physics/physics_overlay.hpp"
 #include "../physics/soft_body_heat.hpp"
 #include "../vfx/effect_preview.hpp"
 #include "../gizmo/gizmo_controller.hpp"
@@ -196,6 +197,27 @@ namespace SushiEngine
             /** The selected body's material, which the heat scales normalize against. */
             SushiEngine::Physics::SoftBodyMaterialT<SushiEngine::Scalar> soft_body_material{};
             SoftBodyDebugView soft_body_view = SoftBodyDebugView::Off;
+
+            /**
+             * @brief Which §14 physics debug categories to draw, and the world to read them from.
+             *
+             * The world rather than a snapshot, because every category here is live: a
+             * contact list, an island partition and a sleep flag are all *this tick's*, and
+             * a copy taken for the overlay would be a second thing to keep in step with the
+             * simulation that already has them. Null draws nothing, which is the Game view.
+             */
+            Simulation::IWorldEditor* physics_world = nullptr;
+            PhysicsOverlaySettings physics_overlay{};
+
+            /**
+             * @brief The entity whose joint the gizmo is drawn for.
+             *
+             * Passed in rather than read from `selected_id` beside it: that one is the
+             * *picking* channel, a 32-bit id the renderer writes back, and an `EntityId` is
+             * 64 bits. Narrowing one into the other to save a field is how a scene past four
+             * billion entities draws the wrong gizmo.
+             */
+            Simulation::EntityId selected_entity = Simulation::NULL_ENTITY;
 
             /** The isolated effect preview drawn in this viewport, or null. */
             EffectPreview* particle_preview = nullptr;

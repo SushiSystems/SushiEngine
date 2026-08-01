@@ -60,6 +60,7 @@
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/collision/narrowphase_dispatch.hpp>
 #include <SushiEngine/physics/core/body_flags.hpp>
+#include <SushiEngine/physics/core/material.hpp>
 #include <SushiEngine/physics/geometry/mass_properties.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
@@ -136,9 +137,25 @@ namespace SushiEngine
          * @param params The authored collider component.
          * @return The unscaled collider it means.
          */
+        inline Physics::MaterialCombineMode to_combine_mode(std::uint32_t value) noexcept
+        {
+            // Clamped rather than trusted: the value crosses a scene file, and a mode past
+            // the end would index `combine_coefficient`'s switch into its default anyway —
+            // saying so here means one place knows the enumeration's extent instead of every
+            // reader having to.
+            return value <= std::uint32_t(Physics::MaterialCombineMode::maximum)
+                       ? static_cast<Physics::MaterialCombineMode>(value)
+                       : Physics::MaterialCombineMode::average;
+        }
+
         inline Collider collider_from_params(const ColliderParams& params) noexcept
         {
             Collider collider;
+            // A body is in exactly one layer, so the authored index becomes the one-bit mask
+            // `CollisionFilter::layer` means. Done here rather than at each call site because
+            // an unshifted index would collide with layer 0 and nothing else, silently.
+            collider.filter.layer = std::uint32_t(1) << (params.layer & 31u);
+            collider.filter.collides_with = params.collides_with;
             switch (params.kind)
             {
                 case PrimitiveKind::Sphere:

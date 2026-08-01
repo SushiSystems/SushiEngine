@@ -236,6 +236,8 @@ namespace SushiEngine
                 if (ImGui::BeginMenu("Analysis"))
                 {
                     ImGui::MenuItem("Physics", nullptr, &context.panels.physics);
+                    ImGui::MenuItem("Vehicle", nullptr, &context.panels.vehicle);
+                    ImGui::MenuItem("Assembly", nullptr, &context.panels.assembly);
                     ImGui::MenuItem("Bake", nullptr, &context.panels.bake);
                     ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
                     ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
@@ -1016,6 +1018,8 @@ namespace SushiEngine
             ImGui::DockBuilderDockWindow("GPU Culling", right);
             ImGui::DockBuilderDockWindow("Meteorology", right);
             ImGui::DockBuilderDockWindow("Physics", right);
+            ImGui::DockBuilderDockWindow("Vehicle", right);
+            ImGui::DockBuilderDockWindow("Assembly", right);
 
             // Bottom: the browser, the console, and the timeline-shaped tools.
             ImGui::DockBuilderDockWindow("Project", bottom);

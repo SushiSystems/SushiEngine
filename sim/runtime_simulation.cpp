@@ -41,6 +41,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -292,6 +293,12 @@ namespace SushiEngine
                             physics_dirty_ = true;
                         if (it->second.has_cloth)
                             cloth_dirty_ = true;
+                        if (it->second.has_vehicle)
+                            vehicles_dirty_ = true;
+                        // Its own joint goes with it, and so does any joint that named it
+                        // as a partner — those live on *other* records, which is why this
+                        // is unconditional rather than a test of this entity's own joint.
+                        joints_dirty_ = true;
                         if (world_.alive(it->second.ui_mirror))
                             world_.destroy(it->second.ui_mirror);
                         CommandBuffer commands;
@@ -1248,6 +1255,155 @@ namespace SushiEngine
                                                           : ColliderParams{};
                     }
 
+                    bool has_joint(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_joint;
+                    }
+
+                    PhysicsJointParams joint_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->joint_params : PhysicsJointParams{};
+                    }
+
+                    void set_joint_params(EntityId id, const PhysicsJointParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_joint)
+                            return;
+                        record->joint_params = params;
+                        // Any edit is a new joint: the solver's is rebuilt on the next
+                        // reconcile rather than patched, because its multipliers were
+                        // accumulated under the limits it is being taken out of. Editing
+                        // also un-breaks it, which is what an author who has just changed
+                        // the break threshold means by changing it.
+                        touch_joint(*record);
+                    }
+
+                    void set_has_joint(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_joint == value)
+                            return;
+                        record->has_joint = value;
+                        if (value)
+                            record->joint_params = PhysicsJointParams{};
+                        touch_joint(*record);
+                    }
+
+                    bool joint_load(EntityId id, JointState& out) const override
+                    {
+                        const Record* record = find(id);
+                        if (record == nullptr || record->live_joint == NULL_JOINT ||
+                            physics_ == nullptr)
+                            return false;
+                        return physics_->joint_state(record->live_joint, out);
+                    }
+
+                    bool joint_broken(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->joint_broken;
+                    }
+
+                    bool has_vehicle(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_vehicle;
+                    }
+
+                    VehicleInstanceParams vehicle_params(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->vehicle_params
+                                                 : VehicleInstanceParams{};
+                    }
+
+                    void set_vehicle_params(EntityId id,
+                                            const VehicleInstanceParams& params) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_vehicle)
+                            return;
+                        record->vehicle_params = params;
+                        vehicles_dirty_ = true;
+                    }
+
+                    void set_has_vehicle(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || record->has_vehicle == value)
+                            return;
+                        record->has_vehicle = value;
+                        if (value)
+                            record->vehicle_params = VehicleInstanceParams{};
+                        vehicles_dirty_ = true;
+                    }
+
+                    bool set_vehicle_input(EntityId id, const VehicleInput& input) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr || !record->has_vehicle)
+                            return false;
+                        // Recorded here as well as pushed through, so a panel can show back
+                        // what it asked for even on a tick where the vehicle is not live —
+                        // an author dragging a throttle slider at a car whose asset failed
+                        // to load should see the slider move and be told why nothing else
+                        // does.
+                        record->vehicle_input = input;
+                        return physics_ != nullptr && physics_->set_vehicle_input(id, input);
+                    }
+
+                    VehicleInput vehicle_input(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->vehicle_input : VehicleInput{};
+                    }
+
+                    bool vehicle_report(EntityId id, VehicleReport& out) const override
+                    {
+                        if (physics_ == nullptr)
+                            return false;
+                        return physics_->vehicle_report(id, out);
+                    }
+
+                    bool vehicle_node_positions(EntityId id,
+                                                std::vector<Vector3>& out) const override
+                    {
+                        if (physics_ == nullptr)
+                            return false;
+                        return physics_->vehicle_node_positions(id, out);
+                    }
+
+                    bool vehicle_surface(EntityId id, std::vector<Vector3>& positions,
+                                         std::vector<std::uint32_t>& indices) const override
+                    {
+                        if (physics_ == nullptr)
+                            return false;
+                        return physics_->vehicle_surface(id, positions, indices);
+                    }
+
+                    bool physics_body_debug(EntityId id, RigidDebugState& out) const override
+                    {
+                        if (physics_ == nullptr)
+                            return false;
+                        const Record* record = find(id);
+                        if (record == nullptr || !record->has_physics_body)
+                            return false;
+                        return physics_->rigid_debug_state(id, out);
+                    }
+
+                    const std::vector<ContactEvent>& physics_contacts() const noexcept override
+                    {
+                        // A function-local empty rather than a member: this is the answer
+                        // *only* before the physics exists, which is a state the editor is in
+                        // for one construction, and a member would be a permanently-live
+                        // vector kept for it.
+                        static const std::vector<ContactEvent> NONE;
+                        return physics_ != nullptr ? physics_->contact_events() : NONE;
+                    }
+
                     bool surface_anchored(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -1743,6 +1899,52 @@ namespace SushiEngine
                         ShapeParams shape_params{};
                         bool has_collider = false;
                         ColliderParams collider_params{};
+                        // §5.5's PhysicsJoint: what this entity is attached to. Same plain
+                        // host bookkeeping as the collider above — no Schedule system reads
+                        // a joint, because the joint that matters is the solver's and this
+                        // is only the authoring it is reconciled from (see sync_joints).
+                        bool has_joint = false;
+                        PhysicsJointParams joint_params{};
+                        /**
+                         * @brief The live joint this authoring currently owns, if any.
+                         *
+                         * Runtime state kept off @ref joint_params for the reason
+                         * `emitter_time` is kept off `emitter_params`: those are the
+                         * authored numbers the scene file round-trips, and an identity
+                         * handed out by the solver is neither authored nor persisted.
+                         */
+                        JointId live_joint = NULL_JOINT;
+                        /**
+                         * @brief Which revision of the authoring @ref live_joint was built from.
+                         *
+                         * A counter rather than a comparison of the parameters themselves.
+                         * `PhysicsJointParams` is trivially copyable but not free of padding,
+                         * so a byte comparison could report a difference that is not one, and
+                         * a field-by-field comparison is a second place every new joint
+                         * parameter has to be remembered. A counter cannot be forgotten
+                         * because the one function that bumps it is the one that writes.
+                         */
+                        std::uint32_t joint_revision = 0;
+                        std::uint32_t live_joint_revision = 0;
+                        /** @brief Whether the joint broke; see `IWorldEditor::joint_broken`. */
+                        bool joint_broken = false;
+                        // §5.5's VehicleInstance: which cooked vehicle this entity is, and
+                        // what the driver is asking of it. Same plain host bookkeeping as
+                        // the joint above.
+                        bool has_vehicle = false;
+                        VehicleInstanceParams vehicle_params{};
+                        VehicleInput vehicle_input{};
+                        /**
+                         * @brief The `.sushinodebeam` bytes, read once and held.
+                         *
+                         * Held rather than re-read per reconcile because a vehicle is a
+                         * megabyte-scale blob and a reconcile happens whenever *any* vehicle
+                         * in the scene changes. Keyed by the path it was read from, so an
+                         * author repointing the component reloads and one who did not does
+                         * not.
+                         */
+                        std::vector<std::byte> vehicle_asset;
+                        std::string vehicle_asset_source;
                         // Whether the entity's orientation is planet-surface anchored (see
                         // set_surface_anchored): its stored orientation is ground-local
                         // (relative to the local East-North-Up frame on the dominant body),
@@ -1812,6 +2014,222 @@ namespace SushiEngine
                         records_.emplace(id, record);
                         extract();
                         return id;
+                    }
+
+                    /**
+                     * @brief Reads @p record's `.sushinodebeam` if it is not the one already held.
+                     *
+                     * Keyed on the path rather than reloaded per reconcile, because a
+                     * vehicle blob is megabyte-scale and a reconcile happens whenever *any*
+                     * vehicle in the scene changes. A read that fails leaves the bytes empty
+                     * and the source recorded, so a missing file is asked for once rather
+                     * than once per tick — a path typo should not become a stat() storm.
+                     *
+                     * @param record The record whose asset to make current.
+                     * @return Whether usable bytes are now held.
+                     */
+                    bool refresh_vehicle_asset(Record& record)
+                    {
+                        const std::string& path = record.vehicle_params.asset_path;
+                        if (path.empty())
+                        {
+                            record.vehicle_asset.clear();
+                            record.vehicle_asset_source.clear();
+                            return false;
+                        }
+                        if (record.vehicle_asset_source == path)
+                            return !record.vehicle_asset.empty();
+
+                        record.vehicle_asset_source = path;
+                        record.vehicle_asset.clear();
+                        std::ifstream file(path, std::ios::binary | std::ios::ate);
+                        if (!file)
+                            return false;
+                        const std::streamoff size = file.tellg();
+                        if (size <= 0)
+                            return false;
+                        record.vehicle_asset.resize(std::size_t(size));
+                        file.seekg(0);
+                        file.read(reinterpret_cast<char*>(record.vehicle_asset.data()), size);
+                        if (!file)
+                        {
+                            record.vehicle_asset.clear();
+                            return false;
+                        }
+                        return true;
+                    }
+
+                    /**
+                     * @brief One descriptor per entity carrying a loadable vehicle.
+                     *
+                     * The bytes are borrowed from the records, which outlive the call — the
+                     * same arrangement `gather_soft_body_descs` uses, and safe for exactly as
+                     * long as the call: instancing copies out everything the solve needs.
+                     *
+                     * Walked in authoring order rather than over the record map, for §12.1's
+                     * first rule: a vehicle's four hundred bodies are added in this order, so
+                     * a hash-order walk would be a body numbering that varied between runs.
+                     */
+                    std::vector<VehicleDesc> gather_vehicle_descs()
+                    {
+                        std::vector<VehicleDesc> descs;
+                        for (const EntityId id : order_)
+                        {
+                            Record* record = find(id);
+                            if (record == nullptr || !record->has_vehicle ||
+                                !world_.alive(record->entity))
+                                continue;
+                            if (!refresh_vehicle_asset(*record))
+                                continue;
+
+                            VehicleDesc desc;
+                            desc.id = id;
+                            desc.asset = record->vehicle_asset.data();
+                            desc.asset_size = record->vehicle_asset.size();
+                            desc.position = world_.get<Transform>(record->entity).position;
+                            desc.orientation =
+                                world_.get<Orientation>(record->entity).rotation;
+                            desc.setup = record->vehicle_params.setup;
+                            descs.push_back(desc);
+                        }
+                        return descs;
+                    }
+
+                    /**
+                     * @brief Writes each vehicle's solved core pose back onto its entity.
+                     *
+                     * The *core*, not a node: §11.2's hybrid puts the mass and the inertia in
+                     * one rigid body and hangs a deformable shell off it, so a node's
+                     * position is a panel's position and only the core's is the car's.
+                     */
+                    void read_back_vehicles()
+                    {
+                        if (physics_ == nullptr)
+                            return;
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_vehicle ||
+                                !world_.alive(record->entity))
+                                continue;
+                            SolvedPose pose;
+                            if (!physics_->vehicle_core_pose(id, pose))
+                                continue;
+                            world_.get<Transform>(record->entity).position = pose.position;
+                            world_.get<Orientation>(record->entity).rotation = pose.orientation;
+                        }
+                    }
+
+                    /**
+                     * @brief Marks a record's joint authoring as changed since it was built.
+                     *
+                     * One function, so "the authoring moved" and "the live joint is stale"
+                     * cannot drift apart: every write to @ref Record::joint_params goes
+                     * through here, and the reconcile compares nothing but this counter.
+                     * It also clears the broken flag, because an author editing a joint that
+                     * tore off is asking for it back.
+                     *
+                     * @param record The record whose joint was written.
+                     */
+                    void touch_joint(Record& record) noexcept
+                    {
+                        ++record.joint_revision;
+                        record.joint_broken = false;
+                        joints_dirty_ = true;
+                    }
+
+                    /**
+                     * @brief Whether @p record's joint has two endpoints the solver can hold.
+                     *
+                     * Both endpoints must be live entities that own rigid bodies, and they
+                     * must be different entities. A joint from a body to itself is not a
+                     * stiff joint but a degenerate one — both its rows reference the same
+                     * slot, so the projection cancels and the colourer is handed a
+                     * constraint that conflicts with itself — so it is refused here rather
+                     * than discovered as a body that will not settle.
+                     *
+                     * @param record The record to test.
+                     * @param owner  The entity that owns @p record, the joint's first body.
+                     */
+                    bool joint_endpoints_ready(const Record& record, EntityId owner) const noexcept
+                    {
+                        const EntityId partner = record.joint_params.connected_body;
+                        if (partner == NULL_ENTITY || partner == owner)
+                            return false;
+                        if (!record.has_physics_body || !world_.alive(record.entity))
+                            return false;
+                        const Record* other = find(partner);
+                        return other != nullptr && other->has_physics_body &&
+                               world_.alive(other->entity);
+                    }
+
+                    /**
+                     * @brief Reconciles the solver's joints with what the records author.
+                     *
+                     * A diff in the same shape as `IRigidBodyService::set_rigid_bodies`, and
+                     * for the same reason: a joint that has not changed keeps its solver
+                     * handle and therefore its warm start, so a scene that is merely being
+                     * stepped rebuilds nothing.
+                     *
+                     * Walked in @ref order_ — the authoring order — rather than over
+                     * @ref records_, which is a hash map whose iteration order is not a
+                     * property of the scene. Joint identities are handed out in call order,
+                     * so an unstable walk here would be an unstable joint numbering, and
+                     * §12.1's first rule exists precisely because that kind of order leaks
+                     * into results.
+                     */
+                    void sync_joints()
+                    {
+                        if (physics_ == nullptr)
+                            return;
+                        for (const EntityId id : order_)
+                        {
+                            Record* record = find(id);
+                            if (record == nullptr)
+                                continue;
+
+                            const bool wanted = record->has_joint && !record->joint_broken &&
+                                                joint_endpoints_ready(*record, id);
+                            const bool stale =
+                                record->live_joint_revision != record->joint_revision;
+                            if (record->live_joint != NULL_JOINT && (!wanted || stale))
+                            {
+                                physics_->destroy_joint(record->live_joint);
+                                record->live_joint = NULL_JOINT;
+                            }
+                            if (!wanted || record->live_joint != NULL_JOINT)
+                                continue;
+
+                            JointDesc desc;
+                            desc.body_a = id;
+                            desc.body_b = record->joint_params.connected_body;
+                            desc.params = record->joint_params.joint;
+                            record->live_joint = physics_->create_joint(desc);
+                            record->live_joint_revision = record->joint_revision;
+                        }
+                    }
+
+                    /**
+                     * @brief Records the joints that broke during the step just taken.
+                     *
+                     * The solver has already destroyed them, so this only catches the
+                     * authoring up: the identity is dropped and the record is marked broken
+                     * so the next reconcile does not immediately build the mount back. That
+                     * flag is the whole reason this pass exists — without it a breakable
+                     * joint would tear off and reappear on the following tick forever.
+                     */
+                    void collect_broken_joints()
+                    {
+                        if (physics_ == nullptr)
+                            return;
+                        for (const JointBrokenEvent& event : physics_->joint_broken_events())
+                        {
+                            Record* record = find(event.a);
+                            if (record == nullptr || record->live_joint != event.joint)
+                                continue;
+                            record->live_joint = NULL_JOINT;
+                            record->joint_broken = true;
+                        }
                     }
 
                     const Record* find(EntityId id) const noexcept
@@ -2094,6 +2512,56 @@ namespace SushiEngine
                     }
 
                     /**
+                     * @brief The wind field, as the physics is allowed to see it (§11.6).
+                     *
+                     * The other half of §4.5's pair: the physics is handed a field and never
+                     * the meteorology behind it, exactly as it is for gravity. Asked through
+                     * the provider seam, so every provider answers — an ingested sky blows a
+                     * car about with the wind it was handed, and a static one answers zero,
+                     * which is the truth about a static sky rather than a capability it lacks.
+                     *
+                     * With no provider installed there is no sampler at all rather than one
+                     * that returns zero: an empty `std::function` is the cheapest possible
+                     * "still air", and the physics already skips it.
+                     *
+                     * Scene axes are east-x and north-z — the same mapping
+                     * @ref geodetic_at_scene inverts — so a `WindSample`'s two components go
+                     * straight in with no vertical term. Vertical wind is a real thing and
+                     * the provider seam does not carry it; saying so here is cheaper than a
+                     * zero that reads like a measurement.
+                     *
+                     * @return A sampler mapping a scene-frame position to wind, m/s.
+                     */
+                    WindSampler make_wind_sampler() const
+                    {
+                        if (!weather_provider_)
+                            return WindSampler{};
+
+                        const IWeatherProvider* weather = weather_provider_.get();
+                        const double seconds = julian_date_ * 86400.0;
+                        const double radius =
+                            std::max(double(scene_.environment.planet.mean_radius()), 1.0);
+                        const double latitude = scene_.environment.observer.latitude_radians;
+                        const double longitude = scene_.environment.observer.longitude_radians;
+                        constexpr double MIN_COS_LATITUDE = 0.05;
+                        const double cos_latitude =
+                            std::max(std::cos(latitude), MIN_COS_LATITUDE);
+
+                        return [weather, seconds, radius, latitude, longitude,
+                                cos_latitude](const Vector3& position) -> Vector3
+                        {
+                            const GeodeticPosition local{
+                                latitude + double(position.z) / radius,
+                                longitude + double(position.x) / (radius * cos_latitude)};
+                            const double altitude = std::max(double(position.y), 0.0);
+                            const WindSample wind =
+                                weather_wind(*weather, local, altitude, seconds);
+                            return Vector3{Scalar(wind.eastward_mps), 0,
+                                           Scalar(wind.northward_mps)};
+                        };
+                    }
+
+                    /**
                      * @brief The dominant celestial body this frame, if any.
                      * @param body_out Receives the body when the scene has one.
                      * @return True when a dominant body is set (a planet is the ground).
@@ -2162,9 +2630,15 @@ namespace SushiEngine
                      * @brief Body-fixed Cartesian metres of a scene position, centred on @p body.
                      *
                      * Scene offset → ecliptic (the scene-frame rotation) → the body's equatorial
-                     * frame → body-fixed by unwinding the prime-meridian spin W(t). The inverse
-                     * of @ref body_fixed_to_scene; together they carry a surface pose between the
+                     * frame → body-fixed by unwinding the prime meridian. The inverse of
+                     * @ref body_fixed_to_scene; together they carry a surface pose between the
                      * scene and the geodetic coordinate the inspector authors.
+                     *
+                     * The unwind uses @ref Astro::prime_meridian_angle rather than the raw IAU
+                     * W, because W is an angle in a different frame from the one the line above
+                     * lands in; the two are 52.7 degrees apart for the Moon. Using W here put
+                     * the reported longitude that far from the longitude the scene was built
+                     * at, which nothing noticed while nothing else spoke body-fixed.
                      *
                      * @param body           Reference body index.
                      * @param scene_position A position in scene metres.
@@ -2179,7 +2653,7 @@ namespace SushiEngine
                         const Vector3 equatorial =
                             Astro::ecliptic_to_body_equatorial(body_id, ecliptic);
                         const Scalar spin =
-                            Scalar(Astro::body_rotation_angle(body_id, julian_date_));
+                            Scalar(Astro::prime_meridian_angle(body_id, julian_date_));
                         return rotate_about_pole(equatorial, -spin);
                     }
 
@@ -2189,7 +2663,7 @@ namespace SushiEngine
                         const Astro::BodyId body_id = static_cast<Astro::BodyId>(body);
                         const Astro::SceneFrame frame = current_scene_frame();
                         const Scalar spin =
-                            Scalar(Astro::body_rotation_angle(body_id, julian_date_));
+                            Scalar(Astro::prime_meridian_angle(body_id, julian_date_));
                         const Vector3 equatorial = rotate_about_pole(body_fixed, spin);
                         const Vector3 ecliptic =
                             Astro::body_equatorial_to_ecliptic(body_id, equatorial);
@@ -2435,6 +2909,12 @@ namespace SushiEngine
                      */
                     void step_once()
                     {
+                        // A joint names two bodies, so a change to the body set is a change
+                        // to which joints can exist: an entity that has just gained a body
+                        // makes every joint pointing at it buildable, and one that has lost
+                        // it takes its joints down with it inside the solver. Remembered
+                        // before the reconcile below clears the flag.
+                        const bool bodies_changed = physics_dirty_;
                         if (physics_dirty_)
                         {
                             physics_->set_rigid_bodies(gather_rigid_descs(), PHYSICS_ITERATIONS,
@@ -2457,8 +2937,24 @@ namespace SushiEngine
                         // tracks a moved terrain without extra dirty bookkeeping — then
                         // step, which resolves rigid/rigid, rigid/plane, and cloth/rigid
                         // contacts inside the solve.
+                        if (vehicles_dirty_)
+                        {
+                            physics_->set_vehicles(gather_vehicle_descs());
+                            vehicles_dirty_ = false;
+                        }
+                        if (joints_dirty_ || bodies_changed)
+                        {
+                            sync_joints();
+                            joints_dirty_ = false;
+                        }
+
                         physics_->set_static_planes(gather_static_planes());
-                        physics_->step(make_gravity_sampler(), PHYSICS_SUBSTEPS_PER_TICK);
+                        physics_->step(make_gravity_sampler(), make_wind_sampler(),
+                                       PHYSICS_SUBSTEPS_PER_TICK);
+                        collect_broken_joints();
+                        // The vehicle's pose follows the solve, like every rigid body's — its
+                        // core is one, it simply is not an entity's own body.
+                        read_back_vehicles();
 
                         // Advance the master epoch for this fixed step, so the sky and the
                         // on-rails bodies the gravity field sums track the physics solve. The
@@ -3049,6 +3545,46 @@ namespace SushiEngine
                             scene_.deformable_indices.insert(scene_.deformable_indices.end(),
                                                              soft_indices.begin(),
                                                              soft_indices.end());
+                            scene_.deformable_instances.push_back(surface);
+                        }
+
+                        // §11.2's shell, drawn as the surface it collides as. Same channel as
+                        // the cloth and the soft body above and for the same reason P6-G2
+                        // gives: how a surface's triangles were produced is not something the
+                        // renderer can see. A vehicle was invisible until this loop existed —
+                        // its entity followed the rigid core and nothing drew the body.
+                        std::vector<Vector3> shell_positions;
+                        std::vector<std::uint32_t> shell_indices;
+                        for (const EntityId id : order_)
+                        {
+                            const Record* record = find(id);
+                            if (record == nullptr || !record->has_vehicle || !record->visible)
+                                continue;
+                            if (!physics_->vehicle_surface(id, shell_positions, shell_indices))
+                                continue;
+                            if (shell_positions.empty() || shell_indices.size() < 3)
+                                continue;
+
+                            DeformableInstance surface;
+                            surface.id = id;
+                            surface.first_vertex =
+                                static_cast<std::uint32_t>(scene_.deformable_vertices.size());
+                            surface.vertex_count =
+                                static_cast<std::uint32_t>(shell_positions.size());
+                            surface.first_index =
+                                static_cast<std::uint32_t>(scene_.deformable_indices.size());
+                            surface.index_count =
+                                static_cast<std::uint32_t>(shell_indices.size());
+                            if (record->has_renderer && world_.alive(record->entity))
+                                surface.color = world_.get<Tint>(record->entity).color;
+                            else
+                                surface.color = record->material.albedo;
+                            scene_.deformable_vertices.insert(scene_.deformable_vertices.end(),
+                                                              shell_positions.begin(),
+                                                              shell_positions.end());
+                            scene_.deformable_indices.insert(scene_.deformable_indices.end(),
+                                                             shell_indices.begin(),
+                                                             shell_indices.end());
                             scene_.deformable_instances.push_back(surface);
                         }
 
@@ -3671,6 +4207,15 @@ namespace SushiEngine
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
                     bool soft_dirty_ = false;
+                    // Whether any record's joint authoring has moved since the solver's
+                    // joints were last reconciled with it. A change to the *body* set
+                    // implies one of these too, and step_once() folds the two together.
+                    bool joints_dirty_ = false;
+                    // Whether any record's vehicle authoring has moved since the physics was
+                    // handed its set. Unlike bodies and joints this is a *rebuild* flag: a
+                    // vehicle is four hundred bodies placed relative to a cooked structure,
+                    // and there is no patching one in place.
+                    bool vehicles_dirty_ = false;
 
                     // The weather seam: ticked from step_once() and compiled into
                     // scene_.environment.clouds from extract() whenever set. Null (the default)

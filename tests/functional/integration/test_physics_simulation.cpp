@@ -47,6 +47,18 @@ namespace
     constexpr Scalar SUBSTEP_DT = Scalar(1.0 / 240.0);
     constexpr double PI = 3.14159265358979323846;
 
+    /**
+     * @brief Still air, which is what every scene without weather installed passes.
+     *
+     * An *empty* sampler rather than one returning zero: the physics skips it entirely,
+     * so a scene with no wind is bit-for-bit the scene that had no wind seam at all
+     * (§11.6, `physics/aero/wind.hpp`).
+     */
+    WindSampler still_air()
+    {
+        return WindSampler{};
+    }
+
     /** @brief A uniform downward field, the sampler shape the live world hands in. */
     GravitySampler earth_gravity()
     {
@@ -103,7 +115,7 @@ TEST(Integration_PhysicsSimulation, BoxSettlesOnItsFaceNotItsBoundingRadius)
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 400; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     SolvedPose pose;
     ASSERT_TRUE(physics->rigid_pose(1, pose));
@@ -126,7 +138,7 @@ TEST(Integration_PhysicsSimulation, TiltedBoxSettlesOnItsEdge)
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 400; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     SolvedPose pose;
     ASSERT_TRUE(physics->rigid_pose(1, pose));
@@ -167,7 +179,7 @@ TEST(Integration_PhysicsSimulation, ClothAndRigidBodyPushOnEachOther)
     const std::vector<Vector3> before = physics->cloth_positions(10);
     ASSERT_EQ(before.size(), std::size_t(9));
 
-    physics->step(no_gravity(), SUBSTEPS);
+    physics->step(no_gravity(), still_air(), SUBSTEPS);
 
     SolvedPose pose;
     ASSERT_TRUE(physics->rigid_pose(20, pose));
@@ -248,7 +260,7 @@ TEST(Integration_PhysicsSimulation, StackedBoxesSettleWithoutInterpenetrating)
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 600; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     SolvedPose lower;
     SolvedPose upper;
@@ -289,7 +301,7 @@ TEST(Integration_PhysicsSimulation, AFastBodyIsStillFoundByTheOncePerTickBroadph
     // and 240 m/s covers four metres in that.
     physics->set_rigid_pose(1, Vector3{Scalar(-3), Scalar(1), 0}, Quaternion{});
     for (int tick = 0; tick < 12; ++tick)
-        physics->step(no_gravity(), SUBSTEPS);
+        physics->step(no_gravity(), still_air(), SUBSTEPS);
 
     SolvedPose bullet_pose;
     SolvedPose wall_pose;
@@ -321,7 +333,7 @@ TEST(Integration_PhysicsSimulation, TheStepReportsWhatItContained)
 
     physics->set_rigid_bodies({first, second}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
-    physics->step(earth_gravity(), SUBSTEPS);
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     const Physics::PhysicsStatistics& stats = physics->statistics();
     EXPECT_EQ(stats.awake_bodies, 2u);
@@ -381,7 +393,7 @@ TEST(Integration_PhysicsSimulation, ALandingBoxBeginsOnceAndThenPersists)
     Scalar resting_impulse = 0;
     for (int tick = 0; tick < 120; ++tick)
     {
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
         for (const ContactEvent& event : physics->contact_events())
         {
             EXPECT_EQ(event.a, EntityId(1));
@@ -420,14 +432,14 @@ TEST(Integration_PhysicsSimulation, TakingABodyAwayEndsItsContact)
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 60; ++tick)
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
     ASSERT_FALSE(of_phase(physics->contact_events(), ContactPhase::Persist).empty())
         << "it must be resting before it can stop resting";
 
     // Lifted clear rather than removed: removal changes the collidable membership,
     // which renumbers the proxies and deliberately drops the history with them.
     physics->set_rigid_pose(1, Vector3{0, Scalar(20), 0}, Quaternion{0, 0, 0, 1});
-    physics->step(earth_gravity(), SUBSTEPS);
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     const std::vector<ContactEvent> ended =
         of_phase(physics->contact_events(), ContactPhase::End);
@@ -435,7 +447,7 @@ TEST(Integration_PhysicsSimulation, TakingABodyAwayEndsItsContact)
     EXPECT_EQ(ended[0].a, EntityId(1));
 
     // And nothing at all on the tick after, rather than an End every tick for ever.
-    physics->step(earth_gravity(), SUBSTEPS);
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
     EXPECT_TRUE(physics->contact_events().empty());
 }
 
@@ -466,7 +478,7 @@ TEST(Integration_PhysicsSimulation, ATriggerIsReportedAndNotResolved)
     bool reported = false;
     for (int tick = 0; tick < 90; ++tick)
     {
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
         for (const ContactEvent& event : physics->contact_events())
         {
             EXPECT_TRUE(event.trigger);
@@ -511,7 +523,7 @@ TEST(Integration_PhysicsSimulation, EventsComeInASceneOrderNotATraversalOrder)
 
     for (int tick = 0; tick < 120; ++tick)
     {
-        physics->step(earth_gravity(), SUBSTEPS);
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
         EntityId previous = 0;
         for (const ContactEvent& event : physics->contact_events())
         {

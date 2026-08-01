@@ -62,6 +62,13 @@ namespace SushiEngine
             bool meteorology = false;
             bool gpu_culling = false;
             bool physics = false;
+
+            /** @brief The Vehicle window: §11's authoring surface. */
+            bool vehicle = false;
+
+            /** @brief The Assembly window: §10.2's parts, joints and filter matrix (§14). */
+            bool assembly = false;
+
             /**
              * @brief The Bake window: the fidelity dial and what each cook produced (§14).
              *

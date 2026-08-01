@@ -141,6 +141,8 @@ namespace SushiEngine
                         return "sushicollision";
                     case CookedAssetKind::SoftBody:
                         return "sushisoft";
+                    case CookedAssetKind::NodeBeam:
+                        return "sushinodebeam";
                 }
                 return "sushicooked";
             }

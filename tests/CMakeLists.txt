@@ -503,6 +503,30 @@ add_executable(se_functional_tests
     ../editor/core/preferences.cpp
     functional/integration/test_scene_serializer_roundtrip.cpp
 
+    # §5.5's PhysicsJoint, from the Inspector's component down to the solver: a joint
+    # holds a body up that a control body identically built does not stay up without,
+    # it reports the load it carries (§10.4), it tears out above a threshold and stays
+    # out, and every authored field survives the scene file — including the partner,
+    # which is written as an array index and resolved in the same second pass the
+    # parent link uses. P3's one outstanding item was that none of this was reachable
+    # from a scene at all.
+    functional/integration/test_physics_joint_component.cpp
+
+    # §5.3's surface materials and §7.7's collision filter, both of which the physics
+    # honoured and nothing could author until now: a bouncy body returns more height than
+    # a dead one, a 17-degree ramp holds rubber and loses ice, and a pair on mutually
+    # excluded layers passes through itself while an identical control pair stacks. Plus
+    # the sample scene, which is the exposure work's own claim that everything P0-P7 built
+    # is reachable without writing C++ — built here so the claim is tested.
+    ../editor/scene/physics_sample_scene.cpp
+    functional/integration/test_physics_authoring.cpp
+
+    # §5.5 VehicleInstance: a cooked .sushinodebeam named by a component, instanced
+    # into the scene solver, driven through the boundary, and read back onto the entity.
+    # The asset is cooked into a real file rather than handed over as bytes, because a
+    # *path* is what a scene file stores and what has to survive being reopened.
+    functional/integration/test_vehicle_component.cpp
+
     functional/unit/test_atmosphere_quality.cpp
     functional/unit/test_autosave.cpp
     functional/unit/test_preferences_roundtrip.cpp

@@ -105,8 +105,13 @@ namespace SushiEngine
          * @brief A labelled drag-float row for a 3-component vector, matching Unity's
          * X/Y/Z inspector rows.
          *
-         * Emits a table row (label column, field column) and brackets the drag as one undo
-         * step via @ref track_item_undo.
+         * Lays itself out according to where it finds itself: inside an ImGui table it emits
+         * a row (label column, field column); outside one it draws a plain labelled drag.
+         * It used to open a table row unconditionally, which made calling it from a panel
+         * that draws no table an access violation rather than a layout glitch — so the
+         * widget carries the test instead of every caller carrying a precondition.
+         *
+         * Brackets the drag as one undo step via @ref track_item_undo.
          *
          * @param context Shared editor state; drives the undo bracket.
          * @param world The world the undo snapshot is taken from.

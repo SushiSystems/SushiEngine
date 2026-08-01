@@ -18,7 +18,10 @@ add_library(sushi_sim STATIC runtime_simulation.cpp)
 # implementation detail of this library: ProceduralWeather holds one by value in a
 # header (sim/weather_provider.hpp), so every consumer of sushi_sim compiles that
 # type and must link its definitions.
-target_link_libraries(sushi_sim PUBLIC SushiEngine sushi_atmosphere)
+# sushi_cooking is PUBLIC for the same reason: `physics_simulation.hpp` loads a
+# `.sushisoft` and a `.sushinodebeam` blob to build a soft body or a vehicle, and
+# `load_soft_body_blob`/`load_node_beam_blob` are compiled there rather than inline.
+target_link_libraries(sushi_sim PUBLIC SushiEngine sushi_atmosphere sushi_cooking)
 target_include_directories(sushi_sim PUBLIC "${CMAKE_SOURCE_DIR}/include")
 set_target_properties(sushi_sim PROPERTIES
     CXX_STANDARD 17

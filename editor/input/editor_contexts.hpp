@@ -107,6 +107,36 @@ namespace SushiEngine
             context.add_button("GizmoRotate").bind(Key::E);
             context.add_button("GizmoScale").bind(Key::R);
         }
+
+        /**
+         * @brief Builds the driving controls for whichever vehicle is selected.
+         *
+         * Its own context rather than three more buttons on the viewport one, because these
+         * are the first bindings in the editor that are *held* rather than pressed and the
+         * first that belong to play mode rather than to authoring. A context is the unit the
+         * shell can push and pop, so "the arrow keys steer while a car is selected and are
+         * ordinary keys otherwise" is a push, not a condition every consumer repeats.
+         *
+         * Arrow keys rather than WASD, deliberately: W, E and R are the gizmo keys and a
+         * driving binding that stole them would make the tool keys stop working the moment
+         * an author selected a car — which is exactly the kind of modal surprise a rebindable
+         * context exists to avoid. They are rebindable from Preferences like everything else.
+         *
+         * @param context The (empty) context to populate; the caller owns it.
+         */
+        inline void build_editor_drive_context(Input::InputContext& context)
+        {
+            using Input::Key;
+            context.add_button("DriveThrottle").bind(Key::Up);
+            context.add_button("DriveBrake").bind(Key::Down);
+            context.add_button("DriveLeft").bind(Key::Left);
+            context.add_button("DriveRight").bind(Key::Right);
+            // The clutch as a held key, so a standing start is the same gesture it is in a
+            // car: hold it, pick the gear, feed the throttle, let it out.
+            context.add_button("DriveClutch").bind(Key::LeftShift);
+            context.add_button("DriveGearUp").bind(Key::PageUp);
+            context.add_button("DriveGearDown").bind(Key::PageDown);
+        }
     } // namespace Editor
 } // namespace SushiEngine
 
