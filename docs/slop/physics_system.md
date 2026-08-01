@@ -3325,6 +3325,39 @@ known/open here, the roadmap table below reflects "in progress" rather than "com
 P6-A, and the commit that follows this write-up includes that honest status — per explicit
 instruction to commit now and continue working rather than keep debugging uninterrupted.
 
+**RESOLVED (2026-08-01, later the same day) — all five failures fixed; the full suite is 992/992.**
+
+- *Rebalancer test:* updated to enable the rebalancer explicitly before asserting the builder
+  turns it off, since the runtime's default flipped to off (the property under test — construction
+  disables it — is unchanged).
+- *Joint force readout zero:* **not** the runtime merge after all. Tick-by-tick tracing showed the
+  readout correct (343.35 N) until exactly `sleep_delay` and zero after: the door sleeps, but the
+  *pinned* chassis (`inv_mass = 0`, dynamic-flagged) never does, so `JointProjectionT`'s
+  "both ends non-simulated" guard never fired, the accumulators were reset every first substep and
+  then measured a pair nothing integrates. Fix: either endpoint sleeping now freezes the joint's
+  accounting (`joint_projection.hpp`, both passes) — safe because an island sleeps as a unit and a
+  static/pinned/kinematic partner cannot be moved by the projection anyway.
+- *200 m/s tunnelling:* the CCD manifold was correct (traced: normal +Y at the impact tick, all
+  three speeds). The culprit was §7.6's depenetration budget: at 200 m/s the crossing happens in
+  the tick's last substep with a ~0.4 m violation, the 3 m/s budget corrects 6 mm of it, the
+  velocity pass kills the speed, and the next tick's nearest-face manifold walks the now-buried
+  sphere out the far side — the mirror-image rest pose. Fix (`contact_projection.hpp`): the budget
+  now additionally covers however much the pair *closed during this substep* (measured from
+  `prev_position` anchors), so a spawned overlap still pays out at 3 m/s while a moving body can
+  always be stopped by what it hit. Cancelling the approach removes exactly the motion the substep
+  added, so it cannot inject energy.
+- *FEM cantilever 9x:* suspect (b), and now isolated. The deviatoric constraint was
+  `||F||_F - sqrt(3)`; the Macklin-Müller formulation requires `||F||_F` itself — with compliance
+  `1/mu` that yields force `mu * F` exactly, while the rest-zeroed version scales every deviatoric
+  force by `(||F|| - sqrt(3))/||F||`, which vanishes at small strain *and* un-balances the
+  hydrostatic `mu/lambda` offset whose whole purpose is to cancel the norm term's rest-state pull.
+  Also applied Smith et al.'s `lambda + mu` reparameterization in the hydrostatic stiffness/offset
+  (linearizing the constraint pair shows effective Lame `(mu, lambda_used - mu)`). Remaining error
+  is ordinary single-iteration XPBD h^2 convergence (axial rest residual measured -2.2e-2 m at 30
+  substeps, -5.9e-3 at 60, -1.5e-3 at 120); the cantilever test runs at 60 substeps and passes
+  inside its 35% tolerance. The plasticity integration scene was recalibrated (50 → 800 m/s^2
+  pull) because its old load only crossed yield against the erroneously soft material.
+
 ---
 
 ## §17 Risks, open questions, and scope

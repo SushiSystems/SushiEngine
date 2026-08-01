@@ -256,20 +256,18 @@ TEST(Integration_FiniteElementModel, CantileverTipDeflectionMatchesEulerBernoull
             model.particles[vertex_index(0, y, z, WIDTH_CELLS, HEIGHT_CELLS)].inv_mass = Scalar(0);
 
     const Scalar dt = Scalar(1.0 / 60.0);
-    // KNOWN FAILING (2026-08-01): this test currently measures a tip deflection
-    // roughly 9x the theoretical value. Raising SUBSTEPS from 30 to 200 only
-    // reduced it by about 9% (0.183 m to 0.167 m against a 0.020 m target),
-    // which rules out plain XPBD under-convergence as the dominant cause —
-    // Macklin's substep theory predicts convergence *toward* the compliance-
-    // implied stiffness as h shrinks, and a near-7x step-count increase moving
-    // the answer by under a tenth is not that curve. The remaining suspects,
-    // not yet isolated: the coarse (2x2-cell) cross-section under-resolving
-    // bending the way linear tetrahedra are known to at low element counts
-    // through the thickness, or an error in how Young's modulus/Poisson ratio
-    // map to this two-constraint model's compliances specifically for a
-    // bending-dominated (not uniaxial-strain) load. See docs/slop/
-    // physics_system.md §16.19 before spending more time here.
-    constexpr std::size_t SUBSTEPS = 30;
+    // §16.19's 9x mystery, resolved (2026-08-01): the deviatoric constraint was
+    // `||F|| - sqrt(3)`, which scales every deviatoric force by a factor that
+    // vanishes at small strain — see `evaluate_deviatoric_constraint`'s own
+    // documentation for the full account. With the constraint corrected to
+    // `||F||` (plus Smith et al.'s `lambda + mu` reparameterization in the
+    // hydrostatic term), what remains is ordinary single-iteration XPBD
+    // convergence: the rest state carries a residual contraction that shrinks
+    // as h^2 (measured: -2.2e-2 m at 30 substeps, -5.9e-3 at 60, -1.5e-3 at
+    // 120, on the axial version of this scene). 60 substeps is where the
+    // remaining bias fits inside this test's 35% discretization tolerance
+    // without doubling the runtime again.
+    constexpr std::size_t SUBSTEPS = 60;
     constexpr int TICKS = 3000; // 50 s of simulated time, heavily damped
     for (int tick = 0; tick < TICKS; ++tick)
         model.step(dt, SUBSTEPS);

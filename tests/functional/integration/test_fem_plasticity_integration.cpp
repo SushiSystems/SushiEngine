@@ -82,8 +82,12 @@ TEST(Integration_FemPlasticity, APulledElementKeepsAPermanentDentAfterTheLoadIsR
     const Scalar dt = Scalar(1.0 / 60.0);
     constexpr std::size_t SUBSTEPS = 20;
 
-    // Load: pull hard, well past this material's low yield.
-    model.external_acceleration = Vector3{50.0, 0.0, 0.0};
+    // Load: pull hard, well past this material's low yield. 800 m/s^2 on three
+    // 1 kg vertices puts a few kilopascals through the element — several times
+    // the 1 kPa yield at the correctly-mapped stiffness. (The original 50 was
+    // calibrated against the pre-§16.19-fix material, which was soft enough
+    // that even that gentle pull crossed yield.)
+    model.external_acceleration = Vector3{800.0, 0.0, 0.0};
     for (int tick = 0; tick < 60; ++tick)
         model.step(dt, SUBSTEPS);
 

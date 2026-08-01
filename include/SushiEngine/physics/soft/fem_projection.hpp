@@ -30,7 +30,9 @@
  * Materials". Two constraints per tetrahedron, replacing today's distance
  * lattice:
  *
- * - **Deviatoric** (resists shape change): `C = ||F||_Frobenius - sqrt(3)`.
+ * - **Deviatoric** (resists shape change): `C = ||F||_Frobenius` — the norm
+ *   itself, not `||F|| - sqrt(3)`; see `evaluate_deviatoric_constraint` for why
+ *   the rest offset would break the material.
  * - **Hydrostatic** (resists volume change): `C = det(F) - 1 - mu/lambda`.
  *
  * where `F = Ds * Dm^-1` is the deformation gradient: `Ds`'s columns are the
@@ -168,11 +170,23 @@ namespace SushiEngine
         };
 
         /**
-         * @brief The deviatoric constraint: `C = ||F||_Frobenius - sqrt(3)`.
+         * @brief The deviatoric constraint: `C = ||F||_Frobenius`.
          *
-         * Zero for any pure rotation (`F` orthogonal), by construction — the whole
-         * reason this term does not have to special-case or filter out rotation
-         * the way a naive strain measure would.
+         * The norm itself, *not* `||F|| - sqrt(3)`. With compliance `1/mu`, XPBD's
+         * force is `-mu * C * dC/dx = -mu * F * Dm^-T` — exactly the first
+         * Piola-Kirchhoff stress of the stable neo-Hookean deviatoric energy
+         * `mu/2 * tr(F^T F)`, whose difference from `mu/2 (tr(F^T F) - 3)` is a
+         * constant that no force ever sees. Subtracting `sqrt(3)` to make the
+         * value read zero at rest looks tidier but scales every force by
+         * `(||F|| - sqrt(3)) / ||F||` — vanishing at small strain, which made a
+         * cantilever measure roughly 9x the Euler-Bernoulli deflection (§16.19),
+         * and it un-balances the hydrostatic constraint's `mu/lambda` offset,
+         * whose whole purpose is to cancel this term's rest-state pull
+         * (`-mu * I` against `+mu * cof(F)`, Smith et al.'s `-mu (J - 1)` term
+         * in constraint form). The value is `sqrt(3)` for any pure rotation
+         * (`F` orthogonal), and the rest state is in equilibrium *because* the
+         * two constraints fight to a standstill there, not because each is
+         * separately zero.
          *
          * @param f The deformation gradient.
          * @param rest_inverse_column0/1/2 `Dm^-1`'s three columns (the gradient
@@ -186,7 +200,7 @@ namespace SushiEngine
         {
             FemConstraintEvaluation<T> result;
             const T norm = frobenius_norm(f);
-            result.value = norm - std::sqrt(T(3));
+            result.value = norm;
 
             // A collapsed element (every current edge zero) has no defined
             // direction to correct along; leaving the gradient at zero is a
@@ -325,10 +339,21 @@ namespace SushiEngine
         /**
          * @brief Projects one tetrahedron's hydrostatic constraint in place.
          *
+         * The Lame `lambda` is reparameterized to `lambda + mu` before it becomes
+         * the constraint's stiffness and offset — Smith et al. 2018's consistency
+         * correction, carried into the constraint form. Linearizing this model's
+         * total force `mu*F + (lambda'*(J - 1) - mu) * cof(F)` about the rest
+         * state gives effective Lame parameters `(mu, lambda' - mu)`: the
+         * deviatoric term's own `-mu * cof(F)` counterweight eats one `mu` out of
+         * the volumetric response, and passing the raw `lambda` through would
+         * leave the material measurably softer than the `(E, nu)` it was asked
+         * to be. With `lambda' = lambda + mu` the linearization lands on
+         * `2*mu*strain + lambda*tr(strain)*I` exactly.
+         *
          * @param bodies   The owning solver's particle array.
          * @param element  The element; its `hydrostatic_lambda` is updated.
          * @param mu       The material's Lame `mu`.
-         * @param lambda   The material's Lame `lambda`.
+         * @param lambda   The material's Lame `lambda` (raw; reparameterized here).
          * @param h        Sub-step duration, in seconds.
          */
         template <typename T>
@@ -342,12 +367,13 @@ namespace SushiEngine
             const FemMatrix3<T> f = tetrahedron_deformation_gradient(
                 edge1, edge2, edge3, element.plastic_inverse_column_0,
                 element.plastic_inverse_column_1, element.plastic_inverse_column_2);
-            const T mu_over_lambda = lambda > T(0) ? mu / lambda : T(0);
+            const T stable_lambda = lambda + mu;
+            const T mu_over_lambda = stable_lambda > T(0) ? mu / stable_lambda : T(0);
             const FemConstraintEvaluation<T> evaluation = evaluate_hydrostatic_constraint(
                 f, element.plastic_inverse_column_0, element.plastic_inverse_column_1,
                 element.plastic_inverse_column_2, mu_over_lambda);
-            const T compliance = element.rest_volume > T(0) && lambda > T(0)
-                                     ? T(1) / (lambda * element.rest_volume)
+            const T compliance = element.rest_volume > T(0) && stable_lambda > T(0)
+                                     ? T(1) / (stable_lambda * element.rest_volume)
                                      : T(0);
             apply_fem_constraint(bodies, element.vertex, evaluation, compliance,
                                  element.hydrostatic_lambda, h);

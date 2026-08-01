@@ -87,11 +87,14 @@ TEST(Unit_FemProjection, RestConfigurationGivesTheIdentity)
     EXPECT_NEAR(double(frobenius_norm(f)), std::sqrt(3.0), 1e-12);
     EXPECT_NEAR(double(determinant(f)), 1.0, 1e-12);
 
-    // At rest, the deviatoric constraint is exactly zero — the property that
-    // lets a body sit still under this model without a spurious shape force.
+    // At rest, the deviatoric constraint reads `||I||_F = sqrt(3)` — the norm
+    // itself, not a rest-zeroed offset. The rest state sits still not because
+    // this value is zero but because the pull it produces is cancelled exactly
+    // by the hydrostatic constraint's `mu/lambda` offset; see
+    // `evaluate_deviatoric_constraint`'s own documentation.
     const auto deviatoric = evaluate_deviatoric_constraint(f, rest.column0, rest.column1,
                                                            rest.column2);
-    EXPECT_NEAR(double(deviatoric.value), 0.0, 1e-12);
+    EXPECT_NEAR(double(deviatoric.value), std::sqrt(3.0), 1e-12);
 }
 
 // A uniform scale by `s` gives `F = s*I`: Frobenius norm `s*sqrt(3)`,
@@ -113,13 +116,14 @@ TEST(Unit_FemProjection, UniformScaleMatchesClosedForm)
 
     const auto deviatoric = evaluate_deviatoric_constraint(f, rest.column0, rest.column1,
                                                            rest.column2);
-    EXPECT_NEAR(double(deviatoric.value), s * std::sqrt(3.0) - std::sqrt(3.0), 1e-9);
+    EXPECT_NEAR(double(deviatoric.value), s * std::sqrt(3.0), 1e-9);
 }
 
-// A pure rotation leaves the deviatoric constraint at exactly zero, for any
-// angle — the property that makes this "stable" neo-Hookean rather than a
-// naive strain measure that would report a spinning body as deformed.
-TEST(Unit_FemProjection, PureRotationLeavesDeviatoricConstraintAtZero)
+// A pure rotation leaves the deviatoric constraint at its rest value sqrt(3),
+// for any angle — rotation invariance, the property that makes this "stable"
+// neo-Hookean rather than a naive strain measure that would report a spinning
+// body as deformed.
+TEST(Unit_FemProjection, PureRotationLeavesDeviatoricConstraintAtRestValue)
 {
     const UnitTetRestState rest;
     // quaternion_axis_angle assumes a unit axis; it does not normalize one for
@@ -142,7 +146,7 @@ TEST(Unit_FemProjection, PureRotationLeavesDeviatoricConstraintAtZero)
 
     const auto deviatoric = evaluate_deviatoric_constraint(f, rest.column0, rest.column1,
                                                            rest.column2);
-    EXPECT_NEAR(double(deviatoric.value), 0.0, 1e-9);
+    EXPECT_NEAR(double(deviatoric.value), std::sqrt(3.0), 1e-9);
 }
 
 // Both constraints' gradients must sum to zero across the tetrahedron's four

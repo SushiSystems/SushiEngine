@@ -269,7 +269,11 @@ TEST(Integration_RuntimeGraphBuilder, TheRebalancerIsOffForAPhysicsScene)
     // a fixed-rate tick the cost is jitter, and a scene that quietly left it running
     // would show up as frame-time noise with no other symptom.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    ASSERT_TRUE(runtime.advanced().rebalancer_enabled()) << "the runtime's own default is on";
+    // The runtime's default is off since the 2026-08-01 rebalancer change, so turn
+    // it on explicitly: the property under test is that constructing a physics
+    // scene switches it off, not whatever the runtime's default happens to be.
+    runtime.rebalancer(true);
+    ASSERT_TRUE(runtime.advanced().rebalancer_enabled());
 
     RuntimeGraphBuilder<Scalar> solver(runtime, small_scene());
     EXPECT_FALSE(runtime.advanced().rebalancer_enabled())

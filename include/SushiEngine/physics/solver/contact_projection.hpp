@@ -337,11 +337,36 @@ namespace SushiEngine
                     // which is what makes a deep overlap push apart smoothly instead of
                     // leaving at a speed nothing in the scene put there.
                     //
-                    // Only the *recovery* is clamped, never the approach — `error` is
-                    // negative here by construction, so raising it toward zero can only
-                    // reduce how much is corrected and can never let a body sink further.
-                    if (params.max_depenetration > T(0) && error < -params.max_depenetration)
-                        error = -params.max_depenetration;
+                    // The budget covers *stale* penetration — overlap that was already
+                    // there when the substep began — and on top of it, however much the
+                    // pair closed *during* this substep. The distinction is what lets
+                    // one clamp serve two different situations. A body spawned inside
+                    // another has a violation its own motion did not create; paying it
+                    // out at the budget's rate is the whole point of the clamp. A body
+                    // that crossed most of a thin plate in one substep has a violation
+                    // that *is* its own motion, and clamping that away is how §16.19's
+                    // 200 m/s sphere ended the impact substep still buried, had its
+                    // speed killed by the velocity pass, and was then walked out of the
+                    // far side by the next tick's nearest-face manifold — the recorded
+                    // mirror-image rest pose. Cancelling the approach removes exactly
+                    // the motion the substep added, so it cannot inject energy.
+                    if (params.max_depenetration > T(0))
+                    {
+                        const Vector3T<T> then_world_a =
+                            body_a.prev_position +
+                            rotate(body_a.prev_orientation, point.anchor_a_local);
+                        const Vector3T<T> then_world_b =
+                            body_b.prev_position +
+                            rotate(body_b.prev_orientation, point.anchor_b_local);
+                        const T prev_separation =
+                            dot(then_world_b - then_world_a, manifold.normal);
+                        const T approach =
+                            prev_separation > separation ? prev_separation - separation
+                                                         : T(0);
+                        const T budget = params.max_depenetration + approach;
+                        if (error < -budget)
+                            error = -budget;
+                    }
 
                     const T w = generalized_inverse_mass(body_a, lever_a, manifold.normal) +
                                 generalized_inverse_mass(body_b, lever_b, manifold.normal);

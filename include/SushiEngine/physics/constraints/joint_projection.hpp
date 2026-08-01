@@ -790,15 +790,28 @@ namespace SushiEngine
                 RigidBodyT<T>& body_a = bodies[joint.a];
                 RigidBodyT<T>& body_b = bodies[joint.b];
 
-                // A joint whose two bodies are both out of the solve — asleep, static,
-                // or one of each — is left entirely alone, accumulators included. Not an
-                // optimisation: clearing them would report a settled hinge as carrying
-                // *nothing*, when what it is actually carrying is what it was carrying
-                // on the last tick anybody computed. A door that hangs at rest reporting
-                // zero load is a wrong answer, and it is the answer a reader gets from a
-                // sleeping assembly unless the last live measurement survives. This is
-                // the same rule §16.6 applies to a contact `End` event, which reports
-                // what the contact carried on its last live tick.
+                // A joint whose pair is out of the solve is left entirely alone,
+                // accumulators included. Not an optimisation: clearing them would
+                // report a settled hinge as carrying *nothing*, when what it is
+                // actually carrying is what it was carrying on the last tick anybody
+                // computed. A door that hangs at rest reporting zero load is a wrong
+                // answer, and it is the answer a reader gets from a sleeping assembly
+                // unless the last live measurement survives. This is the same rule
+                // §16.6 applies to a contact `End` event, which reports what the
+                // contact carried on its last live tick.
+                //
+                // "Out of the solve" is *either endpoint sleeping*, not both ends
+                // non-simulated. A door hinged to a pinned (infinite-mass, but
+                // dynamic-flagged) chassis keeps the chassis formally simulated for
+                // ever, so the both-ends test never fires — and the tick after the
+                // door slept, this kernel reset the accumulators and then measured a
+                // pair nothing integrates: zero, for as long as it stayed asleep. A
+                // sleeping endpoint is safe to read as "the pair is at rest" because
+                // an island sleeps as a unit: a dynamic partner shares the island and
+                // sleeps with it, and a static, pinned or kinematic partner cannot be
+                // moved by this projection in the first place.
+                if (has_any_flag(body_a.flags | body_b.flags, BodyFlags::sleeping))
+                    return;
                 if (!is_simulated(body_a.flags) && !is_simulated(body_b.flags))
                     return;
 
@@ -861,6 +874,11 @@ namespace SushiEngine
 
                 RigidBodyT<T>& body_a = bodies[joint.a];
                 RigidBodyT<T>& body_b = bodies[joint.b];
+                // The same rest test the positional pass makes, for the same reason:
+                // a sleeping pair's frozen load sums must not have this pass's rows
+                // folded into them.
+                if (has_any_flag(body_a.flags | body_b.flags, BodyFlags::sleeping))
+                    return;
                 const JointWorldFrames<T> frames = resolve_joint_frames(joint, body_a, body_b);
 
                 JointLoad<T> load{};
