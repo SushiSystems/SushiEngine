@@ -47,6 +47,10 @@ namespace SushiEngine
                 constexpr std::uint32_t DETAIL_RESOLUTION = 64;
                 constexpr std::uint32_t CIRRUS_RESOLUTION = 96;
                 constexpr std::uint32_t WEATHER_RESOLUTION = 512;
+                // The march's combined carve volume (CloudsV2): tiled over the ~2.4 km carve
+                // scale a texel is ~19 m of world, comfortably under the finest erosion
+                // octave, so per-sample carving never reads its own lattice. 128^3 RGBA8 ~ 8 MB.
+                constexpr std::uint32_t MARCH_RESOLUTION = 128;
                 constexpr VkFormat NOISE_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
                 /** @brief The push block both noise shaders declare. */
@@ -82,6 +86,7 @@ namespace SushiEngine
                 create_volume(DETAIL, DETAIL_RESOLUTION, true);
                 create_volume(CIRRUS, CIRRUS_RESOLUTION, true);
                 create_volume(WEATHER, WEATHER_RESOLUTION, false);
+                create_volume(MARCH, MARCH_RESOLUTION, true);
 
                 // One storage-image binding, written by whichever noise shader is bound.
                 VkDescriptorSetLayoutBinding binding{};
@@ -198,8 +203,9 @@ namespace SushiEngine
                     pipeline_layout_, shaders.module("cloud_noise_weather.comp"));
 
                 VkDescriptorSet sets[SLOT_COUNT]{};
-                VkDescriptorSetLayout layouts[SLOT_COUNT] = {set_layout_, set_layout_, set_layout_,
-                                                             set_layout_};
+                VkDescriptorSetLayout layouts[SLOT_COUNT];
+                for (std::uint32_t slot = 0; slot < SLOT_COUNT; ++slot)
+                    layouts[slot] = set_layout_;
                 VkDescriptorSetAllocateInfo set_info{};
                 set_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
                 set_info.descriptorPool = pool_;

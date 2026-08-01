@@ -452,8 +452,23 @@ namespace SushiEngine
                 }
                 else
                 {
-                    ImGui::SliderFloat("Minimum", &post.auto_exposure.min_ev, -10.0f, 8.0f, "%.1f EV");
-                    ImGui::SliderFloat("Maximum", &post.auto_exposure.max_ev, -2.0f, 20.0f, "%.1f EV");
+                    // Labelled by what they do, not by the field names. These clamp the
+                    // *metered* luminance, so the lower one bounds the exposure from above —
+                    // the control that decides whether a night scene can be resolved at all is
+                    // the one called "Minimum", which reads exactly backwards. The range
+                    // reaches -16 because a physically lit night sits around 1e-5 in scene
+                    // units and needs ~1000x of gain; the old -10 floor could not express it,
+                    // so a correct night was unreachable rather than merely mistuned.
+                    ImGui::SliderFloat("Darkest Metered", &post.auto_exposure.min_ev, -16.0f, 8.0f,
+                                       "%.1f log2");
+                    hint("The darkest scene the eye will adapt to, as log2 of luminance in "
+                         "scene units (not photographic EV). Lowering this RAISES the maximum "
+                         "exposure, so it is what to reach for when a night renders black. "
+                         "Below about -13 the pass's own 1800x ceiling takes over.");
+                    ImGui::SliderFloat("Brightest Metered", &post.auto_exposure.max_ev, -2.0f,
+                                       20.0f, "%.1f log2");
+                    hint("The brightest scene the eye will adapt to. Raising this lowers the "
+                         "minimum exposure, which is what stops a bright sky blowing out.");
                     ImGui::SliderFloat("Compensation", &post.auto_exposure.compensation,
                                        -6.0f, 6.0f, "%.2f EV");
                     ImGui::SliderFloat("Adapt Up", &post.auto_exposure.speed_up, 0.1f, 8.0f, "%.2f");

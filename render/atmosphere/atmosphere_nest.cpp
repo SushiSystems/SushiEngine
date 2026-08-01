@@ -744,6 +744,7 @@ namespace SushiEngine
                 block.convective_velocity_scale = p.convective_velocity_scale;
                 block.cloud_top_longwave_flux = p.cloud_top_longwave_flux;
                 block.cloud_top_equilibrium_depression = p.cloud_top_equilibrium_depression;
+                block.cloud_top_entrainment_efficiency = p.cloud_top_entrainment_efficiency;
                 block.cloud_water_absorption = p.cloud_water_absorption;
                 block.cloud_critical_humidity = p.cloud_critical_humidity;
                 block.autoconversion_rate = p.autoconversion_rate;

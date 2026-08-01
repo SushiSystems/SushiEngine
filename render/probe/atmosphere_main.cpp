@@ -109,6 +109,7 @@ namespace
         float critical_humidity = std::nanf("");
         float cloud_top_longwave = std::nanf("");
         float cloud_top_depression = std::nanf("");
+        float cloud_top_entrainment = std::nanf("");
         float sponge_depth = std::nanf("");
         float sponge_rate = std::nanf("");
         // The parent solution the Davies zone relaxes toward. Zero is a quiescent airmass,
@@ -189,6 +190,8 @@ namespace
             "  --cloud-top-lw <W/m2> longwave a cloud top at ambient loses; 0 removes the term\n"
             "  --cloud-top-floor <K> how far below ambient that loss shuts off; a large value\n"
             "                       reproduces the unbounded sink it was before it closed\n"
+            "  --entrainment <A>    cloud-top entrainment efficiency; 0 removes the closure and\n"
+            "                       reproduces the deck that sits on its radiative floor\n"
             "  --parent-humidity <f> parent-solution relative humidity anomaly\n"
             "  --parent-theta <K>   parent-solution potential temperature anomaly\n"
             "  --parent-wind <m/s>  parent-solution eastward wind\n"
@@ -279,6 +282,8 @@ namespace
                 options.cloud_top_longwave = float(std::atof(text));
             else if (argument == "--cloud-top-floor" && value(&text))
                 options.cloud_top_depression = float(std::atof(text));
+            else if (argument == "--entrainment" && value(&text))
+                options.cloud_top_entrainment = float(std::atof(text));
             else if (argument == "--critical" && value(&text))
                 options.critical_humidity = float(std::atof(text));
             else if (argument == "--parent-humidity" && value(&text))
@@ -371,6 +376,18 @@ namespace
          * lattice scale is the one thing a grid-mean model has not earned.
          */
         float coverage_roughness = 0.0f;
+        /**
+         * @brief Fraction of columns whose low-band coverage is exactly 0 or exactly 1.
+         *
+         * The saturation detector for the two statistics above. `nest_cloud_partition` clamps a
+         * level's cloud fraction to exactly 0 or exactly 1 once the cell mean leaves the top-hat
+         * distribution's width, and a column of clamped levels publishes a coverage of exactly 0
+         * or exactly 1 — so when this reads 1.0 the coverage field is binary, its mean, deviation
+         * and roughness are exact rationals of the column count, and all three will hold to four
+         * decimal places for as long as every column stays inside its clamp. A frozen sky report
+         * with this at 1.0 is the closure pinned, not the mirror stuck.
+         */
+        float coverage_pinned = 0.0f;
     };
 
     DomainSky domain_sky(const SushiEngine::Render::AtmosphereMirror& mirror)
@@ -380,17 +397,24 @@ namespace
         if (count == 0)
             return sky;
         std::size_t cloudy = 0;
+        std::size_t pinned = 0;
         double coverage = 0.0;
         double base = 0.0;
         for (std::size_t i = 0; i < count; ++i)
         {
-            coverage += double(mirror.columns[i].bands[0][0]);
+            const float cover = mirror.columns[i].bands[0][0];
+            coverage += double(cover);
+            // Exact comparisons on purpose: the closure's clamps write exactly these values,
+            // and anything the physics computed in between lands strictly inside (0, 1).
+            if (cover == 0.0f || cover == 1.0f)
+                ++pinned;
             if (mirror.columns[i].surface[3] > 0.0f)
             {
                 ++cloudy;
                 base += double(mirror.columns[i].surface[3]);
             }
         }
+        sky.coverage_pinned = float(double(pinned) / double(count));
         sky.cloudy_columns = float(double(cloudy) / double(count));
         sky.mean_coverage = float(coverage / double(count));
         sky.mean_base_m = cloudy > 0 ? float(base / double(cloudy)) : 0.0f;
@@ -673,6 +697,7 @@ int main(int argc, char** argv)
         override_float(parameters.cloud_critical_humidity, options.critical_humidity);
         override_float(parameters.cloud_top_longwave_flux, options.cloud_top_longwave);
         override_float(parameters.cloud_top_equilibrium_depression, options.cloud_top_depression);
+        override_float(parameters.cloud_top_entrainment_efficiency, options.cloud_top_entrainment);
         override_float(parameters.sponge_depth, options.sponge_depth);
         override_float(parameters.sponge_rate, options.sponge_rate);
         if (options.pressure_iterations > 0)
@@ -740,7 +765,8 @@ int main(int argc, char** argv)
                            "condensate_kg_m2,peak_buoyancy,peak_divergence,peak_cloud_fraction,"
                            "peak_fraction_altitude_m,sky_cloudy_columns,sky_mean_coverage,"
                            "sky_mean_base_m,sky_coverage_sd,sky_coverage_roughness,"
-                           "skin_k,sensible_w_m2,latent_w_m2,net_radiation_w_m2\n";
+                           "skin_k,sensible_w_m2,latent_w_m2,net_radiation_w_m2,"
+                           "sky_coverage_pinned\n";
 
         const double total_seconds = options.hours * 3600.0;
         const double sample_seconds = std::max(options.sample_minutes * 60.0, 1.0);
@@ -788,9 +814,9 @@ int main(int argc, char** argv)
         // an input: skin temperature in Celsius and the two turbulent fluxes it delivers. Their
         // ratio is the Bowen ratio, measured rather than authored, and watching it drift through
         // the day is watching the ground dry out.
-        std::printf("\n%10s %8s %8s %8s %8s %10s %9s %8s %8s %9s %8s %8s %9s %9s\n", "sim_s",
+        std::printf("\n%10s %8s %8s %8s %8s %10s %9s %8s %8s %9s %8s %8s %9s %9s %8s\n", "sim_s",
                     "sun", "skin_c", "H", "LE", "dom_w", "lcl_m", "water", "cld_frac", "frac_m",
-                    "sky_pct", "sky_cov", "sky_sd", "sky_rough");
+                    "sky_pct", "sky_cov", "sky_sd", "sky_rough", "sky_pin");
         for (double elapsed = 0.0; elapsed <= total_seconds + 0.5 * advance;
              elapsed += advance, advance = std::max(double(nest.step_seconds()), 1e-3) *
                                            double(options.batch))
@@ -850,14 +876,14 @@ int main(int argc, char** argv)
             }
 
             std::printf("%10.0f %8.3f %8.1f %8.0f %8.0f %10.2e %9.0f %8.2f %8.3f %9.0f %8.1f "
-                        "%8.3f %9.4f %9.4f\n",
+                        "%8.3f %9.4f %9.4f %8.3f\n",
                         mirror.simulated_seconds, double(forcing.solar_elevation_sine),
                         double(column.skin[0]) - 273.15, double(column.skin[1]),
                         double(column.skin[2]), double(domain_peak),
                         double(column.extent[3]), budget.vapour, double(peak_fraction),
                         double(peak_fraction_altitude), double(sky.cloudy_columns) * 100.0,
                         double(sky.mean_coverage), double(sky.coverage_sd),
-                        double(sky.coverage_roughness));
+                        double(sky.coverage_roughness), double(sky.coverage_pinned));
 
             if (profile_file.is_open())
                 write_profile(profile_file, mirror.simulated_seconds, mirror);
@@ -875,7 +901,8 @@ int main(int argc, char** argv)
                             << sky.mean_coverage << ',' << sky.mean_base_m << ','
                             << sky.coverage_sd << ',' << sky.coverage_roughness << ','
                             << column.skin[0] << ',' << column.skin[1] << ','
-                            << column.skin[2] << ',' << column.skin[3] << '\n';
+                            << column.skin[2] << ',' << column.skin[3] << ','
+                            << sky.coverage_pinned << '\n';
                 series_file.flush();
             }
             ++samples_written;
@@ -883,8 +910,10 @@ int main(int argc, char** argv)
 
         vkDeviceWaitIdle(device.device());
 
-        // §12 budgets the regional nest at ~2.0 ms per step.
-        cost.report(2.0);
+        // §12's measured whole-step figure in the GPU's sustained clock state. The step is
+        // budgeted against what the machine actually delivers, not against the retired 2 ms
+        // aspiration a probe on a boosting-then-throttling GPU could never compare against.
+        cost.report(12.3);
 
         std::printf("\nsimulated %.0f s (%.2f h) in %llu steps, %u samples\n",
                     nest.simulated_seconds(), nest.simulated_seconds() / 3600.0,

@@ -55,6 +55,7 @@ layout(set = 0, binding = 0) uniform NestParams
     // Microphysics.
     float cloud_top_longwave_flux;
     float cloud_top_equilibrium_depression; // K below ambient the loss above shuts off at
+    float cloud_top_entrainment_efficiency; // dimensionless; 0 disables the closure
     float cloud_water_absorption;
     float cloud_critical_humidity;
     float autoconversion_rate;

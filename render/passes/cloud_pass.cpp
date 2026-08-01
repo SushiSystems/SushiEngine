@@ -28,6 +28,7 @@
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
+#include "passes/atmosphere_lut_pass.hpp"
 #include "passes/cloud_light_volume_pass.hpp"
 #include "passes/cloudscape_compile_pass.hpp"
 #include "passes/fullscreen.hpp"
@@ -50,9 +51,11 @@ namespace SushiEngine
             CloudPass::CloudPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                  Resources::GraphicsPipelineFactory& pipelines,
                                  Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
-                                 CloudLightVolumePass& light_volume, Textures::CloudNoise& noise)
+                                 CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
+                                 AtmosphereLutPass& atmosphere)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
-                  cloudscape_(cloudscape), light_volume_(light_volume), noise_(noise)
+                  cloudscape_(cloudscape), light_volume_(light_volume), noise_(noise),
+                  atmosphere_(atmosphere)
             {
                 create_pipeline();
             }
@@ -159,9 +162,9 @@ namespace SushiEngine
                                      VK_IMAGE_LAYOUT_GENERAL);
                         writer.image(3, cloudscape_.skip_view(), cloudscape_.sampler(),
                                      VK_IMAGE_LAYOUT_GENERAL);
-                        // Re-admitted for W2's near-camera-only erosion/curl warp; see
-                        // cloud.frag's near_field_erosion.
-                        writer.image(4, noise_.detail(), noise_.sampler());
+                        // The precombined march noise volume the CloudsV2 analytic carve
+                        // reads at every distance; see cloud.frag's cloud_density_carved.
+                        writer.image(4, noise_.march(), noise_.sampler());
                         writer.image(5, light_volume_.view(), light_volume_.sampler(),
                                      VK_IMAGE_LAYOUT_GENERAL);
                         // The far window, in the last free per-pass image slot. It is where the
@@ -169,6 +172,25 @@ namespace SushiEngine
                         // per column, so the march reads the answer instead of the meteorology,
                         // which is exactly what freed this binding up.
                         writer.image(6, cloudscape_.far_view(), cloudscape_.sampler(),
+                                     VK_IMAGE_LAYOUT_GENERAL);
+                        // The sun's transmittance through the atmosphere, on the shared
+                        // SceneLayout slot SkyPass already writes. Without it the march
+                        // lights every cloud with the top-of-atmosphere beam: identical at
+                        // midnight and at noon, which is why the deck stayed white after
+                        // sunset while the sky — which does read this LUT — went black.
+                        // Stays in GENERAL across AtmosphereLutPass's own compute build,
+                        // like the other LUTs this descriptor set samples elsewhere.
+                        const VkSampler lut_sampler =
+                            frame.samplers->get(Resources::SamplerDesc{});
+                        writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
+                                     atmosphere_.transmittance_view(), lut_sampler,
+                                     VK_IMAGE_LAYOUT_GENERAL);
+                        // The sky's own radiance per direction. Once the sun is down this is
+                        // what still lights a deck — a cloudy twilight reads grey because the
+                        // *sky* is bright, not because the sun is — and a single authored
+                        // ambient constant can carry neither that magnitude nor its colour.
+                        writer.image(Scene::SceneLayout::SKY_VIEW_LUT_BINDING,
+                                     atmosphere_.sky_view_view(), lut_sampler,
                                      VK_IMAGE_LAYOUT_GENERAL);
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),

@@ -90,7 +90,16 @@ void main()
                       : 0.0;
     float below = cell.y > 0 ? texelFetch(moisture, ivec3(cell.x, cell.y - 1, cell.z), 0).y : 0.0;
     float here = q.y * MOISTURE_UNIT;
-    float profile = here > 0.0 ? min(min(above, below) / max(here, 1e-4), 1.0) : 0.0;
+    // Floored by the cell's own cloud fraction: the neighbour ratio alone is exactly 0 for a
+    // cloud one level deep — both neighbours empty — which told the ambient term the entire
+    // cloud was edge and lit a thin deck perfectly flat. A cell holding cloud across half its
+    // area has an interior whether or not the levels beside it do; half the fraction keeps a
+    // wisp reading as edge while a solid one-level deck keeps a middle.
+    float profile = here > 0.0
+                        ? clamp(max(min(above, below) / max(here, 1e-4),
+                                    0.5 * clamp(q.w, 0.0, 1.0)),
+                                0.0, 1.0)
+                        : 0.0;
 
     // The cloud fraction, diagnosed by `atmosphere_microphysics` from the same water this
     // sigma was computed from and stored in the moisture volume's fourth channel — which is why

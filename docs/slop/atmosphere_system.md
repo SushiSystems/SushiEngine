@@ -205,17 +205,17 @@ model with real emergent behaviour, not an approximation of appearance:
 | Model | Produces emergently | Real-time cost |
 |---|---|---|
 | **2-layer moist quasi-geostrophic / shallow-water primitive** on the sphere | Baroclinic instability → mid-latitude cyclones, **frontogenesis**, Rossby waves, jet meanders, storm tracks | 512×256×2, GPU, sub-100 µs per step |
-| **Anelastic / Boussinesq non-hydrostatic cloud model** over a regional domain | Explicit convection: thermals, updrafts, cumulus life cycle, anvils, **cold pools** triggering the next cell, squall lines | 256×256×48, GPU, ~2 ms per step |
+| **Anelastic / Boussinesq non-hydrostatic cloud model** over a regional domain | Explicit convection: thermals, updrafts, cumulus life cycle, anvils, **cold pools** triggering the next cell, squall lines | 256×256×48, GPU, single-digit ms per step (the shipped 192×192×48 nest measures ~8 ms on a GTX 1060 — §6) |
 | **Warm-rain (Kessler) + simple ice microphysics** | Cloud → rain → evaporation → downdraft; snow vs. rain vs. graupel by phase | 3–5 extra advected fields |
 | **Surface energy balance + bulk boundary layer** | Diurnal thermals, sea breeze, valley fog, orographic enhancement | 2-D, negligible |
 | **LES patch** (100 m) | Individual thermals, rotor/turbulence structure, hero storms | 200³, expensive, optional |
 
 The counter-intuitive affordability argument, stated once because it drives every budget
 in §12: **these models are stepped in game time, and their stability-limited time steps
-are far longer than a frame.** The regional nest's Δt is ~2 s of simulated time; at 1×
-time scale that is one step every two seconds of wall clock. A 3.1-million-cell
-non-hydrostatic step costing ~2 ms, taken every 2 s, amortizes to **~0.02 ms per frame**
-at 60 Hz. Real cloud physics is cheap in a game not because it is simplified, but because
+are far longer than a frame.** The regional nest's Δt is ~6 s of simulated time (the
+measured CFL bound — §11's B2c); at 1× time scale that is one step every six seconds of
+wall clock. A 1.8-million-cell non-hydrostatic step costing ~8 ms as measured, taken
+every 6 s, amortizes to **~0.02 ms per frame** at 60 Hz. Real cloud physics is cheap in a game not because it is simplified, but because
 weather is slow.
 
 ### 2.3 What we take, and what we skip
@@ -227,7 +227,7 @@ weather is slow.
 | **Kessler (1969) warm rain; Rutledge–Hobbs ice** | The microphysics. The standard minimal closed scheme: `q_v`/`q_c`/`q_r` (+ `q_i`/`q_s`), saturation adjustment, autoconversion, accretion, evaporation, terminal fall speed. |
 | **Davies (1976) relaxation nesting** | One-way T1 → T2 lateral boundary coupling with a relaxation zone, the standard technique, instead of hard boundary injection that reflects. |
 | **MacCormack / BFECC advection (graphics lineage: Selle et al.)** | Monotone, low-diffusion semi-Lagrangian transport at Courant ≈ 1 — directly fixes §1.4. |
-| **ERA5 / ETOPO / MODIS land cover** | T0 climatology as *data*: zonal-mean jets, monthly SST, terrain, surface type. The reason the Sahara differs from the Amazon without simulating either. |
+| **Reanalysis climatology (shipped as NCEP-NCAR R1 — §4) / ETOPO / MODIS land cover** | T0 climatology as *data*: zonal-mean jets, monthly SST, terrain, surface type. The reason the Sahara differs from the Amazon without simulating either. |
 | **Nubis3, Frostbite, War Thunder `daSkies2`** (via the superseded doc) | The entire render tier — unchanged and shipped. See §8. |
 | **X-Plane 12 / MSFS** | The data-plane shape: a real vertical *profile*, and a three-stage blend (model → gridded → local observation) that degrades gracefully. §9's `AtmosphereProfile` and the retained METAR path. |
 | **Skip list** | Spectral transform cores and cubed-sphere grids (a polar Fourier filter is enough at our resolution), full radiative transfer, two-moment microphysics, data assimilation, chemistry/aerosol transport, ocean coupling, two-way nesting, and any attempt at forecast skill. |
@@ -248,10 +248,10 @@ weather is slow.
      emergent: cyclogenesis · fronts · jet · storm tracks · precipitable water
         │  one-way nesting: Davies relaxation into T2's boundary zone
         ▼
- T2  Regional nest (GPU)                                   ~2 ms per step, ~1 step/2 s game time
-     anelastic non-hydrostatic, 256×256×48 over ~512 km (2 km / ~100-500 m)
-     explicit convection · Kessler+ice microphysics · surface fluxes · orography
-        │  θ, q_v, q_c, q_r, q_i, q_s, u, v, w, π'
+ T2  Regional nest (GPU)                                   ~8 ms per step (measured), ~1 step/6 s game time
+     anelastic non-hydrostatic, 192×192×48 over 384 km (2 km / ~54-560 m, High tier — §6)
+     explicit convection · Kessler microphysics, diagnosed ice phase · surface fluxes · orography
+        │  θ, q_v, q_c, q_r, u, v, w, π'
         ├──────────────────────────────┐
         ▼                              ▼
  T3  Cloudscape compile (GPU)     Query mirror (async readback)
@@ -335,7 +335,7 @@ IAtmosphereSource          steps state; knows nothing about consumers
 
   composed from (all injected, all replaceable — OCP):
     IDynamicalCore         advection + dynamics       (QgCore, AnelasticCore, …)
-    IMicrophysics          saturation + precipitation (KesslerWarmRain, KesslerWithIce, …)
+    IMicrophysics          saturation + precipitation (Kessler + diagnosed ice phase — B3d, …)
     ISurfaceModel          fluxes, roughness, albedo  (BulkSurfaceModel, …)
     IRadiationModel        heating/cooling profile    (GreyRadiation, …)
     AtmosphereParameters   every physical constant, as serialized data
@@ -504,9 +504,10 @@ weakens. That is the Southern Hemisphere's double-jet structure: one merged eddy
 falls out of the data. (It also cost a wrong assertion to find — a check written at 45°S failed,
 because 45°S is exactly the crossover between the two jets and says nothing either way.)
 
-Licensing note: ERA5 (CDS), ETOPO, Natural Earth, and MODIS land cover are all
-redistributable under attribution-class terms; sourcing and baking them into engine
-assets is a task of Phase C, not an afterthought. The provenance travels *inside* the
+Licensing note: NCEP-NCAR R1, NOAA OISST, and Natural Earth (all shipped in the bake) and
+ETOPO / MODIS land cover (blocked with §15's terrain system) are all public,
+attribution-class data; the bake itself is done (`se climatology bake`, §15) — ERA5 was
+dropped for the reproducibility reason given above. The provenance travels *inside* the
 asset (a length-prefixed string every reader can show) rather than in a sidecar that can be
 separated from the data it describes.
 
@@ -562,7 +563,7 @@ and is how §10's map overlay stays useful.
 ∂u/∂t = −(u·∇)u − c_p θ̄_v ∇π′ + B k̂ + f k̂×u + ∇·(K ∇u)
 ∇·(ρ̄ u) = 0                                    → elliptic solve for π′
 ∂θ/∂t = −(u·∇)θ + L/(c_p Π) · (condensation) + Q_rad + Q_surface
-∂q_x/∂t = −(u·∇)q_x + microphysics(q_v, q_c, q_r, q_i, q_s) − ∂(V_x q_x)/∂z
+∂q_x/∂t = −(u·∇)q_x + microphysics(q_v, q_c, q_r; ice diagnosed by phase — B3d) − ∂(V_x q_x)/∂z
 B = g · (θ_v′/θ̄_v − q_c − q_r)                 buoyancy including condensate loading
 ```
 
@@ -628,17 +629,20 @@ kilogram and nowhere near the format's ceiling — and §11's Phase B2c measures
 argument to be the wrong one: what decides a format here is the ratio of a step's
 tendency to the value it lands on, and the surface latent flux's increment was a third
 of one unit in the last place, so the boundary layer never moistened at all. The VRAM
-figures above assume fp16 and are correspondingly optimistic; the shipped 192×192×48
-nest is ~135 MB. Double buffering only for the fields the advection step needs both
+column above is scaled from the measured fp32 High; the shipped 192×192×48 nest is
+~135 MB. Double buffering only for the fields the advection step needs both
 states of.
 
 **Advection** is monotone semi-Lagrangian at Courant ≈ 1 (MacCormack with a limiter, or
-BFECC), directly replacing §1.4's diffusive scheme. **Pressure** is an FFT-based Poisson
-solve in the horizontal with a tridiagonal vertical solve, ~10 iterations of a multigrid
-smoother where the boundary conditions break FFT separability. This is the dominant cost
-of the step.
+BFECC), directly replacing §1.4's diffusive scheme. **Pressure**, as shipped (§11's B2),
+is a vertical line solver rather than the FFT-based solve this section originally
+specified: the anisotropic grid makes the Laplacian's vertical coupling dominate by
+`(Δx/Δz)²`, so the vertical is solved exactly per column by a Thomas sweep and the
+horizontal iterated red-black, defaulting to four sweeps — twice the measured convergence
+point (B2c). This is the dominant cost of the step.
 
-**Microphysics** (`IMicrophysics`, default `KesslerWithIce`):
+**Microphysics** (`IMicrophysics`, default Kessler warm rain with a *diagnosed* ice
+phase — §11's B3d: a temperature partition, not prognostic `q_i`/`q_s` species):
 
 ```
 e_s(T) = 611.2 · exp(17.67 (T − 273.15) / (T − 29.65))      Pa      (Magnus/Teten)
@@ -647,7 +651,8 @@ saturation adjustment: condense (q_v − q_s) with latent heating into θ
 autoconversion:  A  = k₁ · max(q_c − q_c0, 0)
 accretion:       C  = k₂ · q_c · q_r^0.875
 rain evaporation below cloud base; terminal fall speed V_t = 36.34 (ρ q_r)^0.1364
-ice: deposition/freezing above the −5…−20 °C band, snow with its own fall speed
+ice: a phase fraction ramping 0 → 1 over 0…−20 °C blends the saturation curve, latent
+     heat, autoconversion threshold, fall speed and effective radius (B3d)
 ```
 
 Every one of `k₁`, `q_c0`, `k₂`, the exponents, and the phase-band limits is a field of
@@ -670,8 +675,8 @@ player using the same absolute-lattice snap discipline the shipped grid already 
 (`regional_weather_grid.hpp:357`) — but as a GPU shift, with newly exposed cells filled
 from T1 rather than from a background climatology guess.
 
-**Beyond the nest.** Outside ~512 km, the atmosphere is T1's resolution. §7.5 describes
-what the sky does there.
+**Beyond the nest.** Outside the 384 km domain, the atmosphere is T1's resolution. §7.5
+describes what the sky does there.
 
 ---
 
@@ -748,12 +753,65 @@ one. What it stopped being is the sole answer to "what is in the sky".
 
 ### 7.5 The far field
 
-- Inside the nest (≤512 km): T2's own condensate.
+- Inside the nest (≤384 km): T2's own condensate.
 - Beyond it: T1's column moisture and layer thicknesses expand into a coarse, smooth
   extinction field — enough for a correct horizon and the panorama impostor, which is
   where those pixels end up anyway.
 - The existing panorama pass, cloud shadow map, light volume, and skip field all consume
   the new field with no interface change.
+
+### 7.6 CloudsV2 — the carve leaves the bake (2026-08-01)
+
+The user rejected the rendered result outright ("this is never a real cumulus… worth
+rewriting from scratch"), and the diagnosis agreed with the verdict even though the
+pipeline's skeleton did not deserve the blame: **the shape of a cloud was stored in
+textures that cannot hold a shape.** The near window carves into 128 m texels, the far
+window into 1024 m ones; a cauliflower edge lives at 10–50 m. Whatever the carve produced,
+trilinear reconstruction shipped its smeared average to the march — and the march's own
+procedural detail was gated to within *200 metres* of the camera, so effectively the whole
+sky was bake-lattice mush. That is a structural property, not a tuning error, and no
+amount of constant-twiddling inside the old split could fix it.
+
+So the split moved. This is the War Thunder / Nubis arrangement proper:
+
+- **The bake stores the envelope, not the shape.** `cloudscape_field.comp` now writes
+  r = coverage envelope (the nest's diagnosed cloud fraction, top-openness-tapered; or the
+  deck stack's height-gradient-tapered coverage), g = vertical profile (unchanged),
+  a = in-cloud water amplitude at half scale. All noise taps are gone from the bake; the
+  deck paths keep only their weather-map modulation, streets and anvil. Multi-deck
+  combination became a probabilistic union of coverages instead of a density sum.
+- **The march carves, at every distance.** `cloud.frag`'s `cloud_density_carved` runs the
+  full Nubis recipe per sample — domain warp, CDF-uniformised base threshold at
+  `1 − envelope`, height-flipped Worley erosion (wispy base, billowy top), plus a fine
+  incommensurate octave and the curl warp near the camera — in the same world-anchored,
+  wind-advected pattern frame the bake evaluates weather in (`cloud_field_pattern`, newly
+  published through the scene tail). The carve scale is coverage-adaptive
+  (1/√envelope — count falls with coverage, not size) and floored at 4× the march's local
+  step, which is the bake's old Nyquist floor restated against the true sampler. Past
+  80 km the carve hands off, faded, to the statistical mean `envelope · water · 0.45`.
+- **One new noise volume instead of new bindings.** The march had exactly one free image
+  slot, so `cloud_noise_volume.comp` kind 4 precombines everything the carve needs into
+  one 128³ RGBA8: uniformised base (the CDF transform runs at generation now), combined
+  erosion fbm, fine fbm, curl potential. Binding 4 swaps the old detail volume for it.
+- **Every sun-depth integral states mass against the carved sky.** The light volume, the
+  far light channel, the cloud shadow map and the panorama impostor all march the
+  envelope×water product scaled by `CLOUD_ENVELOPE_MEAN_SHAPE = 0.45` (the threshold's
+  expected yield env/2, minus the erosion's bite), one shared constant in
+  cloud_field_window.glsl; the inline cone march applies the same factor. The skip field
+  pools the *unscaled* product, because a probe must stay a ceiling.
+- **The far bake's 64-tap supersampling dropped to 4.** It existed to anti-alias a
+  threshold; there is no threshold in the bake any more. 16× less far-bake work.
+
+What stays: the pass topology (half-res march → cloud TAA → composite, both just fixed),
+the budgets and step rule, the dual-lobe multi-octave sun energy, the two-window
+addressing, and the meteorology as the sole author of *where* clouds are.
+
+*(Superseded 2026-08-01 by the fifth entry: the whiteout and the profile-gradient ambient
+were both listed here as staying, and both are defects — see §11. The step rule and the
+budgets are also on that entry's list.)* Known deliberate gaps, stated rather than hidden: cirriform
+decks currently carve with the cumuliform recipe (streak styling is a follow-up), and
+beyond the far window's rim there is still no cloud — §7.5's planet-scale far field
+remains future work.
 
 ---
 
@@ -809,7 +867,9 @@ A coarse subset of T2 (64×64×16, fp16, a handful of fields ≈ 2 MB) is copied
 asynchronously every ~4 frames into a triple-buffered ring, together with the
 full-resolution column beneath each player. `IAtmosphereQuery` serves point queries,
 profiles, and diagnostics from the most recently completed readback — 2–3 frames stale,
-which for a medium with a minutes-long time scale is not observable.
+which for a medium with a minutes-long time scale is not observable. (This is Phase E's
+target shape; the interim mirror Phase B2 pulled forward is a 32×32 `WeatherColumn`
+lattice, plus the observer column's full `AtmosphereProfileLevel` profile added in B2c.)
 
 Existing consumers keep their API shape and change only their source:
 `weather_wind.hpp`'s `weather_wind()` / `wind_gust()`, `weather_flight_hazards.hpp`'s
@@ -862,6 +922,419 @@ time scales are comparable. Phase B2c's entire diagnosis came out of that file.
 
 Each phase ships editor surface, tier wiring, profiler budget, and CHANGELOG/ARCHITECTURE
 entries per repo policy.
+
+### HANDOVER — 2026-08-02. Read this before touching the cloud stack.
+
+This section is the state of play, written for whoever picks the work up next. The entries
+below it are the chronological record of how each defect was found; this is the summary, the
+priority order, and — as importantly — **the list of things that are already settled and must
+not be re-litigated.**
+
+#### How this work is being judged
+
+The user looks at the screen. That is the acceptance test, and four rounds of confident
+reasoning-from-source were wrong about what was actually on it. **Ask for a screenshot before
+forming a hypothesis about appearance, and ask what the tier and the camera altitude are** —
+two whole rounds were spent explaining artefacts that turned out to be the Low tier's
+one-third-resolution cloud buffer and an orbital camera the T3 window system is documented as
+not covering.
+
+Working constraints:
+* **Do not build.** The user's machine runs `se build` / `se editor`; write and verify by
+  reading. Never invoke cmake or ninja directly.
+* **Another agent edits this tree.** Never `git add -A`; stage explicit paths.
+* Physically-derived numbers are worth computing before proposing a fix. Several rounds were
+  settled by arithmetic against measured lux ratios rather than by opinion.
+
+#### What is fixed (all in the working tree, all unverified by eye except where noted)
+
+| | Defect | Root cause |
+|---|---|---|
+| CV1 | Deep cloud interiors decayed to black, then a post-march "whiteout" flattened everything | Every octave in `cloud_sun_energy` carried the same Beer term. Replaced with a saturating multiple-scatter floor that rises with the sample's *own* sun depth |
+| CV2 | Erosion deleted ~42 % of every cloud, leaving filaments | Flat-amplitude subtraction against a CDF-uniform ramp with no plateau; height flip keyed to the 800–12 000 m *union* shell so cumulus never left the base regime |
+| CV4 | One sample per cloud; a 1.3 km unrendered block in front of the camera; skips crossing untested sky | `seg_min = max(shell_thick * 0.12, 40)` — 12 % of the union of every enabled deck, 1344 m — used simultaneously as the integration step, the clamp floor and the jitter span |
+| CV10 | No cauliflower at any erosion strength | **Sign error.** The carve built clouds by *subtraction*, which can only produce concave features. The billow ladder is now *added before the threshold* so it displaces the isosurface outward |
+| CV11 | Snow-white deck against a black evening sky | `cloud.frag` never sampled the transmittance LUT and had no horizon gate, so the sun that lit a cloud was identical at midnight and noon |
+| CV12 | After CV11, clouds went perfectly black at night | Nothing replaced the sun: no skylight, and the Moon — which the ephemeris already derives as a real directional light — never reached the cloud pass |
+| CV13 | A one-pixel white line at the horizon | The depth-aware upsample demotes a mismatched tap to 0.05; when *all four* miss, `/ wsum` renormalises them back into plain bilinear and the rejection cancels itself out |
+| — | Auto-exposure could not reach a physically lit night | `min_ev` is a *maximum-exposure* control despite the name, and the editor slider stopped at −10 (184×) when moonlight needs ~1000× |
+| — | `sky`/`clouds` vanished from the profiler at Ultra | `MAX_TIMED_PASSES` was 16 against ~44 passes, and its truncated sum drives auto-exposure adaptation and dynamic resolution |
+
+#### Do not re-litigate these — they were investigated and settled
+
+* **The editor grid does not bound the cloud march.** `GridPass` is a fullscreen pass that
+  writes no depth, ray-casts the reference ellipsoid rather than a flat plane, and runs *after*
+  the clouds. This was the leading hypothesis for the horizon line and it is refuted.
+* **`CARVE_END_METERS`'s hand-off to `mean_density` is mass-conserving** and is *not* what made
+  the horizon band opaque. `CLOUD_ENVELOPE_MEAN_SHAPE` is the carve's own measured yield, so
+  expected optical depth per metre is unchanged either side of 80 km. It removes variance, not
+  extinction. What makes a grazing ray opaque is that past `DETAIL_FADE_END_METERS` the carve
+  runs on features floored at `footprint * 4` = 3–5 km, where one blob crossing is ~15 optical
+  depths.
+* **`MS_FLOOR` is multiplicative in `sun_radiance`** — it is added to `energy`, and `energy` is
+  multiplied by the beam — so it cannot brighten a cloud independently of how dim the sun is.
+  It was not the cause of the white deck. Its 0.35 against a ~1.08 lit edge does compress
+  interior contrast to ~3:1, so 0.15–0.20 is worth revisiting *after* the exposure is right,
+  but not before.
+* **The engine's night is physically correct, not broken.** Starlight is derived at 8.3e-9 of
+  sunlight and full moonlight at ~2.4e-6; both are within ~20 % of measured lux ratios. A
+  moonless night really is black. Making night *visible* is an exposure-adaptation decision,
+  not a cloud-shader one.
+* **`cloud_panorama.comp` has the same missing-transmittance bug and it is deliberately not
+  fixed.** The pass has no consumer today: `view()`/`sampler()` are never called and the
+  `IblPass` reflection-probe wiring is explicitly scoped out. Fix it *when that consumer lands*,
+  or the seam against the corrected primary march will show.
+* **Direct sunlight is un-attenuated for *every* surface, not only clouds** (`sky.frag`'s ground
+  and `pbr.frag` both read the raw uniform). Clouds were merely the most visible consumer. If
+  the ground and meshes are later given the same treatment, do it by attenuating at each
+  consumer — **not** by tinting `environment.sun.color` on the CPU, which would double-count
+  against the sky, whose LUTs already integrate the transmittance themselves.
+
+#### Open, in the order they should be done
+
+1. **CV3 — far-field LOD that keeps its shape.** The user's words: *"berbat LOD, bulutları
+   direkt beyaz render ediyor."* Two halves. (a) Band-limit the carve properly: the march noise
+   volume has `mipLevels = 1` and shares a `max_lod = 0` sampler, so every erosion octave is
+   sampled far below Nyquist. Give it a real mip chain, its own sampler, `textureLod` with
+   `lod = log2(footprint / texel)`, and derive the erosion ladder from `carve_scale` so it
+   inherits the footprint floor from one place. (b) The far field must keep *structure*, not
+   collapse to a smooth mean — a real LOD band-limits detail and preserves the pattern.
+   Reference the user gave: Google Earth, where distant cloud still reads as cloud.
+2. **CV5 + CV9 together — the generation model.** The user has said twice that this is the real
+   problem and they are right. One noise scale (2400 m) decides where every cloud is, so there
+   is no mesoscale organisation — no clusters, no shear-aligned streets, no clear lanes — and
+   `water` is per *column*, so every cloud sharing a column has identical density with no
+   interior structure. CV5 is the per-genus vertical envelope (a real cumulonimbus trunk and
+   anvil); CV9 is the distribution and the fill. They meet in the same code and should land
+   together.
+3. **PL1 — planet scale.** Both cloud windows are camera-centred flat XZ squares (32 km and
+   262 km) that fade to nothing at the rim *by design*; `cloud_field_window.glsl` documents why
+   a flat prism is meaningless at orbital distance. So the system does not cover the orbital
+   camera the user has been shooting from. §7.5's coarse planet-scale far field and the
+   panorama impostor are what is supposed to cover it and neither is wired up. This was queued
+   last and that was wrong — the user's stated goal is *"dünyanın havasını modellemek"*, which
+   makes planet scale central rather than optional.
+4. **CV6, CV7, CV8** — physical extinction end to end; advection on the game clock at the
+   simulated wind; lighting coupled to the carved density.
+5. **The UX and mode work (MU1, MU2, WM1–WM3) and fog (FG1–FG3)**, then aerodynamics (AE1–AE5).
+
+#### Decisions the user has already made — treat as settled
+
+* **Two weather modes.** *Basic* is a **faithful GTA V port**: named global weather states, one
+  at a time, blended over 20–60 s, uniform field, no nest, no QG core. *Procedural* is the
+  direct simulation. Each gets quality levels.
+* **The Environment window stays, but every weather control moves out of it** into Meteorology.
+  Environment keeps GI, surface albedo/ocean, stars, night lighting and the Solar System block.
+* **Fog binds fully to meteorology** — it stops being authored.
+* **Aerodynamics scope is all three**: environmental wind coupling, a flight model (wings, AoA,
+  moments), and vehicle aerodynamics (physics P7).
+* **Determinism is not negotiable.** The agreed architecture for the air contract is four
+  layers: an ISA base density available today; a versioned ~1 Hz snapshot serialised into the
+  command stream with an effective tick; analytic feature primitives (fronts, thermals,
+  downbursts, shear layers) evaluated identically on both sides; and seeded, tick-indexed
+  turbulence. Sampling the nest grid directly is *not* the plan — its 2 km cell cannot resolve
+  a 200 m thermal, so the primitives are better as well as deterministic. The only genuine loss
+  is physics→atmosphere feedback, which is cosmetic and can be done render-side.
+
+#### Two constants that rest on an unmeasured estimate
+
+`BILLOW_RELIEF` (1.6) and `CREASE_SENSITIVITY` (4.0) in `cloud.frag` are derived from an
+inverted-Worley F1 standard deviation taken as ~0.18, which the shader cannot measure. They
+move **together**, keeping roughly a 2.5:1 ratio. `BILLOW_MAX_DISPLACE` exists so that a wrong
+estimate bounds the turret size instead of swallowing the coverage threshold.
+
+### Where this stands — 2026-08-01, seventh entry: the carve had the wrong sign
+
+A reference photograph settled what "AAA cloud" means here: an airliner view of a cumulus
+congestus field, tops packed with self-similar convex turrets, the readability coming almost
+entirely from dark creases *between* bulges, with a flat base and cirrus above.
+
+**Every version of this carve until now built clouds by subtraction.** Threshold a base field,
+then remove material where an erosion noise is high. Subtraction can only produce *concave*
+features — bites, channels, holes — because removing material from a solid is how you dig. A
+congestus top is the opposite: convex protrusions bulging outward. That is not a tuning
+problem, it is a sign error, and it explains why every setting of the erosion strength landed
+on either smooth lumps (weak) or shredded filaments (strong) and never on cauliflower.
+
+Worse, CV2's `(1 - shape)` edge-scaling — which correctly stopped erosion from eating the cloud
+body — also removed *all* structure from the cloud's interior. With density saturated at 1
+across 60 % of the cross-section and erosion reaching only the rim, the sunlit face of every
+cloud was a flat constant. The face is most of what you look at.
+
+**What changed.**
+* The billow ladder (three inverted-Worley octaves, lacunarity 0.45, gain 0.5) is **added to
+  the base field before the threshold**, which displaces the isosurface outward into a bulge
+  instead of biting a hollow out of a finished shape. It is zero-mean, so the coverage the
+  envelope asked for still arrives; a hard clamp at 0.35 base-units bounds both turret size and
+  coverage distortion regardless of how far the field's assumed spread is off.
+* The polarity was free all along. `noise_worley` returns `1 - distance`, so channel `g` is
+  already high at cell centres and low at cell walls — round bumps with creases between them.
+  The old code took `1 - g` and subtracted it, which converts round bumps into round *holes*.
+* Channel `g` itself was an fbm of an fbm, nine octaves deep. Each nesting multiplies the
+  standard deviation by 0.68, so the field was too flat to displace anything visible, and the
+  crisp cell boundaries — the entire point — were buried under fine detail. It is now nearly a
+  single inverted Worley octave (4/9/19, incommensurate); the march's ladder does the fbm.
+* **The creases are shaded, not just carved.** The ladder's own signed value is a direct local
+  occlusion measure: negative means the sample sits in the gap between two turrets. It feeds
+  extra sun-depth and an ambient factor. Without this the cauliflower is geometrically present
+  and shades as flat white, because the light volume's 128 m texels cannot resolve a 100 m
+  crease and never will.
+* Subtraction survives in exactly one place — the underside, below the convective base, where a
+  cloud really is being torn rather than pushed. Weighted by `1 - cauliflower` so the two
+  regimes never fight over a sample, and with the polarity corrected: the old `wisp = g`
+  removed cell *interiors* and left their walls, a web of thin ridges, which is literally what
+  "tel tel kadayıf" describes and was the strand generator all along.
+* The ladder band-limits itself per octave against the march footprint, so no mip chain is
+  needed for it to be safe at distance. CV3 still applies to the base and rag octaves.
+
+Two constants carry an estimate this shader cannot measure — an inverted Worley F1's standard
+deviation, taken as ~0.18. `BILLOW_RELIEF` and `CREASE_SENSITIVITY` are derived from it and are
+the pair to move together if the relief reads timid or violent. The clamp is what makes a wrong
+estimate degrade gracefully instead of swallowing the threshold.
+
+### Where this stands — 2026-08-01, sixth entry: the march was sampling one point per cloud
+
+CV1 and CV2 were built and looked at. The verdict: the strands are gone, and what replaced
+them is **speckle** — "nokta nokta", clouds rendering as isolated dots. Plus a second, sharper
+observation about the near-camera hole: **it does not happen with stratocumulus.**
+
+Both are the same defect, and that defect is in the march, not the model.
+
+**Why CV2 turned smear into speckle.** CV2 was right and it exposed what was underneath. The
+old carve delivered a field that ramped linearly from nothing to full across a whole cloud —
+low contrast everywhere, no plateau. Undersample a low-contrast field and you get mush, which
+is what "smeared cotton" and "tel tel kadayıf" were. CV2 gave the field a saturated core and a
+sharp rim, which is what a cumulus actually is. Undersample a *high*-contrast field with a
+per-pixel jittered sample position and each ray independently either lands in a core or misses
+it — so neighbouring pixels disagree completely, and the field reads as dots. The contrast was
+the fix; the sampling rate was always broken and was merely being hidden by the blur.
+
+How badly: `seg_min = min(march_len / STEPS, max(shell_thick * 0.12, 40))`. `shell_thick` is
+the union of every enabled deck, 800..12 000 m in the default sky, so the floor is **1344 m**.
+Because seg_min was also the clamp's lower bound, the angular rule never engaged until 54 km
+out. A fair-weather cumulus is ~1.5 km across. Every cloud in the sky was integrated by
+**one sample**. No carve survives that.
+
+**Why stratocumulus has no hole.** The same constant. The march sampled at `t`, weighted by
+`dist_step`, then advanced — a left-endpoint rule started at `t0 + seg_min * dither` — so the
+span between the shell entry and the first sample was integrated by nothing at all. Its size
+is `seg_min`, which is 12 % of the *union shell*. Enable only stratocumulus and that union is
+a few hundred metres thick, so the dead band is ~100 m and invisible. Enable anything tall —
+or the full genus catalogue — and the union becomes 11 km, the dead band becomes 1.3 km, and
+a large block of sky in front of the camera stops existing. The symptom tracking genus rather
+than distance is what identifies the cause uniquely.
+
+**A third defect found while fixing those two.** The empty-space hop was
+`t += max(dist_step, cell_size)` against a 512 m near cell. With dist_step pinned at 1344 m, a
+near-horizontal ray hopped 2.6 cells on the strength of one probe, all the way to the horizon
+— skipping cloud it never tested. Distant cloud appearing and disappearing with camera angle
+is that.
+
+**CV4, done.** Search and integration are now separate step rules. Integration is angular
+(2 % of camera distance, floored at 20 m, ceilinged at 1200 m) with `steps_far` rescaled from
+"divide the march length" — which made the same tier resolve a horizon ray at 5 km per sample
+and a vertical ray at 500 m — into a scale-free rate, so one tier means one sampling density in
+every direction. The interval being integrated is tracked separately from the jittered sample
+inside it, which is the unbiased midpoint rule the old code was reaching for and which starts
+at `t0` exactly, leaving no uncovered span. The hop is now the exact distance to the boundary
+of the region the trilinear probe actually proved empty (dual-lattice DDA across both windows,
+`cloud_skip_exit`), so it is both maximally long and never long enough to cross untested sky.
+`cloud_probe`'s vertical early-out gained a one-metre margin, because the first probe of every
+ray sits exactly on the base sphere where float32 at planetary radius resolves to half a metre,
+and on a coin flip it was answering "empty" for a region no texel had been asked about.
+
+**Reordered.** CV3 (band-limiting the carve) was queued before CV4 and has been moved after it.
+Band-limiting alone would have made things *worse*: with 1344 m steps the derived LOD is 5 —
+a 4³ base volume — so the carve would have converged to honest mush everywhere instead of
+dishonest speckle. The mip chain only pays once the steps are small enough for its LOD to be
+low, which is what CV4 delivers.
+
+**Still open, and the user is right about it.** The distribution model itself is thin: one
+noise scale (2400 m) decides where every cloud is, so there is no mesoscale structure — no
+clusters, no streets, no clear lanes between cell groups — and `water` is per column, so every
+cloud sharing a column has identical density with no vertical structure beyond the profile
+gradient. That is a real generation defect independent of sampling, and it is queued as CV9
+alongside CV5's per-genus vertical geometry. But it is queued *after* CV4/CV3: rewriting what
+distributes clouds while the march still takes one sample per cloud would be rewriting
+something no one can see.
+
+### Where this stands — 2026-08-01, fifth entry: the carve was eating the cloud
+
+CloudsV2 was looked at and rejected — "tel tel kadayıf", stringy shredded wheat, no
+readable cumulus, no cumulonimbus anywhere at moderate coverage, and a large unrendered
+region right at the camera. A full audit of the march, the bake, the fog path, the editor
+split, the mode seams and the physics side followed; it found fifteen verified defects in
+the render tier alone. The four that produce the reported look are arithmetic, not taste,
+and the first two are now fixed.
+
+**The whiteout was flattening every thick cloud in the sky (CV1, fixed).**
+`cloud.frag`'s post-march whiteout was gated on the *ray's total* transmittance rather than
+on the camera being immersed, and its ramp's lower edge (0.02) is numerically identical to
+the march's own opacity break — so by construction every ray the march calls opaque lost
+100 % of its accumulated shading to a colour varying only with `dot(view, sun)`. At the
+default cumulus (σ = 0.00279/m) that is 50 % of the shading gone at 717 m of body and all
+of it past 1.4 km: bright shredded edges around a dull featureless mass, which is the
+complaint verbatim. The block is deleted. The hole it papered over was real but is a
+missing *term*: all three octaves of `cloud_sun_energy` carry the same Beer factor, so a
+deep interior decayed to the ambient floor, when a medium of single-scattering albedo
+~0.999 converges to a bright near-isotropic radiance instead. A saturating multiple-scatter
+term keyed on the sample's own sun depth now rises where the ladder falls — it is exactly
+zero at zero depth, so a fully lit edge is unchanged and the ladder needed no
+recalibration, and because it is per-sample it *carries form* where the flat glow destroyed
+it. A softened phase keeps the residual forward bias the whiteout's `mu` term was reaching
+for. Mirrored into `cloud_panorama.comp` so the impostor does not read darker than the
+marched sky it continues.
+
+**The erosion was eating the body, not the edge (CV2, fixed).** Three compounding
+arithmetic errors, all in the carve:
+
+- The CDF uniformisation that makes the threshold deliver exactly `envelope` also leaves
+  the survivors uniform on [0, 1] — a linear ramp across a whole cloud, a tenth of its
+  volume above 0.9, no plateau. A `min(shape · 2.5, 1)` push restores a saturated core
+  without touching the support, so the coverage statistics the uniformisation exists to
+  guarantee are unaffected.
+- Both erosion remaps subtracted a *flat* amplitude (0.42 and 0.30) regardless of depth
+  into the cloud. Against a uniform ramp that deletes ~42 % of every cloud outright and
+  leaves the noise's isolated peaks: filaments, literally. The bite is now scaled by
+  `1 - shape`, so it cannot reach the plateau and the strength means "how deep into the rim
+  does erosion reach" instead of "how much of the cloud is destroyed".
+- The wispy/billowy height flip keyed on `cloud_shell_height` — the height within the
+  *union of every enabled deck*, 800–12 000 m in the default sky — so a cumulus at
+  1 000–3 200 m sat at 0.018–0.214 and never left the *base* regime, which erodes cell
+  interiors and preserves their walls. Only cirrus ever received the round-floret branch.
+  The bake now publishes a within-cloud height (0 at a sample's own base, 1 at its own top)
+  in the near window's free `b` lane — measured from cloud above versus below on the nest
+  path, from the deck's own span on the authored/derived paths — and the flip keys on that.
+  The blend is also between two *different scales* now rather than between a value and its
+  own complement: `mix(d, 1 − d, f)` has amplitude `|1 − 2f|` and collapses to a constant at
+  f = 0.5, so the widest part of a cumulus — most of its silhouette — was receiving no
+  erosion structure at all.
+
+Also in CV2: the domain warp's amplitude drops 0.55 → 0.30. At 0.55 the
+displacement-per-wavelength ratio is 0.41, into the folding regime, and a folded warp
+pinches its features into sheared strands. And `CLOUD_ENVELOPE_MEAN_SHAPE` is re-derived
+0.45 → 0.75 from the new carve's actual yield; left at 0.45 every sun-depth integral, cloud
+shadow and impostor would light a sky 40 % thinner than the one being drawn.
+
+The `b` lane's two meanings are safe because they are co-sited: the far window overwrites it
+with sun depth (`cloudscape_far_light.comp`), and the carve's erosion — the only consumer of
+the near meaning — has faded out entirely by 14 km, where the near window hands over.
+Verified by reading that the skip, light-volume, shadow-map and panorama consumers all touch
+only `r` and `a`.
+
+**Still open on the reported symptoms**, in the order they are queued: the erosion octaves
+are 5–30× below the march's Nyquist limit with no footprint floor and one mip level (CV3);
+`seg_min` is derived from shell thickness and floors every step at 1.4–1.7 km in the default
+sky, leaving the head of every ray uncharged, while the skip hops an XZ cell along an
+arbitrary ray and over-runs the vertical cell 6× (CV4 — this is the near-camera clipping);
+the envelope's only horizontal shaping is a scalar per column, so a tower that flares into
+an anvil is not representable at all (CV5); the bake normalises the nest's physical σ and
+clamps it, giving a 16.7× under-scale and 125× at a Cb core (CV6); the sky advects at a
+genus constant times a *frame counter*, so wind speed scales with framerate and runs
+opposite to the nest's own condensate (CV7); and the shading integrates the smooth envelope
+while the geometry lives at 7–155 m, with an ambient term that makes cloud bases exactly as
+bright as cloud tops (CV8).
+
+### Where this stands — 2026-08-01, fourth entry: CloudsV2, the visual model rebuilt
+
+The third entry's fixes (normalisation, TAA translation blindness, composite gate) were
+correct and stay — but the user's verdict on the *look* stood even with them in: baked
+128 m texels cannot hold a cumulus. §7.6 documents the rebuild: the bake now stores only
+the physics envelope (coverage / profile / water), and the march carves the shape
+analytically per sample at every distance in the shared pattern frame. Touched:
+`cloudscape_field.comp` (envelope-only), `cloud.frag` (per-sample carve, the 200 m erosion
+band deleted), `cloud_noise_volume.comp` + `CloudNoise` (precombined march volume, kind 4),
+`cloudscape_skip/light_volume/far_light/shadow_map/panorama` (envelope×water×mean-shape),
+`scene_weather_tail.glsl` / `SceneUniforms` / `CloudscapeCompilePass` (`cloud_field_pattern`
+published; far supersample 8→2). Not yet verified by eye — the user builds and judges; the
+carve constants (2400 m base, 620 m erosion, 0.42/0.30 strengths, 0.45 mean shape) are the
+expected first knobs if the look is close but not right.
+
+### Where this stands — 2026-08-01, third entry: the specks were a stale normalisation
+
+**Twenty real minutes over vegetated summer land rendered nothing but specks, and the cause was
+one constant that changed meaning without changing value.** §7.3's carve made the bake state its
+density as *in-cloud* water — `σ / fraction`, divided by `coverage_reference_lwc` — but that
+reference was still 1.5 g/m³, a number tuned for the old cell-mean semantics ("1 g/m³ averaged
+over four square kilometres is a deep solid deck"). Against in-cloud water, 1.5 g/m³ is a value
+no real cloud reaches: observed solid stratocumulus tops out at 0.3–0.5 g/m³, and the diurnal
+steady state the entrainment closure now holds (72 h probe, 2026-08-01) runs an in-cloud water
+path of ~66 g/m² over a ~700 m deck — roughly 0.1 g/m³. Divided by 1.5 g/m³ that baked at
+density ≈ 0.06, and the march (`extinction_scale = light_absorption × 0.006`) turned 700 m of
+that into optical depth ≈ 0.2: a sky that is 25 % covered by clouds too transparent to see.
+Every carve fix in §7.3 was working; its output was being multiplied into invisibility one line
+later.
+
+The default is now **0.4 g/m³** — a solid stratocumulus bakes at ≈ 1, the fair-weather cumulus
+the sim actually makes at ≈ 0.25 and rising toward its own top, translucent but plainly a cloud.
+The Doxygen on `coverage_reference_lwc` now states the in-cloud semantics so the constant cannot
+silently change meaning again, and the meteorology panel's "Overcast At" slider range moved down
+with it (1e-4 – 2e-3). **Serialized scenes pin the old value:** an environment saved before this
+change carries `coverage_reference_lwc = 0.0015` in its JSON and will keep rendering specks until
+the slider is set to ≈ 0.0004 and the scene resaved.
+
+**Two temporal defects came out of the same session's editor run, both in the W3 resolve chain
+rather than in anything §7 touched.** First, the cloud TAA's sky-pixel reprojection fallback
+treated the view ray as a direction at infinity — exact under rotation, blind under translation.
+A deck 1–3 km away has real parallax, so flying past it kept the history at the same screen
+position and the accumulation smeared it across the sky; worse, the sub-pixel acceptance boost
+keys off apparent motion, which the blind reprojection reported as zero, so feedback rose to
+0.97 precisely when the history was most wrong. The fallback now anchors the reprojected point
+at the march's own transmittance-weighted mean depth (the `cloud_depth` MRT, newly bound to the
+TAA) and offsets it by a new `eye_delta` row in the temporal block before applying the
+translation-free matrix — restating the point relative to last frame's eye, which is the only
+way a ray-marched point (no per-object previous transform) can see the camera move. Second,
+CloudCompositePass sampled the TAA's pass-owned history unconditionally: switching clouds off
+stopped the march and the resolve but not the composite, so the last resolved frame stayed
+glued to the screen until clouds came back. The composite now reads `misc.w` (the cloudscape
+master switch, via a truncated scene-block prefix) and passes the sky through untouched when it
+is off.
+
+### Where this stands — 2026-08-01, second entry: the deck gets a physical bound
+
+**Cloud-top entrainment is in, and the 15 K floor stops being the operative bound.** Open item 4
+below named the deck's steady state honestly: −13.9 K against `cloud_top_equilibrium_depression`,
+a parameter and not a balance, with the condensate growing monotonically and the cloud-fraction
+clamps pinned domain-wide (open item 1's freeze). What was missing is the term every stratocumulus
+review names as the deck's actual regulator: the overturning the radiative cooling drives entrains
+warm, dry air down across the inversion, warming the top back toward its environment and — the
+half that ends a deck — drying the layer it condenses from.
+
+Shipped as the flux-partitioning closure (Lilly 1968; Nicholls & Turton 1986),
+`w_e = A · ΔF / (ρ c_p Δθ)`, in `atmosphere_forces.comp` directly under the cooling term whose
+absorbed flux drives it — so the entrainment inherits the same top-concentration
+(`exp(−κ·path)`) and the same closing condition, and the two shut down together. The entrained
+fraction mixes θ, vapour and cloud water toward the level above; evaporation of the entrained-in
+deficit is left to the microphysics dispatch one barrier later, where its latent cooling lands
+without double-counting. Gated on a stable interface (Δθ > 0.05 K), because an unstable top is
+resolved convection and entraining through it would count the same mixing twice. The efficiency
+is data — `cloud_top_entrainment_efficiency` on `AtmosphereParameters`, default 0.8 (the enhanced
+field estimate; written at the mid-range 0.4 and raised after the verifying runs below), folding
+the evaporative enhancement into one coefficient between the dry 0.2 and enhanced ~0.8 literature
+values; 0 removes the closure and reproduces the deck-on-its-floor state for A/B. The probe
+carries `--entrainment` for exactly that experiment. The depression floor stays, demoted to the
+runaway guard it should have been: a deck should now break by entrainment drying before its top
+reaches −15 K.
+
+Magnitude, by arithmetic rather than by run: 0.8 × 70 W/m² over a 5 K inversion at ρ ≈ 1 is
+11.1 mm/s — the upper end of the measured nocturnal-stratocumulus range — and at a 400 m top level that is
+a drying e-folding of a few hours, which is the timescale a nocturnal deck actually breaks on.
+`test_atmosphere_nest.cpp` pins the closure's arithmetic through the mirrored
+`atmosphere_cloud_top_entrainment` helper.
+
+**Measured 2026-08-01, same day.** Four probe runs, in order. `--entrainment 0` reproduced the
+deck-on-its-floor state to the digit (0.879 / 0.3262 / 0.0605, `sky_pin` 1.0) — the off-switch
+and the layout change are clean. Fixed-sun at 0.4: a large improvement (condensate 0.17 instead
+of 0.52 kg/m² at 72 h, `sky_pin` 0.31 instead of 1.0, the top riding at −18.8 K — above the
+floor, so the bound really is the physics now) but condensate and pin were still creeping
+monotonically under the constant 0.9 sun. Diurnal at 0.4: no permanent fog (base 575 m, not
+19 m), but the deck never broke — coverage climbed monotonically to 0.84 and pin jumped to 0.94
+at hour 46. Diurnal at 0.8: **a periodic steady state** — coverage cycling 0.22–0.29 with the
+sun, days two and three nearly identical, condensate oscillating 0.010–0.023 kg/m², base steady
+near 1.3 km, pin flat at 0.121, skin cycling 9–38 °C with no runaway. That run is what the
+closure exists to produce and is why the shipped default is the field value 0.8, not the
+mid-range 0.4 this entry was first written with. The functional suite (993 tests, including the
+closure's new pins) passes on the same build.
 
 ### Where this stands — 2026-08-01
 
@@ -950,7 +1423,9 @@ cycle* and found no runaway (−0.86 K above 10 km), so the fixed-sun case above
 construction; what the fixes do to a realistic diurnal forcing has not been run.
 
 **Still open from below, unchanged:** T1's 36 ms step on the main thread; the nest on the graphics
-queue; Phase C's nest-side genus acceptance; nothing confirmed by eye; §12's budget stale.
+queue; Phase C's nest-side genus acceptance; nothing confirmed by eye. (§12's budget has since
+been rewritten in B2c's per-simulated-second terms; its step figures carry the machine caveat of
+open item 3 below.)
 
 ### The sponge experiment — 2026-08-01
 
@@ -1007,13 +1482,24 @@ one starts from a list rather than from a re-reading. Ordered by value per unit 
 says what it would cost to answer, because on this machine a 72-hour probe run is six minutes of a
 saturated GPU and that is a real constraint on what gets asked.
 
-1. **The sky field freezes, and nobody knows why.** From 43 h the published cover reads 0.879 to
-   four decimal places, sample after sample, unchanged for the last 29 hours of every long run. It
-   survived both fixes above, so it is not the temperature runaway wearing a different mask — the
-   column beneath it now settles and the field still freezes. It is most likely in the mirror or
-   the publish path rather than in the physics, which makes it the one open item that can be
-   *started by reading code* and costs no GPU at all. Highest value for the least work, and it
-   undermines every long-run number in this document until it is understood.
+1. **The sky field freezes — diagnosed by arithmetic 2026-08-01, and the mirror is innocent.**
+   The three frozen numbers identify themselves: 0.879 cover is exactly 900/1024 mirror columns,
+   0.3262 deviation is exactly `sqrt(900·124)/1024 = 0.32623` — the standard deviation of a
+   *binary* field with that mean — and 0.0605 roughness is exactly 120/1984 differing neighbour
+   pairs. From 43 h the published coverage field is binary: every one of the 1024 columns reads
+   exactly 0 or exactly 1. That is not a stuck publish path, it is `nest_cloud_partition`'s
+   clamps (`atmosphere_nest_common.glsl`, the `across <= -1` / `across >= 1` branches): once the
+   persistent deck settles onto its radiative floor the cell mean sits outside the top-hat
+   width in every deck column, the diagnosed fraction pins at exactly 1 (elsewhere exactly 0),
+   and the coverage, deviation and roughness become exact rationals of the column membership —
+   which cannot move by less than 1/1024 and therefore holds to four decimal places while θ′
+   beneath goes on settling (−0.9, −0.7, −1.0 K per six hours through the same samples). The
+   readback, slot collection and publish were read end to end for this and are correct.
+   **Not yet confirmed by a run:** `atmosphere_probe` now reports `sky_coverage_pinned`, the
+   fraction of columns whose low-band coverage is exactly 0 or 1; the prediction is that it
+   reaches 1.0 at the same sample the field freezes, and stays there. One 72 h run settles it.
+   If it does, this item closes into item 4 below — a sky that cannot unfreeze is a deck nothing
+   erodes, and the defect is the missing entrainment/subsidence, not the mirror.
 2. **The diurnal comparison has never been run.** Every measurement in the 2026-08-01 entries is
    under a fixed noon sun and a quiescent parent, which is the harsh case by construction — B3b
    measured the same 72 h *with* a day/night cycle and found no runaway at all (−0.86 K above
@@ -1021,18 +1507,116 @@ saturated GPU and that is a real constraint on what gets asked.
    therefore unknown in the direction that matters for shipping. One run, six minutes.
 3. **The step cost of both changes is unmeasured.** The verification run reads 12.35 ms against the
    baseline's 7.87, but `advect wind`, `advect scalars` and `pressure` — untouched by either change
-   — moved by the same ~1.6×, so the machine differs and not the code. §12's budget is stale for
-   the same reason. Two runs back to back on one machine settles it; nothing else will.
+   — moved by the same ~1.6×, so the machine differs and not the code. §12's budget (rewritten
+   2026-08-01) inherits the same caveat on its measured step figures. Two runs back to back on one
+   machine settles it; nothing else will. **Run 2026-08-01, and it settled it:** three back-to-back
+   6 h runs of the same binary and config measured **30.3 / 12.3 / 31.0 ms** per submission, with
+   every stage's *share* constant across all three (pressure 32.8 / 30.1 / 32.8 %) — the GPU's
+   clock state scales the whole step uniformly by ~2.5×, and within one state agreement is ±2 %
+   (the 12.3 ms state also matches the 72 h run's 12.29 to three figures). The 7.87 → 12.35
+   discrepancy is therefore a clock state, not the code. Isolating the two changes' own cost would
+   need interleaved pre-/post-change builds (B3d's method); given that the post-change `forces` and
+   `extinction` shares match their as-measured values, a regression is implausible and the
+   measurement is not worth a second build unless §12 is ever missed in practice.
 4. **The cloud deck settles against a parameter, not a balance.** With the closing condition in, a
    persistent deck stops at −13.9 K, which is its `cloud_top_equilibrium_depression` floor. What
    should bound a real deck is entrainment at its top and subsidence above it, both of which §6 and
    §14 already record as under-resolved at this vertical spacing. This is the largest piece of
    physics still missing and the only one on this list that is a modelling problem rather than a
    measurement — which is why it is last despite being the most important.
+   **Addressed 2026-08-01 — the entrainment closure is in; see the second 2026-08-01 entry
+   above. Not yet measured; the verifying runs are listed there, and this item stays open until
+   they are run.**
 
 Carried unchanged from below and not re-listed above: T1's 36 ms step on the main thread, the nest
-on the graphics queue, Phase C's nest-side genus acceptance, and the standing item that none of
-this has been confirmed by eye in the editor.
+on the graphics queue, and Phase C's nest-side genus acceptance. The standing "none of this has
+been confirmed by eye" item is **partly retired**: the rendered clouds *were* looked at in the
+editor on 2026-08-01, and they fail — see item 5 below. What remains unconfirmed by eye is the
+meteorology behind them, not the pixels.
+
+5. **The rendered clouds were confirmed by eye, and the confirmation is a failure on four
+   symptoms.** Tuning was tried first and did not close any of them, which is consistent with
+   what a read of the bake/march chain finds: each symptom is structural, and each carries a
+   decision, so nothing was changed yet. Diagnosis by reading, 2026-08-01:
+   - **(a) Clouds start as tiny flickering specks.** The low-coverage regime of the carve. After
+     the CDF fix the threshold `remap(base_shape, 1 - c, 1, 0, 1)` really does keep only the top
+     `c` of the field (`cloudscape_field.comp:529`), so at a young deck's 5–15 % coverage the
+     survivors are the noise's isolated peaks — islands far smaller than one 600 m shape cell —
+     and their remapped values sit barely above zero, where the erosion's fixed
+     `detail_fbm * 0.45` threshold (`cloudscape_field.comp:535`) erases most of them; which
+     peaks survive changes each rebake. This is the "coverage/density retune after the CDF fix"
+     this document already records as never done, plus the same marginal-regime erosion shape
+     that produced the confetti before it was moved off the density. The structural question a
+     retune has to answer: the carve makes cloud *size* grow with coverage, where a real
+     fair-weather sky holds full-sized cumuli in smaller *number* — the erosion amplitude and
+     the carve law at low coverage are one authoring decision, not two.
+   - **(b) Faint cloud visible from one viewpoint and not another.** The two windows do not
+     carve the same clouds. `min_shape_scale()` is derived from each window's *own* texel
+     (`cloudscape_field.comp:177-181`): the near window's floor is 2048 m, which leaves the
+     nest carve's 2400 m alone, while the far window's is 1024 m × 4 × 4 = **16 384 m** — so
+     the same sky is carved from two different octaves of the shape volume
+     (`cloudscape_field.comp:275` and `:477`). Coverage agrees between them; the individual
+     clouds do not, and a marginal cloud exists in one realisation and not the other. The
+     near/far blend weight is a function of the camera (`cloud.frag:210-225`), so walking moves
+     which realisation is being shown: the cloud appears and disappears with the viewpoint.
+     The claim in `cloud_field_window.glsl` that the two windows "differ only in how finely
+     they carve its shape" is false at feature level — they differ in *which clouds exist*.
+   - **(c) Very harsh tile seams.** The same defect seen at the rim: the cross-fade
+     (`CLOUD_WINDOW_BLEND_START = 0.84`, a ~2.6 km ring at ~13.8 km from the camera) blends two
+     uncorrelated cloud fields, and on the light side it switches sources at the same ring —
+     the amortized light volume inside, the far field's 8-bit sun-depth channel (16 m
+     quantisation over 4 096 m) outside (`cloud.frag:267-284`). The far window additionally
+     rebakes whole every 4 s of weather or 1° of sun (`cloudscape_compile_pass.hpp:374,385`)
+     with no amortization (`record_density` rewrites the full volume), so everything past the
+     ring pops on that cadence while the near side does not.
+   - **(d) Stretched, flat, horizontal 2D cotton rather than cumulus.** Three quantisations
+     compound. Horizontally, most of the visible sky is far-window (past ~14 km of a ~150 km
+     march), where the 16 384 m carve floor means the shape noise varies at ~4 km horizontally
+     but is effectively constant across a deck's few hundred metres of depth: a vertical
+     *extrusion* of a horizontal pattern, which is exactly "2D cotton", and is the "smooth
+     kilometre-wide lumps" regime the carve was built to break (`cloudscape_field.comp:449`)
+     reappearing wherever the floor overrides it. Vertically, a thin deck occupies one to two
+     nest levels, the nest-path bake deliberately applies no height gradient
+     (`cloudscape_field.comp:492-498`) so the density steps on and off across one texel — hard
+     top and bottom faces — and the extinction's interior profile is exactly 0 for a
+     single-level cloud (`atmosphere_extinction.comp:88-93`: `min(above, below)/here` with both
+     neighbours empty), so the ambient term lights the whole cloud as edge: flat.
+   **Implemented 2026-08-01, same session, all four — by reading; the editor look is the
+   verification and has not been done:**
+   - **(b), (c), (d-at-distance): the supersampled far bake.** The far window now carves at
+     the near window's scale and averages 8×8 sub-texel taps per texel — threshold first,
+     then filter, the order the bake's own aliasing note names as correct — so both windows
+     carve the *same clouds* and the cross-fade interpolates one realisation
+     (`cloudscape_field.comp`: `bake_at` factored out of `main`, `supersample`/`slab_base`
+     push fields, `min_shape_scale` divides by the tap count). The 64× cost is paid by
+     amortization: the far bake records 16 Z slices a frame into `far_source_`, which nothing
+     samples mid-bake, and the completing frame resolves the sun depth and publishes the
+     pending placement together (`CloudscapeCompilePass`: `far_baking_`/`far_queued_`
+     /`far_completing_` state machine) — the 4 s whole-volume hitch becomes a ~16-frame
+     rolling update, and triggers that fire mid-bake queue the next bake instead of
+     restarting.
+   - **(c), the light side of the ring:** the far sun depth is now square-root encoded across
+     its 8-bit channel (`cloud_far_sun_depth_encode/decode` in `cloud_field_window.glsl`,
+     shared by writer and both readers): 0.06 m steps at the shallow depths where the Beer
+     term still moves, 16 m only past ~1.5 km where it has collapsed. The crossover ring
+     stays co-sited with the density blend on purpose — that co-siting is what keeps a sample
+     from reading density from one window and light from the other; what made it visible was
+     the decorrelation and the quantisation, and both are addressed.
+   - **(a): the coverage-adaptive carve.** The nest path carves from the same shape volume at
+     a coordinate scale of `1/sqrt(coverage)` (clamped 3×), so island *diameter* stays
+     constant and island *count* falls with coverage — the marginal distribution is
+     scale-invariant, so the measured CDF statistics and the delivered area both survive
+     untouched. The fixed 0.45 erosion was examined and deliberately left: post-CDF the
+     percentile remap tops out at 1 inside any island whatever the coverage, so with
+     full-sized islands the erosion prunes rims and the weakest clouds rather than erasing a
+     young sky wholesale — the speck-erasure was a symptom of island size, not of the
+     erosion's amplitude.
+   - **(d), vertically:** the nest carve now tapers its *carve coverage* (never the water)
+     where the level above is clear — sampled off the extinction field a nest level up — so
+     the noise eats domes and turrets out of a deck's top while the base, which is flat
+     because the condensation level is, stays flat. And the extinction's interior profile is
+     floored at half the cell's own cloud fraction (`atmosphere_extinction.comp`), so a
+     one-level deck stops reading as all-edge and the ambient term shades it as a body.
 
 ### Where this stood — 2026-07-31
 
@@ -1761,8 +2345,6 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   reports the mean over a run and the Meteorology panel carries the same breakdown. Measured on a
   GTX 1060 6 GB at the shipped tier (192×192×48, 2 km, twelve sweeps), mean over 1 471 steps:
 
-  | stage | ms | share |
-  |---|---|---|
   | stage | ms, as found | ms, after this section's two corrections |
   |---|---|---|
   | **pressure** | **7.71** | **2.74** |
@@ -2038,7 +2620,10 @@ cools slowly. So the term is **not added** — it would have been a scheme fixin
 does not have. The slow cooling that is there is concentrated above 10 km, straddling the
 tropopause, where the base state's θ gradient is sharpest: that is numerical diffusion in the
 semi-Lagrangian transport across a stiff gradient, at −0.29 K/day, and a radiative scheme would
-not fix it. Recorded as a named limit rather than masked.
+not fix it. Recorded as a named limit rather than masked. *(The diffusion attribution was
+withdrawn 2026-07-31: with the transport stepping alone the drift is 0.02 K over the same 72 h.
+It is flow-driven — gravity waves accumulating under the sponge's lower edge — and was closed by
+moving the sponge edge; see the 2026-08-01 entries at the top of §11.)*
 
 #### B3c — the land/sea seam, deliberately not built — **decided**
 
@@ -2386,7 +2971,9 @@ asserted that the field was non-uniform — which a 15 km/s field satisfies perf
   so the ITCZ has to be a *T0-forced* convergence band — and T0 is analytic latitude bands in C2.
   What does rain is mid-latitude frontal ascent, which is the part this formulation is entitled to.
   *(Superseded: with T0's baked climatology this reaches 1.5–2.4 mm/day. §4.1.)*
-- **A 47 ms step is a visible hitch under time compression.** At 1× it lands once per six minutes
+- **A 36 ms step is a visible hitch under time compression.** *(First measured at 47 ms in this
+  phase; 36 ms is the figure the later status entries carry and is the one this document uses.)*
+  At 1× it lands once per six minutes
   of wall clock and is invisible. At 60× it lands once per six seconds and is not. The step has no
   dependency on anything mid-frame, so moving it to a worker is straightforward; it is not done
   because nothing consumes the tier yet.
@@ -2580,31 +3167,41 @@ thermals — one domain, tier-gated, possibly never.
 
 ## 12. Performance budget (High tier, 1080p internal, mid-range GPU, 1× time scale)
 
-| System | Per step | Cadence (game time) | Amortized per frame @60 Hz |
-|---|---|---|---|
-| T1 global core | ~0.15 ms | 6 min | negligible |
-| T2 regional nest | ~2.0 ms | 2 s | ~0.02 ms |
-| T3 cloudscape compile | ~1.0 ms | on T2 step / camera rebake | ~0.05 ms |
-| Query mirror readback | ~0.05 ms | every 4 frames | ~0.01 ms |
-| T4 render (unchanged) | — | every frame | ≤2.5 ms |
-| **Total** | | | **≤2.6 ms** |
+Rewritten 2026-08-01 in the terms §11's B2c established: the honest metric for a simulation
+tier is **cost per second of simulated weather**, because its per-frame cost is that number
+times the sky's animation rate. Figures marked *measured* are on a GTX 1060 6 GB; the rest
+are budgets not yet measured. (Measured 2026-08-01, back to back on one machine: the same
+binary runs the T2 step at **12.3 ms in the GPU's sustained clock state and ~30 ms in its
+low state**, stage shares constant — so per-step figures are only comparable within one
+clock state, and the honest per-simulated-second range at Δt 6 s is **1.3–2.1 ms**. §11's
+open item 3 carries the full numbers.)
 
-At 16× time acceleration the simulation tiers scale linearly to ~0.35 ms per frame and
-remain comfortably inside budget. VRAM: ~150 MB for T2 at High, ~40 MB for T3's field set,
-~4 MB for T1 and the mirror.
+| System | Per step | Cadence (game time) | Per simulated second | Per frame @60 Hz, 1× |
+|---|---|---|---|---|
+| T1 global core (CPU) | ~36 ms *(measured)* | 6 min | ~0.1 ms | negligible on average — but it lands inside one frame; moving it to a worker is a standing open item |
+| T2 regional nest | ~8 ms *(measured)* | ~6 s (measured CFL) | 1.27 ms *(measured)* | ~0.02 ms |
+| T3 cloudscape compile | ~1.0 ms (budget) | on T2 step / camera rebake | — | ~0.05 ms |
+| Query mirror readback | ~0.07 ms *(measured)* | every T2 step | — | ~0.01 ms |
+| T4 render (unchanged) | — | every frame | — | ≤2.5 ms |
+| **Total** | | | | **≤2.6 ms** |
 
-The headline: **the whole simulation costs less per frame than the cloud composite**, for
-the reason given in §2.2.
+The simulation tiers' per-frame cost is linear in the time scale: ~1.3 ms per frame at 60×,
+crossing 2 ms at about 94× (B2c). VRAM: ~135 MB for T2 at High (measured, fp32 — §6), ~40 MB
+for T3's field set, ~4 MB for T1 and the mirror.
+
+The headline stands: **at 1× the whole simulation costs less per frame than the cloud
+composite**, for the reason given in §2.2.
 
 ---
 
 ## 13. SOLID
 
 - **SRP** — one reason to change each: the dynamical core, the microphysics, the surface
-  model, the radiation model, the cloudscape compiler, the query mirror, and each render
-  pass. §1.6's seven-responsibility class does not reappear.
-- **OCP** — a new microphysics scheme, a new core (cubed-sphere, a different closure), a
-  new surface model, or a per-biome parameter set is a new class or a data edit. Genus and
+  stage (whose shader carries the radiation terms — §3.5), the cloudscape compiler, the
+  query mirror, and each render pass. §1.6's seven-responsibility class does not reappear.
+- **OCP** — a new microphysics scheme, a new core (cubed-sphere, a different closure), or
+  a per-biome parameter set is a new class or a data edit; surface and radiation vary
+  through `AtmosphereParameters` rather than through swappable types (§3.5). Genus and
   every physical constant are data.
 - **LSP** — `SimulatedAtmosphere`, `IngestedAtmosphere`, and `StaticAtmosphere` are
   interchangeable behind `IAtmosphereSource`, and — unlike the shipped seam — *installable*,

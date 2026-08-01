@@ -1,7 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Generates one of the three tileable 3D cloud volumes into a storage image. This
+// Generates one of the four tileable 3D cloud volumes into a storage image. This
 // replaces the CPU thread-pool build the renderer used to do at startup: the same
 // recipe, evaluated once on the GPU, so bring-up no longer stalls on a few hundred
 // milliseconds of Worley evaluation.
@@ -15,8 +15,35 @@ layout(set = 0, binding = 0, rgba8) uniform writeonly image3D destination;
 layout(push_constant) uniform Params
 {
     uint resolution;
-    uint kind; // 0 = cumuliform shape, 1 = erosion detail, 2 = anisotropic cirrus
+    uint kind; // 0 = cumuliform shape, 1 = erosion detail, 2 = anisotropic cirrus,
+               // 4 = the view march's combined carve volume (kind == CloudNoise slot index;
+               //     3 is the 2D weather map, which cloud_noise_weather.comp generates)
 } params;
+
+// CloudsV2: the view march carves cloud shape analytically per sample
+// (docs/slop/atmosphere_system.md §7.6), and it has exactly one noise binding to do it
+// with — so everything it needs is precombined here into one volume:
+//   r = the Nubis base shape (Perlin remapped by low Worley), pushed through its own CDF
+//       so it is uniform on [0, 1] and a threshold at `1 - coverage` keeps exactly the
+//       asked-for fraction of sky. The (mean, sigma) below are the single-tap statistics
+//       cloudscape_field.comp measured for this exact recipe (its SHAPE_STATS_NEST);
+//       the logistic is the standard normal-CDF approximation, worst error < 0.01.
+//   g = the billow primitive: a nearly single inverted-Worley octave, high at cell centres and
+//       low at the creases between them. The march's billow ladder stacks it across three
+//       world scales and adds the result to the base field *before* thresholding, so it
+//       displaces the isosurface into convex turrets; the volume's job is to supply one crisp
+//       round-cell shape, not a pre-blurred fbm. See the note at the recipe below.
+//   b = a second, incommensurate-frequency erosion fbm for the near-camera fly-through
+//       octave, decorrelated from g so the two never erode the same edge twice.
+//   a = a low-frequency Perlin potential for the curl warp at cloud bases.
+const float MARCH_UNIFORM_K = 1.702;
+const vec2 MARCH_SHAPE_STATS = vec2(0.778544, 0.054310);
+
+float march_uniform_shape(float base_shape)
+{
+    return 1.0 / (1.0 + exp(-MARCH_UNIFORM_K * (base_shape - MARCH_SHAPE_STATS.x) /
+                            MARCH_SHAPE_STATS.y));
+}
 
 void main()
 {
@@ -43,7 +70,7 @@ void main()
         value = vec4(noise_worley_fbm(p, 4), noise_worley_fbm(p, 8), noise_worley_fbm(p, 16),
                      1.0);
     }
-    else
+    else if (params.kind == 2u)
     {
         // Cirrus: ice clouds streak into filaments along the flow, so the lattice is
         // stretched along X by sampling Y/Z at higher integer frequencies (integers
@@ -54,6 +81,34 @@ void main()
         float filament = pow(clamp(ridged, 0.0, 1.0), 2.5);
         value = vec4(filament, noise_worley(stretched, 8), noise_worley(stretched, 16),
                      noise_worley(stretched, 32));
+    }
+    else
+    {
+        // The march's combined carve volume; see the header note above MARCH_SHAPE_STATS.
+        float perlin = noise_perlin_fbm(p, 4, 3);
+        float worley_low = noise_worley(p, 4);
+        float pw = clamp(noise_remap(perlin, worley_low - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+        float base = march_uniform_shape(pw);
+        // The billow primitive, and deliberately close to a *single* inverted Worley octave.
+        //
+        // This used to be `noise_worley_fbm` summed at three base frequencies — an fbm of an
+        // fbm, nine octaves deep. Two things were wrong with that. It halved the field's
+        // standard deviation (each nesting multiplies by sqrt(0.625^2 + 0.25^2 + 0.125^2) =
+        // 0.68), leaving a field too flat to displace a surface by anything visible; and it
+        // buried the round cell boundaries under fine detail, when those boundaries are the
+        // whole point — a cauliflower is made of crisp convex cells with sharp creases between
+        // them, not of soft rolling fbm. The march's billow ladder stacks this primitive across
+        // three world scales itself (cloud.frag), so the volume should supply one clean shape
+        // and let the ladder do the fbm. Frequencies 4/9/19 are mutually incommensurate, so the
+        // minor terms roughen the cells without reinforcing their lattice.
+        float erosion = noise_worley(p, 4) * 0.8 + noise_worley(p, 9) * 0.15 +
+                        noise_worley(p, 19) * 0.05;
+        // Frequency 5 is deliberately incommensurate with the erosion ladder's 4/8/16, and
+        // the constant offset only shifts the lattice phase — wrapping is per-octave, so
+        // the volume still tiles seamlessly.
+        float fine = noise_worley_fbm(p + vec3(0.37, 0.11, 0.71), 5);
+        float potential = noise_perlin_fbm(p + vec3(0.31, 0.77, 0.19), 3, 4);
+        value = vec4(base, erosion, fine, potential);
     }
 
     imageStore(destination, ivec3(texel), value);

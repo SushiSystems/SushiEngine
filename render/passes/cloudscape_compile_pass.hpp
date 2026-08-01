@@ -156,13 +156,21 @@ namespace SushiEngine
                                        const Frame::FrameContext& frame) override;
                     void rebuild_pipelines() override;
 
-                    /** @brief The near window's fine field: r = density, g = vertical profile. */
+                    /**
+                     * @brief The near window's envelope field (CloudsV2): r = coverage
+                     * envelope, g = vertical profile, a = in-cloud water (half-encoded).
+                     */
                     VkImageView field_view() const noexcept { return near_.view; }
 
-                    /** @brief The max-pooled downsample of the near window the coarse probe reads. */
+                    /**
+                     * @brief The max-pooled envelope*water product the coarse probe reads.
+                     */
                     VkImageView skip_view() const noexcept { return skip_.view; }
 
-                    /** @brief The far window: r = density, g = profile, b = optical depth to the sun. */
+                    /**
+                     * @brief The far window: r = envelope, g = profile, b = optical depth to
+                     * the sun, a = water (half-encoded).
+                     */
                     VkImageView far_view() const noexcept { return far_.view; }
 
                     /** @brief The linear, edge-clamped sampler every window is read under. */
@@ -242,6 +250,10 @@ namespace SushiEngine
                         float span_meters;
                         float weather_scale;
                         std::uint32_t derive_genus;
+                        /** @brief Sub-texel carve taps per XZ axis; 1 for the near window. */
+                        std::uint32_t supersample;
+                        /** @brief First Z slice of the dispatch, for the amortized far bake. */
+                        std::uint32_t slab_base;
                     };
 
                     /** @brief The far window's sun-depth pass's push block. */
@@ -306,10 +318,24 @@ namespace SushiEngine
                     static void window_map(const Window& window, float span, const double eye[3],
                                            double wind_x, double wind_z, float map[4]);
                     static void window_push(const Window& window, float span, float weather_scale,
-                                            bool derive_genus, Push& push);
+                                            bool derive_genus, std::uint32_t supersample,
+                                            Push& push);
 
+                    /**
+                     * @brief Records one density-bake dispatch over a Z slab of @p target.
+                     *
+                     * @param slab_base  First Z slice this dispatch writes.
+                     * @param slab_depth Slices it writes; the whole volume when amortization is
+                     *                   off.
+                     * @param discard    Whether the image's previous contents may be thrown
+                     *                   away. True only for a slab starting a fresh bake — an
+                     *                   amortized continuation must preserve the slices already
+                     *                   written in earlier frames.
+                     */
                     void record_density(VkCommandBuffer cmd, const Frame::FrameContext& frame,
-                                        VkBuffer uniform_buffer, Volume& target, const Push& push);
+                                        VkBuffer uniform_buffer, Volume& target, const Push& push,
+                                        std::uint32_t slab_base, std::uint32_t slab_depth,
+                                        bool discard);
                     void record_skip(VkCommandBuffer cmd, const Frame::FrameContext& frame);
                     void record_far_light(VkCommandBuffer cmd, const Frame::FrameContext& frame,
                                           VkBuffer uniform_buffer);
@@ -336,6 +362,16 @@ namespace SushiEngine
                     // Fixed at construction, like the atmosphere LUTs and the cloud noise
                     // volumes: this is baked infrastructure sized once at renderer setup, not
                     // a per-frame cost the quality tier scales (that's the march step counts).
+                    //
+                    // The two *vertical* counts are mirrored in cloud_field_window.glsl as
+                    // CLOUD_SKIP_RESOLUTION_Y (= FIELD_RESOLUTION_Y / SKIP_DOWNSAMPLE_Y) and
+                    // CLOUD_FAR_RESOLUTION_Y (= FIELD_RESOLUTION_Y): the march needs the probe
+                    // lattice's cell size to compute the exact distance to the boundary of the
+                    // region a probe proved empty, and unlike the horizontal cell sizes (which
+                    // ride in cloud_field_params.zw because they follow the window spans) there
+                    // is no free lane left to publish them in. Change either of these and that
+                    // file must change with it, or empty-space skipping stops being
+                    // conservative and distant cloud starts disappearing.
                     static constexpr std::uint32_t FIELD_RESOLUTION_XZ = 256;
                     static constexpr std::uint32_t FIELD_RESOLUTION_Y = 32;
                     static constexpr std::uint32_t SKIP_DOWNSAMPLE_XZ = 4;
@@ -384,6 +420,30 @@ namespace SushiEngine
                      */
                     static constexpr float FAR_SUN_COS_TOLERANCE = 0.99985f; // cos(1 degree)
 
+                    /**
+                     * @brief Sub-texel taps per XZ axis for the far window's bake.
+                     *
+                     * Was 8 (64 taps per texel) when the bake still *carved* — a threshold
+                     * aliases, so the far texel had to average many fine-scale carves. With
+                     * CloudsV2 the bake stores the band-limited envelope and the carve runs
+                     * per march sample, so 2x2 taps are only smoothing the weather map's own
+                     * finest modulation across a 1 km texel; the 16x cost went with the
+                     * aliasing it existed to fight.
+                     */
+                    static constexpr std::uint32_t FAR_SUPERSAMPLE = 2;
+
+                    /**
+                     * @brief Z slices of the far window baked per frame.
+                     *
+                     * Spreads the supersampled far bake across `256 / 16 = 16` frames instead
+                     * of landing it as one hitch. Consumers keep reading the previous bake — the
+                     * slabs accumulate in `far_source_`, which nothing samples until the
+                     * completing frame resolves it into `far_` and publishes the pending
+                     * placement in the same frame, so mapping and contents always switch
+                     * together.
+                     */
+                    static constexpr std::uint32_t FAR_BAKE_SLICES_PER_FRAME = 16;
+
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
@@ -398,6 +458,17 @@ namespace SushiEngine
                     Volume skip_;
                     Volume far_source_; /**< The far density bake, read by the sun-depth pass. */
                     Volume far_;        /**< That same density plus its sun depth; what consumers read. */
+
+                    /** @brief Whether an amortized far bake is in flight. */
+                    bool far_baking_ = false;
+                    /** @brief A far trigger fired mid-bake; begin the next bake on completion. */
+                    bool far_queued_ = false;
+                    /** @brief This frame records the far bake's last slab and its sun depth. */
+                    bool far_completing_ = false;
+                    /** @brief First Z slice the in-flight far bake still has to record. */
+                    std::uint32_t far_slice_base_ = 0;
+                    /** @brief The placement the in-flight far bake is being taken against. */
+                    Window far_pending_;
                     VkSampler sampler_ = VK_NULL_HANDLE;
 
                     VkBuffer catalogue_ = VK_NULL_HANDLE;

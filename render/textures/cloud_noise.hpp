@@ -27,10 +27,11 @@
  * @file cloud_noise.hpp
  * @brief The volumetric cloud noise set, generated once on the GPU.
  *
- * Three tileable 3D volumes (cumuliform shape, erosion detail, anisotropic cirrus)
- * and one 2D weather map, built by compute dispatches at construction and sampled
- * thereafter by the sky and cloud passes. Generating them on the GPU rather than on
- * a CPU thread pool is what keeps bring-up off the host's critical path.
+ * Four tileable 3D volumes (cumuliform shape, erosion detail, anisotropic cirrus,
+ * and the view march's combined carve volume) and one 2D weather map, built by
+ * compute dispatches at construction and sampled thereafter by the sky and cloud
+ * passes. Generating them on the GPU rather than on a CPU thread pool is what keeps
+ * bring-up off the host's critical path.
  */
 
 #include <cstdint>
@@ -58,7 +59,7 @@ namespace SushiEngine
         namespace Textures
         {
             /**
-             * @brief Owns the four cloud noise textures and the sampler they read through.
+             * @brief Owns the five cloud noise textures and the sampler they read through.
              *
              * Non-copyable: it owns images, views, and their allocations.
              */
@@ -93,6 +94,16 @@ namespace SushiEngine
                     /** @brief The wind-stretched anisotropic cirrus volume. */
                     VkImageView cirrus() const noexcept { return volumes_[CIRRUS].view; }
 
+                    /**
+                     * @brief The view march's combined carve volume (CloudsV2).
+                     *
+                     * One volume carrying everything the per-sample analytic carve needs —
+                     * r = CDF-uniformised base shape, g = erosion fbm, b = incommensurate
+                     * fine-erosion fbm, a = curl-warp potential — because the march has
+                     * exactly one free noise binding to read it through.
+                     */
+                    VkImageView march() const noexcept { return volumes_[MARCH].view; }
+
                     /** @brief The linear, REPEAT sampler the volumes tile under. */
                     VkSampler sampler() const noexcept { return sampler_; }
 
@@ -104,7 +115,10 @@ namespace SushiEngine
                         DETAIL = 1,
                         CIRRUS = 2,
                         WEATHER = 3,
-                        SLOT_COUNT = 4,
+                        // Appended after WEATHER so the slot indices the generator pushes as
+                        // `kind` stay stable; cloud_noise_volume.comp names 4 explicitly.
+                        MARCH = 4,
+                        SLOT_COUNT = 5,
                     };
 
                     /** @brief One generated texture and the heap slot it was registered in. */

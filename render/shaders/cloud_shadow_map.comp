@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // CloudShadowMapPass (W2): bakes the whole cloud stack's optical depth toward the sun,
 // projected along the sun direction over the T3 near window — the single shadow authority
@@ -61,6 +62,10 @@ layout(push_constant) uniform Params
     uint row_count;    // how many rows this dispatch covers
 } params;
 
+// For cloud_field_water and CLOUD_ENVELOPE_MEAN_SHAPE; the window-addressing helpers this
+// file also carries are not needed here (the map shares the field's own UV space).
+#include "cloud_field_window.glsl"
+
 const int SHADOW_MAP_STEPS = 8;
 
 void main()
@@ -97,7 +102,11 @@ void main()
     {
         if (height01 > 1.0)
             break;
-        depth += texture(cloudscape_field, vec3(uv, clamp(height01, 0.0, 1.0))).r * step_meters;
+        // Envelope times water, scaled to the mass the view march's carve actually leaves
+        // standing (CloudsV2 — see cloud_field_window.glsl's CLOUD_ENVELOPE_MEAN_SHAPE), so
+        // the ground is not shadowed by envelope the carve removed from the sky above it.
+        vec4 field = texture(cloudscape_field, vec3(uv, clamp(height01, 0.0, 1.0)));
+        depth += field.r * cloud_field_water(field.a) * CLOUD_ENVELOPE_MEAN_SHAPE * step_meters;
         // The sampler clamps to the window's edge rather than wrapping, so a sun ray leaving
         // the window sideways keeps reading the nearest real weather instead of folding back
         // into an unrelated piece of sky one tile period away.

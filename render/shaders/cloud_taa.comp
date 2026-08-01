@@ -26,6 +26,12 @@ layout(set = 0, binding = 3) uniform sampler2D history_weight;
 layout(set = 0, binding = 4) uniform sampler2D cloud_color;
 layout(set = 0, binding = 5) uniform sampler2D velocity_texture;
 layout(set = 0, binding = 6) uniform sampler2D depth_texture;
+// CloudPass's W3 MRT sibling on the same half-resolution grid as cloud_color: the
+// march's transmittance-weighted mean depth in metres along the view ray, 0 where the
+// march early-outed. The reprojection fallback below anchors the history lookup at this
+// range, which is what lets camera *translation* produce parallax on the deck instead
+// of the deck riding the screen.
+layout(set = 0, binding = 9) uniform sampler2D cloud_depth_texture;
 
 // Truncated prefix of the shared scene block (see temporal_common.glsl's header comment
 // for the convention): this pass only needs the camera basis for the sky/cloud
@@ -40,11 +46,17 @@ layout(set = 0, binding = 7) uniform SceneBlock
     vec4 cam_up;
 } scene;
 
-// Truncated prefix of the shared temporal block, for the same reason.
+// Truncated prefix of the shared temporal block, for the same reason — extended through
+// eye_delta, which the reprojection fallback needs (offsets are positional, so reaching
+// it means naming everything before it).
 layout(set = 0, binding = 8) uniform TemporalBlock
 {
     mat4 previous_view_projection;
-    vec4 jitter; // xy = this frame's NDC jitter, zw = the previous frame's
+    vec4 jitter;      // xy = this frame's NDC jitter, zw = the previous frame's
+    vec4 resolution;  // unused here
+    vec4 blend;       // unused here
+    vec4 thresholds;  // unused here
+    vec4 eye_delta;   // xyz = this frame's eye minus last frame's, metres
 } temporal;
 
 layout(push_constant) uniform Push
@@ -94,8 +106,15 @@ void main()
 
     // Reverse-Z: zero means nothing opaque was drawn here, the common case for a cloud
     // pixel sitting over open sky. There the surface velocity buffer carries nothing
-    // meaningful, so the view ray itself is reprojected instead — exact for a direction
-    // at infinity, and close enough for a volumetric deck at planetary range.
+    // meaningful, so the history is reprojected through the camera itself — and at the
+    // march's own mean depth, not at infinity. A direction-at-infinity reprojection is
+    // exact under rotation but blind to translation, and a deck one to three kilometres
+    // away has real parallax: flying past it with the infinite fallback kept the history
+    // glued to the same screen position, and the accumulation (feedback up to 0.97)
+    // smeared the deck across the sky faster than the variance clip could claw it back.
+    // Anchoring the reprojected point at the marched range restates it relative to last
+    // frame's eye (the eye_delta offset — the matrix itself is translation-free), so
+    // both rotation and translation land the history where the cloud actually was.
     float depth_here = texture(depth_texture, uv).r;
     vec2 velocity;
     if (depth_here > 0.0)
@@ -107,7 +126,14 @@ void main()
         vec2 ndc = uv * 2.0 - 1.0;
         vec3 ray = normalize(scene.cam_forward.xyz + ndc.x * scene.cam_right.xyz +
                              ndc.y * scene.cam_up.xyz);
-        vec4 previous_clip = temporal.previous_view_projection * vec4(ray, 0.0);
+        float range = texture(cloud_depth_texture, uv).r;
+        // 0 is the march's own early-out (no shell hit, clouds off): nothing at a finite
+        // range to anchor to, so the direction at infinity is the honest reprojection.
+        vec4 previous_clip =
+            range > 0.0
+                ? temporal.previous_view_projection *
+                      vec4(ray * range + temporal.eye_delta.xyz, 1.0)
+                : temporal.previous_view_projection * vec4(ray, 0.0);
         velocity = previous_clip.w > 0.0 ? uv - clip_to_uv(previous_clip) : vec2(0.0);
     }
 

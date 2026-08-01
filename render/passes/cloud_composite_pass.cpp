@@ -129,6 +129,15 @@ namespace SushiEngine
                         // than per march sample — see AERIAL_LUT_BINDING's own doc comment.
                         writer.image(Scene::SceneLayout::AERIAL_LUT_BINDING,
                                     atmosphere_.aerial_view(), sampler, VK_IMAGE_LAYOUT_GENERAL);
+                        // The froxel volume above only reaches AERIAL_MAX_DISTANCE (31 km).
+                        // A cloud deck seen from the ground runs out to its own base-sphere
+                        // tangent — past 100 km — so the horizon strip sits entirely beyond
+                        // the volume's last slice and was being hazed as though it were 31 km
+                        // away. This LUT is what lets the composite continue the view path
+                        // analytically past that range; see cloud_composite.frag.
+                        writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
+                                     atmosphere_.transmittance_view(), sampler,
+                                     VK_IMAGE_LAYOUT_GENERAL);
                         writer.commit(cmd, frame.layout->pipeline_layout());
 
                         frame.layout->bind_heap(cmd);

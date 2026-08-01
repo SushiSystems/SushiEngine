@@ -249,6 +249,55 @@ void main()
                           exp(-nest.cloud_water_absorption * (path + own)));
         float cooling = absorbed / (nest.specific_heat_pressure * base_density * thickness);
         theta_perturbation -= cooling * dt / max(nest_exner(altitude), 1e-6);
+
+        // ---- Cloud-top entrainment -----------------------------------------------------
+        //
+        // The other half of what the cooling above does, and the half that lets a deck *end*.
+        // The overturning the radiative loss drives does not stop at the cloud top: it entrains
+        // warm, dry air down across the inversion, which warms the top back toward its
+        // environment and — the part that matters for the deck's lifetime — dries the layer
+        // the cloud condenses from. Without it the deck's only bounds are the parent's
+        // subsidence and the equilibrium depression above, and the depression is a floor a
+        // persistent deck sits against rather than a balance it finds: measured, −13.9 K
+        // against the 15 K parameter, indefinitely, with the condensate growing monotonically
+        // and the diagnosed cloud fraction pinned at its clamp in 900 of 1024 mirror columns.
+        //
+        // The closure is the flux-partitioning form (Lilly 1968; Nicholls & Turton 1986):
+        //
+        //     w_e = A · ΔF / (ρ · c_p · Δθ)
+        //
+        // with ΔF the radiative flux this cell actually absorbs — so the entrainment carries
+        // the same top-concentration and the same closing condition as the cooling that drives
+        // it, and the two shut down together. Δθ is the inversion jump to the level above,
+        // floored so a vanishing inversion asks for a mixing velocity the step can integrate.
+        // The entrained fraction mixes theta (conserved across the mixing), vapour and cloud
+        // water toward the level above; the evaporation of cloud water into the entrained dry
+        // air is the microphysics dispatch's job one barrier later, which is where the
+        // evaporative cooling lands without being double-counted here.
+        //
+        // Gated on a *stable* interface: an unstable one is ordinary convection, which the
+        // resolved dynamics already handles, and entraining through it would double-count.
+        if (nest.cloud_top_entrainment_efficiency > 0.0 && cell.y < levels - 1)
+        {
+            ivec3 above_cell = ivec3(cell.x, cell.y + 1, cell.z);
+            float altitude_above = nest_level_altitude(float(cell.y + 1));
+            float theta_above = nest_base_theta(altitude_above) +
+                                imageLoad(theta, above_cell).r;
+            float inversion = theta_above - (base_theta + theta_perturbation);
+            if (inversion > 0.05)
+            {
+                vec4 q_above = imageLoad(moisture, above_cell) / MOISTURE_UNIT;
+                float entrainment = nest.cloud_top_entrainment_efficiency * absorbed /
+                                    (base_density * nest.specific_heat_pressure *
+                                     max(inversion, 0.5));
+                // The fraction of this cell replaced by inversion air this step, capped for
+                // stability at long steps the same way the diffusion below is.
+                float mixed = min(entrainment * dt / max(thickness, 1.0), 0.25);
+                theta_perturbation += mixed * inversion;
+                q.x += mixed * (q_above.x - q.x);
+                q.y += mixed * (q_above.y - q.y);
+            }
+        }
     }
 
     // ---- Buoyancy, Coriolis, diffusion on the momentum --------------------------------

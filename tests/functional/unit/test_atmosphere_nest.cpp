@@ -236,6 +236,36 @@ TEST(Unit_AtmosphereNest, CloudTopCoolingClosesInsteadOfRunningAway)
         EXPECT_LT(scale, previous);
         previous = scale;
     }
+}
+
+TEST(Unit_AtmosphereNest, CloudTopEntrainmentMixesWhereTheCoolingIs)
+{
+    Render::AtmosphereParameters p{};
+
+    // No efficiency, no cooling, or no stable interface: no closure. The last is the
+    // double-counting guard — an unstable top is resolved convection's job.
+    Render::AtmosphereParameters off = p;
+    off.cloud_top_entrainment_efficiency = 0.0f;
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(off, 70.0f, 1.0f, 5.0f), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(p, 0.0f, 1.0f, 5.0f), 0.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(p, 70.0f, 1.0f, -2.0f), 0.0f);
+
+    // The closure's own arithmetic: w_e = A * dF / (rho * c_p * dtheta), against the same
+    // numbers the shader is handed. 0.8 * 70 / (1.0 * 1005 * 5) is 11.1 mm/s — the upper end
+    // of the measured range for nocturnal stratocumulus, which is what says the default
+    // coefficient is a physical quantity and not a tuned one.
+    const float expected = p.cloud_top_entrainment_efficiency * 70.0f /
+                           (1.0f * p.specific_heat_pressure * 5.0f);
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(p, 70.0f, 1.0f, 5.0f), expected);
+
+    // A stronger inversion entrains less: the jump is the resistance the mixing works against,
+    // which is why a deck under a hard subsidence inversion outlives one under a soft one.
+    EXPECT_LT(Render::atmosphere_cloud_top_entrainment(p, 70.0f, 1.0f, 10.0f),
+              Render::atmosphere_cloud_top_entrainment(p, 70.0f, 1.0f, 5.0f));
+
+    // The floor: a vanishing inversion asks for a velocity a step can integrate, not infinity.
+    EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(p, 70.0f, 1.0f, 0.1f),
+                    Render::atmosphere_cloud_top_entrainment(p, 70.0f, 1.0f, 0.5f));
 
     // The default is derived from the flux rather than typed beside it, and this is the arithmetic
     // that ties them: a black body at the base state's 1585 m temperature, cooled by the

@@ -348,7 +348,14 @@ namespace SushiEngine
                 destroy_pipelines();
                 create_pipelines();
                 // A shader edit can change the field's contents, so force a rebake next frame.
+                // An in-flight amortized far bake is dropped rather than finished: its earlier
+                // slabs were recorded with the old pipeline, and completing it would publish a
+                // window that is half one shader and half another.
                 built_ = false;
+                far_baking_ = false;
+                far_queued_ = false;
+                far_completing_ = false;
+                far_slice_base_ = 0;
             }
 
             void CloudscapeCompilePass::create_volume(Volume& volume, std::uint32_t width,
@@ -460,7 +467,7 @@ namespace SushiEngine
 
             void CloudscapeCompilePass::window_push(const Window& window, float span,
                                                     float weather_scale, bool derive_genus,
-                                                    Push& push)
+                                                    std::uint32_t supersample, Push& push)
             {
                 push.pattern_origin[0] = static_cast<float>(window.pattern_origin_x);
                 push.pattern_origin[1] = static_cast<float>(window.pattern_origin_z);
@@ -473,6 +480,9 @@ namespace SushiEngine
                 push.span_meters = span;
                 push.weather_scale = weather_scale;
                 push.derive_genus = derive_genus ? 1u : 0u;
+                push.supersample = supersample;
+                // Per-slab; record_density stamps the slice a dispatch actually starts at.
+                push.slab_base = 0u;
             }
 
             void CloudscapeCompilePass::update_window(const Frame::FrameContext& frame,
@@ -536,9 +546,14 @@ namespace SushiEngine
                         uniforms.cloud_field_near[i] = 0.0f;
                         uniforms.cloud_field_far[i] = 0.0f;
                         uniforms.cloud_field_params[i] = 0.0f;
+                        uniforms.cloud_field_pattern[i] = 0.0f;
                     }
                     near_window_.baked = false;
                     far_window_.baked = false;
+                    far_baking_ = false;
+                    far_queued_ = false;
+                    far_completing_ = false;
+                    far_slice_base_ = 0;
                     built_ = false;
                     return;
                 }
@@ -595,12 +610,54 @@ namespace SushiEngine
                               (derive && (time_seconds - near_window_.time_seconds) >=
                                              NEAR_WEATHER_INTERVAL_SECONDS);
 
-                const float sun_dot = far_window_.sun[0] * sun[0] + far_window_.sun[1] * sun[1] +
-                                      far_window_.sun[2] * sun[2];
-                far_dirty_ = authored_changed || drifted(far_window_, FAR_SPAN_METERS) ||
-                             (derive && (time_seconds - far_window_.time_seconds) >=
-                                            FAR_WEATHER_INTERVAL_SECONDS) ||
-                             sun_dot < FAR_SUN_COS_TOLERANCE;
+                // The far bake is amortized: a trigger starts a multi-frame bake against a
+                // *pending* placement, and consumers keep the previous window — mapping and
+                // contents both — until the completing frame switches the two together. First,
+                // advance whatever register_pass recorded last frame.
+                if (far_baking_)
+                {
+                    far_slice_base_ += FAR_BAKE_SLICES_PER_FRAME;
+                    if (far_slice_base_ >= far_source_.depth)
+                    {
+                        far_baking_ = false;
+                        far_slice_base_ = 0;
+                    }
+                }
+
+                // Staleness is judged against the newest placement there is, so an in-flight
+                // bake is not restarted by the staleness of the published one; a trigger that
+                // fires mid-bake queues the next bake instead, which is what keeps a stepping
+                // nest from starving the far window of completions.
+                const Window& far_reference = far_baking_ ? far_pending_ : far_window_;
+                const float sun_dot = far_reference.sun[0] * sun[0] +
+                                      far_reference.sun[1] * sun[1] +
+                                      far_reference.sun[2] * sun[2];
+                const bool far_stale = authored_changed ||
+                                       drifted(far_reference, FAR_SPAN_METERS) ||
+                                       (derive && (time_seconds - far_reference.time_seconds) >=
+                                                      FAR_WEATHER_INTERVAL_SECONDS) ||
+                                       sun_dot < FAR_SUN_COS_TOLERANCE;
+                if (far_stale && far_baking_)
+                    far_queued_ = true;
+                if (!far_baking_ && (far_stale || far_queued_))
+                {
+                    far_queued_ = false;
+                    place_window(far_pending_, FAR_SPAN_METERS, FIELD_RESOLUTION_XZ, frame.eye,
+                                 wind_x, wind_z, time_seconds, sun);
+                    window_push(far_pending_, FAR_SPAN_METERS, environment.clouds.weather_scale,
+                                derive, FAR_SUPERSAMPLE, far_push_);
+                    far_baking_ = true;
+                    far_slice_base_ = 0;
+                }
+
+                // The frame recording the last slab also resolves the sun depth and publishes
+                // the pending placement, so the mapping below and the contents it addresses
+                // switch in the same frame.
+                far_completing_ = far_baking_ && (far_slice_base_ + FAR_BAKE_SLICES_PER_FRAME >=
+                                                  far_source_.depth);
+                if (far_completing_)
+                    far_window_ = far_pending_;
+                far_dirty_ = far_baking_;
 
                 // Whether the *placement* changed, as opposed to merely the contents. Only a
                 // re-centring invalidates the light volume's and the shadow map's amortized
@@ -619,10 +676,6 @@ namespace SushiEngine
                                       near_window_.pattern_origin_x != previous_x ||
                                       near_window_.pattern_origin_z != previous_z;
                 }
-                if (far_dirty_)
-                    place_window(far_window_, FAR_SPAN_METERS, FIELD_RESOLUTION_XZ, frame.eye,
-                                 wind_x, wind_z, time_seconds, sun);
-
                 window_map(near_window_, NEAR_SPAN_METERS, frame.eye, wind_x, wind_z,
                            uniforms.cloud_field_near);
                 window_map(far_window_, FAR_SPAN_METERS, frame.eye, wind_x, wind_z,
@@ -632,23 +685,43 @@ namespace SushiEngine
                 uniforms.cloud_field_params[2] =
                     NEAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ / SKIP_DOWNSAMPLE_XZ);
                 uniforms.cloud_field_params[3] = FAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ);
+                // The pattern frame the march's analytic carve reconstructs world-anchored
+                // noise coordinates in (CloudsV2); the same float cast the bake's own push
+                // constants make, so the carve and the bake agree to the bit.
+                uniforms.cloud_field_pattern[0] =
+                    near_window_.baked ? static_cast<float>(near_window_.pattern_origin_x) : 0.0f;
+                uniforms.cloud_field_pattern[1] =
+                    near_window_.baked ? static_cast<float>(near_window_.pattern_origin_z) : 0.0f;
+                uniforms.cloud_field_pattern[2] =
+                    far_window_.baked ? static_cast<float>(far_window_.pattern_origin_x) : 0.0f;
+                uniforms.cloud_field_pattern[3] =
+                    far_window_.baked ? static_cast<float>(far_window_.pattern_origin_z) : 0.0f;
 
                 window_push(near_window_, NEAR_SPAN_METERS, environment.clouds.weather_scale,
-                            derive, near_push_);
-                window_push(far_window_, FAR_SPAN_METERS, environment.clouds.weather_scale, derive,
-                            far_push_);
+                            derive, 1u, near_push_);
+                // far_push_ is deliberately not rebuilt here: it was taken from far_pending_
+                // when its bake began, and an in-flight bake keeps recording against that
+                // placement whatever this frame's triggers decided.
                 built_ = true;
             }
 
             void CloudscapeCompilePass::record_density(VkCommandBuffer cmd,
                                                        const Frame::FrameContext& frame,
                                                        VkBuffer uniform_buffer, Volume& target,
-                                                       const Push& push)
+                                                       const Push& push,
+                                                       std::uint32_t slab_base,
+                                                       std::uint32_t slab_depth, bool discard)
             {
-                transition(cmd, target.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                // UNDEFINED discards, which is right only for a slab that starts a bake; an
+                // amortized continuation owns slices written in earlier frames and must keep
+                // them.
+                transition(cmd, target.image,
+                           discard ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                           VK_IMAGE_LAYOUT_GENERAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
                                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           discard ? VK_ACCESS_2_NONE : VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
                 const VkDescriptorSet set = frame.descriptors->allocate(field_layout_);
@@ -673,10 +746,12 @@ namespace SushiEngine
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, field_pipeline_);
                 Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                field_pipeline_layout_, 0, set);
+                Push slab = push;
+                slab.slab_base = slab_base;
                 vkCmdPushConstants(cmd, field_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                   sizeof(Push), &push);
+                                   sizeof(Push), &slab);
                 vkCmdDispatch(cmd, groups(target.width), groups(target.height),
-                              groups(target.depth));
+                              groups(slab_depth));
             }
 
             void CloudscapeCompilePass::record_skip(VkCommandBuffer cmd,
@@ -751,7 +826,8 @@ namespace SushiEngine
 
                         if (near_dirty_)
                         {
-                            record_density(cmd, frame, uniform_buffer, near_, near_push_);
+                            record_density(cmd, frame, uniform_buffer, near_, near_push_, 0u,
+                                           near_.depth, true);
                             // Readable by the skip build below (compute) and, once this pass ends,
                             // by the view march, the light volume, the shadow map and the panorama.
                             transition(cmd, near_.image, VK_IMAGE_LAYOUT_GENERAL,
@@ -773,22 +849,33 @@ namespace SushiEngine
 
                         if (far_dirty_)
                         {
-                            record_density(cmd, frame, uniform_buffer, far_source_, far_push_);
-                            transition(cmd, far_source_.image, VK_IMAGE_LAYOUT_GENERAL,
-                                       VK_IMAGE_LAYOUT_GENERAL,
-                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                            // One slab of the amortized bake. Only the bake-opening slab may
+                            // discard; every later one continues into slices written in
+                            // earlier frames.
+                            const std::uint32_t slab =
+                                std::min(FAR_BAKE_SLICES_PER_FRAME,
+                                         far_source_.depth - far_slice_base_);
+                            record_density(cmd, frame, uniform_buffer, far_source_, far_push_,
+                                           far_slice_base_, slab, far_slice_base_ == 0u);
 
-                            record_far_light(cmd, frame, uniform_buffer);
-                            transition(cmd, far_.image, VK_IMAGE_LAYOUT_GENERAL,
-                                       VK_IMAGE_LAYOUT_GENERAL,
-                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                       VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                            if (far_completing_)
+                            {
+                                transition(cmd, far_source_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                           VK_IMAGE_LAYOUT_GENERAL,
+                                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                           VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                           VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+                                record_far_light(cmd, frame, uniform_buffer);
+                                transition(cmd, far_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                           VK_IMAGE_LAYOUT_GENERAL,
+                                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                           VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                           VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                            }
                         }
                     });
             }

@@ -16,6 +16,11 @@ layout(set = 0, binding = 9) uniform TemporalBlock
     vec4 resolution;  // xy = internal render extent px, zw = output extent px
     vec4 blend;       // x = still feedback, y = moving feedback, z = sharpness, w = history valid
     vec4 thresholds;  // x = luminance, y = velocity, z = clamp history, w = spare
+    // xyz = this frame's eye minus last frame's, metres. The camera translation the
+    // matrix above deliberately omits: a ray-marched point (no per-object previous
+    // transform to carry the old eye) adds this before applying the matrix, restating
+    // itself relative to last frame's eye.
+    vec4 eye_delta;
 } temporal;
 
 // Clip space to texture space. The projection is Y-flipped for Vulkan, so the same

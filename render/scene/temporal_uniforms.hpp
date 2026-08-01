@@ -36,6 +36,11 @@
  * Every matrix here is camera-relative and translation-free, exactly like the scene
  * block's view: the previous frame's eye is folded into the previous transforms the
  * motion system packs, never into this matrix, so the two never both apply it.
+ *
+ * `eye_delta` carries the translation the matrix therefore cannot: a pass that
+ * reprojects a *ray-marched* point — one with no per-object previous transform to
+ * fold the old eye into — offsets the camera-relative point by it before applying
+ * `previous_view_projection`, which re-states the point relative to last frame's eye.
  */
 
 #include <SushiEngine/core/types.hpp>
@@ -60,6 +65,7 @@ namespace SushiEngine
                 float resolution[4];  /**< xy = internal render extent, zw = output extent. */
                 float blend[4];       /**< still feedback, moving feedback, sharpness, history valid. */
                 float thresholds[4];  /**< luminance, velocity, clamp history, spare. */
+                float eye_delta[4];   /**< xyz = this frame's eye minus last frame's, metres. */
             };
 
             /**
@@ -90,6 +96,7 @@ namespace SushiEngine
              * @param output_width     Output width in pixels.
              * @param output_height    Output height in pixels.
              * @param history_valid    Whether a previous resolved frame exists to blend with.
+             * @param eye_delta        This frame's eye minus last frame's, metres, as {x, y, z}.
              * @param uniforms         Receives the filled block.
              */
             void fill_temporal_uniforms(const RenderSettings& settings, const Mat4& previous_view,
@@ -97,7 +104,8 @@ namespace SushiEngine
                                         const float previous_jitter[2],
                                         std::uint32_t render_width, std::uint32_t render_height,
                                         std::uint32_t output_width, std::uint32_t output_height,
-                                        bool history_valid, TemporalUniforms& uniforms) noexcept;
+                                        bool history_valid, const float eye_delta[3],
+                                        TemporalUniforms& uniforms) noexcept;
         } // namespace Scene
     } // namespace Render
 } // namespace SushiEngine

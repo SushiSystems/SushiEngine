@@ -309,6 +309,11 @@ namespace SushiEngine
                 float avg_log = static_cast<float>(sum_log / sum_weight);
                 avg_log = std::min(std::max(avg_log, settings.min_ev), settings.max_ev);
                 const float avg_luminance = std::exp2(avg_log);
+                // The 1e-4 guard is a divide-by-zero floor, and it doubles as a hard ceiling on
+                // exposure at `key / 1e-4` = 1800x. That is deliberate — an unbounded gain would
+                // let a frame with nothing in it converge on infinity — but it also means
+                // `min_ev` stops doing anything below about -13.3, which is worth knowing before
+                // tuning a night scene against it.
                 float target = settings.key / std::max(avg_luminance, 1e-4f);
                 target *= std::exp2(settings.compensation);
 

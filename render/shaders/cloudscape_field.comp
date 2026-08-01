@@ -1,11 +1,28 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Bakes the cloudscape density field (T3), once per rebake instead of once per march
-// sample. The view march then spends ~2 fetches where it used to spend ~48 (8 texture reads
-// x up to 6 decks), and every other consumer of the cloudscape — the light volume, the cloud
-// shadow map, the far-field panorama — reads the same baked answer, so none of them can
-// disagree with the march about where cloud is.
+// Bakes the cloudscape *envelope* field (T3, reshaped by CloudsV2 —
+// docs/slop/atmosphere_system.md §7.6): where cloud may exist and how much water fills it,
+// once per rebake instead of once per march sample. Every consumer of the cloudscape — the
+// view march, the light volume, the cloud shadow map, the far-field panorama — reads the same
+// baked answer, so none of them can disagree about where the weather is.
+//
+// What this bake deliberately no longer does is carve the cloud's **shape**. It used to: the
+// Nubis threshold, the domain warp and the detail erosion all ran here, and their result was
+// stored into 128 m (near) / 1024 m (far) texels that the march then reconstructed
+// trilinearly. That is a hard ceiling on how a cloud can look — a cauliflower edge lives at
+// 10-50 m scales, and no amount of marching recovers structure a 128 m lattice never held;
+// what reaches the screen is the smeared *average* of a shape, which is exactly the mushy
+// cotton the system was rejected for. The carve now runs analytically per march sample in
+// cloud.frag against the same world-anchored pattern frame, so its effective resolution is
+// the march's own sample spacing rather than any bake lattice. This bake keeps everything
+// that is genuinely low-frequency: the simulation's coverage, the water amplitude, the
+// vertical profile, the weather-map modulation — the *envelope* the carve cuts from.
+//
+// Channel layout, both windows: r = coverage envelope [0, 1] (the carve threshold's input),
+// g = vertical profile, b = optical depth toward the sun (far window only; see
+// cloudscape_far_light.comp), a = in-cloud water amplitude, encoded at half scale
+// (cloud_field_window.glsl's cloud_field_water).
 //
 // Two things changed here in phase B (docs/slop/atmosphere_system.md §7.2/§7.4), and they
 // are the same change seen from two ends:
@@ -70,6 +87,10 @@ layout(set = 0, binding = 1) uniform SceneBlock
 #include "scene_weather_tail.glsl"
 } scene;
 
+// Bindings 2/3/5 (shape, detail, cirrus) are still part of this pass's descriptor layout but
+// deliberately no longer sampled: the carve that read them runs per march sample in
+// cloud.frag now (CloudsV2), against the precombined march volume. Declarations kept so the
+// C++ side's descriptor writes stay valid without a layout change.
 layout(set = 0, binding = 2) uniform sampler3D cloud_shape_texture;
 layout(set = 0, binding = 3) uniform sampler3D cloud_detail_texture;
 layout(set = 0, binding = 4) uniform sampler2D cloud_weather_texture;
@@ -113,6 +134,14 @@ layout(push_constant) uniform Params
     float span_meters;
     float weather_scale;   // Cloudscape::weather_scale, the coverage map's tiling period
     uint derive_genus;     // 1 = resolve a genus per column from the field; 0 = authored decks
+    // Sub-texel taps per XZ axis. 1 for the near window. The far window carves at the *near*
+    // window's scale and averages supersample² taps per texel — threshold first, then filter,
+    // which is the order the aliasing note below names as correct — so both windows carve the
+    // same clouds and the cross-fade interpolates one realisation instead of two.
+    uint supersample;
+    // First Z slice of this dispatch, so a supersampled bake can be spread across frames
+    // instead of landing as one hitch. 0 for a whole-volume bake.
+    uint slab_base;
 } params;
 
 // Deliberately not including cloud_field_window.glsl: this shader is the one consumer that
@@ -143,91 +172,12 @@ float remap(float v, float a, float b, float c, float d)
     return c + (v - a) / (b - a) * (d - c);
 }
 
-// ---- The floor a window's own texel spacing puts under the noise -------------------------
-//
-// A window's texel is `span / resolution`: 128 m for the near window, 1024 m for the far one
-// at the same 256 texels across. The base shape volume lays four Worley cells across one
-// `shape_scale` (cloud_noise_volume.comp, kind 0), so a cloud is `shape_scale / 4` wide — and
-// the 4200 m cumulus scale therefore draws 1050 m clouds, which the far window samples at
-// 1024 m spacing. That is 1.03 samples per cloud where Nyquist asks for two.
-//
-// The failure is not a soft blur, which is why it went unrecognised. This bake *thresholds*
-// before it stores (`max(shape - (1 - coverage), 0)`), and thresholding before filtering is
-// not filtering before thresholding: the alias arrives with its gaps already filled rather
-// than merely smoothed. Trilinear reconstruction then spreads it into continuous
-// mid-density, and a march across a hundred kilometres of that integrates to an opaque white
-// slab where a broken cumulus field belongs — a featureless square of cloud with the near
-// window's correctly-carved sky showing as a hole in the middle of it.
-//
-// So: no window may ask its noise to carve a feature its own grid cannot sample. Past this
-// floor the far window stops drawing individual clouds and draws cloud *clusters*, which is
-// what a hundred kilometres of sky resolves to anyway. Coverage still comes from the same
-// source in both windows, so the two go on agreeing about where the weather is and differ
-// only in how finely they carve its shape — precisely the split cloud_field_window.glsl's
-// header describes, and which until now the far window could not actually honour.
-//
-// Deliberately applied to the shape scale only, not to the detail erosion. The shape scale is
-// what decides whether there are gaps at all; erosion only nibbles edges, and its finest
-// octave is already below one texel in the *near* window too, where it reads as surface
-// texture rather than as structure. Clamping it would change the one window that currently
-// looks right.
-const float SHAPE_CELLS_PER_TILE = 4.0; // cloud_noise_volume.comp kind 0: noise_worley(p, 4)
-const float SAMPLES_PER_FEATURE = 4.0;  // comfortably above Nyquist's bare 2
-
-float min_shape_scale()
-{
-    const float texel = params.span_meters / float(max(imageSize(cloudscape_field).x, 1));
-    return texel * SHAPE_CELLS_PER_TILE * SAMPLES_PER_FEATURE;
-}
-
-// ---- Making `coverage` mean what it says -------------------------------------------------
-//
-// Every path below turns a continuous shape field into discrete clouds by cutting it at
-// `1 - coverage`: at 42% coverage the sky should keep the densest 42% of the field and clear
-// the rest. That is only true if the field is **uniformly distributed on [0, 1]**, and ours
-// is nowhere near it. Measured by porting cloud_noise_common.glsl exactly and sampling the
-// tileable volume on a 56^3 lattice, the deck path's `base_shape` is a narrow bell with mean
-// 0.779 and standard deviation 0.038 — its entire support is [0.574, 0.906]. So the threshold
-// never reaches the field at all above roughly 43% coverage:
-//
-//     coverage 0.42 -> asked for 58% clear sky, delivered   0.0%
-//     coverage 0.70 -> asked for 30% clear sky, delivered   0.0%
-//     coverage 0.95 -> asked for  5% clear sky, delivered   0.0%
-//
-// Every deck at or above half coverage therefore came out as a **gapless slab**, shaped by
-// nothing but cloud_height_gradient — a flat-based, flat-topped plateau of uniform white whose
-// only horizontal structure was the weather map's coverage modulation deciding where a deck
-// stopped. That is the "alien cotton wool" the sky was made of, and it long predates the field
-// becoming a window: it is as old as the threshold.
-//
-// The fix is to push the field through its own cumulative distribution, which is exactly the
-// transform that makes a threshold a percentile. `base_shape` is close enough to Gaussian
-// (skew -0.6, kurtosis 3.6) that the standard logistic approximation to the normal CDF earns
-// its single exp: measured, it lands the delivered clear-sky fraction within 1.5 points of the
-// requested one across the whole coverage range, at every coverage.
-//
-// Crucially the transform is **monotone**, so it cannot alter the field's level sets — it
-// relabels them. Cloud shapes are untouched; only which iso-surface `coverage` selects
-// changes, and that was the entire defect. (Verified: the rank order of every sample is
-// preserved.)
-//
-// Deliberately not applied to the erosion detail. That is a soft subtraction from an already
-// chosen density, not a threshold deciding whether a cloud exists, so a narrow distribution
-// there costs contrast rather than structure.
-const float LOGISTIC_NORMAL_K = 1.702; // Phi(z) ~ 1/(1 + exp(-1.702 z)), worst error < 0.01
-
-// (mean, standard deviation) of `base_shape` per path. They differ because the paths do not
-// sample the same thing: the deck path mixes two decorrelated taps of the shape volume, which
-// narrows the distribution; the nest path takes a single tap of it; and the cirriform genera
-// read the anisotropic volume instead, whose ridged-filament base is both wider and skewed.
-const vec2 SHAPE_STATS_DECK = vec2(0.779221, 0.038335);
-const vec2 SHAPE_STATS_NEST = vec2(0.778544, 0.054310);
-const vec2 SHAPE_STATS_CIRRUS = vec2(0.833137, 0.114380);
-
-float uniform_shape(float base_shape, vec2 stats)
-{
-    return 1.0 / (1.0 + exp(-LOGISTIC_NORMAL_K * (base_shape - stats.x) / max(stats.y, 1e-6)));
-}
+// The carve, its CDF-uniformisation and its Nyquist floor all lived here once; they moved
+// with the shape work into cloud_noise_volume.comp (the precombined march volume, where the
+// base shape is uniformised at generation) and cloud.frag (the per-sample carve, whose
+// "grid" is the march's own footprint and which floors its carve scale against that footprint
+// for exactly the reason the bake used to floor against its texel). What stays below is the
+// envelope: coverage, water, vertical structure.
 
 float cloud_height_gradient(float height01, float stratiform, float anvil)
 {
@@ -241,26 +191,34 @@ float cloud_height_gradient(float height01, float stratiform, float anvil)
     return mix(g, tower, anvil);
 }
 
-// One deck's density at a world pattern position, faithfully mirroring cloud.frag's original
-// per-sample cloud_deck_density (the full, non-cheap path — the bake is amortized, so it
-// always affords the best-quality evaluation). Parameterized by the deck's four packed
-// vectors rather than reading the deck array directly, because the derived path builds them
-// from the genus catalogue and the authored path copies them out of the scene block, and both
-// have to land in exactly the same evaluation.
+// One deck's *envelope* at a world pattern position: the coverage the march's carve will
+// threshold against, tapered vertically by the deck's own height gradient so the carve eats
+// domes out of a deck's top instead of leaving a hard slab face. Parameterized by the deck's
+// four packed vectors rather than reading the deck array directly, because the derived path
+// builds them from the genus catalogue and the authored path copies them out of the scene
+// block, and both have to land in exactly the same evaluation.
 //
 //   la = base altitude, top altitude, coverage, density scale
-//   lb = stratiform, detail strength, shape scale, detail scale
-//   lc = wind.xyz (unused here; the pattern position already carries it), noise kind
+//   lb = stratiform, detail strength, shape scale, detail scale (shape/detail now belong to
+//        the march's carve; kept in the layout so the catalogue's packing is untouched)
+//   lc = wind.xyz, noise kind
 //   ld = anvil, weather scale, spare, spare
 //
-// `slot` only decorrelates one deck's noise from another's, so two decks sharing an altitude
-// do not carve the identical shape. `height_gradient` is this deck's vertical density profile
+// `slot` only decorrelates one deck's weather-map lookup from another's, so two decks sharing
+// an altitude do not modulate identically. `height_gradient` is this deck's vertical profile
 // at world_altitude (0 at its top/bottom edges, 1 through its middle), left at 0 wherever the
-// deck contributes nothing.
-float deck_density(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float world_altitude,
-                   out float height_gradient)
+// deck contributes nothing. `water` is the deck's authored in-cloud density scale.
+float deck_envelope(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float world_altitude,
+                    out float height_gradient, out float water, out float deck_height01)
 {
     height_gradient = 0.0;
+    water = 0.0;
+    // Published so the march's erosion can tell a cloud's own base from its own top. It
+    // used to key that off `cloud_shell_height`, which normalises against the union of every
+    // enabled deck — 800..12 000 m in the default sky — so a cumulus spanning 1 000..3 200 m
+    // sat at 0.018..0.214 of the shell and never left the base regime. See cloud.frag's
+    // carve.
+    deck_height01 = 0.0;
     float density_scale = la.w;
     if (density_scale <= 0.0)
         return 0.0;
@@ -269,12 +227,6 @@ float deck_density(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float 
     float height01 = (world_altitude - la.x) / max(la.y - la.x, 1.0);
 
     float stratiform = lb.x;
-    // Floored at what this window can sample; see min_shape_scale(). A near-window bake is
-    // untouched by it (its floor is 2048 m and every cumuliform genus is above that), so this
-    // is a far-window correction that costs the near window nothing.
-    float shape_scale = max(lb.z, min_shape_scale());
-    float detail_scale = lb.w;
-    bool cirrus = lc.w > 0.5;
     float anvil = ld.x;
     float weather_scale = max(ld.y, 1.0);
 
@@ -311,44 +263,22 @@ float deck_density(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float 
     const float WEATHER_DETAIL_AMPLITUDE = 0.35;
     float coverage = clamp(la.z + (weather - 0.5) * WEATHER_DETAIL_AMPLITUDE, 0.0, 1.0);
     coverage = clamp(coverage + anvil * smoothstep(0.55, 1.0, height01) * 0.55, 0.0, 1.0);
-
-    vec3 warp_broad = texture(cloud_shape_texture, sp / (shape_scale * 8.0) + vec3(0.19)).rgb - 0.5;
-    vec3 warp_med = texture(cloud_detail_texture, sp / (shape_scale * 2.7)).rgb - 0.5;
-    vec3 wp = sp + warp_broad * shape_scale * 0.9 + warp_med * shape_scale * 0.35;
-
-    float hg = cloud_height_gradient(height01, stratiform, anvil);
-
-    vec4 base;
-    if (cirrus)
-    {
-        base = texture(cloud_cirrus_texture, wp / shape_scale);
-    }
-    else
-    {
-        vec4 base0 = texture(cloud_shape_texture, wp / shape_scale);
-        vec4 base1 = texture(cloud_shape_texture, wp / (shape_scale * 2.17) + vec3(0.37));
-        base = mix(base0, base1, 0.4);
-    }
-    float low_freq = base.g * 0.625 + base.b * 0.25 + base.a * 0.125;
-    float base_shape = clamp(remap(base.r, low_freq - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
-    // Uniform on [0, 1] before anything thresholds it; see uniform_shape's note. Applied
-    // ahead of the height gradient so the gradient still tapers the deck's own edges to zero.
-    base_shape = uniform_shape(base_shape, cirrus ? SHAPE_STATS_CIRRUS : SHAPE_STATS_DECK);
-    base_shape *= hg;
-
-    float d = clamp(remap(base_shape, 1.0 - coverage, 1.0, 0.0, 1.0), 0.0, 1.0) * coverage;
-    if (d <= 0.0)
+    if (coverage <= 0.0)
         return 0.0;
 
-    vec4 det = texture(cloud_detail_texture, sp / detail_scale);
-    float detail_fbm = det.r * 0.625 + det.g * 0.25 + det.b * 0.125;
-    float erosion = mix(detail_fbm, 1.0 - detail_fbm, clamp(height01 * 3.0, 0.0, 1.0));
-    d = clamp(remap(d, erosion * lb.y * (1.0 - stratiform * 0.6), 1.0, 0.0, 1.0), 0.0, 1.0);
-    if (d <= 0.0)
+    float hg = cloud_height_gradient(height01, stratiform, anvil);
+    if (hg <= 0.0)
         return 0.0;
 
     height_gradient = hg;
-    return d * density_scale;
+    deck_height01 = height01;
+    water = density_scale;
+    // The taper multiplies the *envelope*, not the water: near the deck's own top and base
+    // the carve threshold rises toward 1, so only the noise's peaks survive — turrets and
+    // domes — while a sample through the deck's middle keeps the full coverage. Stratiform
+    // decks taper more gently (their sheet gradient is wide), which is what keeps a stratus
+    // ceiling a ceiling.
+    return coverage * hg;
 }
 
 // Mirrors Render::classify_cloud_genus. See the note by the genus index constants above.
@@ -383,10 +313,32 @@ vec4 band_state(vec2 world_rel_xz, int band)
     return s;
 }
 
+// Folds one deck's envelope into the running totals. Envelopes combine as a probabilistic
+// union (`e1 + e2(1 - e1)`) rather than a sum: coverage is "how much of this cell is cloud",
+// and two half-covered decks over each other cover three quarters of the sky, not all of it.
+// The water amplitude keeps the *densest* contributor's value — the carve fills the union's
+// area, and filling it at a summed amplitude would double-count overlap the union already
+// resolved.
+void fold_envelope(float envelope, float deck_water, float hg, float deck_h01, inout float total,
+                   inout float water, inout float profile, inout float deck_height)
+{
+    total = clamp(total + envelope * (1.0 - total), 0.0, 1.0);
+    if (envelope > 0.001)
+    {
+        water = max(water, deck_water);
+        // `deck_height` comes from whichever deck also wins `profile`, so the pair a march
+        // sample reads always describes one cloud rather than the vertical profile of one
+        // deck and the base/top position within another.
+        if (hg >= profile)
+            deck_height = deck_h01;
+        profile = max(profile, hg);
+    }
+}
+
 // Accumulates one derived deck into the running totals, if the band carries one at all.
 void add_derived_deck(int genus_index, float coverage, float density_scale, int slot,
-                      vec2 pattern_xz, float world_altitude, inout float density,
-                      inout float profile)
+                      vec2 pattern_xz, float world_altitude, inout float envelope,
+                      inout float water, inout float profile, inout float deck_height)
 {
     vec4 la = genus.a[genus_index];
     la.z = coverage;                       // the simulation's own coverage, not the genus default
@@ -395,36 +347,33 @@ void add_derived_deck(int genus_index, float coverage, float density_scale, int 
     ld.y = params.weather_scale;
 
     float hg;
-    float d = deck_density(la, genus.b[genus_index], genus.c[genus_index], ld, slot, pattern_xz,
-                           world_altitude, hg);
-    density += d;
-    if (d > 0.001)
-        profile = max(profile, hg);
+    float deck_water;
+    float deck_h01;
+    float e = deck_envelope(la, genus.b[genus_index], genus.c[genus_index], ld, slot, pattern_xz,
+                            world_altitude, hg, deck_water, deck_h01);
+    fold_envelope(e, deck_water, hg, deck_h01, envelope, water, profile, deck_height);
 }
 
-void main()
+// One envelope evaluation at one world position — the whole of what used to be main()'s
+// body, factored so the supersampling loop below can average it over a texel's footprint.
+// `pattern_xz` is the world-anchored, wind-advected frame the weather modulation is evaluated
+// in (and the frame the march's carve will evaluate its own noise in — the two must agree or
+// the carve would cut shapes out of an envelope that stands somewhere else); `world_rel_xz`
+// the camera-relative frame the meteorology is looked up in.
+void bake_at(vec2 pattern_xz, vec2 world_rel_xz, float world_altitude,
+             out float envelope, out float profile, out float water, out float deck_height)
 {
-    ivec3 size = imageSize(cloudscape_field);
-    uvec3 texel = gl_GlobalInvocationID;
-    if (any(greaterThanEqual(texel, uvec3(size))))
-        return;
-
-    vec2 uv01 = (vec2(texel.xz) + 0.5) / vec2(size.xz);
-    float height01 = (float(texel.y) + 0.5) / float(max(size.y, 1));
-    float world_altitude = mix(scene.cloud_global.y, scene.cloud_global.z, height01);
-
-    // The two frames this bake lives in at once: the pattern is world-anchored and
-    // wind-advected (so a cloud stays over the same ground and drifts with the wind), the
-    // lookup is camera-relative (so it lands in the frame the weather field is addressed in).
-    vec2 pattern_xz = params.pattern_origin + uv01 * params.span_meters;
-    vec2 world_rel_xz = params.world_origin + uv01 * params.span_meters;
-
-    float density = 0.0;
+    envelope = 0.0;
+    water = 0.0;
+    // 0 at this sample's own cloud base, 1 at its own top. Distinct from the texel's
+    // shell-relative height, which says only where the sample sits in the union of every
+    // deck in the sky and is therefore useless for shaping an individual cloud.
+    deck_height = 0.0;
     // The tallest/thickest local contributor's own vertical profile stands in for "this
     // texel's" profile — a deck barely reaching this altitude reads near its own edge
     // (hg -> 0) and should not flatten a thicker deck's mid-band glow (hg -> 1) sharing the
     // same texel, so this keeps the max rather than an average.
-    float profile = 0.0;
+    profile = 0.0;
 
     if (scene.atmosphere_nest_params.z > 0.5)
     {
@@ -447,95 +396,54 @@ void main()
         // The nest's condensate answers "how much cloud belongs here", stated against the
         // extinction of 1 g/m^3 of liquid water. It does *not* answer "what shape is it",
         // and it cannot: the nest resolves 2 km, and a fair-weather cumulus is 0.5-2 km
-        // across, so at this grid one cumulus is one cell. Taking the nest's own value as the
-        // density directly is what turns a sky into smooth kilometre-wide lumps stretched
-        // along the wind -- there is simply no sub-cell structure in the field to see.
+        // across, so at this grid one cumulus is one cell. The shape is the march's carve's
+        // job now (CloudsV2); what this path publishes is the carve's two inputs, kept
+        // strictly apart because they answer different questions:
         //
-        // So the split §7.3 actually asks for: the simulation supplies the coverage, unique
-        // over hundreds of kilometres, and the noise carves the shape *below* the grid the
-        // simulation resolves. The carve is the same re-threshold phase A established --
-        // `remap(shape, 1 - c, 1, 0, 1) * c` -- because it is what turns a continuous coverage
-        // field into discrete clouds with edges: at low coverage only the noise's peaks survive
-        // as scattered puffs, and as coverage rises they grow and merge into an overcast sheet.
-        // A multiply cannot do that; it only dims a lump that was already the wrong shape.
-        // Coverage is the nest's own diagnosed cloud fraction — how much of this cell is cloud —
-        // rather than a proxy read off the cell-mean extinction, which is what it used to be.
-        // The two are different questions and the proxy answered neither: it made a thin haze
-        // spread over a whole cell read as scattered cloud and a small dense cumulus read as
-        // nearly clear, because both come out as the same cell mean.
+        //   * `envelope` — *where* cloud may exist: the nest's own diagnosed cloud fraction
+        //     (how much of this cell is cloud), tapered toward the cloud's own top so the
+        //     carve eats domes and turrets there instead of leaving a flat slab face.
+        //   * `water` — *how much* is in it: the **in-cloud** liquid, not the cell mean.
+        //     Sigma is spread over the whole cell and the water occupies only `coverage` of
+        //     it, so the carve — which fills that same fraction of the sky — must be filled
+        //     at sigma/coverage or a small dense cumulus is dimmed twice for being small.
         float coverage = clamp(nest.a, 0.0, 1.0);
         profile = clamp(nest.g, 0.0, 1.0);
 
         if (coverage > 0.0)
         {
-            const float NEST_SHAPE_SCALE = 2400.0;  // just under the nest's own 2 km cell
-            const float NEST_DETAIL_SCALE = 620.0;  // the billows inside one cloud
-            // The nest's carve is the worst offender of the two paths — 2400 m puts its cells
-            // at 600 m, well under one far-window texel — so it needs the same floor. The near
-            // window's 2048 m floor leaves 2400 m alone, which is the point: the tier's
-            // intended scale survives wherever it can actually be resolved.
-            float nest_shape_scale = max(NEST_SHAPE_SCALE, min_shape_scale());
-            vec3 sp = vec3(pattern_xz.x, world_altitude, pattern_xz.y);
+            // How open the sky is one nest level up, and therefore whether this sample sits at
+            // its cloud's own top. The deck path tapers its invented density with a height
+            // gradient; this path's coverage is measured and must not be double-tapered — but
+            // with no vertical shaping at all a one-level deck carves as a slab with a flat top
+            // face across kilometres. Lowering the envelope where the level above is clear
+            // lets the march's carve eat domes out of the top while the base — which has cloud
+            // above it and is genuinely flat, because the condensation level is — stays flat.
+            // The taper acts on where the cloud is, never on how much water is in it, so the
+            // column's optical depth stays the nest's own.
+            vec4 nest_above = texture(nest_extinction,
+                                      vec3(nest_uv, min(nest_w + 0.05, 1.0)));
+            float top_openness = 1.0 - clamp(nest_above.a / max(coverage, 1e-3), 0.0, 1.0);
+            envelope = coverage * (1.0 - 0.45 * top_openness);
 
-            // A domain warp first, so cloud edges are not the noise's own straight gradients.
-            vec3 warp = texture(cloud_detail_texture, sp / (nest_shape_scale * 2.7)).rgb - 0.5;
-            vec3 wp = sp + warp * nest_shape_scale * 0.6;
+            // Where this sample sits between its own cloud's base and its own top. The nest
+            // path has no deck to ask, so the cloud's extent is measured the only way it
+            // exists here: from how much cloud the column carries above versus below. It
+            // reads 0 with nothing below (a base) and 1 with nothing above (a top), and it
+            // degrades gracefully through a deep column, which is what the march's erosion
+            // needs — wispy rags at the base, packed billows at the top. One extra gather,
+            // paid once per baked texel rather than once per march sample.
+            vec4 nest_below = texture(nest_extinction,
+                                      vec3(nest_uv, max(nest_w - 0.05, 0.0)));
+            float below = clamp(nest_below.a, 0.0, 1.0);
+            float above = clamp(nest_above.a, 0.0, 1.0);
+            deck_height = clamp(below / max(below + above, 1e-3), 0.0, 1.0);
 
-            vec4 base = texture(cloud_shape_texture, wp / nest_shape_scale);
-            float low_freq = base.g * 0.625 + base.b * 0.25 + base.a * 0.125;
-            float base_shape = clamp(remap(base.r, low_freq - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
-            // A single tap of the shape volume, so this path carries its own statistics; the
-            // nest's coverage is a measured condensate fraction, which makes it the path where
-            // the threshold meaning what it says matters most.
-            base_shape = uniform_shape(base_shape, SHAPE_STATS_NEST);
-
-            // No height gradient here, deliberately. A deck needs one because its density is
-            // invented and something has to taper it at the deck's edges; the nest's coverage is
-            // *measured*, and sigma is already zero above the cloud top and below its base
-            // because there is no condensate there. Multiplying by a profile on top of that was
-            // double-counting the same taper -- and because that multiply had a floor, the
-            // density could never reach zero at a cloud's own edge, so every cloud was a slab
-            // with hard top and bottom faces and the sky read as a solid white ceiling.
-            //
-            // The amplitude is the **in-cloud** water, not the cell mean: sigma is spread over
-            // the whole cell and the water is only in `coverage` of it, so the carve — which
-            // fills that same fraction of the texels — has to be filled at sigma/coverage or the
-            // cloud is dimmed twice for being small. The floor bounds the divide for a cell with
-            // a sliver of cloud in it; below a twentieth of a cell there is nothing here to see
-            // at this grid anyway.
-            float in_cloud = clamp(nest.r / (max(coverage, 0.05) *
-                                             max(scene.atmosphere_nest_params.w, 1e-6)),
-                                   0.0, 1.0);
-
-            // Shape first, water second — and keeping them apart is the point rather than a
-            // refactor. Everything from here to the erosion is *where the cloud is*, a
-            // dimensionless [0, 1] carved out of noise by the nest's own coverage; `in_cloud` is
-            // *how much water is in it*, a measured quantity that can be anything. The two are
-            // multiplied once, at the end.
-            //
-            // They used to be multiplied before the erosion, and that is a bug with a signature.
-            // The erosion subtracts an absolute threshold — up to 0.45, averaging 0.225 — which
-            // is a fringe when applied to the deck path's authored density of order one. Applied
-            // to a *physical* density it is not a fringe: a marginal fair-weather deck (14 % cloud
-            // fraction, 0.01 g/kg, sitting right at the closure's critical humidity) reaches here
-            // at 0.058, so the threshold drove 87 % of its texels to zero and crushed the rest
-            // toward it. What renders is not cloud but the noise's own surviving peaks, and
-            // because the field rebakes every nest step, *which* peaks survive changes each time:
-            // flickering specks. Measured in the editor, and it is what a thin deck looked like.
-            //
-            // Eroding the shape instead keeps the ragged edge the octave exists to draw — it
-            // still produces real zeros, still moves the cloud's own boundary — while a faint
-            // deck stays a faint deck rather than becoming confetti.
-            float shape = clamp(remap(base_shape, 1.0 - coverage, 1.0, 0.0, 1.0), 0.0, 1.0);
-
-            if (shape > 0.0)
-            {
-                vec4 det = texture(cloud_detail_texture, sp / NEST_DETAIL_SCALE);
-                float detail_fbm = det.r * 0.625 + det.g * 0.25 + det.b * 0.125;
-                shape = clamp(remap(shape, detail_fbm * 0.45, 1.0, 0.0, 1.0), 0.0, 1.0);
-            }
-
-            density = shape * in_cloud;
+            // The floor bounds the divide for a cell with a sliver of cloud in it; below a
+            // twentieth of a cell there is nothing here to see at this grid anyway.
+            water = clamp(nest.r / (max(coverage, 0.05) *
+                                    max(scene.atmosphere_nest_params.w, 1e-6)),
+                          0.0, 1.0);
         }
     }
     else if (params.derive_genus != 0u && scene.weather_field_levels.w > 0.5)
@@ -552,7 +460,7 @@ void main()
             // the rendered one describe the same cloud.
             float density_scale = band == 0 ? clamp(state.g * (1.0 + state.a), 0.0, 2.0) : state.g;
             add_derived_deck(classify_genus(band, state.r, state.b), state.r, density_scale, band,
-                             pattern_xz, world_altitude, density, profile);
+                             pattern_xz, world_altitude, envelope, water, profile, deck_height);
         }
 
         // Deep convection is an extra deck on the low band rather than a replacement for it,
@@ -562,7 +470,8 @@ void main()
         if (low.b > genus.thresholds_tail.x && low.r > genus.thresholds_tail.y)
         {
             add_derived_deck(GENUS_CUMULONIMBUS, low.r, clamp(low.g * low.b, 0.0, 2.0),
-                             BAND_COUNT, pattern_xz, world_altitude, density, profile);
+                             BAND_COUNT, pattern_xz, world_altitude, envelope, water, profile,
+                             deck_height);
         }
     }
     else
@@ -574,17 +483,70 @@ void main()
             vec4 ld = scene.cloud_deck_d[i];
             ld.y = params.weather_scale;
             float hg;
-            float d = deck_density(scene.cloud_deck_a[i], scene.cloud_deck_b[i],
-                                   scene.cloud_deck_c[i], ld, i, pattern_xz, world_altitude, hg);
-            density += d;
-            if (d > 0.001)
-                profile = max(profile, hg);
+            float deck_water;
+            float deck_h01;
+            float e = deck_envelope(scene.cloud_deck_a[i], scene.cloud_deck_b[i],
+                                    scene.cloud_deck_c[i], ld, i, pattern_xz, world_altitude,
+                                    hg, deck_water, deck_h01);
+            fold_envelope(e, deck_water, hg, deck_h01, envelope, water, profile, deck_height);
         }
     }
+}
 
-    // b is the optical depth toward the sun, which only the far window carries and only
-    // cloudscape_far_light.comp can fill (it needs the finished density field to march). Left
-    // at 0 here; inside the near window the march reads the real light volume instead.
+void main()
+{
+    ivec3 size = imageSize(cloudscape_field);
+    uvec3 texel = gl_GlobalInvocationID + uvec3(0u, 0u, params.slab_base);
+    if (any(greaterThanEqual(texel, uvec3(size))))
+        return;
+
+    float height01 = (float(texel.y) + 0.5) / float(max(size.y, 1));
+    float world_altitude = mix(scene.cloud_global.y, scene.cloud_global.z, height01);
+
+    // The envelope is band-limited (no threshold happens here any more — the carve moved to
+    // the march), so a texel's mean over a few taps is an honest reconstruction; the
+    // supersampling that once existed to anti-alias the carve now only smooths the weather
+    // map's own finest modulation across a coarse far-window texel.
+    uint taps = max(params.supersample, 1u);
+    float envelope = 0.0;
+    float profile = 0.0;
+    float water = 0.0;
+    float deck_height = 0.0;
+    for (uint sz = 0u; sz < taps; ++sz)
+        for (uint sx = 0u; sx < taps; ++sx)
+        {
+            vec2 uv01 = (vec2(texel.xz) + (vec2(sx, sz) + 0.5) / float(taps)) / vec2(size.xz);
+            vec2 pattern_xz = params.pattern_origin + uv01 * params.span_meters;
+            vec2 world_rel_xz = params.world_origin + uv01 * params.span_meters;
+            float tap_envelope;
+            float tap_profile;
+            float tap_water;
+            float tap_deck_height;
+            bake_at(pattern_xz, world_rel_xz, world_altitude, tap_envelope, tap_profile,
+                    tap_water, tap_deck_height);
+            envelope += tap_envelope;
+            profile += tap_profile;
+            water += tap_water;
+            deck_height += tap_deck_height;
+        }
+    float weight = 1.0 / float(taps * taps);
+    envelope *= weight;
+    profile *= weight;
+    water *= weight;
+    deck_height *= weight;
+
+    // b is written twice, by two writers that never overlap. In the *far* window it is the
+    // optical depth toward the sun, which only cloudscape_far_light.comp can fill (it needs
+    // the finished envelope field to march) and which overwrites what is stored here. In the
+    // *near* window nothing overwrites it, and the march reads the real light volume for its
+    // sun depth instead — so the lane is free there, and it now carries the within-cloud
+    // height the carve's erosion needs. The two uses are co-sited with the carve's own detail
+    // fade: the erosion is fully faded out by 14 km (cloud.frag's DETAIL_FADE_START_METERS)
+    // and the near window hands over to the far one at ~13.8 km, so no sample ever needs the
+    // near meaning from a far texel. cloud_field_window.glsl states the same rule for readers.
+    // a is the in-cloud water amplitude at half scale (cloud_field_window.glsl's
+    // cloud_field_water decodes it), so an authored density_scale up to 2 survives UNORM.
     imageStore(cloudscape_field, ivec3(texel),
-              vec4(clamp(density, 0.0, 1.0), clamp(profile, 0.0, 1.0), 0.0, 1.0));
+              vec4(clamp(envelope, 0.0, 1.0), clamp(profile, 0.0, 1.0),
+                   clamp(deck_height, 0.0, 1.0), clamp(water * 0.5, 0.0, 1.0)));
 }

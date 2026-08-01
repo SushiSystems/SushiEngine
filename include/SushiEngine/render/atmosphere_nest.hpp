@@ -430,6 +430,36 @@ namespace SushiEngine
              */
             float cloud_top_equilibrium_depression = 15.0f;
             /**
+             * @brief Cloud-top entrainment efficiency, dimensionless. 0 disables the closure.
+             *
+             * The physical bound on a persistent deck, and the term that lets one *decay*. The
+             * radiative loss above destabilises the cloud top, and the overturning it drives
+             * entrains warm, dry air down across the inversion — warming the top back toward
+             * its environment and drying the layer that feeds the cloud. Without it the only
+             * things bounding a deck are the parent's subsidence and the equilibrium depression
+             * above, and the depression is a floor rather than a balance: measured, a quiescent
+             * deck settled at −13.9 K against the 15 K parameter and sat there indefinitely.
+             *
+             * The closure is the standard flux-partitioning form (Lilly 1968; Nicholls &
+             * Turton 1986): the entrainment velocity is this efficiency times the radiative
+             * flux the top absorbs, divided by `ρ · c_p · Δθ` across the inversion — so a
+             * strongly cooling top under a weak inversion entrains hardest, which is the
+             * observed behaviour of nocturnal stratocumulus. The default folds the evaporative
+             * enhancement (entrained dry air evaporating cloud water buoys the mixing) into the
+             * one coefficient rather than carrying a second; 0.2 is the dry laboratory value
+             * and ~0.8 the enhanced field estimate. The default is the field value: measured
+             * in the 72 h diurnal probe scenario (2026-08-01), 0.4 slowed the deck's growth
+             * but never broke it (coverage climbed monotonically to 0.84), while 0.8 reached
+             * a periodic steady state — coverage cycling 0.22–0.29 with the sun, condensate
+             * 0.010–0.023 kg/m², base steady near 1.3 km — which is the behaviour the closure
+             * exists to produce.
+             *
+             * With this active, @ref cloud_top_equilibrium_depression remains as the runaway
+             * guard it always was, but it is no longer the operative bound: a deck should break
+             * by entrainment drying before its top ever reaches the floor.
+             */
+            float cloud_top_entrainment_efficiency = 0.8f;
+            /**
              * @brief Longwave mass absorption coefficient of cloud water, m²/kg.
              *
              * How quickly the cooling is used up going down into the cloud: the flux falls as
@@ -534,19 +564,27 @@ namespace SushiEngine
              */
             float droplet_effective_radius = 8.0e-6f;
             /**
-             * @brief Liquid water content a cell must hold to read as fully overcast, kg/m³.
+             * @brief In-cloud liquid water content that reads as fully opaque cloud, kg/m³.
              *
              * The one knob that separates *how much water the model makes* from *how much water
              * reads as a solid sky*, and it exists because those are two different questions and
              * conflating them makes a wrong answer to either look like a wrong answer to both.
              *
-             * A nest cell is 2 km across, so its condensate is a **cell mean**: 1 g/m³ averaged
-             * over four square kilometres is a deep solid deck, while a fair-weather cumulus
-             * field — a sky that is mostly blue — averages a small fraction of that. Raising
-             * this makes a given amount of condensate read as thinner and more scattered without
-             * touching the physics that produced it; lowering it does the reverse.
+             * The quantity it normalises is **in-cloud**, not the cell mean: the cloudscape bake
+             * divides the cell-mean extinction by the cell's own cloud fraction before stating it
+             * against this reference (docs/slop/atmosphere_system.md §7.3), so the comparison is
+             * "water per cubic metre *inside the cloud*" against "water per cubic metre a solid
+             * deck holds". Observed solid stratocumulus runs 0.3–0.5 g/m³ near its top, which is
+             * why the default sits at 0.4 g/m³ — a real overcast deck bakes at density ≈ 1 and a
+             * shallow fair-weather cumulus (~0.1 g/m³) at ≈ 0.25, translucent but plainly there.
+             * The old default, 1.5 g/m³, was tuned for the pre-§7.3 cell-mean semantics and was
+             * never retuned when the bake started dividing by coverage: against in-cloud water it
+             * is a value no real cloud reaches, and it rendered the entire simulated sky at
+             * densities under 0.1 — the "faint specks" symptom. Raising this makes a given
+             * condensate read thinner and more translucent without touching the physics that
+             * produced it; lowering it does the reverse.
              */
-            float coverage_reference_lwc = 0.0015f;
+            float coverage_reference_lwc = 4.0e-4f;
 
             // ---- Surface energy balance (Phase B3) -----------------------------------
             //
@@ -1053,6 +1091,39 @@ namespace SushiEngine
                                          : 1.0e-3f;
             const float scale = 1.0f + departure_k / depression;
             return scale < 0.0f ? 0.0f : (scale > 1.0f ? 1.0f : scale);
+        }
+
+        /**
+         * @brief The entrainment velocity a radiating cloud top mixes inversion air down at, m/s.
+         *
+         * The flux-partitioning closure (Lilly 1968; Nicholls & Turton 1986) mirrored from
+         * `atmosphere_forces.comp`, stated here so its arithmetic carries a test:
+         * `w_e = A · ΔF / (ρ c_p Δθ)`, with the inversion floored at 0.5 K so a vanishing jump
+         * asks for a velocity a time step can integrate. This is the term that lets a persistent
+         * deck decay — the entrained air is warm and dry, so the mixing warms the top back
+         * toward its environment and dries the layer the cloud condenses from — where
+         * @ref atmosphere_cloud_top_flux_scale alone only stops the runaway.
+         *
+         * @param p           Carries `cloud_top_entrainment_efficiency` and
+         *                    `specific_heat_pressure`.
+         * @param absorbed    Radiative flux the top actually absorbs, W/m² — the output of
+         *                    @ref atmosphere_cloud_top_absorption times the flux scale.
+         * @param density     Air density at the cloud top, kg/m³.
+         * @param inversion_k Potential-temperature jump to the level above, K. Non-positive
+         *                    means no stable interface, and the closure returns 0: an unstable
+         *                    top is ordinary convection, which the resolved dynamics owns.
+         * @return            Entrainment velocity, m/s; 0 when the closure is disabled.
+         */
+        inline float atmosphere_cloud_top_entrainment(const AtmosphereParameters& p,
+                                                      float absorbed, float density,
+                                                      float inversion_k)
+        {
+            if (!(p.cloud_top_entrainment_efficiency > 0.0f) || !(absorbed > 0.0f) ||
+                !(inversion_k > 0.05f))
+                return 0.0f;
+            const float jump = inversion_k > 0.5f ? inversion_k : 0.5f;
+            return p.cloud_top_entrainment_efficiency * absorbed /
+                   (density * p.specific_heat_pressure * jump);
         }
 
         /** @brief What @ref atmosphere_cloud_partition resolves a cell's water into. */

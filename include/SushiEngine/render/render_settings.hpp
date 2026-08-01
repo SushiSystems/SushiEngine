@@ -148,8 +148,30 @@ namespace SushiEngine
          */
         struct AutoExposureSettings
         {
-            float min_ev = -6.0f;      /**< Darkest scene EV100 the adaptation will resolve to. */
-            float max_ev = 16.0f;      /**< Brightest scene EV100 the adaptation will resolve to. */
+            /**
+             * @brief Darkest metered log2 luminance the adaptation will resolve to.
+             *
+             * **This is the maximum-exposure control, despite the name.** The pass computes
+             * `exposure = key / exp2(clamp(avg_log, min_ev, max_ev))`, so clamping the metered
+             * average from *below* clamps the exposure from *above*: `min_ev` alone decides how
+             * far the frame may be brightened, and lowering it brightens dark scenes rather
+             * than darkening them. It is the field to reach for when a night scene renders
+             * black, which is the opposite of what the name suggests.
+             *
+             * These are log2 of luminance in the renderer's own units — where the authored sun
+             * is on the order of 20 — not photographic EV100. Treat the numbers as relative.
+             *
+             * -14 is chosen to span a real day-to-night range. A physically lit night is very
+             * dark: the ephemeris derives starlight at 8.3e-9 of sunlight and full moonlight at
+             * ~2.4e-6, both matching measured lux ratios, so a moonlit deck sits around 1e-5 in
+             * scene units and needs roughly 1000x of exposure to read as grey. The old -6
+             * capped the gain at 11.5x, which cannot reach it — a correct night stayed black.
+             * Note the pass also floors the metered luminance at 1e-4 internally, so the
+             * reachable ceiling is `key / 1e-4` = 1800x whatever this is set to below -13.3.
+             */
+            float min_ev = -14.0f;
+            /** @brief Brightest metered log2 luminance; clamps the exposure from below. */
+            float max_ev = 16.0f;
             float compensation = 0.0f; /**< Exposure compensation added on top, in stops (EV). */
             float speed_up = 3.0f;     /**< Adaptation rate toward a brighter scene, stops/second. */
             float speed_down = 1.0f;   /**< Adaptation rate toward a darker scene, stops/second. */

@@ -136,7 +136,10 @@ void main()
                 if (inner.y > 0.0)
                     t0 = max(t0, inner.y);
             }
-            float march_len = min(t1 - t0, (top_r - base_r) * 14.0);
+            // Absolute reach, matching cloud.frag's own cap: fourteen shell thicknesses of a
+            // thin measured deck is a 19 km bubble, and an impostor that stops short of the
+            // horizon defeats the reason it exists.
+            float march_len = min(t1 - t0, 160000.0);
             if (march_len > 0.0)
             {
                 float step_len = march_len / float(PANORAMA_STEPS);
@@ -150,6 +153,20 @@ void main()
                 float g = scene.cloud_light.y * 0.6;
                 float g2 = g * g;
                 float phase = (1.0 - g2) / (4.0 * PI * pow(1.0 + g2 - 2.0 * g * mu, 1.5));
+                // The same multiple-scatter floor cloud.frag's `cloud_sun_energy` carries,
+                // in this bake's single-lobe idiom. Without it the impostor keeps the old
+                // behaviour — a deep interior decaying to the ambient term — and would read
+                // markedly darker than the marched sky it has to continue past the far
+                // window's rim. Constants deliberately mirror cloud.frag so the two agree
+                // about how bright the inside of a cloud is.
+                const float MS_FLOOR = 0.35;
+                const float MS_RATE = 0.4;
+                const float MS_ANISOTROPY = 0.2;
+                const float MS_PHASE_WEIGHT = 0.35;
+                float msg = scene.cloud_light.y * MS_ANISOTROPY;
+                float msg2 = msg * msg;
+                float ms_lobe = (1.0 - msg2) / pow(1.0 + msg2 - 2.0 * msg * mu, 1.5);
+                float ms_phase = mix(1.0, ms_lobe, MS_PHASE_WEIGHT);
 
                 float t = t0 + step_len * 0.5;
                 for (int i = 0; i < PANORAMA_STEPS; ++i)
@@ -172,11 +189,16 @@ void main()
                     vec2 far_uv = cloud_window_uv(scene.cloud_field_far.xy,
                                                   scene.cloud_field_far.zw, p.xz);
 
+                    // Envelope times water times the carve's mean yield: this impostor never
+                    // carves (a reflection probe cannot afford to), so it stands in for the
+                    // carved sky with its statistical mean — mass-consistent with the primary
+                    // march by construction (CloudsV2, cloud_field_window.glsl).
                     float density = 0.0;
                     float light_depth = 0.0;
                     if (near_weight > 0.0)
                     {
-                        density = texture(cloudscape_field, vec3(near_uv, height01)).r;
+                        vec4 fine = texture(cloudscape_field, vec3(near_uv, height01));
+                        density = fine.r * cloud_field_water(fine.a) * CLOUD_ENVELOPE_MEAN_SHAPE;
                         light_depth = texture(cloud_light_volume, vec3(near_uv, height01)).r;
                     }
                     if (near_weight < 1.0)
@@ -184,14 +206,19 @@ void main()
                         float far_weight =
                             cloud_window_weight(far_uv, scene.cloud_field_params.y);
                         vec4 coarse = texture(cloudscape_far, vec3(far_uv, height01));
-                        density = mix(coarse.r * far_weight, density, near_weight);
-                        light_depth = mix(coarse.b * CLOUD_FAR_SUN_DEPTH_METERS * far_weight,
+                        float far_density = coarse.r * cloud_field_water(coarse.a) *
+                                            CLOUD_ENVELOPE_MEAN_SHAPE;
+                        density = mix(far_density * far_weight, density, near_weight);
+                        light_depth = mix(cloud_far_sun_depth_decode(coarse.b) * far_weight,
                                           light_depth, near_weight);
                     }
                     if (density > 0.001)
                     {
                         float sigma = density * extinction_scale;
-                        float sun_energy = exp(-light_depth * extinction_scale) * phase * 4.0 * PI;
+                        float sun_energy =
+                            exp(-light_depth * extinction_scale) * phase * 4.0 * PI +
+                            MS_FLOOR * ms_phase *
+                                (1.0 - exp(-light_depth * extinction_scale * MS_RATE));
                         vec3 ambient = scene.ambient.xyz + sun_radiance * 0.02;
                         vec3 luminance = sun_radiance * sun_energy + ambient;
 

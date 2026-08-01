@@ -50,3 +50,10 @@ vec4 cloud_field_params;
 //   nest_params.w  = the extinction of 1 g/m^3 of liquid water, the scale sigma is stated against
 vec4 atmosphere_nest_map;
 vec4 atmosphere_nest_params;
+// The pattern frame the cloudscape windows were baked in (CloudsV2): xy = the near window's
+// texel-(0,0) corner in scene-absolute-plus-wind metres, zw = the far window's. The view
+// march's analytic carve reconstructs `pattern = origin + window_uv * span` from these so
+// its noise is evaluated in exactly the frame the bake evaluated the envelope's weather in —
+// the shapes stand still in the world and advect with the wind, like the envelope itself.
+// float32 like the bake's own push constants, which already accept that precision.
+vec4 cloud_field_pattern;

@@ -90,8 +90,14 @@ namespace SushiEngine
             std::uint32_t cloud_primary_steps_near = 96;
 
             /**
-             * @brief The minimum step count the cloud march guarantees across its
-             * full length, floors how coarse a step may get far from the camera.
+             * @brief The cloud march's far-field sampling density.
+             *
+             * Scales the march's angular step rate: 32 is the calibration reference, and
+             * higher values step more finely at distance. It used to divide the march
+             * length instead, which made the resulting step depend on where a ray happened
+             * to leave the cloud shell rather than on the tier — the same setting resolved
+             * a horizon ray at kilometres per sample and a ray straight up at hundreds of
+             * metres. As a rate it means one sampling density in every direction.
              */
             std::uint32_t cloud_primary_steps_far = 32;
 

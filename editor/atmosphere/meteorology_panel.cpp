@@ -387,11 +387,12 @@ namespace SushiEngine
                     if (ImGui::SliderFloat("Droplet Radius", &nest.droplet_effective_radius, 3.0e-6f,
                                            2.0e-5f, "%.7f m"))
                         changed = true;
-                    // Raise this if the sky reads as a solid white ceiling: it is how much water
-                    // a 2 km cell has to average before it renders as fully overcast, and it
-                    // changes nothing about the physics that produced the water.
-                    if (ImGui::SliderFloat("Overcast At", &nest.coverage_reference_lwc, 2.0e-4f,
-                                           8.0e-3f, "%.5f kg/m3"))
+                    // Raise this if the sky reads as a solid white ceiling: it is the in-cloud
+                    // water content that renders as fully opaque cloud (0.4 g/m³ ≈ a solid
+                    // stratocumulus), and it changes nothing about the physics that produced
+                    // the water.
+                    if (ImGui::SliderFloat("Overcast At", &nest.coverage_reference_lwc, 1.0e-4f,
+                                           2.0e-3f, "%.5f kg/m3"))
                         changed = true;
 
                     // Ice is a *diagnosed phase*, not a second species: everything below is a
@@ -1001,6 +1002,77 @@ namespace SushiEngine
             if (has_condensate)
                 ImGui::TextDisabled("Observer column holds cloud from %.0f m to %.0f m.",
                                     double(column->surface[3]), double(column->extent[0]));
+
+            // ---- What the bake will publish for that cloud ---------------------------------
+            //
+            // The green line above proves the plumbing; these prove the *numbers*. Three
+            // scalars decide whether a healthy deck survives to the screen, each with its own
+            // way of being silently zero: the envelope the carve thresholds against (the
+            // nest's own cloud fraction), the water amplitude (in-cloud extinction stated
+            // against the authored "Overcast At" reference — a stale serialized reference
+            // crushes it), and the medium scale (Clouds > Light absorption — a stale scene
+            // value multiplies every sigma in the march). Shown here because a blue sky is
+            // the shared symptom of all three, and telling them apart by eye is impossible.
+            if (has_condensate && mirror.valid() && mirror.profile != nullptr &&
+                mirror.profile_levels > 0)
+            {
+                const SushiEngine::Render::AtmosphereProfileLevel* densest = nullptr;
+                for (std::int32_t k = 0; k < mirror.profile_levels; ++k)
+                    if (densest == nullptr ||
+                        mirror.profile[k].cloud_fraction > densest->cloud_fraction)
+                        densest = &mirror.profile[k];
+                if (densest != nullptr && densest->cloud_fraction > 0.01f)
+                {
+                    const SushiEngine::Render::AtmosphereParameters& physics =
+                        environment.atmosphere_nest;
+                    // The same formula CloudscapeCompilePass uploads as
+                    // atmosphere_nest_params.w, so this preview and the GPU bake cannot
+                    // disagree: sigma_ref = 3 * reference_lwc / (2 * rho_w * r_eff).
+                    const float radius = physics.droplet_effective_radius > 1.0e-7f
+                                             ? physics.droplet_effective_radius
+                                             : 1.0e-7f;
+                    const float reference_lwc = physics.coverage_reference_lwc > 1.0e-6f
+                                                    ? physics.coverage_reference_lwc
+                                                    : 1.0e-6f;
+                    const float reference_extinction =
+                        3.0f * reference_lwc / (2.0f * physics.water_density * radius);
+                    const float fraction_floor =
+                        densest->cloud_fraction > 0.05f ? densest->cloud_fraction : 0.05f;
+                    const float in_cloud_extinction = densest->extinction / fraction_floor;
+                    float water = in_cloud_extinction / reference_extinction;
+                    water = water < 0.0f ? 0.0f : (water > 1.0f ? 1.0f : water);
+
+                    ImGui::Text("Bake at %.0f m: envelope %.2f, water %.2f  "
+                                "(in-cloud %.4f 1/m vs reference %.4f 1/m)",
+                                double(densest->altitude_m), double(densest->cloud_fraction),
+                                double(water), double(in_cloud_extinction),
+                                double(reference_extinction));
+                    // A rough full-deck optical depth through the march: density ~ water
+                    // through the deck's own thickness at the march's extinction scale
+                    // (cloud.frag: cloud_light.x * 0.006). Below ~0.3 the deck is a veil,
+                    // below ~0.05 it is invisible.
+                    const float thickness = column->extent[0] - column->surface[3];
+                    const float optical_depth = water *
+                                                environment.clouds.light_absorption * 0.006f *
+                                                (thickness > 0.0f ? thickness : 0.0f);
+                    ImGui::Text("Light absorption %.2f -> full-deck optical depth ~%.1f",
+                                double(environment.clouds.light_absorption),
+                                double(optical_depth));
+
+                    if (water < 0.05f)
+                        ImGui::TextColored(
+                            ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                            "Water amplitude is ~zero: \"Overcast At\" (%.5f kg/m^3, likely a\n"
+                            "stale serialized value) sits far above the in-cloud water, so the\n"
+                            "deck bakes as nothing. Set it to 0.00040 and resave the scene.",
+                            double(physics.coverage_reference_lwc));
+                    if (environment.clouds.light_absorption < 0.05f)
+                        ImGui::TextColored(
+                            ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                            "Clouds > Light absorption is ~zero, which scales every march\n"
+                            "sigma to nothing — no cloud can render at any water content.");
+                }
+            }
 
             // ---- Logging -------------------------------------------------------------------
             //

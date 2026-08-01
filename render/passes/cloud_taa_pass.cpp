@@ -136,7 +136,7 @@ namespace SushiEngine
                                        std::uint32_t output_height)
                 : device_(device), shaders_(shaders), pipelines_(pipelines)
             {
-                VkDescriptorSetLayoutBinding bindings[9]{};
+                VkDescriptorSetLayoutBinding bindings[10]{};
                 bindings[0] = {0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
                 bindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
                 bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
@@ -153,10 +153,14 @@ namespace SushiEngine
                               nullptr};
                 bindings[8] = {8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
                               nullptr};
+                // The march's mean-depth MRT sibling, for the translation-aware sky
+                // reprojection fallback (see cloud_taa.comp's binding 9 comment).
+                bindings[9] = {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                              VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
                 VkDescriptorSetLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layout_info.bindingCount = 9;
+                layout_info.bindingCount = 10;
                 layout_info.pBindings = bindings;
                 Vulkan::check(vkCreateDescriptorSetLayout(device_.device(), &layout_info, nullptr,
                                                           &set_layout_),
@@ -277,6 +281,8 @@ namespace SushiEngine
                     [&](Graph::RenderPassBuilder& builder)
                     {
                         builder.read(frame.targets.cloud, Graph::TextureAccess::SampledCompute);
+                        builder.read(frame.targets.cloud_depth,
+                                     Graph::TextureAccess::SampledCompute);
                         builder.read(frame.targets.velocity, Graph::TextureAccess::SampledCompute);
                         builder.read(frame.targets.depth, Graph::TextureAccess::SampledCompute);
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformComputeRead);
@@ -347,6 +353,8 @@ namespace SushiEngine
                                               sizeof(Scene::SceneUniforms));
                         writer.uniform_buffer(8, context.buffer(frame.targets.temporal),
                                               sizeof(Scene::TemporalUniforms));
+                        writer.sampled_image(9, context.sampled_view(frame.targets.cloud_depth),
+                                             point_or_linear);
                         writer.update(device_.device(), set);
 
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);

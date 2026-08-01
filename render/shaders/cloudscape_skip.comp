@@ -28,11 +28,12 @@ void main()
     ivec3 fine_size = textureSize(cloudscape_field, 0);
     ivec3 base = texel * DOWNSAMPLE;
 
-    // One density channel, not two. The fine field used to split cumuliform and cirriform
-    // decks across r/g so the march could give each its own anti-repetition offset; with the
-    // field camera-centred and non-wrapping there is no repetition left to break up, that
-    // offset is gone, and every consumer summed the pair anyway — so the split went with it
-    // (docs/slop/atmosphere_system.md §7.2/§7.3).
+    // One channel: the pooled *effective* density ceiling. The field stores the envelope
+    // (r = coverage) and the water amplitude (a, half-encoded) separately since CloudsV2;
+    // what the probe needs is their product — the most cloud mass the carve could possibly
+    // leave in this block (the carve only ever removes). Max-pooling the product keeps the
+    // skip conservative: a zero here proves the carve yields zero everywhere inside, so
+    // empty-space skipping still never jumps over a real sample.
     float max_density = 0.0;
     for (int z = 0; z < DOWNSAMPLE.z; ++z)
     {
@@ -41,7 +42,8 @@ void main()
             for (int x = 0; x < DOWNSAMPLE.x; ++x)
             {
                 ivec3 c = min(base + ivec3(x, y, z), fine_size - 1);
-                max_density = max(max_density, texelFetch(cloudscape_field, c, 0).r);
+                vec4 fine = texelFetch(cloudscape_field, c, 0);
+                max_density = max(max_density, fine.r * fine.a * 2.0);
             }
         }
     }

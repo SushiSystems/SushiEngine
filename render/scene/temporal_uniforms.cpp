@@ -47,7 +47,8 @@ namespace SushiEngine
                                         const float previous_jitter[2],
                                         std::uint32_t render_width, std::uint32_t render_height,
                                         std::uint32_t output_width, std::uint32_t output_height,
-                                        bool history_valid, TemporalUniforms& uniforms) noexcept
+                                        bool history_valid, const float eye_delta[3],
+                                        TemporalUniforms& uniforms) noexcept
             {
                 uniforms = TemporalUniforms{};
                 previous_view_projection(previous_view, previous_proj,
@@ -71,6 +72,10 @@ namespace SushiEngine
                 uniforms.thresholds[0] = settings.variable_rate_shading.luminance_threshold;
                 uniforms.thresholds[1] = settings.variable_rate_shading.velocity_threshold;
                 uniforms.thresholds[2] = settings.temporal.clamp_history ? 1.0f : 0.0f;
+
+                uniforms.eye_delta[0] = eye_delta[0];
+                uniforms.eye_delta[1] = eye_delta[1];
+                uniforms.eye_delta[2] = eye_delta[2];
             }
         } // namespace Scene
     } // namespace Render

@@ -95,7 +95,11 @@ void main()
     {
         if (march_h < 0.0 || march_h > 1.0)
             break;
-        depth += texture(cloudscape_far_density, vec3(march_uv, march_h)).r * step_meters;
+        // Envelope times water, scaled to the mass the view march's carve actually leaves
+        // standing (CloudsV2 — see cloud_field_window.glsl's CLOUD_ENVELOPE_MEAN_SHAPE), so
+        // the far field does not shadow itself with envelope the carve removes.
+        vec4 field = texture(cloudscape_far_density, vec3(march_uv, march_h));
+        depth += field.r * cloud_field_water(field.a) * CLOUD_ENVELOPE_MEAN_SHAPE * step_meters;
         // A uv step is a real world step because the window is world-anchored and
         // non-wrapping; the sampler clamps, so a ray leaving the window sideways reads the
         // window's own edge instead of wrapping into an unrelated piece of sky, which is the
@@ -104,7 +108,9 @@ void main()
         march_h += (safe_sun_up * step_meters) / band_meters;
     }
 
-    vec2 base = texture(cloudscape_far_density, vec3(uv, height01)).rg;
+    // The water amplitude rides through in a: the far window's readers decode it exactly the
+    // way the near window's do, so a sample crossing the blend never changes water scale.
+    vec4 base = texture(cloudscape_far_density, vec3(uv, height01));
     imageStore(cloudscape_far, texel,
-               vec4(base, clamp(depth / CLOUD_FAR_SUN_DEPTH_METERS, 0.0, 1.0), 1.0));
+               vec4(base.rg, cloud_far_sun_depth_encode(depth), base.a));
 }

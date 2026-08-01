@@ -68,6 +68,7 @@ namespace SushiEngine
 
         namespace Passes
         {
+            class AtmosphereLutPass;
             class CloudscapeCompilePass;
             class CloudLightVolumePass;
 
@@ -91,11 +92,17 @@ namespace SushiEngine
                      * @param noise      The cloud noise volumes; only the detail volume is
                      *                   read here, for the near-camera-only 811 m erosion
                      *                   and curl warp the T3 bake cannot carry.
+                     * @param atmosphere The pass that owns the transmittance LUT. The march
+                     *                   needs it for the same reason SkyPass does: without
+                     *                   it the sun that lights a cloud is the top-of-
+                     *                   atmosphere beam at every hour, so the deck stays
+                     *                   noon-white after sunset.
                      */
                     CloudPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                               Resources::GraphicsPipelineFactory& pipelines,
                               Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
-                              CloudLightVolumePass& light_volume, Textures::CloudNoise& noise);
+                              CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
+                              AtmosphereLutPass& atmosphere);
                     ~CloudPass() override;
 
                     CloudPass(const CloudPass&) = delete;
@@ -116,6 +123,7 @@ namespace SushiEngine
                     CloudscapeCompilePass& cloudscape_;
                     CloudLightVolumePass& light_volume_;
                     Textures::CloudNoise& noise_;
+                    AtmosphereLutPass& atmosphere_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes
