@@ -10,8 +10,5 @@ sushiengine_add_module(NAME atmosphere LAYER domain PUBLIC_DEPENDS core
         source/fourier_transform.cpp
         source/quasigeostrophic_core.cpp)
 
-# Position-independent because sushi_sim, its one library consumer, is.
+# Position-independent because sushiengine_simulation, its one library consumer, is.
 set_target_properties(sushiengine_atmosphere PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-# The name the simulation, the test suite and the global probe link.
-add_library(sushi_atmosphere ALIAS sushiengine_atmosphere)

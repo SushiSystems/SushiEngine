@@ -426,6 +426,3 @@ target_include_directories(sushiengine_render PRIVATE
 target_compile_definitions(sushiengine_render PRIVATE
     SUSHI_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders"
     SUSHI_PIPELINE_CACHE_DIR="${CMAKE_BINARY_DIR}")
-
-# The name the editor, the player and the probes link.
-add_library(sushi_render ALIAS sushiengine_render)

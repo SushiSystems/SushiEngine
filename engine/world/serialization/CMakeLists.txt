@@ -24,9 +24,6 @@ target_include_directories(sushiengine_serialization
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/SushiEngine/serialization")
 
 # IAssetLibrary, which both serializers resolve a texture or mesh name through. The include root
-# rather than the module: a configure with SE_BUILD_RENDER off has no library to link.
+# rather than the module: a configure with SUSHIENGINE_BUILD_RENDER off has no library to link.
 target_include_directories(sushiengine_serialization
     PRIVATE "${CMAKE_SOURCE_DIR}/engine/presentation/render/include")
-
-# The name the editor, the player, the sample-scene generator and the test suite link.
-add_library(sushi_scene ALIAS sushiengine_serialization)

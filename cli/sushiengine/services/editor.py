@@ -1,9 +1,10 @@
 """Editor build-and-run logic.
 
 The editor is a separate, runtime-independent target gated behind
-SE_BUILD_EDITOR. `se editor` reconfigures in place with that flag on (cheap and
-incremental — it does not wipe the build tree), builds only the `se_editor`
-target, and launches it. The ImGui submodule must be initialized.
+SUSHIENGINE_BUILD_EDITOR. `se editor` reconfigures in place with that flag on (cheap and
+incremental — it does not wipe the build tree), builds only the
+`sushiengine_editor` target, and launches the `se_editor` binary it produces.
+The ImGui submodule must be initialized.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ def build_and_run(run: bool = True, build_type: BuildType = BuildType.release) -
     # In-place configure with the editor flag on. Re-running configure is cheap;
     # CMake picks up the changed -D without a clean rebuild of the runtime.
     args = project._configure_args(cfg, root, build_dir, cmake_build_type, tests=False)
-    args.append("-DSE_BUILD_EDITOR=ON")
+    args.append("-DSUSHIENGINE_BUILD_EDITOR=ON")
     console.info(f"Configuring (editor ON, type={build_type.value})...")
     if (rc := project._run(args, env, cwd=root)) != 0:
         console.error("CMake configure failed.")
@@ -53,7 +54,7 @@ def build_and_run(run: bool = True, build_type: BuildType = BuildType.release) -
     console.info("Building se_editor...")
     rc = project._run(
         [project._cmake(cfg), "--build", str(build_dir),
-         "--config", cmake_build_type, "--target", "se_editor"],
+         "--config", cmake_build_type, "--target", "sushiengine_editor"],
         env, cwd=root)
     if rc != 0:
         console.error("Editor build failed.")
@@ -63,6 +64,8 @@ def build_and_run(run: bool = True, build_type: BuildType = BuildType.release) -
     if not run:
         return 0
 
+    # The binary keeps the short name the target no longer has (OUTPUT_NAME in
+    # applications/editor/CMakeLists.txt), so this is not the string built above.
     exe = discovery.match_by_name(build_dir, "se_editor")
     if exe is None:
         console.error("se_editor binary not found after build.")

@@ -27,7 +27,7 @@
 //
 // cgltf used to be defined here too, which quietly made the glTF parser a private of
 // the renderer. It now lives in import/cgltf_impl.cpp, beside the importers that are
-// its only reason for existing; this target links `sushi_import` and includes the
+// its only reason for existing; this target links `sushiengine_gltf` and includes the
 // header for its types.
 
 #define STB_IMAGE_IMPLEMENTATION

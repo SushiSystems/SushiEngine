@@ -59,10 +59,10 @@ on the runtime, not in it.
 **The ECS is typed against the execution seam, not against a runtime.** `World`,
 `Archetype`, `Chunk`, and `Schedule` name `Execution::Context`, `Execution::Graph`,
 and `Execution::Buffer` — the engine's own vocabulary — and which implementation
-those denote is a compile-time build policy (`SE_EXECUTION_BACKEND=runtime|native`).
+those denote is a compile-time build policy (`SUSHIENGINE_EXECUTION_BACKEND=runtime|native`).
 SushiRuntime's task graph (`RuntimeBackend`) is the default and the only one exercised
 in CI; a second, SYCL-free implementation (`NativeBackend`, `execution/backend/
-native_backend.hpp` + the compiled `sushi_exec_native` library) exists for platforms
+native_backend.hpp` + the compiled `sushiengine_execution_native` library) exists for platforms
 SushiRuntime cannot reach (RUNTIME-PORT1) — a thread pool dispatching whole ready
 nodes concurrently (node-granular, not element-granular: the ECS's one-node-per-chunk
 shape is thousands of small independent nodes, which is where this backend's
@@ -614,7 +614,7 @@ Save-As modal (tracked by `EditorContext::exit_after_save`) when Save has no pat
 Live simulation state reaches the renderer through the **simulation seam**
 (`include/SushiEngine/sim/simulation.hpp`): `ISimulation` / `create_simulation()`,
 plain C++ that names no runtime, SYCL, or ECS type — only the value types from §6.
-The concrete world lives in one compiled library, `sushi_sim` (`sim/`), the single
+The concrete world lives in one compiled library, `sushiengine_simulation` (`sim/`), the single
 place device code exists outside an example: it owns a `SushiRuntime::API::Runtime`,
 the `Execution::Context` built over it, an ECS `World`, and a `Schedule`, and starts
 with no entities — every archetype is
@@ -627,7 +627,7 @@ them in parallel whenever such entities are present. Every value a
 kernel reads is precomputed on the host into a component so the kernels are pure
 arithmetic that capture no host state — the discipline that keeps them legal device
 code (see §3). This is dependency inversion at the largest seam in the engine: the
-editor links `sushi_sim` and depends only on `ISimulation`, so the runtime, SYCL, and
+editor links `sushiengine_simulation` and depends only on `ISimulation`, so the runtime, SYCL, and
 ECS never enter the editor's translation units, and a different world backend (or a
 headless stub) can replace it without the editor changing. Because the editor links a
 SYCL library, its final link is SYCL-aware and it ships the runtime DLL — the
@@ -1471,10 +1471,10 @@ significant digits), making it unusable at the seam; double is the engine's one 
 types are, however, element-parametric (`Vector3T<T>`/`QuaternionT<T>`), and the physics
 layer templates on that element (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`), so the
 **simulation's physics-solve precision is a separate runtime choice**
-(`Simulation::Precision`): both a float and a double solver are compiled into `sushi_sim`
+(`Simulation::Precision`): both a float and a double solver are compiled into `sushiengine_simulation`
 and `create_simulation(Precision)` picks one behind `Simulation::IPhysicsScene`,
 letting the editor switch physics precision live (rebuilding the world from a scene
-snapshot) without a rebuild of the binary. `sushi_render` shares the value types (across
+snapshot) without a rebuild of the binary. `sushiengine_render` shares the value types (across
 `MeshInstance`/`CameraView`) without linking the engine target — it links the runtime
 otherwise. The Vulkan upload path narrows to 32-bit explicitly at the push-constant
 boundary, camera-relative, so absolute double positions never reach the GPU as a raw
@@ -1658,7 +1658,7 @@ work (M1 onward) builds on:
   point at which the SushiLoop core layers are wired into `Schedule`/`World` — the
   standalone-game host, distinct from `sim/`'s editor-facing `ISimulation` (§4.1).
 
-`SE_DETERMINISTIC_FP` (`cmake/ProjectOptions.cmake`, default `ON`)
+`SUSHIENGINE_DETERMINISTIC_FP` (`cmake/ProjectOptions.cmake`, default `ON`)
 disables fast-math and FP contraction on the `SushiEngine` INTERFACE target, closing
 off two ways a build could make the same floating-point expression evaluate
 differently between runs.
@@ -1746,9 +1746,9 @@ differently between runs.
     `render/lighting_panel.hpp`, the VFX and audio sections likewise), so a component
     authored in two windows cannot offer two different sets of fields.
 - **Player host shell (PLATFORM0, S1–S6, done).** `se_player` (`se_player/`) is the
-  editor's sibling, not its subset in the ImGui sense — it links `sushi_platform`,
-  `sushi_render`, `sushi_sim`, `sushi_scene`, and `sushi_input`, and never
-  `sushi_imgui`, which is the actual enforcement mechanism the split promises: an
+  editor's sibling, not its subset in the ImGui sense — it links `sushiengine_platform`,
+  `sushiengine_render`, `sushiengine_simulation`, `sushiengine_serialization`, and `sushiengine_input_backend`, and never
+  `sushiengine_imgui`, which is the actual enforcement mechanism the split promises: an
   authoring feature that leaked out of `editor/` into something the player needed
   would show up as a link error, not a lint rule someone can ignore. `PlayerApp`
   (`se_player/player_app.{hpp,cpp}`) is a much smaller loop than `editor/main.cpp` —
@@ -1981,7 +1981,7 @@ data, once. Keyboard/mouse, gamepad, and touch all reduce to three action shapes
 `Axis1D`, `Axis2D`. No consumer branches on device type.
 
 **The header-only action layer (`include/SushiEngine/input/`)** carries zero SDL, zero
-SYCL, and no runtime link — the same discipline `sushi_render`'s abstract side keeps. Its
+SYCL, and no runtime link — the same discipline `sushiengine_render`'s abstract side keeps. Its
 pieces are seven single-responsibility objects (SRP by construction):
 
 - `controls.hpp` — the engine-owned control enums. `Key` is numbered by USB HID keyboard
@@ -2017,7 +2017,7 @@ pieces are seven single-responsibility objects (SRP by construction):
   source, folds the events into the registry, and resolves the mapper. It never touches the
   `World` and never registers a system.
 
-**The compiled backend (`input/`, `sushi_input` STATIC).** The mirror of `sushi_render`'s
+**The compiled backend (`input/`, `sushiengine_input_backend` STATIC).** The mirror of `sushiengine_render`'s
 recipe: links `SDL2::SDL2` only, no SYCL, no runtime, C++17. It holds the one SDL-aware input
 component, `Input::SdlInputTranslator`, which turns already-pumped `SDL_Event` records into
 engine `InputEvent`s. It does **not** pump SDL — the single `SDL_PollEvent` loop stays in
@@ -2126,8 +2126,8 @@ the future sim-thread split prescribes.
 
 **Layering.** The one-way `SushiEngine → SushiRuntime` arrow is untouched — input never sees
 the runtime. Headless examples and tests use `ScriptedInputSource` and link neither SDL nor
-`sushi_input`; only a binary that opens a window needs the compiled library. `SE_BUILD_INPUT`
-gates it (forced on by `SE_BUILD_EDITOR`). All seven roadmap phases and the design's recorded
+`sushiengine_input_backend`; only a binary that opens a window needs the compiled library. `SUSHIENGINE_BUILD_INPUT`
+gates it (forced on by `SUSHIENGINE_BUILD_EDITOR`). All seven roadmap phases and the design's recorded
 follow-ons (buffering, gestures, replay, text) have landed; the editor consumes the action
 snapshot for its shortcuts and tool keys and configures bindings through its Input Manager window.
 The one deliberately-untouched seam is the viewport's camera-flight `Editor::InputState` fill,
@@ -2168,7 +2168,7 @@ runtime link:
   path — which is every build today. Kept intentionally thin because the runtime's fluent
   API is unstable; the batch-submit surface lands with the real implementation.
 
-**The compiled backend (`audio/`, `sushi_audio` STATIC).** The mirror of `sushi_input`: a
+**The compiled backend (`audio/`, `sushiengine_audio_backend` STATIC).** The mirror of `sushiengine_input_backend`: a
 plain STATIC library linking SDL2 and nothing else — no SYCL, no runtime — so it builds on a
 stock toolchain and never touches the one-way `SushiEngine → SushiRuntime` arrow. It carries
 the sole SDL-aware audio component, `Audio::SdlAudioDevice`, which opens an
@@ -2191,11 +2191,11 @@ one-way dependency: the App still owns the lifetime, and a borrowed runtime is r
 never destroyed. Gameplay never needs it; the loop still hides the runtime behind `world()`,
 `commands()`, and `system()`.
 
-**Layering & build.** `SE_BUILD_AUDIO` gates the compiled backend (OFF by default). The
+**Layering & build.** `SUSHIENGINE_BUILD_AUDIO` gates the compiled backend (OFF by default). The
 `audio_demo` example is the S0 vertical slice: a headless, self-checking software block loop
 (pump N blocks through a silence renderer, assert every sample is silent and the renderer
 ran), then a best-effort real device open that is a clean no-op on a headless host. `se
-audio` builds and runs it (configuring `SE_BUILD_AUDIO=ON`, exactly as `se render` does for
+audio` builds and runs it (configuring `SUSHIENGINE_BUILD_AUDIO=ON`, exactly as `se render` does for
 the renderer probe).
 
 **The DSP core (`include/SushiEngine/audio/dsp/`, Phase S1).** The portable, real-time-safe
@@ -2473,7 +2473,7 @@ tone (the S8 bank plugs in behind the same seam later). The UI is an Audio Mixer
 `ImDrawList` meters), an Audio Profiler window (voice counts, meters, output scope), and Inspector
 sections for the emitter (params + a live attenuation-curve plot + a Play audition), the reverb zone
 (I3DL2 params + presets), and the listener — wired into the Add Component and Window menus and the
-`.sushiscene` serializer. The editor now links `sushi_audio`.
+`.sushiscene` serializer. The editor now links `sushiengine_audio_backend`.
 
 **Procedural SFX, convolution reverb, and the GPU accelerator (`audio/dsp/` + `audio/`, Phase S10).**
 The final phase, three independent pieces. **Procedural SFX**: modal synthesis (`dsp/modal.hpp`) — a
@@ -2541,8 +2541,8 @@ fragment-output pipeline-library key (defaults reproduce opaque, so transparent 
 expressible without disturbing existing passes). `QualityParams` gained `gpu_particles` /
 `max_particles` / `particle_sim_substeps`, scaled per tier (Low drops cosmetic particles). Build:
 the four shaders (`particle_emit.comp`, `particle_simulate.comp`, `particle.vert`, `particle.frag`,
-sharing `particle_common.glsl`) go through `sushi_compile_shader` + the shader catalogue; the two
-systems and two passes into `sushi_render`.
+sharing `particle_common.glsl`) go through `sushiengine_compile_shader` + the shader catalogue; the two
+systems and two passes into `sushiengine_render`.
 
 ### 15.1 Deterministic emitter entities + alpha particles (Bağla + VFX2a)
 

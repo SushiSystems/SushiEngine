@@ -5,6 +5,6 @@
 
 # The renderer needs the Vulkan, VMA, vk-bootstrap and glslang packages, which a plain configure
 # does not provision, so it exists only when the option asks for it.
-if(SE_BUILD_RENDER)
+if(SUSHIENGINE_BUILD_RENDER)
     add_subdirectory(render)
 endif()

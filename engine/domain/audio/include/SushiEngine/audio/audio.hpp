@@ -33,7 +33,7 @@
  * parameter smoothing / RTPC, voices and their sources, the mixer bus DAG, the voice
  * manager, and the @ref SushiEngine::Audio::AudioEngine that renders them as one
  * @ref SushiEngine::Audio::IAudioRenderer. No SDL and no SushiRuntime — the SDL2 device
- * backend (`sushi_audio`) is linked separately, exactly as the input backend is.
+ * backend (`sushiengine_audio_backend`) is linked separately, exactly as the input backend is.
  * See `docs/slop/audio_system.md`.
  */
 

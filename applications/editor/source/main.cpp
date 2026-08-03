@@ -299,7 +299,7 @@ int main(int argc, char** argv)
 
         // The live world, ticked on SushiRuntime behind the plain-C++ ISimulation
         // seam. The editor sees only the abstraction and the extracted RenderScene;
-        // the runtime, SYCL, and ECS stay inside sushi_sim.
+        // the runtime, SYCL, and ECS stay inside sushiengine_simulation.
         std::unique_ptr<SushiEngine::Simulation::ISimulation> simulation =
             SushiEngine::Simulation::create_simulation();
         std::vector<SushiEngine::Render::MeshInstance> instances;

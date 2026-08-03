@@ -16,6 +16,3 @@ sushiengine_add_module(NAME platform LAYER foundation
 # Its headers are spelled by bare file name, so the directory holding them is public too.
 target_include_directories(sushiengine_platform
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/SushiEngine/platform")
-
-# The name the editor and the player link.
-add_library(sushi_platform ALIAS sushiengine_platform)

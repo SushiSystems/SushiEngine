@@ -30,7 +30,7 @@
  * The world is ticked on SushiRuntime with SYCL kernels, but none of that leaks
  * across this interface: `ISimulation` names no runtime, SYCL, or ECS types, only
  * the value types from the BLAS seam. The implementation lives in one compiled
- * library (`sushi_sim`) so device code stays contained in a single translation
+ * library (`sushiengine_simulation`) so device code stays contained in a single translation
  * unit, and a host depends only on this abstraction (dependency inversion) — a
  * different world backend, or a headless stub, can replace it without the host
  * changing. Each frame the host `tick()`s the world and reads the extracted

@@ -37,7 +37,7 @@
  * whole action layer free of SDL.
  *
  * The header exposes no SDL type: the native event crosses as a `const void*`, so a
- * consumer includes this and links `sushi_input` without pulling SDL into its own
+ * consumer includes this and links `sushiengine_input_backend` without pulling SDL into its own
  * translation unit (the game-controller handles it owns are held as opaque `void*`).
  * Phase 1 translates keyboard and mouse; Phase 3 adds gamepad translation, hot-plug slot
  * assignment, and rumble. Touch joins at its phase without changing this interface.

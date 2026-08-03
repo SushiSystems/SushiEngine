@@ -177,8 +177,8 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_CXX_COMPILER={cxx}",
         f"-DSUSHIRUNTIME_DIR={runtime}",
-        f"-DSE_BUILD_TESTS={'ON' if tests else 'OFF'}",
-        f"-DSE_BUILD_EXAMPLES={'ON' if examples else 'OFF'}",
+        f"-DSUSHIENGINE_BUILD_TESTS={'ON' if tests else 'OFF'}",
+        f"-DSUSHIENGINE_BUILD_EXAMPLES={'ON' if examples else 'OFF'}",
     ]
     # On Windows clang++ also drives the C probe; point both slots at it.
     if cfg.is_windows:

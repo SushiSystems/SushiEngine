@@ -24,6 +24,3 @@ sushiengine_add_module(NAME gltf LAYER asset
 # Private because no header here names a cgltf type, so nothing that reads an imported mesh or
 # blob has to locate the parser to compile against it.
 target_include_directories(sushiengine_gltf PRIVATE "${CGLTF_INCLUDE_DIR}")
-
-# The name the renderer, the simulation, the editor and the test suite link.
-add_library(sushi_import ALIAS sushiengine_gltf)

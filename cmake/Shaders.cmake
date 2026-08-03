@@ -56,8 +56,8 @@ function(sushiengine_compile_shader stage input symbol output_variable)
     set(output "${SUSHIENGINE_SHADER_GENERATED_DIRECTORY}/${name}.h")
     add_custom_command(
         OUTPUT "${output}"
-        COMMAND shader_compiler ${stage} "${input}" "${output}" ${symbol}
-        DEPENDS shader_compiler "${input}" ${SUSHIENGINE_SHADER_DEPENDENCIES}
+        COMMAND sushiengine_shader_compiler ${stage} "${input}" "${output}" ${symbol}
+        DEPENDS sushiengine_shader_compiler "${input}" ${SUSHIENGINE_SHADER_DEPENDENCIES}
         COMMENT "Compiling shader ${name} -> SPIR-V header"
         VERBATIM)
     set(${output_variable} "${output}" PARENT_SCOPE)

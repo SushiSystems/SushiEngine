@@ -71,7 +71,7 @@ checkout.
 se build                  # Release build (the default)
 se build --type debug     # Debug build
 se build --clean          # delete the build tree first, then build from scratch
-se build --no-test        # skip compiling the test suite (SE_BUILD_TESTS=OFF)
+se build --no-test        # skip compiling the test suite (SUSHIENGINE_BUILD_TESTS=OFF)
 se build --examples       # also build the worked examples under samples/
 ```
 
@@ -79,7 +79,7 @@ The `--type` (`-t`) option accepts `release`, `debug`, or `relwithdebinfo`. The
 test suite is compiled by default; pass `--no-test` to skip it for a faster,
 engine-only build.
 
-`--examples` turns on `SE_BUILD_EXAMPLES`, which declares the demos under
+`--examples` turns on `SUSHIENGINE_BUILD_EXAMPLES`, which declares the demos under
 `samples/`. It is off by default because each demo is its own SYCL translation
 unit and so its own device compile; a plain `se build` only produces `sandbox`
 and `pgs_demo`. Run `se build --examples` first if `se run <demo>` cannot find
@@ -136,7 +136,7 @@ se editor --type debug    # Debug build
 se editor --no-run        # build the editor but do not launch it
 ```
 
-Configures with `SE_BUILD_EDITOR=ON` and builds into its own `build/editor`
+Configures with `SUSHIENGINE_BUILD_EDITOR=ON` and builds into its own `build/editor`
 tree, separate from `se build`'s `build/default`, so the two never clobber each
 other's `CMAKE_BUILD_TYPE`.
 
@@ -148,7 +148,7 @@ se render --no-run     # build only
 se render --probe atmosphere -- --hours 3 --profile column.csv
 ```
 
-Configures with `SE_BUILD_RENDER=ON`. Every probe runs without a window, so they work
+Configures with `SUSHIENGINE_BUILD_RENDER=ON`. Every probe runs without a window, so they work
 over SSH and in CI.
 
 `--probe render` (the default) renders a triangle offscreen and reads two pixels back,
@@ -199,7 +199,7 @@ se audio             # build and run the audio demo
 se audio --no-run     # build only
 ```
 
-Configures with `SE_BUILD_AUDIO=ON`.
+Configures with `SUSHIENGINE_BUILD_AUDIO=ON`.
 
 ## `se planet` — baked planetary terrain
 

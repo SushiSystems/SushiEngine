@@ -9,6 +9,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Changed
+- 2026-08-03 — Renamed every CMake target, function and macro this repository owns to the `sushiengine_` prefix, so none of them can collide with a SushiRuntime one in the single flat CMake namespace the two trees share.
+  - Removed the seven bare-`sushi_` `ALIAS` shims; every consumer now names the module target directly (`sushi_sim` → `sushiengine_simulation`, `sushi_scene` → `sushiengine_serialization`, and so on).
+  - Renamed the executable targets (`se_editor` → `sushiengine_editor`, `render_probe` → `sushiengine_render_probe`, and the seven others) and gave each an `OUTPUT_NAME`, so every binary on disk keeps the name it had.
+  - Renamed the nine build options the same way (`SE_BUILD_TESTS` → `SUSHIENGINE_BUILD_TESTS`, `SE_EXECUTION_BACKEND` → `SUSHIENGINE_EXECUTION_BACKEND`, and the rest); an existing build tree's cached `SE_*` entries are silently ignored from now on, so re-pass the new names or reconfigure clean.
 - 2026-08-03 — Moved every engine source into `engine/<tier>/<module>/`, each module carrying its own `include/` and `source/`, with the tier order enforced at configure time by `sushiengine_add_module()`.
   - Added `applications/`, `samples/`, `tools/` and a flattened `tests/`; the root now holds project metadata and eight directories.
   - Changed the `se` CLI's project-root marker to a `.sushiengine-root` sentinel, and gave each configure lane its own tree under `build/`.

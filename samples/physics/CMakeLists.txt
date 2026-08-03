@@ -2,7 +2,7 @@
 # against a host reference or a closed form rather than against a picture.
 
 # pgs_demo is the second of the two samples declared on both execution lanes and outside
-# SE_BUILD_EXAMPLES: a hanging chain solved with Projected Gauss-Seidel is the smallest thing
+# SUSHIENGINE_BUILD_EXAMPLES: a hanging chain solved with Projected Gauss-Seidel is the smallest thing
 # that proves a lane can actually run a solve.
 sushiengine_add_sample(pgs_demo pgs_demo.cpp)
 
@@ -31,6 +31,6 @@ endif()
 # The sample scene is a library plus a generator rather than a translation unit each consumer
 # compiles for itself, so it needs the live world. Only a configure that builds a shell or the
 # test suite declares one.
-if(TARGET sushi_sim)
+if(TARGET sushiengine_simulation)
     add_subdirectory(sample_scene)
 endif()

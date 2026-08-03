@@ -23,7 +23,7 @@
 
 // Build-time host tool: compiles one GLSL shader to SPIR-V with glslang and emits a
 // C++ header holding the words as an inline constexpr array. CMake runs it per
-// shader (see sushi_compile_shader), so the shipped renderer embeds SPIR-V and
+// shader (see sushiengine_compile_shader), so the shipped renderer embeds SPIR-V and
 // carries no runtime shader-compiler dependency. This tool is never installed and
 // never linked into the renderer — it only runs during the build.
 //

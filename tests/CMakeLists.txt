@@ -1,4 +1,5 @@
-# tests — one binary, se_functional_tests, covering unit/, integration/ and regression/. Every
+# tests — one binary, se_functional_tests, built by the target sushiengine_functional_tests and
+# covering unit/, integration/ and regression/. Every
 # test in the tree is functional, so those three directories are the whole partition. The engine
 # is header-only and ships no device code of its own, so the test binary is a single SYCL
 # translation-unit set: every test that drives the ECS schedule or the PGS solver instantiates
@@ -25,16 +26,16 @@ set(SE_TEST_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
 # dir, the engine + GTest links, and the shared SYCL policy (device flags + the
 # Windows runtime-DLL copy) from cmake/SyclTarget.cmake — the same helper the
 # engine's example apps use, so the two lanes cannot drift apart.
-function(sushi_configure_test_target target)
+function(sushiengine_configure_test_target target)
     target_include_directories(${target} PRIVATE ${SE_TEST_COMMON_DIR})
     target_link_libraries(${target} PRIVATE SushiEngine GTest::gtest)
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON)
-    sushi_apply_sycl(${target})
+    sushiengine_apply_sycl(${target})
 endfunction()
 
-add_executable(se_functional_tests
+add_executable(sushiengine_functional_tests
     common/test_main.cpp
 
     # The hazard semantic every execution backend answers to: the safety and
@@ -582,51 +583,56 @@ add_executable(se_functional_tests
     # Hausdorff error is a real per-asset measurement rather than a constant (P5).
     regression/test_penetration_contract.cpp
 )
-sushi_configure_test_target(se_functional_tests)
+sushiengine_configure_test_target(sushiengine_functional_tests)
+# The target carries the repository's prefix so it cannot collide with a SushiRuntime one in the
+# single flat CMake namespace the two trees share; the file on disk keeps the short name, which
+# is what `se run se_functional_tests` looks for.
+set_target_properties(sushiengine_functional_tests PROPERTIES
+    OUTPUT_NAME se_functional_tests)
 # The input-bindings serialization test includes nlohmann/json directly.
-target_link_libraries(se_functional_tests PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(sushiengine_functional_tests PRIVATE nlohmann_json::nlohmann_json)
 # The signed-distance baker is the one compiled unit in the neutral geometry module;
 # everything else the tests reach there is header-only.
-target_link_libraries(se_functional_tests PRIVATE sushi_geometry)
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_geometry)
 # The cooking pipeline: the content hash and the two asset stores are compiled units;
 # the fidelity dial, the report and the seams are header-only.
-target_link_libraries(se_functional_tests PRIVATE sushi_cooking)
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_physics_cooking)
 # The global dynamical core and its Fourier transform are the two compiled units in
 # the neutral atmosphere module.
-target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_atmosphere)
 # The scene-serializer round-trip drives the real simulation behind IWorldEditor; the undo
 # stack, the preferences store, the autosave clock and the bake model are covered through the
 # same library the editor links rather than through translation units compiled in by hand.
-target_link_libraries(se_functional_tests
-    PRIVATE sushi_sim sushi_scene sushiengine_authoring)
+target_link_libraries(sushiengine_functional_tests
+    PRIVATE sushiengine_simulation sushiengine_serialization sushiengine_authoring)
 # The physics sample scene, as the library samples/ declares rather than as a translation unit
 # compiled in from another target's directory.
-target_link_libraries(se_functional_tests PRIVATE sushiengine_physics_sample_scene)
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_physics_sample_scene)
 # The terrain frame maths, by include path only -- it is header-only and Vulkan-free on
 # purpose, so this buys the coverage without linking the renderer into the test binary.
-target_include_directories(se_functional_tests
+target_include_directories(sushiengine_functional_tests
     PRIVATE "${CMAKE_SOURCE_DIR}/engine/presentation/render/source")
-# The glTF importers `sushi_sim` needs, as a module that links nothing rather than as
+# The glTF importers `sushiengine_simulation` needs, as a module that links nothing rather than as
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.
-target_link_libraries(se_functional_tests PRIVATE sushi_import)
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_gltf)
 # A test that imports a real glTF needs its path, and CTest's working directory is not the
 # source tree. An absolute source-dir path keeps the test independent of where it runs from.
-target_compile_definitions(se_functional_tests
+target_compile_definitions(sushiengine_functional_tests
     PRIVATE SE_TEST_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/models")
 
 # One label per group; the "functional" umbrella is expressed by the consumer as
 # a label regex (`ctest -L 'unit|integration|regression'`) rather than a second
 # baked-in label, which does not survive gtest_discover_tests on current CMake.
-gtest_discover_tests(se_functional_tests
+gtest_discover_tests(sushiengine_functional_tests
     DISCOVERY_MODE PRE_TEST
     TEST_FILTER "Unit_*"
     PROPERTIES LABELS "unit")
-gtest_discover_tests(se_functional_tests
+gtest_discover_tests(sushiengine_functional_tests
     DISCOVERY_MODE PRE_TEST
     TEST_FILTER "Integration_*"
     PROPERTIES LABELS "integration")
-gtest_discover_tests(se_functional_tests
+gtest_discover_tests(sushiengine_functional_tests
     DISCOVERY_MODE PRE_TEST
     TEST_FILTER "Regression_*"
     PROPERTIES LABELS "regression")

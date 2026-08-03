@@ -33,7 +33,7 @@
  * `RenderScene` into panel-drawn viewports wrapped in a dockspace, `PlayerApp` copies
  * the same snapshot straight onto the window: no picking, no gizmos, no undo, no
  * authoring panels — those are editor concerns and stay in `editor/`, which this
- * deliberately does not link (`applications/player/CMakeLists.txt` links no `sushi_imgui`).
+ * deliberately does not link (`applications/player/CMakeLists.txt` links no `sushiengine_imgui`).
  *
  * `start()`/`frame()`/`suspend()`/`resume()`/`shutdown()` are separate calls rather
  * than a constructor-owns-everything object because the shape assumes no particular

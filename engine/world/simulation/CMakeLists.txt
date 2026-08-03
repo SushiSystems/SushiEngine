@@ -15,30 +15,27 @@ sushiengine_add_module(NAME simulation LAYER world
     # The crowd skeletons and clips runtime_simulation.cpp imports from glTF, and the clock it
     # steps on; no header here names either.
     PRIVATE_DEPENDS gltf loop
-    # sushi_cooking is public because physics_simulation.hpp builds a soft body or a vehicle
-    # straight from a `.sushisoft`/`.sushinodebeam` blob and the loaders for both are compiled
-    # there. SushiEngine is private: runtime_simulation.cpp includes the umbrella header to
-    # assemble a whole world, but nothing this target publishes names it.
-    EXTERNAL_PUBLIC sushi_cooking
+    # sushiengine_physics_cooking is public because physics_simulation.hpp builds a soft body or
+    # a vehicle straight from a `.sushisoft`/`.sushinodebeam` blob and the loaders for both are
+    # compiled there. SushiEngine is private: runtime_simulation.cpp includes the umbrella header
+    # to assemble a whole world, but nothing this target publishes names it.
+    EXTERNAL_PUBLIC sushiengine_physics_cooking
     EXTERNAL_PRIVATE SushiEngine)
 
 # simulation.hpp hands the renderer a Render::SceneView, so every consumer resolves the renderer's
 # published headers through this target. The include root rather than the module: nothing here
-# calls into the renderer, and a configure with SE_BUILD_RENDER off has no library to link.
+# calls into the renderer, and a configure with SUSHIENGINE_BUILD_RENDER off has no library to link.
 target_include_directories(sushiengine_simulation
     PUBLIC "${CMAKE_SOURCE_DIR}/engine/presentation/render/include")
 
 # Position-independent because the shells that link it are, and SYCL-compiled because its one
 # source is device code; sushiengine_add_module() states neither.
 set_target_properties(sushiengine_simulation PROPERTIES POSITION_INDEPENDENT_CODE ON)
-sushi_apply_sycl(sushiengine_simulation SOURCES source/runtime_simulation.cpp)
+sushiengine_apply_sycl(sushiengine_simulation SOURCES source/runtime_simulation.cpp)
 
-# sushi_apply_sycl adds -fsycl PRIVATE, but a static library's device images are finalized at the
-# consuming executable's link, so the flag has to reach that link too. Propagating it PUBLIC is
-# what lets a plain add_executable link this target without repeating the policy.
+# sushiengine_apply_sycl adds -fsycl PRIVATE, but a static library's device images are finalized
+# at the consuming executable's link, so the flag has to reach that link too. Propagating it
+# PUBLIC is what lets a plain add_executable link this target without repeating the policy.
 if(SR_SYCL_TOOLCHAIN STREQUAL "intel-llvm")
     target_link_options(sushiengine_simulation PUBLIC -fsycl)
 endif()
-
-# The name the editor, the player, the sample-scene generator and the test suite link.
-add_library(sushi_sim ALIAS sushiengine_simulation)

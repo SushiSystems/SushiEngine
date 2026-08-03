@@ -10,7 +10,7 @@ sushiengine_add_module(NAME physics LAYER domain PUBLIC_DEPENDS core execution g
 # (docs/slop/physics_system.md §3.1, §8). Every consumer it has (the editor, the live
 # simulation, the test suite) is a runtime-lane target, and the native lane carries no target
 # it has not proved out, so it is declared on that lane only.
-if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
     # `CookingService` owns a worker thread, because §8.1 puts cooking off the main thread and
     # three seconds of frozen editor per dropped asset is a pipeline artists route around by
     # not dropping assets in. Threads is the only addition; the glTF importer is deliberately
@@ -18,7 +18,7 @@ if(SE_EXECUTION_BACKEND STREQUAL "runtime")
     # with no cgltf and no device.
     find_package(Threads REQUIRED)
 
-    add_library(sushi_cooking STATIC
+    add_library(sushiengine_physics_cooking STATIC
         source/cooking/cooking_parameters.cpp
         source/cooking/cooked_asset_store.cpp
         source/cooking/convex_decomposition.cpp
@@ -31,9 +31,9 @@ if(SE_EXECUTION_BACKEND STREQUAL "runtime")
         source/cooking/node_beam_cooker.cpp
         source/cooking/mesh_post_processor.cpp
         source/cooking/cooking_service.cpp)
-    target_link_libraries(sushi_cooking
+    target_link_libraries(sushiengine_physics_cooking
         PUBLIC sushiengine_physics sushiengine_geometry Threads::Threads)
-    set_target_properties(sushi_cooking PROPERTIES
+    set_target_properties(sushiengine_physics_cooking PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON)
 endif()

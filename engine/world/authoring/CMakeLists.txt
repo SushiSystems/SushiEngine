@@ -20,11 +20,11 @@ sushiengine_add_module(NAME authoring LAYER world
     # names either.
     PRIVATE_DEPENDS serialization
     # nlohmann_json is public because command_history.hpp holds a snapshot as a json document.
-    # sushi_cooking is public for the same reason: cook_bake_state.hpp is written against the
-    # cooking service and the three cooked asset kinds it produces.
-    EXTERNAL_PUBLIC nlohmann_json::nlohmann_json sushi_cooking)
+    # sushiengine_physics_cooking is public for the same reason: cook_bake_state.hpp is written
+    # against the cooking service and the three cooked asset kinds it produces.
+    EXTERNAL_PUBLIC nlohmann_json::nlohmann_json sushiengine_physics_cooking)
 
 # RenderSettings, which preferences.hpp persists as a host setting. The include root rather than
-# the module: a configure with SE_BUILD_RENDER off has no library to link.
+# the module: a configure with SUSHIENGINE_BUILD_RENDER off has no library to link.
 target_include_directories(sushiengine_authoring
     PUBLIC "${CMAKE_SOURCE_DIR}/engine/presentation/render/include")

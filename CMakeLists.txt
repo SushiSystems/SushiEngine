@@ -23,16 +23,16 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # true by then and this block is skipped). This is not optional plumbing: when
 # native is selected, the SushiRuntime subproject and its SYCL toolchain probe
 # are skipped entirely (below), which is the actual mechanism behind "no SYCL
-# toolchain needed" for a native build — gating sushi_apply_sycl() later, after
+# toolchain needed" for a native build — gating sushiengine_apply_sycl() later, after
 # project() already required a SYCL-capable compiler, would be too late.
-if(NOT DEFINED SE_EXECUTION_BACKEND)
-    set(SE_EXECUTION_BACKEND "runtime")
+if(NOT DEFINED SUSHIENGINE_EXECUTION_BACKEND)
+    set(SUSHIENGINE_EXECUTION_BACKEND "runtime")
 endif()
 
 # --- Pre-project: toolchain shaping -------------------------------------------
 include(Vcpkg)  # (Windows) locate vcpkg + set the toolchain file — needed by both
                 # backends (SDL2/GoogleTest/nlohmann_json all come from vcpkg too).
-if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
     include(Toolchain)  # pick the default SYCL compiler (clang++) before the probe
 endif()
 
@@ -40,12 +40,12 @@ project(SushiEngine VERSION 0.1.0 LANGUAGES CXX)
 
 # --- Post-project: options, runtime, SYCL policy ------------------------------
 include(ProjectOptions)  # C++17 baseline, cross-cutting options
-if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
     include(Runtime)         # add_subdirectory(sushiruntime) -> sushiruntime target,
                              # add_sycl_to_target(), SR_SYCL_TOOLCHAIN
-    include(SyclTarget)      # sushi_apply_sycl() / add_sushi_sycl_executable() helpers
+    include(SyclTarget)      # sushiengine_apply_sycl() / sushiengine_add_sycl_executable() helpers
 else()
-    include(NativeExecutionTarget)  # add_sushiengine_native_executable() helper
+    include(NativeExecutionTarget)  # sushiengine_add_native_executable() helper
 endif()
 
 # What a shell implies, settled here because engine/domain/{audio,input} read these options to
@@ -54,22 +54,22 @@ endif()
 # runs a live audio system (S9), so turning it on turns all three on. The player presents and
 # takes input the same way; audio is not forced on because PlayerApp's S5 skeleton has no live
 # audio system yet. Both shells exist on the runtime lane only, so the implication does too.
-if(SE_EXECUTION_BACKEND STREQUAL "runtime")
-    if(SE_BUILD_EDITOR)
-        set(SE_BUILD_RENDER ON)
-        set(SE_BUILD_INPUT ON)
-        set(SE_BUILD_AUDIO ON)
+if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
+    if(SUSHIENGINE_BUILD_EDITOR)
+        set(SUSHIENGINE_BUILD_RENDER ON)
+        set(SUSHIENGINE_BUILD_INPUT ON)
+        set(SUSHIENGINE_BUILD_AUDIO ON)
     endif()
-    if(SE_BUILD_PLAYER)
-        set(SE_BUILD_RENDER ON)
-        set(SE_BUILD_INPUT ON)
+    if(SUSHIENGINE_BUILD_PLAYER)
+        set(SUSHIENGINE_BUILD_RENDER ON)
+        set(SUSHIENGINE_BUILD_INPUT ON)
     endif()
 endif()
 
 # The engine's modules. Before the SushiEngine target below, which links what is
-# declared here — sushi_exec_native among them on the native lane. sushiengine_add_module()
-# grants each module its own include/ and checks its dependencies against the tier order
-# in cmake/EngineLayers.cmake.
+# declared here — sushiengine_execution_native among them on the native lane.
+# sushiengine_add_module() grants each module its own include/ and checks its dependencies
+# against the tier order in cmake/EngineLayers.cmake.
 include(Module)
 add_subdirectory(engine)
 
@@ -109,13 +109,13 @@ target_link_libraries(SushiEngine INTERFACE
 # clang/gcc only — MSVC's equivalent (/fp:strict) is not wired up here because the
 # engine's primary compiler is the intel/llvm clang++ SYCL toolchain.
 target_compile_options(SushiEngine INTERFACE
-    $<$<AND:$<BOOL:${SE_DETERMINISTIC_FP}>,$<CXX_COMPILER_ID:Clang,AppleClang,GNU>>:-fno-fast-math;-ffp-contract=off>)
+    $<$<AND:$<BOOL:${SUSHIENGINE_DETERMINISTIC_FP}>,$<CXX_COMPILER_ID:Clang,AppleClang,GNU>>:-fno-fast-math;-ffp-contract=off>)
 
 # --- Runtime-backend lane: the shells, the samples and the test suite ----------
 # All of it is SYCL/SushiRuntime-aware — the native lane below is deliberately
 # narrow (RUNTIME-PORT1) rather than an attempt to make all of this build without
 # a SYCL toolchain too; that is future, milestone-by-milestone work, not this one.
-if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
 
 # The host shader compiler and the headless probes. After the module tree because three of the
 # probes link the renderer, and on this lane only, because that is where they have always been
@@ -129,7 +129,7 @@ add_subdirectory(tools)
 # round-trip drives a real simulation through IWorldEditor rather than a mock, and a
 # tests-on/editor-off configure would otherwise have nothing to link. None of the three links
 # the renderer, so the tests lane pays three static libraries for them and no more.
-if(SE_BUILD_EDITOR OR SE_BUILD_TESTS OR SE_BUILD_PLAYER)
+if(SUSHIENGINE_BUILD_EDITOR OR SUSHIENGINE_BUILD_TESTS OR SUSHIENGINE_BUILD_PLAYER)
     add_subdirectory(engine/world/simulation)
     add_subdirectory(engine/world/serialization)
     add_subdirectory(engine/world/authoring)
@@ -137,30 +137,30 @@ endif()
 
 # The worked examples, on both execution lanes — samples/CMakeLists.txt picks the lane's own
 # executable helper and declares only sandbox and pgs_demo on the native one. After the world
-# tier because the physics sample scene links sushi_sim.
+# tier because the physics sample scene links sushiengine_simulation.
 add_subdirectory(samples)
 
-# sushi_platform: the window/lifecycle seam (IPlatformWindow) and its SDL2
+# sushiengine_platform: the window/lifecycle seam (IPlatformWindow) and its SDL2
 # implementation. Both the editor and the player need it and neither owns it, so it
 # is added once, ahead of both, guarded so turning both on in one configure does not
 # add_subdirectory() it twice. It is added from here rather than with the rest of
 # engine/foundation because its guard reads options settled further up this file.
-if((SE_BUILD_EDITOR OR SE_BUILD_PLAYER) AND NOT TARGET sushi_platform)
+if((SUSHIENGINE_BUILD_EDITOR OR SUSHIENGINE_BUILD_PLAYER) AND NOT TARGET sushiengine_platform)
     add_subdirectory(engine/foundation/platform)
 endif()
 
-# The two application shells, each behind its own option. After sushi_platform, which both
+# The two application shells, each behind its own option. After sushiengine_platform, which both
 # link and neither owns.
 add_subdirectory(applications)
 
 # One SYCL test binary against the real runtime (no mocks). OFF by default.
-if(SE_BUILD_TESTS)
+if(SUSHIENGINE_BUILD_TESTS)
     enable_testing()
     find_package(GTest CONFIG REQUIRED)
     add_subdirectory(tests)
 endif()
 
-else() # SE_EXECUTION_BACKEND STREQUAL "native"
+else() # SUSHIENGINE_EXECUTION_BACKEND STREQUAL "native"
 
 # Native lane (RUNTIME-PORT1): only the executables this milestone proves out —
 # no SYCL toolchain, no SushiRuntime subproject. samples/ declares sandbox and
@@ -173,12 +173,12 @@ else() # SE_EXECUTION_BACKEND STREQUAL "native"
 # nobody asked `cmake --build .` to actually build.
 add_subdirectory(samples)
 
-# se_native_execution_tests: the Execution-seam conformance cases (hazard
+# sushiengine_native_execution_tests: the Execution-seam conformance cases (hazard
 # vocabulary + DynamicGraph), run against NativeBackend instead of
 # SushiRuntime. Its own subdirectory, not tests/ itself — that target
-# (se_functional_tests) links sushi_sim/the scene serializers/sushi_import,
-# none of which this lane builds.
-if(SE_BUILD_TESTS)
+# (sushiengine_functional_tests) links sushiengine_simulation/the scene
+# serializers/sushiengine_gltf, none of which this lane builds.
+if(SUSHIENGINE_BUILD_TESTS)
     enable_testing()
     find_package(GTest CONFIG REQUIRED)
     add_subdirectory(tests/native_execution)

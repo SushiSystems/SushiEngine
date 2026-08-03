@@ -36,7 +36,7 @@
  * interleaves the result into SDL's output buffer.
  *
  * The header exposes no SDL type: the OS handle is held as an opaque `std::uint32_t`
- * (an `SDL_AudioDeviceID`), so a consumer includes this and links `sushi_audio`
+ * (an `SDL_AudioDeviceID`), so a consumer includes this and links `sushiengine_audio_backend`
  * without pulling SDL into its own translation unit — the same discipline that keeps
  * the input action layer SDL-free.
  */

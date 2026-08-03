@@ -38,7 +38,7 @@
  * so there is no explicit copy.
  *
  * This header uses `sycl` and SushiRuntime, so — unlike the rest of `include/SushiEngine/audio/`
- * — it must be included only from a **SYCL translation unit** (an `add_sushi_sycl_executable`
+ * — it must be included only from a **SYCL translation unit** (a `sushiengine_add_sycl_executable`
  * target). It is deliberately kept off the `audio/audio.hpp` umbrella for that reason. The
  * runtime's fluent API is unstable, so the coupling is confined to this one file
  * (`unsafe_context()` → queue + USM); a failure to acquire a device leaves @ref available

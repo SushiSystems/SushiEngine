@@ -27,11 +27,12 @@
  * @file climatology_asset.hpp
  * @brief Reads T0's baked climatology off disk (`docs/slop/atmosphere_system.md` §4).
  *
- * **This file exists because `sushi_atmosphere` links nothing.** `Atmosphere::Climatology` is a
- * value that adopts bytes; it deliberately cannot open a file, so that the same object serves the
- * editor, a headless probe and a unit test without two of those three growing a filesystem
- * dependency. Somebody still has to do the reading, and this is the smallest possible somebody:
- * one function, on the simulation side, where a path is already an ordinary thing to have.
+ * **This file exists because `sushiengine_atmosphere` links nothing.**
+ * `Atmosphere::Climatology` is a value that adopts bytes; it deliberately cannot open a file, so
+ * that the same object serves the editor, a headless probe and a unit test without two of those
+ * three growing a filesystem dependency. Somebody still has to do the reading, and this is the
+ * smallest possible somebody: one function, on the simulation side, where a path is already an
+ * ordinary thing to have.
  *
  * It is the only place in the engine that names the asset.
  */

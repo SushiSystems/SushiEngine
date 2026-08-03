@@ -169,6 +169,18 @@ function(sushiengine_add_module)
     endif()
 
     set(target "sushiengine_${ARG_NAME}")
+    if(TARGET ${target})
+        # CMake would refuse this too, but only with "target already exists", which sends
+        # the reader looking for a second sushiengine_add_module() call that is not there.
+        # The real cause is that the manifest names the application tier's components and
+        # the shells are executables carrying those very names — sushiengine_editor and
+        # sushiengine_player. A module and a shell may not both claim one name.
+        message(FATAL_ERROR
+            "sushiengine_add_module(${ARG_NAME}): '${target}' is already a target. Some other "
+            "declaration in this configure — an executable shell, most likely — has taken the "
+            "name. Rename one of the two; do not add an alias.")
+    endif()
+
     set(module_sources "")
     foreach(source IN LISTS ARG_SOURCES)
         list(APPEND module_sources "${CMAKE_CURRENT_SOURCE_DIR}/${source}")

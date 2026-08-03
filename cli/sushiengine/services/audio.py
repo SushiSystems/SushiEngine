@@ -1,7 +1,7 @@
 """Audio build-and-run logic.
 
 The audio backend is a separate, runtime-independent target gated behind
-SE_BUILD_AUDIO. `se audio` reconfigures in place with that flag on (cheap and
+SUSHIENGINE_BUILD_AUDIO. `se audio` reconfigures in place with that flag on (cheap and
 incremental — it does not wipe the build tree), builds the `audio_demo` target (the
 phase S0 silent block-producing vertical slice), and runs it. It needs only the SDL2
 vcpkg package the editor and input backend already require (`ss install`).
@@ -30,7 +30,7 @@ def build_and_run(run: bool = True) -> int:
     # In-place configure with the audio flag on. Re-running configure is cheap;
     # CMake picks up the changed -D without a clean rebuild of the runtime.
     args = project._configure_args(cfg, root, build_dir, "Release", tests=False)
-    args.append("-DSE_BUILD_AUDIO=ON")
+    args.append("-DSUSHIENGINE_BUILD_AUDIO=ON")
     console.info("Configuring (audio ON)...")
     if (rc := project._run(args, env, cwd=root)) != 0:
         console.error("CMake configure failed.")

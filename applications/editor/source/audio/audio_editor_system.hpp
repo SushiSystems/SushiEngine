@@ -40,7 +40,8 @@
  * telemetry, which the Audio Mixer and Audio Profiler panels read.
  *
  * This is not a SYCL translation unit and holds no runtime dependency — it links
- * `sushi_audio` (the SDL device) exactly as the editor already links `sushi_input`.
+ * `sushiengine_audio_backend` (the SDL device) exactly as the editor already links
+ * `sushiengine_input_backend`.
  */
 
 #include <cstdint>

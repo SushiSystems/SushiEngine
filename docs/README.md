@@ -115,12 +115,12 @@ the configure line by hand.
 
 | Command | What it does |
 |---|---|
-| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. |
+| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SUSHIENGINE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. |
 | `se test [--suite unit\|regression\|integration\|functional\|all] [--filter <regex>] [--repeat N]` | Run the suite via CTest labels (`functional` is the default, matching `unit\|integration\|regression`). `--filter` is a `ctest -R` regex over `Suite.Case` names. `--repeat N` re-runs until the first failure. |
 | `se run [target] [--sort] [-- args…]` | Run a built executable (default target: `sandbox`). Matches exactly, then by substring. `--sort` picks one interactively. Arguments after `--` are forwarded. |
-| `se editor [--type release\|debug\|relwithdebinfo] [--no-run]` | Build the ImGui editor (`SE_BUILD_EDITOR=ON`, its own `build-editor/` tree so it never clobbers `se build`'s `CMAKE_BUILD_TYPE`) and launch it. `--no-run` builds only. |
-| `se render [--no-run]` | Build and run the headless Vulkan `render_probe` smoke test (`SE_BUILD_RENDER=ON`). |
-| `se audio [--no-run]` | Build and run the audio demo (`SE_BUILD_AUDIO=ON`). |
+| `se editor [--type release\|debug\|relwithdebinfo] [--no-run]` | Build the ImGui editor (`SUSHIENGINE_BUILD_EDITOR=ON`, its own `build-editor/` tree so it never clobbers `se build`'s `CMAKE_BUILD_TYPE`) and launch it. `--no-run` builds only. |
+| `se render [--no-run]` | Build and run the headless Vulkan `render_probe` smoke test (`SUSHIENGINE_BUILD_RENDER=ON`). |
+| `se audio [--no-run]` | Build and run the audio demo (`SUSHIENGINE_BUILD_AUDIO=ON`). |
 | `se clean` | Remove the `build/` tree. |
 | `se doxygen` | Generate Doxygen documentation. |
 | `se config` | Print the resolved config and each value's source. |
@@ -152,12 +152,12 @@ Every build option is off by default and additive:
 
 | Option | Default | Gates |
 |---|---|---|
-| `SE_BUILD_TESTS` | OFF | `tests/` (GoogleTest, `se_functional_tests`) |
-| `SE_BUILD_RENDER` | OFF | `render/` — the Vulkan library and `render_probe` |
-| `SE_BUILD_INPUT` | OFF | `input/` — the SDL input translator |
-| `SE_BUILD_AUDIO` | OFF | `audio/` and its 21 `audio_*_demo` executables |
-| `SE_BUILD_EDITOR` | OFF | `editor/` and `sim/`; also forces `SE_BUILD_RENDER`, `SE_BUILD_INPUT`, and `SE_BUILD_AUDIO` to `ON` |
-| `SE_DETERMINISTIC_FP` | ON | `-fno-fast-math -ffp-contract=off` on Clang/AppleClang/GNU |
+| `SUSHIENGINE_BUILD_TESTS` | OFF | `tests/` (GoogleTest, `se_functional_tests`) |
+| `SUSHIENGINE_BUILD_RENDER` | OFF | `render/` — the Vulkan library and `render_probe` |
+| `SUSHIENGINE_BUILD_INPUT` | OFF | `input/` — the SDL input translator |
+| `SUSHIENGINE_BUILD_AUDIO` | OFF | `audio/` and its 21 `audio_*_demo` executables |
+| `SUSHIENGINE_BUILD_EDITOR` | OFF | `editor/` and `sim/`; also forces `SUSHIENGINE_BUILD_RENDER`, `SUSHIENGINE_BUILD_INPUT`, and `SUSHIENGINE_BUILD_AUDIO` to `ON` |
+| `SUSHIENGINE_DETERMINISTIC_FP` | ON | `-fno-fast-math -ffp-contract=off` on Clang/AppleClang/GNU |
 
 **`Scalar` is always `double`** (`include/SushiEngine/core/types.hpp`), with no
 build option or CLI flag to change it — the engine's world is planet- and
@@ -370,7 +370,7 @@ feeding the renderer's GPU-simulated and mesh-particle passes.
 
 ### Simulation seam (`sim/`)
 The one compiled library outside an example that owns device code end to end,
-`sushi_sim`, behind the plain-C++ `ISimulation` seam. It owns a
+`sushiengine_simulation`, behind the plain-C++ `ISimulation` seam. It owns a
 `SushiRuntime::API::Runtime`, a `World`, and a `Schedule`; every archetype is
 pre-reserved up front so editor-driven creates never trigger a mid-run
 allocation. Each `tick()` runs the schedule, then an extract pass copies the
@@ -409,9 +409,9 @@ include/SushiEngine/   Header-only engine core
   SushiEngine.hpp        Umbrella header
 sandbox/                 The ECS worked example, its own single-TU SYCL executable
 examples/                ~50 topic demos: physics, animation, audio, VFX, UI, networking
-render/                  Compiled Vulkan 1.4 renderer library (sushi_render) + render_probe
-sim/                     The sushi_sim library: runtime_simulation.cpp behind ISimulation
-audio/                   Compiled SDL-backed audio device (sushi_audio)
+render/                  Compiled Vulkan 1.4 renderer library (sushiengine_render) + render_probe
+sim/                     The sushiengine_simulation library: runtime_simulation.cpp behind ISimulation
+audio/                   Compiled SDL-backed audio device (sushiengine_audio_backend)
 input/                   Compiled SDL-backed input device
 editor/                  The SDL2 + Dear ImGui editor shell (se_editor)
 tests/

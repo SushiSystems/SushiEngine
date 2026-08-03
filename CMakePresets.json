@@ -22,8 +22,8 @@
       "description": "What `se build` configures: the SushiRuntime execution backend with the test suite compiled and the samples gated off.",
       "binaryDir": "${sourceDir}/build/default",
       "cacheVariables": {
-        "SE_BUILD_TESTS": "ON",
-        "SE_BUILD_EXAMPLES": "OFF"
+        "SUSHIENGINE_BUILD_TESTS": "ON",
+        "SUSHIENGINE_BUILD_EXAMPLES": "OFF"
       }
     },
     {
@@ -33,9 +33,9 @@
       "description": "The SYCL-free lane: no SushiRuntime subproject, and samples/ declares only sandbox and pgs_demo. Its own tree because a native cache cannot be reused by the runtime lane.",
       "binaryDir": "${sourceDir}/build/native",
       "cacheVariables": {
-        "SE_EXECUTION_BACKEND": "native",
-        "SE_BUILD_TESTS": "ON",
-        "SE_BUILD_EXAMPLES": "OFF"
+        "SUSHIENGINE_EXECUTION_BACKEND": "native",
+        "SUSHIENGINE_BUILD_TESTS": "ON",
+        "SUSHIENGINE_BUILD_EXAMPLES": "OFF"
       }
     },
     {
@@ -45,9 +45,9 @@
       "description": "What `se editor` configures. Turning the editor on turns render, input and audio on inside CMakeLists.txt, so they are not repeated here.",
       "binaryDir": "${sourceDir}/build/editor",
       "cacheVariables": {
-        "SE_BUILD_EDITOR": "ON",
-        "SE_BUILD_TESTS": "OFF",
-        "SE_BUILD_EXAMPLES": "OFF"
+        "SUSHIENGINE_BUILD_EDITOR": "ON",
+        "SUSHIENGINE_BUILD_TESTS": "OFF",
+        "SUSHIENGINE_BUILD_EXAMPLES": "OFF"
       }
     },
     {
@@ -57,9 +57,9 @@
       "description": "What `se player` configures. Turning the player on turns render and input on inside CMakeLists.txt, so they are not repeated here.",
       "binaryDir": "${sourceDir}/build/player",
       "cacheVariables": {
-        "SE_BUILD_PLAYER": "ON",
-        "SE_BUILD_TESTS": "OFF",
-        "SE_BUILD_EXAMPLES": "OFF"
+        "SUSHIENGINE_BUILD_PLAYER": "ON",
+        "SUSHIENGINE_BUILD_TESTS": "OFF",
+        "SUSHIENGINE_BUILD_EXAMPLES": "OFF"
       }
     }
   ]

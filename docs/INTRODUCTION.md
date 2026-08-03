@@ -186,7 +186,7 @@ int main()
 
 Declare your `.cpp` as its own target in the root `CMakeLists.txt` (there is no
 separate `examples/CMakeLists.txt` — every example is its own single-TU SYCL
-executable declared with `add_sushi_sycl_executable(name examples/name.cpp)`,
+executable declared with `sushiengine_add_sycl_executable(name examples/name.cpp)`,
 right alongside the ~50 existing ones), then build and run through the CLI:
 
 ```bash

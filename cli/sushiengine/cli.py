@@ -55,10 +55,10 @@ def build(
         False, "--clean", help="Delete the build tree before configuring."),
     no_test: bool = typer.Option(
         False, "--no-test",
-        help="Skip compiling the test suite (SE_BUILD_TESTS=OFF). Tests build by default."),
+        help="Skip compiling the test suite (SUSHIENGINE_BUILD_TESTS=OFF). Tests build by default."),
     examples: bool = typer.Option(
         False, "--examples",
-        help="Also build the worked examples under samples/ (SE_BUILD_EXAMPLES=ON), "
+        help="Also build the worked examples under samples/ (SUSHIENGINE_BUILD_EXAMPLES=ON), "
              "which `se run <demo>` needs. Off by default: each demo is its own "
              "SYCL device compile."),
 ):
@@ -128,7 +128,7 @@ def editor(
     no_run: bool = typer.Option(
         False, "--no-run", help="Build the editor but do not launch it."),
 ):
-    """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON).
+    """Build and launch the ImGui editor (configures with SUSHIENGINE_BUILD_EDITOR=ON).
 
     Uses its own build/editor tree, separate from `se build`'s build/default, so
     the two never clobber each other's CMAKE_BUILD_TYPE.
@@ -149,7 +149,7 @@ def player(
     no_run: bool = typer.Option(
         False, "--no-run", help="Build the player but do not launch it."),
 ):
-    """Build and launch the ImGui-free player (configures with SE_BUILD_PLAYER=ON).
+    """Build and launch the ImGui-free player (configures with SUSHIENGINE_BUILD_PLAYER=ON).
 
     Uses its own build/player tree, separate from `se build`'s build/default, so
     the two never clobber each other's CMAKE_BUILD_TYPE. Arguments after `--` are
@@ -179,7 +179,7 @@ def render(
              "'atmosphere' (steps the regional nest and reports its column), or "
              "'golden' (RHI0's whole-frame and per-pass regression oracle)."),
 ):
-    """Build and run a headless Vulkan probe (configures with SE_BUILD_RENDER=ON).
+    """Build and run a headless Vulkan probe (configures with SUSHIENGINE_BUILD_RENDER=ON).
 
     Arguments after the options are passed through to the probe, so
     `se render --probe atmosphere -- --hours 3 --profile p.csv` works.
@@ -196,7 +196,7 @@ def audio(
     no_run: bool = typer.Option(
         False, "--no-run", help="Build the audio demo but do not run it."),
 ):
-    """Build and run the audio demo (configures with SE_BUILD_AUDIO=ON).
+    """Build and run the audio demo (configures with SUSHIENGINE_BUILD_AUDIO=ON).
 
     The phase S0 vertical slice: the silent block-producing device loop over the
     SDL2 backend. Verifies the block loop in software, then best-effort opens a real

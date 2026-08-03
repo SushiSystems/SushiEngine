@@ -36,7 +36,7 @@
  *
  * Header-only and link-free on purpose, like `atmosphere_nest.hpp`: the editor
  * persists these, the renderer's probe maps `--tier` through the same table, and the
- * tests pin the table — none of them should need `sushi_sim` linked to do so.
+ * tests pin the table — none of them should need `sushiengine_simulation` linked to do so.
  */
 
 #include <SushiEngine/environment/atmosphere_nest.hpp>

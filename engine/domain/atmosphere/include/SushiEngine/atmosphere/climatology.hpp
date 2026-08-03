@@ -31,7 +31,7 @@
  * here, at this time of year", and the global core (§5) relaxes toward it while the eddies it
  * grows are, by definition, everything this cannot say.
  *
- * The type is a value, and it does no I/O. `sushi_atmosphere` links nothing (see its
+ * The type is a value, and it does no I/O. `sushiengine_atmosphere` links nothing (see its
  * `CMakeLists.txt`) and that is not a stylistic preference — the same object has to serve the
  * editor, a headless probe and a unit test, and two of those three have no business opening a
  * file. So a `Climatology` is either constructed analytically or handed bytes somebody else

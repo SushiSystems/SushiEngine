@@ -9,10 +9,10 @@ sushiengine_add_module(NAME audio LAYER domain PUBLIC_DEPENDS core)
 # device's own callback thread. Its own target rather than part of the module, because the
 # module has to exist for every configure while this needs SDL2 — a plain configure asks for
 # no audio packages at all, and `se audio` or the editor turns the option on.
-if(SE_BUILD_AUDIO)
+if(SUSHIENGINE_BUILD_AUDIO)
     find_package(SDL2 CONFIG REQUIRED)
 
-    add_library(sushi_audio STATIC
+    add_library(sushiengine_audio_backend STATIC
         source/backend/sdl/sdl_audio_device.cpp
         source/backend/miniaudio/ma_audio_device.cpp
         source/backend/miniaudio/miniaudio_impl.cpp)
@@ -21,17 +21,18 @@ if(SE_BUILD_AUDIO)
     # <miniaudio/ma_audio_device.hpp>, so the directory holding both is public. SDL2 is
     # private: the device header keeps the OS handle as an opaque integer, so SDL never leaks
     # into a consumer's translation unit.
-    target_include_directories(sushi_audio
+    target_include_directories(sushiengine_audio_backend
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/source/backend"
         PRIVATE "${CMAKE_SOURCE_DIR}/third_party/miniaudio")
-    target_link_libraries(sushi_audio PUBLIC sushiengine_audio PRIVATE SDL2::SDL2)
+    target_link_libraries(sushiengine_audio_backend PUBLIC sushiengine_audio PRIVATE SDL2::SDL2)
     # miniaudio drives the OS backends itself (runtime-loaded on Windows); on Unix it needs
     # the usual dl/pthread/math libs.
     if(NOT WIN32)
         find_package(Threads REQUIRED)
-        target_link_libraries(sushi_audio PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
+        target_link_libraries(sushiengine_audio_backend
+            PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
     endif()
-    set_target_properties(sushi_audio PROPERTIES
+    set_target_properties(sushiengine_audio_backend PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON)
 

@@ -7,18 +7,18 @@ sushiengine_add_module(NAME input LAYER domain PUBLIC_DEPENDS ui)
 # already-pumped SDL_Event records into engine InputEvents. Its own target rather than part of
 # the module, because the module has to exist for every configure while this needs SDL2 — the
 # editor and the player force the option on because their windows feed the translator.
-if(SE_BUILD_INPUT)
+if(SUSHIENGINE_BUILD_INPUT)
     find_package(SDL2 CONFIG REQUIRED)
 
-    add_library(sushi_input STATIC source/backend/sdl/sdl_input_translator.cpp)
+    add_library(sushiengine_input_backend STATIC source/backend/sdl/sdl_input_translator.cpp)
 
     # Consumers name the translator <sdl/sdl_input_translator.hpp>, so the directory holding it
     # is public. SDL2 is private: the header crosses native events as const void*, so SDL never
     # leaks into a consumer's translation unit.
-    target_include_directories(sushi_input
+    target_include_directories(sushiengine_input_backend
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/source/backend")
-    target_link_libraries(sushi_input PUBLIC sushiengine_input PRIVATE SDL2::SDL2)
-    set_target_properties(sushi_input PROPERTIES
+    target_link_libraries(sushiengine_input_backend PUBLIC sushiengine_input PRIVATE SDL2::SDL2)
+    set_target_properties(sushiengine_input_backend PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON)
 endif()

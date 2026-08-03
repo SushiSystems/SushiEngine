@@ -28,10 +28,10 @@
  * @brief Turns the simulation's epoch into the position in the year T0 is indexed by.
  *
  * **This lives on the simulation side because the atmosphere does not know what a calendar
- * is, and should not learn.** `sushi_atmosphere` is engine-neutral (see its `CMakeLists.txt`):
- * `Climatology` and `QuasiGeostrophicCore` speak in a year fraction, which is a position in an
- * abstract cycle and works for any body with any period. A Julian Date is a fact about Earth's
- * civil calendar, and this is the seam where one becomes the other.
+ * is, and should not learn.** `sushiengine_atmosphere` is engine-neutral (see its
+ * `CMakeLists.txt`): `Climatology` and `QuasiGeostrophicCore` speak in a year fraction, which is
+ * a position in an abstract cycle and works for any body with any period. A Julian Date is a
+ * fact about Earth's civil calendar, and this is the seam where one becomes the other.
  */
 
 #include <cmath>

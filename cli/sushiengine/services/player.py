@@ -1,9 +1,10 @@
 """Player build-and-run logic.
 
 The ImGui-free runtime shell (PLATFORM0 S5) is a separate, ImGui-independent
-target gated behind SE_BUILD_PLAYER. `se player` reconfigures in place with
+target gated behind SUSHIENGINE_BUILD_PLAYER. `se player` reconfigures in place with
 that flag on (cheap and incremental — it does not wipe the build tree),
-builds only the `se_player` target, and launches it. Arguments after `--`
+builds only the `sushiengine_player` target, and launches the `se_player`
+binary it produces. Arguments after `--`
 are forwarded to it, so `se player -- --scene physics_sample.sushiscene
 --validation` works — see `applications/player/source/main.cpp` for what it accepts.
 """
@@ -43,7 +44,7 @@ def build_and_run(run: bool = True, build_type: BuildType = BuildType.release,
     # In-place configure with the player flag on. Re-running configure is cheap;
     # CMake picks up the changed -D without a clean rebuild of the runtime.
     configure = project._configure_args(cfg, root, build_dir, cmake_build_type, tests=False)
-    configure.append("-DSE_BUILD_PLAYER=ON")
+    configure.append("-DSUSHIENGINE_BUILD_PLAYER=ON")
     console.info(f"Configuring (player ON, type={build_type.value})...")
     if (rc := project._run(configure, env, cwd=root)) != 0:
         console.error("CMake configure failed.")
@@ -52,7 +53,7 @@ def build_and_run(run: bool = True, build_type: BuildType = BuildType.release,
     console.info("Building se_player...")
     rc = project._run(
         [project._cmake(cfg), "--build", str(build_dir),
-         "--config", cmake_build_type, "--target", "se_player"],
+         "--config", cmake_build_type, "--target", "sushiengine_player"],
         env, cwd=root)
     if rc != 0:
         console.error("Player build failed.")
@@ -62,6 +63,8 @@ def build_and_run(run: bool = True, build_type: BuildType = BuildType.release,
     if not run:
         return 0
 
+    # The binary keeps the short name the target no longer has (OUTPUT_NAME in
+    # applications/player/CMakeLists.txt), so this is not the string built above.
     exe = discovery.match_by_name(build_dir, "se_player")
     if exe is None:
         console.error("se_player binary not found after build.")

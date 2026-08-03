@@ -36,7 +36,7 @@
  *  - `Key` is numbered by USB HID keyboard usage IDs (the same table SDL scancodes
  *    are built on), so the numbering is physical-position based and layout- and
  *    library-independent. A translator that maps an SDL scancode to a @ref Key is a
- *    reinterpretation, not a lookup table (`sushi_input` relies on this).
+ *    reinterpretation, not a lookup table (`sushiengine_input_backend` relies on this).
  *
  * The action layer above never branches on device family; these enums exist so a
  * @ref ControlPath can name a control once, in a binding, and be forgotten.

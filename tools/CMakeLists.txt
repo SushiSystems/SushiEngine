@@ -4,7 +4,7 @@
 
 # The shader compiler is the renderer's build step, so it exists exactly where the renderer does
 # and needs the same glslang package the option provisions.
-if(SE_BUILD_RENDER)
+if(SUSHIENGINE_BUILD_RENDER)
     add_subdirectory(shader_compiler)
 endif()
 
