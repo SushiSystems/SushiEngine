@@ -34,7 +34,7 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            DofPass::DofPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            DOFPass::DOFPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Scene::SceneLayout& layout)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout)
@@ -42,24 +42,24 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            DofPass::~DofPass() { destroy_pipeline(); }
+            DOFPass::~DOFPass() { destroy_pipeline(); }
 
-            void DofPass::create_pipeline()
+            void DOFPass::create_pipeline()
             {
                 pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("dof.frag"), Frame::HDR_FORMAT));
             }
 
-            void DofPass::destroy_pipeline() { pipeline_ = Resources::PipelineHandle{}; }
+            void DOFPass::destroy_pipeline() { pipeline_ = Resources::PipelineHandle{}; }
 
-            void DofPass::rebuild_pipelines()
+            void DOFPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            void DofPass::register_pass(Graph::RenderGraph& graph,
+            void DOFPass::register_pass(Graph::RenderGraph& graph,
                                         const Frame::FrameContext& frame)
             {
                 if (!frame.targets.dof.valid())

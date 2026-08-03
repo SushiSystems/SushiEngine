@@ -179,7 +179,7 @@ namespace SushiEngine
                     // this file's header comment on why a joint can never move its own position.
                     const Vector3 rest_direction = normalize(rest_position - parent_position);
                     const Vector3 sim_direction = normalize(new_position - parent_position);
-                    const Quaternion delta = detail::rotation_between(rest_direction, sim_direction);
+                    const Quaternion delta = Detail::rotation_between(rest_direction, sim_direction);
                     const Quaternion current_world = context.rotation(parent);
                     context.set_rotation(parent, mul(delta, current_world));
                     context.recompose();

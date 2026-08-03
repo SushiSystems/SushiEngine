@@ -42,7 +42,7 @@
 
 #include <SushiEngine/animation/clip.hpp>
 #include <SushiEngine/animation/skeleton.hpp>
-#include <SushiEngine/animation/skeleton_blob.hpp> // detail::align_up
+#include <SushiEngine/animation/skeleton_blob.hpp> // Detail::align_up
 
 namespace SushiEngine
 {
@@ -133,11 +133,11 @@ namespace SushiEngine
             for (std::size_t i = 0; i < generic_count; ++i)
                 generic_hashes[i] = hash_name(description.generic_names[i].c_str());
 
-            std::size_t cursor = detail::align_up(sizeof(ClipBlobHeader), 16);
+            std::size_t cursor = Detail::align_up(sizeof(ClipBlobHeader), 16);
             const auto section = [&cursor](std::size_t bytes) -> std::size_t
             {
                 const std::size_t offset = cursor;
-                cursor = detail::align_up(cursor + bytes, 16);
+                cursor = Detail::align_up(cursor + bytes, 16);
                 return offset;
             };
             const std::size_t translations_offset = section(element_count * sizeof(Vector3f));

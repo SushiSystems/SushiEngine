@@ -78,7 +78,7 @@ namespace SushiEngine
             Quaternionf dual{0.0f, 0.0f, 0.0f, 0.0f};
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Component-wise quaternion scale (no arithmetic operators on QuaternionT). */
             inline Quaternionf quat_scale(const Quaternionf& q, float s) noexcept
@@ -103,7 +103,7 @@ namespace SushiEngine
             {
                 return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Builds a unit dual quaternion from a rigid rotation and translation.
@@ -117,7 +117,7 @@ namespace SushiEngine
             DualQuaternion dq;
             dq.real = normalize(rotation);
             const Quaternionf translation_quat{translation.x, translation.y, translation.z, 0.0f};
-            dq.dual = detail::quat_scale(mul(translation_quat, dq.real), 0.5f);
+            dq.dual = Detail::quat_scale(mul(translation_quat, dq.real), 0.5f);
             return dq;
         }
 
@@ -161,25 +161,25 @@ namespace SushiEngine
             {
                 if (weights[i] <= 0.0f)
                     continue;
-                const float sign = detail::quat_dot4(reference, dual_quaternions[i].real) < 0.0f
+                const float sign = Detail::quat_dot4(reference, dual_quaternions[i].real) < 0.0f
                                        ? -1.0f
                                        : 1.0f;
                 const float w = weights[i] * sign;
-                real_sum = detail::quat_add(real_sum, detail::quat_scale(dual_quaternions[i].real, w));
-                dual_sum = detail::quat_add(dual_sum, detail::quat_scale(dual_quaternions[i].dual, w));
+                real_sum = Detail::quat_add(real_sum, Detail::quat_scale(dual_quaternions[i].real, w));
+                dual_sum = Detail::quat_add(dual_sum, Detail::quat_scale(dual_quaternions[i].dual, w));
             }
 
-            const float norm = detail::quat_norm(real_sum);
+            const float norm = Detail::quat_norm(real_sum);
             if (norm <= 1e-8f)
                 return DualQuaternion{};
             const float inv_norm = 1.0f / norm;
-            const Quaternionf real_n = detail::quat_scale(real_sum, inv_norm);
+            const Quaternionf real_n = Detail::quat_scale(real_sum, inv_norm);
             // Project the dual part onto the tangent space of the normalized real part —
             // dividing by the norm alone (as if this were a plain quaternion) would leave the
             // result off the dual-quaternion unit manifold; Kavan et al. eq. 23-24.
-            const float projection = detail::quat_dot4(real_n, dual_sum) * inv_norm;
-            const Quaternionf dual_n = detail::quat_add(
-                detail::quat_scale(dual_sum, inv_norm), detail::quat_scale(real_n, -projection));
+            const float projection = Detail::quat_dot4(real_n, dual_sum) * inv_norm;
+            const Quaternionf dual_n = Detail::quat_add(
+                Detail::quat_scale(dual_sum, inv_norm), Detail::quat_scale(real_n, -projection));
 
             DualQuaternion result;
             result.real = real_n;

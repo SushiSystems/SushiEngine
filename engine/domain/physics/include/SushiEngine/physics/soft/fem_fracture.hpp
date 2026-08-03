@@ -177,7 +177,7 @@ namespace SushiEngine
             std::uint32_t original_particle_count = 0;
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Trivial union-find over particle indices, path-compressed. */
             class FEMUnionFind
@@ -289,7 +289,7 @@ namespace SushiEngine
             {
                 return shared_vertex_count(a, b) >= 3;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Rebuilds a model's boundary from the elements it has left.
@@ -462,7 +462,7 @@ namespace SushiEngine
                         {
                             if (component[other] != 0xFFFFFFFFu)
                                 continue;
-                            if (!detail::joined_through_vertex(model.elements[star[current]],
+                            if (!Detail::joined_through_vertex(model.elements[star[current]],
                                                                model.elements[star[other]]))
                                 continue;
                             component[other] = label;
@@ -580,7 +580,7 @@ namespace SushiEngine
                         trial.push_back(model.elements[i]);
 
                 std::vector<std::uint32_t> component_of;
-                const std::uint32_t component_count = detail::connect_elements_by_shared_vertex(
+                const std::uint32_t component_count = Detail::connect_elements_by_shared_vertex(
                     trial, model.particles.size(), component_of);
 
                 std::vector<std::uint32_t> component_size(component_count, 0);

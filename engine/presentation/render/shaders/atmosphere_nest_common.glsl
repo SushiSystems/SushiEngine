@@ -17,8 +17,8 @@
 // Parameters, uploaded once per step. std140 packs a flat run of floats and ints tightly (only
 // vec3 and arrays carry surprises), so this is written in named fields rather than packed
 // vec4s — it is read in a dozen places and the packing would cost more than it saves. Mirrors
-// AtmosphereNestPass::NestParams field for field.
-layout(set = 0, binding = 0) uniform NestParams
+// AtmosphereNestPass::NestParameters field for field.
+layout(set = 0, binding = 0) uniform NestParameters
 {
     // Thermodynamics of moist air.
     float gas_constant_dry;

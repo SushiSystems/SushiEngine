@@ -92,7 +92,7 @@ namespace SushiEngine
             std::uint32_t bit_offset = 0;     /**< First bit of this segment in the bitstream. */
         };
 
-        namespace detail
+        namespace Detail
         {
             /**
              * @brief Reads @p count bits (LSB-first) at an absolute bit position.
@@ -124,7 +124,7 @@ namespace SushiEngine
                 const float denominator = static_cast<float>((1u << bits) - 1u);
                 return minimum + extent * (static_cast<float>(code) / denominator);
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief A non-owning view of a compressed clip's flat tables (aliases the blob).
@@ -164,14 +164,14 @@ namespace SushiEngine
                 const std::uint32_t bits_per_frame = 2 + 3 * bits; // 2-bit dropped index + 3 comps
                 std::uint64_t bit = info.bit_offset +
                                     static_cast<std::uint64_t>(frame_in_segment) * bits_per_frame;
-                const std::uint32_t dropped = detail::read_bits(bitstream, bit, 2);
+                const std::uint32_t dropped = Detail::read_bits(bitstream, bit, 2);
                 bit += 2;
                 float component[3];
                 for (int k = 0; k < 3; ++k)
                 {
-                    const std::uint32_t code = detail::read_bits(bitstream, bit, bits);
+                    const std::uint32_t code = Detail::read_bits(bitstream, bit, bits);
                     bit += bits;
-                    component[k] = detail::dequantize(code, bits, info.minimum[k], info.extent[k]);
+                    component[k] = Detail::dequantize(code, bits, info.minimum[k], info.extent[k]);
                 }
                 // Reconstruct the dropped (largest-magnitude) component with a positive sign;
                 // a quaternion and its negation are the same rotation, so the canonicalization
@@ -227,9 +227,9 @@ namespace SushiEngine
                 float component[3];
                 for (int k = 0; k < 3; ++k)
                 {
-                    const std::uint32_t code = detail::read_bits(bitstream, bit, bits);
+                    const std::uint32_t code = Detail::read_bits(bitstream, bit, bits);
                     bit += bits;
-                    component[k] = detail::dequantize(code, bits, info.minimum[k], info.extent[k]);
+                    component[k] = Detail::dequantize(code, bits, info.minimum[k], info.extent[k]);
                 }
                 return Vector3f{component[0], component[1], component[2]};
             }

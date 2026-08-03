@@ -357,7 +357,7 @@ namespace SushiEngine
             return heliocentric_ecliptic_position(element_at(keplerian_elements_for(body), centuries));
         }
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Sine of an angle given in degrees. */
             inline double sin_degrees(double degrees) noexcept
@@ -370,7 +370,7 @@ namespace SushiEngine
             {
                 return std::cos(degrees * DEGREES_TO_RADIANS);
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Geocentric J2000 ecliptic position of the Moon, in astronomical units.
@@ -386,8 +386,8 @@ namespace SushiEngine
          */
         inline Vector3 moon_geocentric_ecliptic_au(double julian_date) noexcept
         {
-            using detail::cos_degrees;
-            using detail::sin_degrees;
+            using Detail::cos_degrees;
+            using Detail::sin_degrees;
 
             // Schlyter's day number: days since 1999-12-31 0:00 UT (JD 2451543.5).
             const double d = julian_date - 2451543.5;

@@ -62,8 +62,8 @@ namespace SushiEngine
         /** @brief The wire format a sound's samples are stored in. */
         enum class AudioCodecKind : std::uint32_t
         {
-            PcmFloat = 0, /**< 32-bit float samples, interleaved (largest, exact). */
-            Pcm16 = 1,    /**< 16-bit signed samples, interleaved (2× float density). */
+            PCMFloat = 0, /**< 32-bit float samples, interleaved (largest, exact). */
+            PCM16 = 1,    /**< 16-bit signed samples, interleaved (2× float density). */
             ImaAdpcm = 2, /**< 4-bit IMA-ADPCM, continuous nibble stream (≈4× density). */
             Opus = 3,     /**< Length-framed libopus packets (music/dialogue; needs SE_AUDIO_OPUS). */
             Vorbis = 4    /**< Length-framed libvorbis packets (music/dialogue; needs SE_AUDIO_VORBIS). */
@@ -101,15 +101,15 @@ namespace SushiEngine
         };
 
         /** @brief PCM codec: 16-bit or float samples to interleaved float. */
-        class PcmCodec final : public IAudioCodec
+        class PCMCodec final : public IAudioCodec
         {
             public:
                 /**
                  * @brief Builds a PCM codec.
                  * @param channels  Interleaved channel count.
-                 * @param sixteen_bit True for `Pcm16` input, false for `PcmFloat`.
+                 * @param sixteen_bit True for `PCM16` input, false for `PCMFloat`.
                  */
-                PcmCodec(int channels, bool sixteen_bit) noexcept
+                PCMCodec(int channels, bool sixteen_bit) noexcept
                     : channels_(channels), sixteen_bit_(sixteen_bit)
                 {
                 }

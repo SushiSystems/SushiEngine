@@ -41,7 +41,7 @@
 #include <SushiEngine/animation/clip.hpp>
 #include <SushiEngine/animation/clip_blob.hpp>
 #include <SushiEngine/animation/clip_compressed.hpp>
-#include <SushiEngine/animation/skeleton_blob.hpp> // detail::align_up
+#include <SushiEngine/animation/skeleton_blob.hpp> // Detail::align_up
 
 namespace SushiEngine
 {
@@ -72,7 +72,7 @@ namespace SushiEngine
             std::uint32_t reserved;           /**< Zero; pads the header. */
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Appends bits LSB-first to a growing byte buffer (mirror of read_bits). */
             struct BitWriter
@@ -162,9 +162,9 @@ namespace SushiEngine
                 }
                 return worst;
             }
-        } // namespace detail
+        } // namespace Detail
 
-        namespace detail
+        namespace Detail
         {
             /** @brief The bit rates the error solver is allowed to choose from, ascending. */
             constexpr std::uint32_t CLIP_BIT_RATES[4] = {8, 11, 14, 16};
@@ -344,7 +344,7 @@ namespace SushiEngine
                     }
                 }
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Cooks a raw clip into a compressed, relocatable blob.
@@ -376,7 +376,7 @@ namespace SushiEngine
 
             std::vector<CompressedTrack> tracks(static_cast<std::size_t>(J) * 3);
             std::vector<CompressedSegment> segments;
-            detail::BitWriter stream;
+            Detail::BitWriter stream;
 
             std::vector<Quaternionf> rotations(F);
             std::vector<Vector3f> translations(F);
@@ -390,11 +390,11 @@ namespace SushiEngine
                     translations[f] = description.translations[index];
                     scales[f] = description.scales[index];
                 }
-                detail::compress_rotation_track(rotations, F, segment_count, error_threshold,
+                Detail::compress_rotation_track(rotations, F, segment_count, error_threshold,
                                                 tracks[j * 3 + 0], segments, stream);
-                detail::compress_vector_track(translations, F, segment_count, error_threshold,
+                Detail::compress_vector_track(translations, F, segment_count, error_threshold,
                                               tracks[j * 3 + 1], segments, stream);
-                detail::compress_vector_track(scales, F, segment_count, error_threshold,
+                Detail::compress_vector_track(scales, F, segment_count, error_threshold,
                                               tracks[j * 3 + 2], segments, stream);
             }
 
@@ -402,13 +402,13 @@ namespace SushiEngine
             const std::size_t segment_bytes = segments.size() * sizeof(CompressedSegment);
             const std::size_t bitstream_bytes = stream.bytes.size();
 
-            std::size_t cursor = detail::align_up(sizeof(CompressedClipHeader), 16);
+            std::size_t cursor = Detail::align_up(sizeof(CompressedClipHeader), 16);
             const std::size_t tracks_offset = cursor;
-            cursor = detail::align_up(cursor + track_bytes, 16);
+            cursor = Detail::align_up(cursor + track_bytes, 16);
             const std::size_t segments_offset = cursor;
-            cursor = detail::align_up(cursor + segment_bytes, 16);
+            cursor = Detail::align_up(cursor + segment_bytes, 16);
             const std::size_t bitstream_offset = cursor;
-            cursor = detail::align_up(cursor + bitstream_bytes, 16);
+            cursor = Detail::align_up(cursor + bitstream_bytes, 16);
             const std::size_t total_size = cursor;
 
             out.assign(total_size, std::byte{0});

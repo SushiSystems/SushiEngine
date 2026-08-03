@@ -62,7 +62,7 @@ layout(set = 0, binding = 8) uniform TemporalBlock
 layout(push_constant) uniform Push
 {
     uint history_valid;  // 0 on the first bake or right after clouds were re-enabled
-    // QualityParams::cloud_variance_clip. Selects *which* neighbourhood rejection runs, not
+    // QualityParameters::cloud_variance_clip. Selects *which* neighbourhood rejection runs, not
     // whether one does: 1 = the 9-tap YCoCg variance clip, 0 = the cheap 5-tap cross min/max
     // clamp. There is no setting that blends history unrejected — see the note at the clip.
     uint variance_clip;

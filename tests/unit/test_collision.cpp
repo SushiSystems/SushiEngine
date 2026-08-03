@@ -73,7 +73,7 @@ TEST(Unit_Collision, BoxPlanePenetration)
     EXPECT_NEAR(double(contact.depth), 0.1, 1e-4);
 }
 
-TEST(Unit_Collision, ObbPlaneAxisAlignedRestsOnItsFace)
+TEST(Unit_Collision, OBBPlaneAxisAlignedRestsOnItsFace)
 {
     OrientedBox<Scalar> box;
     box.center = Vector3{0, Scalar(0.4), 0};
@@ -86,7 +86,7 @@ TEST(Unit_Collision, ObbPlaneAxisAlignedRestsOnItsFace)
     EXPECT_NEAR(double(contact.normal.y), 1.0, 1e-6);
 }
 
-TEST(Unit_Collision, ObbPlaneRotatedRestsOnItsEdge)
+TEST(Unit_Collision, OBBPlaneRotatedRestsOnItsEdge)
 {
     // A cube tipped 45 degrees about z reaches sqrt(2)/2 below its centre rather than
     // its half-extent, because two axes now project onto the plane normal. This is
@@ -106,14 +106,14 @@ TEST(Unit_Collision, ObbPlaneRotatedRestsOnItsEdge)
     EXPECT_FALSE(collide_obb_plane(box, PlaneCollider<Scalar>{}).hit);
 }
 
-TEST(Unit_Collision, ObbPlaneClear)
+TEST(Unit_Collision, OBBPlaneClear)
 {
     OrientedBox<Scalar> box;
     box.center = Vector3{0, Scalar(3), 0};
     EXPECT_FALSE(collide_obb_plane(box, PlaneCollider<Scalar>{}).hit);
 }
 
-TEST(Unit_Collision, ObbSphereAgainstFace)
+TEST(Unit_Collision, OBBSphereAgainstFace)
 {
     OrientedBox<Scalar> box;
     box.half_extents = Vector3{Scalar(1), Scalar(1), Scalar(1)};
@@ -127,7 +127,7 @@ TEST(Unit_Collision, ObbSphereAgainstFace)
     EXPECT_NEAR(double(contact.point.x), 1.0, 1e-6);
 }
 
-TEST(Unit_Collision, ObbSphereAgainstEdgeAndCorner)
+TEST(Unit_Collision, OBBSphereAgainstEdgeAndCorner)
 {
     OrientedBox<Scalar> box;
     box.half_extents = Vector3{Scalar(1), Scalar(1), Scalar(1)};
@@ -148,7 +148,7 @@ TEST(Unit_Collision, ObbSphereAgainstEdgeAndCorner)
     EXPECT_NEAR(double(corner.normal.x), 1.0 / std::sqrt(3.0), 1e-6);
 }
 
-TEST(Unit_Collision, ObbSphereClear)
+TEST(Unit_Collision, OBBSphereClear)
 {
     OrientedBox<Scalar> box;
     box.half_extents = Vector3{Scalar(1), Scalar(1), Scalar(1)};
@@ -157,7 +157,7 @@ TEST(Unit_Collision, ObbSphereClear)
         collide_obb_sphere(box, SphereCollider<Scalar>{Vector3{Scalar(1.7), 0, 0}, Scalar(0.5)}).hit);
 }
 
-TEST(Unit_Collision, ObbSphereRespectsBoxRotation)
+TEST(Unit_Collision, OBBSphereRespectsBoxRotation)
 {
     // A box rotated 45 degrees about z reaches sqrt(2) along the world x axis at its
     // corner, so a sphere that clears the unrotated box now touches it.
@@ -172,7 +172,7 @@ TEST(Unit_Collision, ObbSphereRespectsBoxRotation)
     EXPECT_NEAR(double(contact.depth), 0.5 - (1.6 - std::sqrt(2.0)), 1e-6);
 }
 
-TEST(Unit_Collision, ObbObbFaceContactAndSeparation)
+TEST(Unit_Collision, OBBObbFaceContactAndSeparation)
 {
     OrientedBox<Scalar> a;
     a.half_extents = Vector3{Scalar(1), Scalar(1), Scalar(1)};
@@ -189,7 +189,7 @@ TEST(Unit_Collision, ObbObbFaceContactAndSeparation)
     EXPECT_FALSE(collide_obb_obb(a, b).hit);
 }
 
-TEST(Unit_Collision, ObbObbNormalFlipsWithArgumentOrder)
+TEST(Unit_Collision, OBBObbNormalFlipsWithArgumentOrder)
 {
     OrientedBox<Scalar> a;
     a.half_extents = Vector3{Scalar(1), Scalar(1), Scalar(1)};
@@ -205,7 +205,7 @@ TEST(Unit_Collision, ObbObbNormalFlipsWithArgumentOrder)
     EXPECT_NEAR(double(ab.depth), double(ba.depth), 1e-9);
 }
 
-TEST(Unit_Collision, ObbObbEdgeEdgeSeparatingAxis)
+TEST(Unit_Collision, OBBObbEdgeEdgeSeparatingAxis)
 {
     // Two boxes whose faces all overlap in projection but which are separated by an
     // edge-edge cross axis: only the 9 cross products in the SAT can find this.
@@ -227,7 +227,7 @@ TEST(Unit_Collision, ObbObbEdgeEdgeSeparatingAxis)
     EXPECT_TRUE(collide_obb_obb(a, b).hit);
 }
 
-TEST(Unit_Collision, ObbObbParallelEdgesSkipDegenerateAxes)
+TEST(Unit_Collision, OBBObbParallelEdgesSkipDegenerateAxes)
 {
     // Identical orientations make all nine cross products degenerate; the SAT must
     // skip them rather than treat a zero-length axis as separating.

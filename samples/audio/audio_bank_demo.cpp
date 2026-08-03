@@ -119,7 +119,7 @@ int main()
     for (int i = 0; i < 3; ++i)
         builder.add_media(static_cast<std::uint32_t>(1 + i), AudioCodecKind::ImaAdpcm, 1, 48000,
                           static_cast<std::uint32_t>(step_frames), step[i]);
-    builder.add_media(10, AudioCodecKind::PcmFloat, 1, 48000,
+    builder.add_media(10, AudioCodecKind::PCMFloat, 1, 48000,
                       static_cast<std::uint32_t>(music_frames), music_bytes);
     builder.set_events(edb);
     const std::vector<std::uint8_t> bank_bytes = builder.build();
@@ -178,7 +178,7 @@ int main()
     // Stream the music track through the ring and confirm samples flow.
     {
         MemoryDataSource source(music_bytes.data(), static_cast<std::uint32_t>(music_bytes.size()));
-        StreamingDecoder decoder(source, make_codec(AudioCodecKind::PcmFloat, 1), 8192, false);
+        StreamingDecoder decoder(source, make_codec(AudioCodecKind::PCMFloat, 1), 8192, false);
         StreamingSource voice(decoder);
         for (int i = 0; i < 64; ++i)
             decoder.pump(2048);
@@ -205,7 +205,7 @@ int main()
 
     // The streamed music bed: a looping decoder fed by a background worker.
     MemoryDataSource music_source(music_bytes.data(), static_cast<std::uint32_t>(music_bytes.size()));
-    StreamingDecoder music_decoder(music_source, make_codec(AudioCodecKind::PcmFloat, 1), 16384, true);
+    StreamingDecoder music_decoder(music_source, make_codec(AudioCodecKind::PCMFloat, 1), 16384, true);
     StreamingWorker worker(music_decoder);
     for (int i = 0; i < 8; ++i)
         music_decoder.pump(4096); // prime the ring before playback

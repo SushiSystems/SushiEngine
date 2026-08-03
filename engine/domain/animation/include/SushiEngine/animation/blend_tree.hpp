@@ -129,7 +129,7 @@ namespace SushiEngine
             float speed = 1.0f;           /**< Its playback-rate multiplier (reserved). */
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Reads a controller parameter as a float, whatever its stored type. */
             inline float read_parameter_float(const AnimatorParameterBlock& parameters,
@@ -438,7 +438,7 @@ namespace SushiEngine
                     }
                 }
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Resolves a blend tree to weighted clip contributions against the parameters.
@@ -461,7 +461,7 @@ namespace SushiEngine
         {
             std::uint32_t count = 0;
             if (nodes != nullptr && children != nullptr && max_out > 0)
-                detail::resolve_node(nodes, children, pairs, root_node, parameters, 1.0f, out, count,
+                Detail::resolve_node(nodes, children, pairs, root_node, parameters, 1.0f, out, count,
                                      max_out);
             return count;
         }

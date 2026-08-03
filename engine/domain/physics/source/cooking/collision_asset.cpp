@@ -93,27 +93,27 @@ namespace SushiEngine
                         return false;
                 }
 
-                std::size_t cursor = detail::collision_align_up(sizeof(CollisionBlobHeader), 16);
+                std::size_t cursor = Detail::collision_align_up(sizeof(CollisionBlobHeader), 16);
                 const std::size_t summary_offset = cursor;
-                cursor = detail::collision_align_up(cursor + sizeof(CollisionAssetSummary), 16);
+                cursor = Detail::collision_align_up(cursor + sizeof(CollisionAssetSummary), 16);
                 const std::size_t pieces_offset = cursor;
-                cursor = detail::collision_align_up(cursor + pieces * sizeof(CollisionPieceRecord),
+                cursor = Detail::collision_align_up(cursor + pieces * sizeof(CollisionPieceRecord),
                                                     16);
                 const std::size_t hull_vertices_offset = cursor;
-                cursor = detail::collision_align_up(cursor + hull_vertices * sizeof(Vector3), 16);
+                cursor = Detail::collision_align_up(cursor + hull_vertices * sizeof(Vector3), 16);
                 const std::size_t mesh_vertices_offset = cursor;
-                cursor = detail::collision_align_up(cursor + mesh_vertices * sizeof(Vector3), 16);
+                cursor = Detail::collision_align_up(cursor + mesh_vertices * sizeof(Vector3), 16);
                 const std::size_t mesh_indices_offset = cursor;
-                cursor = detail::collision_align_up(
+                cursor = Detail::collision_align_up(
                     cursor + asset.mesh_indices.size() * sizeof(std::uint32_t), 16);
                 const std::size_t mesh_nodes_offset = cursor;
-                cursor = detail::collision_align_up(
+                cursor = Detail::collision_align_up(
                     cursor + mesh_nodes * sizeof(MeshBVHNode<Scalar>), 16);
                 const std::size_t mesh_order_offset = cursor;
-                cursor = detail::collision_align_up(
+                cursor = Detail::collision_align_up(
                     cursor + asset.mesh_order.size() * sizeof(std::uint32_t), 16);
                 const std::size_t mesh_adjacency_offset = cursor;
-                cursor = detail::collision_align_up(
+                cursor = Detail::collision_align_up(
                     cursor + asset.mesh_adjacency.size() * sizeof(std::uint32_t), 16);
                 const std::size_t field_offset = cursor;
                 const std::size_t total = cursor + field_values * sizeof(float);

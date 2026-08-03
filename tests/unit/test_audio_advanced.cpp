@@ -65,8 +65,8 @@ namespace
 TEST(Unit_Audio, AuthoringFlattenPreservesContainerSemantics)
 {
     AudioAuthoringProject project;
-    const std::uint32_t m0 = project.add_media("a", AudioCodecKind::PcmFloat, 1, 48000, 128);
-    const std::uint32_t m1 = project.add_media("b", AudioCodecKind::PcmFloat, 1, 48000, 128);
+    const std::uint32_t m0 = project.add_media("a", AudioCodecKind::PCMFloat, 1, 48000, 128);
+    const std::uint32_t m1 = project.add_media("b", AudioCodecKind::PCMFloat, 1, 48000, 128);
 
     const int blend = project.create_container(ContainerKind::Blend);
     project.add_child(blend, project.create_sound(m0));
@@ -96,7 +96,7 @@ TEST(Unit_Audio, AuthoringFlattenPreservesContainerSemantics)
 TEST(Unit_Audio, AuthoringBakeRoundTripsThroughBank)
 {
     AudioAuthoringProject project;
-    const std::uint32_t m = project.add_media("x", AudioCodecKind::PcmFloat, 1, 48000, 64);
+    const std::uint32_t m = project.add_media("x", AudioCodecKind::PCMFloat, 1, 48000, 64);
     const int root = project.create_sound(m);
     const EventId ev = project.create_event("one", root);
 

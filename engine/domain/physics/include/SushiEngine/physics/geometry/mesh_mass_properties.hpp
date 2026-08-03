@@ -107,7 +107,7 @@ namespace SushiEngine
             bool valid = false;
         };
 
-        namespace detail
+        namespace Detail
         {
             /**
              * @brief Diagonalizes a symmetric 3x3 by cyclic Jacobi rotations.
@@ -182,7 +182,7 @@ namespace SushiEngine
                     }
                 }
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Mass, centre of mass and principal inertia of a closed triangle mesh.
@@ -302,7 +302,7 @@ namespace SushiEngine
                                           covariance[row][column];
 
             Scalar eigenvectors[3][3];
-            detail::jacobi_symmetric_3x3(tensor, eigenvectors);
+            Detail::jacobi_symmetric_3x3(tensor, eigenvectors);
             const Scalar moment[3] = {tensor[0][0], tensor[1][1], tensor[2][2]};
 
             // Assign each coordinate axis the eigenvector most aligned with it, greedily

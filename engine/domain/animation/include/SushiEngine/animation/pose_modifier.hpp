@@ -167,7 +167,7 @@ namespace SushiEngine
                                      Vector3& out_hit_point, Vector3& out_normal) const = 0;
         };
 
-        namespace detail
+        namespace Detail
         {
             /**
              * @brief The shortest-arc rotation taking unit vector @p from onto unit vector @p to.
@@ -193,6 +193,6 @@ namespace SushiEngine
                 Quaternion q{axis.x, axis.y, axis.z, static_cast<Scalar>(1.0) + d};
                 return normalize(q);
             }
-        } // namespace detail
+        } // namespace Detail
     } // namespace Animation
 } // namespace SushiEngine

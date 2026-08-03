@@ -55,7 +55,7 @@ namespace SushiEngine
         namespace Passes
         {
             /** @brief Depth-of-field gather written into the frame's DoF target. */
-            class DofPass final : public IRenderPass
+            class DOFPass final : public IRenderPass
             {
                 public:
                     /**
@@ -65,12 +65,12 @@ namespace SushiEngine
                      * @param pipelines The factory the pipeline is built by.
                      * @param layout    The shared scene pipeline layout.
                      */
-                    DofPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    DOFPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout);
-                    ~DofPass() override;
+                    ~DOFPass() override;
 
-                    DofPass(const DofPass&) = delete;
-                    DofPass& operator=(const DofPass&) = delete;
+                    DOFPass(const DOFPass&) = delete;
+                    DOFPass& operator=(const DOFPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;

@@ -29,7 +29,7 @@
  *
  * The gameplay-authoritative half of the hybrid system (design §6). Its entire per-emitter
  * state is a @ref DeterministicEmitterState: a fixed-capacity pool of @ref GPUParticle, an
- * integer count, a @ref Pcg32, and a handful of scalars — no heap, no pointers — so a state is
+ * integer count, a @ref PCG32, and a handful of scalars — no heap, no pointers — so a state is
  * trivially copyable and a rolled-back-then-replayed tick reproduces it byte-for-byte. It runs
  * a fixed-step Euler integrator over the same @ref CompiledEmitter and baked LUTs the GPU path
  * uses, so an effect looks the same whichever domain simulates it. Nothing here reads the wall
@@ -65,7 +65,7 @@ namespace SushiEngine
             GPUParticle particles[MAX_DETERMINISTIC_PARTICLES]; /**< Packed live pool. */
             std::uint32_t alive_count = 0;      /**< Live particles, in [0, capacity]. */
             std::uint32_t spawn_serial = 0;     /**< Monotonic id assigned to each spawned particle. */
-            Pcg32 rng;                          /**< The one and only source of randomness. */
+            PCG32 rng;                          /**< The one and only source of randomness. */
             float time = 0.0f;                  /**< Seconds since the emitter started. */
             float spawn_accumulator = 0.0f;     /**< Fractional continuous-spawn carry. */
         };
@@ -425,7 +425,7 @@ namespace SushiEngine
                  * The local frame's up is +Y. Positions are inside (or on the shell of) the birth
                  * volume; directions are unit vectors pointing the way a particle initially moves.
                  */
-                static void sample_shape(Pcg32& rng, const CompiledEmitter& emitter,
+                static void sample_shape(PCG32& rng, const CompiledEmitter& emitter,
                                          Vector3T<float>& out_position,
                                          Vector3T<float>& out_direction) noexcept
                 {
@@ -482,7 +482,7 @@ namespace SushiEngine
                 }
 
                 /** @brief A uniformly-distributed unit vector on the sphere. */
-                static Vector3T<float> sample_unit_sphere(Pcg32& rng) noexcept
+                static Vector3T<float> sample_unit_sphere(PCG32& rng) noexcept
                 {
                     const float z = rng.next_range(-1.0f, 1.0f);
                     const float phi = rng.next_range(0.0f, 6.2831853f);

@@ -228,9 +228,9 @@ namespace SushiEngine
                 /** @brief Zeroes the per-channel convolver histories. */
                 void reset() noexcept
                 {
-                    for (HrirConvolver& c : conv_left_)
+                    for (HRIRConvolver& c : conv_left_)
                         c.reset();
-                    for (HrirConvolver& c : conv_right_)
+                    for (HRIRConvolver& c : conv_right_)
                         c.reset();
                 }
 
@@ -434,8 +434,8 @@ namespace SushiEngine
                 DSP::RadixFFT fft_;
                 std::vector<std::vector<float>> filters_left_;
                 std::vector<std::vector<float>> filters_right_;
-                std::vector<HrirConvolver> conv_left_;
-                std::vector<HrirConvolver> conv_right_;
+                std::vector<HRIRConvolver> conv_left_;
+                std::vector<HRIRConvolver> conv_right_;
                 int order_ = 3;
                 int channels_ = 16;
                 int fft_size_ = 1024;

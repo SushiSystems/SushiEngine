@@ -19,7 +19,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_Gjk: the general convex narrowphase (physics/geometry/gjk.hpp).
+// Unit_GJK: the general convex narrowphase (physics/geometry/gjk.hpp).
 //
 // One routine collides every convex shape with every other, so the tests are
 // built the same way: each case has a closed-form answer that does not depend on
@@ -85,7 +85,7 @@ namespace
 // The support function is the only thing GJK asks of a shape, so it is worth
 // pinning down on its own: each shape's furthest point along a direction, checked
 // against the answer geometry gives directly.
-TEST(Unit_Gjk, SupportFunctionsReturnTheFurthestPoint)
+TEST(Unit_GJK, SupportFunctionsReturnTheFurthestPoint)
 {
     const SphereCollider<Scalar> sphere{Vector3{1.0, 2.0, 3.0}, 0.5};
     const Vector3 sphere_support = support(sphere, Vector3{0.0, 3.0, 0.0});
@@ -123,7 +123,7 @@ TEST(Unit_Gjk, SupportFunctionsReturnTheFurthestPoint)
 
 // The simplest closed form there is: two spheres are apart by the distance
 // between their centres less their radii, whichever way round they are asked.
-TEST(Unit_Gjk, SeparatedSpheresReportTheAnalyticDistance)
+TEST(Unit_GJK, SeparatedSpheresReportTheAnalyticDistance)
 {
     const SphereCollider<Scalar> a{Vector3{0.0, 0.0, 0.0}, 1.0};
     const SphereCollider<Scalar> b{Vector3{5.0, 0.0, 0.0}, 1.5};
@@ -140,7 +140,7 @@ TEST(Unit_Gjk, SeparatedSpheresReportTheAnalyticDistance)
 
 // And overlapping spheres report the overlap as a negative separation, which is
 // the manifold convention so the caller needs no case split.
-TEST(Unit_Gjk, OverlappingSpheresReportTheAnalyticDepth)
+TEST(Unit_GJK, OverlappingSpheresReportTheAnalyticDepth)
 {
     const SphereCollider<Scalar> a{Vector3{0.0, 0.0, 0.0}, 1.0};
     const SphereCollider<Scalar> b{Vector3{1.6, 0.0, 0.0}, 1.0};
@@ -158,7 +158,7 @@ TEST(Unit_Gjk, OverlappingSpheresReportTheAnalyticDepth)
 // A hull that happens to be a box must agree with the box shape it duplicates —
 // the general routine and the shape's own geometry are two derivations of the
 // same answer, and they have to meet.
-TEST(Unit_Gjk, ConvexHullAgreesWithTheEquivalentBox)
+TEST(Unit_GJK, ConvexHullAgreesWithTheEquivalentBox)
 {
     const std::vector<Vector3> corners = box_vertices(Vector3{0.5, 0.5, 0.5});
 
@@ -201,7 +201,7 @@ TEST(Unit_Gjk, ConvexHullAgreesWithTheEquivalentBox)
 
 // A capsule against a plane-like box is the case a character controller lives in,
 // and its answer is a subtraction: the segment's low end, less the radius.
-TEST(Unit_Gjk, CapsuleAgainstABoxReportsTheSweptSphereDistance)
+TEST(Unit_GJK, CapsuleAgainstABoxReportsTheSweptSphereDistance)
 {
     const OrientedBox<Scalar> ground{Vector3{0.0, -0.5, 0.0}, Vector3{5.0, 0.5, 5.0},
                                      Quaternion{0.0, 0.0, 0.0, 1.0}};
@@ -224,7 +224,7 @@ TEST(Unit_Gjk, CapsuleAgainstABoxReportsTheSweptSphereDistance)
 
 // Two capsules crossing at right angles reduce to the distance between two skew
 // segments, less the two radii — a closed form GJK has to reproduce.
-TEST(Unit_Gjk, CrossedCapsulesReduceToTheSegmentDistance)
+TEST(Unit_GJK, CrossedCapsulesReduceToTheSegmentDistance)
 {
     const CapsuleCollider<Scalar> vertical = capsule_at(Vector3{0.0, 0.0, 0.0}, 1.0, 0.2);
     // Rotating about Z carries the local Y axis into the XY plane, so this one's
@@ -243,7 +243,7 @@ TEST(Unit_Gjk, CrossedCapsulesReduceToTheSegmentDistance)
 // The witness points are the part a convex solver can quietly get wrong: a right
 // depth with a pair of points that are not on the surfaces is useless as a
 // manifold anchor. Check them against the surfaces directly.
-TEST(Unit_Gjk, WitnessPointsLieOnBothSurfaces)
+TEST(Unit_GJK, WitnessPointsLieOnBothSurfaces)
 {
     const SphereCollider<Scalar> a{Vector3{-1.2, 0.4, 0.0}, 0.6};
     const CapsuleCollider<Scalar> b =
@@ -273,7 +273,7 @@ TEST(Unit_Gjk, WitnessPointsLieOnBothSurfaces)
 // Swapping the arguments must swap the normal and nothing else. A convex routine
 // that disagrees with itself by argument order gives a pair of bodies two
 // different contacts depending on which index came first.
-TEST(Unit_Gjk, ArgumentOrderOnlyFlipsTheNormal)
+TEST(Unit_GJK, ArgumentOrderOnlyFlipsTheNormal)
 {
     const std::vector<Vector3> corners = box_vertices(Vector3{0.4, 0.9, 0.3});
     const ConvexHullView<Scalar> hull =
@@ -296,7 +296,7 @@ TEST(Unit_Gjk, ArgumentOrderOnlyFlipsTheNormal)
 
 // Deep overlap is EPA's case rather than GJK's, and it has a closed form too: a
 // box sunk halfway into another along one axis.
-TEST(Unit_Gjk, DeepOverlapReportsTheShortestWayOut)
+TEST(Unit_GJK, DeepOverlapReportsTheShortestWayOut)
 {
     const OrientedBox<Scalar> a{Vector3{0.0, 0.0, 0.0}, Vector3{1.0, 0.2, 1.0},
                                 Quaternion{0.0, 0.0, 0.0, 1.0}};
@@ -325,7 +325,7 @@ TEST(Unit_Gjk, DeepOverlapReportsTheShortestWayOut)
 // a contact that is going to be resolved over many substeps anyway, and the reason
 // deep-penetration recovery in §7.5 belongs to a signed-distance field rather than
 // to a hull method.
-TEST(Unit_Gjk, ConcentricShapesStillProduceAUsableAnswer)
+TEST(Unit_GJK, ConcentricShapesStillProduceAUsableAnswer)
 {
     const SphereCollider<Scalar> a{Vector3{0.0, 0.0, 0.0}, 1.0};
     const SphereCollider<Scalar> b{Vector3{0.0, 0.0, 0.0}, 0.25};
@@ -340,7 +340,7 @@ TEST(Unit_Gjk, ConcentricShapesStillProduceAUsableAnswer)
 
 // A hull with a genuinely non-box shape, so the tests are not all secretly about
 // boxes: a regular tetrahedron against a sphere on its axis.
-TEST(Unit_Gjk, TetrahedronAgainstASphereOnItsVertexAxis)
+TEST(Unit_GJK, TetrahedronAgainstASphereOnItsVertexAxis)
 {
     // A tetrahedron whose apex is at +Y and whose base sits at y = 0.
     std::vector<Vector3> tetrahedron;
@@ -363,7 +363,7 @@ TEST(Unit_Gjk, TetrahedronAgainstASphereOnItsVertexAxis)
 // The reduction is GJK's inner half, and its job is to name the *part* of the
 // simplex nearest the origin — a vertex, an edge, a face, or the whole volume.
 // Getting that wrong makes GJK converge to the wrong feature.
-TEST(Unit_Gjk, SimplexReductionFindsTheNearestFeature)
+TEST(Unit_GJK, SimplexReductionFindsTheNearestFeature)
 {
     MinkowskiVertex<Scalar> simplex[4];
 

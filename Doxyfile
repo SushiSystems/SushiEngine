@@ -29,7 +29,7 @@ USE_MDFILE_AS_MAINPAGE = docs/api/mainpage.md
 # Keep internal plumbing out of the reference. A module's source/ is its
 # implementation, so only the include/ trees under engine/ reach the site.
 EXCLUDE_PATTERNS       = */detail/* */source/*
-EXCLUDE_SYMBOLS        = *::detail *::detail::*
+EXCLUDE_SYMBOLS        = *::Detail *::Detail::*
 
 # Document the API as written; do not invent docs for undocumented symbols, and
 # surface anything public that is missing one so the site stays honest.

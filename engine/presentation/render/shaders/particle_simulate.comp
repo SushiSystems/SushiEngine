@@ -28,7 +28,7 @@ layout(set = 0, binding = 11) uniform sampler2D depth_pyramid;
 // The GI distance field, the off-screen collision surface. Its config rides its own uniform
 // block rather than the push constants, which are already full.
 layout(set = 0, binding = 12) uniform sampler3D sdf_clipmap;
-layout(set = 0, binding = 13) uniform SDFConfigBlock { SDFClipmapConfig sdf_config; };
+layout(set = 0, binding = 13) uniform SDFConfigBlock { SDFClipmapConfiguration sdf_config; };
 
 // Exactly 128 bytes, the house budget, shared with particle_emit.comp. The camera block is here
 // only for the depth collision, which projects each particle into last frame's depth pyramid.

@@ -292,8 +292,8 @@ namespace SushiEngine
                     float dir_x = 0.0f;       // unit direction (front) for the HRIR lookup
                     float dir_y = 0.0f;       // unit direction (left)
                     float dir_z = 0.0f;       // unit direction (up)
-                    HrirConvolver left_hrir;  // measured-HRTF path (when a database is set)
-                    HrirConvolver right_hrir;
+                    HRIRConvolver left_hrir;  // measured-HRTF path (when a database is set)
+                    HRIRConvolver right_hrir;
                     DSP::Biquad timbre;       // direction spectral cue: front/back + elevation
                     DSP::FractionalDelayLine left_delay;
                     DSP::FractionalDelayLine right_delay;

@@ -43,7 +43,7 @@
 #include <SushiEngine/animation/asset_id.hpp>
 #include <SushiEngine/animation/blend_tree.hpp>
 #include <SushiEngine/animation/hash.hpp>
-#include <SushiEngine/animation/skeleton_blob.hpp> // detail::align_up
+#include <SushiEngine/animation/skeleton_blob.hpp> // Detail::align_up
 
 namespace SushiEngine
 {
@@ -326,7 +326,7 @@ namespace SushiEngine
             std::vector<LayerDescription> layers;
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Resolves a state name to its index within one layer, or -1. */
             inline int find_state(const LayerDescription& layer, const std::string& name)
@@ -476,7 +476,7 @@ namespace SushiEngine
                 }
                 return self;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Compiles a controller description into a relocatable `.sushictrl` blob.
@@ -531,11 +531,11 @@ namespace SushiEngine
                     // "Exit" is the reserved sink of the editor's graph: at this flat level it
                     // returns to the layer's entry (default) state, so exit transitions compile
                     // and behave rather than dangling.
-                    int destination = detail::find_state(layer, t.destination);
+                    int destination = Detail::find_state(layer, t.destination);
                     if (destination < 0 && (t.destination == "Exit" || t.destination == "exit"))
                         destination = layer.default_state.empty()
                                           ? 0
-                                          : detail::find_state(layer, layer.default_state);
+                                          : Detail::find_state(layer, layer.default_state);
                     if (destination < 0)
                         return false;
                     TransitionRecord record;
@@ -549,7 +549,7 @@ namespace SushiEngine
                     record.condition_count = static_cast<std::uint32_t>(t.conditions.size());
                     for (const ConditionDescription& c : t.conditions)
                     {
-                        const int parameter = detail::find_parameter(description, c.parameter);
+                        const int parameter = Detail::find_parameter(description, c.parameter);
                         if (parameter < 0)
                             return false;
                         ConditionRecord condition;
@@ -573,13 +573,13 @@ namespace SushiEngine
                 layer_record.weight_parameter =
                     layer.weight_parameter.empty()
                         ? -1
-                        : detail::find_parameter(description, layer.weight_parameter);
+                        : Detail::find_parameter(description, layer.weight_parameter);
                 if (!layer.weight_parameter.empty() && layer_record.weight_parameter < 0)
                     return false;
                 layer_record.state_base = static_cast<std::uint32_t>(states.size());
                 layer_record.state_count = static_cast<std::uint32_t>(layer.states.size());
                 const int default_state =
-                    layer.default_state.empty() ? 0 : detail::find_state(layer, layer.default_state);
+                    layer.default_state.empty() ? 0 : Detail::find_state(layer, layer.default_state);
                 if (default_state < 0)
                     return false;
                 layer_record.default_state = default_state;
@@ -597,12 +597,12 @@ namespace SushiEngine
                     state_record.speed_parameter =
                         state.speed_parameter.empty()
                             ? -1
-                            : detail::find_parameter(description, state.speed_parameter);
+                            : Detail::find_parameter(description, state.speed_parameter);
                     state_record.cycle_offset = state.cycle_offset;
                     state_record.name = hash_name(state.name.c_str());
                     if (state.blend_tree)
                     {
-                        const int root = detail::flatten_blend_tree(description, *state.blend_tree,
+                        const int root = Detail::flatten_blend_tree(description, *state.blend_tree,
                                                                     nodes, children, pairs);
                         if (root < 0)
                             return false;
@@ -630,10 +630,10 @@ namespace SushiEngine
             const auto section = [](std::size_t& cursor, std::size_t bytes) -> std::size_t
             {
                 const std::size_t offset = cursor;
-                cursor = detail::align_up(cursor + bytes, 16);
+                cursor = Detail::align_up(cursor + bytes, 16);
                 return offset;
             };
-            std::size_t cursor = detail::align_up(sizeof(ControllerBlobHeader), 16);
+            std::size_t cursor = Detail::align_up(sizeof(ControllerBlobHeader), 16);
             const std::size_t parameters_offset =
                 section(cursor, parameters.size() * sizeof(ParameterRecord));
             const std::size_t layers_offset = section(cursor, layers.size() * sizeof(LayerRecord));

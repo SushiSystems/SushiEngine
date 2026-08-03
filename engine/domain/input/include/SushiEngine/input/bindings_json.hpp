@@ -52,7 +52,7 @@ namespace SushiEngine
 {
     namespace Input
     {
-        namespace detail
+        namespace Detail
         {
             inline nlohmann::json control_path_to_json(const ControlPath& path)
             {
@@ -245,7 +245,7 @@ namespace SushiEngine
                 action.axis2d_bindings = std::move(vector2);
                 action.axis2d_composites = std::move(composites2d);
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Serializes @p context's bindings to a JSON object keyed by action name.
@@ -256,7 +256,7 @@ namespace SushiEngine
         {
             nlohmann::json document = nlohmann::json::object();
             for (const std::unique_ptr<Action>& action : context.actions())
-                document[action->name] = detail::action_to_json(*action);
+                document[action->name] = Detail::action_to_json(*action);
             return document;
         }
 
@@ -275,7 +275,7 @@ namespace SushiEngine
         {
             nlohmann::json document = previous.is_object() ? previous : nlohmann::json::object();
             for (const std::unique_ptr<Action>& action : context.actions())
-                document[action->name] = detail::action_to_json(*action);
+                document[action->name] = Detail::action_to_json(*action);
             return document;
         }
 
@@ -303,7 +303,7 @@ namespace SushiEngine
                     continue; // no override for this action; keep defaults.
                 try
                 {
-                    detail::apply_action_from_json(*action, *entry);
+                    Detail::apply_action_from_json(*action, *entry);
                 }
                 catch (const nlohmann::json::exception&)
                 {

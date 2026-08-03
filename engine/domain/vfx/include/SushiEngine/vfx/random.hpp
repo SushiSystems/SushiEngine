@@ -46,10 +46,10 @@ namespace SushiEngine
          * @brief A permuted-congruential 32-bit generator with 64-bit state.
          *
          * Trivially copyable: seeding is pure arithmetic and no field is a pointer, so a
-         * `Pcg32` may be embedded in a snapshottable state column and compared with memcmp.
+         * `PCG32` may be embedded in a snapshottable state column and compared with memcmp.
          * The default-constructed stream is fixed and reproducible; @ref seed re-bases it.
          */
-        struct Pcg32
+        struct PCG32
         {
             std::uint64_t state = 0x853c49e6748fea9bull;
             std::uint64_t increment = 0xda3e39cb94b95bdbull;

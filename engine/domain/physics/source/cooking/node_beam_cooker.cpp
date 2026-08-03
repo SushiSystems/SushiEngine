@@ -223,7 +223,7 @@ namespace SushiEngine
 
                         const Scalar shell_fraction =
                             Scalar(1) -
-                            Scalar(detail::clamp_unit(context.settings.core_mass_fraction));
+                            Scalar(Detail::clamp_unit(context.settings.core_mass_fraction));
                         const Scalar radius = context.lattice.cell_size * Scalar(0.5);
 
                         context.asset.nodes.reserve(context.lattice.vertex_count());

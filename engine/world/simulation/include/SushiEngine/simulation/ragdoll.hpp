@@ -187,7 +187,7 @@ namespace SushiEngine
             std::vector<std::uint32_t> part_of_joint;
         };
 
-        namespace detail
+        namespace Detail
         {
             /**
              * @brief The shortest rotation taking local +Y onto @p direction.
@@ -218,7 +218,7 @@ namespace SushiEngine
                 return Physics::capsule_mass_properties<Scalar>(radius, half_height, Scalar(1))
                     .mass;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Builds a ragdoll from a cooked skeleton's bind pose.
@@ -316,7 +316,7 @@ namespace SushiEngine
                 part.collider.radius = radius;
                 part.collider.half_height = half_height;
                 part.local_position = bind_position[i] + direction * (bone_length * Scalar(0.5));
-                part.local_orientation = detail::rotation_onto_y(direction);
+                part.local_orientation = Detail::rotation_onto_y(direction);
                 part.drag_coefficient = profile.drag_coefficient;
                 part.group = profile.group;
                 part.name_hash =
@@ -347,7 +347,7 @@ namespace SushiEngine
             // is the thing an author cannot get right by hand and does not want to.
             Scalar volume = 0;
             for (const AssemblyPart& part : rig.assembly.parts)
-                volume += detail::capsule_volume(part.collider.radius, part.collider.half_height);
+                volume += Detail::capsule_volume(part.collider.radius, part.collider.half_height);
             const Scalar density =
                 volume > Scalar(0) && profile.total_mass > Scalar(0)
                     ? profile.total_mass / volume

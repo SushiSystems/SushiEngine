@@ -285,7 +285,7 @@ namespace SushiEngine
             std::uint32_t name_data_size;       /**< Bytes in the name string section. */
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Rounds @p value up to the next multiple of @p alignment. */
             inline std::size_t assembly_align_up(std::size_t value,
@@ -293,7 +293,7 @@ namespace SushiEngine
             {
                 return (value + alignment - 1) & ~(alignment - 1);
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Serializes @p assembly into a `.sushiassembly` blob.
@@ -338,15 +338,15 @@ namespace SushiEngine
                 names.push_back('\0');
             }
 
-            std::size_t cursor = detail::assembly_align_up(sizeof(AssemblyBlobHeader), 16);
+            std::size_t cursor = Detail::assembly_align_up(sizeof(AssemblyBlobHeader), 16);
             const std::size_t parts_offset = cursor;
-            cursor = detail::assembly_align_up(cursor + parts * sizeof(AssemblyPart), 16);
+            cursor = Detail::assembly_align_up(cursor + parts * sizeof(AssemblyPart), 16);
             const std::size_t joints_offset = cursor;
-            cursor = detail::assembly_align_up(cursor + joints * sizeof(AssemblyJoint), 16);
+            cursor = Detail::assembly_align_up(cursor + joints * sizeof(AssemblyJoint), 16);
             const std::size_t group_masks_offset = cursor;
-            cursor = detail::assembly_align_up(cursor + groups * sizeof(std::uint32_t), 16);
+            cursor = Detail::assembly_align_up(cursor + groups * sizeof(std::uint32_t), 16);
             const std::size_t name_offsets_offset = cursor;
-            cursor = detail::assembly_align_up(cursor + parts * sizeof(std::uint32_t), 16);
+            cursor = Detail::assembly_align_up(cursor + parts * sizeof(std::uint32_t), 16);
             const std::size_t name_data_offset = cursor;
             const std::size_t total = cursor + names.size();
 

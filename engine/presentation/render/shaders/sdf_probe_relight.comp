@@ -33,7 +33,7 @@ layout(set = 0, binding = 3) uniform ProbeBlock
 
 layout(set = 0, binding = 4) uniform ClipmapBlock
 {
-    SDFClipmapConfig cfg;
+    SDFClipmapConfiguration cfg;
 } clip;
 
 layout(set = 0, binding = 5) uniform sampler3D emissive_clipmap;

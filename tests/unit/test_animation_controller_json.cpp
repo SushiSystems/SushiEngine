@@ -222,36 +222,36 @@ TEST(Unit_AnimationControllerJSON,EveryEnumValueSurvivesItsNameRoundTrip)
     const ParameterType parameter_types[] = {ParameterType::Float, ParameterType::Int,
                                              ParameterType::Bool, ParameterType::Trigger};
     for (const ParameterType type : parameter_types)
-        EXPECT_EQ(detail::parameter_type_from(detail::parameter_type_name(type)), type);
+        EXPECT_EQ(Detail::parameter_type_from(Detail::parameter_type_name(type)), type);
 
     const Comparator comparators[] = {Comparator::Greater, Comparator::Less,
                                       Comparator::Equals,  Comparator::NotEquals,
                                       Comparator::If,      Comparator::IfNot};
     for (const Comparator comparator : comparators)
-        EXPECT_EQ(detail::comparator_from(detail::comparator_name(comparator)), comparator);
+        EXPECT_EQ(Detail::comparator_from(Detail::comparator_name(comparator)), comparator);
 
     const InterruptionSource sources[] = {InterruptionSource::None,
                                           InterruptionSource::CurrentState,
                                           InterruptionSource::NextState};
     for (const InterruptionSource source : sources)
-        EXPECT_EQ(detail::interruption_from(detail::interruption_name(source)), source);
+        EXPECT_EQ(Detail::interruption_from(Detail::interruption_name(source)), source);
 
     const LayerBlendMode modes[] = {LayerBlendMode::Override, LayerBlendMode::Additive};
     for (const LayerBlendMode mode : modes)
-        EXPECT_EQ(detail::blend_mode_from(detail::blend_mode_name(mode)), mode);
+        EXPECT_EQ(Detail::blend_mode_from(Detail::blend_mode_name(mode)), mode);
 
     const BlendTreeType tree_types[] = {
         BlendTreeType::Simple1D, BlendTreeType::SimpleDirectional2D,
         BlendTreeType::FreeformDirectional2D, BlendTreeType::FreeformCartesian2D,
         BlendTreeType::Direct};
     for (const BlendTreeType type : tree_types)
-        EXPECT_EQ(detail::blend_tree_type_from(detail::blend_tree_type_name(type)), type);
+        EXPECT_EQ(Detail::blend_tree_type_from(Detail::blend_tree_type_name(type)), type);
 
     // Every name is distinct, which is the other half: two values sharing a name round-trip
     // one of them wrongly and the loop above would still pass for the survivor.
     std::vector<std::string> names;
     for (const BlendTreeType type : tree_types)
-        names.push_back(detail::blend_tree_type_name(type));
+        names.push_back(Detail::blend_tree_type_name(type));
     for (std::size_t i = 0; i < names.size(); ++i)
         for (std::size_t j = i + 1; j < names.size(); ++j)
             EXPECT_NE(names[i], names[j]);
@@ -262,15 +262,15 @@ TEST(Unit_AnimationControllerJSON,AnUnknownEnumNameDegradesToTheDocumentedDefaul
     // A document from a newer editor may name a value this build has never heard of. Falling
     // back to the documented default keeps the rest of the controller readable, where throwing
     // would lose a whole authored graph over one field.
-    EXPECT_EQ(detail::parameter_type_from("Quaternion"), ParameterType::Float);
-    EXPECT_EQ(detail::comparator_from("Approximately"), Comparator::Greater);
-    EXPECT_EQ(detail::interruption_from("Anything"), InterruptionSource::None);
-    EXPECT_EQ(detail::blend_mode_from("Multiply"), LayerBlendMode::Override);
-    EXPECT_EQ(detail::blend_tree_type_from("Simple3D"), BlendTreeType::Simple1D);
+    EXPECT_EQ(Detail::parameter_type_from("Quaternion"), ParameterType::Float);
+    EXPECT_EQ(Detail::comparator_from("Approximately"), Comparator::Greater);
+    EXPECT_EQ(Detail::interruption_from("Anything"), InterruptionSource::None);
+    EXPECT_EQ(Detail::blend_mode_from("Multiply"), LayerBlendMode::Override);
+    EXPECT_EQ(Detail::blend_tree_type_from("Simple3D"), BlendTreeType::Simple1D);
 
     // The names are matched exactly, so a case difference is an unknown name rather than a
     // near-miss silently accepted.
-    EXPECT_EQ(detail::comparator_from("less"), Comparator::Greater);
+    EXPECT_EQ(Detail::comparator_from("less"), Comparator::Greater);
 }
 
 TEST(Unit_AnimationControllerJSON,AMissingFieldReadsAsItsDefaultRatherThanThrowing)
@@ -362,8 +362,8 @@ TEST(Unit_AnimationControllerJSON,AssetReferencesSerializeAsIdsWithMinusOneForNo
 
     // A null or absent reference is the same answer as -1: a document written by hand is the
     // normal source of the first two.
-    EXPECT_EQ(detail::asset_from_json(nlohmann::json()), INVALID_ASSET);
-    EXPECT_EQ(detail::asset_from_json(nlohmann::json("not a number")), INVALID_ASSET);
+    EXPECT_EQ(Detail::asset_from_json(nlohmann::json()), INVALID_ASSET);
+    EXPECT_EQ(Detail::asset_from_json(nlohmann::json("not a number")), INVALID_ASSET);
 }
 
 TEST(Unit_AnimationControllerJSON,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeaves)

@@ -486,7 +486,7 @@ vec3 curl_noise(vec3 p)
 // `clipmap` and `cfg` are camera-relative, so `eye` converts the particle's absolute world
 // position into the field's space. The response is deliberately identical to the depth path's,
 // so switching an emitter between the two changes what it collides with and nothing else.
-bool particle_sdf_collide(sampler3D clipmap, SDFClipmapConfig cfg, Emitter e, vec3 eye,
+bool particle_sdf_collide(sampler3D clipmap, SDFClipmapConfiguration cfg, Emitter e, vec3 eye,
                           inout vec3 position, inout vec3 velocity)
 {
     vec3 local = position - eye;

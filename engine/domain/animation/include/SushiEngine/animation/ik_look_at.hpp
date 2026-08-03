@@ -75,7 +75,7 @@ namespace SushiEngine
                         return;
                     const Vector3 desired = normalize(to_target);
 
-                    const Quaternion aim = detail::rotation_between(current, desired);
+                    const Quaternion aim = Detail::rotation_between(current, desired);
                     Scalar angle = static_cast<Scalar>(2.0) *
                                    std::acos(std::min(static_cast<Scalar>(1.0),
                                                       std::max(static_cast<Scalar>(-1.0), aim.w)));

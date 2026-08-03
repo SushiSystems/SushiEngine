@@ -713,7 +713,7 @@ void main()
         // meshes standing on the ground read the clustered punctual buffer
         // (accumulate_clustered_lighting in pbr.frag), so a lamp post lit its own base
         // mesh but left the ground under it black. Diffuse-only: the ground's response
-        // here is analytic (PlanetParams::surface), not a full glTF material, so there
+        // here is analytic (PlanetParameters::surface), not a full glTF material, so there
         // is no roughness/metallic to feed a specular lobe.
         vec3 punctual_direct = vec3(0.0);
         {

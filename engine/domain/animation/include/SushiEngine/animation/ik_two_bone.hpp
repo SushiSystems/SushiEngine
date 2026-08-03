@@ -117,7 +117,7 @@ namespace SushiEngine
 
                     // Swing the upper bone so a->mid points at the knee goal.
                     const Quaternion rotate_upper =
-                        detail::rotation_between(normalize(b0 - a), normalize(mid_goal - a));
+                        Detail::rotation_between(normalize(b0 - a), normalize(mid_goal - a));
                     context.set_rotation(upper, mul(rotate_upper, context.rotation(upper)));
                     context.recompose();
 
@@ -125,7 +125,7 @@ namespace SushiEngine
                     const Vector3 b1 = context.position(mid);
                     const Vector3 c1 = context.position(tip);
                     const Quaternion rotate_mid =
-                        detail::rotation_between(normalize(c1 - b1), normalize(target - b1));
+                        Detail::rotation_between(normalize(c1 - b1), normalize(target - b1));
                     context.set_rotation(mid, mul(rotate_mid, context.rotation(mid)));
                     context.recompose();
 

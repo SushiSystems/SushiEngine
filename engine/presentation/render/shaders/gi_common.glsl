@@ -5,7 +5,7 @@
 
 #define GI_NUM_CASCADES 3
 
-// The std140 mirror of Render::GI::ProbeVolumeConfig. Field-for-field identical packing.
+// The std140 mirror of Render::GI::ProbeVolumeConfiguration. Field-for-field identical packing.
 struct GIProbeVolume
 {
     vec4 params;   // x = enabled, y = indirect intensity, z = normal bias metres, w = cascade count

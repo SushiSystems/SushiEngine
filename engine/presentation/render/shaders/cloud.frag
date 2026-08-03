@@ -132,7 +132,7 @@ layout(push_constant) uniform CloudBudget
     // because the light volume, the shadow map, the panorama and the ground shadow all need
     // the same mapping and only this pass has a push block to put it in.
     uint light_taps;    // tiered inline light-march correction cadence, 0-3 (Low..Ultra)
-    uint near_far_split; // W3: QualityParams::cloud_near_far_split, High/Ultra only
+    uint near_far_split; // W3: QualityParameters::cloud_near_far_split, High/Ultra only
     uint carve_mip_count; // levels the march noise volume carries; 0 disables both of these
     // The NDC step between two neighbouring rows of *this pass's own* buffer, which runs at
     // the tier's cloud resolution scale rather than at the frame's. Pushed because that scale

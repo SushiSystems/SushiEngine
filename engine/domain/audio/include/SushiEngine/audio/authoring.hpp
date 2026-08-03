@@ -57,7 +57,7 @@ namespace SushiEngine
         {
             std::uint32_t id = 0;
             std::string name;
-            AudioCodecKind codec = AudioCodecKind::PcmFloat;
+            AudioCodecKind codec = AudioCodecKind::PCMFloat;
             std::uint32_t channels = 1;
             std::uint32_t sample_rate = 48000;
             std::uint32_t frame_count = 0;

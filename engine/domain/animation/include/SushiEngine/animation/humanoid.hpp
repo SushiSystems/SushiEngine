@@ -139,7 +139,7 @@ namespace SushiEngine
             }
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief One bone's candidate joint names, tried in order by the heuristic. */
             struct BoneAlias
@@ -178,7 +178,7 @@ namespace SushiEngine
                 count = sizeof(table) / sizeof(table[0]);
                 return table;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Maps a skeleton's joints to canonical bones by common naming conventions.
@@ -194,7 +194,7 @@ namespace SushiEngine
         {
             Avatar avatar;
             std::size_t count = 0;
-            const detail::BoneAlias* table = detail::bone_alias_table(count);
+            const Detail::BoneAlias* table = Detail::bone_alias_table(count);
             for (std::size_t i = 0; i < count; ++i)
             {
                 for (const char* name : table[i].names)

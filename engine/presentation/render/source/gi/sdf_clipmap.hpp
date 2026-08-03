@@ -121,7 +121,7 @@ namespace SushiEngine
 
             /**
              * @brief The block locating the clipmap in space, mirroring the GLSL
-             *        @c SDFClipmapConfig block.
+             *        @c SDFClipmapConfiguration block.
              */
             struct SDFClipmapConfiguration
             {

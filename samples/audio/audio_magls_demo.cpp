@@ -116,7 +116,7 @@ int main()
 {
     const double sample_rate = 48000.0;
 
-    SofaHRTFDatabase db;
+    SOFAHRTFDatabase db;
     const std::string real_path = "assets/hrtf/mit_kemar_normal_pinna.sofa";
     if (!(db.load(real_path, sample_rate) && db.valid()))
     {

@@ -48,7 +48,7 @@ layout(set = 0, binding = 17) uniform ClusterBlock
     // samples (0 = the feature is off), how far a shadow ray marches, how soft its
     // penumbra is, and which heap slot holds the scene distance field to march.
     vec4 stochastic;   // x = samples/pixel, y = max ray metres, z = softness, w = volume slot
-    vec4 sdf_origin;   // xyz camera-relative min corner, w = voxel size (SDFClipmapConfig)
+    vec4 sdf_origin;   // xyz camera-relative min corner, w = voxel size (SDFClipmapConfiguration)
     vec4 sdf_resolution; // xyz voxel counts, w spare
 } cluster;
 
@@ -273,7 +273,7 @@ vec3 accumulate_clustered_lighting(vec2 frag_coord, float view_z, vec3 n, vec3 v
     if (samples <= 0 || total_weight <= 0.0)
         return result;
 
-    SDFClipmapConfig field;
+    SDFClipmapConfiguration field;
     field.origin_voxel = cluster.sdf_origin;
     field.resolution = ivec4(cluster.sdf_resolution.xyz, 0);
     field.extra = ivec4(0);

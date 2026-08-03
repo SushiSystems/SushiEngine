@@ -74,7 +74,7 @@ TEST(Unit_Audio, CodecPcm16RoundTrip)
 {
     const std::vector<float> tone = make_tone(1000, 440.0);
     const std::vector<std::uint8_t> bytes = pcm16_bytes(tone);
-    PcmCodec codec(1, true);
+    PCMCodec codec(1, true);
     std::vector<float> out;
     decode_all(codec, bytes.data(), static_cast<int>(bytes.size()), out);
     ASSERT_EQ(out.size(), tone.size());
@@ -127,7 +127,7 @@ TEST(Unit_Audio, BankBuildLoadRoundTrip)
     const std::vector<std::uint8_t> pcm = pcm16_bytes(tone);
 
     BankBuilder builder;
-    builder.add_media(42, AudioCodecKind::Pcm16, 1, 48000, frames, pcm);
+    builder.add_media(42, AudioCodecKind::PCM16, 1, 48000, frames, pcm);
     const std::vector<std::uint8_t> bytes = builder.build();
 
     Bank bank;

@@ -31,7 +31,7 @@
  * measured HRIR sets; it is an HDF5 file whose `SimpleFreeFieldHRIR` convention stores three
  * datasets this loader reads: `Data.IR` `[M measurements][R receivers][N taps]` (the two-ear
  * impulse responses), `SourcePosition` `[M][3]` (azimuth°, elevation°, radius, spherical), and
- * `Data.SamplingRate`. @ref SofaHRTFDatabase reads them through the HDF5 C API, converts each
+ * `Data.SamplingRate`. @ref SOFAHRTFDatabase reads them through the HDF5 C API, converts each
  * source position to a head-relative unit vector, optionally resamples the taps to the stream
  * rate, and serves the nearest pair to the spatializer through the @ref IHRTFDatabase seam.
  *
@@ -54,7 +54,7 @@ namespace SushiEngine
     namespace Audio
     {
         /** @brief A measured-HRTF database loaded from a SOFA (HDF5) file. */
-        class SofaHRTFDatabase final : public IHRTFDatabase
+        class SOFAHRTFDatabase final : public IHRTFDatabase
         {
             public:
                 int ir_length() const noexcept override { return ir_length_; }
@@ -280,7 +280,7 @@ namespace SushiEngine
         /**
          * @brief Bakes an HRIR set to a minimal SOFA (HDF5) file the loader round-trips.
          *
-         * Writes the three datasets @ref SofaHRTFDatabase reads — `Data.IR` `[M][2][N]`,
+         * Writes the three datasets @ref SOFAHRTFDatabase reads — `Data.IR` `[M][2][N]`,
          * `SourcePosition` `[M][3]`, and `Data.SamplingRate` — as HDF5 doubles.
          *
          * @param path        Output `.sofa` path.

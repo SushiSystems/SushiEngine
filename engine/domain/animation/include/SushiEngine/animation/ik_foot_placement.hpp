@@ -100,7 +100,7 @@ namespace SushiEngine
                     // Re-orient the ankle so the sole follows the surface normal.
                     const Quaternion ankle_rotation = context.rotation(ankle);
                     const Vector3 current_up = normalize(rotate(ankle_rotation, up_axis));
-                    Quaternion align = detail::rotation_between(current_up, normal);
+                    Quaternion align = Detail::rotation_between(current_up, normal);
                     if (weight < 1.0f)
                     {
                         const Quaternion identity{0.0, 0.0, 0.0, 1.0};

@@ -22,7 +22,7 @@ layout(set = 0, binding = 0) uniform SceneBlock
     mat4 proj;
 } scene;
 
-layout(set = 0, binding = 1) uniform CullParams
+layout(set = 0, binding = 1) uniform CullParameters
 {
     mat4 prev_view_proj; // camera-relative, last frame — reprojects onto the occlusion pyramid
     vec4 delta_eye;      // xyz = current eye - previous eye, to rebase onto last frame's origin

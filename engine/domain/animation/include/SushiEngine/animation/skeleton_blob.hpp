@@ -115,7 +115,7 @@ namespace SushiEngine
             bool has_inverse_bind = false;
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Rounds @p value up to the next multiple of @p alignment. */
             inline std::size_t align_up(std::size_t value, std::size_t alignment) noexcept
@@ -138,7 +138,7 @@ namespace SushiEngine
                 }
                 return depth;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Cooks a skeleton description into a relocatable `.sushiskel` blob.
@@ -176,7 +176,7 @@ namespace SushiEngine
             for (std::size_t i = 0; i < count; ++i)
             {
                 order[i] = static_cast<int>(i);
-                depth[i] = detail::joint_depth(description.joints, static_cast<int>(i));
+                depth[i] = Detail::joint_depth(description.joints, static_cast<int>(i));
                 if (depth[i] < 0)
                     return false; // cycle
             }
@@ -246,25 +246,25 @@ namespace SushiEngine
             const std::uint32_t lod_count = 1;
 
             // Lay out sections at 16-byte-aligned offsets after the header.
-            std::size_t cursor = detail::align_up(sizeof(SkeletonBlobHeader), 16);
+            std::size_t cursor = Detail::align_up(sizeof(SkeletonBlobHeader), 16);
             const std::size_t parents_offset = cursor;
-            cursor = detail::align_up(cursor + parents.size() * sizeof(std::uint16_t), 16);
+            cursor = Detail::align_up(cursor + parents.size() * sizeof(std::uint16_t), 16);
             const std::size_t translations_offset = cursor;
-            cursor = detail::align_up(cursor + translations.size() * sizeof(Vector3f), 16);
+            cursor = Detail::align_up(cursor + translations.size() * sizeof(Vector3f), 16);
             const std::size_t rotations_offset = cursor;
-            cursor = detail::align_up(cursor + rotations.size() * sizeof(Quaternionf), 16);
+            cursor = Detail::align_up(cursor + rotations.size() * sizeof(Quaternionf), 16);
             const std::size_t scales_offset = cursor;
-            cursor = detail::align_up(cursor + scales.size() * sizeof(Vector3f), 16);
+            cursor = Detail::align_up(cursor + scales.size() * sizeof(Vector3f), 16);
             const std::size_t inverse_bind_offset = cursor;
-            cursor = detail::align_up(cursor + inverse_bind.size() * sizeof(JointMatrix), 16);
+            cursor = Detail::align_up(cursor + inverse_bind.size() * sizeof(JointMatrix), 16);
             const std::size_t names_offset = cursor;
-            cursor = detail::align_up(cursor + names.size() * sizeof(NameHash), 16);
+            cursor = Detail::align_up(cursor + names.size() * sizeof(NameHash), 16);
             const std::size_t lod_offset = cursor;
-            cursor = detail::align_up(cursor + lod_joint_counts.size() * sizeof(std::uint16_t), 16);
+            cursor = Detail::align_up(cursor + lod_joint_counts.size() * sizeof(std::uint16_t), 16);
             const std::size_t name_offsets_offset = cursor;
-            cursor = detail::align_up(cursor + name_offsets.size() * sizeof(std::uint32_t), 16);
+            cursor = Detail::align_up(cursor + name_offsets.size() * sizeof(std::uint32_t), 16);
             const std::size_t name_data_offset = cursor;
-            cursor = detail::align_up(cursor + name_data.size(), 16);
+            cursor = Detail::align_up(cursor + name_data.size(), 16);
             const std::size_t total_size = cursor;
 
             out.assign(total_size, std::byte{0});

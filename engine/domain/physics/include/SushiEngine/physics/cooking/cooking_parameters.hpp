@@ -180,7 +180,7 @@ namespace SushiEngine
                 bool static_geometry = false;
             };
 
-            namespace detail
+            namespace Detail
             {
                 /** @brief @p value held inside [@p low, @p high]. */
                 inline float clamp_unit(float value) noexcept
@@ -217,7 +217,7 @@ namespace SushiEngine
                 {
                     return override_value == DERIVE_FROM_FIDELITY ? derived : override_value;
                 }
-            } // namespace detail
+            } // namespace Detail
 
             /**
              * @brief Resolves the dial into the numbers the stages read.
@@ -233,27 +233,27 @@ namespace SushiEngine
             inline DerivedCookingParameters
             resolve_cooking_parameters(const CookingParameters& parameters) noexcept
             {
-                const float t = detail::clamp_unit(parameters.fidelity);
+                const float t = Detail::clamp_unit(parameters.fidelity);
 
                 DerivedCookingParameters derived;
-                derived.voxel_resolution = detail::pinned_or(parameters.voxel_resolution,
-                                                             detail::geometric(16, 256, t));
+                derived.voxel_resolution = Detail::pinned_or(parameters.voxel_resolution,
+                                                             Detail::geometric(16, 256, t));
                 derived.target_tetrahedron_count =
-                    detail::pinned_or(parameters.target_tetrahedron_count,
-                                      detail::geometric(200, 120000, t));
+                    Detail::pinned_or(parameters.target_tetrahedron_count,
+                                      Detail::geometric(200, 120000, t));
                 derived.simulation_level_count =
-                    detail::pinned_or(parameters.simulation_level_count, detail::linear(1, 4, t));
+                    Detail::pinned_or(parameters.simulation_level_count, Detail::linear(1, 4, t));
                 derived.convex_piece_count =
-                    detail::pinned_or(parameters.convex_piece_count, detail::geometric(4, 64, t));
+                    Detail::pinned_or(parameters.convex_piece_count, Detail::geometric(4, 64, t));
                 derived.distance_field_resolution =
-                    detail::pinned_or(parameters.distance_field_resolution,
-                                      detail::geometric(16, 128, t));
+                    Detail::pinned_or(parameters.distance_field_resolution,
+                                      Detail::geometric(16, 128, t));
                 derived.surface_conforming_passes =
-                    detail::pinned_or(parameters.surface_conforming_passes,
-                                      detail::linear(0, 3, t));
+                    Detail::pinned_or(parameters.surface_conforming_passes,
+                                      Detail::linear(0, 3, t));
                 derived.suggested_substep_count =
-                    detail::pinned_or(parameters.suggested_substep_count,
-                                      detail::geometric(8, 32, t));
+                    Detail::pinned_or(parameters.suggested_substep_count,
+                                      Detail::geometric(8, 32, t));
 
                 // Not on the dial, but still resolved here so a stage has exactly one
                 // record to read and cannot reach past it to the authored parameters.

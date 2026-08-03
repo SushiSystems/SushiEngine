@@ -39,7 +39,7 @@
 
 #include <SushiEngine/animation/hash.hpp>
 #include <SushiEngine/animation/skeleton.hpp>
-#include <SushiEngine/animation/skeleton_blob.hpp> // detail::align_up
+#include <SushiEngine/animation/skeleton_blob.hpp> // Detail::align_up
 
 namespace SushiEngine
 {
@@ -145,9 +145,9 @@ namespace SushiEngine
                 entries.push_back(record);
             }
 
-            std::size_t cursor = detail::align_up(sizeof(MaskBlobHeader), 16);
+            std::size_t cursor = Detail::align_up(sizeof(MaskBlobHeader), 16);
             const std::size_t entries_offset = cursor;
-            cursor = detail::align_up(cursor + entries.size() * sizeof(MaskEntryRecord), 16);
+            cursor = Detail::align_up(cursor + entries.size() * sizeof(MaskEntryRecord), 16);
             const std::size_t total_size = cursor;
 
             out.assign(total_size, std::byte{0});

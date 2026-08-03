@@ -61,7 +61,7 @@ namespace SushiEngine
                 virtual void on_animation_event(std::uint32_t entity, const AnimatorEvent& event) = 0;
         };
 
-        namespace detail
+        namespace Detail
         {
             /** @brief Whether the accumulating normalized time crossed `k + mark` this tick. */
             inline bool crossed(float old_time, float new_time, float mark) noexcept
@@ -398,7 +398,7 @@ namespace SushiEngine
                     return identity;
                 return normalize(Quaternionf{x, y, z, w});
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Advances one animator's deterministic state by one fixed tick.
@@ -447,7 +447,7 @@ namespace SushiEngine
                 // the frame evaluator's mask-gated fold. It lives in the snapshotted layer state, so
                 // its update here stays deterministic and rollback-exact.
                 if (layer.weight_parameter >= 0)
-                    s.weight = detail::read_parameter_float(instance.parameters, layer.weight_parameter);
+                    s.weight = Detail::read_parameter_float(instance.parameters, layer.weight_parameter);
                 else
                     s.weight = layer.weight;
 
@@ -455,7 +455,7 @@ namespace SushiEngine
                     controller.states[layer.state_base + static_cast<std::uint32_t>(s.current_state)];
                 BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
                 std::uint32_t contribution_count = 0;
-                const float duration = detail::resolve_state_motion(
+                const float duration = Detail::resolve_state_motion(
                     controller, database, instance.parameters, state, contributions, contribution_count);
 
                 float speed = state.speed * instance.speed;
@@ -506,9 +506,9 @@ namespace SushiEngine
                             const std::uint32_t index = base + t;
                             const TransitionRecord& transition = controller.transitions[index];
                             if (transition.has_exit_time != 0 &&
-                                !detail::crossed(old_time, new_time, transition.exit_time))
+                                !Detail::crossed(old_time, new_time, transition.exit_time))
                                 continue;
-                            if (!detail::conditions_pass(controller, instance.parameters, transition))
+                            if (!Detail::conditions_pass(controller, instance.parameters, transition))
                                 continue;
                             chosen = static_cast<std::int32_t>(index);
                             break;
@@ -518,7 +518,7 @@ namespace SushiEngine
                     {
                         const TransitionRecord& transition =
                             controller.transitions[static_cast<std::uint32_t>(chosen)];
-                        detail::consume_triggers(controller, instance.parameters, transition);
+                        Detail::consume_triggers(controller, instance.parameters, transition);
                         if (transition.duration <= 0.0f)
                         {
                             // Instant transition: switch immediately.
@@ -543,16 +543,16 @@ namespace SushiEngine
                 for (std::uint32_t e = 0; e < state.event_count; ++e)
                 {
                     const EventRecord& event = controller.events[state.event_base + e];
-                    if (detail::crossed(old_time, new_time, event.normalized_time))
+                    if (Detail::crossed(old_time, new_time, event.normalized_time))
                         instance.events.push(event.name, event.payload, l);
                 }
 
                 // Root motion from the base layer only (weighted across a blend tree's clips).
                 if (l == 0 && instance.apply_root_motion != 0 && contribution_count > 0)
                 {
-                    instance.root_motion.position = detail::blend_root_delta(
+                    instance.root_motion.position = Detail::blend_root_delta(
                         database, contributions, contribution_count, old_time, new_time);
-                    instance.root_motion.rotation = detail::blend_root_rotation(
+                    instance.root_motion.rotation = Detail::blend_root_rotation(
                         database, contributions, contribution_count, old_time, new_time);
                 }
             }

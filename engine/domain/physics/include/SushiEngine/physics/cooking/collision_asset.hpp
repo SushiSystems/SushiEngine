@@ -230,7 +230,7 @@ namespace SushiEngine
                 bool valid = false;
             };
 
-            namespace detail
+            namespace Detail
             {
                 /** @brief Rounds @p value up to the next multiple of @p alignment. */
                 inline std::size_t collision_align_up(std::size_t value,
@@ -238,7 +238,7 @@ namespace SushiEngine
                 {
                     return (value + alignment - 1) & ~(alignment - 1);
                 }
-            } // namespace detail
+            } // namespace Detail
 
             /**
              * @brief Serializes @p asset into a `.sushicollision` blob.

@@ -46,7 +46,7 @@ namespace SushiEngine
 {
     namespace Animation
     {
-        namespace detail
+        namespace Detail
         {
             /** @brief Fills a joint→bone lookup (-1 where a joint plays no canonical bone). */
             inline void bone_of_joint(const Avatar& avatar, std::uint32_t joint_count,
@@ -84,7 +84,7 @@ namespace SushiEngine
                         clip.scales[index] = skeleton.bind_scales[j];
                     }
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Retargets a humanoid clip from a source rig onto a target rig.
@@ -116,10 +116,10 @@ namespace SushiEngine
             out.joint_count = target_skeleton.joint_count;
             out.frame_count = source.frame_count;
             out.sample_rate = source.sample_rate;
-            detail::seed_bind_tracks(target_skeleton, out);
+            Detail::seed_bind_tracks(target_skeleton, out);
 
             std::vector<std::int32_t> target_bone;
-            detail::bone_of_joint(target_avatar, target_skeleton.joint_count, target_bone);
+            Detail::bone_of_joint(target_avatar, target_skeleton.joint_count, target_bone);
 
             // Hip-height ratio for root translation scaling.
             float hip_scale = 1.0f;
@@ -154,7 +154,7 @@ namespace SushiEngine
                     const std::uint32_t source_index = f * source.joint_count + s;
                     const std::uint32_t destination_index = f * out.joint_count + j;
                     const Quaternionf delta =
-                        detail::pose_delta(source_bind, source.rotations[source_index]);
+                        Detail::pose_delta(source_bind, source.rotations[source_index]);
                     out.rotations[destination_index] = normalize(mul(target_bind, delta));
                     if (is_hips)
                     {
@@ -199,10 +199,10 @@ namespace SushiEngine
             out.joint_count = skeleton.joint_count;
             out.frame_count = source.frame_count;
             out.sample_rate = source.sample_rate;
-            detail::seed_bind_tracks(skeleton, out);
+            Detail::seed_bind_tracks(skeleton, out);
 
             std::vector<std::int32_t> joint_bone;
-            detail::bone_of_joint(avatar, skeleton.joint_count, joint_bone);
+            Detail::bone_of_joint(avatar, skeleton.joint_count, joint_bone);
 
             for (std::uint32_t j = 0; j < skeleton.joint_count; ++j)
             {
@@ -226,7 +226,7 @@ namespace SushiEngine
                     const std::uint32_t source_index = f * source.joint_count + s;
                     const std::uint32_t destination_index = f * out.joint_count + j;
                     Quaternionf delta =
-                        detail::pose_delta(source_bind, source.rotations[source_index]);
+                        Detail::pose_delta(source_bind, source.rotations[source_index]);
                     const Quaternionf mirrored{delta.x, -delta.y, -delta.z, delta.w};
                     out.rotations[destination_index] = normalize(mul(target_bind, mirrored));
                     const Vector3f offset = source.translations[source_index] - source_bind_t;
@@ -301,7 +301,7 @@ namespace SushiEngine
 
                 const Quaternionf source_bind = source_skeleton.bind_rotations[s];
                 const Quaternionf target_bind = target_skeleton.bind_rotations[t];
-                const Quaternionf delta = detail::pose_delta(source_bind, source_rotations[s]);
+                const Quaternionf delta = Detail::pose_delta(source_bind, source_rotations[s]);
                 out_rotations[t] = normalize(mul(target_bind, delta));
 
                 if (bone == HumanBone::Hips)

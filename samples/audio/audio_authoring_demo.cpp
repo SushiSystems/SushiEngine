@@ -39,7 +39,7 @@ using namespace SushiEngine::Audio;
 
 namespace
 {
-    // Encodes a constant-valued float buffer as PcmFloat bytes (the codec stores float directly).
+    // Encodes a constant-valued float buffer as PCMFloat bytes (the codec stores float directly).
     std::vector<std::uint8_t> pcm_float_bytes(float value, int frames)
     {
         std::vector<float> f(static_cast<std::size_t>(frames), value);
@@ -53,9 +53,9 @@ int main()
 {
     AudioAuthoringProject project;
 
-    const std::uint32_t m0 = project.add_media("kick", AudioCodecKind::PcmFloat, 1, 48000, 256);
-    const std::uint32_t m1 = project.add_media("snare", AudioCodecKind::PcmFloat, 1, 48000, 256);
-    const std::uint32_t m2 = project.add_media("hat", AudioCodecKind::PcmFloat, 1, 48000, 256);
+    const std::uint32_t m0 = project.add_media("kick", AudioCodecKind::PCMFloat, 1, 48000, 256);
+    const std::uint32_t m1 = project.add_media("snare", AudioCodecKind::PCMFloat, 1, 48000, 256);
+    const std::uint32_t m2 = project.add_media("hat", AudioCodecKind::PCMFloat, 1, 48000, 256);
 
     const int s0 = project.create_sound(m0);
     const int s1 = project.create_sound(m1);

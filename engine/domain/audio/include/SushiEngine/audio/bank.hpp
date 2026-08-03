@@ -66,7 +66,7 @@ namespace SushiEngine
         struct BankMediaInformation
         {
             std::uint32_t id = 0;
-            AudioCodecKind codec = AudioCodecKind::PcmFloat;
+            AudioCodecKind codec = AudioCodecKind::PCMFloat;
             std::uint32_t channels = 1;
             std::uint32_t sample_rate = 48000;
             std::uint32_t frame_count = 0;
@@ -128,12 +128,12 @@ namespace SushiEngine
         {
             switch (kind)
             {
-                case AudioCodecKind::Pcm16:
-                    return std::unique_ptr<IAudioCodec>(new PcmCodec(channels, true));
+                case AudioCodecKind::PCM16:
+                    return std::unique_ptr<IAudioCodec>(new PCMCodec(channels, true));
                 case AudioCodecKind::ImaAdpcm:
                     return std::unique_ptr<IAudioCodec>(new ImaAdpcmCodec(channels));
-                case AudioCodecKind::PcmFloat:
-                    return std::unique_ptr<IAudioCodec>(new PcmCodec(channels, false));
+                case AudioCodecKind::PCMFloat:
+                    return std::unique_ptr<IAudioCodec>(new PCMCodec(channels, false));
                 default:
                     for (ExternalCodecFactory factory : external_codec_factories())
                     {
@@ -141,7 +141,7 @@ namespace SushiEngine
                         if (codec)
                             return codec;
                     }
-                    return std::unique_ptr<IAudioCodec>(new PcmCodec(channels, false));
+                    return std::unique_ptr<IAudioCodec>(new PCMCodec(channels, false));
             }
         }
 

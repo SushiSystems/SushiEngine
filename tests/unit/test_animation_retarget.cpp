@@ -153,7 +153,7 @@ namespace
         clip.joint_count = rig.view().joint_count;
         clip.frame_count = frame_count;
         clip.sample_rate = 30.0f;
-        detail::seed_bind_tracks(rig.view(), clip);
+        Detail::seed_bind_tracks(rig.view(), clip);
         return clip;
     }
 } // namespace

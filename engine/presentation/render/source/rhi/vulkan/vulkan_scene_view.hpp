@@ -349,7 +349,7 @@ namespace SushiEngine
                     Passes::ParticlePass particle_pass_;
                     Passes::ParticleMeshPass particle_mesh_pass_;
                     Passes::TAAPass taa_pass_;
-                    Passes::DofPass dof_pass_;
+                    Passes::DOFPass dof_pass_;
                     Passes::MotionBlurPass motion_blur_pass_;
                     Passes::AutoExposurePass auto_exposure_pass_;
                     Passes::BloomPass bloom_pass_;

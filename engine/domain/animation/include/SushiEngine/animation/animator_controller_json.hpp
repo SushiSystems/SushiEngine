@@ -45,7 +45,7 @@ namespace SushiEngine
 {
     namespace Animation
     {
-        namespace detail
+        namespace Detail
         {
             inline const char* parameter_type_name(ParameterType type)
             {
@@ -243,7 +243,7 @@ namespace SushiEngine
                         node->children.push_back(blend_child_from_json(c));
                 return node;
             }
-        } // namespace detail
+        } // namespace Detail
 
         /**
          * @brief Serializes an authored controller to JSON.
@@ -256,7 +256,7 @@ namespace SushiEngine
             nlohmann::json parameters = nlohmann::json::array();
             for (const ParameterDescription& p : description.parameters)
                 parameters.push_back({{"name", p.name},
-                                      {"type", detail::parameter_type_name(p.type)},
+                                      {"type", Detail::parameter_type_name(p.type)},
                                       {"default", p.default_value}});
 
             nlohmann::json layers = nlohmann::json::array();
@@ -267,30 +267,30 @@ namespace SushiEngine
                 {
                     nlohmann::json transitions = nlohmann::json::array();
                     for (const TransitionDescription& t : state.transitions)
-                        transitions.push_back(detail::transition_to_json(t));
+                        transitions.push_back(Detail::transition_to_json(t));
                     nlohmann::json events = nlohmann::json::array();
                     for (const StateEventDescription& e : state.events)
                         events.push_back({{"normalized_time", e.normalized_time},
                                           {"name", e.name},
                                           {"payload", e.payload}});
                     nlohmann::json json_state{{"name", state.name},
-                                              {"clip", detail::asset_to_json(state.clip)},
+                                              {"clip", Detail::asset_to_json(state.clip)},
                                               {"speed", state.speed},
                                               {"speed_parameter", state.speed_parameter},
                                               {"cycle_offset", state.cycle_offset},
                                               {"transitions", transitions},
                                               {"events", events}};
                     if (state.blend_tree)
-                        json_state["blend_tree"] = detail::blend_node_to_json(*state.blend_tree);
+                        json_state["blend_tree"] = Detail::blend_node_to_json(*state.blend_tree);
                     states.push_back(json_state);
                 }
                 nlohmann::json any_transitions = nlohmann::json::array();
                 for (const TransitionDescription& t : layer.any_state_transitions)
-                    any_transitions.push_back(detail::transition_to_json(t));
+                    any_transitions.push_back(Detail::transition_to_json(t));
                 layers.push_back({{"name", layer.name},
                                   {"weight", layer.weight},
-                                  {"mask", detail::asset_to_json(layer.mask)},
-                                  {"blend_mode", detail::blend_mode_name(layer.blend_mode)},
+                                  {"mask", Detail::asset_to_json(layer.mask)},
+                                  {"blend_mode", Detail::blend_mode_name(layer.blend_mode)},
                                   {"weight_parameter", layer.weight_parameter},
                                   {"default_state", layer.default_state},
                                   {"states", states},
@@ -313,7 +313,7 @@ namespace SushiEngine
                 {
                     ParameterDescription parameter;
                     parameter.name = p.value("name", std::string{});
-                    parameter.type = detail::parameter_type_from(p.value("type", std::string{"Float"}));
+                    parameter.type = Detail::parameter_type_from(p.value("type", std::string{"Float"}));
                     parameter.default_value = p.value("default", 0.0f);
                     description.parameters.push_back(parameter);
                 }
@@ -323,8 +323,8 @@ namespace SushiEngine
                     LayerDescription layer;
                     layer.name = l.value("name", std::string{});
                     layer.weight = l.value("weight", 1.0f);
-                    layer.mask = detail::asset_from_json(l.value("mask", nlohmann::json(-1)));
-                    layer.blend_mode = detail::blend_mode_from(l.value("blend_mode", std::string{"Override"}));
+                    layer.mask = Detail::asset_from_json(l.value("mask", nlohmann::json(-1)));
+                    layer.blend_mode = Detail::blend_mode_from(l.value("blend_mode", std::string{"Override"}));
                     layer.weight_parameter = l.value("weight_parameter", std::string{});
                     layer.default_state = l.value("default_state", std::string{});
                     if (l.contains("states"))
@@ -332,15 +332,15 @@ namespace SushiEngine
                         {
                             StateDescription state;
                             state.name = s.value("name", std::string{});
-                            state.clip = detail::asset_from_json(s.value("clip", nlohmann::json(-1)));
+                            state.clip = Detail::asset_from_json(s.value("clip", nlohmann::json(-1)));
                             state.speed = s.value("speed", 1.0f);
                             state.speed_parameter = s.value("speed_parameter", std::string{});
                             state.cycle_offset = s.value("cycle_offset", 0.0f);
                             if (s.contains("blend_tree") && !s.at("blend_tree").is_null())
-                                state.blend_tree = detail::blend_node_from_json(s.at("blend_tree"));
+                                state.blend_tree = Detail::blend_node_from_json(s.at("blend_tree"));
                             if (s.contains("transitions"))
                                 for (const nlohmann::json& t : s.at("transitions"))
-                                    state.transitions.push_back(detail::transition_from_json(t));
+                                    state.transitions.push_back(Detail::transition_from_json(t));
                             if (s.contains("events"))
                                 for (const nlohmann::json& e : s.at("events"))
                                 {
@@ -354,7 +354,7 @@ namespace SushiEngine
                         }
                     if (l.contains("any_state_transitions"))
                         for (const nlohmann::json& t : l.at("any_state_transitions"))
-                            layer.any_state_transitions.push_back(detail::transition_from_json(t));
+                            layer.any_state_transitions.push_back(Detail::transition_from_json(t));
                     description.layers.push_back(layer);
                 }
             return description;

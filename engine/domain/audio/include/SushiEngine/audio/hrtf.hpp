@@ -35,7 +35,7 @@
  *
  * @ref IHRTFDatabase is the dependency-free seam: any provider (a baked table, a synthetic
  * set, or the SOFA/HDF5 loader in `sofa_hrtf.hpp`) hands the spatializer an HRIR pair for a
- * head-relative direction. @ref HrirConvolver is the direct-form FIR that applies it. This
+ * head-relative direction. @ref HRIRConvolver is the direct-form FIR that applies it. This
  * header carries no third-party dependency and rides the `audio.hpp` umbrella.
  */
 
@@ -85,7 +85,7 @@ namespace SushiEngine
          * (the reverberant tail of one block carries into the next). @ref process_block adds
          * its output to the destination, matching the spatializer's accumulate-into-ears model.
          */
-        class HrirConvolver
+        class HRIRConvolver
         {
             public:
                 /**

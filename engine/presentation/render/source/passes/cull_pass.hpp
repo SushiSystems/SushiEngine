@@ -116,7 +116,7 @@ namespace SushiEngine
                         std::uint32_t pad;
                     };
 
-                    /** @brief The std140 cull parameters, mirrored by cull.comp's CullParams. */
+                    /** @brief The std140 cull parameters; cull.comp's CullParameters mirrors it. */
                     struct Parameters
                     {
                         float previous_view_projection[16];

@@ -124,7 +124,7 @@ namespace SushiEngine
                             length(solved) < static_cast<Scalar>(1e-6))
                             continue;
                         Quaternion delta =
-                            detail::rotation_between(normalize(current), normalize(solved));
+                            Detail::rotation_between(normalize(current), normalize(solved));
                         if (weight < 1.0f)
                         {
                             const Quaternion identity{0.0, 0.0, 0.0, 1.0};
