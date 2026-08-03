@@ -76,7 +76,7 @@
 
 #include <SushiEngine/atmosphere/climatology.hpp>
 #include <SushiEngine/atmosphere/geographic_position.hpp>
-#include <SushiEngine/loop/rng.hpp>
+#include <SushiEngine/core/random_number_generator.hpp>
 
 namespace SushiEngine
 {

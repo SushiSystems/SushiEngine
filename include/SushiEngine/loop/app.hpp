@@ -63,7 +63,7 @@
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/loop/input.hpp>
 #include <SushiEngine/loop/net.hpp>
-#include <SushiEngine/loop/rng.hpp>
+#include <SushiEngine/core/random_number_generator.hpp>
 #include <SushiEngine/loop/rollback.hpp>
 
 // Only after execution/context.hpp, which either sees the build's -D or falls back

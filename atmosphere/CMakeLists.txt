@@ -23,6 +23,8 @@ add_library(sushi_atmosphere STATIC
     quasigeostrophic_core.cpp)
 
 target_include_directories(sushi_atmosphere PUBLIC "${CMAKE_SOURCE_DIR}/include")
+# The dynamical core seeds its stochastic forcing from core's random number generator.
+target_link_libraries(sushi_atmosphere PUBLIC sushiengine_core)
 target_compile_features(sushi_atmosphere PUBLIC cxx_std_17)
 set_target_properties(sushi_atmosphere PROPERTIES
     CXX_STANDARD 17

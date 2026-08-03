@@ -28,7 +28,7 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/loop/rng.hpp>
+#include <SushiEngine/core/random_number_generator.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Loop;

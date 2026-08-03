@@ -32,6 +32,8 @@ add_library(sushi_import STATIC
 target_include_directories(sushi_import PUBLIC
     "${CMAKE_SOURCE_DIR}/include"
     "${CGLTF_INCLUDE_DIR}")
+# The imported blobs are spelled in core's scalar and vector types.
+target_link_libraries(sushi_import PUBLIC sushiengine_core)
 target_compile_features(sushi_import PUBLIC cxx_std_17)
 set_target_properties(sushi_import PROPERTIES
     CXX_STANDARD 17

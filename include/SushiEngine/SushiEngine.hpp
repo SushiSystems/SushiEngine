@@ -67,7 +67,7 @@
 #include <SushiEngine/physics/scene/physics_world.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/loop/input.hpp>
-#include <SushiEngine/loop/rng.hpp>
+#include <SushiEngine/core/random_number_generator.hpp>
 #include <SushiEngine/loop/rollback.hpp>
 #include <SushiEngine/loop/net.hpp>
 #include <SushiEngine/loop/app.hpp>

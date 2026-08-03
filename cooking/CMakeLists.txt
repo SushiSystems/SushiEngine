@@ -41,7 +41,7 @@ target_include_directories(sushi_cooking PUBLIC "${CMAKE_SOURCE_DIR}/include")
 # linked — the service takes a `MeshLoader` seam, so this target still depends on nothing but
 # geometry and can be built on a machine with no cgltf and no device.
 find_package(Threads REQUIRED)
-target_link_libraries(sushi_cooking PUBLIC sushi_geometry Threads::Threads)
+target_link_libraries(sushi_cooking PUBLIC sushiengine_core sushi_geometry Threads::Threads)
 target_compile_features(sushi_cooking PUBLIC cxx_std_17)
 set_target_properties(sushi_cooking PROPERTIES
     CXX_STANDARD 17

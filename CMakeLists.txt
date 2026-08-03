@@ -45,15 +45,28 @@ if(SE_EXECUTION_BACKEND STREQUAL "runtime")
                              # add_sycl_to_target(), SR_SYCL_TOOLCHAIN
     include(SyclTarget)      # sushi_apply_sycl() / add_sushi_sycl_executable() helpers
 else()
-    include(NativeExecutionTarget)  # sushi_exec_native target,
-                                    # add_sushiengine_native_executable() helper
+    include(NativeExecutionTarget)  # add_sushiengine_native_executable() helper
 endif()
+
+# The engine's modules. Before the SushiEngine target below, which links what is
+# declared here — sushi_exec_native among them on the native lane. sushiengine_add_module()
+# grants each module its own include/ and checks its dependencies against the tier order
+# in cmake/EngineLayers.cmake.
+include(Module)
+add_subdirectory(engine)
 
 # --- The engine + its examples ------------------------------------------------
 # The engine is header-only so its SYCL kernels instantiate inside the consuming
 # translation unit (each example below), which is the safe way to ship device code.
 add_library(SushiEngine INTERFACE)
 target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
+# The modules that have their own include root ride along here, so a consumer that
+# links only SushiEngine still resolves every engine header.
+target_link_libraries(SushiEngine INTERFACE
+    sushiengine_core
+    sushiengine_ecs
+    sushiengine_execution)
 
 # Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
 # consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
@@ -504,9 +517,10 @@ endif()
 # sushi_platform: the window/lifecycle seam (IPlatformWindow) and its SDL2
 # implementation. Both the editor and the player need it and neither owns it, so it
 # is added once, ahead of both, guarded so turning both on in one configure does not
-# add_subdirectory() it twice.
+# add_subdirectory() it twice. It is added from here rather than with the rest of
+# engine/foundation because its guard reads options settled further up this file.
 if((SE_BUILD_EDITOR OR SE_BUILD_PLAYER) AND NOT TARGET sushi_platform)
-    add_subdirectory(platform)
+    add_subdirectory(engine/foundation/platform)
 endif()
 
 # The Unity-style ImGui editor shell. OFF by default (see ProjectOptions). It links

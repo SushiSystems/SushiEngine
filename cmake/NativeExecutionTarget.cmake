@@ -17,5 +17,3 @@ function(add_sushiengine_native_executable name source)
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON)
 endfunction()
-
-add_subdirectory(execution_native)
