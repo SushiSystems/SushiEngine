@@ -97,11 +97,11 @@ namespace SushiEngine
                 const Vector3T<T> p1 = body_a.position + anchor_a;
                 const Vector3T<T> p2 = body_b.position + anchor_b;
                 const Vector3T<T> d = p2 - p1;
-                const T len = length(d);
-                if (len <= T(1e-8))
+                const T delta_length = length(d);
+                if (delta_length <= T(1e-8))
                     return;
-                const Vector3T<T> n = d * (T(1) / len);
-                const T error = len - c.rest_length;
+                const Vector3T<T> n = d * (T(1) / delta_length);
+                const T error = delta_length - c.rest_length;
 
                 const T w = generalized_inverse_mass(body_a, anchor_a, n) +
                             generalized_inverse_mass(body_b, anchor_b, n);

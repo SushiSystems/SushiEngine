@@ -606,14 +606,17 @@ namespace SushiEngine
                     const AudioVec3 dir{listener.x - source.x, listener.y - source.y,
                                         listener.z - source.z};
                     int pierced = 0;
-                    gather(source, dir, [&](std::size_t idx) {
-                        const AcousticInstance& inst = instances_[idx];
-                        if (inst.blas == nullptr)
-                            return;
-                        const AudioVec3 lo = inst.to_local(source);
-                        const AudioVec3 ld = inst.dir_to_local(dir);
-                        pierced += inst.blas->pierced_materials(lo, ld, max_surfaces, transmission);
-                    });
+                    gather(source, dir,
+                           [&](std::size_t index)
+                           {
+                               const AcousticInstance& inst = instances_[index];
+                               if (inst.blas == nullptr)
+                                   return;
+                               const AudioVec3 lo = inst.to_local(source);
+                               const AudioVec3 ld = inst.dir_to_local(dir);
+                               pierced +=
+                                   inst.blas->pierced_materials(lo, ld, max_surfaces, transmission);
+                           });
                     return pierced > 0;
                 }
 
@@ -623,15 +626,18 @@ namespace SushiEngine
                     const AudioVec3 dir{listener.x - source.x, listener.y - source.y,
                                         listener.z - source.z};
                     bool hit = false;
-                    gather(source, dir, [&](std::size_t idx) {
-                        if (hit)
-                            return;
-                        const AcousticInstance& inst = instances_[idx];
-                        if (inst.blas == nullptr)
-                            return;
-                        if (inst.blas->any_hit(inst.to_local(source), inst.dir_to_local(dir)))
-                            hit = true;
-                    });
+                    gather(
+                        source, dir,
+                        [&](std::size_t index)
+                        {
+                            if (hit)
+                                return;
+                            const AcousticInstance& inst = instances_[index];
+                            if (inst.blas == nullptr)
+                                return;
+                            if (inst.blas->any_hit(inst.to_local(source), inst.dir_to_local(dir)))
+                                hit = true;
+                        });
                     return hit;
                 }
 

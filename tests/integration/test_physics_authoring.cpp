@@ -93,13 +93,13 @@ namespace
         PhysicsBodyParameters body;
         body.density = Scalar(1000);
         world.set_has_physics_body(id, true);
-        world.set_physics_body_params(id, body);
+        world.set_physics_body_parameters(id, body);
 
-        ColliderParameters collider = world.collider_params(id);
+        ColliderParameters collider = world.collider_parameters(id);
         collider.static_friction = static_friction;
         collider.dynamic_friction = dynamic_friction;
         collider.restitution = restitution;
-        world.set_collider_params(id, collider);
+        world.set_collider_parameters(id, collider);
         return id;
     }
 
@@ -120,7 +120,7 @@ namespace
         PhysicsBodyParameters body;
         body.inv_mass = 0;
         world.set_has_physics_body(id, true);
-        world.set_physics_body_params(id, body);
+        world.set_physics_body_parameters(id, body);
         return id;
     }
 }
@@ -173,10 +173,10 @@ TEST(Integration_PhysicsAuthoring, FrictionDecidesWhetherABodySlidesDownARamp)
     EntityTransform ramp_transform = world.transform(ramp);
     ramp_transform.rotation = Quaternion{0, 0, Scalar(0.1494), Scalar(0.9888)};
     world.set_transform(ramp, ramp_transform);
-    ColliderParameters ramp_surface = world.collider_params(ramp);
+    ColliderParameters ramp_surface = world.collider_parameters(ramp);
     ramp_surface.static_friction = Scalar(0.6);
     ramp_surface.dynamic_friction = Scalar(0.5);
-    world.set_collider_params(ramp, ramp_surface);
+    world.set_collider_parameters(ramp, ramp_surface);
 
     const EntityId slippery =
         make_block(world, "Ice", Vector3{0, 2.2, -4}, Scalar(0.02), Scalar(0.02), Scalar(0));
@@ -216,10 +216,10 @@ TEST(Integration_PhysicsAuthoring, ExcludedLayersPassThroughEachOther)
 
     const auto set_layer = [&](EntityId id, std::uint32_t layer, std::uint32_t mask)
     {
-        ColliderParameters collider = world.collider_params(id);
+        ColliderParameters collider = world.collider_parameters(id);
         collider.layer = layer;
         collider.collides_with = mask;
-        world.set_collider_params(id, collider);
+        world.set_collider_parameters(id, collider);
     };
 
     // The pair that must pass through each other: each excludes the other's layer, both
@@ -308,7 +308,7 @@ TEST(Integration_PhysicsAuthoring, TheSurfaceAndTheFilterSurviveTheSceneFile)
     clear_world(world);
 
     const EntityId id = world.create_box("Surface");
-    ColliderParameters authored = world.collider_params(id);
+    ColliderParameters authored = world.collider_parameters(id);
     authored.static_friction = Scalar(0.125);
     authored.dynamic_friction = Scalar(0.0625);
     authored.restitution = Scalar(0.875);
@@ -318,13 +318,13 @@ TEST(Integration_PhysicsAuthoring, TheSurfaceAndTheFilterSurviveTheSceneFile)
     authored.collides_with = 0x0F0F0F0Fu;
     authored.trigger = true;
     authored.continuous_collision = true;
-    world.set_collider_params(id, authored);
+    world.set_collider_parameters(id, authored);
 
     const nlohmann::json snapshot = Scene::capture_scene(world);
-    world.set_collider_params(id, ColliderParameters{});
+    world.set_collider_parameters(id, ColliderParameters{});
     Scene::apply_scene(world, snapshot);
 
-    const ColliderParameters restored = world.collider_params(find_by_name(world, "Surface"));
+    const ColliderParameters restored = world.collider_parameters(find_by_name(world, "Surface"));
     EXPECT_DOUBLE_EQ(double(restored.static_friction), double(authored.static_friction));
     EXPECT_DOUBLE_EQ(double(restored.dynamic_friction), double(authored.dynamic_friction));
     EXPECT_DOUBLE_EQ(double(restored.restitution), double(authored.restitution));
@@ -350,9 +350,9 @@ TEST(Integration_PhysicsAuthoring, ATriggerVolumeReportsOverlapButNeverStopsTheB
     clear_world(world);
 
     const EntityId floor = make_floor(world, Vector3{0, 0, 0});
-    ColliderParameters floor_collider = world.collider_params(floor);
+    ColliderParameters floor_collider = world.collider_parameters(floor);
     floor_collider.trigger = true;
-    world.set_collider_params(floor, floor_collider);
+    world.set_collider_parameters(floor, floor_collider);
 
     const EntityId box =
         make_block(world, "Falling", Vector3{0, 3, 0}, Scalar(0.6), Scalar(0.5), Scalar(0));

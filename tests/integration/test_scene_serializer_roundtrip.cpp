@@ -192,10 +192,10 @@ namespace
         clear_world(world);
 
         const EntityId light = world.create_light("KeyLight");
-        world.set_light_params(light, reference_light());
+        world.set_light_parameters(light, reference_light());
 
         const EntityId decal = world.create_decal("Splash");
-        world.set_decal_params(decal, reference_decal());
+        world.set_decal_parameters(decal, reference_decal());
 
         const EntityId box = world.create("BrickBox");
         world.set_material(box, reference_material());
@@ -207,12 +207,12 @@ namespace
         const EntityId light = find_by_name(world, "KeyLight");
         ASSERT_NE(light, NULL_ENTITY);
         ASSERT_TRUE(world.has_light(light));
-        expect_light_equal(world.light_params(light), reference_light());
+        expect_light_equal(world.light_parameters(light), reference_light());
 
         const EntityId decal = find_by_name(world, "Splash");
         ASSERT_NE(decal, NULL_ENTITY);
         ASSERT_TRUE(world.has_decal(decal));
-        expect_decal_equal(world.decal_params(decal), reference_decal());
+        expect_decal_equal(world.decal_parameters(decal), reference_decal());
 
         const EntityId box = find_by_name(world, "BrickBox");
         ASSERT_NE(box, NULL_ENTITY);
@@ -234,7 +234,7 @@ TEST(Integration_SceneSerializer, LightsDecalsMaterialsSurviveCaptureApply)
     // Wreck everything the snapshot should restore: delete the light, gut the
     // decal, reset the material.
     world.destroy(find_by_name(world, "KeyLight"));
-    world.set_decal_params(find_by_name(world, "Splash"), DecalParameters{});
+    world.set_decal_parameters(find_by_name(world, "Splash"), DecalParameters{});
     world.set_material(find_by_name(world, "BrickBox"), Render::Material{});
     world.set_material_texture_paths(find_by_name(world, "BrickBox"),
                                      MaterialTexturePaths{});

@@ -124,14 +124,14 @@ TEST(Regression_PenetrationContract, StackedCratesRestWithinTolerance)
     std::vector<RigidBodyDescription> bodies;
     for (int i = 0; i < CRATE_COUNT; ++i)
     {
-        RigidBodyDescription desc;
-        desc.id = i + 1;
+        RigidBodyDescription description;
+        description.id = i + 1;
         // Seeded with a small gap between crates so each one actually falls and
         // makes its own contact, rather than starting already touching.
-        desc.position = Vector3{0, Scalar(0.5) + Scalar(i) * Scalar(1.05), 0};
-        desc.inv_mass = Scalar(1);
-        desc.collider = box_collider(Vector3{0.5, 0.5, 0.5});
-        bodies.push_back(desc);
+        description.position = Vector3{0, Scalar(0.5) + Scalar(i) * Scalar(1.05), 0};
+        description.inv_mass = Scalar(1);
+        description.collider = box_collider(Vector3{0.5, 0.5, 0.5});
+        bodies.push_back(description);
     }
     physics->set_rigid_bodies(bodies, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());

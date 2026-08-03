@@ -116,18 +116,18 @@ namespace SushiEngine
                     return;
 
                 const Vector3T<T> delta = node_b.position - node_a.position;
-                const T len = length(delta);
+                const T delta_length = length(delta);
                 // Two nodes at the same point have no axis to correct along. Reported
                 // as a sample carrying nothing rather than skipped, so a collapsed beam
                 // does not read as one nobody stepped.
-                if (!(len > T(1e-8)))
+                if (!(delta_length > T(1e-8)))
                 {
                     ++beam.force_samples;
                     return;
                 }
 
-                const Vector3T<T> axis = delta * (T(1) / len);
-                const T error = len - beam.rest_length;
+                const Vector3T<T> axis = delta * (T(1) / delta_length);
+                const T error = delta_length - beam.rest_length;
 
                 const T w = node_a.inv_mass + node_b.inv_mass;
                 if (!(w > T(0)))
@@ -195,10 +195,10 @@ namespace SushiEngine
                     return;
 
                 const Vector3T<T> delta = node_b.position - node_a.position;
-                const T len = length(delta);
-                if (!(len > T(1e-8)))
+                const T delta_length = length(delta);
+                if (!(delta_length > T(1e-8)))
                     return;
-                const Vector3T<T> axis = delta * (T(1) / len);
+                const Vector3T<T> axis = delta * (T(1) / delta_length);
 
                 const T w = node_a.inv_mass + node_b.inv_mass;
                 if (!(w > T(0)))
@@ -261,8 +261,8 @@ namespace SushiEngine
             if (!(beam.initial_rest_length > T(0)) || beam.force_samples == 0)
                 return;
 
-            const T len = length(position_b - position_a);
-            const T deviation = len - beam.rest_length;
+            const T delta_length = length(position_b - position_a);
+            const T deviation = delta_length - beam.rest_length;
             const T strain_magnitude =
                 (deviation < T(0) ? -deviation : deviation) / beam.initial_rest_length;
             if (!(strain_magnitude > T(0)))

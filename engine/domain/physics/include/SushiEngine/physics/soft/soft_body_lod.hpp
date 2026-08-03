@@ -234,7 +234,7 @@ namespace SushiEngine
                 const Vector3& source = view.vertices[finer.first_vertex + k];
                 RigidBodyT<T>& particle = fine[k];
                 particle.position = Vector3T<T>{T(source.x), T(source.y), T(source.z)} + displacement;
-                particle.prev_position = particle.position;
+                particle.previous_position = particle.position;
                 particle.velocity = velocity;
             }
             return true;
@@ -334,7 +334,7 @@ namespace SushiEngine
                 RigidBodyT<T>& particle = coarse[i];
                 particle.position = Vector3T<T>{T(source.x), T(source.y), T(source.z)} +
                                     (touched ? displacement[i] : average_displacement);
-                particle.prev_position = particle.position;
+                particle.previous_position = particle.position;
                 particle.velocity = touched ? velocity[i] : average_velocity;
             }
             return true;
@@ -469,7 +469,7 @@ namespace SushiEngine
                         for (std::size_t i = 0; i < count; ++i)
                         {
                             target_view.particles[i].position = source_view.particles[i].position;
-                            target_view.particles[i].prev_position =
+                            target_view.particles[i].previous_position =
                                 source_view.particles[i].position;
                             target_view.particles[i].velocity = source_view.particles[i].velocity;
                         }

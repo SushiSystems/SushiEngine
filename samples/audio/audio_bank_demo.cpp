@@ -157,14 +157,14 @@ int main()
         std::size_t first = 0;
         for (int i = 0; i < 24; ++i)
         {
-            std::unique_ptr<VoiceSource> src = factory.create(1000);
-            if (!src)
+            std::unique_ptr<VoiceSource> source = factory.create(1000);
+            if (!source)
             {
                 std::fprintf(stderr, "audio_bank_demo FAILED: event 1000 resolved to nothing\n");
                 return 1;
             }
             std::vector<float> out(64, 0.0f);
-            src->render(out.data(), 64);
+            source->render(out.data(), 64);
             const std::size_t e = static_cast<std::size_t>(energy(out) * 1000.0);
             if (i == 0)
                 first = e;

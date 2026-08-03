@@ -57,22 +57,24 @@ namespace SushiEngine
 
                 Resources::SamplerDescription linear_sampler() noexcept
                 {
-                    Resources::SamplerDescription desc;
-                    desc.filter = VK_FILTER_LINEAR;
-                    desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                    return desc;
+                    Resources::SamplerDescription description;
+                    description.filter = VK_FILTER_LINEAR;
+                    description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    return description;
                 }
 
-                void buffer_barrier(VkCommandBuffer cmd, VkBuffer buffer,
-                                    VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                    VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access)
+                void buffer_barrier(VkCommandBuffer command, VkBuffer buffer,
+                                    VkPipelineStageFlags2 source_stage,
+                                    VkAccessFlags2 source_access,
+                                    VkPipelineStageFlags2 destination_stage,
+                                    VkAccessFlags2 destination_access)
                 {
                     VkBufferMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = src_stage;
-                    barrier.srcAccessMask = src_access;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.srcStageMask = source_stage;
+                    barrier.srcAccessMask = source_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
                     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.buffer = buffer;
@@ -83,7 +85,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.bufferMemoryBarrierCount = 1;
                     dependency.pBufferMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -220,15 +222,15 @@ namespace SushiEngine
                         // and would cull the pass without this.
                         builder.set_side_effect();
                     },
-                    [this, &frame, source, slot, width, height](VkCommandBuffer cmd,
+                    [this, &frame, source, slot, width, height](VkCommandBuffer command,
                                                                 const Graph::PassContext& context)
                     {
                         const VkBuffer histogram = slots_[slot].histogram;
                         const VkBuffer readback = slots_[slot].readback;
 
                         // Clear the histogram, then make the clear visible to the shader writes.
-                        vkCmdFillBuffer(cmd, histogram, 0, VK_WHOLE_SIZE, 0);
-                        buffer_barrier(cmd, histogram, VK_PIPELINE_STAGE_2_CLEAR_BIT,
+                        vkCmdFillBuffer(command, histogram, 0, VK_WHOLE_SIZE, 0);
+                        buffer_barrier(command, histogram, VK_PIPELINE_STAGE_2_CLEAR_BIT,
                                        VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
@@ -241,28 +243,28 @@ namespace SushiEngine
                         writer.storage_buffer(1, histogram, BINS * sizeof(std::uint32_t));
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
                         Push push{};
                         push.a[0] = static_cast<float>(width);
                         push.a[1] = static_cast<float>(height);
                         push.a[2] = MIN_LOG;
                         push.a[3] = 1.0f / (MAX_LOG - MIN_LOG);
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(width), groups(height), 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, groups(width), groups(height), 1);
 
                         // Make the built histogram visible to the copy, then copy it into the
                         // host-visible buffer the scene view reads back after this slot's fence.
-                        buffer_barrier(cmd, histogram, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                        buffer_barrier(command, histogram, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COPY_BIT,
                                        VK_ACCESS_2_TRANSFER_READ_BIT);
                         VkBufferCopy copy{};
                         copy.size = BINS * sizeof(std::uint32_t);
-                        vkCmdCopyBuffer(cmd, histogram, readback, 1, &copy);
-                        buffer_barrier(cmd, readback, VK_PIPELINE_STAGE_2_COPY_BIT,
+                        vkCmdCopyBuffer(command, histogram, readback, 1, &copy);
+                        buffer_barrier(command, readback, VK_PIPELINE_STAGE_2_COPY_BIT,
                                        VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
                     });

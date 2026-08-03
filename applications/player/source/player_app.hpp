@@ -114,16 +114,17 @@ namespace SushiEngine
                 PlayerApp& operator=(const PlayerApp&) = delete;
 
                 /**
-                 * @brief Opens the window, brings up the renderer, and loads @p desc's scene.
+                 * @brief Opens the window, brings up the renderer, and loads the scene named
+                 * by @p description.
                  *
                  * Called once before the first `frame()`. Throws `std::runtime_error` if the
                  * window, device, or a named scene file cannot be brought up — a player told
                  * to load a specific scene that then shows an empty world is a worse failure
                  * than one that refuses to start.
                  *
-                 * @param desc The launch configuration.
+                 * @param description The launch configuration.
                  */
-                void start(const Description& desc);
+                void start(const Description& description);
 
                 /**
                  * @brief Pumps window events, advances the world, and presents one frame.
@@ -167,13 +168,16 @@ namespace SushiEngine
                 Render::ISceneView* scene_view() noexcept { return scene_view_.get(); }
 
             private:
-                /** @brief Builds `renderer_`/`scene_view_` from `desc_`; used by start() and resume(). */
+                /**
+                 * @brief Builds `renderer_`/`scene_view_` from `description_`; used by start()
+                 * and resume().
+                 */
                 void create_render_resources();
 
                 /** @brief The window's minimize/restore events, routed to suspend()/resume(). */
                 void handle_window_event(const void* native_event);
 
-                Description desc_;
+                Description description_;
                 std::unique_ptr<Platform::SDLWindow> window_;
                 std::unique_ptr<Input::InputManager> input_;
                 std::unique_ptr<Input::SDLInputTranslator> input_translator_;

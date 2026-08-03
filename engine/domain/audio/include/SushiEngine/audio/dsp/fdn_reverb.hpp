@@ -142,8 +142,8 @@ namespace SushiEngine
                         for (int i = 0; i < kDiffusers; ++i)
                         {
                             const int target = static_cast<int>(diffuser_ms[i] * 0.001 * sample_rate_);
-                            diffuser_len_[i] = next_prime(target < 3 ? 3 : target);
-                            diffusers_[i].prepare(diffuser_len_[i] + 4);
+                            diffuser_length_[i] = next_prime(target < 3 ? 3 : target);
+                            diffusers_[i].prepare(diffuser_length_[i] + 4);
                         }
 
                         build_output_taps();
@@ -189,7 +189,7 @@ namespace SushiEngine
                     }
 
                     /** @brief The prime sample length of delay line @p i (for tests/diagnostics). */
-                    int line_length(int i) const noexcept { return line_len_[i]; }
+                    int line_length(int i) const noexcept { return line_length_[i]; }
 
                     /**
                      * @brief Renders one wet stereo block from a stereo input.
@@ -217,8 +217,8 @@ namespace SushiEngine
                             const float start_mod = depth * std::sin(lfo_phase_[i]);
                             const float phase_end = lfo_phase_[i] + lfo_inc_[i] * static_cast<float>(frame_count);
                             const float end_mod = depth * std::sin(phase_end);
-                            const float d0 = static_cast<float>(line_len_[i]) + start_mod;
-                            const float d1 = static_cast<float>(line_len_[i]) + end_mod;
+                            const float d0 = static_cast<float>(line_length_[i]) + start_mod;
+                            const float d1 = static_cast<float>(line_length_[i]) + end_mod;
                             delay_cur[i] = d0;
                             delay_step[i] = (frame_count > 1)
                                                 ? (d1 - d0) / static_cast<float>(frame_count - 1)
@@ -232,15 +232,16 @@ namespace SushiEngine
                         {
                             float x = 0.5f * (in_left[n] + in_right[n]);
 
-                            // Predelay (read-before-write = a pure delay of predelay_len_).
-                            const float pre = predelay_.read(static_cast<float>(predelay_len_));
+                            // Predelay (read-before-write = a pure delay of predelay_length_).
+                            const float pre = predelay_.read(static_cast<float>(predelay_length_));
                             predelay_.push(x);
                             x = pre;
 
                             // Input diffusion: a chain of Schroeder allpasses.
                             for (int a = 0; a < kDiffusers; ++a)
                             {
-                                const float d = diffusers_[a].read(static_cast<float>(diffuser_len_[a]));
+                                const float d =
+                                    diffusers_[a].read(static_cast<float>(diffuser_length_[a]));
                                 const float v = x + g_ap * d;
                                 diffusers_[a].push(v);
                                 x = d - g_ap * v;
@@ -349,16 +350,16 @@ namespace SushiEngine
                         const double d_max_ms = mean_ms * (1.0 + spread * 0.5);
                         const double ratio = d_max_ms / d_min_ms;
 
-                        int prev = 2;
+                        int previous = 2;
                         for (int i = 0; i < kLines; ++i)
                         {
                             const double t = (kLines > 1) ? static_cast<double>(i) / (kLines - 1) : 0.0;
                             const double ms = d_min_ms * std::pow(ratio, t);
                             int target = static_cast<int>(ms * 0.001 * sample_rate_);
-                            if (target <= prev)
-                                target = prev + 1;
-                            line_len_[i] = next_prime(target);
-                            prev = line_len_[i];
+                            if (target <= previous)
+                                target = previous + 1;
+                            line_length_[i] = next_prime(target);
+                            previous = line_length_[i];
                         }
 
                         // Per-line Jot damping: solve the one-pole so its DC gain is the
@@ -370,7 +371,7 @@ namespace SushiEngine
                             t_hf = 1e-3;
                         for (int i = 0; i < kLines; ++i)
                         {
-                            const double d = static_cast<double>(line_len_[i]);
+                            const double d = static_cast<double>(line_length_[i]);
                             const double g_dc = loop_gain(d, t_dc);
                             const double g_hf = loop_gain(d, t_hf);
                             const double a1 = (g_dc - g_hf) / (g_dc + g_hf);
@@ -388,7 +389,7 @@ namespace SushiEngine
                             pd = 1;
                         if (pd > pd_cap)
                             pd = pd_cap;
-                        predelay_len_ = pd;
+                        predelay_length_ = pd;
 
                         // Slightly different LFO rate per line so the modulation never
                         // phase-locks across lines (each smears an independent set of modes).
@@ -419,7 +420,7 @@ namespace SushiEngine
 
                     FractionalDelayLine lines_[kLines];
                     DampingFilter damping_[kLines];
-                    int line_len_[kLines] = {};
+                    int line_length_[kLines] = {};
                     float input_gain_[kLines] = {};
                     float tap_left_[kLines] = {};
                     float tap_right_[kLines] = {};
@@ -427,11 +428,11 @@ namespace SushiEngine
                     float lfo_inc_[kLines] = {};
 
                     FractionalDelayLine diffusers_[kDiffusers];
-                    int diffuser_len_[kDiffusers] = {};
+                    int diffuser_length_[kDiffusers] = {};
                     float diffuser_gain_ = 0.0f;
 
                     FractionalDelayLine predelay_;
-                    int predelay_len_ = 1;
+                    int predelay_length_ = 1;
 
                     float output_gain_ = 1.0f;
             };

@@ -45,15 +45,16 @@ namespace SushiEngine
                     return value == 0 ? 1u : (value + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void buffer_barrier(VkCommandBuffer cmd, VkBuffer buffer,
-                                    VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access)
+                void buffer_barrier(VkCommandBuffer command, VkBuffer buffer,
+                                    VkPipelineStageFlags2 destination_stage,
+                                    VkAccessFlags2 destination_access)
                 {
                     VkBufferMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
                     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                     barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
                     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.buffer = buffer;
@@ -64,7 +65,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.bufferMemoryBarrierCount = 1;
                     dependency.pBufferMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -155,7 +156,7 @@ namespace SushiEngine
                         // visible to the opaque draw by the hand barrier at the end of execute.
                         builder.set_side_effect();
                     },
-                    [this, &frame, slot](VkCommandBuffer cmd, const Graph::PassContext&)
+                    [this, &frame, slot](VkCommandBuffer command, const Graph::PassContext&)
                     {
                         const Geometry::Mesh& mesh = deformable_.mesh(slot);
                         if (mesh.vertices == VK_NULL_HANDLE || mesh.indices == VK_NULL_HANDLE)
@@ -176,8 +177,8 @@ namespace SushiEngine
                                                   sizeof(Geometry::MeshVertex));
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
 
                         for (const Geometry::DeformableMeshRange& range : deformable_.ranges())
@@ -192,16 +193,16 @@ namespace SushiEngine
                             push.origin[1] = range.origin[1];
                             push.origin[2] = range.origin[2];
 
-                            vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                                               0, sizeof(Push), &push);
-                            vkCmdDispatch(cmd, groups(range.vertex_count), 1, 1);
+                            vkCmdPushConstants(command, pipeline_layout_,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
+                            vkCmdDispatch(command, groups(range.vertex_count), 1, 1);
                         }
 
                         // Make the shaded vertices visible to the opaque pass's vertex fetch;
                         // this buffer is outside the graph's tracking. The index buffer needs no
                         // barrier of its own — it is host-written, and the host write is covered
                         // by the queue submit's implicit host-write dependency.
-                        buffer_barrier(cmd, mesh.vertices,
+                        buffer_barrier(command, mesh.vertices,
                                        VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
                                        VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT);
                     });

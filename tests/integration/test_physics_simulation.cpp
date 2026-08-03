@@ -103,15 +103,15 @@ TEST(Integration_PhysicsSimulation, BoxSettlesOnItsFaceNotItsBoundingRadius)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    RigidBodyDescription desc;
-    desc.id = 1;
-    desc.position = Vector3{0, Scalar(4), 0};
-    desc.inv_mass = Scalar(1);
+    RigidBodyDescription description;
+    description.id = 1;
+    description.position = Vector3{0, Scalar(4), 0};
+    description.inv_mass = Scalar(1);
     // A bounding-sphere fallback would hover at the box's bounding radius,
     // 0.5*sqrt(3), instead of resting on its face at the half-extent.
-    desc.collider = unit_box_collider();
+    description.collider = unit_box_collider();
 
-    physics->set_rigid_bodies({desc}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({description}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 400; ++tick)
@@ -126,15 +126,15 @@ TEST(Integration_PhysicsSimulation, TiltedBoxSettlesOnItsEdge)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    RigidBodyDescription desc;
-    desc.id = 1;
-    desc.position = Vector3{0, Scalar(4), 0};
-    desc.orientation = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(PI / 4.0));
-    desc.inv_mass = Scalar(1);
-    desc.inv_inertia = Vector3{0, 0, 0}; // no angular freedom: it stays tilted
-    desc.collider = unit_box_collider();
+    RigidBodyDescription description;
+    description.id = 1;
+    description.position = Vector3{0, Scalar(4), 0};
+    description.orientation = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(PI / 4.0));
+    description.inv_mass = Scalar(1);
+    description.inv_inertia = Vector3{0, 0, 0}; // no angular freedom: it stays tilted
+    description.collider = unit_box_collider();
 
-    physics->set_rigid_bodies({desc}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({description}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 400; ++tick)
@@ -248,12 +248,12 @@ TEST(Integration_PhysicsSimulation, StackedBoxesSettleWithoutInterpenetrating)
     std::vector<RigidBodyDescription> bodies;
     for (int i = 0; i < 2; ++i)
     {
-        RigidBodyDescription desc;
-        desc.id = static_cast<EntityId>(i + 1);
-        desc.position = Vector3{0, Scalar(1.0 + i * 1.2), 0};
-        desc.inv_mass = Scalar(1);
-        desc.collider = unit_box_collider();
-        bodies.push_back(desc);
+        RigidBodyDescription description;
+        description.id = static_cast<EntityId>(i + 1);
+        description.position = Vector3{0, Scalar(1.0 + i * 1.2), 0};
+        description.inv_mass = Scalar(1);
+        description.collider = unit_box_collider();
+        bodies.push_back(description);
     }
 
     physics->set_rigid_bodies(bodies, ITERATIONS, SUBSTEP_DT);
@@ -379,13 +379,13 @@ TEST(Integration_PhysicsSimulation, ALandingBoxBeginsOnceAndThenPersists)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDescription desc;
-    desc.id = 1;
-    desc.position = Vector3{0, Scalar(1.2), 0};
-    desc.inv_mass = Scalar(1);
-    desc.collider = unit_box_collider();
+    RigidBodyDescription description;
+    description.id = 1;
+    description.position = Vector3{0, Scalar(1.2), 0};
+    description.inv_mass = Scalar(1);
+    description.collider = unit_box_collider();
 
-    physics->set_rigid_bodies({desc}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({description}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
 
     int begins = 0;
@@ -422,13 +422,13 @@ TEST(Integration_PhysicsSimulation, TakingABodyAwayEndsItsContact)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDescription desc;
-    desc.id = 1;
-    desc.position = Vector3{0, Scalar(0.6), 0};
-    desc.inv_mass = Scalar(1);
-    desc.collider = unit_box_collider();
+    RigidBodyDescription description;
+    description.id = 1;
+    description.position = Vector3{0, Scalar(0.6), 0};
+    description.inv_mass = Scalar(1);
+    description.collider = unit_box_collider();
 
-    physics->set_rigid_bodies({desc}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({description}, ITERATIONS, SUBSTEP_DT);
     physics->set_static_planes(ground());
 
     for (int tick = 0; tick < 60; ++tick)
@@ -508,14 +508,14 @@ TEST(Integration_PhysicsSimulation, EventsComeInASceneOrderNotATraversalOrder)
     std::vector<RigidBodyDescription> bodies;
     for (int i = 0; i < 5; ++i)
     {
-        RigidBodyDescription desc;
-        desc.id = static_cast<EntityId>(i + 1);
+        RigidBodyDescription description;
+        description.id = static_cast<EntityId>(i + 1);
         // Spread apart so each lands on the ground alone, and at descending heights
         // so they arrive in an order that is not the order they were added in.
-        desc.position = Vector3{Scalar(i) * Scalar(4), Scalar(5 - i) * Scalar(0.4), 0};
-        desc.inv_mass = Scalar(1);
-        desc.collider = unit_box_collider();
-        bodies.push_back(desc);
+        description.position = Vector3{Scalar(i) * Scalar(4), Scalar(5 - i) * Scalar(0.4), 0};
+        description.inv_mass = Scalar(1);
+        description.collider = unit_box_collider();
+        bodies.push_back(description);
     }
 
     physics->set_rigid_bodies(bodies, ITERATIONS, SUBSTEP_DT);

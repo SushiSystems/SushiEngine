@@ -141,7 +141,7 @@ namespace
             for (std::uint32_t i = 0; i < record.vertex_count; ++i)
             {
                 out[i].position = vertices[record.first_vertex + i];
-                out[i].prev_position = out[i].position;
+                out[i].previous_position = out[i].position;
                 out[i].inv_mass = Scalar(1);
                 out[i].inv_inertia = Vector3{0, 0, 0};
             }
@@ -154,7 +154,7 @@ namespace
         for (RigidBodyT<Scalar>& particle : particles)
         {
             particle.position = particle.position + offset;
-            particle.prev_position = particle.position;
+            particle.previous_position = particle.position;
         }
     }
 
@@ -359,7 +359,7 @@ TEST(Integration_SoftBodyLOD, SwapsTiersAndKeepsThePoseAcrossTheSwap)
     for (std::size_t i = 0; i < before.particle_count; ++i)
     {
         before.particles[i].position = before.particles[i].position + offset;
-        before.particles[i].prev_position = before.particles[i].position;
+        before.particles[i].previous_position = before.particles[i].position;
         displaced.push_back(before.particles[i].position);
     }
 

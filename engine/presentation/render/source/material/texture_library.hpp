@@ -195,7 +195,7 @@ namespace SushiEngine
                     /** @brief An in-flight staging upload and the objects it frees when done. */
                     struct Pending
                     {
-                        VkCommandBuffer cmd = VK_NULL_HANDLE;
+                        VkCommandBuffer command = VK_NULL_HANDLE;
                         VkFence fence = VK_NULL_HANDLE;
                         VkBuffer staging = VK_NULL_HANDLE;
                         VmaAllocation staging_allocation = VK_NULL_HANDLE;

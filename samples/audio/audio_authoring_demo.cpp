@@ -102,9 +102,9 @@ int main()
         bool all_valid = true;
         for (std::uint32_t seed = 0; seed < 50; ++seed)
         {
-            ResolveContext ctx;
-            ctx.seed = seed;
-            const std::uint32_t media = db.resolve(ev_footstep, ctx);
+            ResolveContext context;
+            context.seed = seed;
+            const std::uint32_t media = db.resolve(ev_footstep, context);
             if (media != m0 && media != m1 && media != m2)
                 all_valid = false;
         }
@@ -135,9 +135,9 @@ int main()
 
     // Layer must resolve to all children.
     {
-        ResolveContext ctx;
+        ResolveContext context;
         std::vector<ResolvedSound> sounds;
-        db.resolve_all(ev_stinger, ctx, sounds);
+        db.resolve_all(ev_stinger, context, sounds);
         std::printf("Layer event resolved %zu simultaneous sounds\n", sounds.size());
         if (sounds.size() != 2)
         {

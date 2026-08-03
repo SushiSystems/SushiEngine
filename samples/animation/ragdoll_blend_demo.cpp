@@ -60,7 +60,7 @@ namespace
 
 int main()
 {
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     JointDescription root;
     root.name = "root";
     root.parent = -1;
@@ -68,10 +68,10 @@ int main()
     child.name = "child";
     child.parent = 0;
     child.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
-    skeleton_desc.joints = {root, child};
+    skeleton_description.joints = {root, child};
 
     std::vector<std::byte> skeleton_blob;
-    check(build_skeleton_blob(skeleton_desc, skeleton_blob), "cook skeleton");
+    check(build_skeleton_blob(skeleton_description, skeleton_blob), "cook skeleton");
 
     AnimationDatabase database;
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));

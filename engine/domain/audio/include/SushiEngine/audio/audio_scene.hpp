@@ -145,7 +145,7 @@ namespace SushiEngine
 
                 /**
                  * @brief Installs the reverb effect a @ref ReverbZone drives (optional).
-                 * @param reverb The aux-bus reverb to push zone I3DL2 params into, or nullptr.
+                 * @param reverb The aux-bus reverb to push zone I3DL2 parameters into, or nullptr.
                  */
                 void set_reverb(IReverb* reverb) noexcept { reverb_ = reverb; }
 
@@ -216,7 +216,7 @@ namespace SushiEngine
                     {
                         if (!reverb_set_ || !same_reverb(active_reverb_, snapshot.reverb))
                         {
-                            reverb_->set_params(snapshot.reverb);
+                            reverb_->set_parameters(snapshot.reverb);
                             active_reverb_ = snapshot.reverb;
                             reverb_set_ = true;
                         }

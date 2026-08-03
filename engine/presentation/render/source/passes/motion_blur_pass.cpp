@@ -47,7 +47,7 @@ namespace SushiEngine
 
             void MotionBlurPass::create_pipeline()
             {
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("motion_blur.frag"), Frame::HDR_FORMAT));
             }
@@ -83,7 +83,7 @@ namespace SushiEngine
                         builder.read(velocity, Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.post, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame, source, velocity](VkCommandBuffer cmd,
+                    [this, &frame, source, velocity](VkCommandBuffer command,
                                                      const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
@@ -94,11 +94,12 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::POST_BINDING,
                                        context.buffer(frame.targets.post),
                                        sizeof(Scene::PostProcessUniforms));
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

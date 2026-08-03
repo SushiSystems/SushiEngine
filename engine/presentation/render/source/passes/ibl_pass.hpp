@@ -159,7 +159,7 @@ namespace SushiEngine
                     void destroy_pipelines();
                     void generate_brdf_lut();
                     bool environment_changed(const Frame::FrameContext& frame);
-                    void record_update(VkCommandBuffer cmd, const Frame::FrameContext& frame,
+                    void record_update(VkCommandBuffer command, const Frame::FrameContext& frame,
                                        const Graph::PassContext& context);
 
                     Vulkan::VulkanDevice& device_;

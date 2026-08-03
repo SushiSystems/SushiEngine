@@ -25,11 +25,12 @@
 // editor's save/load rides on, and what an undo step *is* — a serialized snapshot restored — so
 // a field this layer forgets is a field that silently reverts when the user presses Ctrl+Z.
 //
-// The strongest assertion available is used deliberately: the desc is compiled to a `.sushictrl`
-// blob before *and* after the round trip and the two blobs are compared byte for byte. A
-// field-by-field comparison of two descs would have to be written by hand, which means a field
-// added to the desc and forgotten in the serializer would also be forgotten in the comparison —
-// the test would grow the same blind spot as the code it guards. The blob has no such blind spot:
+// The strongest assertion available is used deliberately: the description is compiled to a
+// `.sushictrl` blob before *and* after the round trip and the two blobs are compared byte for
+// byte. A field-by-field comparison of two descriptions would have to be written by hand, which
+// means a field added to the description and forgotten in the serializer would also be forgotten
+// in the comparison — the test would grow the same blind spot as the code it guards. The blob has
+// no such blind spot:
 // if a dropped field changes what the runtime loads, the bytes differ.
 
 #include <cstddef>
@@ -52,18 +53,18 @@ namespace
      * @brief A controller exercising every field the serializer can carry.
      *
      * Every value is deliberately *not* the field's default: a round trip that drops a field
-     * still reproduces the default, so a desc built from defaults would pass against a
+     * still reproduces the default, so a description built from defaults would pass against a
      * serializer that wrote nothing at all.
      */
     ControllerDescription maximal_controller()
     {
-        ControllerDescription desc;
+        ControllerDescription description;
 
         // One parameter of each type, so `parameter_type_name`/`_from` is exercised whole.
-        desc.parameters.push_back({"speed", ParameterType::Float, 2.5f});
-        desc.parameters.push_back({"variant", ParameterType::Int, 3.0f});
-        desc.parameters.push_back({"moving", ParameterType::Bool, 1.0f});
-        desc.parameters.push_back({"jump", ParameterType::Trigger, 0.0f});
+        description.parameters.push_back({"speed", ParameterType::Float, 2.5f});
+        description.parameters.push_back({"variant", ParameterType::Int, 3.0f});
+        description.parameters.push_back({"moving", ParameterType::Bool, 1.0f});
+        description.parameters.push_back({"jump", ParameterType::Trigger, 0.0f});
 
         LayerDescription base;
         base.name = "Base";
@@ -163,16 +164,16 @@ namespace
         aim.speed = 1.0f;
         upper.states.push_back(aim);
 
-        desc.layers.push_back(base);
-        desc.layers.push_back(upper);
-        return desc;
+        description.layers.push_back(base);
+        description.layers.push_back(upper);
+        return description;
     }
 
-    /** @brief The compiled `.sushictrl` bytes for @p desc, empty when the compile refuses. */
-    std::vector<std::byte> compile(const ControllerDescription& desc)
+    /** @brief The compiled `.sushictrl` bytes for @p description, empty if the compile refuses. */
+    std::vector<std::byte> compile(const ControllerDescription& description)
     {
         std::vector<std::byte> blob;
-        if (!compile_controller_blob(desc, blob))
+        if (!compile_controller_blob(description, blob))
             blob.clear();
         return blob;
     }
@@ -289,19 +290,19 @@ TEST(Unit_AnimationControllerJSON,AMissingFieldReadsAsItsDefaultRatherThanThrowi
         }]
     })");
 
-    const ControllerDescription desc = controller_from_json(sparse);
-    ASSERT_EQ(desc.parameters.size(), 1u);
-    EXPECT_EQ(desc.parameters[0].type, ParameterType::Float);
-    EXPECT_FLOAT_EQ(desc.parameters[0].default_value, 0.0f);
+    const ControllerDescription description = controller_from_json(sparse);
+    ASSERT_EQ(description.parameters.size(), 1u);
+    EXPECT_EQ(description.parameters[0].type, ParameterType::Float);
+    EXPECT_FLOAT_EQ(description.parameters[0].default_value, 0.0f);
 
-    ASSERT_EQ(desc.layers.size(), 1u);
-    EXPECT_FLOAT_EQ(desc.layers[0].weight, 1.0f);
-    EXPECT_EQ(desc.layers[0].mask, INVALID_ASSET);
-    EXPECT_EQ(desc.layers[0].blend_mode, LayerBlendMode::Override);
-    EXPECT_TRUE(desc.layers[0].default_state.empty());
+    ASSERT_EQ(description.layers.size(), 1u);
+    EXPECT_FLOAT_EQ(description.layers[0].weight, 1.0f);
+    EXPECT_EQ(description.layers[0].mask, INVALID_ASSET);
+    EXPECT_EQ(description.layers[0].blend_mode, LayerBlendMode::Override);
+    EXPECT_TRUE(description.layers[0].default_state.empty());
 
-    ASSERT_EQ(desc.layers[0].states.size(), 1u);
-    const StateDescription& state = desc.layers[0].states[0];
+    ASSERT_EQ(description.layers[0].states.size(), 1u);
+    const StateDescription& state = description.layers[0].states[0];
     EXPECT_EQ(state.clip, INVALID_ASSET);
     EXPECT_FLOAT_EQ(state.speed, 1.0f);
     EXPECT_FLOAT_EQ(state.cycle_offset, 0.0f);
@@ -335,7 +336,7 @@ TEST(Unit_AnimationControllerJSON,AssetReferencesSerializeAsIdsWithMinusOneForNo
 {
     // The header pins this contract explicitly — ids, with -1 for none — because a project layer
     // above maps ids to paths and would otherwise have to guess what an absent reference is.
-    ControllerDescription desc;
+    ControllerDescription description;
     LayerDescription layer;
     layer.name = "Base";
     layer.mask = INVALID_ASSET;
@@ -347,9 +348,9 @@ TEST(Unit_AnimationControllerJSON,AssetReferencesSerializeAsIdsWithMinusOneForNo
     without_clip.clip = INVALID_ASSET;
     layer.states.push_back(with_clip);
     layer.states.push_back(without_clip);
-    desc.layers.push_back(layer);
+    description.layers.push_back(layer);
 
-    const nlohmann::json json = controller_to_json(desc);
+    const nlohmann::json json = controller_to_json(description);
     EXPECT_EQ(json.at("layers").at(0).at("mask").get<std::int64_t>(), -1);
     EXPECT_EQ(json.at("layers").at(0).at("states").at(0).at("clip").get<std::int64_t>(), 5);
     EXPECT_EQ(json.at("layers").at(0).at("states").at(1).at("clip").get<std::int64_t>(), -1);

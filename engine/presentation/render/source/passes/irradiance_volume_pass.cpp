@@ -40,7 +40,7 @@ namespace SushiEngine
         {
             namespace
             {
-                void buffer_barrier(VkCommandBuffer cmd, VkBuffer buffer,
+                void buffer_barrier(VkCommandBuffer command, VkBuffer buffer,
                                     VkPipelineStageFlags2 source, VkAccessFlags2 source_access,
                                     VkPipelineStageFlags2 destination,
                                     VkAccessFlags2 destination_access)
@@ -61,7 +61,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.bufferMemoryBarrierCount = 1;
                     dependency.pBufferMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -166,13 +166,13 @@ namespace SushiEngine
                         // barriered by hand below; a side effect keeps the pass alive.
                         builder.set_side_effect();
                     },
-                    [this, &frame, config](VkCommandBuffer cmd, const Graph::PassContext&)
+                    [this, &frame, config](VkCommandBuffer command, const Graph::PassContext&)
                     {
                         // Order the relight's compute read after the IBL build's SH write.
                         // The graph runs passes in registration order, so the IBL pass has
                         // already recorded; on frames it did not rebuild this is a harmless
                         // execution barrier over a buffer written in an earlier frame.
-                        buffer_barrier(cmd, ibl_.sh_buffer(),
+                        buffer_barrier(command, ibl_.sh_buffer(),
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -187,11 +187,11 @@ namespace SushiEngine
                         inputs.environment_sh_bytes = IBLPass::sh_buffer_bytes();
                         inputs.config = &config;
                         inputs.frame = &frame;
-                        tracer_->relight(cmd, inputs);
+                        tracer_->relight(command, inputs);
 
                         // Make the refilled probes visible to the shading pass's fragment
                         // reads — the buffer is pass-owned, so this is recorded, not derived.
-                        buffer_barrier(cmd, probe_sh_,
+                        buffer_barrier(command, probe_sh_,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,

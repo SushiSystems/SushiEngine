@@ -79,12 +79,12 @@ namespace SushiEngine
          * a ball joint has no primary axis and offering it a twist limit would be offering
          * a control that changes nothing.
          *
-         * @param context Shared editor state; drives the undo bracket.
-         * @param world   The world the undo snapshot is taken from.
-         * @param params  The joint parameters, edited in place.
+         * @param context    Shared editor state; drives the undo bracket.
+         * @param world      The world the undo snapshot is taken from.
+         * @param parameters The joint parameters, edited in place.
          * @return Whether anything changed this frame.
          */
-        bool draw_joint_params(EditorContext& context, Simulation::IWorldEditor& world,
-                               Simulation::JointParameters& params);
+        bool draw_joint_parameters(EditorContext& context, Simulation::IWorldEditor& world,
+                                   Simulation::JointParameters& parameters);
     } // namespace Editor
 } // namespace SushiEngine

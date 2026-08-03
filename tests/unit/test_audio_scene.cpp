@@ -157,7 +157,7 @@ TEST(Unit_Audio, AudioSceneSteersReverbFromActiveZone)
 
     FDNReverbEffect reverb;
     reverb.prepare(48000.0, 512);
-    reverb.set_params(I3DL2Reverb::generic());
+    reverb.set_parameters(I3DL2Reverb::generic());
     scene.set_reverb(&reverb);
 
     SceneSnapshot snap;
@@ -166,8 +166,8 @@ TEST(Unit_Audio, AudioSceneSteersReverbFromActiveZone)
     scene.apply(snap);
 
     // The cave's long decay was pushed into the effect.
-    EXPECT_FLOAT_EQ(reverb.params().decay_time, I3DL2Reverb::cave().decay_time);
-    EXPECT_FLOAT_EQ(reverb.params().decay_hf_ratio, I3DL2Reverb::cave().decay_hf_ratio);
+    EXPECT_FLOAT_EQ(reverb.parameters().decay_time, I3DL2Reverb::cave().decay_time);
+    EXPECT_FLOAT_EQ(reverb.parameters().decay_hf_ratio, I3DL2Reverb::cave().decay_hf_ratio);
 }
 
 TEST(Unit_Audio, AudioSceneClearStopsEverything)

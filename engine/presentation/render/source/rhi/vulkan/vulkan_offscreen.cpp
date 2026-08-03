@@ -75,26 +75,26 @@ namespace SushiEngine
 
                 /**
                  * @brief Records a Vulkan 1.3 image layout transition on the given command buffer.
-                 * @param cmd            Command buffer being recorded.
-                 * @param image          Image to transition.
-                 * @param old_layout     Current layout.
-                 * @param new_layout     Target layout.
-                 * @param src_stage      Source pipeline stage mask.
-                 * @param dst_stage      Destination pipeline stage mask.
-                 * @param src_access     Source access mask.
-                 * @param dst_access     Destination access mask.
+                 * @param command            Command buffer being recorded.
+                 * @param image              Image to transition.
+                 * @param old_layout         Current layout.
+                 * @param new_layout         Target layout.
+                 * @param source_stage       Source pipeline stage mask.
+                 * @param destination_stage  Destination pipeline stage mask.
+                 * @param source_access      Source access mask.
+                 * @param destination_access Destination access mask.
                  */
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout,
-                                VkImageLayout new_layout, VkPipelineStageFlags2 src_stage,
-                                VkPipelineStageFlags2 dst_stage, VkAccessFlags2 src_access,
-                                VkAccessFlags2 dst_access)
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout old_layout,
+                                VkImageLayout new_layout, VkPipelineStageFlags2 source_stage,
+                                VkPipelineStageFlags2 destination_stage,
+                                VkAccessFlags2 source_access, VkAccessFlags2 destination_access)
                 {
                     VkImageMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = src_stage;
-                    barrier.srcAccessMask = src_access;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.srcStageMask = source_stage;
+                    barrier.srcAccessMask = source_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
                     barrier.oldLayout = old_layout;
                     barrier.newLayout = new_layout;
                     barrier.image = image;
@@ -106,7 +106,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -272,21 +272,21 @@ namespace SushiEngine
                 check(vkCreateCommandPool(vk_device, &pool_info, nullptr, &pool),
                       "vkCreateCommandPool");
 
-                VkCommandBufferAllocateInfo cmd_info{};
-                cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                cmd_info.commandPool = pool;
-                cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                cmd_info.commandBufferCount = 1;
-                VkCommandBuffer cmd = VK_NULL_HANDLE;
-                check(vkAllocateCommandBuffers(vk_device, &cmd_info, &cmd),
+                VkCommandBufferAllocateInfo command_info{};
+                command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                command_info.commandPool = pool;
+                command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                command_info.commandBufferCount = 1;
+                VkCommandBuffer command = VK_NULL_HANDLE;
+                check(vkAllocateCommandBuffers(vk_device, &command_info, &command),
                       "vkAllocateCommandBuffers");
 
                 VkCommandBufferBeginInfo begin_info{};
                 begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                check(vkBeginCommandBuffer(cmd, &begin_info), "vkBeginCommandBuffer");
+                check(vkBeginCommandBuffer(command, &begin_info), "vkBeginCommandBuffer");
 
-                transition(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED,
+                transition(command, image, VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
@@ -307,23 +307,23 @@ namespace SushiEngine
                 rendering.colorAttachmentCount = 1;
                 rendering.pColorAttachments = &color_attachment;
 
-                vkCmdBeginRendering(cmd, &rendering);
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                vkCmdBeginRendering(command, &rendering);
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
                 VkViewport viewport{};
                 viewport.width = float(width);
                 viewport.height = float(height);
                 viewport.maxDepth = 1.0f;
-                vkCmdSetViewport(cmd, 0, 1, &viewport);
+                vkCmdSetViewport(command, 0, 1, &viewport);
 
                 VkRect2D scissor{};
                 scissor.extent = {width, height};
-                vkCmdSetScissor(cmd, 0, 1, &scissor);
+                vkCmdSetScissor(command, 0, 1, &scissor);
 
-                vkCmdDraw(cmd, 3, 1, 0, 0);
-                vkCmdEndRendering(cmd);
+                vkCmdDraw(command, 3, 1, 0, 0);
+                vkCmdEndRendering(command);
 
-                transition(cmd, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                transition(command, image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                            VK_PIPELINE_STAGE_2_COPY_BIT,
@@ -334,11 +334,11 @@ namespace SushiEngine
                 copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 copy.imageSubresource.layerCount = 1;
                 copy.imageExtent = {width, height, 1};
-                vkCmdCopyImageToBuffer(cmd, image,
+                vkCmdCopyImageToBuffer(command, image,
                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1,
                                        &copy);
 
-                check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer");
+                check(vkEndCommandBuffer(command), "vkEndCommandBuffer");
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -349,7 +349,7 @@ namespace SushiEngine
                 VkSubmitInfo submit{};
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 submit.commandBufferCount = 1;
-                submit.pCommandBuffers = &cmd;
+                submit.pCommandBuffers = &command;
                 check(vkQueueSubmit(device.graphics_queue(), 1, &submit, fence),
                       "vkQueueSubmit");
                 check(vkWaitForFences(vk_device, 1, &fence, VK_TRUE, UINT64_MAX),

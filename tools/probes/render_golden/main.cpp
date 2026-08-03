@@ -474,7 +474,7 @@ namespace
             MeshInstance instance;
             instance.model = translation(position);
             instance.kind = kind;
-            instance.shape_params = shape;
+            instance.shape_parameters = shape;
             instance.color = color;
             instance.id = static_cast<std::uint32_t>(instances.size() + 1);
             instance.material.albedo = color;
@@ -614,8 +614,8 @@ int main(int argc, char** argv)
 
     try
     {
-        RenderDeviceDescription desc;
-        Vulkan::VulkanDevice device(desc);
+        RenderDeviceDescription description;
+        Vulkan::VulkanDevice device(description);
         std::printf("device: %s\n", device.info().name.c_str());
 
         Assets::AssetLibrary assets(device);

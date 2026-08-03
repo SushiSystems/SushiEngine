@@ -36,10 +36,10 @@ namespace SushiEngine
                 const std::int32_t counts[3] = {PROBE_COUNT_HORIZONTAL, PROBE_COUNT_VERTICAL,
                                                 PROBE_COUNT_HORIZONTAL};
 
-                out.params[0] = enabled ? 1.0f : 0.0f;
-                out.params[1] = intensity;
-                out.params[2] = normal_bias;
-                out.params[3] = static_cast<float>(GI_NUM_CASCADES);
+                out.parameters[0] = enabled ? 1.0f : 0.0f;
+                out.parameters[1] = intensity;
+                out.parameters[2] = normal_bias;
+                out.parameters[3] = static_cast<float>(GI_NUM_CASCADES);
 
                 out.counts[0] = counts[0];
                 out.counts[1] = counts[1];

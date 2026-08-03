@@ -111,10 +111,10 @@ namespace SushiEngine
 
                     /**
                      * @brief Records the probe relight into the command buffer.
-                     * @param cmd    The recording command buffer, inside the volume pass.
+                     * @param command    The recording command buffer, inside the volume pass.
                      * @param inputs The buffers and counts for this frame.
                      */
-                    virtual void relight(VkCommandBuffer cmd,
+                    virtual void relight(VkCommandBuffer command,
                                          const ProbeRelightInputs& inputs) = 0;
 
                     /** @brief A short name for the profiler and the editor tier readout. */

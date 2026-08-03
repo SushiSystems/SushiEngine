@@ -81,7 +81,7 @@ namespace SushiEngine
             class VulkanWindowRenderer final : public IWindowRenderer
             {
                 public:
-                    explicit VulkanWindowRenderer(const WindowRendererDescription& desc);
+                    explicit VulkanWindowRenderer(const WindowRendererDescription& description);
                     ~VulkanWindowRenderer() override;
 
                     VulkanWindowRenderer(const VulkanWindowRenderer&) = delete;
@@ -112,7 +112,7 @@ namespace SushiEngine
                     struct FrameResources
                     {
                         VkCommandPool pool = VK_NULL_HANDLE;
-                        VkCommandBuffer cmd = VK_NULL_HANDLE;
+                        VkCommandBuffer command = VK_NULL_HANDLE;
                         VkSemaphore image_available = VK_NULL_HANDLE;
                         VkFence in_flight = VK_NULL_HANDLE;
                     };

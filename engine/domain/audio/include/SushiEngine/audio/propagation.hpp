@@ -114,16 +114,16 @@ namespace SushiEngine
                     if (!initialized_)
                     {
                         read_delay_ = physical_now;
-                        physical_prev_ = physical_now;
-                        gain_prev_ = distance_attenuation(descriptor.model, distance_meters,
-                                                          descriptor.min_distance,
-                                                          descriptor.max_distance, descriptor.rolloff);
+                        physical_previous_ = physical_now;
+                        gain_previous_ = distance_attenuation(
+                            descriptor.model, distance_meters, descriptor.min_distance,
+                            descriptor.max_distance, descriptor.rolloff);
                         initialized_ = true;
                     }
 
                     if (descriptor.propagation_delay)
                     {
-                        float delta = physical_now - physical_prev_;
+                        float delta = physical_now - physical_previous_;
 
                         // Teleport: a jump larger than the whole block's worth of samples
                         // is a discontinuity, not motion — snap instead of sweeping.
@@ -150,7 +150,7 @@ namespace SushiEngine
 
                         delay_.process_block(input, output, frame_count, read_delay_, end_delay);
                         read_delay_ = end_delay;
-                        physical_prev_ = physical_now;
+                        physical_previous_ = physical_now;
                     }
                     else
                     {
@@ -161,7 +161,7 @@ namespace SushiEngine
                             delay_.push(input[i]);
                             output[i] = input[i];
                         }
-                        physical_prev_ = physical_now;
+                        physical_previous_ = physical_now;
                     }
 
                     // Air absorption: a distance-driven low-pass, its cutoff slewed.
@@ -178,8 +178,8 @@ namespace SushiEngine
                         distance_attenuation(descriptor.model, distance_meters,
                                              descriptor.min_distance, descriptor.max_distance,
                                              descriptor.rolloff);
-                    DSP::SIMD::apply_gain_ramp(output, frame_count, gain_prev_, gain_now);
-                    gain_prev_ = gain_now;
+                    DSP::SIMD::apply_gain_ramp(output, frame_count, gain_previous_, gain_now);
+                    gain_previous_ = gain_now;
 
                     // Near-field compensation: a very close source gains a low-frequency
                     // proximity boost (the bass build-up a source right at the ear has), rising
@@ -219,8 +219,8 @@ namespace SushiEngine
                 double sample_rate_ = 48000.0;
                 int max_block_ = 0;
                 float read_delay_ = 1.0f;
-                float physical_prev_ = 0.0f;
-                float gain_prev_ = 1.0f;
+                float physical_previous_ = 0.0f;
+                float gain_previous_ = 1.0f;
                 bool initialized_ = false;
             };
     } // namespace Audio

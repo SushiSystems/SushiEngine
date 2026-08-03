@@ -45,15 +45,16 @@ namespace SushiEngine
                     return value == 0 ? 1u : (value + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void buffer_barrier(VkCommandBuffer cmd, VkBuffer buffer,
-                                    VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access)
+                void buffer_barrier(VkCommandBuffer command, VkBuffer buffer,
+                                    VkPipelineStageFlags2 destination_stage,
+                                    VkAccessFlags2 destination_access)
                 {
                     VkBufferMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
                     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                     barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
                     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.buffer = buffer;
@@ -64,7 +65,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.bufferMemoryBarrierCount = 1;
                     dependency.pBufferMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -162,13 +163,13 @@ namespace SushiEngine
                         // visible to the geometry passes' vertex fetch.
                         builder.set_side_effect();
                     },
-                    [this, &frame, slot](VkCommandBuffer cmd, const Graph::PassContext&)
+                    [this, &frame, slot](VkCommandBuffer command, const Graph::PassContext&)
                     {
                         const VkBuffer output = skinning_.output_buffer(slot);
                         if (output == VK_NULL_HANDLE)
                             return;
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
 
                         for (const Scene::SkinnedRange& range : skinning_.ranges())
                         {
@@ -218,24 +219,25 @@ namespace SushiEngine
                                                           : skinning_.palette_buffer(slot),
                                                   VK_WHOLE_SIZE);
                             writer.update(device_.device(), set);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            pipeline_layout_, 0, set);
 
                             Push push{};
                             push.vertex_count = range.vertex_count;
                             push.palette_base = range.palette_base;
                             push.out_base = range.base_vertex;
-                            push.prev_valid = range.prev_valid;
+                            push.previous_valid = range.previous_valid;
                             push.morph_target_count = has_morph ? range.morph_target_count : 0;
                             push.morph_weight_base = range.morph_weight_base;
                             push.use_dual_quaternion = use_dqs ? 1u : 0u;
-                            vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                               sizeof(Push), &push);
-                            vkCmdDispatch(cmd, groups(range.vertex_count), 1, 1);
+                            vkCmdPushConstants(command, pipeline_layout_,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
+                            vkCmdDispatch(command, groups(range.vertex_count), 1, 1);
                         }
 
                         // Make the skinned vertices visible to the geometry passes' vertex fetch.
-                        buffer_barrier(cmd, output, VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+                        buffer_barrier(command, output,
+                                       VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
                                        VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT);
                     });
             }

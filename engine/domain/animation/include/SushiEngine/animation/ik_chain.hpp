@@ -90,7 +90,7 @@ namespace SushiEngine
                     else
                     {
                         const std::uint32_t last = joint_count - 1;
-                        for (std::uint32_t iter = 0; iter < iterations; ++iter)
+                        for (std::uint32_t iteration = 0; iteration < iterations; ++iteration)
                         {
                             if (length(point[last] - target) < static_cast<Scalar>(tolerance))
                                 break;

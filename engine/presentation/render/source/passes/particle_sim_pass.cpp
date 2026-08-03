@@ -53,22 +53,23 @@ namespace SushiEngine
                     return value == 0 ? 1u : (value + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void memory_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage,
-                                    VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage,
-                                    VkAccessFlags2 dst_access)
+                void memory_barrier(VkCommandBuffer command, VkPipelineStageFlags2 source_stage,
+                                    VkAccessFlags2 source_access,
+                                    VkPipelineStageFlags2 destination_stage,
+                                    VkAccessFlags2 destination_access)
                 {
                     VkMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = src_stage;
-                    barrier.srcAccessMask = src_access;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.srcStageMask = source_stage;
+                    barrier.srcAccessMask = source_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
 
                     VkDependencyInfo dependency{};
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.memoryBarrierCount = 1;
                     dependency.pMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -297,7 +298,7 @@ namespace SushiEngine
                                       Graph::BufferAccess::StorageWrite);
                         builder.write(frame.targets.particle_args, Graph::BufferAccess::StorageWrite);
                     },
-                    [this, &frame, slot, capacity, dt](VkCommandBuffer cmd,
+                    [this, &frame, slot, capacity, dt](VkCommandBuffer command,
                                                        const Graph::PassContext& context)
                     {
                         const VkBuffer draw_buffer = context.buffer(frame.targets.particle_draw);
@@ -310,7 +311,7 @@ namespace SushiEngine
 
                         // The stand-ins have to be in a samplable layout before they are bound, even
                         // though the shader never reads them — the descriptors are written regardless.
-                        const auto make_samplable = [&cmd](VkImage image)
+                        const auto make_samplable = [&command](VkImage image)
                         {
                             VkImageMemoryBarrier2 barrier{};
                             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -325,7 +326,7 @@ namespace SushiEngine
                             dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                             dependency.imageMemoryBarrierCount = 1;
                             dependency.pImageMemoryBarriers = &barrier;
-                            vkCmdPipelineBarrier2(cmd, &dependency);
+                            vkCmdPipelineBarrier2(command, &dependency);
                         };
                         if (!fallback_ready_)
                         {
@@ -342,9 +343,10 @@ namespace SushiEngine
                         // starts dead and no ribbon reads an uninitialised sample.
                         if (particles_.needs_clear())
                         {
-                            vkCmdFillBuffer(cmd, particles_.pool(), 0, VK_WHOLE_SIZE, 0);
-                            vkCmdFillBuffer(cmd, particles_.trail_buffer(), 0, VK_WHOLE_SIZE, 0);
-                            memory_barrier(cmd, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+                            vkCmdFillBuffer(command, particles_.pool(), 0, VK_WHOLE_SIZE, 0);
+                            vkCmdFillBuffer(command, particles_.trail_buffer(), 0, VK_WHOLE_SIZE,
+                                            0);
+                            memory_barrier(command, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
                                            VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                            VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
@@ -360,7 +362,8 @@ namespace SushiEngine
                             6u, 0u, 0u, 0u,
                             6u, 0u, 0u, 0u,
                             Scene::ParticleSystem::RIBBON_VERTICES, 0u, 0u, 0u};
-                        vkCmdUpdateBuffer(cmd, args_buffer, 0, sizeof(initial_args), initial_args);
+                        vkCmdUpdateBuffer(command, args_buffer, 0, sizeof(initial_args),
+                                          initial_args);
 
                         // The mesh slices' indexed commands. Their index count is a host fact (the
                         // mesh the emitter authored), which is why the sim pass seeds the whole
@@ -369,9 +372,10 @@ namespace SushiEngine
                         std::uint32_t mesh_args[5 * Scene::ParticleSystem::MAX_MESH_EMITTERS] = {};
                         for (const Scene::ParticleSystem::MeshDraw& draw : particles_.mesh_draws())
                             mesh_args[draw.slot * 5] = draw.index_count;
-                        vkCmdUpdateBuffer(cmd, mesh_args_buffer, 0, sizeof(mesh_args), mesh_args);
+                        vkCmdUpdateBuffer(command, mesh_args_buffer, 0, sizeof(mesh_args),
+                                          mesh_args);
 
-                        memory_barrier(cmd, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+                        memory_barrier(command, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
                                        VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
@@ -423,7 +427,7 @@ namespace SushiEngine
                                               field_usable ? field.config_bytes
                                                            : sizeof(GI::SDFClipmapConfiguration));
                         writer.update(device_.device(), set);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
 
                         // The camera block the collision projects through. The half-fov tangents come
@@ -467,21 +471,22 @@ namespace SushiEngine
                         }
 
                         // Advance the existing particles first, over the whole pool.
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, simulate_pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                          simulate_pipeline_);
                         Push simulate_push = push;
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &simulate_push);
-                        vkCmdDispatch(cmd, groups(capacity), 1, 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &simulate_push);
+                        vkCmdDispatch(command, groups(capacity), 1, 1);
 
                         // Order the emit pass after the sweep so it wins the recycled ring slots.
-                        memory_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                        memory_barrier(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
                                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
                         // Then spawn each emitter's new particles into the ring.
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
                         const std::vector<Scene::GPUEmitter>& emitters = particles_.emitters();
                         for (std::uint32_t e = 0; e < emitters.size(); ++e)
                         {
@@ -489,9 +494,10 @@ namespace SushiEngine
                                 continue;
                             Push emit_push = push;
                             emit_push.counts[0] = e;
-                            vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                               sizeof(Push), &emit_push);
-                            vkCmdDispatch(cmd, groups(emitters[e].spawn_count), 1, 1);
+                            vkCmdPushConstants(command, pipeline_layout_,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push),
+                                               &emit_push);
+                            vkCmdDispatch(command, groups(emitters[e].spawn_count), 1, 1);
                         }
                     });
             }

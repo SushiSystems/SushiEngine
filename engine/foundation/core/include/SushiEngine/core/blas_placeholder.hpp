@@ -133,8 +133,8 @@ namespace SushiEngine
         template <typename T>
         inline Vector3T<T> normalize(const Vector3T<T>& v) noexcept
         {
-            const T len = length(v);
-            return len > T(0) ? v * (T(1) / len) : v;
+            const T vector_length = length(v);
+            return vector_length > T(0) ? v * (T(1) / vector_length) : v;
         }
 
         /**
@@ -199,10 +199,10 @@ namespace SushiEngine
         template <typename T>
         inline QuaternionT<T> normalize(const QuaternionT<T>& q) noexcept
         {
-            const T len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-            if (len <= T(0))
+            const T quaternion_length = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+            if (quaternion_length <= T(0))
                 return QuaternionT<T>{};
-            const T inv = T(1) / len;
+            const T inv = T(1) / quaternion_length;
             return QuaternionT<T>{q.x * inv, q.y * inv, q.z * inv, q.w * inv};
         }
 

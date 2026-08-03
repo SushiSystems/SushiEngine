@@ -383,7 +383,7 @@ TEST(Integration_RuntimeGraphBuilder, ATetrahedralLatticeColoursCleanlyAndCompos
                 rest.push_back(position);
                 RigidBody body;
                 body.position = position;
-                body.prev_position = position;
+                body.previous_position = position;
                 body.inv_mass = Scalar(1);
                 handles.push_back(solver.add_body(body));
                 ASSERT_TRUE(handles.back().valid());

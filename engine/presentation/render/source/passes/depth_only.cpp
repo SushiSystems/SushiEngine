@@ -33,41 +33,40 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            Resources::GraphicsPipelineDescription depth_only_pipeline_desc(VkPipelineLayout layout,
-                                                                            VkShaderModule vertex,
-                                                                            VkFormat depth_format)
+            Resources::GraphicsPipelineDescription depth_only_pipeline_description(
+                VkPipelineLayout layout, VkShaderModule vertex, VkFormat depth_format)
             {
-                Resources::GraphicsPipelineDescription desc;
-                desc.layout = layout;
-                desc.vertex_shader = vertex;
-                desc.vertex_stride = sizeof(Geometry::MeshVertex);
+                Resources::GraphicsPipelineDescription description;
+                description.layout = layout;
+                description.vertex_shader = vertex;
+                description.vertex_stride = sizeof(Geometry::MeshVertex);
                 // The full attribute set, not just position: the vertex shader is shared
                 // with the shading pass, and a pipeline must declare every attribute its
                 // shader reads even where the depth result does not depend on them.
-                desc.attribute_count = 6;
-                desc.attributes[0] = {
+                description.attribute_count = 6;
+                description.attributes[0] = {
                     0, VK_FORMAT_R32G32B32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, position))};
-                desc.attributes[1] = {
+                description.attributes[1] = {
                     1, VK_FORMAT_R32G32B32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, normal))};
-                desc.attributes[2] = {
+                description.attributes[2] = {
                     2, VK_FORMAT_R32G32B32A32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, tangent))};
-                desc.attributes[3] = {
+                description.attributes[3] = {
                     3, VK_FORMAT_R32G32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv0))};
-                desc.attributes[4] = {
+                description.attributes[4] = {
                     4, VK_FORMAT_R32G32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv1))};
-                desc.attributes[5] = {
+                description.attributes[5] = {
                     5, VK_FORMAT_R8G8B8A8_UNORM,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, color))};
-                desc.depth_test = VK_TRUE;
-                desc.depth_write = VK_TRUE;
-                desc.color_count = 0;
-                desc.depth_format = depth_format;
-                return desc;
+                description.depth_test = VK_TRUE;
+                description.depth_write = VK_TRUE;
+                description.color_count = 0;
+                description.depth_format = depth_format;
+                return description;
             }
 
             Scene::MeshPushConstants depth_only_push(const Matrix4& model, const double eye[3],

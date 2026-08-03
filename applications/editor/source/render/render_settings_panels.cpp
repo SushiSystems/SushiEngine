@@ -319,7 +319,7 @@ namespace SushiEngine
             draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
                 const SushiEngine::Render::RenderSettings& effective = resolved.settings;
-                const SushiEngine::Render::QualityParameters& knobs = resolved.params;
+                const SushiEngine::Render::QualityParameters& knobs = resolved.parameters;
 
                 if (effective.shadows.enabled)
                 {
@@ -561,7 +561,7 @@ namespace SushiEngine
 
             draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
-                const SushiEngine::Render::QualityParameters& knobs = resolved.params;
+                const SushiEngine::Render::QualityParameters& knobs = resolved.parameters;
                 ImGui::Text("Bloom: %s", knobs.bloom ? "on" : "off (tier)");
                 ImGui::Text("Depth of field: %s", knobs.depth_of_field ? "permitted" : "off (tier)");
                 ImGui::Text("Motion blur: %s", knobs.motion_blur ? "permitted" : "off (tier)");
@@ -634,7 +634,7 @@ namespace SushiEngine
             draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
                 ImGui::Text("GPU-driven path: %s",
-                            resolved.params.gpu_driven ? "permitted" : "off (tier)");
+                            resolved.parameters.gpu_driven ? "permitted" : "off (tier)");
                 ImGui::TextDisabled("The Low tier keeps the classic one-draw-per-instance path.");
             });
 

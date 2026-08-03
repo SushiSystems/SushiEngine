@@ -112,14 +112,14 @@ namespace SushiEngine
             /**
              * @brief The local scale mapping a unit mesh onto an instance's shape.
              *
-             * Exactly `2 * params` for Box (half-extents) and Cylinder (radius,
-             * half-height, radius), and a uniform `2 * params.x` for Sphere (radius).
+             * Exactly `2 * parameters` for Box (half-extents) and Cylinder (radius,
+             * half-height, radius), and a uniform `2 * parameters.x` for Sphere (radius).
              *
-             * @param kind   Which unit mesh the instance draws with.
-             * @param params The instance's authored shape parameters.
+             * @param kind       Which unit mesh the instance draws with.
+             * @param parameters The instance's authored shape parameters.
              * @return The scale matrix to pre-multiply the model transform by.
              */
-            Matrix4 shape_scale(MeshKind kind, const Vector3& params) noexcept;
+            Matrix4 shape_scale(MeshKind kind, const Vector3& parameters) noexcept;
 
             /**
              * @brief Generates per-vertex tangents from positions, normals, and UV0.

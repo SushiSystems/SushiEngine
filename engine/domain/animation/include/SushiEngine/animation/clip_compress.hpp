@@ -348,28 +348,30 @@ namespace SushiEngine
 
         /**
          * @brief Cooks a raw clip into a compressed, relocatable blob.
-         * @param desc            The raw clip (dense frame-major tracks; see @ref ClipDescription).
+         * @param description     The raw clip (dense frame-major tracks; see
+         *                        @ref ClipDescription).
          * @param error_threshold The maximum reconstruction error the solver may leave, in
          *                        the clip's units (a virtual vertex at unit distance for
          *                        rotation). Smaller keeps more bits; ~0.001–0.01 is typical.
          * @param out             Receives the blob bytes; cleared first, empty on failure.
          * @return True on success; false if the counts are out of range or tracks mis-sized.
          */
-        inline bool compress_clip(const ClipDescription& desc, float error_threshold,
+        inline bool compress_clip(const ClipDescription& description, float error_threshold,
                                   std::vector<std::byte>& out)
         {
             out.clear();
-            if (desc.joint_count == 0 || desc.joint_count > MAX_JOINTS || desc.frame_count == 0 ||
-                desc.sample_rate <= 0.0f)
+            if (description.joint_count == 0 || description.joint_count > MAX_JOINTS ||
+                description.frame_count == 0 || description.sample_rate <= 0.0f)
                 return false;
             const std::size_t element_count =
-                static_cast<std::size_t>(desc.frame_count) * desc.joint_count;
-            if (desc.translations.size() != element_count || desc.rotations.size() != element_count ||
-                desc.scales.size() != element_count)
+                static_cast<std::size_t>(description.frame_count) * description.joint_count;
+            if (description.translations.size() != element_count ||
+                description.rotations.size() != element_count ||
+                description.scales.size() != element_count)
                 return false;
 
-            const std::uint32_t J = desc.joint_count;
-            const std::uint32_t F = desc.frame_count;
+            const std::uint32_t J = description.joint_count;
+            const std::uint32_t F = description.frame_count;
             const std::uint32_t segment_count = (F + CLIP_SEGMENT_SIZE - 1) / CLIP_SEGMENT_SIZE;
 
             std::vector<CompressedTrack> tracks(static_cast<std::size_t>(J) * 3);
@@ -384,9 +386,9 @@ namespace SushiEngine
                 for (std::uint32_t f = 0; f < F; ++f)
                 {
                     const std::size_t index = static_cast<std::size_t>(f) * J + j;
-                    rotations[f] = desc.rotations[index];
-                    translations[f] = desc.translations[index];
-                    scales[f] = desc.scales[index];
+                    rotations[f] = description.rotations[index];
+                    translations[f] = description.translations[index];
+                    scales[f] = description.scales[index];
                 }
                 detail::compress_rotation_track(rotations, F, segment_count, error_threshold,
                                                 tracks[j * 3 + 0], segments, stream);
@@ -417,7 +419,7 @@ namespace SushiEngine
             header.version = COMPRESSED_CLIP_VERSION;
             header.joint_count = J;
             header.frame_count = F;
-            header.sample_rate = desc.sample_rate;
+            header.sample_rate = description.sample_rate;
             header.segment_count = segment_count;
             header.track_count = static_cast<std::uint32_t>(tracks.size());
             header.segment_records = static_cast<std::uint32_t>(segments.size());

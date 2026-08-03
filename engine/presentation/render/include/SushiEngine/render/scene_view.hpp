@@ -92,14 +92,18 @@ namespace SushiEngine
             Vector3 color;              /**< Base colour; also seeds @ref material.albedo. */
             std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
             MeshKind kind = MeshKind::Box; /**< Which unit mesh to draw this instance with. */
-            Vector3 shape_params{Vector3{0.5, 0.5, 0.5}}; /**< Box: half-extents. Sphere: radius in x. Cylinder: radius in x, half-height in y. */
+            /**
+             * @brief Box: half-extents. Sphere: radius in x. Cylinder: radius in x, half-height
+             * in y.
+             */
+            Vector3 shape_parameters{Vector3{0.5, 0.5, 0.5}};
             Material material{}; /**< PBR metallic-roughness surface this instance shades with. */
             /**
              * @brief An imported mesh to draw instead of the primitive named by @ref kind.
              *
              * INVALID_MESH — the default — draws the primitive, so an instance that has
              * never seen an imported asset behaves exactly as it did before glTF import
-             * existed. When set, @ref kind and @ref shape_params are ignored: an imported
+             * existed. When set, @ref kind and @ref shape_parameters are ignored: an imported
              * mesh carries its own geometry and its own scale.
              */
             MeshId mesh = INVALID_MESH;
@@ -115,7 +119,7 @@ namespace SushiEngine
          * palette floats and a mesh, exactly as it sees cloth vertices. @c palette and
          * @c previous_palette point at @c joint_count matrices of 16 column-major floats each
          * (`JointMatrix`), object space; @c previous_palette may be null on an instance's
-         * first frame, in which case the skinning pass reuses @c palette for prev-position.
+         * first frame, in which case the skinning pass reuses @c palette for previous-position.
          */
         struct SkinnedInstance
         {

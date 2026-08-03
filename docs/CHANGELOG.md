@@ -9,6 +9,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Changed
+- 2026-08-03 — Renamed every abbreviated variable, parameter, member and function name this repository owns to its full spelling (`desc` → `description`, `params` → `parameters`, `cmd` → `command`, `src`/`dst` → `source`/`destination`, and ten others); Vulkan, VMA, SDL, ImGui and standard-library names, the `.sushiscene` serializer's format keys, and the three `*_params.hpp` file names are untouched.
 - 2026-08-03 — Renamed every CMake target, function and macro this repository owns to the `sushiengine_` prefix, so none of them can collide with a SushiRuntime one in the single flat CMake namespace the two trees share.
   - Removed the seven bare-`sushi_` `ALIAS` shims; every consumer now names the module target directly (`sushi_sim` → `sushiengine_simulation`, `sushi_scene` → `sushiengine_serialization`, and so on).
   - Renamed the executable targets (`se_editor` → `sushiengine_editor`, `render_probe` → `sushiengine_render_probe`, and the seven others) and gave each an `OUTPUT_NAME`, so every binary on disk keeps the name it had.

@@ -58,9 +58,9 @@ TEST(Integration_FEMPlasticity, APulledElementKeepsAPermanentDentAfterTheLoadIsR
     model.particles[3].position = Vector3{0.0, 0.0, 1.0};
     for (auto& particle : model.particles)
     {
-        particle.prev_position = particle.position;
+        particle.previous_position = particle.position;
         particle.orientation = Quaternion{0.0, 0.0, 0.0, 1.0};
-        particle.prev_orientation = particle.orientation;
+        particle.previous_orientation = particle.orientation;
         particle.inv_mass = Scalar(1.0);
     }
     model.particles[0].inv_mass = Scalar(0.0); // the anchor the load pulls against

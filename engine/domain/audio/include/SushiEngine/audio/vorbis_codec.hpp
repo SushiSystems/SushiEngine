@@ -25,7 +25,7 @@
  * @brief The Vorbis codec (`IAudioCodec`) — a second compressed music/dialogue class.
  *
  * The Vorbis counterpart of `opus_codec.hpp`, behind the same @ref IAudioCodec seam and the
- * same bank-owned **length-framed packet** container `[u32 len][packet]…`. It uses the
+ * same bank-owned **length-framed packet** container `[u32 length][packet]…`. It uses the
  * low-level **libvorbis** API (no Ogg framing): @ref encode emits Vorbis's three setup
  * packets (identification, comment, codebooks) followed by the audio packets, and @ref decode
  * feeds the three headers to `vorbis_synthesis_headerin`, then each audio packet to
@@ -99,15 +99,15 @@ namespace SushiEngine
                     {
                         if (off + 4 > in_bytes)
                             break;
-                        std::uint32_t len = 0;
-                        std::memcpy(&len, in + off, 4);
-                        if (off + 4 + static_cast<int>(len) > in_bytes)
+                        std::uint32_t length = 0;
+                        std::memcpy(&length, in + off, 4);
+                        if (off + 4 + static_cast<int>(length) > in_bytes)
                             break;
 
                         ogg_packet packet;
                         std::memset(&packet, 0, sizeof(packet));
                         packet.packet = const_cast<unsigned char*>(in + off + 4);
-                        packet.bytes = static_cast<long>(len);
+                        packet.bytes = static_cast<long>(length);
                         packet.b_o_s = (headers_seen_ == 0) ? 1 : 0;
 
                         if (headers_seen_ < 3)
@@ -115,12 +115,12 @@ namespace SushiEngine
                             if (vorbis_synthesis_headerin(&info_, &comment_, &packet) != 0)
                             {
                                 // Corrupt header stream: give up on this input.
-                                off += 4 + static_cast<int>(len);
+                                off += 4 + static_cast<int>(length);
                                 in_consumed = off;
                                 return total;
                             }
                             ++headers_seen_;
-                            off += 4 + static_cast<int>(len);
+                            off += 4 + static_cast<int>(length);
                             if (headers_seen_ == 3)
                             {
                                 vorbis_synthesis_init(&dsp_, &info_);
@@ -134,7 +134,7 @@ namespace SushiEngine
 
                         if (vorbis_synthesis(&block_, &packet) == 0)
                             vorbis_synthesis_blockin(&dsp_, &block_);
-                        off += 4 + static_cast<int>(len);
+                        off += 4 + static_cast<int>(length);
                         total = drain_pcm(out, frame_capacity, total);
                     }
                     in_consumed = off;
@@ -219,11 +219,11 @@ namespace SushiEngine
             private:
                 static void append_packet(std::vector<std::uint8_t>& out, const ogg_packet& packet)
                 {
-                    const std::uint32_t len = static_cast<std::uint32_t>(packet.bytes);
+                    const std::uint32_t length = static_cast<std::uint32_t>(packet.bytes);
                     const std::size_t base = out.size();
-                    out.resize(base + 4 + len);
-                    std::memcpy(out.data() + base, &len, 4);
-                    std::memcpy(out.data() + base + 4, packet.packet, len);
+                    out.resize(base + 4 + length);
+                    std::memcpy(out.data() + base, &length, 4);
+                    std::memcpy(out.data() + base + 4, packet.packet, length);
                 }
 
                 // Drains available synthesised PCM into out (interleaved), up to the capacity.

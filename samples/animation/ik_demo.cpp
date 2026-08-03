@@ -50,17 +50,17 @@ namespace
     // Builds a joint chain: joint i is the child of i-1, offset from its parent by `bone`.
     AssetId build_chain(AnimationDatabase& database, std::uint32_t count, Vector3f bone)
     {
-        SkeletonDescription desc;
+        SkeletonDescription description;
         for (std::uint32_t i = 0; i < count; ++i)
         {
             JointDescription joint;
             joint.name = std::string("j") + std::to_string(i);
             joint.parent = static_cast<int>(i) - 1;
             joint.bind_translation = i == 0 ? Vector3f{0, 0, 0} : bone;
-            desc.joints.push_back(joint);
+            description.joints.push_back(joint);
         }
         std::vector<std::byte> blob;
-        build_skeleton_blob(desc, blob);
+        build_skeleton_blob(description, blob);
         return database.add_skeleton(std::move(blob));
     }
 
@@ -97,13 +97,13 @@ namespace
 
         PoseModifierContext context()
         {
-            PoseModifierContext ctx;
-            ctx.skeleton = skeleton;
-            ctx.local_translations = translations.data();
-            ctx.local_rotations = rotations.data();
-            ctx.local_scales = scales.data();
-            ctx.model = model.data();
-            return ctx;
+            PoseModifierContext modifier_context;
+            modifier_context.skeleton = skeleton;
+            modifier_context.local_translations = translations.data();
+            modifier_context.local_rotations = rotations.data();
+            modifier_context.local_scales = scales.data();
+            modifier_context.model = model.data();
+            return modifier_context;
         }
 
         Vector3 position(std::uint32_t joint) const
@@ -149,15 +149,15 @@ int main()
         solver.target = Vector3{1.0, 1.0, 0.0}; // distance ~1.414, in reach
         solver.pole = Vector3{1.0, 2.0, 0.0};   // bend the elbow up (+y)
         solver.weight = 1.0f;
-        PoseModifierContext ctx = scratch.context();
-        solver.solve(ctx);
+        PoseModifierContext modifier_context = scratch.context();
+        solver.solve(modifier_context);
 
         const Vector3 hand = scratch.position(2);
         const Scalar reach_error = length(hand - solver.target);
         check(reach_error < 1e-3, "two-bone hand reaches the target");
-        const Scalar upper_len = length(scratch.position(1) - scratch.position(0));
-        const Scalar lower_len = length(scratch.position(2) - scratch.position(1));
-        check(std::fabs(upper_len - 1.0) < 1e-3 && std::fabs(lower_len - 1.0) < 1e-3,
+        const Scalar upper_length = length(scratch.position(1) - scratch.position(0));
+        const Scalar lower_length = length(scratch.position(2) - scratch.position(1));
+        check(std::fabs(upper_length - 1.0) < 1e-3 && std::fabs(lower_length - 1.0) < 1e-3,
               "two-bone preserves both bone lengths");
         check(scratch.position(1).y > 0.1, "two-bone bends the elbow toward the pole (+y)");
     }
@@ -172,8 +172,8 @@ int main()
         solver.tip = 2;
         solver.target = Vector3{10.0, 0.0, 0.0}; // far out of reach (reach is 2)
         solver.pole = Vector3{1.0, 1.0, 0.0};
-        PoseModifierContext ctx = scratch.context();
-        solver.solve(ctx);
+        PoseModifierContext modifier_context = scratch.context();
+        solver.solve(modifier_context);
         const Scalar hand_distance = length(scratch.position(2) - scratch.position(0));
         check(std::fabs(hand_distance - 2.0) < 2e-2, "two-bone out-of-reach extends to near full length");
     }
@@ -192,8 +192,8 @@ int main()
         solver.forward_axis = Vector3{0.0, 0.0, 1.0}; // head looks +z at rest
         solver.target = Vector3{3.0, 2.0, 4.0};
         solver.weight = 1.0f;
-        PoseModifierContext ctx = scratch.context();
-        solver.solve(ctx);
+        PoseModifierContext modifier_context = scratch.context();
+        solver.solve(modifier_context);
 
         const Quaternion head = quaternion_from_matrix(scratch.model[2]);
         const Vector3 forward = normalize(rotate(head, solver.forward_axis));
@@ -213,8 +213,8 @@ int main()
         solver.target = Vector3{2.0, 2.0, 0.0}; // distance ~2.83, in reach
         solver.iterations = 16;
         solver.tolerance = 1e-4f;
-        PoseModifierContext ctx = scratch.context();
-        solver.solve(ctx);
+        PoseModifierContext modifier_context = scratch.context();
+        solver.solve(modifier_context);
 
         const Scalar tip_error = length(scratch.position(4) - solver.target);
         check(tip_error < 1e-2, "FABRIK tip converges onto the target");
@@ -223,16 +223,16 @@ int main()
     // --- Foot placement: ray to the ground and plant the ankle ------------------------
     {
         // Leg down the -y axis: hip at (0,2,0), knee (0,1,0), ankle (0,0,0).
-        SkeletonDescription desc;
+        SkeletonDescription description;
         JointDescription hip;
         hip.name = "hip"; hip.parent = -1; hip.bind_translation = Vector3f{0, 2, 0};
         JointDescription knee;
         knee.name = "knee"; knee.parent = 0; knee.bind_translation = Vector3f{0, -1, 0};
         JointDescription ankle;
         ankle.name = "ankle"; ankle.parent = 1; ankle.bind_translation = Vector3f{0, -1, 0};
-        desc.joints = {hip, knee, ankle};
+        description.joints = {hip, knee, ankle};
         std::vector<std::byte> blob;
-        build_skeleton_blob(desc, blob);
+        build_skeleton_blob(description, blob);
         const AssetId id = database.add_skeleton(std::move(blob));
         PoseScratch scratch(database.skeleton(id));
 
@@ -248,8 +248,8 @@ int main()
         solver.foot_height = 0.0f;
         solver.ray_height = 1.0f;
         solver.weight = 1.0f;
-        PoseModifierContext ctx = scratch.context();
-        solver.solve(ctx);
+        PoseModifierContext modifier_context = scratch.context();
+        solver.solve(modifier_context);
 
         const Vector3 planted = scratch.position(2);
         check(std::fabs(planted.y - 0.3) < 1e-2, "foot placement plants the ankle on the ground plane");
@@ -273,7 +273,7 @@ int main()
         build_clip_blob(clip, clip_blob);
         const AssetId clip_id = database.add_clip(std::move(clip_blob));
 
-        ControllerDescription controller_desc;
+        ControllerDescription controller_description;
         LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Rest";
@@ -281,9 +281,9 @@ int main()
         state.name = "Rest";
         state.clip = clip_id;
         layer.states = {state};
-        controller_desc.layers.push_back(layer);
+        controller_description.layers.push_back(layer);
         std::vector<std::byte> controller_blob;
-        compile_controller_blob(controller_desc, controller_blob);
+        compile_controller_blob(controller_description, controller_blob);
         const AssetId controller_id = database.add_controller(std::move(controller_blob));
         const ControllerView controller = database.controller(controller_id);
 

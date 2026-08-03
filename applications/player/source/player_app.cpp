@@ -83,18 +83,18 @@ namespace SushiEngine
             shutdown();
         }
 
-        void PlayerApp::start(const Description& desc)
+        void PlayerApp::start(const Description& description)
         {
-            desc_ = desc;
+            description_ = description;
 
             // Headless (PLATFORM0 S6): no window, no input manager, nothing SDL-owned at
             // all — `window_` staying null is what every other method reads as "headless"
-            // from here on, rather than re-testing `desc_.headless` at each call site.
-            if (!desc_.headless)
+            // from here on, rather than re-testing `description_.headless` at each call site.
+            if (!description_.headless)
             {
-                window_.reset(new Platform::SDLWindow(desc_.window_title.c_str(),
-                                                       static_cast<int>(desc_.width),
-                                                       static_cast<int>(desc_.height)));
+                window_.reset(new Platform::SDLWindow(description_.window_title.c_str(),
+                                                      static_cast<int>(description_.width),
+                                                      static_cast<int>(description_.height)));
                 window_->add_event_handler([this](const void* event)
                                            { handle_window_event(event); });
 
@@ -105,33 +105,34 @@ namespace SushiEngine
             }
 
             simulation_ = Simulation::create_simulation();
-            if (!desc_.scene_path.empty() &&
-                !Scene::load_scene(simulation_->world(), desc_.scene_path))
+            if (!description_.scene_path.empty() &&
+                !Scene::load_scene(simulation_->world(), description_.scene_path))
                 throw std::runtime_error("SushiEngine::Player::PlayerApp: failed to load scene \"" +
-                                         desc_.scene_path + "\"");
+                                         description_.scene_path + "\"");
 
             create_render_resources();
         }
 
         void PlayerApp::create_render_resources()
         {
-            Render::WindowRendererDescription render_desc;
-            render_desc.enable_validation = desc_.enable_validation;
-            render_desc.width = desc_.width;
-            render_desc.height = desc_.height;
+            Render::WindowRendererDescription render_description;
+            render_description.enable_validation = description_.enable_validation;
+            render_description.width = description_.width;
+            render_description.height = description_.height;
 
             if (window_)
             {
                 std::uint32_t width = 0;
                 std::uint32_t height = 0;
                 window_->drawable_size(width, height);
-                render_desc.required_instance_extensions = window_->vulkan_instance_extensions();
-                render_desc.surface_factory = [this](std::uint64_t instance)
+                render_description.required_instance_extensions =
+                    window_->vulkan_instance_extensions();
+                render_description.surface_factory = [this](std::uint64_t instance)
                 { return window_->create_vulkan_surface(instance); };
-                render_desc.width = width != 0 ? width : desc_.width;
-                render_desc.height = height != 0 ? height : desc_.height;
+                render_description.width = width != 0 ? width : description_.width;
+                render_description.height = height != 0 ? height : description_.height;
             }
-            // Else headless: render_desc.surface_factory stays empty, which is exactly
+            // Else headless: render_description.surface_factory stays empty, which is exactly
             // what VulkanWindowRenderer now reads (PLATFORM0 S6) as "build no swapchain
             // at all" — the same construction path render_probe/render_golden already use.
 
@@ -143,11 +144,11 @@ namespace SushiEngine
             // not resolve a per-user directory, rather than writing a bare relative
             // filename into whatever the process's current directory happens to be.
             const std::string user_data = Platform::user_data_directory(
-                desc_.organization.c_str(), desc_.application.c_str());
+                description_.organization.c_str(), description_.application.c_str());
             if (!user_data.empty())
-                render_desc.pipeline_cache_path = user_data + "pipeline_cache.bin";
+                render_description.pipeline_cache_path = user_data + "pipeline_cache.bin";
 
-            renderer_ = Render::create_window_renderer(render_desc);
+            renderer_ = Render::create_window_renderer(render_description);
             scene_view_ = renderer_->create_scene_view();
             simulation_->set_atmosphere_mirror(&renderer_->assets());
         }
@@ -200,7 +201,7 @@ namespace SushiEngine
                 instance.color = source.color;
                 instance.id = static_cast<std::uint32_t>(source.id);
                 instance.kind = static_cast<Render::MeshKind>(source.shape_kind);
-                instance.shape_params = source.shape_params;
+                instance.shape_parameters = source.shape_parameters;
                 instance.material = source.material;
                 instances_.push_back(instance);
             }
@@ -236,8 +237,8 @@ namespace SushiEngine
                 particle_billboards_.push_back(billboard);
             }
 
-            std::uint32_t width = desc_.width;
-            std::uint32_t height = desc_.height;
+            std::uint32_t width = description_.width;
+            std::uint32_t height = description_.height;
             if (window_)
             {
                 window_->drawable_size(width, height);

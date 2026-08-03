@@ -281,7 +281,7 @@ namespace
         {
             RigidBodyT<Scalar>& particle = view.particles[i];
             particle.position = centre + (particle.position - centre) * factor;
-            particle.prev_position = particle.position;
+            particle.previous_position = particle.position;
             particle.velocity = Vector3{0, 0, 0};
         }
     }

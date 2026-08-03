@@ -136,8 +136,8 @@ int main(int argc, char** argv)
     glslang::InitializeProcess();
 
     glslang::TShader shader(stage);
-    const char* source_ptr = source.c_str();
-    shader.setStrings(&source_ptr, 1);
+    const char* source_pointer = source.c_str();
+    shader.setStrings(&source_pointer, 1);
     shader.setEnvInput(glslang::EShSourceGlsl, stage, glslang::EShClientVulkan, 100);
     shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
     shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);

@@ -173,9 +173,9 @@ int main(int argc, char** argv)
         std::uint32_t height = 0;
         window.drawable_size(width, height);
 
-        SushiEngine::Render::WindowRendererDescription desc;
-        desc.required_instance_extensions = window.vulkan_instance_extensions();
-        desc.surface_factory = [&window](std::uint64_t instance)
+        SushiEngine::Render::WindowRendererDescription description;
+        description.required_instance_extensions = window.vulkan_instance_extensions();
+        description.surface_factory = [&window](std::uint64_t instance)
         {
             return window.create_vulkan_surface(instance);
         };
@@ -183,11 +183,11 @@ int main(int argc, char** argv)
         // synchronisation mistake surfaces as a device loss with no message.
         for (int i = 1; i < argc; ++i)
             if (std::string(argv[i]) == "--validation")
-                desc.enable_validation = true;
-        desc.width = width != 0 ? width : 1600;
-        desc.height = height != 0 ? height : 900;
+                description.enable_validation = true;
+        description.width = width != 0 ? width : 1600;
+        description.height = height != 0 ? height : 900;
         std::unique_ptr<SushiEngine::Render::IWindowRenderer> renderer =
-            SushiEngine::Render::create_window_renderer(desc);
+            SushiEngine::Render::create_window_renderer(description);
 
         SushiEngine::Editor::ImGuiBackend imgui(window, *renderer);
 
@@ -493,7 +493,7 @@ int main(int argc, char** argv)
                 // (Terrain's visual Shape is always a Box).
                 instance.kind =
                     static_cast<SushiEngine::Render::MeshKind>(source.shape_kind);
-                instance.shape_params = source.shape_params;
+                instance.shape_parameters = source.shape_parameters;
                 instance.material = source.material;
                 instances.push_back(instance);
             }
@@ -664,7 +664,7 @@ int main(int argc, char** argv)
                     continue;
                 SushiEngine::Editor::UIOverlayElement element;
                 element.id = static_cast<std::uint32_t>(id);
-                element.params = world.ui_params(id);
+                element.parameters = world.ui_parameters(id);
                 element.selected = id == context.selected_entity;
                 ui_overlay.push_back(element);
                 ui_ids.push_back(id);
@@ -939,7 +939,7 @@ int main(int argc, char** argv)
                         scene_inputs.soft_body_positions = &soft_body_positions;
                         scene_inputs.soft_body_elements = &soft_body_elements;
                         scene_inputs.soft_body_material =
-                            soft_world.soft_body_params(context.selected_entity).material;
+                            soft_world.soft_body_parameters(context.selected_entity).material;
                         scene_inputs.soft_body_view = context.soft_body_debug_view;
                     }
                 }
@@ -1089,9 +1089,9 @@ int main(int argc, char** argv)
             ui_was_dragging = ui_is_dragging;
             if (scene_ui.edited_index >= 0 &&
                 static_cast<std::size_t>(scene_ui.edited_index) < ui_ids.size())
-                world.set_ui_params(
+                world.set_ui_parameters(
                     ui_ids[static_cast<std::size_t>(scene_ui.edited_index)],
-                    ui_overlay[static_cast<std::size_t>(scene_ui.edited_index)].params);
+                    ui_overlay[static_cast<std::size_t>(scene_ui.edited_index)].parameters);
 
             // One undo step per whole drag, not one per frame: snapshot on the frame
             // the handle is grabbed, commit on the frame it is released.

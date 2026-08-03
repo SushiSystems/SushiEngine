@@ -54,7 +54,7 @@ namespace SushiEngine
         /**
          * @brief An @ref IReverb that convolves the signal with a (synthesised) room IR.
          *
-         * @ref prepare sizes the convolver's block to the graph's max block; @ref set_params
+         * @ref prepare sizes the convolver's block to the graph's max block; @ref set_parameters
          * (re)builds the impulse response from the I3DL2 set. @ref process convolves a stereo
          * block in place, mixing the wet return over a block-aligned dry per WetDryMix.
          */
@@ -79,7 +79,7 @@ namespace SushiEngine
                     block_in_[1].assign(static_cast<std::size_t>(block_), 0.0f);
                     block_out_[0].assign(static_cast<std::size_t>(block_), 0.0f);
                     block_out_[1].assign(static_cast<std::size_t>(block_), 0.0f);
-                    apply_params();
+                    apply_parameters();
                 }
 
                 void reset() noexcept override
@@ -101,15 +101,15 @@ namespace SushiEngine
                             push(out_fifo_[c], out_w_[c], out_count_[c], 0.0f);
                 }
 
-                void set_params(const I3DL2Reverb& params) override
+                void set_parameters(const I3DL2Reverb& parameters) override
                 {
-                    params_ = params;
+                    parameters_ = parameters;
                     if (sample_rate_ > 0.0)
-                        apply_params();
+                        apply_parameters();
                 }
 
                 /** @brief The current I3DL2 parameters. */
-                const I3DL2Reverb& params() const noexcept { return params_; }
+                const I3DL2Reverb& parameters() const noexcept { return parameters_; }
 
                 /** @brief The IR length in samples (per channel), loaded or synthesised. */
                 int impulse_length() const noexcept { return ir_length_; }
@@ -138,36 +138,36 @@ namespace SushiEngine
                     const double ratio =
                         (ir_sample_rate > 0.0 && ir_sample_rate != sample_rate_) ? ir_sample_rate / sample_rate_
                                                                                 : 1.0;
-                    const int out_len = ratio == 1.0 ? frames
+                    const int out_length = ratio == 1.0 ? frames
                                                      : static_cast<int>(frames / ratio);
                     for (int c = 0; c < 2; ++c)
                     {
-                        const int src_ch = c < ch ? c : 0; // mono → both channels
-                        raw_ir_[c].assign(static_cast<std::size_t>(out_len), 0.0f);
-                        for (int i = 0; i < out_len; ++i)
+                        const int source_ch = c < ch ? c : 0; // mono → both channels
+                        raw_ir_[c].assign(static_cast<std::size_t>(out_length), 0.0f);
+                        for (int i = 0; i < out_length; ++i)
                         {
                             const double pos = i * ratio;
                             const int i0 = static_cast<int>(pos);
                             const int i1 = i0 + 1 < frames ? i0 + 1 : frames - 1;
                             const float frac = static_cast<float>(pos - i0);
-                            const float s0 = data[i0 * channels + src_ch];
-                            const float s1 = data[i1 * channels + src_ch];
+                            const float s0 = data[i0 * channels + source_ch];
+                            const float s1 = data[i1 * channels + source_ch];
                             raw_ir_[c][static_cast<std::size_t>(i)] = s0 + frac * (s1 - s0);
                         }
                     }
-                    raw_ir_len_ = out_len;
+                    raw_ir_length_ = out_length;
                     has_loaded_ir_ = true;
                     if (sample_rate_ > 0.0)
-                        apply_params();
+                        apply_parameters();
                 }
 
                 /** @brief Discards a loaded IR and returns to the synthesised one. */
                 void clear_impulse()
                 {
                     has_loaded_ir_ = false;
-                    raw_ir_len_ = 0;
+                    raw_ir_length_ = 0;
                     if (sample_rate_ > 0.0)
-                        apply_params();
+                        apply_parameters();
                 }
 
                 void process(float* left, float* right, int frame_count) noexcept override
@@ -224,59 +224,60 @@ namespace SushiEngine
                     return static_cast<float>(std::pow(10.0, static_cast<double>(db) / 20.0));
                 }
 
-                static void push(std::vector<float>& buf, int& w, int& count, float v) noexcept
+                static void push(std::vector<float>& buffer, int& w, int& count, float v) noexcept
                 {
-                    buf[static_cast<std::size_t>(w)] = v;
-                    if (++w >= static_cast<int>(buf.size()))
+                    buffer[static_cast<std::size_t>(w)] = v;
+                    if (++w >= static_cast<int>(buffer.size()))
                         w = 0;
                     ++count;
                 }
 
-                static float pop(std::vector<float>& buf, int& r, int& count) noexcept
+                static float pop(std::vector<float>& buffer, int& r, int& count) noexcept
                 {
-                    const float v = buf[static_cast<std::size_t>(r)];
-                    if (++r >= static_cast<int>(buf.size()))
+                    const float v = buffer[static_cast<std::size_t>(r)];
+                    if (++r >= static_cast<int>(buffer.size()))
                         r = 0;
                     --count;
                     return v;
                 }
 
-                /** @brief Rebuilds the impulse response and both convolvers from @ref params_. */
-                void apply_params()
+                /** @brief Rebuilds the impulse response and convolvers from @ref parameters_. */
+                void apply_parameters()
                 {
-                    wet_mix_ = clampf(params_.wet_dry_mix, 0.0f, 100.0f) / 100.0f;
+                    wet_mix_ = clampf(parameters_.wet_dry_mix, 0.0f, 100.0f) / 100.0f;
                     dry_mix_ = 1.0f - wet_mix_;
 
                     // A measured IR is used verbatim (scaled by the Room+Reverb level); only
                     // the synthesised path derives its IR from the decay parameters.
                     if (has_loaded_ir_)
                     {
-                        const float level = db_to_linear(params_.room + params_.reverb);
-                        ir_length_ = raw_ir_len_;
-                        std::vector<float> scaled(static_cast<std::size_t>(raw_ir_len_));
+                        const float level = db_to_linear(parameters_.room + parameters_.reverb);
+                        ir_length_ = raw_ir_length_;
+                        std::vector<float> scaled(static_cast<std::size_t>(raw_ir_length_));
                         for (int c = 0; c < 2; ++c)
                         {
-                            for (int i = 0; i < raw_ir_len_; ++i)
+                            for (int i = 0; i < raw_ir_length_; ++i)
                                 scaled[static_cast<std::size_t>(i)] =
                                     raw_ir_[c][static_cast<std::size_t>(i)] * level;
-                            convolver_[c].prepare(block_, scaled.data(), raw_ir_len_);
+                            convolver_[c].prepare(block_, scaled.data(), raw_ir_length_);
                         }
                         reset();
                         return;
                     }
 
-                    const float decay = clampf(params_.decay_time, 0.1f, 20.0f);
-                    const float hf_ratio = clampf(params_.decay_hf_ratio, 0.1f, 2.0f);
-                    const int max_len = static_cast<int>(4.0 * sample_rate_); // cap the CPU
+                    const float decay = clampf(parameters_.decay_time, 0.1f, 20.0f);
+                    const float hf_ratio = clampf(parameters_.decay_hf_ratio, 0.1f, 2.0f);
+                    const int max_length = static_cast<int>(4.0 * sample_rate_); // cap the CPU
                     ir_length_ = static_cast<int>(decay * static_cast<float>(sample_rate_));
-                    if (ir_length_ > max_len)
-                        ir_length_ = max_len;
+                    if (ir_length_ > max_length)
+                        ir_length_ = max_length;
                     if (ir_length_ < block_)
                         ir_length_ = block_;
-                    const int predelay = static_cast<int>(
-                        clampf(params_.reverb_delay, 0.0f, 0.24f) * static_cast<float>(sample_rate_));
+                    const int predelay =
+                        static_cast<int>(clampf(parameters_.reverb_delay, 0.0f, 0.24f) *
+                                         static_cast<float>(sample_rate_));
 
-                    const float level = db_to_linear(params_.room + params_.reverb);
+                    const float level = db_to_linear(parameters_.room + parameters_.reverb);
                     // Normalise by the RMS of a unit-energy decaying-noise burst so the wet
                     // level tracks the dB request rather than the tail length.
                     const float norm = level / std::sqrt(static_cast<float>(ir_length_) * 0.25f + 1.0f);
@@ -312,13 +313,13 @@ namespace SushiEngine
                         convolver_[c].prepare(block_, ir.data(), ir_length_);
                     }
 
-                    wet_mix_ = clampf(params_.wet_dry_mix, 0.0f, 100.0f) / 100.0f;
+                    wet_mix_ = clampf(parameters_.wet_dry_mix, 0.0f, 100.0f) / 100.0f;
                     dry_mix_ = 1.0f - wet_mix_;
                     reset();
                 }
 
                 DSP::PartitionedConvolver convolver_[2];
-                I3DL2Reverb params_;
+                I3DL2Reverb parameters_;
                 std::vector<float> in_fifo_[2];
                 std::vector<float> out_fifo_[2];
                 std::vector<float> dry_delay_[2];
@@ -328,7 +329,7 @@ namespace SushiEngine
                 int out_r_[2] = {0, 0}, out_w_[2] = {0, 0}, out_count_[2] = {0, 0};
                 int dry_pos_[2] = {0, 0};
                 std::vector<float> raw_ir_[2]; /**< A loaded (measured) IR, unscaled, per channel. */
-                int raw_ir_len_ = 0;
+                int raw_ir_length_ = 0;
                 bool has_loaded_ir_ = false;
                 double sample_rate_ = 0.0;
                 int block_ = 0;

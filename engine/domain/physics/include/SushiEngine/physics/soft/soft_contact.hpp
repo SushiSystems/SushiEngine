@@ -214,7 +214,7 @@ namespace SushiEngine
         {
             Vector3T<T> total{T(0), T(0), T(0)};
             for (int slot = 0; slot < 4; ++slot)
-                total = total + resolve_soft_particle(source, constraint, slot).prev_position *
+                total = total + resolve_soft_particle(source, constraint, slot).previous_position *
                                     constraint.weight[slot];
             return total;
         }

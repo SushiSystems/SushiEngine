@@ -105,9 +105,9 @@ namespace SushiEngine
                      * depth lands next frame; otherwise it just barriers the previous frame's
                      * build to be visible to the sampling read.
                      *
-                     * @param cmd The command buffer the cull pass is recording into.
+                     * @param command The command buffer the cull pass is recording into.
                      */
-                    void prepare_sampling(VkCommandBuffer cmd);
+                    void prepare_sampling(VkCommandBuffer command);
 
                     /** @brief The full-chain view the cull samples with textureLod. */
                     VkImageView pyramid_view() const noexcept { return sample_view_; }
@@ -127,8 +127,9 @@ namespace SushiEngine
                 private:
                     struct Push
                     {
-                        std::uint32_t a[4]; /**< level, dst_w, dst_h, src_w. */
-                        std::uint32_t b[4]; /**< src_h. */
+                        /** @brief level, destination width, destination height, source width. */
+                        std::uint32_t a[4];
+                        std::uint32_t b[4]; /**< source height. */
                         float c[4];         /**< near. */
                     };
 

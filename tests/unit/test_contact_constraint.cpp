@@ -75,9 +75,9 @@ namespace
     {
         RigidBody body;
         body.position = position;
-        body.prev_position = position;
+        body.previous_position = position;
         body.orientation = Quaternion{0.0, 0.0, 0.0, 1.0};
-        body.prev_orientation = body.orientation;
+        body.previous_orientation = body.orientation;
         body.inv_mass = 1.0 / mass;
         const Scalar edge = 2.0 * half_extent;
         const Scalar inertia = mass * edge * edge / 6.0;
@@ -86,14 +86,14 @@ namespace
     }
 
     /** @brief Frictionless, bounceless contact parameters with the anti-jitter floor set. */
-    ContactSolveParameters<Scalar> plain_params(Scalar substep)
+    ContactSolveParameters<Scalar> plain_parameters(Scalar substep)
     {
-        ContactSolveParameters<Scalar> params;
-        params.static_friction = 0.0;
-        params.dynamic_friction = 0.0;
-        params.restitution = 0.0;
-        params.restitution_threshold = 2.0 * GRAVITY * substep;
-        return params;
+        ContactSolveParameters<Scalar> contact_parameters;
+        contact_parameters.static_friction = 0.0;
+        contact_parameters.dynamic_friction = 0.0;
+        contact_parameters.restitution = 0.0;
+        contact_parameters.restitution_threshold = 2.0 * GRAVITY * substep;
+        return contact_parameters;
     }
 
     /**
@@ -122,13 +122,13 @@ namespace
      */
     void tick_on_ground(IConstraintSolver<Scalar>& solver, const std::vector<BodyHandle>& handles,
                         std::vector<ContactManifold<Scalar>>& manifolds, Vector3 half_extents,
-                        const ContactSolveParameters<Scalar>& params, Scalar dt)
+                        const ContactSolveParameters<Scalar>& contact_parameters, Scalar dt)
     {
         const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
         // Generated further out than they are resolved to: an offset that did not
         // cover a tick's motion would leave a corner arriving mid-tick unconstrained
         // until the next one, by which time it is already deep (§7.6).
-        const Scalar contact_offset = params.rest_offset + 0.03;
+        const Scalar contact_offset = contact_parameters.rest_offset + 0.03;
 
         solver.begin_contacts();
         for (std::size_t i = 0; i < handles.size(); ++i)
@@ -149,7 +149,7 @@ namespace
             contact.b = null_contact_body;
             contact.key = i;
             contact.manifold = manifolds[i];
-            contact.params = params;
+            contact.parameters = contact_parameters;
             solver.add_contact(contact);
         }
 
@@ -280,10 +280,10 @@ TEST(Unit_ContactConstraint, ADroppedBoxComesToRestThroughTheSolver)
     std::vector<BodyHandle> handles{handle};
     std::vector<ContactManifold<Scalar>> manifolds(1);
     const Scalar dt = 1.0 / 60.0;
-    const ContactSolveParameters<Scalar> params = plain_params(dt / 8.0);
+    const ContactSolveParameters<Scalar> contact_parameters = plain_parameters(dt / 8.0);
 
     for (int tick = 0; tick < 180; ++tick)
-        tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, params, dt);
+        tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, contact_parameters, dt);
 
     RigidBody body;
     ASSERT_TRUE(solver.read_body(handle, body));
@@ -304,10 +304,10 @@ TEST(Unit_ContactConstraint, TheSolvedImpulsesComeBackOut)
     std::vector<BodyHandle> handles{handle};
     std::vector<ContactManifold<Scalar>> manifolds(1);
     const Scalar dt = 1.0 / 60.0;
-    const ContactSolveParameters<Scalar> params = plain_params(dt / 8.0);
+    const ContactSolveParameters<Scalar> contact_parameters = plain_parameters(dt / 8.0);
 
     for (int tick = 0; tick < 60; ++tick)
-        tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, params, dt);
+        tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, contact_parameters, dt);
 
     ASSERT_EQ(solver.contact_count(), 1u);
     ContactConstraint solved;
@@ -345,7 +345,7 @@ TEST(Unit_ContactConstraint, SubmissionOrderIsWhatComesBack)
         contact.b = null_contact_body;
         contact.key = 100 + i;
         contact.manifold = ground_point_manifold(Vector3{Scalar(i) * 4.0, 0.4, 0.0});
-        contact.params = plain_params(1.0 / 480.0);
+        contact.parameters = plain_parameters(1.0 / 480.0);
         ASSERT_TRUE(solver.add_contact(contact));
     }
 
@@ -377,7 +377,7 @@ TEST(Unit_ContactConstraint, AStackOfBoxesSettlesThroughTheSolver)
     const Vector3 half{0.5, 0.5, 0.5};
     const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
     const Scalar dt = 1.0 / 60.0;
-    const ContactSolveParameters<Scalar> params = plain_params(dt / 8.0);
+    const ContactSolveParameters<Scalar> contact_parameters = plain_parameters(dt / 8.0);
     const Scalar contact_offset = 0.03;
 
     std::vector<ContactManifold<Scalar>> ground_manifolds(COUNT);
@@ -404,7 +404,7 @@ TEST(Unit_ContactConstraint, AStackOfBoxesSettlesThroughTheSolver)
                 contact.b = null_contact_body;
                 contact.key = i;
                 contact.manifold = ground_manifolds[i];
-                contact.params = params;
+                contact.parameters = contact_parameters;
                 solver.add_contact(contact);
             }
 
@@ -422,7 +422,7 @@ TEST(Unit_ContactConstraint, AStackOfBoxesSettlesThroughTheSolver)
             contact.b = std::uint32_t(solver.body_slot(handles[i + 1]));
             contact.key = COUNT + i;
             contact.manifold = pair_manifolds[i];
-            contact.params = params;
+            contact.parameters = contact_parameters;
             solver.add_contact(contact);
         }
 
@@ -465,7 +465,8 @@ TEST(Unit_ContactConstraint, TheStatisticsCountWhatWasSubmitted)
     std::vector<ContactManifold<Scalar>> manifolds(1);
     const Scalar dt = 1.0 / 60.0;
 
-    tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, plain_params(dt / 8.0), dt);
+    tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, plain_parameters(dt / 8.0),
+                   dt);
 
     EXPECT_EQ(solver.statistics().manifolds, 1u);
     EXPECT_EQ(solver.statistics().contact_points, 4u);

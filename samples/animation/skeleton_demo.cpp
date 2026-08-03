@@ -113,8 +113,8 @@ namespace
     void test_skeleton()
     {
         // A four-joint arm chain, authored leaf-first so the cook's topological sort has
-        // real work to do: root is desc index 3, not 0.
-        SkeletonDescription desc;
+        // real work to do: root is description index 3, not 0.
+        SkeletonDescription description;
         JointDescription hand;     hand.name = "hand";     hand.parent = 1;
         hand.bind_translation = Vector3f{0.0f, 0.4f, 0.0f};
         JointDescription forearm;  forearm.name = "forearm";  forearm.parent = 2;
@@ -123,10 +123,10 @@ namespace
         upperarm.bind_translation = Vector3f{0.0f, 0.5f, 0.0f};
         JointDescription root;     root.name = "root";     root.parent = -1;
         root.bind_translation = Vector3f{0.0f, 1.0f, 0.0f};
-        desc.joints = {hand, forearm, upperarm, root};
+        description.joints = {hand, forearm, upperarm, root};
 
         std::vector<std::byte> blob;
-        check(build_skeleton_blob(desc, blob), "cook succeeds");
+        check(build_skeleton_blob(description, blob), "cook succeeds");
 
         AnimationDatabase database;
         const AssetId id = database.add_skeleton(std::move(blob));

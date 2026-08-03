@@ -54,7 +54,7 @@ namespace SushiEngine
 
         namespace
         {
-            /** @brief Builds the `UI::RectTransform` equivalent of an authored UI element's params. */
+            /** @brief Builds the `UI::RectTransform` an authored UI element's parameters mean. */
             SushiEngine::UI::RectTransform ui_rect_transform(
                 const SushiEngine::Simulation::UIElementParameters& p) noexcept
             {
@@ -110,7 +110,7 @@ namespace SushiEngine
                         ? resolve_ui_rect(ui, count, rects, done, root, ui[i].parent)
                         : root;
 
-                const SushiEngine::Simulation::UIElementParameters& p = ui[i].params;
+                const SushiEngine::Simulation::UIElementParameters& p = ui[i].parameters;
                 const ImVec4 rect =
                     p.kind == SushiEngine::Simulation::UIElementKind::Canvas
                         ? parent
@@ -168,7 +168,8 @@ namespace SushiEngine
                 out.clear();
                 for (std::size_t i = 0; i < ui.count; ++i)
                 {
-                    const SushiEngine::Simulation::UIElementParameters& p = ui.elements[i].params;
+                    const SushiEngine::Simulation::UIElementParameters& p =
+                        ui.elements[i].parameters;
                     const ImVec4 r = rects[i];
                     SushiEngine::UI::Rect rect;
                     rect.min.x = r.x;
@@ -247,7 +248,8 @@ namespace SushiEngine
                 using Kind = SushiEngine::Simulation::UIElementKind;
                 for (std::size_t i = 0; i < ui.count; ++i)
                 {
-                    const SushiEngine::Simulation::UIElementParameters& p = ui.elements[i].params;
+                    const SushiEngine::Simulation::UIElementParameters& p =
+                        ui.elements[i].parameters;
                     const ImVec4 r = rects[i];
                     const ImVec2 mn(r.x, r.y);
                     const ImVec2 mx(r.x + r.z, r.y + r.w);
@@ -731,7 +733,7 @@ namespace SushiEngine
             // the rendered image with ImGui's draw list — a 2D layer over the 3D view,
             // laid out against the panel rect so it tracks the viewport size. In edit mode
             // it is translucent and interactive: click to pick, drag to move, drag a
-            // corner handle to resize (writing back into the element's params).
+            // corner handle to resize (writing back into the element's parameters).
             bool ui_consumed = false;
             std::vector<ImVec4> ui_rects;
             if (inputs.ui_overlay != nullptr && inputs.ui_overlay->count > 0)
@@ -776,7 +778,8 @@ namespace SushiEngine
                             if (y1 - y0 < 4.0f) y1 = y0 + 4.0f;
                             rect = ImVec4(x0, y0, x1 - x0, y1 - y0);
                         }
-                        ui_apply_screen_rect(inputs.ui_overlay->elements[ui_drag_index_].params, parent_rect, rect);
+                        ui_apply_screen_rect(inputs.ui_overlay->elements[ui_drag_index_].parameters,
+                                             parent_rect, rect);
                         inputs.ui_overlay->edited_index = ui_drag_index_;
                     }
                     else
@@ -796,7 +799,7 @@ namespace SushiEngine
                         for (std::size_t i = 0; i < inputs.ui_overlay->count; ++i)
                         {
                             if (inputs.ui_overlay->elements[i].id != inputs.ui_overlay->selected_id ||
-                                inputs.ui_overlay->elements[i].params.kind == Kind::Canvas)
+                                inputs.ui_overlay->elements[i].parameters.kind == Kind::Canvas)
                                 continue;
                             ImVec2 corners[4];
                             ui_corners(ui_rects[i], corners);
@@ -816,7 +819,7 @@ namespace SushiEngine
                         if (hit < 0)
                             for (int i = static_cast<int>(inputs.ui_overlay->count) - 1; i >= 0; --i)
                             {
-                                if (inputs.ui_overlay->elements[i].params.kind == Kind::Canvas)
+                                if (inputs.ui_overlay->elements[i].parameters.kind == Kind::Canvas)
                                     continue;
                                 const ImVec4& r = ui_rects[i];
                                 if (mouse.x >= r.x && mouse.x <= r.x + r.z && mouse.y >= r.y &&
@@ -876,13 +879,15 @@ namespace SushiEngine
                         if (inst.id != selected_id)
                             continue;
                         using Kind = SushiEngine::Render::MeshKind;
-                        SushiEngine::Vector3 he = inst.shape_params;
+                        SushiEngine::Vector3 he = inst.shape_parameters;
                         if (inst.kind == Kind::Sphere)
-                            he = SushiEngine::Vector3{inst.shape_params.x, inst.shape_params.x,
-                                                      inst.shape_params.x};
+                            he = SushiEngine::Vector3{inst.shape_parameters.x,
+                                                      inst.shape_parameters.x,
+                                                      inst.shape_parameters.x};
                         else if (inst.kind == Kind::Cylinder)
-                            he = SushiEngine::Vector3{inst.shape_params.x, inst.shape_params.y,
-                                                      inst.shape_params.x};
+                            he = SushiEngine::Vector3{inst.shape_parameters.x,
+                                                      inst.shape_parameters.y,
+                                                      inst.shape_parameters.x};
                         const SushiEngine::Scalar* mm = inst.model.m;
                         ImVec2 corner[8];
                         bool ok = true;

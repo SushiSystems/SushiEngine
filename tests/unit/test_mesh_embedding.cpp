@@ -119,7 +119,7 @@ namespace
             for (std::size_t i = 0; i < 4; ++i)
             {
                 out[i].position = vertices[i] + origin;
-                out[i].prev_position = out[i].position;
+                out[i].previous_position = out[i].position;
                 out[i].inv_mass = Scalar(1);
             }
             return out;
@@ -367,7 +367,7 @@ TEST(Unit_MeshEmbedding, TheSplitItselfMovesNothing)
     for (std::size_t i = 0; i < model.particles.size(); ++i)
     {
         model.particles[i].position = Vector3{Scalar(i), Scalar(i * 2), Scalar(i * 3)};
-        model.particles[i].prev_position = model.particles[i].position;
+        model.particles[i].previous_position = model.particles[i].position;
         model.particles[i].inv_mass = Scalar(1);
     }
     model.elements.push_back(tetrahedron(0, 1, 2, 3, 50.0));

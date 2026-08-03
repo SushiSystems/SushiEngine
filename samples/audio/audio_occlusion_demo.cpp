@@ -215,7 +215,7 @@ int main()
         std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
         I3DL2Reverb room = I3DL2Reverb::room_small();
         room.wet_dry_mix = 100.0f;
-        fx->set_params(room);
+        fx->set_parameters(room);
         engine.mixer().add_insert(
             reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     }

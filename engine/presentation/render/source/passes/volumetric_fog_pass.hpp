@@ -115,7 +115,7 @@ namespace SushiEngine
                     struct Push
                     {
                         float color_density[4]; /**< xyz scattering tint, w extinction. */
-                        float params[4];        /**< x falloff, y ambient, z phase g, w enabled. */
+                        float parameters[4];    /**< x falloff, y ambient, z phase g, w enabled. */
                     };
 
                     /** @brief UBO mirroring fog_scatter.comp's FogVolumes block. */

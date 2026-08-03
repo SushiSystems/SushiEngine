@@ -197,20 +197,20 @@ TEST(Unit_Audio, StateVariableFilterSplitsBands)
 TEST(Unit_Audio, SIMDGainAndMixMatchScalarIncludingRemainder)
 {
     const int n = 13; // deliberately not a multiple of 4 to hit the scalar tail
-    std::vector<float> buf(n), ref(n);
+    std::vector<float> buffer(n), ref(n);
     for (int i = 0; i < n; ++i)
-        buf[i] = ref[i] = static_cast<float>(i) - 6.0f;
+        buffer[i] = ref[i] = static_cast<float>(i) - 6.0f;
 
-    SIMD::apply_gain(buf.data(), n, 0.5f);
+    SIMD::apply_gain(buffer.data(), n, 0.5f);
     for (int i = 0; i < n; ++i)
-        EXPECT_FLOAT_EQ(buf[i], ref[i] * 0.5f);
+        EXPECT_FLOAT_EQ(buffer[i], ref[i] * 0.5f);
 
-    std::vector<float> dst(n, 1.0f), src(n);
+    std::vector<float> destination(n, 1.0f), source(n);
     for (int i = 0; i < n; ++i)
-        src[i] = static_cast<float>(i);
-    SIMD::mix_accumulate(dst.data(), src.data(), n, 2.0f);
+        source[i] = static_cast<float>(i);
+    SIMD::mix_accumulate(destination.data(), source.data(), n, 2.0f);
     for (int i = 0; i < n; ++i)
-        EXPECT_FLOAT_EQ(dst[i], 1.0f + static_cast<float>(i) * 2.0f);
+        EXPECT_FLOAT_EQ(destination[i], 1.0f + static_cast<float>(i) * 2.0f);
 
     std::vector<float> ramp(4, 1.0f);
     SIMD::apply_gain_ramp(ramp.data(), 4, 0.0f, 1.0f);

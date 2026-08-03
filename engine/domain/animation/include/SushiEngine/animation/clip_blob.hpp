@@ -28,7 +28,7 @@
  * @brief Cook and load of the relocatable `.sushianim` uncompressed clip blob.
  *
  * The A1 clip format: three dense, frame-major track arrays (translation, rotation,
- * scale) at a single uniform sample rate. The cook validates the desc and lays the
+ * scale) at a single uniform sample rate. The cook validates the description and lays the
  * sections out at aligned offsets; the load validates the header and returns a
  * @ref ClipView aliasing the bytes. Host / asset-domain code — it never runs on the
  * device.
@@ -97,40 +97,41 @@ namespace SushiEngine
 
         /**
          * @brief Cooks a clip description into a relocatable `.sushianim` blob.
-         * @param desc The authored clip; the three track vectors must each hold exactly
+         * @param description The authored clip; the three track vectors must each hold exactly
          *             `frame_count * joint_count` elements.
          * @param out  Receives the blob bytes; cleared first, empty on failure.
          * @return True on success; false if the counts are out of range or the track
          *         vectors are the wrong length.
          */
-        inline bool build_clip_blob(const ClipDescription& desc, std::vector<std::byte>& out)
+        inline bool build_clip_blob(const ClipDescription& description, std::vector<std::byte>& out)
         {
             out.clear();
-            if (desc.joint_count == 0 || desc.joint_count > MAX_JOINTS)
+            if (description.joint_count == 0 || description.joint_count > MAX_JOINTS)
                 return false;
-            if (desc.frame_count == 0 || desc.frame_count > MAX_CLIP_FRAMES)
+            if (description.frame_count == 0 || description.frame_count > MAX_CLIP_FRAMES)
                 return false;
-            if (desc.sample_rate <= 0.0f)
+            if (description.sample_rate <= 0.0f)
                 return false;
             const std::size_t element_count =
-                static_cast<std::size_t>(desc.frame_count) * desc.joint_count;
-            if (desc.translations.size() != element_count || desc.rotations.size() != element_count ||
-                desc.scales.size() != element_count)
+                static_cast<std::size_t>(description.frame_count) * description.joint_count;
+            if (description.translations.size() != element_count ||
+                description.rotations.size() != element_count ||
+                description.scales.size() != element_count)
                 return false;
 
-            const std::size_t morph_count = desc.morph_names.size();
-            const std::size_t generic_count = desc.generic_names.size();
-            if (desc.morph_weights.size() != morph_count * desc.frame_count ||
-                desc.generic_values.size() != generic_count * desc.frame_count)
+            const std::size_t morph_count = description.morph_names.size();
+            const std::size_t generic_count = description.generic_names.size();
+            if (description.morph_weights.size() != morph_count * description.frame_count ||
+                description.generic_values.size() != generic_count * description.frame_count)
                 return false;
 
             // Hash the track names to the identity the runtime addresses them by.
             std::vector<NameHash> morph_hashes(morph_count);
             for (std::size_t i = 0; i < morph_count; ++i)
-                morph_hashes[i] = hash_name(desc.morph_names[i].c_str());
+                morph_hashes[i] = hash_name(description.morph_names[i].c_str());
             std::vector<NameHash> generic_hashes(generic_count);
             for (std::size_t i = 0; i < generic_count; ++i)
-                generic_hashes[i] = hash_name(desc.generic_names[i].c_str());
+                generic_hashes[i] = hash_name(description.generic_names[i].c_str());
 
             std::size_t cursor = detail::align_up(sizeof(ClipBlobHeader), 16);
             const auto section = [&cursor](std::size_t bytes) -> std::size_t
@@ -144,10 +145,10 @@ namespace SushiEngine
             const std::size_t scales_offset = section(element_count * sizeof(Vector3f));
             const std::size_t morph_names_offset = section(morph_count * sizeof(NameHash));
             const std::size_t morph_weights_offset =
-                section(desc.morph_weights.size() * sizeof(float));
+                section(description.morph_weights.size() * sizeof(float));
             const std::size_t generic_names_offset = section(generic_count * sizeof(NameHash));
             const std::size_t generic_values_offset =
-                section(desc.generic_values.size() * sizeof(float));
+                section(description.generic_values.size() * sizeof(float));
             const std::size_t total_size = cursor;
 
             out.assign(total_size, std::byte{0});
@@ -156,9 +157,9 @@ namespace SushiEngine
             ClipBlobHeader header{};
             std::memcpy(header.magic, CLIP_BLOB_MAGIC, sizeof(header.magic));
             header.version = CLIP_BLOB_VERSION;
-            header.joint_count = desc.joint_count;
-            header.frame_count = desc.frame_count;
-            header.sample_rate = desc.sample_rate;
+            header.joint_count = description.joint_count;
+            header.frame_count = description.frame_count;
+            header.sample_rate = description.sample_rate;
             header.morph_track_count = static_cast<std::uint32_t>(morph_count);
             header.generic_track_count = static_cast<std::uint32_t>(generic_count);
             header.total_size = static_cast<std::uint32_t>(total_size);
@@ -176,15 +177,17 @@ namespace SushiEngine
                 if (bytes > 0)
                     std::memcpy(base + offset, data, bytes);
             };
-            copy(translations_offset, desc.translations.data(), element_count * sizeof(Vector3f));
-            copy(rotations_offset, desc.rotations.data(), element_count * sizeof(Quaternionf));
-            copy(scales_offset, desc.scales.data(), element_count * sizeof(Vector3f));
+            copy(translations_offset, description.translations.data(),
+                 element_count * sizeof(Vector3f));
+            copy(rotations_offset, description.rotations.data(),
+                 element_count * sizeof(Quaternionf));
+            copy(scales_offset, description.scales.data(), element_count * sizeof(Vector3f));
             copy(morph_names_offset, morph_hashes.data(), morph_count * sizeof(NameHash));
-            copy(morph_weights_offset, desc.morph_weights.data(),
-                 desc.morph_weights.size() * sizeof(float));
+            copy(morph_weights_offset, description.morph_weights.data(),
+                 description.morph_weights.size() * sizeof(float));
             copy(generic_names_offset, generic_hashes.data(), generic_count * sizeof(NameHash));
-            copy(generic_values_offset, desc.generic_values.data(),
-                 desc.generic_values.size() * sizeof(float));
+            copy(generic_values_offset, description.generic_values.data(),
+                 description.generic_values.size() * sizeof(float));
             return true;
         }
 

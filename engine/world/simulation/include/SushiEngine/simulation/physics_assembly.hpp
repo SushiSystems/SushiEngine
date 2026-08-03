@@ -179,7 +179,7 @@ namespace SushiEngine
             std::uint32_t part_b = 0;
 
             /** @brief What is held between them. */
-            JointParameters params;
+            JointParameters parameters;
         };
 
         /**
@@ -546,28 +546,29 @@ namespace SushiEngine
             {
                 const AssemblyPart& part = view.parts[i];
 
-                RigidBodyDescription desc;
-                desc.id = part_entities[i];
-                desc.position = root_position + rotate(root_orientation, part.local_position);
-                desc.orientation = mul(root_orientation, part.local_orientation);
-                desc.inv_mass = part.inv_mass;
-                desc.inv_inertia = part.inv_inertia;
-                desc.drag_coefficient = part.drag_coefficient;
-                desc.collider = part.collider;
+                RigidBodyDescription description;
+                description.id = part_entities[i];
+                description.position =
+                    root_position + rotate(root_orientation, part.local_position);
+                description.orientation = mul(root_orientation, part.local_orientation);
+                description.inv_mass = part.inv_mass;
+                description.inv_inertia = part.inv_inertia;
+                description.drag_coefficient = part.drag_coefficient;
+                description.collider = part.collider;
 
                 // The matrix wins over whatever the authored collider carried; see this
                 // file's header for why there is only one place this is decided.
-                desc.collider.filter.layer = std::uint32_t(1) << (part.group & 31u);
-                desc.collider.filter.collides_with = assembly_group_mask(view, part.group);
+                description.collider.filter.layer = std::uint32_t(1) << (part.group & 31u);
+                description.collider.filter.collides_with = assembly_group_mask(view, part.group);
 
                 const Physics::MassProperties<Scalar> mass =
-                    collider_mass_properties(desc.collider, part.density);
+                    collider_mass_properties(description.collider, part.density);
                 if (mass.mass > Scalar(0))
                 {
-                    desc.inv_mass = Physics::inverse_mass(mass.mass);
-                    desc.inv_inertia = Physics::to_inverse(mass.inertia);
+                    description.inv_mass = Physics::inverse_mass(mass.mass);
+                    description.inv_inertia = Physics::to_inverse(mass.inertia);
                 }
-                out.bodies.push_back(desc);
+                out.bodies.push_back(description);
             }
 
             out.joints.reserve(view.joint_count);
@@ -577,11 +578,11 @@ namespace SushiEngine
                 // Bounds already hold: `validate_assembly_blob` refuses a blob whose
                 // joints name parts that do not exist, and `to_view` comes from an
                 // owning assembly `build_assembly_blob` refuses to write otherwise.
-                JointDescription desc;
-                desc.body_a = part_entities[joint.part_a];
-                desc.body_b = part_entities[joint.part_b];
-                desc.params = joint.params;
-                out.joints.push_back(desc);
+                JointDescription description;
+                description.body_a = part_entities[joint.part_a];
+                description.body_b = part_entities[joint.part_b];
+                description.parameters = joint.parameters;
+                out.joints.push_back(description);
             }
             return out;
         }

@@ -115,9 +115,10 @@ namespace SushiEngine
                     // made camera-relative in double before the float cast, exactly as the
                     // classic push path did — so the cull and vertex shaders see one geometry.
                     const Matrix4 model =
-                        imported ? instance.model
-                                 : mul(instance.model, Geometry::shape_scale(
-                                                           instance.kind, instance.shape_params));
+                        imported
+                            ? instance.model
+                            : mul(instance.model,
+                                  Geometry::shape_scale(instance.kind, instance.shape_parameters));
 
                     GPUInstance packed{};
                     for (int m = 0; m < 16; ++m)

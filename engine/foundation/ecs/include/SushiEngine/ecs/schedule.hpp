@@ -46,7 +46,7 @@ namespace SushiEngine
     {
         /** @brief The pointer type a kernel receives for one access: const for reads. */
         template <typename Access>
-        using column_ptr_t = std::conditional_t<Access::is_write,
+        using column_pointer_t = std::conditional_t<Access::is_write,
                                                 typename Access::type*,
                                                 const typename Access::type*>;
 
@@ -95,7 +95,7 @@ namespace SushiEngine
                            const std::array<void*, sizeof...(Access)>& cols,
                            std::index_sequence<Is...>)
         {
-            fn(i, reinterpret_cast<column_ptr_t<Access>>(cols[Is])...);
+            fn(i, reinterpret_cast<column_pointer_t<Access>>(cols[Is])...);
         }
     } // namespace Detail
 

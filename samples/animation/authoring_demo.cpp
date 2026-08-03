@@ -53,10 +53,10 @@ namespace
     // A rich controller for the round-trip: two layers, a blend tree, transitions, an event.
     ControllerDescription build_rich_controller()
     {
-        ControllerDescription desc;
-        desc.parameters = {ParameterDescription{"speed", ParameterType::Float, 0.0f},
-                           ParameterDescription{"moving", ParameterType::Bool, 0.0f},
-                           ParameterDescription{"aim", ParameterType::Float, 1.0f}};
+        ControllerDescription description;
+        description.parameters = {ParameterDescription{"speed", ParameterType::Float, 0.0f},
+                                  ParameterDescription{"moving", ParameterType::Bool, 0.0f},
+                                  ParameterDescription{"aim", ParameterType::Float, 1.0f}};
 
         LayerDescription base;
         base.name = "base";
@@ -98,8 +98,8 @@ namespace
         aim.clip = 4;
         upper.states = {aim};
 
-        desc.layers = {base, upper};
-        return desc;
+        description.layers = {base, upper};
+        return description;
     }
 
     // A marker clip: single frame parking the root at z, so a blend reads back as the weight-blend.
@@ -122,11 +122,11 @@ int main()
 {
     // --- JSON round-trip: serialize -> parse -> recompile -> byte-identical blob -----
     {
-        const ControllerDescription desc = build_rich_controller();
+        const ControllerDescription description = build_rich_controller();
         std::vector<std::byte> blob_original;
-        check(compile_controller_blob(desc, blob_original), "rich controller compiles");
+        check(compile_controller_blob(description, blob_original), "rich controller compiles");
 
-        const nlohmann::json json = controller_to_json(desc);
+        const nlohmann::json json = controller_to_json(description);
         const std::string text = json.dump();
         const ControllerDescription parsed = controller_from_json(nlohmann::json::parse(text));
 
@@ -136,7 +136,7 @@ int main()
                   std::memcmp(blob_original.data(), blob_roundtrip.data(), blob_original.size()) == 0,
               "controller JSON round-trip reproduces a byte-identical blob");
 
-        // A tiny structural spot-check on the parsed desc (not just the blob).
+        // A tiny structural spot-check on the parsed description (not just the blob).
         check(parsed.layers.size() == 2 && parsed.layers[1].blend_mode == LayerBlendMode::Additive,
               "parsed desc keeps the additive upper layer");
         check(parsed.layers[0].states[1].blend_tree &&
@@ -147,20 +147,20 @@ int main()
     // --- Edit-mode scrub: pin a blend-tree state at a time and pose it off the loop ---
     {
         AnimationDatabase database;
-        SkeletonDescription skeleton_desc;
+        SkeletonDescription skeleton_description;
         JointDescription root; root.name = "root"; root.parent = -1;
         JointDescription child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
-        skeleton_desc.joints = {root, child};
+        skeleton_description.joints = {root, child};
         std::vector<std::byte> skeleton_blob;
-        build_skeleton_blob(skeleton_desc, skeleton_blob);
+        build_skeleton_blob(skeleton_description, skeleton_blob);
         const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
 
         const AssetId idle = make_marker_clip(database, 0.0f);
         const AssetId walk = make_marker_clip(database, 1.0f);
         const AssetId run = make_marker_clip(database, 2.0f);
 
-        ControllerDescription desc;
-        desc.parameters = {ParameterDescription{"speed", ParameterType::Float, 0.0f}};
+        ControllerDescription description;
+        description.parameters = {ParameterDescription{"speed", ParameterType::Float, 0.0f}};
         LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Move";
@@ -174,9 +174,9 @@ int main()
         tree->children.push_back(BlendChildDescription{run, nullptr, 2.0f, 0, 0, "", 1});
         move.blend_tree = tree;
         layer.states = {move};
-        desc.layers.push_back(layer);
+        description.layers.push_back(layer);
         std::vector<std::byte> controller_blob;
-        compile_controller_blob(desc, controller_blob);
+        compile_controller_blob(description, controller_blob);
         const AssetId controller_id = database.add_controller(std::move(controller_blob));
         const ControllerView controller = database.controller(controller_id);
 

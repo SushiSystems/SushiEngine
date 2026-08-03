@@ -92,9 +92,9 @@ namespace SushiEngine
                 return graph_.texture_resources_[handle.index].sample_view;
             }
 
-            const TextureDescription& PassContext::texture_desc(TextureHandle handle) const
+            const TextureDescription& PassContext::texture_description(TextureHandle handle) const
             {
-                return graph_.texture_resources_[handle.index].desc;
+                return graph_.texture_resources_[handle.index].description;
             }
 
             VkBuffer PassContext::buffer(BufferHandle handle) const
@@ -225,20 +225,20 @@ namespace SushiEngine
                 capture_ = capture;
             }
 
-            TextureHandle RenderGraph::create_texture(const TextureDescription& desc)
+            TextureHandle RenderGraph::create_texture(const TextureDescription& description)
             {
                 TextureResource resource;
-                resource.desc = desc;
+                resource.description = description;
                 texture_resources_.push_back(std::move(resource));
                 TextureHandle handle;
                 handle.index = static_cast<std::uint32_t>(texture_resources_.size() - 1);
                 return handle;
             }
 
-            BufferHandle RenderGraph::create_buffer(const BufferDescription& desc)
+            BufferHandle RenderGraph::create_buffer(const BufferDescription& description)
             {
                 BufferResource resource;
-                resource.desc = desc;
+                resource.description = description;
                 buffer_resources_.push_back(std::move(resource));
                 BufferHandle handle;
                 handle.index = static_cast<std::uint32_t>(buffer_resources_.size() - 1);
@@ -248,7 +248,7 @@ namespace SushiEngine
             TextureHandle RenderGraph::import_texture(const ImportedTexture& imported)
             {
                 TextureResource resource;
-                resource.desc = imported.desc;
+                resource.description = imported.description;
                 resource.imported = true;
                 resource.image = imported.image;
                 resource.view = imported.view;
@@ -268,7 +268,7 @@ namespace SushiEngine
             BufferHandle RenderGraph::import_buffer(const ImportedBuffer& imported)
             {
                 BufferResource resource;
-                resource.desc = imported.desc;
+                resource.description = imported.description;
                 resource.imported = true;
                 resource.buffer = imported.buffer;
                 resource.mapped = imported.mapped;
@@ -303,13 +303,13 @@ namespace SushiEngine
                 TextureResource& resource = texture_resources_[handle.index];
                 if (!resource.imported)
                 {
-                    resource.desc.usage |= texture_access_usage(access);
+                    resource.description.usage |= texture_access_usage(access);
                     // Capture copies out of every transient a pass writes, so under capture
                     // every transient has to be a legal copy source. This is also why the
                     // instrument is not free: usage is part of the pool's reuse key, so a
                     // captured frame aliases differently from an uncaptured one.
                     if (capture_ != nullptr)
-                        resource.desc.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                        resource.description.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
                 }
 
                 PassNode& node = passes_[pass];
@@ -339,7 +339,7 @@ namespace SushiEngine
                     return;
                 BufferResource& resource = buffer_resources_[handle.index];
                 if (!resource.imported)
-                    resource.desc.usage |= buffer_access_usage(access);
+                    resource.description.usage |= buffer_access_usage(access);
 
                 PassNode& node = passes_[pass];
                 std::vector<BufferUse>& list = is_write ? node.buffer_writes : node.buffer_reads;
@@ -535,9 +535,9 @@ namespace SushiEngine
                     {
                         TextureResource& resource = texture_resources_[use.handle.index];
                         if (resource.touched_by_compute && !compute)
-                            resource.desc.cross_queue = true;
+                            resource.description.cross_queue = true;
                         if (resource.touched_by_graphics && compute)
-                            resource.desc.cross_queue = true;
+                            resource.description.cross_queue = true;
                         resource.touched_by_compute |= compute;
                         resource.touched_by_graphics |= !compute;
                     };
@@ -545,9 +545,9 @@ namespace SushiEngine
                     {
                         BufferResource& resource = buffer_resources_[use.handle.index];
                         if (resource.touched_by_compute && !compute)
-                            resource.desc.cross_queue = true;
+                            resource.description.cross_queue = true;
                         if (resource.touched_by_graphics && compute)
-                            resource.desc.cross_queue = true;
+                            resource.description.cross_queue = true;
                         resource.touched_by_compute |= compute;
                         resource.touched_by_graphics |= !compute;
                     };
@@ -603,7 +603,7 @@ namespace SushiEngine
                     {
                         if (resource.imported || resource.first_pass != position)
                             continue;
-                        resource.entry = textures_->acquire(resource.desc);
+                        resource.entry = textures_->acquire(resource.description);
                         const Resources::TexturePool::Entry& entry = textures_->entry(resource.entry);
                         resource.image = entry.image;
                         resource.view = entry.view;
@@ -613,7 +613,7 @@ namespace SushiEngine
                     {
                         if (resource.imported || resource.first_pass != position)
                             continue;
-                        resource.entry = buffers_->acquire(resource.desc);
+                        resource.entry = buffers_->acquire(resource.description);
                         const Resources::BufferPool::Entry& entry = buffers_->entry(resource.entry);
                         resource.buffer = entry.buffer;
                         resource.mapped = entry.mapped;
@@ -656,7 +656,7 @@ namespace SushiEngine
                 return buffers_->entry(resource.entry).state;
             }
 
-            void RenderGraph::emit_barriers(VkCommandBuffer cmd, const PassNode& node)
+            void RenderGraph::emit_barriers(VkCommandBuffer command, const PassNode& node)
             {
                 std::vector<VkImageMemoryBarrier2> image_barriers;
                 std::vector<VkBufferMemoryBarrier2> buffer_barriers;
@@ -712,9 +712,9 @@ namespace SushiEngine
                     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.image = resource.image;
-                    barrier.subresourceRange.aspectMask = resource.desc.aspect;
-                    barrier.subresourceRange.levelCount = resource.desc.mip_levels;
-                    barrier.subresourceRange.layerCount = resource.desc.array_layers;
+                    barrier.subresourceRange.aspectMask = resource.description.aspect;
+                    barrier.subresourceRange.levelCount = resource.description.mip_levels;
+                    barrier.subresourceRange.layerCount = resource.description.array_layers;
                     image_barriers.push_back(barrier);
                     current = wanted;
                     current.queue = node.queue;
@@ -785,7 +785,7 @@ namespace SushiEngine
                 dependency.bufferMemoryBarrierCount =
                     static_cast<std::uint32_t>(buffer_barriers.size());
                 dependency.pBufferMemoryBarriers = buffer_barriers.data();
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
             }
 
             VkExtent2D RenderGraph::resolve_render_area(const PassNode& node) const
@@ -796,20 +796,20 @@ namespace SushiEngine
                 {
                     if (!node.color[i].bound)
                         continue;
-                    const TextureDescription& desc =
-                        texture_resources_[node.color[i].handle.index].desc;
-                    return VkExtent2D{desc.width, desc.height};
+                    const TextureDescription& description =
+                        texture_resources_[node.color[i].handle.index].description;
+                    return VkExtent2D{description.width, description.height};
                 }
                 if (node.depth.bound)
                 {
-                    const TextureDescription& desc =
-                        texture_resources_[node.depth.handle.index].desc;
-                    return VkExtent2D{desc.width, desc.height};
+                    const TextureDescription& description =
+                        texture_resources_[node.depth.handle.index].description;
+                    return VkExtent2D{description.width, description.height};
                 }
                 return VkExtent2D{0, 0};
             }
 
-            void RenderGraph::begin_rendering(VkCommandBuffer cmd, const PassNode& node,
+            void RenderGraph::begin_rendering(VkCommandBuffer command, const PassNode& node,
                                               VkExtent2D area)
             {
                 VkRenderingAttachmentInfo color[MAX_COLOR_ATTACHMENTS]{};
@@ -853,7 +853,7 @@ namespace SushiEngine
 
                 const bool has_stencil =
                     node.depth.bound &&
-                    (texture_resources_[node.depth.handle.index].desc.aspect &
+                    (texture_resources_[node.depth.handle.index].description.aspect &
                      VK_IMAGE_ASPECT_STENCIL_BIT) != 0;
 
                 VkRenderingFragmentShadingRateAttachmentInfoKHR shading_rate{};
@@ -878,7 +878,7 @@ namespace SushiEngine
                 rendering.pColorAttachments = node.color_count > 0 ? color : nullptr;
                 rendering.pDepthAttachment = node.depth.bound ? &depth : nullptr;
                 rendering.pStencilAttachment = has_stencil ? &depth : nullptr;
-                vkCmdBeginRendering(cmd, &rendering);
+                vkCmdBeginRendering(command, &rendering);
 
                 // Viewport and scissor follow the render area, so a pass that draws at a
                 // reduced resolution only declares its target's size.
@@ -888,11 +888,11 @@ namespace SushiEngine
                 viewport.maxDepth = 1.0f;
                 VkRect2D scissor{};
                 scissor.extent = area;
-                vkCmdSetViewport(cmd, 0, 1, &viewport);
-                vkCmdSetScissor(cmd, 0, 1, &scissor);
+                vkCmdSetViewport(command, 0, 1, &viewport);
+                vkCmdSetScissor(command, 0, 1, &scissor);
             }
 
-            void RenderGraph::capture_pass(VkCommandBuffer cmd, const PassNode& node)
+            void RenderGraph::capture_pass(VkCommandBuffer command, const PassNode& node)
             {
                 if (capture_ == nullptr)
                     return;
@@ -911,7 +911,7 @@ namespace SushiEngine
                     seen.push_back(index);
 
                     TextureResource& resource = texture_resources_[index];
-                    if (resource.image == VK_NULL_HANDLE || !capture_->wants(resource.desc))
+                    if (resource.image == VK_NULL_HANDLE || !capture_->wants(resource.description))
                         continue;
 
                     TextureState& current = texture_state(resource);
@@ -929,7 +929,7 @@ namespace SushiEngine
                     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.image = resource.image;
-                    barrier.subresourceRange.aspectMask = resource.desc.aspect;
+                    barrier.subresourceRange.aspectMask = resource.description.aspect;
                     barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
                     barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
@@ -937,9 +937,10 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
 
-                    capture_->record(cmd, node.name.c_str(), resource.desc, resource.image);
+                    capture_->record(command, node.name.c_str(), resource.description,
+                                     resource.image);
 
                     // Recorded, never undone. The graph is the thing that tracks this
                     // image's layout, so telling it where the copy left the image is all
@@ -952,7 +953,7 @@ namespace SushiEngine
                 }
             }
 
-            void RenderGraph::execute(VkCommandBuffer cmd, std::uint32_t index)
+            void RenderGraph::execute(VkCommandBuffer command, std::uint32_t index)
             {
                 if (index >= submissions_.size())
                     return;
@@ -961,31 +962,31 @@ namespace SushiEngine
                 {
                     PassNode& node = passes_[order_[submission.first + offset]];
                     const std::uint32_t timer =
-                        profiler_ != nullptr ? profiler_->begin_pass(cmd, node.name.c_str())
+                        profiler_ != nullptr ? profiler_->begin_pass(command, node.name.c_str())
                                              : GPUProfiler::INVALID_TIMER;
 
-                    emit_barriers(cmd, node);
+                    emit_barriers(command, node);
 
                     const bool renders = node.color_count > 0 || node.depth.bound;
                     const VkExtent2D area = resolve_render_area(node);
                     if (renders)
-                        begin_rendering(cmd, node, area);
+                        begin_rendering(command, node, area);
 
                     if (node.execute)
                     {
                         const PassContext context(*this, area);
-                        node.execute(cmd, context);
+                        node.execute(command, context);
                     }
 
                     if (renders)
-                        vkCmdEndRendering(cmd);
+                        vkCmdEndRendering(command);
 
                     if (profiler_ != nullptr)
-                        profiler_->end_pass(cmd, timer);
+                        profiler_->end_pass(command, timer);
 
                     // After the pass's timer closes, so the copies a debug run adds are
                     // never mistaken for the pass having become slower.
-                    capture_pass(cmd, node);
+                    capture_pass(command, node);
                 }
             }
         } // namespace Graph

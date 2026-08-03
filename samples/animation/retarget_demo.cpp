@@ -76,7 +76,7 @@ namespace
             {"RightLowerArm", 7, {arm, 0, 0}, {0, 0, 0, 1}},
             {"RightHand", 8, {arm, 0, 0}, {0, 0, 0, 1}},
         };
-        SkeletonDescription desc;
+        SkeletonDescription description;
         for (const Bone& b : bones)
         {
             JointDescription joint;
@@ -84,10 +84,10 @@ namespace
             joint.parent = b.parent;
             joint.bind_translation = b.translation;
             joint.bind_rotation = b.rotation;
-            desc.joints.push_back(joint);
+            description.joints.push_back(joint);
         }
         std::vector<std::byte> blob;
-        build_skeleton_blob(desc, blob);
+        build_skeleton_blob(description, blob);
         return database.add_skeleton(std::move(blob));
     }
 }

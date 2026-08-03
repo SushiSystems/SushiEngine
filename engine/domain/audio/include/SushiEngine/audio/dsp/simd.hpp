@@ -57,7 +57,7 @@ namespace SushiEngine
             namespace SIMD
             {
                 /**
-                 * @brief Scales a buffer in place by a constant gain: `buf[i] *= gain`.
+                 * @brief Scales a buffer in place by a constant gain: `buffer[i] *= gain`.
                  * @param buffer      The samples to scale.
                  * @param frame_count Number of samples.
                  * @param gain        The multiplier.
@@ -107,17 +107,18 @@ namespace SushiEngine
                 }
 
                 /**
-                 * @brief Accumulates a scaled source into a destination: `dst[i] += src[i] * gain`.
+                 * @brief Accumulates a scaled source into a destination:
+                 * `destination[i] += source[i] * gain`.
                  *
                  * The mixer primitive — summing a voice or bus into its parent at a send
-                 * level. @p dst and @p src must not overlap.
+                 * level. @p destination and @p source must not overlap.
                  *
-                 * @param dst         The accumulator buffer.
-                 * @param src         The source buffer.
+                 * @param destination The accumulator buffer.
+                 * @param source      The source buffer.
                  * @param frame_count Number of samples.
                  * @param gain        The source multiplier before accumulation.
                  */
-                inline void mix_accumulate(float* dst, const float* src, int frame_count,
+                inline void mix_accumulate(float* destination, const float* source, int frame_count,
                                            float gain) noexcept
                 {
                     int i = 0;
@@ -125,23 +126,26 @@ namespace SushiEngine
                     const __m128 g = _mm_set1_ps(gain);
                     for (; i + 4 <= frame_count; i += 4)
                     {
-                        __m128 d = _mm_loadu_ps(dst + i);
-                        __m128 s = _mm_loadu_ps(src + i);
-                        _mm_storeu_ps(dst + i, _mm_add_ps(d, _mm_mul_ps(s, g)));
+                        __m128 d = _mm_loadu_ps(destination + i);
+                        __m128 s = _mm_loadu_ps(source + i);
+                        _mm_storeu_ps(destination + i, _mm_add_ps(d, _mm_mul_ps(s, g)));
                     }
 #endif
                     for (; i < frame_count; ++i)
-                        dst[i] += src[i] * gain;
+                        destination[i] += source[i] * gain;
                 }
 
                 /**
-                 * @brief Writes a scaled copy: `dst[i] = src[i] * gain`. @p dst and @p src may not overlap.
-                 * @param dst         The destination buffer.
-                 * @param src         The source buffer.
+                 * @brief Writes a scaled copy: `destination[i] = source[i] * gain`.
+                 *
+                 * @p destination and @p source may not overlap.
+                 *
+                 * @param destination The destination buffer.
+                 * @param source      The source buffer.
                  * @param frame_count Number of samples.
                  * @param gain        The multiplier.
                  */
-                inline void copy_scaled(float* dst, const float* src, int frame_count,
+                inline void copy_scaled(float* destination, const float* source, int frame_count,
                                         float gain) noexcept
                 {
                     int i = 0;
@@ -149,12 +153,12 @@ namespace SushiEngine
                     const __m128 g = _mm_set1_ps(gain);
                     for (; i + 4 <= frame_count; i += 4)
                     {
-                        __m128 s = _mm_loadu_ps(src + i);
-                        _mm_storeu_ps(dst + i, _mm_mul_ps(s, g));
+                        __m128 s = _mm_loadu_ps(source + i);
+                        _mm_storeu_ps(destination + i, _mm_mul_ps(s, g));
                     }
 #endif
                     for (; i < frame_count; ++i)
-                        dst[i] = src[i] * gain;
+                        destination[i] = source[i] * gain;
                 }
 
                 /** @brief Fills a buffer with a constant. */

@@ -169,8 +169,8 @@ namespace SushiEngine
 
                     refresh_bodies();
                     seen_.clear();
-                    for (const RigidBodyDescription& desc : bodies)
-                        seen_.insert(desc.id);
+                    for (const RigidBodyDescription& description : bodies)
+                        seen_.insert(description.id);
 
                     // Removals first, so a scene that swaps one body for another does
                     // not transiently need capacity for both.
@@ -187,40 +187,40 @@ namespace SushiEngine
                     // be read back or destroyed twice.
                     prune_joints();
 
-                    for (const RigidBodyDescription& desc : bodies)
+                    for (const RigidBodyDescription& description : bodies)
                     {
-                        const auto it = rigid_index_.find(desc.id);
+                        const auto it = rigid_index_.find(description.id);
                         if (it != rigid_index_.end())
                         {
-                            update_rigid_entry(rigid_[it->second], desc);
+                            update_rigid_entry(rigid_[it->second], description);
                             continue;
                         }
                         RigidEntry entry;
-                        entry.entity = desc.id;
+                        entry.entity = description.id;
                         Body body;
-                        body.position = to_vector(desc.position);
-                        body.prev_position = body.position;
-                        body.orientation = to_quaternion(desc.orientation);
-                        body.prev_orientation = body.orientation;
-                        body.inv_mass = T(desc.inv_mass);
-                        body.inv_inertia = to_vector(desc.inv_inertia);
-                        body.drag_coefficient = T(desc.drag_coefficient);
+                        body.position = to_vector(description.position);
+                        body.previous_position = body.position;
+                        body.orientation = to_quaternion(description.orientation);
+                        body.previous_orientation = body.orientation;
+                        body.inv_mass = T(description.inv_mass);
+                        body.inv_inertia = to_vector(description.inv_inertia);
+                        body.drag_coefficient = T(description.drag_coefficient);
                         entry.handle = solver_->add_body(body);
                         if (!entry.handle.valid())
                             continue;
-                        entry.collider = desc.collider;
-                        entry.filter = desc.collider.filter;
-                        entry.material = to_material(desc.material);
+                        entry.collider = description.collider;
+                        entry.filter = description.collider.filter;
+                        entry.material = to_material(description.material);
                         rigid_.push_back(entry);
-                        rigid_index_.emplace(desc.id, rigid_.size() - 1);
+                        rigid_index_.emplace(description.id, rigid_.size() - 1);
                     }
 
                     note_membership_changed();
                 }
 
-                void update_rigid_body_params(EntityId id, Scalar inv_mass,
-                                              const Vector3& inv_inertia,
-                                              Scalar drag_coefficient) override
+                void update_rigid_body_parameters(EntityId id, Scalar inv_mass,
+                                                  const Vector3& inv_inertia,
+                                                  Scalar drag_coefficient) override
                 {
                     if (!solver_)
                         return;
@@ -304,8 +304,8 @@ namespace SushiEngine
                     body.orientation = to_quaternion(orientation);
                     // Clear velocity and align the previous pose so the next velocity
                     // derivation sees no jump — the body is placed, not thrown.
-                    body.prev_position = body.position;
-                    body.prev_orientation = body.orientation;
+                    body.previous_position = body.position;
+                    body.previous_orientation = body.orientation;
                     body.velocity = Vector3T<T>{T(0), T(0), T(0)};
                     body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
                     solver_->write_body(rigid_[it->second].handle, body);
@@ -344,20 +344,20 @@ namespace SushiEngine
                     cloth_.clear();
                     cloth_index_.clear();
 
-                    for (const ClothDescription& desc : grids)
+                    for (const ClothDescription& description : grids)
                     {
-                        if (desc.rows == 0 || desc.cols == 0)
+                        if (description.rows == 0 || description.cols == 0)
                             continue;
                         ClothEntry entry;
-                        entry.entity = desc.id;
-                        entry.rows = desc.rows;
-                        entry.cols = desc.cols;
-                        entry.spacing = T(desc.spacing);
-                        entry.thickness = T(desc.thickness);
+                        entry.entity = description.id;
+                        entry.rows = description.rows;
+                        entry.cols = description.cols;
+                        entry.spacing = T(description.spacing);
+                        entry.thickness = T(description.thickness);
                         entry.grid = Physics::build_cloth_grid<T>(
-                            *solver_, desc.rows, desc.cols, T(desc.spacing),
-                            to_vector(desc.origin), T(desc.compliance));
-                        cloth_index_.emplace(desc.id, cloth_.size());
+                            *solver_, description.rows, description.cols, T(description.spacing),
+                            to_vector(description.origin), T(description.compliance));
+                        cloth_index_.emplace(description.id, cloth_.size());
                         cloth_.push_back(std::move(entry));
                     }
 
@@ -415,30 +415,31 @@ namespace SushiEngine
                     // leave the scene holding addresses of moved-from instances.
                     soft_.reserve(bodies.size());
 
-                    for (const SoftBodyDescription& desc : bodies)
+                    for (const SoftBodyDescription& description : bodies)
                     {
                         const Physics::Cooking::SoftBodyAssetView view =
-                            Physics::Cooking::load_soft_body_blob(desc.asset, desc.asset_size);
+                            Physics::Cooking::load_soft_body_blob(description.asset,
+                                                                  description.asset_size);
                         if (!view.valid)
                             continue;
 
                         SoftEntry entry;
-                        entry.entity = desc.id;
-                        entry.key = soft_key(desc);
+                        entry.entity = description.id;
+                        entry.key = soft_key(description);
                         Physics::SoftBodyPrecisionRequest request;
-                        request.cosmetic = desc.cosmetic;
-                        request.participates_in_rollback = desc.participates_in_rollback;
+                        request.cosmetic = description.cosmetic;
+                        request.participates_in_rollback = description.participates_in_rollback;
                         if (!entry.instance.create(
-                                view, desc.level, desc.material, desc.origin,
+                                view, description.level, description.material, description.origin,
                                 Physics::resolve_soft_body_precision(view, request)))
                             continue;
 
                         Physics::SoftBodyCollisionSettings<T> settings;
-                        settings.thickness = T(desc.thickness);
-                        settings.self_collision = desc.self_collision;
+                        settings.thickness = T(description.thickness);
+                        settings.self_collision = description.self_collision;
                         entry.instance.set_collision(settings);
 
-                        soft_index_.emplace(desc.id, soft_.size());
+                        soft_index_.emplace(description.id, soft_.size());
                         soft_.push_back(std::move(entry));
                     }
 
@@ -503,12 +504,12 @@ namespace SushiEngine
                 {
                     planes_.clear();
                     planes_.reserve(planes.size());
-                    for (const PlaneDescription& desc : planes)
+                    for (const PlaneDescription& description : planes)
                     {
-                        const Vector3T<T> normal = normalize(to_vector(desc.normal));
+                        const Vector3T<T> normal = normalize(to_vector(description.normal));
                         Physics::PlaneCollider<T> plane;
                         plane.normal = normal;
-                        plane.offset = dot(normal, to_vector(desc.point));
+                        plane.offset = dot(normal, to_vector(description.point));
                         planes_.push_back(plane);
                     }
                     note_membership_changed();
@@ -525,11 +526,11 @@ namespace SushiEngine
                  * removed later takes its joints with it inside the solver, and the
                  * record here is pruned in the same pass.
                  */
-                JointId create_joint(const JointDescription& desc) override
+                JointId create_joint(const JointDescription& description) override
                 {
                     ensure_solver();
-                    const auto a = rigid_index_.find(desc.body_a);
-                    const auto b = rigid_index_.find(desc.body_b);
+                    const auto a = rigid_index_.find(description.body_a);
+                    const auto b = rigid_index_.find(description.body_b);
                     if (a == rigid_index_.end() || b == rigid_index_.end())
                         return NULL_JOINT;
 
@@ -539,22 +540,22 @@ namespace SushiEngine
                     if (joint.a >= solver_->body_capacity() || joint.b >= solver_->body_capacity())
                         return NULL_JOINT;
 
-                    const JointParameters& params = desc.params;
-                    joint.kind = to_joint_kind(params.type);
+                    const JointParameters& parameters = description.parameters;
+                    joint.kind = to_joint_kind(parameters.type);
                     joint.flags = Physics::JointFlags::enabled;
-                    joint.local_anchor_a = to_vector(params.anchor_a);
-                    joint.local_anchor_b = to_vector(params.anchor_b);
+                    joint.local_anchor_a = to_vector(parameters.anchor_a);
+                    joint.local_anchor_b = to_vector(parameters.anchor_b);
                     joint.local_basis_a =
-                        Physics::joint_frame_from_axis(to_vector(params.axis_a));
+                        Physics::joint_frame_from_axis(to_vector(parameters.axis_a));
                     joint.local_basis_b =
-                        Physics::joint_frame_from_axis(to_vector(params.axis_b));
-                    joint.compliance = T(params.compliance);
-                    joint.linear_limit = to_joint_limit(params.linear_limit);
-                    joint.twist_limit = to_joint_limit(params.twist_limit);
-                    joint.swing_limit = to_joint_limit(params.swing_limit);
-                    joint.motor = to_joint_motor(params.motor);
-                    joint.break_force = T(params.break_force);
-                    joint.break_torque = T(params.break_torque);
+                        Physics::joint_frame_from_axis(to_vector(parameters.axis_b));
+                    joint.compliance = T(parameters.compliance);
+                    joint.linear_limit = to_joint_limit(parameters.linear_limit);
+                    joint.twist_limit = to_joint_limit(parameters.twist_limit);
+                    joint.swing_limit = to_joint_limit(parameters.swing_limit);
+                    joint.motor = to_joint_motor(parameters.motor);
+                    joint.break_force = T(parameters.break_force);
+                    joint.break_torque = T(parameters.break_torque);
 
                     const Physics::JointHandle handle = solver_->add_joint(joint);
                     if (!handle.valid())
@@ -563,8 +564,8 @@ namespace SushiEngine
                     JointEntry entry;
                     entry.id = next_joint_id_++;
                     entry.handle = handle;
-                    entry.a = desc.body_a;
-                    entry.b = desc.body_b;
+                    entry.a = description.body_a;
+                    entry.b = description.body_b;
                     joints_.push_back(entry);
                     // A new joint is a disturbance: it can be holding two settled bodies
                     // apart at a distance neither of them currently is, and a joint whose
@@ -683,34 +684,35 @@ namespace SushiEngine
                     vehicles_.clear();
                     vehicle_index_.clear();
 
-                    for (const VehicleDescription& desc : vehicles)
+                    for (const VehicleDescription& description : vehicles)
                     {
                         const Physics::Cooking::NodeBeamAssetView view =
-                            Physics::Cooking::load_node_beam_blob(desc.asset, desc.asset_size);
+                            Physics::Cooking::load_node_beam_blob(description.asset,
+                                                                  description.asset_size);
                         if (!view.valid)
                             continue;
 
                         VehicleEntry entry;
-                        entry.entity = desc.id;
-                        entry.asset = desc.asset;
-                        entry.asset_size = desc.asset_size;
-                        entry.position = desc.position;
-                        entry.orientation = desc.orientation;
+                        entry.entity = description.id;
+                        entry.asset = description.asset;
+                        entry.asset_size = description.asset_size;
+                        entry.position = description.position;
+                        entry.orientation = description.orientation;
                         entry.instance = std::make_unique<Physics::VehicleInstanceT<T>>();
 
                         Physics::NodeBeamStructureSettings<T> settings;
-                        settings.position = to_vector(desc.position);
-                        settings.orientation = to_quaternion(desc.orientation);
-                        settings.velocity = to_vector(desc.velocity);
+                        settings.position = to_vector(description.position);
+                        settings.orientation = to_quaternion(description.orientation);
+                        settings.velocity = to_vector(description.velocity);
 
                         if (!entry.instance->create(*solver_, view,
-                                                    to_vehicle_setup(desc.setup), settings))
+                                                    to_vehicle_setup(description.setup), settings))
                             continue;
 
                         entry.surface_indices.assign(
                             view.surface_indices,
                             view.surface_indices + view.surface_index_count);
-                        vehicle_index_.emplace(desc.id, vehicles_.size());
+                        vehicle_index_.emplace(description.id, vehicles_.size());
                         vehicles_.push_back(std::move(entry));
                     }
                     // A vehicle is hundreds of bodies, so every proxy index the broadphase
@@ -1387,7 +1389,7 @@ namespace SushiEngine
                     configuration.capacities.contacts = 16384;
                     // Zero by default (configuration.hpp) because most scenes carry no
                     // vehicles at all, but this boundary's whole job is to be the one
-                    // that does (§5.5) — a scene author who reaches for `set_vehicle_params`
+                    // that does (§5.5) — a scene author who reaches for `set_vehicle_parameters`
                     // must find a solver that actually has room for beams, the same way it
                     // already has room for the joints their attachments need.
                     configuration.capacities.beams = 8192;
@@ -1529,17 +1531,17 @@ namespace SushiEngine
                 }
 
                 /** @brief Applies a description to a body that already exists. */
-                void update_rigid_entry(RigidEntry& entry, const RigidBodyDescription& desc)
+                void update_rigid_entry(RigidEntry& entry, const RigidBodyDescription& description)
                 {
-                    entry.collider = desc.collider;
-                    entry.filter = desc.collider.filter;
-                    entry.material = to_material(desc.material);
+                    entry.collider = description.collider;
+                    entry.filter = description.collider.filter;
+                    entry.material = to_material(description.material);
                     Body body;
                     if (!solver_->read_body(entry.handle, body))
                         return;
-                    body.inv_mass = T(desc.inv_mass);
-                    body.inv_inertia = to_vector(desc.inv_inertia);
-                    body.drag_coefficient = T(desc.drag_coefficient);
+                    body.inv_mass = T(description.inv_mass);
+                    body.inv_inertia = to_vector(description.inv_inertia);
+                    body.drag_coefficient = T(description.drag_coefficient);
                     solver_->write_body(entry.handle, body);
                     bodies_dirty_ = true;
                 }
@@ -1562,13 +1564,13 @@ namespace SushiEngine
                     for (std::size_t i = 0; i < vehicles.size(); ++i)
                     {
                         const VehicleEntry& entry = vehicles_[i];
-                        const VehicleDescription& desc = vehicles[i];
-                        if (entry.entity != desc.id || entry.asset != desc.asset ||
-                            entry.asset_size != desc.asset_size)
+                        const VehicleDescription& description = vehicles[i];
+                        if (entry.entity != description.id || entry.asset != description.asset ||
+                            entry.asset_size != description.asset_size)
                             return false;
-                        if (entry.position.x != desc.position.x ||
-                            entry.position.y != desc.position.y ||
-                            entry.position.z != desc.position.z)
+                        if (entry.position.x != description.position.x ||
+                            entry.position.y != description.position.y ||
+                            entry.position.z != description.position.z)
                             return false;
                     }
                     return true;
@@ -1677,17 +1679,17 @@ namespace SushiEngine
                  * would be missed, and that is a cook-time change the editor already
                  * re-issues the whole set for.
                  */
-                static SoftKey soft_key(const SoftBodyDescription& desc) noexcept
+                static SoftKey soft_key(const SoftBodyDescription& description) noexcept
                 {
                     SoftKey key;
-                    key.asset_size = desc.asset_size;
-                    key.level = desc.level;
-                    key.origin = desc.origin;
-                    key.thickness = desc.thickness;
-                    key.self_collision = desc.self_collision;
-                    key.cosmetic = desc.cosmetic;
-                    key.rollback = desc.participates_in_rollback;
-                    key.material = desc.material;
+                    key.asset_size = description.asset_size;
+                    key.level = description.level;
+                    key.origin = description.origin;
+                    key.thickness = description.thickness;
+                    key.self_collision = description.self_collision;
+                    key.cosmetic = description.cosmetic;
+                    key.rollback = description.participates_in_rollback;
+                    key.material = description.material;
                     return key;
                 }
 
@@ -1695,19 +1697,19 @@ namespace SushiEngine
                 bool soft_matches(const std::vector<SoftBodyDescription>& bodies) const
                 {
                     std::size_t wanted = 0;
-                    for (const SoftBodyDescription& desc : bodies)
-                        if (desc.asset != nullptr && desc.asset_size != 0)
+                    for (const SoftBodyDescription& description : bodies)
+                        if (description.asset != nullptr && description.asset_size != 0)
                             ++wanted;
                     if (wanted != soft_.size())
                         return false;
-                    for (const SoftBodyDescription& desc : bodies)
+                    for (const SoftBodyDescription& description : bodies)
                     {
-                        if (desc.asset == nullptr || desc.asset_size == 0)
+                        if (description.asset == nullptr || description.asset_size == 0)
                             continue;
-                        const auto it = soft_index_.find(desc.id);
+                        const auto it = soft_index_.find(description.id);
                         if (it == soft_index_.end())
                             return false;
-                        if (!(soft_[it->second].key == soft_key(desc)))
+                        if (!(soft_[it->second].key == soft_key(description)))
                             return false;
                     }
                     return true;
@@ -1800,7 +1802,7 @@ namespace SushiEngine
                             partner.surface_vertices = model->surface_vertices.data();
                             partner.surface_vertex_count = model->surface_vertices.size();
                             partner.contact_offset = model->collision.thickness;
-                            partner.params = Physics::make_contact_params(
+                            partner.parameters = Physics::make_contact_parameters(
                                 model->collision.surface, Physics::PhysicsMaterialT<T>{},
                                 model->collision.thickness, restitution_threshold);
                             // `configured` stays false — set by the first per-tick
@@ -1867,8 +1869,8 @@ namespace SushiEngine
                     {
                         const std::size_t j = soft_rigid_targets_[n];
                         Physics::SoftRigidPrimitiveCollider<T>& shape = soft_rigid_colliders_[n];
-                        shape.params.restitution_threshold = restitution_threshold;
-                        shape.params.max_depenetration = max_depenetration;
+                        shape.parameters.restitution_threshold = restitution_threshold;
+                        shape.parameters.max_depenetration = max_depenetration;
                         if (!solver_ || j >= rigid_.size())
                             continue;
 
@@ -1962,20 +1964,20 @@ namespace SushiEngine
                 bool cloth_matches(const std::vector<ClothDescription>& grids) const
                 {
                     std::size_t wanted = 0;
-                    for (const ClothDescription& desc : grids)
-                        if (desc.rows != 0 && desc.cols != 0)
+                    for (const ClothDescription& description : grids)
+                        if (description.rows != 0 && description.cols != 0)
                             ++wanted;
                     if (wanted != cloth_.size())
                         return false;
-                    for (const ClothDescription& desc : grids)
+                    for (const ClothDescription& description : grids)
                     {
-                        if (desc.rows == 0 || desc.cols == 0)
+                        if (description.rows == 0 || description.cols == 0)
                             continue;
-                        const auto it = cloth_index_.find(desc.id);
+                        const auto it = cloth_index_.find(description.id);
                         if (it == cloth_index_.end())
                             return false;
                         const ClothEntry& entry = cloth_[it->second];
-                        if (entry.rows != desc.rows || entry.cols != desc.cols)
+                        if (entry.rows != description.rows || entry.cols != description.cols)
                             return false;
                     }
                     return true;
@@ -2528,7 +2530,7 @@ namespace SushiEngine
 
                     const T substep = delta_time / T(floor > 0 ? floor : 1);
                     // The two numbers that are properties of the *step* rather than of the
-                    // surfaces, resolved once here and folded into every pair's params below.
+                    // surfaces, resolved once here and folded into every pair's parameters below.
                     //
                     // A resting body's contacts carry a closing speed of about `g * h` every
                     // substep purely because gravity had a substep to act; returning that is
@@ -2706,10 +2708,10 @@ namespace SushiEngine
                         // standing on it: an ice cube should be slippery *against the floor*,
                         // and a floor that copied the cube's friction would cancel exactly
                         // the difference the author authored.
-                        contact.params = Physics::make_contact_params(
+                        contact.parameters = Physics::make_contact_parameters(
                             material_of(lhs.slot), material_of(rhs.slot), REST_OFFSET,
                             restitution_threshold);
-                        contact.params.max_depenetration = max_depenetration;
+                        contact.parameters.max_depenetration = max_depenetration;
                         contact.manifold = record.manifold;
                         solver_->add_contact(contact);
                     }

@@ -55,9 +55,9 @@ namespace
     {
         RigidBody body;
         body.position = position;
-        body.prev_position = position;
+        body.previous_position = position;
         body.orientation = Quaternion{0.0, 0.0, 0.0, 1.0};
-        body.prev_orientation = body.orientation;
+        body.previous_orientation = body.orientation;
         body.inv_mass = 1.0 / mass;
         // Solid cube about its centre: I = m a^2 / 6 for full edge a.
         const Scalar edge = 2.0 * half_extent;
@@ -82,7 +82,7 @@ namespace
      */
     void tick_against_plane(RigidBody& body, Vector3 half_extents,
                             const PlaneCollider<Scalar>& ground, ContactManifold<Scalar>& manifold,
-                            const ContactSolveParameters<Scalar>& params, Scalar dt,
+                            const ContactSolveParameters<Scalar>& parameters, Scalar dt,
                             std::size_t substeps, Scalar speculative_margin = 0.0)
     {
         // Contacts are *generated* further out than they are *resolved* to: the
@@ -90,7 +90,7 @@ namespace
         // the tick has no constraint until the next tick and arrives already deep.
         // `speculative_margin` is §7.5 tier 1's addition — how far the pair can close
         // this tick — which `sim/` supplies from the same travel the broadphase sweeps by.
-        const Scalar contact_offset = params.rest_offset + 0.03 + speculative_margin;
+        const Scalar contact_offset = parameters.rest_offset + 0.03 + speculative_margin;
         const ContactManifold<Scalar> previous = manifold;
         manifold = generate_obb_plane_manifold(box_of(body, half_extents), ground, contact_offset);
         warm_start_manifold(manifold, previous);
@@ -103,20 +103,20 @@ namespace
             if (s > 0)
                 clear_manifold_impulses(manifold);
             predict(body, Vector3{0.0, -GRAVITY, 0.0}, h);
-            solve_manifold_positions(manifold, body, ground_body, params);
+            solve_manifold_positions(manifold, body, ground_body, parameters);
             update_velocity(body, h);
-            solve_manifold_velocities(manifold, body, ground_body, params, h);
+            solve_manifold_velocities(manifold, body, ground_body, parameters, h);
         }
     }
 
     /** @brief Frictionless, bounceless contact parameters. */
-    ContactSolveParameters<Scalar> plain_params()
+    ContactSolveParameters<Scalar> plain_parameters()
     {
-        ContactSolveParameters<Scalar> params;
-        params.static_friction = 0.0;
-        params.dynamic_friction = 0.0;
-        params.restitution = 0.0;
-        return params;
+        ContactSolveParameters<Scalar> parameters;
+        parameters.static_friction = 0.0;
+        parameters.dynamic_friction = 0.0;
+        parameters.restitution = 0.0;
+        return parameters;
     }
 } // namespace
 
@@ -127,11 +127,12 @@ TEST(Unit_ContactProjection, DroppedBoxComesToRestOnTheSurface)
     const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
     RigidBody body = unit_cube(Vector3{0.0, 2.0, 0.0});
     ContactManifold<Scalar> manifold;
-    ContactSolveParameters<Scalar> params = plain_params();
-    params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 8.0);
+    ContactSolveParameters<Scalar> parameters = plain_parameters();
+    parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 8.0);
 
     for (int tick = 0; tick < 180; ++tick)
-        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, params, 1.0 / 60.0, 8);
+        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, parameters, 1.0 / 60.0,
+                           8);
 
     EXPECT_NEAR(body.position.y, 0.5, 1e-3);
     EXPECT_LT(std::abs(body.velocity.y), 1e-2);
@@ -151,13 +152,13 @@ TEST(Unit_ContactProjection, RestOffsetSetsWhereTheSurfaceComesToRest)
     {
         RigidBody body = unit_cube(Vector3{0.0, 1.5, 0.0});
         ContactManifold<Scalar> manifold;
-        ContactSolveParameters<Scalar> params = plain_params();
-        params.rest_offset = offset;
-        params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 8.0);
+        ContactSolveParameters<Scalar> parameters = plain_parameters();
+        parameters.rest_offset = offset;
+        parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 8.0);
 
         for (int tick = 0; tick < 180; ++tick)
-            tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, params, 1.0 / 60.0,
-                               8);
+            tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, parameters,
+                               1.0 / 60.0, 8);
 
         // The manifold's normal runs box -> plane, so a positive rest offset holds
         // the box that much *above* the surface.
@@ -175,15 +176,16 @@ TEST(Unit_ContactProjection, RestitutionReturnsTheExpectedFractionOfTheDrop)
 
     RigidBody body = unit_cube(Vector3{0.0, 0.5 + drop_height, 0.0});
     ContactManifold<Scalar> manifold;
-    ContactSolveParameters<Scalar> params = plain_params();
-    params.restitution = restitution;
-    params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
+    ContactSolveParameters<Scalar> parameters = plain_parameters();
+    parameters.restitution = restitution;
+    parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
 
     Scalar apex = 0.0;
     bool bounced = false;
     for (int tick = 0; tick < 240; ++tick)
     {
-        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, params, 1.0 / 60.0, 16);
+        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, parameters, 1.0 / 60.0,
+                           16);
         if (!bounced && body.velocity.y > 0.0)
             bounced = true;
         if (bounced)
@@ -206,12 +208,13 @@ TEST(Unit_ContactProjection, RestingBodyDoesNotBuzzUnderRestitution)
     const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
     RigidBody body = unit_cube(Vector3{0.0, 0.5, 0.0});
     ContactManifold<Scalar> manifold;
-    ContactSolveParameters<Scalar> params = plain_params();
-    params.restitution = 0.9;
-    params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 8.0);
+    ContactSolveParameters<Scalar> parameters = plain_parameters();
+    parameters.restitution = 0.9;
+    parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 8.0);
 
     for (int tick = 0; tick < 240; ++tick)
-        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, params, 1.0 / 60.0, 8);
+        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, parameters, 1.0 / 60.0,
+                           8);
 
     EXPECT_NEAR(body.position.y, 0.5, 2e-3);
     EXPECT_LT(std::abs(body.velocity.y), 5e-2);
@@ -235,20 +238,20 @@ TEST(Unit_ContactProjection, BoxHoldsOnARampBelowTheFrictionAngleAndSlidesAbove)
         RigidBody body = unit_cube(Vector3{0.0, 0.0, 0.0});
         // Seat the box on the ramp: its centre sits half a height along the normal.
         body.position = normal * 0.5;
-        body.prev_position = body.position;
+        body.previous_position = body.position;
         body.orientation = quaternion_axis_angle(Vector3{0.0, 0.0, 1.0}, angle);
-        body.prev_orientation = body.orientation;
+        body.previous_orientation = body.orientation;
 
         ContactManifold<Scalar> manifold;
-        ContactSolveParameters<Scalar> params;
-        params.static_friction = mu;
-        params.dynamic_friction = mu;
-        params.restitution = 0.0;
-        params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
+        ContactSolveParameters<Scalar> parameters;
+        parameters.static_friction = mu;
+        parameters.dynamic_friction = mu;
+        parameters.restitution = 0.0;
+        parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
 
         const Vector3 start = body.position;
         for (int tick = 0; tick < 120; ++tick)
-            tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ramp, manifold, params, 1.0 / 60.0,
+            tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ramp, manifold, parameters, 1.0 / 60.0,
                                16);
         return length(body.position - start);
     };
@@ -271,18 +274,19 @@ TEST(Unit_ContactProjection, SlidingBoxDeceleratesAtTheFrictionRate)
     RigidBody body = unit_cube(Vector3{0.0, 0.5, 0.0});
     body.velocity = Vector3{launch_speed, 0.0, 0.0};
     ContactManifold<Scalar> manifold;
-    ContactSolveParameters<Scalar> params;
-    params.static_friction = mu;
-    params.dynamic_friction = mu;
-    params.restitution = 0.0;
-    params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
+    ContactSolveParameters<Scalar> parameters;
+    parameters.static_friction = mu;
+    parameters.dynamic_friction = mu;
+    parameters.restitution = 0.0;
+    parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
 
     // Classical answer: v = v0 - mu*g*t, so it stops after v0/(mu*g) seconds and
     // travels v0^2/(2*mu*g).
     const Scalar expected_time = launch_speed / (mu * GRAVITY);
     const int ticks = static_cast<int>(expected_time * 60.0 * 0.5);
     for (int tick = 0; tick < ticks; ++tick)
-        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, params, 1.0 / 60.0, 16);
+        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, parameters, 1.0 / 60.0,
+                           16);
 
     const Scalar elapsed = static_cast<Scalar>(ticks) / 60.0;
     EXPECT_NEAR(body.velocity.x, launch_speed - mu * GRAVITY * elapsed, 0.6);
@@ -297,17 +301,18 @@ TEST(Unit_ContactProjection, TiltedLandingSettlesFlatInsteadOfRocking)
     const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
     RigidBody body = unit_cube(Vector3{0.0, 0.9, 0.0});
     body.orientation = quaternion_axis_angle(Vector3{0.0, 0.0, 1.0}, 0.08);
-    body.prev_orientation = body.orientation;
+    body.previous_orientation = body.orientation;
 
     ContactManifold<Scalar> manifold;
-    ContactSolveParameters<Scalar> params;
-    params.static_friction = 0.6;
-    params.dynamic_friction = 0.5;
-    params.restitution = 0.0;
-    params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
+    ContactSolveParameters<Scalar> parameters;
+    parameters.static_friction = 0.6;
+    parameters.dynamic_friction = 0.5;
+    parameters.restitution = 0.0;
+    parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
 
     for (int tick = 0; tick < 240; ++tick)
-        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, params, 1.0 / 60.0, 16);
+        tick_against_plane(body, Vector3{0.5, 0.5, 0.5}, ground, manifold, parameters, 1.0 / 60.0,
+                           16);
 
     // Flat: the box's local Y axis is back to world up.
     const Vector3 up = rotate(body.orientation, Vector3{0.0, 1.0, 0.0});
@@ -325,11 +330,11 @@ TEST(Unit_ContactProjection, TwoBoxStackHoldsItsShape)
     RigidBody upper = unit_cube(Vector3{0.0, 1.6, 0.0});
     RigidBody ground_body = immovable_body<Scalar>();
 
-    ContactSolveParameters<Scalar> params;
-    params.static_friction = 0.6;
-    params.dynamic_friction = 0.5;
-    params.restitution = 0.0;
-    params.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
+    ContactSolveParameters<Scalar> parameters;
+    parameters.static_friction = 0.6;
+    parameters.dynamic_friction = 0.5;
+    parameters.restitution = 0.0;
+    parameters.restitution_threshold = 2.0 * GRAVITY * (1.0 / 60.0 / 16.0);
 
     ContactManifold<Scalar> lower_ground;
     ContactManifold<Scalar> pair;
@@ -359,12 +364,12 @@ TEST(Unit_ContactProjection, TwoBoxStackHoldsItsShape)
             }
             predict(lower, Vector3{0.0, -GRAVITY, 0.0}, h);
             predict(upper, Vector3{0.0, -GRAVITY, 0.0}, h);
-            solve_manifold_positions(lower_ground, lower, ground_body, params);
-            solve_manifold_positions(pair, lower, upper, params);
+            solve_manifold_positions(lower_ground, lower, ground_body, parameters);
+            solve_manifold_positions(pair, lower, upper, parameters);
             update_velocity(lower, h);
             update_velocity(upper, h);
-            solve_manifold_velocities(lower_ground, lower, ground_body, params, h);
-            solve_manifold_velocities(pair, lower, upper, params, h);
+            solve_manifold_velocities(lower_ground, lower, ground_body, parameters, h);
+            solve_manifold_velocities(pair, lower, upper, parameters, h);
         }
     }
 
@@ -443,8 +448,9 @@ TEST(Unit_ContactProjection, ParametersComeFromTheCombinedMaterials)
     ice.dynamic_friction = 0.05;
     ice.restitution = 0.1;
 
-    const ContactSolveParameters<Scalar> forward = make_contact_params(rubber, ice, 0.001, 0.5);
-    const ContactSolveParameters<Scalar> reversed = make_contact_params(ice, rubber, 0.001, 0.5);
+    const ContactSolveParameters<Scalar> forward = make_contact_parameters(rubber, ice, 0.001, 0.5);
+    const ContactSolveParameters<Scalar> reversed =
+        make_contact_parameters(ice, rubber, 0.001, 0.5);
 
     EXPECT_NEAR(forward.static_friction, reversed.static_friction, 1e-15);
     EXPECT_NEAR(forward.dynamic_friction, reversed.dynamic_friction, 1e-15);
@@ -471,7 +477,7 @@ TEST(Unit_ContactProjection, TheDepenetrationBudgetTurnsAGrossOverlapIntoAPush)
     // Spawned with its centre below the ground: three quarters of a metre of overlap.
     const Vector3 spawn{0.0, -0.25, 0.0};
 
-    ContactSolveParameters<Scalar> unclamped = plain_params();
+    ContactSolveParameters<Scalar> unclamped = plain_parameters();
     ContactSolveParameters<Scalar> clamped = unclamped;
     const Scalar max_velocity = 3.0;
     clamped.max_depenetration = max_velocity * h;
@@ -518,7 +524,7 @@ TEST(Unit_ContactProjection, TheDepenetrationBudgetDoesNotSlowAnOrdinaryRest)
     const Scalar dt = 1.0 / 60.0;
     const std::size_t substeps = 8;
 
-    ContactSolveParameters<Scalar> clamped = plain_params();
+    ContactSolveParameters<Scalar> clamped = plain_parameters();
     clamped.max_depenetration = 3.0 * (dt / static_cast<Scalar>(substeps));
 
     RigidBody body = unit_cube(Vector3{0.0, 0.5, 0.0});
@@ -553,13 +559,13 @@ TEST(Unit_ContactProjection, SpeculativeMarginCatchesABodyThatWouldCrossWithinTh
     ASSERT_GT(start.y - half_extents.y, 0.03);
     ASSERT_GT(travel, start.y - half_extents.y);
 
-    const ContactSolveParameters<Scalar> params = plain_params();
+    const ContactSolveParameters<Scalar> parameters = plain_parameters();
 
     // Without the margin the manifold does not exist at generation time.
     RigidBody blind = unit_cube(start);
     blind.velocity = Vector3{0.0, -approach, 0.0};
     ContactManifold<Scalar> blind_manifold;
-    tick_against_plane(blind, half_extents, ground, blind_manifold, params, dt, substeps, 0.0);
+    tick_against_plane(blind, half_extents, ground, blind_manifold, parameters, dt, substeps, 0.0);
     EXPECT_EQ(blind_manifold.point_count, 0u);
     // So the tick runs unconstrained and the box ends up well inside the ground.
     EXPECT_LT(blind.position.y, 0.1);
@@ -569,7 +575,7 @@ TEST(Unit_ContactProjection, SpeculativeMarginCatchesABodyThatWouldCrossWithinTh
     RigidBody guarded = unit_cube(start);
     guarded.velocity = Vector3{0.0, -approach, 0.0};
     ContactManifold<Scalar> guarded_manifold;
-    tick_against_plane(guarded, half_extents, ground, guarded_manifold, params, dt, substeps,
+    tick_against_plane(guarded, half_extents, ground, guarded_manifold, parameters, dt, substeps,
                        travel);
     ASSERT_GT(guarded_manifold.point_count, 0u);
 
@@ -604,7 +610,7 @@ TEST(Unit_ContactProjection, ASpeculativeContactThatNeverClosesResolvesToNothing
     const Vector3 before = body.position;
 
     ContactManifold<Scalar> manifold;
-    tick_against_plane(body, half_extents, ground, manifold, plain_params(), dt, substeps,
+    tick_against_plane(body, half_extents, ground, manifold, plain_parameters(), dt, substeps,
                        20.0 * dt);
 
     // The manifold exists...

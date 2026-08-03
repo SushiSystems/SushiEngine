@@ -47,17 +47,17 @@ namespace SushiEngine
                 }
 
                 /** @brief Records a sync2 color-image layout transition. */
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout,
-                                VkImageLayout new_layout, VkPipelineStageFlags2 src_stage,
-                                VkPipelineStageFlags2 dst_stage, VkAccessFlags2 src_access,
-                                VkAccessFlags2 dst_access)
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout old_layout,
+                                VkImageLayout new_layout, VkPipelineStageFlags2 source_stage,
+                                VkPipelineStageFlags2 destination_stage,
+                                VkAccessFlags2 source_access, VkAccessFlags2 destination_access)
                 {
                     VkImageMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = src_stage;
-                    barrier.srcAccessMask = src_access;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.srcStageMask = source_stage;
+                    barrier.srcAccessMask = source_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
                     barrier.oldLayout = old_layout;
                     barrier.newLayout = new_layout;
                     barrier.image = image;
@@ -69,29 +69,31 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
 
-                /** @brief Builds a windowed device desc from the renderer desc. */
-                RenderDeviceDescription to_device_desc(const WindowRendererDescription& desc)
+                /** @brief Builds a windowed device description from the renderer description. */
+                RenderDeviceDescription to_device_description(
+                    const WindowRendererDescription& description)
                 {
-                    RenderDeviceDescription device_desc;
-                    device_desc.enable_validation = desc.enable_validation;
-                    device_desc.preference = desc.preference;
-                    device_desc.required_instance_extensions = desc.required_instance_extensions;
-                    device_desc.surface_factory = desc.surface_factory;
-                    return device_desc;
+                    RenderDeviceDescription device_description;
+                    device_description.enable_validation = description.enable_validation;
+                    device_description.preference = description.preference;
+                    device_description.required_instance_extensions =
+                        description.required_instance_extensions;
+                    device_description.surface_factory = description.surface_factory;
+                    return device_description;
                 }
             } // namespace
 
-            VulkanWindowRenderer::VulkanWindowRenderer(const WindowRendererDescription& desc)
-                : device_(to_device_desc(desc)),
+            VulkanWindowRenderer::VulkanWindowRenderer(const WindowRendererDescription& description)
+                : device_(to_device_description(description)),
                   headless_(device_.surface() == VK_NULL_HANDLE)
             {
                 if (!headless_)
                 {
-                    present_mode_ = desc.present_mode;
-                    create_swapchain(desc.width, desc.height);
+                    present_mode_ = description.present_mode;
+                    create_swapchain(description.width, description.height);
                     create_frames();
                 }
                 else
@@ -99,11 +101,11 @@ namespace SushiEngine
                     // No swapchain to size acquire()'s later resize check against, but
                     // extent_ is still read (color_format()/image_count() callers aside,
                     // nothing headless-relevant needs it) — recorded for completeness.
-                    extent_.width = desc.width;
-                    extent_.height = desc.height;
+                    extent_.width = description.width;
+                    extent_.height = description.height;
                 }
-                assets_.reset(new Assets::AssetLibrary(device_, desc.shader_source_directory,
-                                                        desc.pipeline_cache_path));
+                assets_.reset(new Assets::AssetLibrary(device_, description.shader_source_directory,
+                                                       description.pipeline_cache_path));
             }
 
             VulkanWindowRenderer::~VulkanWindowRenderer()
@@ -210,12 +212,12 @@ namespace SushiEngine
                 {
                     check(vkCreateCommandPool(device_.device(), &pool_info, nullptr, &frame.pool),
                           "vkCreateCommandPool");
-                    VkCommandBufferAllocateInfo cmd_info{};
-                    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                    cmd_info.commandPool = frame.pool;
-                    cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                    cmd_info.commandBufferCount = 1;
-                    check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &frame.cmd),
+                    VkCommandBufferAllocateInfo command_info{};
+                    command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                    command_info.commandPool = frame.pool;
+                    command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                    command_info.commandBufferCount = 1;
+                    check(vkAllocateCommandBuffers(device_.device(), &command_info, &frame.command),
                           "vkAllocateCommandBuffers");
                     check(vkCreateSemaphore(device_.device(), &semaphore_info, nullptr,
                                             &frame.image_available),
@@ -245,7 +247,7 @@ namespace SushiEngine
                     return VK_NULL_HANDLE; // no swapchain image ever exists to acquire
 
                 if (frame_acquired_)
-                    return frames_[frame_index_].cmd;
+                    return frames_[frame_index_].command;
 
                 if (width == 0 || height == 0)
                     return VK_NULL_HANDLE; // minimized: nothing to present
@@ -278,20 +280,20 @@ namespace SushiEngine
                 VkCommandBufferBeginInfo begin_info{};
                 begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                check(vkBeginCommandBuffer(frame.cmd, &begin_info), "vkBeginCommandBuffer");
+                check(vkBeginCommandBuffer(frame.command, &begin_info), "vkBeginCommandBuffer");
 
                 frame_acquired_ = true;
                 rendering_open_ = false;
-                return frame.cmd;
+                return frame.command;
             }
 
             void* VulkanWindowRenderer::begin_frame(std::uint32_t width, std::uint32_t height)
             {
-                VkCommandBuffer cmd = acquire(width, height);
-                if (cmd == VK_NULL_HANDLE)
+                VkCommandBuffer command = acquire(width, height);
+                if (command == VK_NULL_HANDLE)
                     return nullptr;
 
-                transition(cmd, images_[image_index_], VK_IMAGE_LAYOUT_UNDEFINED,
+                transition(command, images_[image_index_], VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
@@ -311,10 +313,10 @@ namespace SushiEngine
                 rendering.layerCount = 1;
                 rendering.colorAttachmentCount = 1;
                 rendering.pColorAttachments = &color_attachment;
-                vkCmdBeginRendering(cmd, &rendering);
+                vkCmdBeginRendering(command, &rendering);
 
                 rendering_open_ = true;
-                return cmd;
+                return command;
             }
 
             void VulkanWindowRenderer::present_scene_view(ISceneView& view, std::uint32_t slot,
@@ -329,8 +331,8 @@ namespace SushiEngine
                 if (source.image == VK_NULL_HANDLE)
                     return;
 
-                VkCommandBuffer cmd = acquire(width, height);
-                if (cmd == VK_NULL_HANDLE)
+                VkCommandBuffer command = acquire(width, height);
+                if (command == VK_NULL_HANDLE)
                     return; // minimized or the swapchain was just rebuilt; try again next tick
 
                 if (rendering_open_)
@@ -340,17 +342,17 @@ namespace SushiEngine
 
                 VkImage swap_image = images_[image_index_];
 
-                transition(cmd, swap_image, VK_IMAGE_LAYOUT_UNDEFINED,
+                transition(command, swap_image, VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, 0,
                            VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
-                const VkPipelineStageFlags2 source_src_stage =
+                const VkPipelineStageFlags2 source_stage =
                     source.state.stage == VK_PIPELINE_STAGE_2_NONE
                         ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
                         : source.state.stage;
-                transition(cmd, source.image, source.state.layout,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, source_src_stage,
+                transition(command, source.image, source.state.layout,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, source_stage,
                            VK_PIPELINE_STAGE_2_BLIT_BIT, source.state.access,
                            VK_ACCESS_2_TRANSFER_READ_BIT);
 
@@ -367,7 +369,7 @@ namespace SushiEngine
                 // B8G8R8A8 (create_swapchain()'s desired format), a channel order a raw copy
                 // would carry over verbatim rather than convert, swapping red and blue in
                 // whatever is presented.
-                vkCmdBlitImage(cmd, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                vkCmdBlitImage(command, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                swap_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
                                VK_FILTER_LINEAR);
 
@@ -376,11 +378,11 @@ namespace SushiEngine
                 // graph tracks this image's state across frames, and returning it in a
                 // different layout would make the next render()'s first barrier describe a
                 // transition that did not happen.
-                transition(cmd, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           source.state.layout, VK_PIPELINE_STAGE_2_BLIT_BIT, source_src_stage,
+                transition(command, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           source.state.layout, VK_PIPELINE_STAGE_2_BLIT_BIT, source_stage,
                            VK_ACCESS_2_TRANSFER_READ_BIT, source.state.access);
 
-                transition(cmd, swap_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                transition(command, swap_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BLIT_BIT,
                            VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
                            VK_ACCESS_2_TRANSFER_WRITE_BIT, 0);
@@ -395,9 +397,9 @@ namespace SushiEngine
 
                 if (rendering_open_)
                 {
-                    vkCmdEndRendering(frame.cmd);
+                    vkCmdEndRendering(frame.command);
 
-                    transition(frame.cmd, images_[image_index_],
+                    transition(frame.command, images_[image_index_],
                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -409,7 +411,7 @@ namespace SushiEngine
                 // PRESENT_SRC_KHR, or neither ran and this frame was acquired but never
                 // targeted — the caller's own bug, not this method's to guess at.
 
-                check(vkEndCommandBuffer(frame.cmd), "vkEndCommandBuffer");
+                check(vkEndCommandBuffer(frame.command), "vkEndCommandBuffer");
 
                 // The one place in a frame that is after every scene view has submitted, which
                 // is exactly what the atmosphere's step has to be ordered behind: it overwrites
@@ -434,7 +436,7 @@ namespace SushiEngine
                 submit.pWaitSemaphores = &frame.image_available;
                 submit.pWaitDstStageMask = &wait_stage;
                 submit.commandBufferCount = 1;
-                submit.pCommandBuffers = &frame.cmd;
+                submit.pCommandBuffers = &frame.command;
                 submit.signalSemaphoreCount = 1;
                 submit.pSignalSemaphores = &render_finished_[image_index_];
                 check(vkQueueSubmit(device_.graphics_queue(), 1, &submit, frame.in_flight),
@@ -468,9 +470,9 @@ namespace SushiEngine
         } // namespace Vulkan
 
         std::unique_ptr<IWindowRenderer> create_window_renderer(
-            const WindowRendererDescription& desc)
+            const WindowRendererDescription& description)
         {
-            return std::unique_ptr<IWindowRenderer>(new Vulkan::VulkanWindowRenderer(desc));
+            return std::unique_ptr<IWindowRenderer>(new Vulkan::VulkanWindowRenderer(description));
         }
     } // namespace Render
 } // namespace SushiEngine

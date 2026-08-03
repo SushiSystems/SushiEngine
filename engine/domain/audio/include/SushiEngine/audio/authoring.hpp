@@ -265,7 +265,8 @@ namespace SushiEngine
                     return i >= 0 && static_cast<std::size_t>(i) < nodes_.size();
                 }
 
-                // Appends one flattened node (child range filled later) and records its authored src.
+                // Appends one flattened node (child range filled later) and records its
+                // authored source.
                 void emit_node(std::vector<ContainerNode>& flat, std::vector<int>& authored_of,
                                int authored) const
                 {

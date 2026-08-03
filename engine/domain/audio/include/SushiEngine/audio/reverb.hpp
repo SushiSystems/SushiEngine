@@ -83,7 +83,7 @@ namespace SushiEngine
                 virtual void reset() noexcept {}
 
                 /** @brief Publishes new I3DL2 parameters (off the audio thread). */
-                virtual void set_params(const I3DL2Reverb& params) = 0;
+                virtual void set_parameters(const I3DL2Reverb& parameters) = 0;
 
                 /**
                  * @brief Processes one stereo block in place (dry in → dry+wet out).
@@ -113,7 +113,7 @@ namespace SushiEngine
                     fdn_.prepare(sample_rate, max_block_frames);
                     wet_left_.assign(static_cast<std::size_t>(max_block_frames), 0.0f);
                     wet_right_.assign(static_cast<std::size_t>(max_block_frames), 0.0f);
-                    apply_params();
+                    apply_parameters();
                 }
 
                 void reset() noexcept override
@@ -123,15 +123,15 @@ namespace SushiEngine
                     shelf_right_.reset();
                 }
 
-                void set_params(const I3DL2Reverb& params) override
+                void set_parameters(const I3DL2Reverb& parameters) override
                 {
-                    params_ = params;
+                    parameters_ = parameters;
                     if (sample_rate_ > 0.0)
-                        apply_params();
+                        apply_parameters();
                 }
 
                 /** @brief The current I3DL2 parameters. */
-                const I3DL2Reverb& params() const noexcept { return params_; }
+                const I3DL2Reverb& parameters() const noexcept { return parameters_; }
 
                 /** @brief The underlying FDN (for diagnostics/tests). */
                 DSP::FDNReverb& fdn() noexcept { return fdn_; }
@@ -156,35 +156,35 @@ namespace SushiEngine
                 }
 
             private:
-                void apply_params()
+                void apply_parameters()
                 {
                     DSP::FDNTuning t;
-                    t.decay_time_s = clampf(params_.decay_time, 0.1f, 20.0f);
-                    t.decay_hf_ratio = clampf(params_.decay_hf_ratio, 0.1f, 2.0f);
-                    t.predelay_s = clampf(params_.reverb_delay, 0.0f, 0.24f);
-                    t.diffusion = clampf(params_.diffusion, 0.0f, 100.0f) / 100.0f;
-                    t.density = clampf(params_.density, 0.0f, 100.0f) / 100.0f;
+                    t.decay_time_s = clampf(parameters_.decay_time, 0.1f, 20.0f);
+                    t.decay_hf_ratio = clampf(parameters_.decay_hf_ratio, 0.1f, 2.0f);
+                    t.predelay_s = clampf(parameters_.reverb_delay, 0.0f, 0.24f);
+                    t.diffusion = clampf(parameters_.diffusion, 0.0f, 100.0f) / 100.0f;
+                    t.density = clampf(parameters_.density, 0.0f, 100.0f) / 100.0f;
                     // I3DL2 has no explicit size; a longer decay implies a bigger room, so
                     // scale the delay spread with decay time (saturating past ~3.5 s).
                     t.room_size = clampf(static_cast<float>(t.decay_time_s) / 3.5f, 0.1f, 1.0f);
                     fdn_.set_tuning(t);
 
                     // Wet level = Room + late Reverb level, in dB.
-                    fdn_.set_output_gain(db_to_linear(params_.room + params_.reverb));
+                    fdn_.set_output_gain(db_to_linear(parameters_.room + parameters_.reverb));
 
                     // The wet high-shelf: RoomHF (authored) plus a Jot tonal-correction lift
                     // that grows as the highs are set to decay faster than the body.
                     const float jot_correction_db =
-                        3.0f * (1.0f - clampf(params_.decay_hf_ratio, 0.0f, 1.0f));
-                    const float shelf_db = params_.room_hf + jot_correction_db;
-                    const double fref = clampf(params_.hf_reference, 1000.0f,
+                        3.0f * (1.0f - clampf(parameters_.decay_hf_ratio, 0.0f, 1.0f));
+                    const float shelf_db = parameters_.room_hf + jot_correction_db;
+                    const double fref = clampf(parameters_.hf_reference, 1000.0f,
                                                static_cast<float>(sample_rate_ * 0.49));
                     shelf_left_.set_high_shelf(fref, shelf_db, sample_rate_);
                     shelf_right_.set_high_shelf(fref, shelf_db, sample_rate_);
                     shelf_left_.reset();
                     shelf_right_.reset();
 
-                    wet_mix_ = clampf(params_.wet_dry_mix, 0.0f, 100.0f) / 100.0f;
+                    wet_mix_ = clampf(parameters_.wet_dry_mix, 0.0f, 100.0f) / 100.0f;
                     dry_mix_ = 1.0f - wet_mix_;
                 }
 
@@ -203,7 +203,7 @@ namespace SushiEngine
                 DSP::Biquad shelf_right_;
                 std::vector<float> wet_left_;
                 std::vector<float> wet_right_;
-                I3DL2Reverb params_;
+                I3DL2Reverb parameters_;
                 double sample_rate_ = 0.0;
                 int max_block_ = 0;
                 float wet_mix_ = 1.0f;

@@ -112,53 +112,53 @@ namespace SushiEngine
                 }
 
                 /** @brief The description shared by this pass's pipeline. */
-                Resources::GraphicsPipelineDescription base_desc(VkPipelineLayout layout)
+                Resources::GraphicsPipelineDescription base_description(VkPipelineLayout layout)
                 {
-                    Resources::GraphicsPipelineDescription desc;
-                    desc.layout = layout;
-                    desc.vertex_stride = sizeof(Geometry::MeshVertex);
-                    desc.attribute_count = 6;
-                    desc.attributes[0] = {
+                    Resources::GraphicsPipelineDescription description;
+                    description.layout = layout;
+                    description.vertex_stride = sizeof(Geometry::MeshVertex);
+                    description.attribute_count = 6;
+                    description.attributes[0] = {
                         0, VK_FORMAT_R32G32B32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, position))};
-                    desc.attributes[1] = {
+                    description.attributes[1] = {
                         1, VK_FORMAT_R32G32B32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, normal))};
-                    desc.attributes[2] = {
+                    description.attributes[2] = {
                         2, VK_FORMAT_R32G32B32A32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, tangent))};
-                    desc.attributes[3] = {
+                    description.attributes[3] = {
                         3, VK_FORMAT_R32G32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv0))};
-                    desc.attributes[4] = {
+                    description.attributes[4] = {
                         4, VK_FORMAT_R32G32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv1))};
-                    desc.attributes[5] = {
+                    description.attributes[5] = {
                         5, VK_FORMAT_R8G8B8A8_UNORM,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, color))};
-                    desc.depth_test = VK_TRUE;
-                    desc.depth_write = VK_FALSE;
-                    desc.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
-                    desc.color_count = 4;
-                    desc.color_formats[0] = Frame::HDR_FORMAT;
-                    desc.color_formats[1] = Frame::ID_FORMAT;
-                    desc.color_formats[2] = Frame::VELOCITY_FORMAT;
-                    desc.color_formats[3] = Frame::GBUFFER_FORMAT;
-                    desc.depth_format = Frame::DEPTH_FORMAT;
-                    desc.stencil_format = Frame::DEPTH_FORMAT;
-                    desc.blend.enable = VK_TRUE;
+                    description.depth_test = VK_TRUE;
+                    description.depth_write = VK_FALSE;
+                    description.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
+                    description.color_count = 4;
+                    description.color_formats[0] = Frame::HDR_FORMAT;
+                    description.color_formats[1] = Frame::ID_FORMAT;
+                    description.color_formats[2] = Frame::VELOCITY_FORMAT;
+                    description.color_formats[3] = Frame::GBUFFER_FORMAT;
+                    description.depth_format = Frame::DEPTH_FORMAT;
+                    description.stencil_format = Frame::DEPTH_FORMAT;
+                    description.blend.enable = VK_TRUE;
                     // Only the HDR colour attachment blends; entity-ID, velocity, and G-buffer
                     // carry raw values (an alpha-weighted ID or velocity is meaningless) and
                     // ID_FORMAT in particular is an integer format the blend feature bit does
                     // not even cover.
-                    desc.blend_mask = 0x1u;
-                    desc.blend.src_color = VK_BLEND_FACTOR_SRC_ALPHA;
-                    desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                    desc.blend.color_op = VK_BLEND_OP_ADD;
-                    desc.blend.src_alpha = VK_BLEND_FACTOR_ONE;
-                    desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                    desc.blend.alpha_op = VK_BLEND_OP_ADD;
-                    return desc;
+                    description.blend_mask = 0x1u;
+                    description.blend.source_color = VK_BLEND_FACTOR_SRC_ALPHA;
+                    description.blend.destination_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                    description.blend.color_op = VK_BLEND_OP_ADD;
+                    description.blend.source_alpha = VK_BLEND_FACTOR_ONE;
+                    description.blend.destination_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                    description.blend.alpha_op = VK_BLEND_OP_ADD;
+                    return description;
                 }
 
                 /** @brief Which kind of geometry a sorted transparent draw item names. */
@@ -198,7 +198,8 @@ namespace SushiEngine
 
             void TransparentPass::create_pipelines()
             {
-                Resources::GraphicsPipelineDescription mesh = base_desc(layout_.pipeline_layout());
+                Resources::GraphicsPipelineDescription mesh =
+                    base_description(layout_.pipeline_layout());
                 mesh.vertex_shader = shaders_.module("mesh.vert");
                 mesh.fragment_shader = shaders_.module("pbr.frag");
                 mesh_pipeline_ = pipelines_.create(mesh);
@@ -206,7 +207,7 @@ namespace SushiEngine
                 // Matches OpaquePass's skinned pipeline: the SkinningPass output is the
                 // MeshVertex layout plus a previous-frame position at offset 60, stride 72.
                 Resources::GraphicsPipelineDescription skinned =
-                    base_desc(layout_.pipeline_layout());
+                    base_description(layout_.pipeline_layout());
                 skinned.vertex_stride = static_cast<std::uint32_t>(Scene::SKINNED_VERTEX_SIZE);
                 skinned.attribute_count = 7;
                 skinned.attributes[6] = {6, VK_FORMAT_R32G32B32_SFLOAT, 60};
@@ -275,8 +276,9 @@ namespace SushiEngine
                         const Matrix4 model =
                             instance.mesh != INVALID_MESH
                                 ? instance.model
-                                : mul(instance.model, Geometry::shape_scale(
-                                                           instance.kind, instance.shape_params));
+                                : mul(instance.model,
+                                      Geometry::shape_scale(instance.kind,
+                                                            instance.shape_parameters));
                         instance_motions[item.index] = motion_.push(instance.id, model);
                     }
                     else
@@ -313,14 +315,14 @@ namespace SushiEngine
                         declare_shading_set(builder, frame);
                     },
                     [this, &frame, order, instance_materials, instance_motions, skinned_materials,
-                     skinned_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
+                     skinned_motions](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const ShadingSetSources sources{ibl_,       cloud_shadow_, gi_,
                                                         materials_, motion_,       lights_};
                         Scene::SceneSetWriter writer;
                         write_shading_set(writer, sources, frame, context);
-                        writer.commit(cmd, frame.layout->pipeline_layout());
-                        frame.layout->bind_heap(cmd);
+                        writer.commit(command, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(command);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
@@ -333,9 +335,9 @@ namespace SushiEngine
                         // consecutive items differ — the sorted order is small, so the extra
                         // rebinds cost far less than drawing out of order would.
                         ItemKind bound_kind = ItemKind::Rigid;
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                           mesh_pipeline_.get());
-                        vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+                        vkCmdSetStencilReference(command, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
 
                         VkBuffer bound_vertices = VK_NULL_HANDLE;
                         for (const DrawItem& item : order)
@@ -344,7 +346,7 @@ namespace SushiEngine
                             {
                                 if (bound_kind != ItemKind::Rigid)
                                 {
-                                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                       mesh_pipeline_.get());
                                     bound_kind = ItemKind::Rigid;
                                     bound_vertices = VK_NULL_HANDLE;
@@ -359,8 +361,8 @@ namespace SushiEngine
                                     continue;
                                 if (mesh.vertices != bound_vertices)
                                 {
-                                    vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices, &zero);
-                                    vkCmdBindIndexBuffer(cmd, mesh.indices, 0,
+                                    vkCmdBindVertexBuffers(command, 0, 1, &mesh.vertices, &zero);
+                                    vkCmdBindIndexBuffer(command, mesh.indices, 0,
                                                          VK_INDEX_TYPE_UINT32);
                                     bound_vertices = mesh.vertices;
                                 }
@@ -368,15 +370,15 @@ namespace SushiEngine
                                 const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
-                                                   Geometry::shape_scale(instance.kind,
-                                                                         instance.shape_params));
+                                                   Geometry::shape_scale(
+                                                       instance.kind, instance.shape_parameters));
                                 const MeshPushConstants push = make_push(
                                     model, frame.eye, instance.material, instance.id,
                                     frame.draws.selected_id, instance_materials[item.index],
                                     instance_motions[item.index]);
-                                vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
+                                vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
                             }
                             else
                             {
@@ -384,7 +386,7 @@ namespace SushiEngine
                                     continue;
                                 if (bound_kind != ItemKind::Skinned)
                                 {
-                                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                       skinned_pipeline_.get());
                                     bound_kind = ItemKind::Skinned;
                                     bound_vertices = VK_NULL_HANDLE;
@@ -397,17 +399,18 @@ namespace SushiEngine
                                 const VkDeviceSize vertex_offset =
                                     static_cast<VkDeviceSize>(range.base_vertex) *
                                     Scene::SKINNED_VERTEX_SIZE;
-                                vkCmdBindVertexBuffers(cmd, 0, 1, &skinned_vertices,
+                                vkCmdBindVertexBuffers(command, 0, 1, &skinned_vertices,
                                                        &vertex_offset);
-                                vkCmdBindIndexBuffer(cmd, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
+                                vkCmdBindIndexBuffer(command, mesh.indices, 0,
+                                                     VK_INDEX_TYPE_UINT32);
 
                                 const MeshPushConstants push = make_push(
                                     range.model, frame.eye, range.material, range.id,
                                     frame.draws.selected_id, skinned_materials[item.index],
                                     skinned_motions[item.index]);
-                                vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, range.index_count, 1, 0, 0, 0);
+                                vkCmdDrawIndexed(command, range.index_count, 1, 0, 0, 0);
                             }
                         }
                     });

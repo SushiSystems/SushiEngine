@@ -170,16 +170,16 @@ namespace SushiEngine
          * portal graph. Passing null for both leaves the run exactly as before (and the
          * whole walk is read-only either way, so a deterministic run stays byte-identical).
          *
-         * @param world     The ECS world to read.
-         * @param out       The snapshot to fill (cleared first).
-         * @param acoustics Optional acoustic BVH (listener-local frame) for occlusion.
-         * @param portals   Optional room/portal graph (listener-local) for doorway sources.
-         * @param cfg       Occlusion/portal query tuning.
+         * @param world         The ECS world to read.
+         * @param out           The snapshot to fill (cleared first).
+         * @param acoustics     Optional acoustic BVH (listener-local frame) for occlusion.
+         * @param portals       Optional room/portal graph (listener-local) for doorway sources.
+         * @param configuration Occlusion/portal query tuning.
          */
         inline void build_audio_snapshot(World& world, Audio::SceneSnapshot& out,
                                          const Audio::AcousticScene* acoustics = nullptr,
                                          const Audio::PortalGraph* portals = nullptr,
-                                         const AcousticQueryConfiguration& cfg =
+                                         const AcousticQueryConfiguration& configuration =
                                              AcousticQueryConfiguration{})
         {
             out.emitters.clear();
@@ -254,9 +254,9 @@ namespace SushiEngine
                         Audio::OcclusionResult occ;
                         if (acoustics != nullptr && occluded_flag && es.spatial)
                         {
-                            occ = acoustics->soft_occlusion(es.position, Audio::AudioVec3{0, 0, 0},
-                                                            em.source_radius, cfg.ray_count,
-                                                            cfg.max_surfaces);
+                            occ = acoustics->soft_occlusion(
+                                es.position, Audio::AudioVec3{0, 0, 0}, em.source_radius,
+                                configuration.ray_count, configuration.max_surfaces);
                             for (int b = 0; b < 3; ++b)
                                 es.transmission[b] = occ.transmission[b];
                         }
@@ -264,8 +264,8 @@ namespace SushiEngine
                         if (portals != nullptr && es.spatial)
                         {
                             const Audio::PortalResolution pr = portals->resolve(
-                                Audio::AudioVec3{0, 0, 0}, es.position, cfg.reference_distance,
-                                cfg.max_doorways);
+                                Audio::AudioVec3{0, 0, 0}, es.position,
+                                configuration.reference_distance, configuration.max_doorways);
                             if (pr.same_room)
                             {
                                 es.obstruction = occ.fraction;
@@ -347,21 +347,21 @@ namespace SushiEngine
          * @ref build_audio_snapshot + @ref Audio::AudioScene::apply that reuses a
          * caller-owned snapshot to avoid per-frame allocation.
          *
-         * @param world     The ECS world to read.
-         * @param scene     The audio scene bridge to drive.
-         * @param scratch   A caller-owned snapshot reused across frames.
-         * @param acoustics Optional acoustic BVH (listener-local) for occlusion.
-         * @param portals   Optional room/portal graph (listener-local) for doorway sources.
-         * @param cfg       Occlusion/portal query tuning.
+         * @param world         The ECS world to read.
+         * @param scene         The audio scene bridge to drive.
+         * @param scratch       A caller-owned snapshot reused across frames.
+         * @param acoustics     Optional acoustic BVH (listener-local) for occlusion.
+         * @param portals       Optional room/portal graph (listener-local) for doorway sources.
+         * @param configuration Occlusion/portal query tuning.
          */
         inline void extract_audio_scene(World& world, Audio::AudioScene& scene,
                                         Audio::SceneSnapshot& scratch,
                                         const Audio::AcousticScene* acoustics = nullptr,
                                         const Audio::PortalGraph* portals = nullptr,
-                                        const AcousticQueryConfiguration& cfg =
+                                        const AcousticQueryConfiguration& configuration =
                                             AcousticQueryConfiguration{})
         {
-            build_audio_snapshot(world, scratch, acoustics, portals, cfg);
+            build_audio_snapshot(world, scratch, acoustics, portals, configuration);
             scene.apply(scratch);
         }
     } // namespace Simulation

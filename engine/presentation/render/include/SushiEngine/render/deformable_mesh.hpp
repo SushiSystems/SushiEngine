@@ -256,9 +256,9 @@ namespace SushiEngine
 
             for (DeformableVertex& vertex : out_vertices)
             {
-                const Scalar len = length(vertex.normal);
-                if (len > Scalar(1e-12))
-                    vertex.normal = vertex.normal * (Scalar(1) / len);
+                const Scalar normal_length = length(vertex.normal);
+                if (normal_length > Scalar(1e-12))
+                    vertex.normal = vertex.normal * (Scalar(1) / normal_length);
             }
         }
     } // namespace Render

@@ -84,37 +84,37 @@ namespace SushiEngine
 
             void UIPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc;
-                desc.layout = pipeline_layout_;
-                desc.vertex_shader = shaders_.module("ui.vert");
-                desc.fragment_shader = shaders_.module("ui.frag");
-                desc.vertex_stride = sizeof(Geometry::UIVertex);
-                desc.attribute_count = 3;
-                desc.attributes[0] = {0, VK_FORMAT_R32G32_SFLOAT,
-                                      offsetof(Geometry::UIVertex, x)};
-                desc.attributes[1] = {1, VK_FORMAT_R32G32_SFLOAT,
-                                      offsetof(Geometry::UIVertex, u)};
-                desc.attributes[2] = {2, VK_FORMAT_R8G8B8A8_UNORM,
-                                      offsetof(Geometry::UIVertex, color)};
-                desc.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                Resources::GraphicsPipelineDescription description;
+                description.layout = pipeline_layout_;
+                description.vertex_shader = shaders_.module("ui.vert");
+                description.fragment_shader = shaders_.module("ui.frag");
+                description.vertex_stride = sizeof(Geometry::UIVertex);
+                description.attribute_count = 3;
+                description.attributes[0] = {0, VK_FORMAT_R32G32_SFLOAT,
+                                             offsetof(Geometry::UIVertex, x)};
+                description.attributes[1] = {1, VK_FORMAT_R32G32_SFLOAT,
+                                             offsetof(Geometry::UIVertex, u)};
+                description.attributes[2] = {2, VK_FORMAT_R8G8B8A8_UNORM,
+                                             offsetof(Geometry::UIVertex, color)};
+                description.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
                 // A UI quad has no meaningful facing and no depth: it is painted in list order
                 // over a finished image.
-                desc.cull_mode = VK_CULL_MODE_NONE;
-                desc.depth_test = VK_FALSE;
-                desc.depth_write = VK_FALSE;
-                desc.color_count = 1;
-                desc.color_formats[0] = Frame::RESOLVE_FORMAT;
-                desc.depth_format = VK_FORMAT_UNDEFINED;
+                description.cull_mode = VK_CULL_MODE_NONE;
+                description.depth_test = VK_FALSE;
+                description.depth_write = VK_FALSE;
+                description.color_count = 1;
+                description.color_formats[0] = Frame::RESOLVE_FORMAT;
+                description.depth_format = VK_FORMAT_UNDEFINED;
                 // Premultiplied "over": the host already scaled rgb by alpha, so a translucent
                 // panel darkens what is behind it by exactly its own alpha.
-                desc.blend.enable = VK_TRUE;
-                desc.blend.src_color = VK_BLEND_FACTOR_ONE;
-                desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                desc.blend.color_op = VK_BLEND_OP_ADD;
-                desc.blend.src_alpha = VK_BLEND_FACTOR_ONE;
-                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                desc.blend.alpha_op = VK_BLEND_OP_ADD;
-                pipeline_ = pipelines_.create(desc);
+                description.blend.enable = VK_TRUE;
+                description.blend.source_color = VK_BLEND_FACTOR_ONE;
+                description.blend.destination_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                description.blend.color_op = VK_BLEND_OP_ADD;
+                description.blend.source_alpha = VK_BLEND_FACTOR_ONE;
+                description.blend.destination_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                description.blend.alpha_op = VK_BLEND_OP_ADD;
+                pipeline_ = pipelines_.create(description);
             }
 
             void UIPass::destroy_pipeline()
@@ -166,21 +166,22 @@ namespace SushiEngine
                         builder.color_attachment(0, frame.targets.resolve,
                                                  Graph::AttachmentLoad::Load);
                     },
-                    [this, push, vertices, indices, index_count](VkCommandBuffer cmd,
+                    [this, push, vertices, indices, index_count](VkCommandBuffer command,
                                                                  const Graph::PassContext&)
                     {
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                        pipeline_layout_, HEAP_SET, heap_.set());
-                        vkCmdPushConstants(cmd, pipeline_layout_,
+                        vkCmdPushConstants(command, pipeline_layout_,
                                            VK_SHADER_STAGE_VERTEX_BIT |
                                                VK_SHADER_STAGE_FRAGMENT_BIT,
                                            0, sizeof(push), &push);
 
                         const VkDeviceSize offset = 0;
-                        vkCmdBindVertexBuffers(cmd, 0, 1, &vertices, &offset);
-                        vkCmdBindIndexBuffer(cmd, indices, 0, VK_INDEX_TYPE_UINT32);
-                        vkCmdDrawIndexed(cmd, index_count, 1, 0, 0, 0);
+                        vkCmdBindVertexBuffers(command, 0, 1, &vertices, &offset);
+                        vkCmdBindIndexBuffer(command, indices, 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdDrawIndexed(command, index_count, 1, 0, 0, 0);
                     });
             }
         } // namespace Passes

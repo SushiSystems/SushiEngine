@@ -162,14 +162,14 @@ TEST(Unit_Audio, OcclusionFilterMufflesHighs)
         OcclusionFilter f;
         f.prepare(sr, block);
         f.set_targets(obstruction, 0.0f, open_t);
-        std::vector<float> buf(static_cast<std::size_t>(block));
+        std::vector<float> buffer(static_cast<std::size_t>(block));
         double phase = 0.0, in_rms = 0.0, out_rms = 0.0;
         for (int b = 0; b < 80; ++b)
         {
-            fill_sine(buf, freq, sr, phase);
-            in_rms = block_rms(buf);
-            f.process(buf.data(), block);
-            out_rms = block_rms(buf);
+            fill_sine(buffer, freq, sr, phase);
+            in_rms = block_rms(buffer);
+            f.process(buffer.data(), block);
+            out_rms = block_rms(buffer);
         }
         return static_cast<float>(out_rms / (in_rms + 1e-12));
     };
@@ -190,7 +190,7 @@ TEST(Unit_Audio, OcclusionFilterWetSend)
     const double sr = 48000.0;
     const int block = 480;
     const float open_t[3] = {1.0f, 1.0f, 1.0f};
-    std::vector<float> buf(static_cast<std::size_t>(block), 0.0f);
+    std::vector<float> buffer(static_cast<std::size_t>(block), 0.0f);
 
     OcclusionFilter obstruct;
     obstruct.prepare(sr, block);
@@ -198,8 +198,8 @@ TEST(Unit_Audio, OcclusionFilterWetSend)
     float wet_obstruct = 1.0f;
     for (int b = 0; b < 80; ++b)
     {
-        std::fill(buf.begin(), buf.end(), 0.0f);
-        wet_obstruct = obstruct.process(buf.data(), block);
+        std::fill(buffer.begin(), buffer.end(), 0.0f);
+        wet_obstruct = obstruct.process(buffer.data(), block);
     }
     EXPECT_GT(wet_obstruct, 0.98f);
 
@@ -209,8 +209,8 @@ TEST(Unit_Audio, OcclusionFilterWetSend)
     float wet_occlude = 1.0f;
     for (int b = 0; b < 80; ++b)
     {
-        std::fill(buf.begin(), buf.end(), 0.0f);
-        wet_occlude = occlude.process(buf.data(), block);
+        std::fill(buffer.begin(), buffer.end(), 0.0f);
+        wet_occlude = occlude.process(buffer.data(), block);
     }
     EXPECT_LT(wet_occlude, 0.02f);
 }

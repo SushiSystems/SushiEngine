@@ -1031,7 +1031,7 @@ namespace SushiEngine
                     const SushiEngine::Render::AtmosphereNestParameters& physics =
                         environment.atmosphere_nest;
                     // The same formula CloudscapeCompilePass uploads as
-                    // atmosphere_nest_params.w, so this preview and the GPU bake cannot
+                    // atmosphere_nest_parameters.w, so this preview and the GPU bake cannot
                     // disagree: sigma_ref = 3 * reference_lwc / (2 * rho_w * r_eff).
                     const float radius = physics.droplet_effective_radius > 1.0e-7f
                                              ? physics.droplet_effective_radius

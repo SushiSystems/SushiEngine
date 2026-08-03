@@ -53,12 +53,12 @@ int main()
                  AudioVec3{lx * 0.5f, ly * 0.5f, lz * 0.5f}, mat);
 
     RayTracedAcoustics tracer;
-    RayTraceParameters params;
-    params.rays = 12000;
-    params.max_order = 80;
-    params.receiver_radius = 0.6f;
+    RayTraceParameters parameters;
+    parameters.rays = 12000;
+    parameters.max_order = 80;
+    parameters.receiver_radius = 0.6f;
     const RoomImpulseResponse rir =
-        tracer.bake(room, AudioVec3{2.0f, 3.0f, 2.0f}, AudioVec3{8.0f, 3.0f, 2.0f}, params);
+        tracer.bake(room, AudioVec3{2.0f, 3.0f, 2.0f}, AudioVec3{8.0f, 3.0f, 2.0f}, parameters);
 
     const double volume = lx * ly * lz;
     const double surface = 2.0 * (lx * ly + ly * lz + lx * lz);
@@ -109,10 +109,10 @@ int main()
     scene.add_instance(instance);
     scene.commit();
 
-    const AudioVec3 src{0.0f, 0.0f, 1.0f};
+    const AudioVec3 source{0.0f, 0.0f, 1.0f};
     const AudioVec3 lst{10.0f, 0.0f, 1.0f};
     float diff_db[ACOUSTIC_BAND_COUNT];
-    RayTracedAcoustics::maekawa_diffraction_db(scene, barrier_mesh, src, lst, diff_db);
+    RayTracedAcoustics::maekawa_diffraction_db(scene, barrier_mesh, source, lst, diff_db);
     std::printf("barrier diffraction loss per band: %.1f %.1f %.1f dB\n", diff_db[0], diff_db[1],
                 diff_db[2]);
     if (!(diff_db[0] > 0.0f) || !(diff_db[2] >= diff_db[0]))

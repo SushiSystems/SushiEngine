@@ -68,7 +68,7 @@ namespace SushiEngine
                     return std::max(levels, 2u);
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, std::uint32_t base_mip,
+                void transition(VkCommandBuffer command, VkImage image, std::uint32_t base_mip,
                                 std::uint32_t mip_count, VkImageLayout from, VkImageLayout to,
                                 VkPipelineStageFlags2 source, VkPipelineStageFlags2 destination,
                                 VkAccessFlags2 source_access, VkAccessFlags2 destination_access)
@@ -93,16 +93,16 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
 
                 Resources::SamplerDescription linear_sampler() noexcept
                 {
-                    Resources::SamplerDescription desc;
-                    desc.filter = VK_FILTER_LINEAR;
-                    desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                    desc.max_lod = static_cast<float>(MAX_MIPS);
-                    return desc;
+                    Resources::SamplerDescription description;
+                    description.filter = VK_FILTER_LINEAR;
+                    description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    description.max_lod = static_cast<float>(MAX_MIPS);
+                    return description;
                 }
             } // namespace
 
@@ -290,7 +290,7 @@ namespace SushiEngine
                         builder.read(source, Graph::TextureAccess::SampledCompute);
                         builder.write(bloom, Graph::TextureAccess::StorageComputeWrite);
                     },
-                    [this, &frame, source, bloom, radius](VkCommandBuffer cmd,
+                    [this, &frame, source, bloom, radius](VkCommandBuffer command,
                                                           const Graph::PassContext& context)
                     {
                         const VkSampler sampler = frame.samplers->get(linear_sampler());
@@ -298,11 +298,11 @@ namespace SushiEngine
 
                         // Both pyramids start undefined and are fully rewritten; move the whole
                         // chain to GENERAL for read/write.
-                        transition(cmd, down_.image, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, down_.image, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                        transition(cmd, up_.image, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, up_.image, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -311,37 +311,39 @@ namespace SushiEngine
 
                         // Downsample: level 0 from the HDR scene (Karis-averaged), each finer
                         // level from the one above.
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, down_pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, down_pipeline_);
                         for (std::uint32_t level = 0; level < mips_; ++level)
                         {
                             const std::uint32_t dw = mip_extent(base_width_, level);
                             const std::uint32_t dh = mip_extent(base_height_, level);
-                            const VkImageView src_view = level == 0 ? source_view : down_.sample_view;
-                            const float src_lod = level == 0 ? 0.0f : static_cast<float>(level - 1);
+                            const VkImageView level_source_view =
+                                level == 0 ? source_view : down_.sample_view;
+                            const float source_lod =
+                                level == 0 ? 0.0f : static_cast<float>(level - 1);
                             // The graph keeps the level-0 source in shader-read-only; the pass
                             // keeps its own pyramid in GENERAL across the whole build.
-                            const VkImageLayout src_layout =
+                            const VkImageLayout source_layout =
                                 level == 0 ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                                            : VK_IMAGE_LAYOUT_GENERAL;
 
                             const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
                             Resources::DescriptorWriter down_writer;
-                            down_writer.sampled_image(0, src_view, sampler, src_layout);
-                            down_writer.sampled_image(1, src_view, sampler, src_layout);
+                            down_writer.sampled_image(0, level_source_view, sampler, source_layout);
+                            down_writer.sampled_image(1, level_source_view, sampler, source_layout);
                             down_writer.storage_image(2, down_.mip_views[level]);
                             down_writer.update(device_.device(), set);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            pipeline_layout_, 0, set);
 
                             push.a[0] = static_cast<float>(dw);
                             push.a[1] = static_cast<float>(dh);
-                            push.a[2] = src_lod;
+                            push.a[2] = source_lod;
                             push.a[3] = level == 0 ? 1.0f : 0.0f;
-                            vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                               sizeof(Push), &push);
-                            vkCmdDispatch(cmd, groups(dw), groups(dh), 1);
+                            vkCmdPushConstants(command, pipeline_layout_,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
+                            vkCmdDispatch(command, groups(dw), groups(dh), 1);
 
-                            transition(cmd, down_.image, level, 1, VK_IMAGE_LAYOUT_GENERAL,
+                            transition(command, down_.image, level, 1, VK_IMAGE_LAYOUT_GENERAL,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -352,7 +354,7 @@ namespace SushiEngine
                         // Upsample: from the coarsest level down, each level adds its own
                         // downsample to the tent-expanded coarser level. The finest step writes
                         // the graph bloom target so the tone map reads it with derived barriers.
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, up_pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, up_pipeline_);
                         for (std::int32_t level = static_cast<std::int32_t>(mips_) - 2; level >= 0;
                              --level)
                         {
@@ -378,7 +380,7 @@ namespace SushiEngine
                                                     VK_IMAGE_LAYOUT_GENERAL);
                             up_writer.storage_image(2, out_view);
                             up_writer.update(device_.device(), set);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            pipeline_layout_, 0, set);
 
                             push.a[0] = static_cast<float>(dw);
@@ -386,14 +388,14 @@ namespace SushiEngine
                             push.a[2] = low_lod;
                             push.a[3] = static_cast<float>(level); // base lod in the down pyramid
                             push.b[0] = radius;
-                            vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                               sizeof(Push), &push);
-                            vkCmdDispatch(cmd, groups(dw), groups(dh), 1);
+                            vkCmdPushConstants(command, pipeline_layout_,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
+                            vkCmdDispatch(command, groups(dw), groups(dh), 1);
 
                             // The just-written up level becomes readable by the next (finer) step;
                             // the finest level wrote the graph target, which the graph barriers.
                             if (!final_level)
-                                transition(cmd, up_.image,
+                                transition(command, up_.image,
                                            static_cast<std::uint32_t>(level), 1,
                                            VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,

@@ -188,7 +188,7 @@ namespace SushiEngine
 
                 /**
                  * @brief Starts a voice (control side).
-                 * @param descriptor The voice's gain, priority, bus, pan, and spatial params.
+                 * @param descriptor The voice's gain, priority, bus, pan, and spatial parameters.
                  * @param source     The mono source to render (ownership transferred).
                  * @return A voice handle, or @ref INVALID_VOICE if the pool is full.
                  */
@@ -694,11 +694,12 @@ namespace SushiEngine
                         {
                             case VoiceCommandKind::Play:
                             {
-                                const std::size_t idx = static_cast<std::size_t>(c.handle & SLOT_MASK);
+                                const std::size_t index =
+                                    static_cast<std::size_t>(c.handle & SLOT_MASK);
                                 const std::uint32_t gen =
                                     static_cast<std::uint32_t>(c.handle) >> SLOT_BITS;
-                                if (idx < slots_.size())
-                                    install_at(idx, gen, c.descriptor,
+                                if (index < slots_.size())
+                                    install_at(index, gen, c.descriptor,
                                                std::unique_ptr<VoiceSource>(c.source));
                                 else
                                     delete c.source;

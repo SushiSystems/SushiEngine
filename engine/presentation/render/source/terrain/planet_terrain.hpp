@@ -145,11 +145,11 @@ namespace SushiEngine
                      * megabytes — a scene with no terrain in it should not pay for one.
                      * @ref set_body is what turns this on.
                      *
-                     * @param device The live Vulkan device.
-                     * @param desc   What to select for, and how large the pool may grow.
+                     * @param device      The live Vulkan device.
+                     * @param description What to select for, and how large the pool may grow.
                      */
                     PlanetTerrain(Vulkan::VulkanDevice& device,
-                                  const PlanetTerrainDescription& desc);
+                                  const PlanetTerrainDescription& description);
 
                     PlanetTerrain(const PlanetTerrain&) = delete;
                     PlanetTerrain& operator=(const PlanetTerrain&) = delete;
@@ -266,7 +266,7 @@ namespace SushiEngine
                      * planet should never allocate it.
                      */
                     std::unique_ptr<TileCache> cache_;
-                    PlanetTerrainDescription desc_;
+                    PlanetTerrainDescription description_;
                     int body_index_ = -1;
 
                     std::vector<SushiEngine::Terrain::TerrainNode> nodes_;

@@ -31,7 +31,7 @@
  * result K blocks later, never stalling on the device.
  *
  * The offload is a per-block, *stateless* convolution: the caller hands a block padded with
- * the preceding `ir_len − 1` history samples, and a SYCL `parallel_for` computes the block's
+ * the preceding `ir_length − 1` history samples, and a SYCL `parallel_for` computes the block's
  * outputs in parallel. Each submit is independent, so slots pipeline freely — the device
  * chews block *t* while the host prepares block *t+1* and consumes block *t−K*. Buffers are
  * USM allocated through the runtime's context (`malloc_shared`), host- and device-visible,
@@ -134,19 +134,19 @@ namespace SushiEngine
                 int lookahead() const noexcept { return slots_ - 1; }
 
                 /** @brief The number of history samples a padded input block must carry. */
-                int history() const noexcept { return ir_len_ > 0 ? ir_len_ - 1 : 0; }
+                int history() const noexcept { return ir_length_ > 0 ? ir_length_ - 1 : 0; }
 
                 /**
                  * @brief Uploads the impulse response to the device (off the audio thread).
-                 * @param ir     The filter taps.
-                 * @param ir_len Number of taps (clamped to the constructed maximum).
+                 * @param ir        The filter taps.
+                 * @param ir_length Number of taps (clamped to the constructed maximum).
                  */
-                void set_impulse(const float* ir, int ir_len)
+                void set_impulse(const float* ir, int ir_length)
                 {
                     if (!available_)
                         return;
-                    ir_len_ = ir_len < max_ir_ ? ir_len : max_ir_;
-                    for (int i = 0; i < ir_len_; ++i)
+                    ir_length_ = ir_length < max_ir_ ? ir_length : max_ir_;
+                    for (int i = 0; i < ir_length_; ++i)
                         ir_dev_[i] = ir[i];
                 }
 
@@ -171,22 +171,25 @@ namespace SushiEngine
                         s.in[i] = padded_input[i];
 
                     const int block = block_;
-                    const int taps = ir_len_;
+                    const int taps = ir_length_;
                     const int hist = history();
                     float* in = s.in;
                     float* out = s.out;
                     const float* ir = ir_dev_;
                     sycl::queue& queue = context_->get_queue();
-                    s.event = queue.submit([&](sycl::handler& handler) {
-                        handler.parallel_for(sycl::range<1>(static_cast<std::size_t>(block)),
-                                             [=](sycl::id<1> idx) {
-                                                 const int n = static_cast<int>(idx[0]);
-                                                 float acc = 0.0f;
-                                                 for (int k = 0; k < taps; ++k)
-                                                     acc += in[n + hist - k] * ir[k];
-                                                 out[n] = acc;
-                                             });
-                    });
+                    s.event = queue.submit(
+                        [&](sycl::handler& handler)
+                        {
+                            handler.parallel_for(sycl::range<1>(static_cast<std::size_t>(block)),
+                                                 [=](sycl::id<1> index)
+                                                 {
+                                                     const int n = static_cast<int>(index[0]);
+                                                     float acc = 0.0f;
+                                                     for (int k = 0; k < taps; ++k)
+                                                         acc += in[n + hist - k] * ir[k];
+                                                     out[n] = acc;
+                                                 });
+                        });
                     s.pending = true;
                 }
 
@@ -225,7 +228,7 @@ namespace SushiEngine
                 int block_ = 0;
                 int max_ir_ = 0;
                 int padded_ = 0;
-                int ir_len_ = 0;
+                int ir_length_ = 0;
                 int slots_ = 1;
                 bool available_ = false;
         };

@@ -99,9 +99,9 @@ namespace SushiEngine
                     snapshot.tick = tick;
 
                     for (Archetype* archetype : world.query(Signature{}))
-                        for (const std::unique_ptr<Chunk>& chunk_ptr : archetype->chunks())
+                        for (const std::unique_ptr<Chunk>& chunk_pointer : archetype->chunks())
                         {
-                            Chunk& chunk = *chunk_ptr;
+                            Chunk& chunk = *chunk_pointer;
                             ChunkSnapshot cs;
                             cs.chunk = &chunk;
                             cs.count = chunk.count();
@@ -109,8 +109,8 @@ namespace SushiEngine
                             for (std::size_t i = 0; i < chunk.column_count(); ++i)
                             {
                                 const std::size_t bytes = chunk.column_size(i) * cs.count;
-                                const std::byte* src = chunk.column_at(i);
-                                cs.columns.emplace_back(src, src + bytes);
+                                const std::byte* source = chunk.column_at(i);
+                                cs.columns.emplace_back(source, source + bytes);
                             }
                             snapshot.chunks.push_back(std::move(cs));
                         }

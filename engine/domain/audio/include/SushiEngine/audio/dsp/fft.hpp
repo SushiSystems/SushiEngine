@@ -122,11 +122,11 @@ namespace SushiEngine
                             }
                         }
                         // Butterfly stages.
-                        for (int len = 2; len <= size_; len <<= 1)
+                        for (int length = 2; length <= size_; length <<= 1)
                         {
-                            const int half = len >> 1;
-                            const int stride = size_ / len;
-                            for (int i = 0; i < size_; i += len)
+                            const int half = length >> 1;
+                            const int stride = size_ / length;
+                            for (int i = 0; i < size_; i += length)
                             {
                                 int k = 0;
                                 for (int j = 0; j < half; ++j)

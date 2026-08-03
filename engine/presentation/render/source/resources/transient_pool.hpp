@@ -85,7 +85,7 @@ namespace SushiEngine
                         VmaAllocation allocation = VK_NULL_HANDLE;
                         VkImageView view = VK_NULL_HANDLE;
                         VkImageView sample_view = VK_NULL_HANDLE;
-                        Graph::TextureDescription desc{};
+                        Graph::TextureDescription description{};
                         Graph::TextureState state{};
                         bool in_use = false;
                         std::uint32_t frames_unused = 0;
@@ -111,10 +111,10 @@ namespace SushiEngine
 
                     /**
                      * @brief Hands out an image matching a description, creating one if needed.
-                     * @param desc The image to back a transient with.
+                     * @param description The image to back a transient with.
                      * @return The entry index, valid until the next begin_frame().
                      */
-                    std::uint32_t acquire(const Graph::TextureDescription& desc);
+                    std::uint32_t acquire(const Graph::TextureDescription& description);
 
                     /**
                      * @brief Returns an entry to the free list so a later transient may reuse it.
@@ -156,7 +156,7 @@ namespace SushiEngine
                         VkBuffer buffer = VK_NULL_HANDLE;
                         VmaAllocation allocation = VK_NULL_HANDLE;
                         void* mapped = nullptr;
-                        Graph::BufferDescription desc{};
+                        Graph::BufferDescription description{};
                         Graph::BufferState state{};
                         bool in_use = false;
                         std::uint32_t frames_unused = 0;
@@ -177,10 +177,10 @@ namespace SushiEngine
 
                     /**
                      * @brief Hands out a buffer matching a description, creating one if needed.
-                     * @param desc The buffer to back a transient with.
+                     * @param description The buffer to back a transient with.
                      * @return The entry index, valid until the next begin_frame().
                      */
-                    std::uint32_t acquire(const Graph::BufferDescription& desc);
+                    std::uint32_t acquire(const Graph::BufferDescription& description);
 
                     /**
                      * @brief Returns an entry to the free list so a later transient may reuse it.

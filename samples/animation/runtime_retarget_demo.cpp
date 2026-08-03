@@ -61,7 +61,7 @@ namespace
     // bind translation length, so the whole chain scales together.
     std::vector<std::byte> make_arm_skeleton(float hip_height, float arm_length)
     {
-        SkeletonDescription desc;
+        SkeletonDescription description;
         JointDescription hips;
         hips.name = "Hips";
         hips.parent = -1;
@@ -74,9 +74,9 @@ namespace
         tip.name = "ArmTip";
         tip.parent = 1;
         tip.bind_translation = Vector3f{arm_length, 0.0f, 0.0f};
-        desc.joints = {hips, arm, tip};
+        description.joints = {hips, arm, tip};
         std::vector<std::byte> blob;
-        if (!build_skeleton_blob(desc, blob))
+        if (!build_skeleton_blob(description, blob))
             std::printf("[runtime_retarget_demo] FAIL: cook skeleton\n"), ++failures;
         return blob;
     }
@@ -89,21 +89,23 @@ namespace
                                          Vector3f hip_delta, Quaternionf arm_rotation)
     {
         const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
-        ClipDescription desc;
-        desc.joint_count = 3;
-        desc.frame_count = 2;
-        desc.sample_rate = 1.0f;
-        desc.translations = {
-            Vector3f{0.0f, hip_height, 0.0f}, Vector3f{arm_length, 0.0f, 0.0f},
+        ClipDescription description;
+        description.joint_count = 3;
+        description.frame_count = 2;
+        description.sample_rate = 1.0f;
+        description.translations = {
+            Vector3f{0.0f, hip_height, 0.0f},
+            Vector3f{arm_length, 0.0f, 0.0f},
             Vector3f{arm_length, 0.0f, 0.0f}, // frame 0 (bind)
-            Vector3f{0.0f, hip_height, 0.0f} + hip_delta, Vector3f{arm_length, 0.0f, 0.0f},
+            Vector3f{0.0f, hip_height, 0.0f} + hip_delta,
+            Vector3f{arm_length, 0.0f, 0.0f},
             Vector3f{arm_length, 0.0f, 0.0f}, // frame 1
         };
-        desc.rotations = {identity, identity, identity, identity, arm_rotation, identity};
-        desc.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1},
-                       Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1}};
+        description.rotations = {identity, identity, identity, identity, arm_rotation, identity};
+        description.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1},
+                              Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1}};
         std::vector<std::byte> blob;
-        if (!build_clip_blob(desc, blob))
+        if (!build_clip_blob(description, blob))
             std::printf("[runtime_retarget_demo] FAIL: cook clip\n"), ++failures;
         return blob;
     }

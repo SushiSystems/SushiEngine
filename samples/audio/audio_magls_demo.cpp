@@ -98,17 +98,17 @@ namespace
     int first_arrival(const float* ir, int n)
     {
         float peak = 0.0f;
-        int idx = 0;
+        int index = 0;
         for (int i = 0; i < n; ++i)
         {
             const float a = std::fabs(ir[i]);
             if (a > peak)
             {
                 peak = a;
-                idx = i;
+                index = i;
             }
         }
-        return idx;
+        return index;
     }
 } // namespace
 

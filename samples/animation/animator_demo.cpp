@@ -63,13 +63,13 @@ int main()
     AnimationDatabase database;
 
     // --- Skeleton: root + child ------------------------------------------------------
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     JointDescription root; root.name = "root"; root.parent = -1;
     JointDescription child; child.name = "child"; child.parent = 0;
     child.bind_translation = Vector3f{0, 1, 0};
-    skeleton_desc.joints = {root, child};
+    skeleton_description.joints = {root, child};
     std::vector<std::byte> skeleton_blob;
-    build_skeleton_blob(skeleton_desc, skeleton_blob);
+    build_skeleton_blob(skeleton_description, skeleton_blob);
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
 
     // --- Clips: idle (root still) and walk (root advances +2 in z per loop) ----------
@@ -96,8 +96,9 @@ int main()
     const AssetId walk_clip = make_clip(true);
 
     // --- Controller: Idle <-> Walk over a "moving" bool ------------------------------
-    ControllerDescription controller_desc;
-    controller_desc.parameters.push_back(ParameterDescription{"moving", ParameterType::Bool, 0.0f});
+    ControllerDescription controller_description;
+    controller_description.parameters.push_back(
+        ParameterDescription{"moving", ParameterType::Bool, 0.0f});
 
     LayerDescription layer;
     layer.name = "base";
@@ -123,10 +124,10 @@ int main()
     walk.transitions.push_back(to_idle);
 
     layer.states = {idle, walk};
-    controller_desc.layers.push_back(layer);
+    controller_description.layers.push_back(layer);
 
     std::vector<std::byte> controller_blob;
-    check(compile_controller_blob(controller_desc, controller_blob), "controller compiles");
+    check(compile_controller_blob(controller_description, controller_blob), "controller compiles");
     const AssetId controller_id = database.add_controller(std::move(controller_blob));
     check(controller_id != INVALID_ASSET, "controller registers");
     const ControllerView controller = database.controller(controller_id);

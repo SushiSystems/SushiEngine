@@ -69,121 +69,123 @@ namespace SushiEngine
 
                 /**
                  * @brief Builds the vertex input and input assembly state from a description.
-                 * @param desc  The pipeline description.
+                 * @param description  The pipeline description.
                  * @param state Receives the filled structs.
                  */
-                void fill_vertex_input(const GraphicsPipelineDescription& desc,
+                void fill_vertex_input(const GraphicsPipelineDescription& description,
                                        VertexInputState& state)
                 {
                     state.binding.binding = 0;
-                    state.binding.stride = desc.vertex_stride;
+                    state.binding.stride = description.vertex_stride;
                     state.binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-                    for (std::uint32_t i = 0; i < desc.attribute_count; ++i)
+                    for (std::uint32_t i = 0; i < description.attribute_count; ++i)
                     {
                         state.attributes[i].binding = 0;
-                        state.attributes[i].location = desc.attributes[i].location;
-                        state.attributes[i].format = desc.attributes[i].format;
-                        state.attributes[i].offset = desc.attributes[i].offset;
+                        state.attributes[i].location = description.attributes[i].location;
+                        state.attributes[i].format = description.attributes[i].format;
+                        state.attributes[i].offset = description.attributes[i].offset;
                     }
 
                     state.info.sType =
                         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
                     // A stride of zero is how a fullscreen pass says it fetches nothing:
                     // no binding, no attributes, the vertex shader synthesises positions.
-                    state.info.vertexBindingDescriptionCount = desc.vertex_stride > 0 ? 1 : 0;
+                    state.info.vertexBindingDescriptionCount =
+                        description.vertex_stride > 0 ? 1 : 0;
                     state.info.pVertexBindingDescriptions =
-                        desc.vertex_stride > 0 ? &state.binding : nullptr;
-                    state.info.vertexAttributeDescriptionCount = desc.attribute_count;
+                        description.vertex_stride > 0 ? &state.binding : nullptr;
+                    state.info.vertexAttributeDescriptionCount = description.attribute_count;
                     state.info.pVertexAttributeDescriptions =
-                        desc.attribute_count > 0 ? state.attributes : nullptr;
+                        description.attribute_count > 0 ? state.attributes : nullptr;
 
                     state.assembly.sType =
                         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-                    state.assembly.topology = desc.topology;
+                    state.assembly.topology = description.topology;
                 }
 
                 /**
                  * @brief Builds the rasterisation state from a description.
-                 * @param desc The pipeline description.
+                 * @param description The pipeline description.
                  * @return The filled struct.
                  */
                 VkPipelineRasterizationStateCreateInfo fill_rasterization(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     VkPipelineRasterizationStateCreateInfo raster{};
                     raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-                    raster.polygonMode = desc.polygon_mode;
-                    raster.cullMode = desc.cull_mode;
-                    raster.frontFace = desc.front_face;
-                    raster.lineWidth = desc.line_width;
-                    raster.depthBiasEnable = desc.depth_bias_enable;
-                    raster.depthBiasConstantFactor = desc.depth_bias_constant;
-                    raster.depthBiasSlopeFactor = desc.depth_bias_slope;
+                    raster.polygonMode = description.polygon_mode;
+                    raster.cullMode = description.cull_mode;
+                    raster.frontFace = description.front_face;
+                    raster.lineWidth = description.line_width;
+                    raster.depthBiasEnable = description.depth_bias_enable;
+                    raster.depthBiasConstantFactor = description.depth_bias_constant;
+                    raster.depthBiasSlopeFactor = description.depth_bias_slope;
                     return raster;
                 }
 
                 /**
                  * @brief Builds the depth/stencil state from a description.
-                 * @param desc The pipeline description.
+                 * @param description The pipeline description.
                  * @return The filled struct.
                  */
                 VkPipelineDepthStencilStateCreateInfo fill_depth_stencil(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     VkPipelineDepthStencilStateCreateInfo depth{};
                     depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-                    depth.depthTestEnable = desc.depth_test;
-                    depth.depthWriteEnable = desc.depth_write;
-                    depth.depthCompareOp = desc.depth_compare;
-                    depth.stencilTestEnable = desc.stencil_test;
-                    depth.front = desc.stencil;
-                    depth.back = desc.stencil;
+                    depth.depthTestEnable = description.depth_test;
+                    depth.depthWriteEnable = description.depth_write;
+                    depth.depthCompareOp = description.depth_compare;
+                    depth.stencilTestEnable = description.stencil_test;
+                    depth.front = description.stencil;
+                    depth.back = description.stencil;
                     return depth;
                 }
 
                 /**
                  * @brief Builds the colour blend state from a description.
-                 * @param desc  The pipeline description.
+                 * @param description  The pipeline description.
                  * @param state Receives the filled structs.
                  */
-                void fill_color_blend(const GraphicsPipelineDescription& desc,
+                void fill_color_blend(const GraphicsPipelineDescription& description,
                                       ColorBlendState& state)
                 {
-                    for (std::uint32_t i = 0; i < desc.color_count; ++i)
+                    for (std::uint32_t i = 0; i < description.color_count; ++i)
                     {
                         VkPipelineColorBlendAttachmentState& attachment = state.attachments[i];
                         attachment.colorWriteMask =
                             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
                         attachment.blendEnable =
-                            desc.blend.enable && ((desc.blend_mask >> i) & 1u) != 0;
-                        attachment.srcColorBlendFactor = desc.blend.src_color;
-                        attachment.dstColorBlendFactor = desc.blend.dst_color;
-                        attachment.colorBlendOp = desc.blend.color_op;
-                        attachment.srcAlphaBlendFactor = desc.blend.src_alpha;
-                        attachment.dstAlphaBlendFactor = desc.blend.dst_alpha;
-                        attachment.alphaBlendOp = desc.blend.alpha_op;
+                            description.blend.enable && ((description.blend_mask >> i) & 1u) != 0;
+                        attachment.srcColorBlendFactor = description.blend.source_color;
+                        attachment.dstColorBlendFactor = description.blend.destination_color;
+                        attachment.colorBlendOp = description.blend.color_op;
+                        attachment.srcAlphaBlendFactor = description.blend.source_alpha;
+                        attachment.dstAlphaBlendFactor = description.blend.destination_alpha;
+                        attachment.alphaBlendOp = description.blend.alpha_op;
                     }
                     state.info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-                    state.info.attachmentCount = desc.color_count;
-                    state.info.pAttachments = desc.color_count > 0 ? state.attachments : nullptr;
+                    state.info.attachmentCount = description.color_count;
+                    state.info.pAttachments =
+                        description.color_count > 0 ? state.attachments : nullptr;
                 }
 
                 /**
                  * @brief Builds the dynamic-rendering format declaration from a description.
-                 * @param desc The pipeline description.
-                 * @return The filled struct, pointing into @p desc.
+                 * @param description The pipeline description.
+                 * @return The filled struct, pointing into @p description.
                  */
                 VkPipelineRenderingCreateInfo fill_rendering(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     VkPipelineRenderingCreateInfo rendering{};
                     rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-                    rendering.colorAttachmentCount = desc.color_count;
+                    rendering.colorAttachmentCount = description.color_count;
                     rendering.pColorAttachmentFormats =
-                        desc.color_count > 0 ? desc.color_formats : nullptr;
-                    rendering.depthAttachmentFormat = desc.depth_format;
-                    rendering.stencilAttachmentFormat = desc.stencil_format;
+                        description.color_count > 0 ? description.color_formats : nullptr;
+                    rendering.depthAttachmentFormat = description.depth_format;
+                    rendering.stencilAttachmentFormat = description.stencil_format;
                     return rendering;
                 }
 
@@ -206,78 +208,78 @@ namespace SushiEngine
 
                 /** @brief The description subset that identifies a vertex-input library. */
                 GraphicsPipelineDescription vertex_input_key(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
-                    key.vertex_stride = desc.vertex_stride;
-                    key.attribute_count = desc.attribute_count;
-                    for (std::uint32_t i = 0; i < desc.attribute_count; ++i)
-                        key.attributes[i] = desc.attributes[i];
-                    key.topology = desc.topology;
+                    key.vertex_stride = description.vertex_stride;
+                    key.attribute_count = description.attribute_count;
+                    for (std::uint32_t i = 0; i < description.attribute_count; ++i)
+                        key.attributes[i] = description.attributes[i];
+                    key.topology = description.topology;
                     return key;
                 }
 
                 /** @brief The description subset that identifies a pre-rasterisation library. */
                 GraphicsPipelineDescription pre_rasterization_key(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
-                    key.layout = desc.layout;
-                    key.vertex_shader = desc.vertex_shader;
-                    key.polygon_mode = desc.polygon_mode;
-                    key.cull_mode = desc.cull_mode;
-                    key.front_face = desc.front_face;
-                    key.line_width = desc.line_width;
-                    key.depth_bias_enable = desc.depth_bias_enable;
-                    key.depth_bias_constant = desc.depth_bias_constant;
-                    key.depth_bias_slope = desc.depth_bias_slope;
+                    key.layout = description.layout;
+                    key.vertex_shader = description.vertex_shader;
+                    key.polygon_mode = description.polygon_mode;
+                    key.cull_mode = description.cull_mode;
+                    key.front_face = description.front_face;
+                    key.line_width = description.line_width;
+                    key.depth_bias_enable = description.depth_bias_enable;
+                    key.depth_bias_constant = description.depth_bias_constant;
+                    key.depth_bias_slope = description.depth_bias_slope;
                     return key;
                 }
 
                 /** @brief The description subset that identifies a fragment-shader library. */
                 GraphicsPipelineDescription fragment_shader_key(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
-                    key.layout = desc.layout;
-                    key.fragment_shader = desc.fragment_shader;
-                    key.depth_test = desc.depth_test;
-                    key.depth_write = desc.depth_write;
-                    key.depth_compare = desc.depth_compare;
-                    key.stencil_test = desc.stencil_test;
-                    key.stencil = desc.stencil;
-                    key.dynamic_stencil_reference = desc.dynamic_stencil_reference;
-                    key.depth_format = desc.depth_format;
-                    key.stencil_format = desc.stencil_format;
+                    key.layout = description.layout;
+                    key.fragment_shader = description.fragment_shader;
+                    key.depth_test = description.depth_test;
+                    key.depth_write = description.depth_write;
+                    key.depth_compare = description.depth_compare;
+                    key.stencil_test = description.stencil_test;
+                    key.stencil = description.stencil;
+                    key.dynamic_stencil_reference = description.dynamic_stencil_reference;
+                    key.depth_format = description.depth_format;
+                    key.stencil_format = description.stencil_format;
                     return key;
                 }
 
                 /** @brief The description subset that identifies a fragment-output library. */
                 GraphicsPipelineDescription fragment_output_key(
-                    const GraphicsPipelineDescription& desc)
+                    const GraphicsPipelineDescription& description)
                 {
                     GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
-                    key.color_count = desc.color_count;
-                    for (std::uint32_t i = 0; i < desc.color_count; ++i)
-                        key.color_formats[i] = desc.color_formats[i];
-                    key.depth_format = desc.depth_format;
-                    key.stencil_format = desc.stencil_format;
+                    key.color_count = description.color_count;
+                    for (std::uint32_t i = 0; i < description.color_count; ++i)
+                        key.color_formats[i] = description.color_formats[i];
+                    key.depth_format = description.depth_format;
+                    key.stencil_format = description.stencil_format;
                     // Blend state belongs to the fragment-output subset: two pipelines that
                     // differ only in how they blend must not share one cached output library.
-                    key.blend = desc.blend;
-                    key.blend_mask = desc.blend_mask;
+                    key.blend = description.blend;
+                    key.blend_mask = description.blend_mask;
                     return key;
                 }
             } // namespace
@@ -379,24 +381,25 @@ namespace SushiEngine
                 }
             }
 
-            PipelineHandle GraphicsPipelineFactory::create(const GraphicsPipelineDescription& desc)
+            PipelineHandle GraphicsPipelineFactory::create(
+                const GraphicsPipelineDescription& description)
             {
                 // A depth-only pipeline has no fragment stage, so three of the four
                 // libraries would be empty or absent; building it whole is both simpler
                 // and, for the one or two such pipelines a frame has, no slower.
                 VkPipeline initial = VK_NULL_HANDLE;
                 bool fast_linked = false;
-                if (device_.supports_pipeline_library() && !desc.shading_rate_attachment &&
-                    desc.fragment_shader != VK_NULL_HANDLE)
+                if (device_.supports_pipeline_library() && !description.shading_rate_attachment &&
+                    description.fragment_shader != VK_NULL_HANDLE)
                 {
-                    initial = create_linked(desc);
+                    initial = create_linked(description);
                     fast_linked = initial != VK_NULL_HANDLE;
                 }
                 if (initial == VK_NULL_HANDLE)
-                    initial = create_monolithic(desc);
+                    initial = create_monolithic(description);
 
                 std::unique_ptr<Slot> slot = std::make_unique<Slot>();
-                slot->desc = desc;
+                slot->description = description;
                 slot->initial = initial;
                 slot->active.store(initial, std::memory_order_release);
                 Slot* raw = slot.get();
@@ -442,7 +445,7 @@ namespace SushiEngine
                     VkPipeline optimized = VK_NULL_HANDLE;
                     try
                     {
-                        optimized = create_monolithic(slot->desc);
+                        optimized = create_monolithic(slot->description);
                     }
                     catch (...)
                     {
@@ -524,19 +527,20 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::create_monolithic(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
                 VertexInputState vertex_input;
-                fill_vertex_input(desc, vertex_input);
+                fill_vertex_input(description, vertex_input);
                 ColorBlendState blend;
-                fill_color_blend(desc, blend);
-                const VkPipelineRasterizationStateCreateInfo raster = fill_rasterization(desc);
-                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(desc);
-                VkPipelineRenderingCreateInfo rendering = fill_rendering(desc);
+                fill_color_blend(description, blend);
+                const VkPipelineRasterizationStateCreateInfo raster =
+                    fill_rasterization(description);
+                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(description);
+                VkPipelineRenderingCreateInfo rendering = fill_rendering(description);
 
                 VkPipelineShaderStageCreateInfo stages[2] = {
-                    shader_stage(VK_SHADER_STAGE_VERTEX_BIT, desc.vertex_shader),
-                    shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, desc.fragment_shader)};
+                    shader_stage(VK_SHADER_STAGE_VERTEX_BIT, description.vertex_shader),
+                    shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, description.fragment_shader)};
 
                 VkPipelineViewportStateCreateInfo viewport{};
                 viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -552,16 +556,16 @@ namespace SushiEngine
                                                     VK_DYNAMIC_STATE_STENCIL_REFERENCE};
                 VkPipelineDynamicStateCreateInfo dynamic{};
                 dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                dynamic.dynamicStateCount = desc.dynamic_stencil_reference ? 3u : 2u;
+                dynamic.dynamicStateCount = description.dynamic_stencil_reference ? 3u : 2u;
                 dynamic.pDynamicStates = dynamic_states;
 
                 VkGraphicsPipelineCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
                 info.pNext = &rendering;
-                if (desc.shading_rate_attachment)
+                if (description.shading_rate_attachment)
                     info.flags |=
                         VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
-                info.stageCount = desc.fragment_shader != VK_NULL_HANDLE ? 2u : 1u;
+                info.stageCount = description.fragment_shader != VK_NULL_HANDLE ? 2u : 1u;
                 info.pStages = stages;
                 info.pVertexInputState = &vertex_input.info;
                 info.pInputAssemblyState = &vertex_input.assembly;
@@ -571,7 +575,7 @@ namespace SushiEngine
                 info.pDepthStencilState = &depth;
                 info.pColorBlendState = &blend.info;
                 info.pDynamicState = &dynamic;
-                info.layout = desc.layout;
+                info.layout = description.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
                 {
@@ -584,15 +588,15 @@ namespace SushiEngine
             }
 
             PipelineHandle GraphicsPipelineFactory::create_mesh(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
                 // A mesh pipeline is always monolithic — the library path builds a vertex-input
                 // library a mesh pipeline has no use for — so there is nothing to optimize in a
                 // background pass; the first build is the final one.
-                VkPipeline initial = create_mesh_monolithic(desc);
+                VkPipeline initial = create_mesh_monolithic(description);
 
                 std::unique_ptr<Slot> slot = std::make_unique<Slot>();
-                slot->desc = desc;
+                slot->description = description;
                 slot->initial = initial;
                 slot->active.store(initial, std::memory_order_release);
                 Slot* raw = slot.get();
@@ -601,23 +605,25 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::create_mesh_monolithic(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
                 ColorBlendState blend;
-                fill_color_blend(desc, blend);
-                const VkPipelineRasterizationStateCreateInfo raster = fill_rasterization(desc);
-                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(desc);
-                VkPipelineRenderingCreateInfo rendering = fill_rendering(desc);
+                fill_color_blend(description, blend);
+                const VkPipelineRasterizationStateCreateInfo raster =
+                    fill_rasterization(description);
+                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(description);
+                VkPipelineRenderingCreateInfo rendering = fill_rendering(description);
 
                 VkPipelineShaderStageCreateInfo stages[3]{};
                 std::uint32_t stage_count = 0;
-                if (desc.task_shader != VK_NULL_HANDLE)
+                if (description.task_shader != VK_NULL_HANDLE)
                     stages[stage_count++] =
-                        shader_stage(VK_SHADER_STAGE_TASK_BIT_EXT, desc.task_shader);
-                stages[stage_count++] = shader_stage(VK_SHADER_STAGE_MESH_BIT_EXT, desc.mesh_shader);
-                if (desc.fragment_shader != VK_NULL_HANDLE)
+                        shader_stage(VK_SHADER_STAGE_TASK_BIT_EXT, description.task_shader);
+                stages[stage_count++] =
+                    shader_stage(VK_SHADER_STAGE_MESH_BIT_EXT, description.mesh_shader);
+                if (description.fragment_shader != VK_NULL_HANDLE)
                     stages[stage_count++] =
-                        shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, desc.fragment_shader);
+                        shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, description.fragment_shader);
 
                 VkPipelineViewportStateCreateInfo viewport{};
                 viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -633,13 +639,13 @@ namespace SushiEngine
                                                     VK_DYNAMIC_STATE_STENCIL_REFERENCE};
                 VkPipelineDynamicStateCreateInfo dynamic{};
                 dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                dynamic.dynamicStateCount = desc.dynamic_stencil_reference ? 3u : 2u;
+                dynamic.dynamicStateCount = description.dynamic_stencil_reference ? 3u : 2u;
                 dynamic.pDynamicStates = dynamic_states;
 
                 VkGraphicsPipelineCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
                 info.pNext = &rendering;
-                if (desc.shading_rate_attachment)
+                if (description.shading_rate_attachment)
                     info.flags |=
                         VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
                 info.stageCount = stage_count;
@@ -654,7 +660,7 @@ namespace SushiEngine
                 info.pDepthStencilState = &depth;
                 info.pColorBlendState = &blend.info;
                 info.pDynamicState = &dynamic;
-                info.layout = desc.layout;
+                info.layout = description.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
                 {
@@ -667,15 +673,15 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::vertex_input_library(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
-                const GraphicsPipelineDescription key = vertex_input_key(desc);
+                const GraphicsPipelineDescription key = vertex_input_key(description);
                 for (const Library& library : vertex_input_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
 
                 VertexInputState vertex_input;
-                fill_vertex_input(desc, vertex_input);
+                fill_vertex_input(description, vertex_input);
 
                 VkGraphicsPipelineLibraryCreateInfoEXT library_info{};
                 library_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
@@ -701,16 +707,17 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::pre_rasterization_library(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
-                const GraphicsPipelineDescription key = pre_rasterization_key(desc);
+                const GraphicsPipelineDescription key = pre_rasterization_key(description);
                 for (const Library& library : pre_rasterization_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
 
-                const VkPipelineRasterizationStateCreateInfo raster = fill_rasterization(desc);
+                const VkPipelineRasterizationStateCreateInfo raster =
+                    fill_rasterization(description);
                 const VkPipelineShaderStageCreateInfo stage =
-                    shader_stage(VK_SHADER_STAGE_VERTEX_BIT, desc.vertex_shader);
+                    shader_stage(VK_SHADER_STAGE_VERTEX_BIT, description.vertex_shader);
 
                 VkPipelineViewportStateCreateInfo viewport{};
                 viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -738,7 +745,7 @@ namespace SushiEngine
                 info.pViewportState = &viewport;
                 info.pRasterizationState = &raster;
                 info.pDynamicState = &dynamic;
-                info.layout = desc.layout;
+                info.layout = description.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
                 {
@@ -752,16 +759,16 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::fragment_shader_library(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
-                const GraphicsPipelineDescription key = fragment_shader_key(desc);
+                const GraphicsPipelineDescription key = fragment_shader_key(description);
                 for (const Library& library : fragment_shader_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
 
-                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(desc);
+                const VkPipelineDepthStencilStateCreateInfo depth = fill_depth_stencil(description);
                 const VkPipelineShaderStageCreateInfo stage =
-                    shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, desc.fragment_shader);
+                    shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, description.fragment_shader);
 
                 VkPipelineMultisampleStateCreateInfo multisample{};
                 multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -770,10 +777,10 @@ namespace SushiEngine
                 VkDynamicState stencil_reference = VK_DYNAMIC_STATE_STENCIL_REFERENCE;
                 VkPipelineDynamicStateCreateInfo dynamic{};
                 dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                dynamic.dynamicStateCount = desc.dynamic_stencil_reference ? 1u : 0u;
+                dynamic.dynamicStateCount = description.dynamic_stencil_reference ? 1u : 0u;
                 dynamic.pDynamicStates = &stencil_reference;
 
-                VkPipelineRenderingCreateInfo rendering = fill_rendering(desc);
+                VkPipelineRenderingCreateInfo rendering = fill_rendering(description);
                 VkGraphicsPipelineLibraryCreateInfoEXT library_info{};
                 library_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
                 library_info.pNext = &rendering;
@@ -788,7 +795,7 @@ namespace SushiEngine
                 info.pMultisampleState = &multisample;
                 info.pDepthStencilState = &depth;
                 info.pDynamicState = &dynamic;
-                info.layout = desc.layout;
+                info.layout = description.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
                 {
@@ -802,21 +809,21 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::fragment_output_library(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
-                const GraphicsPipelineDescription key = fragment_output_key(desc);
+                const GraphicsPipelineDescription key = fragment_output_key(description);
                 for (const Library& library : fragment_output_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
 
                 ColorBlendState blend;
-                fill_color_blend(desc, blend);
+                fill_color_blend(description, blend);
 
                 VkPipelineMultisampleStateCreateInfo multisample{};
                 multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
                 multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-                VkPipelineRenderingCreateInfo rendering = fill_rendering(desc);
+                VkPipelineRenderingCreateInfo rendering = fill_rendering(description);
                 VkGraphicsPipelineLibraryCreateInfoEXT library_info{};
                 library_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
                 library_info.pNext = &rendering;
@@ -841,14 +848,14 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::create_linked(
-                const GraphicsPipelineDescription& desc)
+                const GraphicsPipelineDescription& description)
             {
                 // Four independently cached halves: two pipelines that differ only in their
                 // fragment shader reuse the vertex input, pre-rasterisation, and output
                 // libraries, which is what makes a permutation cheap to add.
                 const VkPipeline libraries[4] = {
-                    vertex_input_library(desc), pre_rasterization_library(desc),
-                    fragment_shader_library(desc), fragment_output_library(desc)};
+                    vertex_input_library(description), pre_rasterization_library(description),
+                    fragment_shader_library(description), fragment_output_library(description)};
                 for (VkPipeline library : libraries)
                     if (library == VK_NULL_HANDLE)
                         return VK_NULL_HANDLE;
@@ -861,7 +868,7 @@ namespace SushiEngine
                 VkGraphicsPipelineCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
                 info.pNext = &link;
-                info.layout = desc.layout;
+                info.layout = description.layout;
 
                 VkPipeline pipeline = VK_NULL_HANDLE;
                 {

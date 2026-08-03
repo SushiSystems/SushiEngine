@@ -362,12 +362,12 @@ namespace SushiEngine
                     float choose_step(const AtmosphereNestParameters& parameters,
                                       const AtmosphereForcing& forcing) const;
                     void upload_parameters(const AtmosphereNestParameters& parameters, float dt);
-                    void upload_forcing(VkCommandBuffer cmd, const AtmosphereForcing& forcing);
-                    void record_shift(VkCommandBuffer cmd, std::int32_t shift_x,
+                    void upload_forcing(VkCommandBuffer command, const AtmosphereForcing& forcing);
+                    void record_shift(VkCommandBuffer command, std::int32_t shift_x,
                                       std::int32_t shift_z, const AtmosphereForcing& forcing);
-                    void record_clear(VkCommandBuffer cmd);
+                    void record_clear(VkCommandBuffer command);
                     /**
-                     * @brief Records one step of the nest into @p cmd.
+                     * @brief Records one step of the nest into @p command.
                      * @param step_seconds Game seconds this step *begins* at. The thermal seed is
                      *                     correlated in time, so it needs the step's own clock —
                      *                     and the parameter block, uploaded once for a frame that
@@ -375,14 +375,14 @@ namespace SushiEngine
                      * @param timed        Whether to break this step into profiled sections. One
                      *                     step of a frame at most; the query pool is finite.
                      */
-                    void record_step(VkCommandBuffer cmd, const AtmosphereForcing& forcing,
+                    void record_step(VkCommandBuffer command, const AtmosphereForcing& forcing,
                                      double step_seconds, bool timed);
-                    void record_extinction(VkCommandBuffer cmd);
-                    void record_readback(VkCommandBuffer cmd, std::uint32_t slot);
+                    void record_extinction(VkCommandBuffer command);
+                    void record_readback(VkCommandBuffer command, std::uint32_t slot);
                     void collect_readback();
                     void publish_cost(std::uint32_t slot);
                     VkDescriptorSet allocate(std::uint32_t stage, std::uint32_t slot);
-                    void prepare_layouts(VkCommandBuffer cmd);
+                    void prepare_layouts(VkCommandBuffer command);
 
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
@@ -430,9 +430,9 @@ namespace SushiEngine
                     Volume forcing_vertical_;
                     VkSampler sampler_ = VK_NULL_HANDLE;
 
-                    VkBuffer params_ = VK_NULL_HANDLE;
-                    VmaAllocation params_allocation_ = VK_NULL_HANDLE;
-                    void* params_mapped_ = nullptr;
+                    VkBuffer parameters_ = VK_NULL_HANDLE;
+                    VmaAllocation parameters_allocation_ = VK_NULL_HANDLE;
+                    void* parameters_mapped_ = nullptr;
                     VkBuffer mirror_ = VK_NULL_HANDLE;
                     VmaAllocation mirror_allocation_ = VK_NULL_HANDLE;
                     VkBuffer profile_ = VK_NULL_HANDLE;

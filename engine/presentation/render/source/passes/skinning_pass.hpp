@@ -97,7 +97,7 @@ namespace SushiEngine
                         std::uint32_t vertex_count;
                         std::uint32_t palette_base;
                         std::uint32_t out_base;
-                        std::uint32_t prev_valid;
+                        std::uint32_t previous_valid;
                         std::uint32_t morph_target_count;
                         std::uint32_t morph_weight_base;
                         std::uint32_t use_dual_quaternion; /**< 1 selects the DQS blend (§12.4). */

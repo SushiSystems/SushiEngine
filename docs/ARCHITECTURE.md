@@ -145,7 +145,7 @@ cloth, and rope, rather than a family of special-cased solvers living side by si
 
 `RigidBody` extends the PGS solver's bare position + inverse mass with an
 orientation (`Quaternion`) and a diagonal, body-local inverse inertia tensor, plus the
-predicted pre-solve pose (`prev_position`/`prev_orientation`) XPBD's velocity update
+predicted pre-solve pose (`previous_position`/`previous_orientation`) XPBD's velocity update
 needs. `predict()`/`update_velocity()` are the two halves of one XPBD sub-step:
 integrate external forces into a predicted pose, solve constraints against that
 prediction, then recover velocity and angular velocity from how far the solve moved
@@ -186,7 +186,7 @@ consumer of that seam, and takes a different route from the generic
 only present when attached, but a Rigid Body's data (position, orientation) is
 already `Transform`/`Orientation`, always present. So attaching/detaching physics
 is plain host bookkeeping in `RuntimeSimulation::Record` (`has_physics_body`,
-`physics_params`). The physics itself lives behind the `Simulation::IPhysicsScene`
+`physics_parameters`). The physics itself lives behind the `Simulation::IPhysicsScene`
 seam (`sim/physics_services.hpp`), not in `RuntimeSimulation`: whenever the
 physics-driven entity set changes, `tick()` gathers one `RigidBodyDescription` per Rigid Body
 entity and calls `set_rigid_bodies`, which rebuilds a free-body `PhysicsWorld` (no
@@ -265,7 +265,7 @@ entirely) is a distinct future milestone, not a natural extension of this file.
 **The editor's "Cloth" toggle** (`sim/runtime_simulation.cpp`) wires
 `build_cloth_grid` into the live tick loop, following the same route §4.1's Rigid
 Body toggle takes rather than `sim/physics_bridge.hpp`: a cloth grid is a single
-host-side record — `RuntimeSimulation::Record::has_cloth`/`cloth_params`
+host-side record — `RuntimeSimulation::Record::has_cloth`/`cloth_parameters`
 (`Simulation::ClothParameters`: rows, columns, spacing, compliance) — not one ECS entity per
 grid point. Unlike a Rigid Body, whose count is the only thing that forces a rebuild,
 *any* `ClothParameters` edit forces one (`cloth_dirty_`), because rows/cols change the
@@ -330,9 +330,9 @@ an independent field pair, the same shape as `has_physics_body`/`physics_body`.
 Three concerns previously conflated into one hardcoded cube now separate cleanly:
 what an entity *looks like*, what it *collides as*, and what drives its *motion*.
 `Simulation::ShapeParameters`/`ColliderParameters` (`sim/simulation.hpp`) are both
-`{PrimitiveKind kind; Vector3 params;}` pairs, editor-facing and, like
+`{PrimitiveKind kind; Vector3 parameters;}` pairs, editor-facing and, like
 `ClothParameters`, plain host-side bookkeeping on `RuntimeSimulation::Record`
-(`has_shape`/`shape_params`, `has_collider`/`collider_params`) rather than ECS
+(`has_shape`/`shape_parameters`, `has_collider`/`collider_parameters`) rather than ECS
 components — neither is read or written by any `Schedule` system, so there is
 nothing to gain from an archetype migration. `PrimitiveKind` (`Box`, `Sphere`,
 `Cylinder`, `Plane`) is declared in `sim/components.hpp` even though it backs no
@@ -350,7 +350,7 @@ is pure authoring data for a rigidbody/rigidbody and rigidbody/softbody contact-
 resolution milestone that has not been built; see §4.1's note that XPBD today has
 no collision detection at all, only distance constraints.
 
-`RenderInstance`/`Render::MeshInstance` both gained `shape_kind`/`shape_params`
+`RenderInstance`/`Render::MeshInstance` both gained `shape_kind`/`shape_parameters`
 (mirrored as `Render::MeshKind` to keep the render seam free of any dependency on
 `Simulation`; the editor's per-frame copy loop maps one to the other). `extract()`
 gates drawing on `has_shape` **and** `has_renderer` together, because the mesh
@@ -363,7 +363,7 @@ draws nothing, matching Unity's empty GameObject; the mesh kind is also now edit
 (Box↔Sphere↔Cylinder) rather than fixed at creation. The Vulkan scene view (`vulkan_scene_view.cpp`) builds a unit sphere and
 a unit cylinder alongside its existing unit cube in `create_geometry()`, and its
 draw pass groups instances by `MeshKind` to bind each mesh's buffers once per
-group; an instance's `shape_params` become a local scale multiplied into its model
+group; an instance's `shape_parameters` become a local scale multiplied into its model
 matrix before the MVP push constant (`shape_scale()`), so a default `{0.5,0.5,0.5}`
 Box still renders as the historical unit cube.
 
@@ -2548,7 +2548,7 @@ systems and two passes into `sushiengine_render`.
 
 **Deterministic emitter entities.** A gameplay entity carries a particle emitter through the sim's
 `IWorldEditor` (the emitter quartet `create_particle_emitter` / `has_particle_emitter` /
-`particle_emitter_params` / `set_particle_emitter_params` / `set_has_particle_emitter` +
+`particle_emitter_parameters` / `set_particle_emitter_parameters` / `set_has_particle_emitter` +
 `particle_effect_count`/`particle_effect_name`). Like cloth, this is host bookkeeping — no ECS
 migration: `RuntimeSimulation::Record` gains the fixed `VFX::DeterministicEmitterState pool` (~80 KB,
 off the ECS chunk), plus the effect handle and play head. `step_particle_emitters()` runs inside
@@ -2566,9 +2566,10 @@ and `.sushiscene` persistence.
 compute compaction, `particle_simulate.comp`/`particle_emit.comp` bucket each particle by blend —
 additive/premultiplied into `particle_draw`, true-alpha into `particle_alpha` — each with its own
 `VkDrawIndirectCommand` in a single `particle_args` buffer (additive at offset 0, alpha at 16).
-`ParticlePass` draws the two buckets with two pipelines: the additive glow (`src+dst`, order-
-independent) and a premultiplied "over" for true alpha (`src + dst*(1-a)`), both on the premultiplied
-fragment output. Smoke and dust composite correctly instead of only glowing. Deferred to the next
+`ParticlePass` draws the two buckets with two pipelines: the additive glow
+(`source+destination`, order-independent) and a premultiplied "over" for true alpha
+(`source + destination*(1-a)`), both on the premultiplied fragment output. Smoke and dust
+composite correctly instead of only glowing. Deferred to the next
 VFX2 slice: clustered-punctual-light particles (the froxel version — needs camera-relative conversion).
 
 **Alpha depth-sort (VFX2a).** The alpha bucket is bitonic-sorted back-to-front on the GPU. A new

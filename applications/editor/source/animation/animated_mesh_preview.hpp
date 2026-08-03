@@ -101,10 +101,10 @@ namespace SushiEngine
                  * previous, known-good controller is restored — the preview never goes
                  * dark to show an error the panel can report instead.
                  *
-                 * @param desc The authored controller to compile and bind.
+                 * @param description The authored controller to compile and bind.
                  * @return True if the controller compiled and now drives the preview.
                  */
-                bool apply_controller(const Animation::ControllerDescription& desc);
+                bool apply_controller(const Animation::ControllerDescription& description);
 
                 /** @brief Drops the loaded character, if any, and every added layer. */
                 void clear();
@@ -161,7 +161,10 @@ namespace SushiEngine
                 bool remove_layer(std::size_t index);
 
                 /** @brief Number of layers, including the base layer (always >= 1 once loaded). */
-                std::size_t layer_count() const noexcept { return controller_desc_.layers.size(); }
+                std::size_t layer_count() const noexcept
+                {
+                    return controller_description_.layers.size();
+                }
 
                 /**
                  * @brief A layer's authored name, for UI display.
@@ -169,7 +172,7 @@ namespace SushiEngine
                  */
                 const std::string& layer_name(std::size_t index) const noexcept
                 {
-                    return controller_desc_.layers[index].name;
+                    return controller_description_.layers[index].name;
                 }
 
                 /**
@@ -178,7 +181,7 @@ namespace SushiEngine
                  */
                 bool layer_additive(std::size_t index) const noexcept
                 {
-                    return controller_desc_.layers[index].blend_mode ==
+                    return controller_description_.layers[index].blend_mode ==
                            Animation::LayerBlendMode::Additive;
                 }
 
@@ -407,7 +410,7 @@ namespace SushiEngine
 
             private:
                 /**
-                 * @brief Recompiles @ref controller_desc_, rebinds @ref controller_, and
+                 * @brief Recompiles @ref controller_description_, rebinds @ref controller_, and
                  * rebuilds @ref layer_weight_param_index_ from the compiled layers'
                  * `weight_parameter` names.
                  */
@@ -421,7 +424,8 @@ namespace SushiEngine
                 Animation::AssetId clip_id_ = Animation::INVALID_ASSET; /**< The base layer's clip. */
                 Animation::SkeletonView skeleton_{};
                 Animation::ClipView clip_{}; /**< The base layer's clip view, for Statistics only. */
-                Animation::ControllerDescription controller_desc_; /**< Authored form; recompiled on add_layer. */
+                /** @brief Authored form; recompiled on add_layer. */
+                Animation::ControllerDescription controller_description_;
                 Animation::AssetId controller_id_ = Animation::INVALID_ASSET;
                 Animation::ControllerView controller_{};
                 Animation::AnimatorInstance animator_instance_;
@@ -429,7 +433,7 @@ namespace SushiEngine
                 Animation::TwoBoneIk two_bone_ik_; /**< weight defaults to 0 (off); see set_two_bone_ik. */
                 std::string source_path_; /**< The loaded glTF's path, kept for Statistics. */
                 std::vector<Animation::GLTFClip> available_clips_; /**< From load_gltf, for add_layer. */
-                // Parallel to controller_desc_.layers: layer_weight_param_index_[i] is that
+                // Parallel to controller_description_.layers: layer_weight_param_index_[i] is that
                 // layer's AnimatorParameterBlock slot (index 0 unused — the base layer has no
                 // weight parameter). Lets set_layer_weight/layer_weight write/read the live
                 // parameter directly instead of walking the compiled ControllerView by name.

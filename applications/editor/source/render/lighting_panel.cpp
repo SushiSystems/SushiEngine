@@ -143,9 +143,9 @@ namespace SushiEngine
                 ImGui::Text("Shadow atlas %u px, %u caster(s)",
                             resolved.settings.lights.shadow_atlas_size,
                             resolved.settings.lights.max_shadow_casters);
-                if (resolved.params.stochastic_light_samples > 0)
+                if (resolved.parameters.stochastic_light_samples > 0)
                     ImGui::Text("Beyond the atlas: %u traced sample(s)/pixel",
-                                resolved.params.stochastic_light_samples);
+                                resolved.parameters.stochastic_light_samples);
                 else
                     ImGui::TextDisabled("Beyond the atlas: unshadowed (tier)");
             }
@@ -200,8 +200,8 @@ namespace SushiEngine
                     // individual things, and editing the row you clicked must not reach the
                     // three lights the Hierarchy happens to have selected.
                     const ComponentAccess<SushiEngine::Simulation::LightParameters> access{
-                        &IWorldEditor::has_light, &IWorldEditor::light_params,
-                        &IWorldEditor::set_light_params};
+                        &IWorldEditor::has_light, &IWorldEditor::light_parameters,
+                        &IWorldEditor::set_light_parameters};
                     ComponentEditor<SushiEngine::Simulation::LightParameters> editor(
                         context, *world, access, id, OneEntity{});
                     draw_light_fields(editor);

@@ -343,12 +343,12 @@ namespace SushiEngine
                     for (int s = 0; s < count; ++s)
                     {
                         Speaker& speaker = speakers_[static_cast<std::size_t>(s)];
-                        const float len = std::sqrt(directions[s][0] * directions[s][0] +
-                                                    directions[s][1] * directions[s][1] +
-                                                    directions[s][2] * directions[s][2]);
-                        const float ux = directions[s][0] / len;
-                        const float uy = directions[s][1] / len; // left component = lateral
-                        const float uz = directions[s][2] / len;
+                        const float length = std::sqrt(directions[s][0] * directions[s][0] +
+                                                       directions[s][1] * directions[s][1] +
+                                                       directions[s][2] * directions[s][2]);
+                        const float ux = directions[s][0] / length;
+                        const float uy = directions[s][1] / length; // left component = lateral
+                        const float uz = directions[s][2] / length;
 
                         speaker.dir_x = ux;
                         speaker.dir_y = uy;

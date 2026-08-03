@@ -293,12 +293,12 @@ namespace SushiEngine
          * @c settings is the authored request with its tier-scaled fields overwritten,
          * and is what every pass and every uniform fill reads downstream; the authored
          * copy the host owns is left untouched so the next frame scales from the same
-         * baseline. @c params is the rest.
+         * baseline. @c parameters is the rest.
          */
         struct ResolvedQuality
         {
             RenderSettings settings;
-            QualityParameters params;
+            QualityParameters parameters;
         };
 
         /**

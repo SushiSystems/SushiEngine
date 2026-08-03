@@ -68,12 +68,12 @@ namespace SushiEngine
                 float ground_albedo[4];
                 float ocean_color[4];
                 float cloud_global[4];  /**< ground_shadow_strength, base_min, top_max, deck_count. */
-                float star_params[4];   /**< brightness, density, atmosphere on, stars on. */
+                float star_parameters[4]; /**< brightness, density, atmosphere on, stars on. */
                 float misc[4];          /**< near, far, time, clouds on. */
                 float sky_counts[4];    /**< body count, star count, surface visible, solar-eclipse coverage. */
                 float planet_frame[4];  /**< xyz = dominant body's north pole, w = surface style. */
                 float cloud_light[4];   /**< absorption, forward scattering, powder, ambient. */
-                float ibl_params[4];    /**< intensity, specular mip count, ambient mode, spare. */
+                float ibl_parameters[4]; /**< intensity, specular mip count, ambient mode, spare. */
                 float cloud_deck_a[CLOUD_MAX_DECKS][4]; /**< base_alt, top_alt, coverage, density. */
                 float cloud_deck_b[CLOUD_MAX_DECKS][4]; /**< stratiform, detail, shape, detail scale. */
                 float cloud_deck_c[CLOUD_MAX_DECKS][4]; /**< wind.xyz, noise kind. */
@@ -161,7 +161,7 @@ namespace SushiEngine
                  * field texel (the same role past it). Appended last for the same offset
                  * reason as everything above it.
                  */
-                float cloud_field_params[4];
+                float cloud_field_parameters[4];
                 /**
                  * @brief Camera-relative XZ metres -> the regional nest's horizontal UV.
                  *
@@ -180,7 +180,7 @@ namespace SushiEngine
                  * scale the baked density states σ against. Appended last for the same offset
                  * reason as everything above it.
                  */
-                float atmosphere_nest_params[4];
+                float atmosphere_nest_parameters[4];
                 /**
                  * @brief The pattern frame the cloudscape windows were baked in (CloudsV2).
                  *
@@ -206,7 +206,7 @@ namespace SushiEngine
                  * it, so a provider that publishes no centres still wants the climatology.
                  * Appended last for the same offset reason as everything above it.
                  */
-                float synoptic_params[4];
+                float synoptic_parameters[4];
                 /**
                  * @brief Each placed pressure system's direction and extent.
                  *

@@ -60,15 +60,15 @@ namespace
     std::vector<std::byte> make_linear_clip(Vector3f end_translation)
     {
         const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
-        ClipDescription desc;
-        desc.joint_count = 1;
-        desc.frame_count = 2;
-        desc.sample_rate = 0.5f; // (frame_count - 1) / sample_rate == 2s duration
-        desc.translations = {Vector3f{0, 0, 0}, end_translation};
-        desc.rotations = {identity, identity};
-        desc.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}};
+        ClipDescription description;
+        description.joint_count = 1;
+        description.frame_count = 2;
+        description.sample_rate = 0.5f; // (frame_count - 1) / sample_rate == 2s duration
+        description.translations = {Vector3f{0, 0, 0}, end_translation};
+        description.rotations = {identity, identity};
+        description.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}};
         std::vector<std::byte> blob;
-        if (!build_clip_blob(desc, blob))
+        if (!build_clip_blob(description, blob))
             std::printf("[motion_match_sampler_demo] FAIL: cook clip\n"), ++failures;
         return blob;
     }
@@ -76,13 +76,13 @@ namespace
 
 int main()
 {
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     JointDescription root;
     root.name = "root";
     root.parent = -1;
-    skeleton_desc.joints = {root};
+    skeleton_description.joints = {root};
     std::vector<std::byte> skeleton_blob;
-    check(build_skeleton_blob(skeleton_desc, skeleton_blob), "cook skeleton");
+    check(build_skeleton_blob(skeleton_description, skeleton_blob), "cook skeleton");
 
     AnimationDatabase database;
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));

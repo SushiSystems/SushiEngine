@@ -62,9 +62,8 @@ namespace SushiEngine
              * @param depth_format Format of the depth attachment.
              * @return The description to build the pipeline from.
              */
-            Resources::GraphicsPipelineDescription depth_only_pipeline_desc(VkPipelineLayout layout,
-                                                                            VkShaderModule vertex,
-                                                                            VkFormat depth_format);
+            Resources::GraphicsPipelineDescription depth_only_pipeline_description(
+                VkPipelineLayout layout, VkShaderModule vertex, VkFormat depth_format);
 
             /**
              * @brief Fills a push constant for a depth-only draw.

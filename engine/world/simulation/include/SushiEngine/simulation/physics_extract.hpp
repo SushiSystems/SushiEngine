@@ -89,13 +89,13 @@ namespace SushiEngine
             Vector3 world_scale{Vector3{1, 1, 1}};
 
             bool has_physics_body = false;
-            PhysicsBodyParameters physics_params;
+            PhysicsBodyParameters physics_parameters;
 
             bool has_collider = false;
-            ColliderParameters collider_params;
+            ColliderParameters collider_parameters;
 
             bool has_shape = false;
-            ShapeParameters shape_params;
+            ShapeParameters shape_parameters;
         };
 
         /**
@@ -114,10 +114,10 @@ namespace SushiEngine
         {
             Collider collider;
             if (entity.has_collider)
-                collider = collider_from_params(entity.collider_params);
+                collider = collider_from_parameters(entity.collider_parameters);
             else if (entity.has_shape)
-                collider = collider_from_params(
-                    ColliderParameters{entity.shape_params.kind, entity.shape_params.params});
+                collider = collider_from_parameters(ColliderParameters{
+                    entity.shape_parameters.kind, entity.shape_parameters.parameters});
             else
                 collider.shape = ColliderShape::Sphere;
             return scaled_collider(collider, entity.local_scale);
@@ -140,12 +140,13 @@ namespace SushiEngine
             Physics::PhysicsMaterialT<Scalar> material;
             if (!entity.has_collider)
                 return material;
-            material.static_friction = entity.collider_params.static_friction;
-            material.dynamic_friction = entity.collider_params.dynamic_friction;
-            material.restitution = entity.collider_params.restitution;
-            material.friction_combine = to_combine_mode(entity.collider_params.friction_combine);
+            material.static_friction = entity.collider_parameters.static_friction;
+            material.dynamic_friction = entity.collider_parameters.dynamic_friction;
+            material.restitution = entity.collider_parameters.restitution;
+            material.friction_combine =
+                to_combine_mode(entity.collider_parameters.friction_combine);
             material.restitution_combine =
-                to_combine_mode(entity.collider_params.restitution_combine);
+                to_combine_mode(entity.collider_parameters.restitution_combine);
             return material;
         }
 
@@ -191,33 +192,33 @@ namespace SushiEngine
         inline std::vector<RigidBodyDescription> extract_rigid_bodies(
             const std::vector<PhysicsSourceEntity>& entities)
         {
-            std::vector<RigidBodyDescription> descs;
-            descs.reserve(entities.size());
+            std::vector<RigidBodyDescription> descriptions;
+            descriptions.reserve(entities.size());
             for (const PhysicsSourceEntity& entity : entities)
             {
                 if (!entity.has_physics_body)
                     continue;
-                RigidBodyDescription desc;
-                desc.id = entity.id;
-                desc.position = entity.local_position;
-                desc.orientation = entity.local_orientation;
-                desc.inv_mass = entity.physics_params.inv_mass;
-                desc.inv_inertia = entity.physics_params.inv_inertia;
-                desc.drag_coefficient = entity.physics_params.drag_coefficient;
+                RigidBodyDescription description;
+                description.id = entity.id;
+                description.position = entity.local_position;
+                description.orientation = entity.local_orientation;
+                description.inv_mass = entity.physics_parameters.inv_mass;
+                description.inv_inertia = entity.physics_parameters.inv_inertia;
+                description.drag_coefficient = entity.physics_parameters.drag_coefficient;
 
-                desc.collider = resolve_collider(entity);
-                desc.material = resolve_material(entity);
+                description.collider = resolve_collider(entity);
+                description.material = resolve_material(entity);
 
-                const Physics::MassProperties<Scalar> mass =
-                    collider_mass_properties(desc.collider, entity.physics_params.density);
+                const Physics::MassProperties<Scalar> mass = collider_mass_properties(
+                    description.collider, entity.physics_parameters.density);
                 if (mass.mass > Scalar(0))
                 {
-                    desc.inv_mass = Physics::inverse_mass(mass.mass);
-                    desc.inv_inertia = Physics::to_inverse(mass.inertia);
+                    description.inv_mass = Physics::inverse_mass(mass.mass);
+                    description.inv_inertia = Physics::to_inverse(mass.inertia);
                 }
-                descs.push_back(desc);
+                descriptions.push_back(description);
             }
-            return descs;
+            return descriptions;
         }
 
         /**
@@ -238,11 +239,12 @@ namespace SushiEngine
             for (const PhysicsSourceEntity& entity : entities)
             {
                 if (!entity.has_collider || entity.has_physics_body ||
-                    entity.collider_params.kind != PrimitiveKind::Plane)
+                    entity.collider_parameters.kind != PrimitiveKind::Plane)
                     continue;
                 PlaneDescription plane;
                 plane.point = entity.world_position;
-                plane.normal = rotate(entity.world_orientation, entity.collider_params.params);
+                plane.normal =
+                    rotate(entity.world_orientation, entity.collider_parameters.parameters);
                 planes.push_back(plane);
             }
             return planes;

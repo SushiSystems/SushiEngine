@@ -93,7 +93,7 @@ int main()
         I3DL2Reverb p = I3DL2Reverb::concert_hall();
         p.decay_time = decay;
         p.wet_dry_mix = 100.0f;
-        rev.set_params(p);
+        rev.set_parameters(p);
         double peak = 0.0, early = 0.0, late = 0.0;
         bool first = true;
         for (int b = 0; b < 200; ++b)
@@ -129,8 +129,8 @@ int main()
         ps.decay_time = 0.5f;
         I3DL2Reverb pl = ps;
         pl.decay_time = 3.0f;
-        s.set_params(ps);
-        l.set_params(pl);
+        s.set_parameters(ps);
+        l.set_parameters(pl);
         std::printf("conv reverb IR length: 0.5s=%d  3.0s=%d\n", s.impulse_length(),
                     l.impulse_length());
         if (!(l.impulse_length() > s.impulse_length()))
@@ -152,7 +152,7 @@ int main()
         std::unique_ptr<ConvolutionReverb> fx(new ConvolutionReverb());
         I3DL2Reverb hall = I3DL2Reverb::concert_hall();
         hall.wet_dry_mix = 100.0f;
-        fx->set_params(hall);
+        fx->set_parameters(hall);
         engine.mixer().add_insert(
             reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     }
@@ -161,8 +161,8 @@ int main()
 
     static std::vector<float> blip;
     {
-        const int len = static_cast<int>(sample_rate * 0.7);
-        blip.assign(static_cast<std::size_t>(len), 0.0f);
+        const int length = static_cast<int>(sample_rate * 0.7);
+        blip.assign(static_cast<std::size_t>(length), 0.0f);
         const int hit = static_cast<int>(sample_rate * 0.1);
         for (int i = 0; i < hit; ++i)
         {

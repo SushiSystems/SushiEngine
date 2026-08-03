@@ -53,7 +53,7 @@ namespace SushiEngine
 
             void TAAPass::create_pipeline()
             {
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("taa.frag"), Frame::HDR_FORMAT));
             }
@@ -121,7 +121,8 @@ namespace SushiEngine
                         builder.read(inputs.scene, Graph::BufferAccess::UniformRead);
                         builder.read(inputs.temporal, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame, inputs](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame, inputs](VkCommandBuffer command,
+                                           const Graph::PassContext& context)
                     {
                         // Clamped addressing everywhere: a reprojection that lands just
                         // outside the image must read its edge, never wrap to the far
@@ -143,11 +144,12 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(inputs.temporal),
                                        sizeof(Scene::TemporalUniforms));
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
 

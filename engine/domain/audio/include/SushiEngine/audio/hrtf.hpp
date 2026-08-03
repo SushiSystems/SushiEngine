@@ -126,14 +126,14 @@ namespace SushiEngine
                     {
                         history_[static_cast<std::size_t>(write_)] = in[i];
                         float acc = 0.0f;
-                        int idx = write_;
+                        int index = write_;
                         for (int t = 0; t < n; ++t)
                         {
                             acc += taps_[static_cast<std::size_t>(t)] *
-                                   history_[static_cast<std::size_t>(idx)];
-                            --idx;
-                            if (idx < 0)
-                                idx = n - 1;
+                                   history_[static_cast<std::size_t>(index)];
+                            --index;
+                            if (index < 0)
+                                index = n - 1;
                         }
                         out[i] += acc;
                         ++write_;

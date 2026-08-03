@@ -350,10 +350,10 @@ namespace SushiEngine
                          translations, rotations, scales, clip_meta, palette](std::size_t index)
                         {
                             const std::size_t instance = index;
-                            const DeviceInstanceDescription& desc = instances[instance];
+                            const DeviceInstanceDescription& description = instances[instance];
                             JointMatrix* out = palette + instance * joint_count;
 
-                            if (desc.clip_handle == INVALID_CLIP_HANDLE)
+                            if (description.clip_handle == INVALID_CLIP_HANDLE)
                             {
                                 // No clip bound: hold the bind pose (mirrors ClipEvaluator's
                                 // fallback for a joint a clip does not animate, applied here to
@@ -373,7 +373,7 @@ namespace SushiEngine
                                 return;
                             }
 
-                            const ClipMeta& meta = clip_meta[desc.clip_handle];
+                            const ClipMeta& meta = clip_meta[description.clip_handle];
 
                             // ClipView::sample's exact bracketing-frame algorithm (clip.hpp),
                             // reproduced here because the device path samples flat SoA buffers,
@@ -387,10 +387,11 @@ namespace SushiEngine
                                 frame0 = 0;
                                 frame1 = 0;
                             }
-                            else if (desc.loop != 0)
+                            else if (description.loop != 0)
                             {
                                 const float span = static_cast<float>(meta.frame_count);
-                                float local = Math::fmod(desc.time_seconds * meta.sample_rate, span);
+                                float local =
+                                    Math::fmod(description.time_seconds * meta.sample_rate, span);
                                 if (local < 0.0f)
                                     local += span;
                                 frame_position = local;
@@ -400,7 +401,7 @@ namespace SushiEngine
                             else
                             {
                                 const float last = static_cast<float>(meta.frame_count - 1);
-                                float local = desc.time_seconds * meta.sample_rate;
+                                float local = description.time_seconds * meta.sample_rate;
                                 if (local < 0.0f)
                                     local = 0.0f;
                                 if (local > last)

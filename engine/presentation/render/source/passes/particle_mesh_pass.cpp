@@ -105,43 +105,43 @@ namespace SushiEngine
 
             void ParticleMeshPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc;
-                desc.layout = pipeline_layout_;
-                desc.vertex_shader = shaders_.module("particle_mesh.vert");
-                desc.fragment_shader = shaders_.module("particle_mesh.frag");
+                Resources::GraphicsPipelineDescription description;
+                description.layout = pipeline_layout_;
+                description.vertex_shader = shaders_.module("particle_mesh.vert");
+                description.fragment_shader = shaders_.module("particle_mesh.frag");
                 // The registry's own vertex layout, so a mesh particle draws the same buffers a
                 // mesh instance does.
-                desc.vertex_stride = sizeof(Geometry::MeshVertex);
-                desc.attribute_count = 6;
-                desc.attributes[0] = {
+                description.vertex_stride = sizeof(Geometry::MeshVertex);
+                description.attribute_count = 6;
+                description.attributes[0] = {
                     0, VK_FORMAT_R32G32B32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, position))};
-                desc.attributes[1] = {
+                description.attributes[1] = {
                     1, VK_FORMAT_R32G32B32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, normal))};
-                desc.attributes[2] = {
+                description.attributes[2] = {
                     2, VK_FORMAT_R32G32B32A32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, tangent))};
-                desc.attributes[3] = {
+                description.attributes[3] = {
                     3, VK_FORMAT_R32G32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv0))};
-                desc.attributes[4] = {
+                description.attributes[4] = {
                     4, VK_FORMAT_R32G32_SFLOAT,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv1))};
-                desc.attributes[5] = {
+                description.attributes[5] = {
                     5, VK_FORMAT_R8G8B8A8_UNORM,
                     static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, color))};
-                desc.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                description.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
                 // Debris tumbles, so a back face is as likely to be the visible one as a front
                 // face; culling would blink facets in and out as a piece rotates.
-                desc.cull_mode = VK_CULL_MODE_NONE;
-                desc.depth_test = VK_TRUE;
-                desc.depth_write = VK_TRUE;
-                desc.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
-                desc.color_count = 1;
-                desc.color_formats[0] = Frame::HDR_FORMAT;
-                desc.depth_format = Frame::DEPTH_FORMAT;
-                pipeline_ = pipelines_.create(desc);
+                description.cull_mode = VK_CULL_MODE_NONE;
+                description.depth_test = VK_TRUE;
+                description.depth_write = VK_TRUE;
+                description.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
+                description.color_count = 1;
+                description.color_formats[0] = Frame::HDR_FORMAT;
+                description.depth_format = Frame::DEPTH_FORMAT;
+                pipeline_ = pipelines_.create(description);
             }
 
             void ParticleMeshPass::destroy_pipeline()
@@ -177,7 +177,7 @@ namespace SushiEngine
                         builder.read(frame.targets.shadow_atlas,
                                      Graph::TextureAccess::SampledFragment);
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         Push push{};
                         const Matrix4 view_projection =
@@ -215,8 +215,9 @@ namespace SushiEngine
                                              ShadowPass::atlas_sampler(*frame.samplers));
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                        pipeline_layout_, 0, set);
 
                         const VkBuffer args = context.buffer(frame.targets.particle_mesh_args);
@@ -228,15 +229,15 @@ namespace SushiEngine
                             const Geometry::Mesh& mesh = meshes_.mesh(draw.mesh);
                             push.slice[0] = draw.slot * slice;
                             push.slice[1] = slice;
-                            vkCmdPushConstants(cmd, pipeline_layout_,
+                            vkCmdPushConstants(command, pipeline_layout_,
                                                VK_SHADER_STAGE_VERTEX_BIT |
                                                    VK_SHADER_STAGE_FRAGMENT_BIT,
                                                0, sizeof(Push), &push);
                             const VkDeviceSize offset = 0;
-                            vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices, &offset);
-                            vkCmdBindIndexBuffer(cmd, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
+                            vkCmdBindVertexBuffers(command, 0, 1, &mesh.vertices, &offset);
+                            vkCmdBindIndexBuffer(command, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
                             vkCmdDrawIndexedIndirect(
-                                cmd, args,
+                                command, args,
                                 static_cast<VkDeviceSize>(draw.slot) *
                                     sizeof(VkDrawIndexedIndirectCommand),
                                 1, sizeof(VkDrawIndexedIndirectCommand));

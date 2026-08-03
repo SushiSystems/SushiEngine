@@ -428,14 +428,15 @@ namespace SushiEngine
                 bool skin_joint_remap(const cgltf_skin& skin,
                                       std::vector<std::uint16_t>& out_remap)
                 {
-                    Animation::SkeletonDescription desc;
-                    desc.joints.resize(skin.joints_count);
+                    Animation::SkeletonDescription description;
+                    description.joints.resize(skin.joints_count);
                     for (cgltf_size j = 0; j < skin.joints_count; ++j)
-                        desc.joints[j].parent = skin_joint_index_of(skin, skin.joints[j]->parent);
+                        description.joints[j].parent =
+                            skin_joint_index_of(skin, skin.joints[j]->parent);
 
                     std::vector<std::byte> scratch_blob;
                     std::vector<int> order;
-                    if (!Animation::build_skeleton_blob(desc, scratch_blob, &order))
+                    if (!Animation::build_skeleton_blob(description, scratch_blob, &order))
                         return false;
                     out_remap = Animation::remap_from_order(order);
                     return true;

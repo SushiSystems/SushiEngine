@@ -328,27 +328,27 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
             }
 
-            void SceneLayout::bind_heap(VkCommandBuffer cmd) const
+            void SceneLayout::bind_heap(VkCommandBuffer command) const
             {
                 if (!heap_.available())
                     return;
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                pipeline_layout_, 1, heap_.set());
             }
 
-            void SceneLayout::bind_gpu_heap(VkCommandBuffer cmd) const
+            void SceneLayout::bind_gpu_heap(VkCommandBuffer command) const
             {
                 if (!heap_.available() || gpu_pipeline_layout_ == VK_NULL_HANDLE)
                     return;
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                gpu_pipeline_layout_, 1, heap_.set());
             }
 
-            void SceneLayout::bind_meshlet_heap(VkCommandBuffer cmd) const
+            void SceneLayout::bind_meshlet_heap(VkCommandBuffer command) const
             {
                 if (!heap_.available() || meshlet_pipeline_layout_ == VK_NULL_HANDLE)
                     return;
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                meshlet_pipeline_layout_, 1, heap_.set());
             }
 

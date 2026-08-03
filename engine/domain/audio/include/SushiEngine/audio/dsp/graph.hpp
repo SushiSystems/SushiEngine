@@ -261,8 +261,8 @@ namespace SushiEngine
                         for (std::unique_ptr<Node>& node : nodes_)
                             node->reset();
                         for (std::vector<std::vector<float>>& node_bufs : out_buffers_)
-                            for (std::vector<float>& buf : node_bufs)
-                                std::fill(buf.begin(), buf.end(), 0.0f);
+                            for (std::vector<float>& buffer : node_bufs)
+                                std::fill(buffer.begin(), buffer.end(), 0.0f);
                     }
 
                     /** @brief The designated output buffer of the last processed block. */

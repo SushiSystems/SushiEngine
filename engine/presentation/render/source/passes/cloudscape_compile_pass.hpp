@@ -332,12 +332,12 @@ namespace SushiEngine
                      *                   amortized continuation must preserve the slices already
                      *                   written in earlier frames.
                      */
-                    void record_density(VkCommandBuffer cmd, const Frame::FrameContext& frame,
+                    void record_density(VkCommandBuffer command, const Frame::FrameContext& frame,
                                         VkBuffer uniform_buffer, Volume& target, const Push& push,
                                         std::uint32_t slab_base, std::uint32_t slab_depth,
                                         bool discard);
-                    void record_skip(VkCommandBuffer cmd, const Frame::FrameContext& frame);
-                    void record_far_light(VkCommandBuffer cmd, const Frame::FrameContext& frame,
+                    void record_skip(VkCommandBuffer command, const Frame::FrameContext& frame);
+                    void record_far_light(VkCommandBuffer command, const Frame::FrameContext& frame,
                                           VkBuffer uniform_buffer);
 
                     /**
@@ -368,7 +368,7 @@ namespace SushiEngine
                     // CLOUD_FAR_RESOLUTION_Y (= FIELD_RESOLUTION_Y): the march needs the probe
                     // lattice's cell size to compute the exact distance to the boundary of the
                     // region a probe proved empty, and unlike the horizontal cell sizes (which
-                    // ride in cloud_field_params.zw because they follow the window spans) there
+                    // ride in cloud_field_parameters.zw because they follow the window spans) there
                     // is no free lane left to publish them in. Change either of these and that
                     // file must change with it, or empty-space skipping stops being
                     // conservative and distant cloud starts disappearing.

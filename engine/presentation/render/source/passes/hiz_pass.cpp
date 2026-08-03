@@ -67,7 +67,7 @@ namespace SushiEngine
                     return std::max(base >> level, 1u);
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, std::uint32_t base_mip,
+                void transition(VkCommandBuffer command, VkImage image, std::uint32_t base_mip,
                                 std::uint32_t mip_count, VkImageLayout from, VkImageLayout to,
                                 VkPipelineStageFlags2 source, VkPipelineStageFlags2 destination,
                                 VkAccessFlags2 source_access, VkAccessFlags2 destination_access)
@@ -92,16 +92,16 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
 
                 Resources::SamplerDescription point_sampler() noexcept
                 {
-                    Resources::SamplerDescription desc;
-                    desc.filter = VK_FILTER_NEAREST;
-                    desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                    desc.max_lod = 16.0f; // reach every mip the pyramid holds
-                    return desc;
+                    Resources::SamplerDescription description;
+                    description.filter = VK_FILTER_NEAREST;
+                    description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    description.max_lod = 16.0f; // reach every mip the pyramid holds
+                    return description;
                 }
             } // namespace
 
@@ -277,7 +277,7 @@ namespace SushiEngine
                         // itself is pass-owned and barriered by hand below.
                         builder.read(depth, Graph::TextureAccess::SampledCompute);
                     },
-                    [this, &frame, depth, near_plane](VkCommandBuffer cmd,
+                    [this, &frame, depth, near_plane](VkCommandBuffer command,
                                                       const Graph::PassContext& context)
                     {
                         const VkSampler sampler = frame.samplers->get(point_sampler());
@@ -285,12 +285,12 @@ namespace SushiEngine
 
                         // Every level starts undefined (its previous contents are dead) and is
                         // rewritten, so the whole chain transitions to GENERAL for writing.
-                        transition(cmd, image_, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, image_, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
 
                         for (std::uint32_t level = 0; level < mips_; ++level)
                         {
@@ -300,16 +300,16 @@ namespace SushiEngine
                                 level == 0 ? width_ : mip_extent(width_, level - 1);
                             const std::uint32_t sh =
                                 level == 0 ? height_ : mip_extent(height_, level - 1);
-                            const std::uint32_t src_level = level == 0 ? 0 : level - 1;
+                            const std::uint32_t source_level = level == 0 ? 0 : level - 1;
 
                             const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
                             Resources::DescriptorWriter writer;
                             writer.sampled_image(0, depth_view, sampler);
-                            writer.storage_image(1, mip_views_[src_level]);
+                            writer.storage_image(1, mip_views_[source_level]);
                             writer.storage_image(2, mip_views_[level]);
                             writer.update(device_.device(), set);
 
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            pipeline_layout_, 0, set);
                             Push push{};
                             push.a[0] = level;
@@ -318,13 +318,13 @@ namespace SushiEngine
                             push.a[3] = sw;
                             push.b[0] = sh;
                             push.c[0] = near_plane;
-                            vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                               sizeof(Push), &push);
-                            vkCmdDispatch(cmd, groups(dw), groups(dh), 1);
+                            vkCmdPushConstants(command, pipeline_layout_,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
+                            vkCmdDispatch(command, groups(dw), groups(dh), 1);
 
                             // Make this level readable by the next dispatch (which minimises it).
                             if (level + 1 < mips_)
-                                transition(cmd, image_, level, 1, VK_IMAGE_LAYOUT_GENERAL,
+                                transition(command, image_, level, 1, VK_IMAGE_LAYOUT_GENERAL,
                                            VK_IMAGE_LAYOUT_GENERAL,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -334,7 +334,7 @@ namespace SushiEngine
 
                         // The whole pyramid is now visible to the passes that sample it (SSR,
                         // and later Phase 10 culling). It stays in GENERAL, which is samplable.
-                        transition(cmd, image_, 0, mips_, VK_IMAGE_LAYOUT_GENERAL,
+                        transition(command, image_, 0, mips_, VK_IMAGE_LAYOUT_GENERAL,
                                    VK_IMAGE_LAYOUT_GENERAL,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |

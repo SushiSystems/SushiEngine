@@ -477,7 +477,7 @@ namespace SushiEngine
             const auto span = [](const SoftSurfaceView<T>& view, std::uint32_t particle,
                                  Vector3T<T>& start, Vector3T<T>& end) noexcept
             {
-                start = view.particles[particle].prev_position;
+                start = view.particles[particle].previous_position;
                 end = view.particles[particle].position;
             };
 

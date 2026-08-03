@@ -132,7 +132,7 @@ namespace SushiEngine
             ContactManifold<T> manifold;
 
             /** @brief The combined coefficients, resolved once from the two materials. */
-            ContactSolveParameters<T> params;
+            ContactSolveParameters<T> parameters;
         };
 
         /**
@@ -212,7 +212,7 @@ namespace SushiEngine
                 RigidBodyT<T>& body_b =
                     contact.b == null_contact_body ? immovable : bodies[contact.b];
 
-                solve_manifold_positions(contact.manifold, body_a, body_b, contact.params);
+                solve_manifold_positions(contact.manifold, body_a, body_b, contact.parameters);
             }
         };
 
@@ -239,7 +239,7 @@ namespace SushiEngine
                 RigidBodyT<T>& body_b =
                     contact.b == null_contact_body ? immovable : bodies[contact.b];
 
-                solve_manifold_velocities(contact.manifold, body_a, body_b, contact.params, h);
+                solve_manifold_velocities(contact.manifold, body_a, body_b, contact.parameters, h);
             }
         };
 

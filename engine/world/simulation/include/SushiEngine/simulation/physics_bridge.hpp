@@ -117,9 +117,9 @@ namespace SushiEngine
             const Signature required = make_signature<PhysicsBody, Transform, Orientation>();
             for (Archetype* archetype : world.query(required))
             {
-                for (const std::unique_ptr<Chunk>& chunk_ptr : archetype->chunks())
+                for (const std::unique_ptr<Chunk>& chunk_pointer : archetype->chunks())
                 {
-                    Chunk& chunk = *chunk_ptr;
+                    Chunk& chunk = *chunk_pointer;
                     const auto* bodies = reinterpret_cast<const PhysicsBody*>(
                         chunk.column(component_id<PhysicsBody>()));
                     auto* transforms =

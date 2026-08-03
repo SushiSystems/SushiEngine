@@ -74,17 +74,19 @@ namespace SushiEngine
                                                static_cast<std::size_t>(fft_size_)));
                         for (int p = 0; p < partitions_; ++p)
                         {
-                            std::vector<std::complex<float>>& spec = ir_spectra_[static_cast<std::size_t>(p)];
+                            std::vector<std::complex<float>>& spectrum =
+                                ir_spectra_[static_cast<std::size_t>(p)];
                             for (int i = 0; i < fft_size_; ++i)
-                                spec[static_cast<std::size_t>(i)] = std::complex<float>(0.0f, 0.0f);
+                                spectrum[static_cast<std::size_t>(i)] =
+                                    std::complex<float>(0.0f, 0.0f);
                             for (int i = 0; i < block_; ++i)
                             {
-                                const int src = p * block_ + i;
-                                if (src < ir_length)
-                                    spec[static_cast<std::size_t>(i)] =
-                                        std::complex<float>(ir[src], 0.0f);
+                                const int source = p * block_ + i;
+                                if (source < ir_length)
+                                    spectrum[static_cast<std::size_t>(i)] =
+                                        std::complex<float>(ir[source], 0.0f);
                             }
-                            fft_.forward(spec.data());
+                            fft_.forward(spectrum.data());
                         }
 
                         fdl_.assign(static_cast<std::size_t>(partitions_ > 0 ? partitions_ : 1),
@@ -92,7 +94,7 @@ namespace SushiEngine
                                         static_cast<std::size_t>(fft_size_),
                                         std::complex<float>(0.0f, 0.0f)));
                         write_ = 0;
-                        prev_input_.assign(static_cast<std::size_t>(block_), 0.0f);
+                        previous_input_.assign(static_cast<std::size_t>(block_), 0.0f);
                         time_.assign(static_cast<std::size_t>(fft_size_), std::complex<float>(0.0f, 0.0f));
                         accum_.assign(static_cast<std::size_t>(fft_size_), std::complex<float>(0.0f, 0.0f));
                     }
@@ -103,7 +105,7 @@ namespace SushiEngine
                         for (std::vector<std::complex<float>>& s : fdl_)
                             for (std::complex<float>& c : s)
                                 c = std::complex<float>(0.0f, 0.0f);
-                        for (float& f : prev_input_)
+                        for (float& f : previous_input_)
                             f = 0.0f;
                         write_ = 0;
                     }
@@ -131,8 +133,8 @@ namespace SushiEngine
                         // Build the 2B analysis frame: [previous B][current B], transform it,
                         // and store it as the newest entry in the frequency-domain delay line.
                         for (int i = 0; i < block_; ++i)
-                            time_[static_cast<std::size_t>(i)] =
-                                std::complex<float>(prev_input_[static_cast<std::size_t>(i)], 0.0f);
+                            time_[static_cast<std::size_t>(i)] = std::complex<float>(
+                                previous_input_[static_cast<std::size_t>(i)], 0.0f);
                         for (int i = 0; i < block_; ++i)
                             time_[static_cast<std::size_t>(block_ + i)] = std::complex<float>(in[i], 0.0f);
                         fft_.forward(time_.data());
@@ -162,7 +164,7 @@ namespace SushiEngine
                             out[i] = accum_[static_cast<std::size_t>(block_ + i)].real();
 
                         for (int i = 0; i < block_; ++i)
-                            prev_input_[static_cast<std::size_t>(i)] = in[i];
+                            previous_input_[static_cast<std::size_t>(i)] = in[i];
                         if (++write_ >= partitions_)
                             write_ = 0;
                     }
@@ -171,7 +173,7 @@ namespace SushiEngine
                     RadixFFT fft_;
                     std::vector<std::vector<std::complex<float>>> ir_spectra_;
                     std::vector<std::vector<std::complex<float>>> fdl_;
-                    std::vector<float> prev_input_;
+                    std::vector<float> previous_input_;
                     std::vector<std::complex<float>> time_;
                     std::vector<std::complex<float>> accum_;
                     int block_ = 0;
@@ -272,17 +274,18 @@ namespace SushiEngine
                     }
 
                 private:
-                    static void push(std::vector<float>& buf, int& w, int& count, float v) noexcept
+                    static void push(std::vector<float>& buffer, int& w, int& count,
+                                     float v) noexcept
                     {
-                        buf[static_cast<std::size_t>(w)] = v;
-                        if (++w >= static_cast<int>(buf.size()))
+                        buffer[static_cast<std::size_t>(w)] = v;
+                        if (++w >= static_cast<int>(buffer.size()))
                             w = 0;
                         ++count;
                     }
-                    static float pop(std::vector<float>& buf, int& r, int& count) noexcept
+                    static float pop(std::vector<float>& buffer, int& r, int& count) noexcept
                     {
-                        const float v = buf[static_cast<std::size_t>(r)];
-                        if (++r >= static_cast<int>(buf.size()))
+                        const float v = buffer[static_cast<std::size_t>(r)];
+                        if (++r >= static_cast<int>(buffer.size()))
                             r = 0;
                         --count;
                         return v;

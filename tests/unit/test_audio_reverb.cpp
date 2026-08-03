@@ -239,7 +239,7 @@ TEST(Unit_Audio, FDNMeasuredRt60TracksRequestedDecay)
         p.room = 0.0f;
         p.reverb = 0.0f;
         p.wet_dry_mix = 100.0f;    // pure wet
-        reverb.set_params(p);
+        reverb.set_parameters(p);
 
         const double measured = measure_rt60(reverb, 48000.0, 256);
         // The FDN's decay is set by the loop-gain design; a measured T30 within ±40 %
@@ -261,8 +261,8 @@ TEST(Unit_Audio, FDNDarkerHfRatioProducesDarkerTail)
     I3DL2Reverb pd = pb;
     pd.decay_hf_ratio = 0.2f; // highs decay much faster
 
-    bright.set_params(pb);
-    dark.set_params(pd);
+    bright.set_parameters(pb);
+    dark.set_parameters(pd);
 
     const double hf_bright = late_hf_fraction(bright, 48000.0, 256);
     const double hf_dark = late_hf_fraction(dark, 48000.0, 256);
@@ -277,7 +277,7 @@ TEST(Unit_Audio, FDNPredelayDelaysTheOnset)
     p.reverb_delay = 0.05f; // 50 ms → 2400 samples at 48 kHz
     p.wet_dry_mix = 100.0f; // fully wet: nothing but the (delayed) tail
     p.room = 0.0f; p.reverb = 0.0f;
-    reverb.set_params(p);
+    reverb.set_parameters(p);
 
     std::vector<float> l(512, 0.0f), r(512, 0.0f);
     l[0] = r[0] = 1.0f;
@@ -320,7 +320,7 @@ TEST(Unit_Audio, ShoeboxFactoryProducesSaneParameters)
 
     FDNReverbEffect reverb;
     reverb.prepare(48000.0, 256);
-    reverb.set_params(r);
+    reverb.set_parameters(r);
     const double measured = measure_rt60(reverb, 48000.0, 256);
     EXPECT_GT(measured, r.decay_time * 0.5); // the geometry decay is actually realised
     EXPECT_LT(measured, r.decay_time * 1.6);
@@ -338,7 +338,7 @@ TEST(Unit_Audio, ReverbBusEffectDrivesReverbThroughTheMixerSeam)
     mixer.add_aux_send(sfx, reverb_bus, 0.5f);
 
     std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
-    fx->set_params(I3DL2Reverb::concert_hall());
+    fx->set_parameters(I3DL2Reverb::concert_hall());
     mixer.add_insert(reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     mixer.prepare(48000.0, 256);
 

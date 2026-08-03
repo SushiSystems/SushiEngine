@@ -101,15 +101,15 @@ namespace SushiEngine
                     {
                         if (off + 2 > in_bytes)
                             break; // no room for a length header
-                        const int len = static_cast<int>(in[off]) |
+                        const int length = static_cast<int>(in[off]) |
                                         (static_cast<int>(in[off + 1]) << 8);
-                        if (off + 2 + len > in_bytes)
+                        if (off + 2 + length > in_bytes)
                             break; // partial packet: leave it for the next call
-                        const int got = opus_decode_float(decoder_, in + off + 2, len, temp_.data(),
-                                                          kMaxFrame, 0);
+                        const int got = opus_decode_float(decoder_, in + off + 2, length,
+                                                          temp_.data(), kMaxFrame, 0);
                         if (got < 0)
                         {
-                            off += 2 + len; // corrupt packet: skip it
+                            off += 2 + length; // corrupt packet: skip it
                             continue;
                         }
                         if (total + got > frame_capacity)
@@ -118,7 +118,7 @@ namespace SushiEngine
                         for (int i = 0; i < samples; ++i)
                             out[total * channels_ + i] = temp_[static_cast<std::size_t>(i)];
                         total += got;
-                        off += 2 + len;
+                        off += 2 + length;
                     }
                     in_consumed = off;
                     return total;
@@ -154,16 +154,17 @@ namespace SushiEngine
                             chunk[static_cast<std::size_t>(i)] = in[f * channels + i];
                         for (int i = n * channels; i < frame * channels; ++i)
                             chunk[static_cast<std::size_t>(i)] = 0.0f; // zero-pad the last frame
-                        const int len = opus_encode_float(enc, chunk.data(), frame, packet.data(),
-                                                          static_cast<int>(packet.size()));
-                        if (len < 0)
+                        const int length =
+                            opus_encode_float(enc, chunk.data(), frame, packet.data(),
+                                              static_cast<int>(packet.size()));
+                        if (length < 0)
                         {
                             opus_encoder_destroy(enc);
                             return false;
                         }
-                        out.push_back(static_cast<std::uint8_t>(len & 0xff));
-                        out.push_back(static_cast<std::uint8_t>((len >> 8) & 0xff));
-                        out.insert(out.end(), packet.begin(), packet.begin() + len);
+                        out.push_back(static_cast<std::uint8_t>(length & 0xff));
+                        out.push_back(static_cast<std::uint8_t>((length >> 8) & 0xff));
+                        out.insert(out.end(), packet.begin(), packet.begin() + length);
                     }
                     opus_encoder_destroy(enc);
                     return true;
@@ -216,14 +217,15 @@ namespace SushiEngine
                 channels = 1;
             sample_rate = 48000;
             out.clear();
-            std::vector<float> buf(static_cast<std::size_t>(5760 * channels), 0.0f);
+            std::vector<float> buffer(static_cast<std::size_t>(5760 * channels), 0.0f);
             for (;;)
             {
-                const int got = op_read_float(of, buf.data(), static_cast<int>(buf.size()), nullptr);
+                const int got =
+                    op_read_float(of, buffer.data(), static_cast<int>(buffer.size()), nullptr);
                 if (got <= 0)
                     break;
-                out.insert(out.end(), buf.begin(),
-                           buf.begin() + static_cast<std::size_t>(got * channels));
+                out.insert(out.end(), buffer.begin(),
+                           buffer.begin() + static_cast<std::size_t>(got * channels));
             }
             op_free(of);
             return true;

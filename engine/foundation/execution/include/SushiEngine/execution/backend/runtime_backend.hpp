@@ -672,8 +672,8 @@ namespace SushiEngine
              *
              * The portable "stand up a backend" factory `Execution::Runtime` denotes on
              * this build: a caller that used to do
-             * `auto runtime = SushiRuntime::API::Runtime::create(); Context ctx(runtime);`
-             * now does `auto runtime = Execution::Runtime::create(); auto ctx =
+             * `auto runtime = SushiRuntime::API::Runtime::create(); Context context(runtime);`
+             * now does `auto runtime = Execution::Runtime::create(); auto context =
              * runtime.context();` unchanged across backends. Heap-allocates the runtime
              * behind a `unique_ptr` rather than storing it by value so this type is
              * cheaply movable regardless of whether `SushiRuntime::API::Runtime` itself

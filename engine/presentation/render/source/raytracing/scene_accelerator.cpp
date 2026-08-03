@@ -258,7 +258,7 @@ namespace SushiEngine
                 bottom_.emplace(mesh.vertices, level);
             }
 
-            void SceneAccelerator::record_pending(VkCommandBuffer cmd)
+            void SceneAccelerator::record_pending(VkCommandBuffer command)
             {
                 if (pending_.empty())
                     return;
@@ -280,12 +280,12 @@ namespace SushiEngine
                     VkAccelerationStructureBuildRangeInfoKHR range{};
                     range.primitiveCount = pending.triangle_count;
                     const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
-                    api.build_structures(cmd, 1, &build, &ranges);
+                    api.build_structures(command, 1, &build, &ranges);
                 }
                 pending_.clear();
             }
 
-            void SceneAccelerator::build_top_level(VkCommandBuffer cmd, TopLevel& top,
+            void SceneAccelerator::build_top_level(VkCommandBuffer command, TopLevel& top,
                                                    VkDeviceSize scratch_offset)
             {
                 const Vulkan::RayTracingFunctions& api = device_.ray_tracing();
@@ -315,10 +315,10 @@ namespace SushiEngine
                 VkAccelerationStructureBuildRangeInfoKHR range{};
                 range.primitiveCount = top.instance_count;
                 const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
-                api.build_structures(cmd, 1, &build, &ranges);
+                api.build_structures(command, 1, &build, &ranges);
             }
 
-            void SceneAccelerator::build(VkCommandBuffer cmd, std::uint32_t slot,
+            void SceneAccelerator::build(VkCommandBuffer command, std::uint32_t slot,
                                          const MeshInstance* instances, std::size_t count,
                                          const double eye[3])
             {
@@ -363,7 +363,7 @@ namespace SushiEngine
                         imported ? instance.model
                                  : mul(instance.model,
                                        Geometry::shape_scale(instance.kind,
-                                                             instance.shape_params));
+                                                             instance.shape_parameters));
 
                     VkAccelerationStructureInstanceKHR record{};
                     fill_transform(model, eye, record.transform);
@@ -385,7 +385,7 @@ namespace SushiEngine
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                                       false);
-                        record_pending(cmd);
+                        record_pending(command);
                     }
                     return;
                 }
@@ -460,7 +460,7 @@ namespace SushiEngine
                                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                               false);
 
-                record_pending(cmd);
+                record_pending(command);
 
                 // The top level reads what the bottom-level builds just wrote, and both
                 // are recorded into the same command buffer. The render graph derives
@@ -480,14 +480,14 @@ namespace SushiEngine
                 dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                 dependency.memoryBarrierCount = 1;
                 dependency.pMemoryBarriers = &barrier;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
 
-                build_top_level(cmd, top, top_scratch_offset);
+                build_top_level(command, top, top_scratch_offset);
 
                 // And once more, so the fragment shader that traces against it waits for
                 // the build rather than racing it.
                 barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
             }
 
             VkAccelerationStructureKHR SceneAccelerator::top_level(

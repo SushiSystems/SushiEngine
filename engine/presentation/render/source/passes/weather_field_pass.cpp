@@ -57,7 +57,7 @@ namespace SushiEngine
                     return static_cast<std::uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from,
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout from,
                                 VkImageLayout to, VkPipelineStageFlags2 source,
                                 VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
                                 VkAccessFlags2 destination_access)
@@ -81,7 +81,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
 
                 // The published field carries whatever resolution its producer had; the image is
@@ -139,10 +139,10 @@ namespace SushiEngine
                 // Edge-clamped, not wrapped: the field describes a bounded region of the world,
                 // and a march ray leaving it must keep reading the nearest simulated cell rather
                 // than teleporting to the far side of the domain.
-                Resources::SamplerDescription sampler_desc{};
-                sampler_desc.filter = VK_FILTER_LINEAR;
-                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description{};
+                sampler_description.filter = VK_FILTER_LINEAR;
+                sampler_description.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                sampler_ = samplers.get(sampler_description);
             }
 
             WeatherFieldPass::~WeatherFieldPass()
@@ -276,12 +276,12 @@ namespace SushiEngine
                         // this pass must not be culled for having no tracked write.
                         builder.set_side_effect();
                     },
-                    [this, slot, clear](VkCommandBuffer cmd, const Graph::PassContext&)
+                    [this, slot, clear](VkCommandBuffer command, const Graph::PassContext&)
                     {
                         // UNDEFINED as the source layout on every upload: the previous contents
                         // are fully overwritten, so there is nothing to preserve and the driver
                         // is free to discard them.
-                        transition(cmd, image_, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, image_, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -298,8 +298,9 @@ namespace SushiEngine
                             range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                             range.levelCount = 1;
                             range.layerCount = 1;
-                            vkCmdClearColorImage(cmd, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                 &zero, 1, &range);
+                            vkCmdClearColorImage(command, image_,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1,
+                                                 &range);
                         }
                         else
                         {
@@ -307,11 +308,11 @@ namespace SushiEngine
                             copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                             copy.imageSubresource.layerCount = 1;
                             copy.imageExtent = {FIELD_WIDTH, FIELD_WIDTH, FIELD_DEPTH};
-                            vkCmdCopyBufferToImage(cmd, staging_[slot].buffer, image_,
+                            vkCmdCopyBufferToImage(command, staging_[slot].buffer, image_,
                                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
                         }
 
-                        transition(cmd, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        transition(command, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                    VK_PIPELINE_STAGE_2_COPY_BIT,
                                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |

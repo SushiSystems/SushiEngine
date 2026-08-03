@@ -87,9 +87,9 @@ TEST(Unit_Audio, PartitionedConvolutionMatchesDirect)
         float ref = 0.0f;
         for (int k = 0; k < static_cast<int>(ir.size()); ++k)
         {
-            const int idx = n - k;
-            if (idx >= 0 && idx < total)
-                ref += x[static_cast<std::size_t>(idx)] * ir[static_cast<std::size_t>(k)];
+            const int index = n - k;
+            if (index >= 0 && index < total)
+                ref += x[static_cast<std::size_t>(index)] * ir[static_cast<std::size_t>(k)];
         }
         err += std::fabs(static_cast<double>(y[static_cast<std::size_t>(n)]) - ref);
         ++checked;
@@ -148,7 +148,7 @@ TEST(Unit_Audio, ConvolutionReverbDecays)
     reverb.prepare(sr, block);
     I3DL2Reverb p = I3DL2Reverb::concert_hall();
     p.wet_dry_mix = 100.0f;
-    reverb.set_params(p);
+    reverb.set_parameters(p);
     EXPECT_GT(reverb.impulse_length(), static_cast<int>(sr)); // multi-second tail
 
     double peak = 0.0, early = 0.0, late = 0.0;
@@ -190,8 +190,8 @@ TEST(Unit_Audio, ConvolutionReverbDecayLength)
     ps.decay_time = 0.5f;
     I3DL2Reverb pl = ps;
     pl.decay_time = 3.0f;
-    shortv.set_params(ps);
-    longv.set_params(pl);
+    shortv.set_parameters(ps);
+    longv.set_parameters(pl);
     EXPECT_LT(shortv.impulse_length(), longv.impulse_length());
 }
 
@@ -215,7 +215,7 @@ TEST(Unit_Audio, ConvolutionReverbLoadedImpulse)
     p.room = 0.0f;
     p.reverb = 0.0f; // unity level
     p.wet_dry_mix = 100.0f;
-    reverb.set_params(p);
+    reverb.set_parameters(p);
 
     std::vector<float> out;
     bool first = true;

@@ -63,20 +63,21 @@ namespace SushiEngine
 
             void SkyPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc = fullscreen_pipeline_desc(
-                    layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
-                    shaders_.module("sky.frag"), Frame::HDR_FORMAT);
+                Resources::GraphicsPipelineDescription description =
+                    fullscreen_pipeline_description(layout_.pipeline_layout(),
+                                                    shaders_.module("fullscreen.vert"),
+                                                    shaders_.module("sky.frag"), Frame::HDR_FORMAT);
                 // Second MRT slot: the analytic ground's raw, unresolved direct-sun term,
                 // held back so the ground-shadow resolve pass can blur its noisy PCF alpha
                 // before cloud_composite_pass folds it into the scene.
-                desc.color_formats[1] = Frame::HDR_FORMAT;
-                desc.color_count = 2;
+                description.color_formats[1] = Frame::HDR_FORMAT;
+                description.color_count = 2;
                 // Whether a rate image is actually bound is decided per frame, but the
                 // pipeline has to be created knowing one may be, so on a device that
                 // supports it the sky pipeline always opts in.
-                desc.shading_rate_attachment =
+                description.shading_rate_attachment =
                     device_.supports_shading_rate_image() ? VK_TRUE : VK_FALSE;
-                pipeline_ = pipelines_.create(desc);
+                pipeline_ = pipelines_.create(description);
             }
 
             void SkyPass::destroy_pipeline()
@@ -126,7 +127,7 @@ namespace SushiEngine
                                                         device_.shading_rate_texel_width(),
                                                         device_.shading_rate_texel_height());
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
                             frame.samplers->get(Resources::SamplerDescription{});
@@ -190,11 +191,12 @@ namespace SushiEngine
                                      ShadowPass::atlas_sampler(*frame.samplers));
                         writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
                                        lights_.shadow_buffer(), lights_.shadow_buffer_range());
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

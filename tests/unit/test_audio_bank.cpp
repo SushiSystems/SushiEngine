@@ -170,15 +170,15 @@ TEST(Unit_Audio, EventContainerSelection)
     db.add_event(13, blend);
     db.add_event(14, a); // an event straight to a leaf
 
-    ResolveContext ctx;
-    EXPECT_EQ(db.resolve(14, ctx), 1u); // leaf
+    ResolveContext context;
+    EXPECT_EQ(db.resolve(14, context), 1u); // leaf
 
     // Random stays within the child media set.
     bool saw_variation = false;
-    std::uint32_t first = db.resolve(10, ctx);
+    std::uint32_t first = db.resolve(10, context);
     for (int i = 0; i < 32; ++i)
     {
-        const std::uint32_t r = db.resolve(10, ctx);
+        const std::uint32_t r = db.resolve(10, context);
         EXPECT_TRUE(r == 1u || r == 2u || r == 3u);
         if (r != first)
             saw_variation = true;
@@ -186,24 +186,24 @@ TEST(Unit_Audio, EventContainerSelection)
     EXPECT_TRUE(saw_variation);
 
     // Sequence cycles 1,2,3,1,...
-    EXPECT_EQ(db.resolve(11, ctx), 1u);
-    EXPECT_EQ(db.resolve(11, ctx), 2u);
-    EXPECT_EQ(db.resolve(11, ctx), 3u);
-    EXPECT_EQ(db.resolve(11, ctx), 1u);
+    EXPECT_EQ(db.resolve(11, context), 1u);
+    EXPECT_EQ(db.resolve(11, context), 2u);
+    EXPECT_EQ(db.resolve(11, context), 3u);
+    EXPECT_EQ(db.resolve(11, context), 1u);
 
     // Switch indexes by the selector.
-    ctx.switch_value = 2;
-    EXPECT_EQ(db.resolve(12, ctx), 3u);
-    ctx.switch_value = 0;
-    EXPECT_EQ(db.resolve(12, ctx), 1u);
+    context.switch_value = 2;
+    EXPECT_EQ(db.resolve(12, context), 3u);
+    context.switch_value = 0;
+    EXPECT_EQ(db.resolve(12, context), 1u);
 
     // Blend maps [0,1] across the children.
-    ctx.blend = 0.0f;
-    EXPECT_EQ(db.resolve(13, ctx), 1u);
-    ctx.blend = 1.0f;
-    EXPECT_EQ(db.resolve(13, ctx), 3u);
+    context.blend = 0.0f;
+    EXPECT_EQ(db.resolve(13, context), 1u);
+    context.blend = 1.0f;
+    EXPECT_EQ(db.resolve(13, context), 3u);
 
-    EXPECT_EQ(db.resolve(777, ctx), INVALID_SOUND); // unknown event
+    EXPECT_EQ(db.resolve(777, context), INVALID_SOUND); // unknown event
 }
 
 // The bank-backed factory turns a posted event into a playable voice.
@@ -231,10 +231,10 @@ TEST(Unit_Audio, BankSourceFactoryCreatesVoices)
     BankSourceFactory factory(bank, false);
     for (int i = 0; i < 5; ++i)
     {
-        std::unique_ptr<VoiceSource> src = factory.create(1);
-        ASSERT_NE(src, nullptr);
+        std::unique_ptr<VoiceSource> source = factory.create(1);
+        ASSERT_NE(source, nullptr);
         std::vector<float> out(64, 0.0f);
-        EXPECT_TRUE(src->render(out.data(), 64));
+        EXPECT_TRUE(source->render(out.data(), 64));
     }
     EXPECT_EQ(factory.create(999), nullptr); // unknown event, no direct media
 }
@@ -284,20 +284,20 @@ TEST(Unit_Audio, EventLayerAndBlend)
     db.add_event(10, layer);
     db.add_event(11, blend);
 
-    ResolveContext ctx;
+    ResolveContext context;
     std::vector<ResolvedSound> out;
 
-    db.resolve_all(10, ctx, out); // Layer → both sounds
+    db.resolve_all(10, context, out); // Layer → both sounds
     EXPECT_EQ(out.size(), 2u);
 
-    ctx.blend = 0.5f;
-    db.resolve_all(11, ctx, out); // Blend mid → both, equal-power (~0.707 each)
+    context.blend = 0.5f;
+    db.resolve_all(11, context, out); // Blend mid → both, equal-power (~0.707 each)
     ASSERT_EQ(out.size(), 2u);
     EXPECT_NEAR(out[0].gain, 0.70710678f, 0.02f);
     EXPECT_NEAR(out[1].gain, 0.70710678f, 0.02f);
 
-    ctx.blend = 0.0f;
-    db.resolve_all(11, ctx, out); // Blend fully to child 0 → only sound 1 sounds
+    context.blend = 0.0f;
+    db.resolve_all(11, context, out); // Blend fully to child 0 → only sound 1 sounds
     ASSERT_EQ(out.size(), 1u);
     EXPECT_EQ(out[0].media_id, 1u);
     EXPECT_NEAR(out[0].gain, 1.0f, 0.02f);
@@ -314,13 +314,13 @@ TEST(Unit_Audio, EventWeightedRandom)
     const std::uint32_t rnd = db.add_container(ContainerKind::Random, 0, 2);
     db.add_event(20, rnd);
 
-    ResolveContext ctx;
+    ResolveContext context;
     std::vector<ResolvedSound> out;
     int picked_a = 0;
     for (int i = 0; i < 2000; ++i)
     {
-        ctx.seed = static_cast<std::uint32_t>(i);
-        db.resolve_all(20, ctx, out);
+        context.seed = static_cast<std::uint32_t>(i);
+        db.resolve_all(20, context, out);
         ASSERT_EQ(out.size(), 1u);
         if (out[0].media_id == 1u)
             ++picked_a;

@@ -106,9 +106,9 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Brings up the Vulkan instance, device, and allocator.
-                     * @param desc Selection request forwarded from create_render_device().
+                     * @param description Selection request forwarded from create_render_device().
                      */
-                    explicit VulkanDevice(const RenderDeviceDescription& desc);
+                    explicit VulkanDevice(const RenderDeviceDescription& description);
                     ~VulkanDevice() override;
 
                     VulkanDevice(const VulkanDevice&) = delete;

@@ -92,7 +92,7 @@ namespace SushiEngine
         struct JointDescription
         {
             std::string name;                          /**< Hashed into the blob at cook. */
-            int parent = -1;                           /**< Index into the desc's joints, -1 for a root. */
+            int parent = -1;                           /**< Index into the joints, -1 for a root. */
             Vector3f bind_translation{};               /**< Local bind translation. */
             Quaternionf bind_rotation{};               /**< Local bind rotation (defaults to identity). */
             Vector3f bind_scale{1.0f, 1.0f, 1.0f};     /**< Local bind scale. */
@@ -123,7 +123,7 @@ namespace SushiEngine
                 return (value + alignment - 1) & ~(alignment - 1);
             }
 
-            /** @brief Depth of a joint in the desc hierarchy, or -1 if the parent chain cycles. */
+            /** @brief Depth of a joint in the hierarchy, or -1 if the parent chain cycles. */
             inline int joint_depth(const std::vector<JointDescription>& joints, int index) noexcept
             {
                 int depth = 0;
@@ -150,20 +150,22 @@ namespace SushiEngine
          * 16-byte-aligned offsets. A single full-detail LOD level is emitted (the bone-LOD
          * ladder is a later phase); the format already carries the array.
          *
-         * @param desc The authored skeleton (must have between 1 and @ref MAX_JOINTS joints).
+         * @param description The authored skeleton (must hold between 1 and @ref MAX_JOINTS
+         *                    joints).
          * @param out  Receives the blob bytes; cleared first. Empty on failure.
          * @param out_order When non-null, receives the sort mapping: `(*out_order)[new_index]`
-         *                  is the original desc joint index now at `new_index`. The animation
-         *                  importer uses it to resample clip tracks in the blob's joint order.
+         *                  is the original description joint index now at `new_index`. The
+         *                  animation importer uses it to resample clip tracks in the blob's
+         *                  joint order.
          * @return True on success; false if the joint count is out of range or the
          *         hierarchy contains a cycle.
          */
-        inline bool build_skeleton_blob(const SkeletonDescription& desc,
+        inline bool build_skeleton_blob(const SkeletonDescription& description,
                                         std::vector<std::byte>& out,
                                         std::vector<int>* out_order = nullptr)
         {
             out.clear();
-            const std::size_t count = desc.joints.size();
+            const std::size_t count = description.joints.size();
             if (count == 0 || count > MAX_JOINTS)
                 return false;
 
@@ -174,7 +176,7 @@ namespace SushiEngine
             for (std::size_t i = 0; i < count; ++i)
             {
                 order[i] = static_cast<int>(i);
-                depth[i] = detail::joint_depth(desc.joints, static_cast<int>(i));
+                depth[i] = detail::joint_depth(description.joints, static_cast<int>(i));
                 if (depth[i] < 0)
                     return false; // cycle
             }
@@ -200,7 +202,7 @@ namespace SushiEngine
             for (std::size_t new_index = 0; new_index < count; ++new_index)
             {
                 const JointDescription& joint =
-                    desc.joints[static_cast<std::size_t>(order[new_index])];
+                    description.joints[static_cast<std::size_t>(order[new_index])];
                 parents[new_index] = joint.parent < 0
                                          ? NO_PARENT
                                          : static_cast<std::uint16_t>(remap[static_cast<std::size_t>(joint.parent)]);
@@ -224,7 +226,7 @@ namespace SushiEngine
 
             // Derive inverse-bind matrices from the bind pose when the source lacked them.
             // parent[i] < i lets globals be a single forward scan.
-            if (!desc.has_inverse_bind)
+            if (!description.has_inverse_bind)
             {
                 std::vector<Matrix4> global(count);
                 for (std::size_t i = 0; i < count; ++i)

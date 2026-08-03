@@ -113,17 +113,17 @@ namespace SushiEngine
                  * present: a depth regression is what a renderer's passes actually produce,
                  * and a combined format cannot copy both in one region anyway.
                  */
-                VkImageAspectFlags capture_aspect(const TextureDescription& desc) noexcept
+                VkImageAspectFlags capture_aspect(const TextureDescription& description) noexcept
                 {
-                    if ((desc.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0)
+                    if ((description.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0)
                         return VK_IMAGE_ASPECT_DEPTH_BIT;
-                    if ((desc.aspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0)
+                    if ((description.aspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0)
                         return VK_IMAGE_ASPECT_STENCIL_BIT;
                     return VK_IMAGE_ASPECT_COLOR_BIT;
                 }
 
-                /** @brief Bytes mip 0 of @p desc occupies, across every layer and slice. */
-                VkDeviceSize capture_size(const TextureDescription& desc) noexcept
+                /** @brief Bytes mip 0 of @p description occupies, across every layer and slice. */
+                VkDeviceSize capture_size(const TextureDescription& description) noexcept
                 {
                     // A combined depth/stencil image copies its depth aspect only, and for
                     // the two such formats this renderer can meet, that aspect packs
@@ -134,15 +134,15 @@ namespace SushiEngine
                     // table rather than folded into it, so texel_size() keeps meaning
                     // "whole texel size" for every format it does list.
                     const bool depth_only_combined =
-                        (desc.format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                         desc.format == VK_FORMAT_D32_SFLOAT_S8_UINT) &&
-                        capture_aspect(desc) == VK_IMAGE_ASPECT_DEPTH_BIT;
+                        (description.format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                         description.format == VK_FORMAT_D32_SFLOAT_S8_UINT) &&
+                        capture_aspect(description) == VK_IMAGE_ASPECT_DEPTH_BIT;
                     const std::uint32_t stride =
-                        depth_only_combined ? 4 : texel_size(desc.format);
+                        depth_only_combined ? 4 : texel_size(description.format);
                     if (stride == 0)
                         return 0;
-                    return VkDeviceSize(stride) * desc.width * desc.height * desc.depth *
-                           desc.array_layers;
+                    return VkDeviceSize(stride) * description.width * description.height *
+                           description.depth * description.array_layers;
                 }
 
                 /** @brief FNV-1a 64 over a byte range. */
@@ -214,24 +214,24 @@ namespace SushiEngine
                 store.entries.clear();
             }
 
-            bool PassCapture::wants(const TextureDescription& desc)
+            bool PassCapture::wants(const TextureDescription& description)
             {
                 pending_size_ = 0;
                 if (active_ >= stores_.size())
                     return false;
-                if (desc.width == 0 || desc.height == 0 || desc.depth == 0 ||
-                    desc.array_layers == 0)
+                if (description.width == 0 || description.height == 0 || description.depth == 0 ||
+                    description.array_layers == 0)
                     return false;
                 // An import the graph does not own may simply not be a legal copy source,
                 // and nothing here can retroactively give it that usage.
                 Store& store = stores_[active_];
-                if ((desc.usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0)
+                if ((description.usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0)
                 {
                     ++store.dropped_format;
                     return false;
                 }
 
-                const VkDeviceSize size = capture_size(desc);
+                const VkDeviceSize size = capture_size(description);
                 if (size == 0)
                 {
                     ++store.dropped_format;
@@ -250,8 +250,8 @@ namespace SushiEngine
                 return true;
             }
 
-            void PassCapture::record(VkCommandBuffer cmd, const char* pass,
-                                     const TextureDescription& desc, VkImage image)
+            void PassCapture::record(VkCommandBuffer command, const char* pass,
+                                     const TextureDescription& description, VkImage image)
             {
                 if (active_ >= stores_.size() || pending_size_ == 0 || image == VK_NULL_HANDLE)
                     return;
@@ -263,18 +263,18 @@ namespace SushiEngine
 
                 VkBufferImageCopy copy{};
                 copy.bufferOffset = offset;
-                copy.imageSubresource.aspectMask = capture_aspect(desc);
+                copy.imageSubresource.aspectMask = capture_aspect(description);
                 copy.imageSubresource.mipLevel = 0;
                 copy.imageSubresource.baseArrayLayer = 0;
-                copy.imageSubresource.layerCount = desc.array_layers;
-                copy.imageExtent = {desc.width, desc.height, desc.depth};
-                vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                copy.imageSubresource.layerCount = description.array_layers;
+                copy.imageExtent = {description.width, description.height, description.depth};
+                vkCmdCopyImageToBuffer(command, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                        store.buffer, 1, &copy);
 
                 Entry entry;
                 entry.pass = pass != nullptr ? pass : "pass";
-                entry.resource = desc.name != nullptr ? desc.name : "texture";
-                entry.desc = desc;
+                entry.resource = description.name != nullptr ? description.name : "texture";
+                entry.description = description;
                 entry.offset = offset;
                 entry.size = size;
                 store.entries.push_back(std::move(entry));
@@ -301,11 +301,11 @@ namespace SushiEngine
                     CapturedPass captured;
                     captured.pass = entry.pass;
                     captured.resource = entry.resource;
-                    captured.width = entry.desc.width;
-                    captured.height = entry.desc.height;
-                    captured.depth = entry.desc.depth;
-                    captured.layers = entry.desc.array_layers;
-                    captured.format = entry.desc.format;
+                    captured.width = entry.description.width;
+                    captured.height = entry.description.height;
+                    captured.depth = entry.description.depth;
+                    captured.layers = entry.description.array_layers;
+                    captured.format = entry.description.format;
                     captured.hash = hash_bytes(base + entry.offset,
                                                static_cast<std::size_t>(entry.size));
                     out.push_back(std::move(captured));

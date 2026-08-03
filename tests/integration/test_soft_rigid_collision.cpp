@@ -136,7 +136,7 @@ namespace
         for (RigidBodyT<Scalar>& particle : model.particles)
         {
             particle.position = particle.position + offset;
-            particle.prev_position = particle.position;
+            particle.previous_position = particle.position;
         }
     }
 
@@ -217,8 +217,8 @@ TEST(Integration_SoftRigidCollision, ASoftCubeSettlesOnTheSurfaceAtItsThickness)
     collider.surface_vertices = model.surface_vertices.data();
     collider.surface_vertex_count = model.surface_vertices.size();
     collider.contact_offset = Scalar(0.01);
-    collider.params = make_soft_rigid_params(model.collision, PhysicsMaterial{},
-                                             Scalar(2 * 9.81 / 60.0));
+    collider.parameters =
+        make_soft_rigid_parameters(model.collision, PhysicsMaterial{}, Scalar(2 * 9.81 / 60.0));
     model.collider = &collider;
 
     const Scalar dt = Scalar(1.0 / 60.0);
@@ -246,9 +246,9 @@ TEST(Integration_SoftRigidCollision, ARigidPartnerWithMassTakesItsShareOfTheCorr
 
     RigidBodyT<Scalar> rigid;
     rigid.position = Vector3{0, 0, 0};
-    rigid.prev_position = rigid.position;
+    rigid.previous_position = rigid.position;
     rigid.orientation = Quaternion{0, 0, 0, 1};
-    rigid.prev_orientation = rigid.orientation;
+    rigid.previous_orientation = rigid.orientation;
     rigid.inv_mass = Scalar(1);
     rigid.inv_inertia = Vector3{0, 0, 0};
 
@@ -257,7 +257,7 @@ TEST(Integration_SoftRigidCollision, ARigidPartnerWithMassTakesItsShareOfTheCorr
     collider.rigid = &rigid;
     collider.surface_vertices = model.surface_vertices.data();
     collider.surface_vertex_count = model.surface_vertices.size();
-    collider.params.rest_offset = Scalar(0.01);
+    collider.parameters.rest_offset = Scalar(0.01);
     model.collider = &collider;
 
     model.step(Scalar(1.0 / 60.0), 4);
@@ -279,9 +279,9 @@ TEST(Integration_SoftRigidCollision, AStaticRigidPartnerTakesNone)
 
     RigidBodyT<Scalar> rigid;
     rigid.position = Vector3{0, 0, 0};
-    rigid.prev_position = rigid.position;
+    rigid.previous_position = rigid.position;
     rigid.orientation = Quaternion{0, 0, 0, 1};
-    rigid.prev_orientation = rigid.orientation;
+    rigid.previous_orientation = rigid.orientation;
     rigid.inv_mass = Scalar(1);
     rigid.inv_inertia = Vector3{0, 0, 0};
     // Immovable by decision rather than by mass, which is the case
@@ -293,7 +293,7 @@ TEST(Integration_SoftRigidCollision, AStaticRigidPartnerTakesNone)
     collider.rigid = &rigid;
     collider.surface_vertices = model.surface_vertices.data();
     collider.surface_vertex_count = model.surface_vertices.size();
-    collider.params.rest_offset = Scalar(0.01);
+    collider.parameters.rest_offset = Scalar(0.01);
     model.collider = &collider;
 
     model.step(Scalar(1.0 / 60.0), 4);

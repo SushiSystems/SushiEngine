@@ -166,9 +166,10 @@ namespace SushiEngine
          * abstract IRenderDevice. Throws std::runtime_error if no suitable device is
          * found or device creation fails.
          *
-         * @param desc Device-selection request (validation, preference, interop UUID).
+         * @param description Device-selection request (validation, preference, interop UUID).
          * @return An owning handle to the live device.
          */
-        std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDescription& desc);
+        std::unique_ptr<IRenderDevice> create_render_device(
+            const RenderDeviceDescription& description);
     } // namespace Render
 } // namespace SushiEngine

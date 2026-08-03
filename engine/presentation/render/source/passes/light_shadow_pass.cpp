@@ -54,14 +54,15 @@ namespace SushiEngine
 
             void LightShadowPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc = depth_only_pipeline_desc(
-                    layout_.pipeline_layout(), shaders_.module("light_shadow.vert"),
-                    Frame::SHADOW_FORMAT);
+                Resources::GraphicsPipelineDescription description =
+                    depth_only_pipeline_description(layout_.pipeline_layout(),
+                                                    shaders_.module("light_shadow.vert"),
+                                                    Frame::SHADOW_FORMAT);
                 // Conventional depth like the sun atlas: the spot projection is not
                 // reverse-Z, so a LESS compare occludes and the atlas clears to lit.
-                desc.depth_compare = VK_COMPARE_OP_LESS;
-                desc.cull_mode = VK_CULL_MODE_NONE;
-                pipeline_ = pipelines_.create(desc);
+                description.depth_compare = VK_COMPARE_OP_LESS;
+                description.cull_mode = VK_CULL_MODE_NONE;
+                pipeline_ = pipelines_.create(description);
             }
 
             void LightShadowPass::destroy_pipeline()
@@ -91,17 +92,18 @@ namespace SushiEngine
                         builder.depth_stencil_attachment(frame.targets.light_shadow_atlas,
                                                          Graph::AttachmentLoad::Clear, 1.0f, 0);
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         Scene::SceneSetWriter writer;
                         writer.storage(Scene::SceneLayout::LIGHT_SHADOW_DATA_BINDING,
                                        lights_.shadow_buffer(), lights_.shadow_buffer_range());
-                        writer.commit(cmd, frame.layout->pipeline_layout());
-                        frame.layout->bind_heap(cmd);
+                        writer.commit(command, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(command);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
 
                         const std::uint32_t casters = lights_.shadow_caster_count();
                         for (std::uint32_t c = 0; c < casters; ++c)
@@ -117,8 +119,8 @@ namespace SushiEngine
                             scissor.offset = {static_cast<std::int32_t>(tile.x),
                                               static_cast<std::int32_t>(tile.y)};
                             scissor.extent = {tile.size, tile.size};
-                            vkCmdSetViewport(cmd, 0, 1, &viewport);
-                            vkCmdSetScissor(cmd, 0, 1, &scissor);
+                            vkCmdSetViewport(command, 0, 1, &viewport);
+                            vkCmdSetScissor(command, 0, 1, &scissor);
 
                             VkBuffer bound_vertices = VK_NULL_HANDLE;
                             for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
@@ -134,21 +136,21 @@ namespace SushiEngine
                                     continue;
                                 if (mesh.vertices != bound_vertices)
                                 {
-                                    vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices, &zero);
-                                    vkCmdBindIndexBuffer(cmd, mesh.indices, 0,
+                                    vkCmdBindVertexBuffers(command, 0, 1, &mesh.vertices, &zero);
+                                    vkCmdBindIndexBuffer(command, mesh.indices, 0,
                                                          VK_INDEX_TYPE_UINT32);
                                     bound_vertices = mesh.vertices;
                                 }
                                 const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
-                                                   Geometry::shape_scale(instance.kind,
-                                                                         instance.shape_params));
+                                                   Geometry::shape_scale(
+                                                       instance.kind, instance.shape_parameters));
                                 const Scene::MeshPushConstants push = depth_only_push(
                                     model, frame.eye, static_cast<float>(tile.index));
-                                vkCmdPushConstants(cmd, pipeline_layout, DEPTH_PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, pipeline_layout, DEPTH_PUSH_STAGES, 0,
                                                    sizeof(Scene::MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
+                                vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
                             }
                         }
                     });

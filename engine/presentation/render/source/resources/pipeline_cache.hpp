@@ -121,13 +121,15 @@ namespace SushiEngine
              */
             struct ColorBlend
             {
-                VkBool32 enable = VK_FALSE;                          /**< Whether blending is on. */
-                VkBlendFactor src_color = VK_BLEND_FACTOR_ONE;      /**< Source colour factor. */
-                VkBlendFactor dst_color = VK_BLEND_FACTOR_ZERO;     /**< Destination colour factor. */
-                VkBlendOp color_op = VK_BLEND_OP_ADD;               /**< Colour blend op. */
-                VkBlendFactor src_alpha = VK_BLEND_FACTOR_ONE;      /**< Source alpha factor. */
-                VkBlendFactor dst_alpha = VK_BLEND_FACTOR_ZERO;     /**< Destination alpha factor. */
-                VkBlendOp alpha_op = VK_BLEND_OP_ADD;               /**< Alpha blend op. */
+                VkBool32 enable = VK_FALSE;                        /**< Whether blending is on. */
+                VkBlendFactor source_color = VK_BLEND_FACTOR_ONE;  /**< Source colour factor. */
+                /** @brief Destination colour factor. */
+                VkBlendFactor destination_color = VK_BLEND_FACTOR_ZERO;
+                VkBlendOp color_op = VK_BLEND_OP_ADD;              /**< Colour blend op. */
+                VkBlendFactor source_alpha = VK_BLEND_FACTOR_ONE;  /**< Source alpha factor. */
+                /** @brief Destination alpha factor. */
+                VkBlendFactor destination_alpha = VK_BLEND_FACTOR_ZERO;
+                VkBlendOp alpha_op = VK_BLEND_OP_ADD;              /**< Alpha blend op. */
             };
 
             /**
@@ -240,10 +242,10 @@ namespace SushiEngine
                      * always resolves to the best pipeline built so far. The factory owns the
                      * underlying pipelines.
                      *
-                     * @param desc What the pipeline must be.
+                     * @param description What the pipeline must be.
                      * @return A handle that resolves to the pipeline at bind time.
                      */
-                    PipelineHandle create(const GraphicsPipelineDescription& desc);
+                    PipelineHandle create(const GraphicsPipelineDescription& description);
 
                     /**
                      * @brief Creates a mesh-shader pipeline (task + mesh + optional fragment).
@@ -253,10 +255,10 @@ namespace SushiEngine
                      * @c GraphicsPipelineDescription::task_shader and @c mesh_shader name the
                      * stages, and a null @c fragment_shader makes a depth-only mesh pipeline.
                      *
-                     * @param desc What the pipeline must be (task/mesh/fragment + state).
+                     * @param description What the pipeline must be (task/mesh/fragment + state).
                      * @return A handle that resolves to the pipeline at bind time.
                      */
-                    PipelineHandle create_mesh(const GraphicsPipelineDescription& desc);
+                    PipelineHandle create_mesh(const GraphicsPipelineDescription& description);
 
                     /**
                      * @brief Advances the optimizer's retirement clock by one frame.
@@ -305,7 +307,7 @@ namespace SushiEngine
                      */
                     struct Slot
                     {
-                        GraphicsPipelineDescription desc{};
+                        GraphicsPipelineDescription description{};
                         std::atomic<VkPipeline> active{VK_NULL_HANDLE};
                         VkPipeline initial = VK_NULL_HANDLE;
                         VkPipeline optimized = VK_NULL_HANDLE;
@@ -318,13 +320,17 @@ namespace SushiEngine
                         std::uint64_t retire_frame = 0;
                     };
 
-                    VkPipeline create_monolithic(const GraphicsPipelineDescription& desc);
-                    VkPipeline create_mesh_monolithic(const GraphicsPipelineDescription& desc);
-                    VkPipeline create_linked(const GraphicsPipelineDescription& desc);
-                    VkPipeline vertex_input_library(const GraphicsPipelineDescription& desc);
-                    VkPipeline pre_rasterization_library(const GraphicsPipelineDescription& desc);
-                    VkPipeline fragment_shader_library(const GraphicsPipelineDescription& desc);
-                    VkPipeline fragment_output_library(const GraphicsPipelineDescription& desc);
+                    VkPipeline create_monolithic(const GraphicsPipelineDescription& description);
+                    VkPipeline create_mesh_monolithic(
+                        const GraphicsPipelineDescription& description);
+                    VkPipeline create_linked(const GraphicsPipelineDescription& description);
+                    VkPipeline vertex_input_library(const GraphicsPipelineDescription& description);
+                    VkPipeline pre_rasterization_library(
+                        const GraphicsPipelineDescription& description);
+                    VkPipeline fragment_shader_library(
+                        const GraphicsPipelineDescription& description);
+                    VkPipeline fragment_output_library(
+                        const GraphicsPipelineDescription& description);
 
                     void worker_main();
                     void enqueue_optimize(Slot* slot);

@@ -79,9 +79,9 @@ namespace SushiEngine
         /** @brief How a particle's colour composites against the scene. */
         enum class BlendMode : std::uint32_t
         {
-            Additive = 0,      /**< src + dst; fire, sparks, magic. */
-            Alpha = 1,         /**< src.a lerp; smoke, dust. */
-            Premultiplied = 2, /**< src + dst*(1-a); pre-multiplied textures. */
+            Additive = 0,      /**< source + destination; fire, sparks, magic. */
+            Alpha = 1,         /**< source.a lerp; smoke, dust. */
+            Premultiplied = 2, /**< source + destination*(1-a); pre-multiplied textures. */
         };
 
         /** @brief Whether and how alive particles are ordered before drawing. */

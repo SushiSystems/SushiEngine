@@ -86,35 +86,35 @@ namespace SushiEngine
             public:
                 /**
                  * @brief Bakes the room impulse response and RT60 for a source/listener pair.
-                 * @param mesh     The room geometry with per-triangle materials.
-                 * @param source   Source position.
-                 * @param listener Listener position.
-                 * @param params   Ray-trace parameters.
+                 * @param mesh       The room geometry with per-triangle materials.
+                 * @param source     Source position.
+                 * @param listener   Listener position.
+                 * @param parameters Ray-trace parameters.
                  * @return The measured RT60 per band and a synthesized impulse response.
                  */
                 RoomImpulseResponse bake(
                     const AcousticMesh& mesh, const AudioVec3& source, const AudioVec3& listener,
-                    const RayTraceParameters& params = RayTraceParameters()) const
+                    const RayTraceParameters& parameters = RayTraceParameters()) const
                 {
                     RoomImpulseResponse out;
                     out.sample_rate = 48000.0;
-                    out.ray_count = params.rays;
+                    out.ray_count = parameters.rays;
 
                     const int bins =
-                        static_cast<int>(params.histogram_seconds / params.bin_seconds) + 1;
+                        static_cast<int>(parameters.histogram_seconds / parameters.bin_seconds) + 1;
                     std::vector<double> histogram(
                         static_cast<std::size_t>(bins * ACOUSTIC_BAND_COUNT), 0.0);
 
-                    std::uint64_t rng = params.seed;
-                    for (int r = 0; r < params.rays; ++r)
+                    std::uint64_t rng = parameters.seed;
+                    for (int r = 0; r < parameters.rays; ++r)
                     {
                         float dir[3];
                         sample_sphere(rng, dir);
-                        trace_ray(mesh, source, listener, dir, params, histogram, bins, out);
+                        trace_ray(mesh, source, listener, dir, parameters, histogram, bins, out);
                     }
 
-                    compute_rt60(histogram, bins, params, out);
-                    synthesize_impulse(histogram, bins, params, out);
+                    compute_rt60(histogram, bins, parameters, out);
+                    synthesize_impulse(histogram, bins, parameters, out);
                     return out;
                 }
 
@@ -275,13 +275,13 @@ namespace SushiEngine
                     }
                     if (best_tri < 0)
                         return false;
-                    const float len = std::sqrt(best_n.x * best_n.x + best_n.y * best_n.y +
-                                                best_n.z * best_n.z);
-                    if (len > 1e-12f)
+                    const float normal_length =
+                        std::sqrt(best_n.x * best_n.x + best_n.y * best_n.y + best_n.z * best_n.z);
+                    if (normal_length > 1e-12f)
                     {
-                        best_n.x /= len;
-                        best_n.y /= len;
-                        best_n.z /= len;
+                        best_n.x /= normal_length;
+                        best_n.y /= normal_length;
+                        best_n.z /= normal_length;
                     }
                     t_out = best;
                     tri_out = best_tri;
@@ -291,15 +291,15 @@ namespace SushiEngine
 
                 // Closest distance from point p to the segment a→b.
                 static float point_segment_distance(const AudioVec3& p, const AudioVec3& a,
-                                                    const float* d, float seg_len,
+                                                    const float* d, float seg_length,
                                                     float& t_along) noexcept
                 {
                     const float apx = p.x - a.x, apy = p.y - a.y, apz = p.z - a.z;
                     float proj = apx * d[0] + apy * d[1] + apz * d[2];
                     if (proj < 0.0f)
                         proj = 0.0f;
-                    if (proj > seg_len)
-                        proj = seg_len;
+                    if (proj > seg_length)
+                        proj = seg_length;
                     t_along = proj;
                     const float cx = a.x + d[0] * proj - p.x;
                     const float cy = a.y + d[1] * proj - p.y;
@@ -309,7 +309,7 @@ namespace SushiEngine
 
                 void trace_ray(const AcousticMesh& mesh, const AudioVec3& source,
                                const AudioVec3& listener, const float* dir0,
-                               const RayTraceParameters& params, std::vector<double>& histogram,
+                               const RayTraceParameters& parameters, std::vector<double>& histogram,
                                int bins, RoomImpulseResponse& out) const
                 {
                     AudioVec3 origin = source;
@@ -317,13 +317,13 @@ namespace SushiEngine
                     float energy[ACOUSTIC_BAND_COUNT];
                     for (int b = 0; b < ACOUSTIC_BAND_COUNT; ++b)
                         energy[b] = 1.0f;
-                    float path_len = 0.0f;
+                    float path_length = 0.0f;
                     std::uint64_t rng =
-                        params.seed ^ (0xd1b54a32d192ull *
-                                       static_cast<std::uint64_t>(
-                                           static_cast<std::int64_t>(dir0[0] * 1e6f) + 3));
+                        parameters.seed ^
+                        (0xd1b54a32d192ull *
+                         static_cast<std::uint64_t>(static_cast<std::int64_t>(dir0[0] * 1e6f) + 3));
 
-                    for (int order = 0; order < params.max_order; ++order)
+                    for (int order = 0; order < parameters.max_order; ++order)
                     {
                         float t = 0.0f;
                         int tri = -1;
@@ -335,10 +335,11 @@ namespace SushiEngine
                         float t_along = 0.0f;
                         const float miss =
                             point_segment_distance(listener, origin, dir, t, t_along);
-                        if (miss < params.receiver_radius)
+                        if (miss < parameters.receiver_radius)
                         {
-                            const double arrival = (path_len + t_along) / params.speed_of_sound;
-                            const int bin = static_cast<int>(arrival / params.bin_seconds);
+                            const double arrival =
+                                (path_length + t_along) / parameters.speed_of_sound;
+                            const int bin = static_cast<int>(arrival / parameters.bin_seconds);
                             if (bin >= 0 && bin < bins)
                             {
                                 for (int b = 0; b < ACOUSTIC_BAND_COUNT; ++b)
@@ -351,7 +352,7 @@ namespace SushiEngine
                         // Advance to the hit point, lose energy to absorption.
                         origin = AudioVec3{origin.x + dir[0] * t, origin.y + dir[1] * t,
                                            origin.z + dir[2] * t};
-                        path_len += t;
+                        path_length += t;
                         const AcousticMaterial& mat =
                             mesh.material_for(static_cast<std::size_t>(tri));
                         float max_energy = 0.0f;
@@ -361,7 +362,7 @@ namespace SushiEngine
                             if (energy[b] > max_energy)
                                 max_energy = energy[b];
                         }
-                        if (max_energy < params.energy_floor)
+                        if (max_energy < parameters.energy_floor)
                             break;
 
                         // Reflect: diffuse (cosine) with probability = mid-band scattering, else specular.
@@ -431,7 +432,8 @@ namespace SushiEngine
                 }
 
                 static void compute_rt60(const std::vector<double>& histogram, int bins,
-                                         const RayTraceParameters& params, RoomImpulseResponse& out)
+                                         const RayTraceParameters& parameters,
+                                         RoomImpulseResponse& out)
                 {
                     for (int b = 0; b < ACOUSTIC_BAND_COUNT; ++b)
                     {
@@ -456,7 +458,7 @@ namespace SushiEngine
                             const double db = 10.0 * std::log10(
                                                         (schroeder[static_cast<std::size_t>(i)] /
                                                          total) + 1e-12);
-                            const double time = i * params.bin_seconds;
+                            const double time = i * parameters.bin_seconds;
                             if (t5 < 0.0 && db <= -5.0)
                                 t5 = time;
                             if (t35 < 0.0 && db <= -35.0)
@@ -473,13 +475,15 @@ namespace SushiEngine
                 }
 
                 static void synthesize_impulse(const std::vector<double>& histogram, int bins,
-                                               const RayTraceParameters& params, RoomImpulseResponse& out)
+                                               const RayTraceParameters& parameters,
+                                               RoomImpulseResponse& out)
                 {
-                    const int length = static_cast<int>(out.sample_rate * params.histogram_seconds);
+                    const int length =
+                        static_cast<int>(out.sample_rate * parameters.histogram_seconds);
                     out.impulse.assign(static_cast<std::size_t>(length), 0.0f);
-                    std::uint64_t rng = params.seed ^ 0xabcddcbaull;
+                    std::uint64_t rng = parameters.seed ^ 0xabcddcbaull;
                     const int samples_per_bin =
-                        static_cast<int>(params.bin_seconds * out.sample_rate);
+                        static_cast<int>(parameters.bin_seconds * out.sample_rate);
                     // Band-averaged energy envelope shapes decaying white noise (a common,
                     // perceptually-faithful IR synthesis from an energy histogram).
                     for (int i = 0; i < bins; ++i)
@@ -490,10 +494,10 @@ namespace SushiEngine
                         const float amp = static_cast<float>(std::sqrt(e / ACOUSTIC_BAND_COUNT));
                         for (int s = 0; s < samples_per_bin; ++s)
                         {
-                            const int idx = i * samples_per_bin + s;
-                            if (idx >= length)
+                            const int index = i * samples_per_bin + s;
+                            if (index >= length)
                                 break;
-                            out.impulse[static_cast<std::size_t>(idx)] =
+                            out.impulse[static_cast<std::size_t>(index)] =
                                 amp * (2.0f * rand_unit(rng) - 1.0f);
                         }
                     }

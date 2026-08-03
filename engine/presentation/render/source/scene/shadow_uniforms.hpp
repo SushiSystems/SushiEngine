@@ -69,7 +69,7 @@ namespace SushiEngine
                 float splits[4];      /**< View distance each cascade reaches, metres. */
                 float texel_size[4];  /**< World metres one shadow texel covers, per cascade. */
                 float depth_range[4]; /**< World metres the [0,1] depth spans, per cascade. */
-                float params[4];      /**< cascade count, tile uv scale, spare, cascade blend. */
+                float parameters[4];  /**< cascade count, tile uv scale, spare, cascade blend. */
                 float filter[4];      /**< min radius, max radius, penumbra slope, spare. */
                 float bias[4];        /**< depth bias, normal bias, contact metres, contact steps. */
                 float flags[4];       /**< shadows on, contact on, ray traced, atlas resolution. */

@@ -50,10 +50,10 @@ namespace
                     left_ir[i] = 0.0f;
                     right_ir[i] = 0.0f;
                 }
-                float len = std::sqrt(front * front + left * left);
-                if (len < 1e-6f)
-                    len = 1.0f;
-                const float lateral = left / len; // +1 left, -1 right
+                float length = std::sqrt(front * front + left * left);
+                if (length < 1e-6f)
+                    length = 1.0f;
+                const float lateral = left / length; // +1 left, -1 right
                 const int left_delay = 4 + static_cast<int>((1.0f - lateral) * 10.0f);
                 const int right_delay = 4 + static_cast<int>((1.0f + lateral) * 10.0f);
                 left_ir[left_delay] = 0.6f + 0.4f * lateral;
@@ -162,16 +162,17 @@ TEST(Unit_Audio, AnthropometricWarpLengthensItd)
     SyntheticHRTF hrtf;
     const int n = hrtf.ir_length();
 
-    auto arrival = [](const float* ir, int len) {
-        int idx = 0;
+    auto arrival = [](const float* ir, int length)
+    {
+        int index = 0;
         float peak = 0.0f;
-        for (int i = 0; i < len; ++i)
+        for (int i = 0; i < length; ++i)
             if (std::fabs(ir[i]) > peak)
             {
                 peak = std::fabs(ir[i]);
-                idx = i;
+                index = i;
             }
-        return idx;
+        return index;
     };
 
     std::vector<float> bl(static_cast<std::size_t>(n)), br(static_cast<std::size_t>(n));
@@ -200,11 +201,11 @@ TEST(Unit_Audio, RayTracedRt60MatchesSabine)
                  AudioVec3{lx * 0.5f, ly * 0.5f, lz * 0.5f}, room.add_material(wall));
 
     RayTracedAcoustics tracer;
-    RayTraceParameters params;
-    params.rays = 8000;
-    params.receiver_radius = 0.6f;
+    RayTraceParameters parameters;
+    parameters.rays = 8000;
+    parameters.receiver_radius = 0.6f;
     const RoomImpulseResponse rir =
-        tracer.bake(room, AudioVec3{2, 3, 2}, AudioVec3{8, 3, 2}, params);
+        tracer.bake(room, AudioVec3{2, 3, 2}, AudioVec3{8, 3, 2}, parameters);
 
     const double volume = lx * ly * lz;
     const double surface = 2.0 * (lx * ly + ly * lz + lx * lz);

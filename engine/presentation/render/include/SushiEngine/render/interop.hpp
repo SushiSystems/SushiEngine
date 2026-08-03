@@ -136,12 +136,12 @@ namespace SushiEngine
         /**
          * @brief Allocates a buffer the given device can share with another API.
          *
-         * @param device The live render device the allocation belongs to.
-         * @param desc   Size and usage the buffer must satisfy.
+         * @param device      The live render device the allocation belongs to.
+         * @param description Size and usage the buffer must satisfy.
          * @return The buffer, or nullptr when the device offers no external memory (in which
          *         case the caller's fallback is an ordinary upload — no path depends on this).
          */
-        std::unique_ptr<IInteropBuffer> create_interop_buffer(IRenderDevice& device,
-                                                              const InteropBufferDescription& desc);
+        std::unique_ptr<IInteropBuffer> create_interop_buffer(
+            IRenderDevice& device, const InteropBufferDescription& description);
     } // namespace Render
 } // namespace SushiEngine

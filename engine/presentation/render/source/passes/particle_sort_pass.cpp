@@ -44,7 +44,7 @@ namespace SushiEngine
                     return value == 0 ? 1u : (value + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void compute_barrier(VkCommandBuffer cmd)
+                void compute_barrier(VkCommandBuffer command)
                 {
                     VkMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -58,7 +58,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.memoryBarrierCount = 1;
                     dependency.pMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -151,7 +151,7 @@ namespace SushiEngine
                         builder.write(frame.targets.particle_sort_keys,
                                       Graph::BufferAccess::StorageReadWrite);
                     },
-                    [this, &frame, count, sort_alpha, eye](VkCommandBuffer cmd,
+                    [this, &frame, count, sort_alpha, eye](VkCommandBuffer command,
                                                            const Graph::PassContext& context)
                     {
                         const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
@@ -164,9 +164,9 @@ namespace SushiEngine
                         writer.storage_buffer(2, context.buffer(frame.targets.particle_args),
                                               sizeof(std::uint32_t) * 12);
                         writer.update(device_.device(), set);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
 
                         // Seed the keys (always, so the buffer has a producer).
                         Push push{};
@@ -175,9 +175,9 @@ namespace SushiEngine
                         push.eye[0] = eye[0];
                         push.eye[1] = eye[1];
                         push.eye[2] = eye[2];
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(count), 1, 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, groups(count), 1, 1);
 
                         if (!sort_alpha)
                             return;
@@ -187,14 +187,14 @@ namespace SushiEngine
                         {
                             for (std::uint32_t j = k >> 1; j > 0; j >>= 1)
                             {
-                                compute_barrier(cmd);
+                                compute_barrier(command);
                                 push.mode = 1;
                                 push.stage_k = k;
                                 push.stage_j = j;
-                                vkCmdPushConstants(cmd, pipeline_layout_,
+                                vkCmdPushConstants(command, pipeline_layout_,
                                                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push),
                                                    &push);
-                                vkCmdDispatch(cmd, groups(count), 1, 1);
+                                vkCmdDispatch(command, groups(count), 1, 1);
                             }
                         }
                     });

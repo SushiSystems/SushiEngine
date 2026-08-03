@@ -64,15 +64,15 @@ namespace SushiEngine
                 }
             } // namespace
 
-            VulkanDevice::VulkanDevice(const RenderDeviceDescription& desc)
+            VulkanDevice::VulkanDevice(const RenderDeviceDescription& description)
             {
                 vkb::InstanceBuilder instance_builder;
                 instance_builder.set_app_name("SushiEngine")
                     .set_engine_name("SushiEngine")
                     .require_api_version(1, 4, 0);
-                if (desc.enable_validation)
+                if (description.enable_validation)
                     instance_builder.request_validation_layers().use_default_debug_messenger();
-                for (const std::string& extension : desc.required_instance_extensions)
+                for (const std::string& extension : description.required_instance_extensions)
                     instance_builder.enable_extension(extension.c_str());
 
                 auto instance_result = instance_builder.build();
@@ -84,10 +84,10 @@ namespace SushiEngine
                 // Windowed devices are handed a surface by the host so selection can
                 // require a present-capable queue; headless devices (render_probe)
                 // supply no factory and defer surface initialization.
-                if (desc.surface_factory)
+                if (description.surface_factory)
                 {
-                    surface_ = reinterpret_cast<VkSurfaceKHR>(
-                        desc.surface_factory(reinterpret_cast<std::uint64_t>(instance_.instance)));
+                    surface_ = reinterpret_cast<VkSurfaceKHR>(description.surface_factory(
+                        reinterpret_cast<std::uint64_t>(instance_.instance)));
                     if (surface_ == VK_NULL_HANDLE)
                         throw std::runtime_error(
                             "SushiEngine: the surface factory returned no surface");
@@ -137,7 +137,7 @@ namespace SushiEngine
                     selector.set_surface(surface_); // require a present-capable device
                 else
                     selector.defer_surface_initialization(); // headless bring-up
-                if (desc.preference == DevicePreference::LowPower)
+                if (description.preference == DevicePreference::LowPower)
                     selector.prefer_gpu_device_type(vkb::PreferredDeviceType::integrated);
 
                 auto physical_result = selector.select();
@@ -463,9 +463,10 @@ namespace SushiEngine
             }
         } // namespace Vulkan
 
-        std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDescription& desc)
+        std::unique_ptr<IRenderDevice> create_render_device(
+            const RenderDeviceDescription& description)
         {
-            return std::unique_ptr<IRenderDevice>(new Vulkan::VulkanDevice(desc));
+            return std::unique_ptr<IRenderDevice>(new Vulkan::VulkanDevice(description));
         }
     } // namespace Render
 } // namespace SushiEngine

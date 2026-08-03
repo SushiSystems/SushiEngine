@@ -161,9 +161,9 @@ namespace SushiEngine
                 push.forward[1] = static_cast<float>(-view.m[6]);
                 push.forward[2] = static_cast<float>(-view.m[10]);
                 push.forward[3] = static_cast<float>(lights_.light_count());
-                push.params[0] = lights_.cluster_near();
-                push.params[1] = lights_.cluster_far();
-                push.params[2] = static_cast<float>(lights_.decal_count());
+                push.parameters[0] = lights_.cluster_near();
+                push.parameters[1] = lights_.cluster_far();
+                push.parameters[2] = static_cast<float>(lights_.decal_count());
 
                 const Graph::BufferHandle grid = frame.targets.cluster_grid;
                 const Graph::BufferHandle index = frame.targets.light_index;
@@ -185,7 +185,7 @@ namespace SushiEngine
                         builder.write(decal_index, Graph::BufferAccess::StorageWrite);
                     },
                     [this, &frame, grid, index, decal_grid, decal_index, push](
-                        VkCommandBuffer cmd, const Graph::PassContext& context)
+                        VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
 
@@ -203,12 +203,13 @@ namespace SushiEngine
                         writer.storage_buffer(5, context.buffer(decal_index), DECAL_INDEX_BYTES);
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, group_count(Lighting::CLUSTER_COUNT, GROUP_SIZE), 1, 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, group_count(Lighting::CLUSTER_COUNT, GROUP_SIZE), 1,
+                                      1);
                     });
             }
         } // namespace Passes

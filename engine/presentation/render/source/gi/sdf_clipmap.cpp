@@ -126,7 +126,7 @@ namespace SushiEngine
 
                     // The shape parameters are half-extents in the instance's own frame; the
                     // model's per-axis scale carries them to world size (rotation dropped).
-                    const Vector3& s = instance.shape_params;
+                    const Vector3& s = instance.shape_parameters;
                     switch (instance.kind)
                     {
                         case MeshKind::Sphere:

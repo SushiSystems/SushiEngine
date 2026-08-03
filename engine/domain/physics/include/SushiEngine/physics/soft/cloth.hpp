@@ -212,7 +212,7 @@ namespace SushiEngine
                     RigidBodyT<T> body;
                     body.position =
                         origin + Vector3T<T>{T(col) * spacing, T(0), T(row) * spacing};
-                    body.prev_position = body.position;
+                    body.previous_position = body.position;
                     body.inv_mass = (row == 0) ? T(0) : T(1);
                     body.inv_inertia = Vector3T<T>{0, 0, 0};
                     // A pinned row is immovable, not asleep: it must keep conducting

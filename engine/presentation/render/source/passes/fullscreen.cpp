@@ -29,18 +29,17 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            Resources::GraphicsPipelineDescription fullscreen_pipeline_desc(VkPipelineLayout layout,
-                                                                            VkShaderModule vertex,
-                                                                            VkShaderModule fragment,
-                                                                            VkFormat color_format)
+            Resources::GraphicsPipelineDescription fullscreen_pipeline_description(
+                VkPipelineLayout layout, VkShaderModule vertex, VkShaderModule fragment,
+                VkFormat color_format)
             {
-                Resources::GraphicsPipelineDescription desc;
-                desc.layout = layout;
-                desc.vertex_shader = vertex;
-                desc.fragment_shader = fragment;
-                desc.color_count = 1;
-                desc.color_formats[0] = color_format;
-                return desc;
+                Resources::GraphicsPipelineDescription description;
+                description.layout = layout;
+                description.vertex_shader = vertex;
+                description.fragment_shader = fragment;
+                description.color_count = 1;
+                description.color_formats[0] = color_format;
+                return description;
             }
         } // namespace Passes
     } // namespace Render

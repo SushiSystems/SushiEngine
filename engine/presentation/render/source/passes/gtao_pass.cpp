@@ -54,10 +54,10 @@ namespace SushiEngine
                 /** @brief A nearest-sampled clamp sampler: AO reads must not blur depth edges. */
                 Resources::SamplerDescription point_sampler() noexcept
                 {
-                    Resources::SamplerDescription desc;
-                    desc.filter = VK_FILTER_NEAREST;
-                    desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                    return desc;
+                    Resources::SamplerDescription description;
+                    description.filter = VK_FILTER_NEAREST;
+                    description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    return description;
                 }
             } // namespace
 
@@ -118,7 +118,7 @@ namespace SushiEngine
                                                               shaders_.module("gtao.comp"));
                 // The resolve is an ordinary fullscreen pass on the shared scene layout, so
                 // its bent-normal write and depth reads ride the same push-descriptor set 0.
-                resolve_pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                resolve_pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("gtao_resolve.frag"), Frame::HDR_FORMAT));
             }
@@ -204,7 +204,7 @@ namespace SushiEngine
                         builder.write(gtao, Graph::TextureAccess::StorageComputeWrite);
                     },
                     [this, &frame, depth, gtao, push, half_w, half_h](
-                        VkCommandBuffer cmd, const Graph::PassContext& context)
+                        VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
                         Resources::DescriptorWriter writer;
@@ -213,12 +213,13 @@ namespace SushiEngine
                         writer.storage_image(1, context.view(gtao));
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                          compute_pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, group_count(half_w), group_count(half_h), 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, group_count(half_w), group_count(half_h), 1);
                     });
 
                 // Full-res joint-bilateral upsample + bent-normal to world.
@@ -231,7 +232,7 @@ namespace SushiEngine
                         builder.read(gtao, Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame, depth, gtao](VkCommandBuffer cmd,
+                    [this, &frame, depth, gtao](VkCommandBuffer command,
                                                 const Graph::PassContext& context)
                     {
                         const VkSampler sampler = frame.samplers->get(point_sampler());
@@ -241,12 +242,12 @@ namespace SushiEngine
                                        sizeof(Scene::SceneUniforms));
                         writer.image(1, context.sampled_view(depth), sampler);
                         writer.image(2, context.sampled_view(gtao), sampler);
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                           resolve_pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

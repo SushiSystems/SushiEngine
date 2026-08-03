@@ -105,7 +105,7 @@ namespace SushiEngine
                 VkImage image = VK_NULL_HANDLE;
                 VkImageView view = VK_NULL_HANDLE;
                 VkImageView sample_view = VK_NULL_HANDLE; /**< Falls back to @c view when null. */
-                TextureDescription desc{};
+                TextureDescription description{};
                 TextureState* state = nullptr;
             };
 
@@ -114,7 +114,7 @@ namespace SushiEngine
             {
                 VkBuffer buffer = VK_NULL_HANDLE;
                 void* mapped = nullptr;
-                BufferDescription desc{};
+                BufferDescription description{};
                 BufferState* state = nullptr;
             };
 
@@ -167,7 +167,7 @@ namespace SushiEngine
                      * @param handle The declared texture.
                      * @return The description, including its extent and format.
                      */
-                    const TextureDescription& texture_desc(TextureHandle handle) const;
+                    const TextureDescription& texture_description(TextureHandle handle) const;
 
                     /**
                      * @brief The buffer behind a buffer handle this frame.
@@ -390,19 +390,19 @@ namespace SushiEngine
 
                     /**
                      * @brief Declares a transient texture the graph allocates and may alias.
-                     * @param desc What the texture must be; usage is unioned with the
+                     * @param description What the texture must be; usage is unioned with the
                      *             declared accesses before allocation.
                      * @return A handle valid until the next begin_frame().
                      */
-                    TextureHandle create_texture(const TextureDescription& desc);
+                    TextureHandle create_texture(const TextureDescription& description);
 
                     /**
                      * @brief Declares a transient buffer the graph allocates and may alias.
-                     * @param desc What the buffer must be; usage is unioned with the
+                     * @param description What the buffer must be; usage is unioned with the
                      *             declared accesses before allocation.
                      * @return A handle valid until the next begin_frame().
                      */
-                    BufferHandle create_buffer(const BufferDescription& desc);
+                    BufferHandle create_buffer(const BufferDescription& description);
 
                     /**
                      * @brief Brings an externally owned texture under the graph's scheduling.
@@ -458,10 +458,10 @@ namespace SushiEngine
                      * machine walks the schedule once, so recording them out of order would
                      * derive transitions from the wrong preceding access.
                      *
-                     * @param cmd   The command buffer to record into, from that queue's family.
+                     * @param command   The command buffer to record into, from that queue's family.
                      * @param index Which submission to record.
                      */
-                    void execute(VkCommandBuffer cmd, std::uint32_t index);
+                    void execute(VkCommandBuffer command, std::uint32_t index);
 
                 private:
                     friend class RenderPassBuilder;
@@ -534,7 +534,7 @@ namespace SushiEngine
                     /** @brief A virtual texture: its description and this frame's backing. */
                     struct TextureResource
                     {
-                        TextureDescription desc{};
+                        TextureDescription description{};
                         bool imported = false;
                         VkImage image = VK_NULL_HANDLE;
                         VkImageView view = VK_NULL_HANDLE;
@@ -552,7 +552,7 @@ namespace SushiEngine
                     /** @brief A virtual buffer: its description and this frame's backing. */
                     struct BufferResource
                     {
-                        BufferDescription desc{};
+                        BufferDescription description{};
                         bool imported = false;
                         VkBuffer buffer = VK_NULL_HANDLE;
                         void* mapped = nullptr;
@@ -578,9 +578,9 @@ namespace SushiEngine
                     void touch(std::uint32_t pass, BufferResource& resource);
                     TextureState& texture_state(const TextureResource& resource);
                     BufferState& buffer_state(const BufferResource& resource);
-                    void emit_barriers(VkCommandBuffer cmd, const PassNode& pass);
-                    void capture_pass(VkCommandBuffer cmd, const PassNode& pass);
-                    void begin_rendering(VkCommandBuffer cmd, const PassNode& pass,
+                    void emit_barriers(VkCommandBuffer command, const PassNode& pass);
+                    void capture_pass(VkCommandBuffer command, const PassNode& pass);
+                    void begin_rendering(VkCommandBuffer command, const PassNode& pass,
                                          VkExtent2D area);
                     VkExtent2D resolve_render_area(const PassNode& pass) const;
 

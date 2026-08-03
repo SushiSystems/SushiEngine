@@ -112,7 +112,7 @@ namespace SushiEngine
             {
                 // HDR: the grid runs in the post chain before the tone map, so it composites
                 // in linear HDR the same way the cloud composite does.
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("grid.frag"), Frame::HDR_FORMAT));
             }
@@ -151,7 +151,7 @@ namespace SushiEngine
                         builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame, source, push](VkCommandBuffer cmd,
+                    [this, &frame, source, push](VkCommandBuffer command,
                                                  const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
@@ -162,15 +162,16 @@ namespace SushiEngine
                                        sizeof(Scene::SceneUniforms));
                         writer.image(1, context.sampled_view(source), sampler);
                         writer.image(2, context.sampled_view(frame.targets.depth), sampler);
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdPushConstants(cmd, frame.layout->pipeline_layout(),
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdPushConstants(command, frame.layout->pipeline_layout(),
                                            VK_SHADER_STAGE_VERTEX_BIT |
                                                VK_SHADER_STAGE_FRAGMENT_BIT,
                                            0, sizeof(push), &push);
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

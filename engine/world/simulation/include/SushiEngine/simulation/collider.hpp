@@ -37,7 +37,7 @@
  * Three things live here and they are one idea — the collider is *derived*, and
  * every step of the derivation is a function that can be tested without a world:
  *
- * 1. @ref collider_from_params turns the authoring component into the record.
+ * 1. @ref collider_from_parameters turns the authoring component into the record.
  * 2. @ref scaled_collider applies the entity's scale to it.
  * 3. @ref collider_mass_properties derives mass and inertia from the *scaled*
  *    shape and a density, which is P0 carry-over 2: `mass_properties.hpp` has been
@@ -134,7 +134,7 @@ namespace SushiEngine
          * a sphere of the cylinder's radius does neither of (§1.2 item 4). A true
          * cylinder shape is a support function away whenever it is wanted.
          *
-         * @param params The authored collider component.
+         * @param parameters The authored collider component.
          * @return The unscaled collider it means.
          */
         inline Physics::MaterialCombineMode to_combine_mode(std::uint32_t value) noexcept
@@ -148,41 +148,41 @@ namespace SushiEngine
                        : Physics::MaterialCombineMode::average;
         }
 
-        inline Collider collider_from_params(const ColliderParameters& params) noexcept
+        inline Collider collider_from_parameters(const ColliderParameters& parameters) noexcept
         {
             Collider collider;
             // A body is in exactly one layer, so the authored index becomes the one-bit mask
             // `CollisionFilter::layer` means. Done here rather than at each call site because
             // an unshifted index would collide with layer 0 and nothing else, silently.
-            collider.filter.layer = std::uint32_t(1) << (params.layer & 31u);
-            collider.filter.collides_with = params.collides_with;
-            collider.flags = (params.trigger ? Physics::BodyFlags::trigger : 0u) |
-                              (params.continuous_collision ? Physics::BodyFlags::continuous_collision
-                                                            : 0u);
-            switch (params.kind)
+            collider.filter.layer = std::uint32_t(1) << (parameters.layer & 31u);
+            collider.filter.collides_with = parameters.collides_with;
+            collider.flags =
+                (parameters.trigger ? Physics::BodyFlags::trigger : 0u) |
+                (parameters.continuous_collision ? Physics::BodyFlags::continuous_collision : 0u);
+            switch (parameters.kind)
             {
                 case PrimitiveKind::Sphere:
                     collider.shape = ColliderShape::Sphere;
-                    collider.radius = params.params.x;
+                    collider.radius = parameters.parameters.x;
                     break;
                 case PrimitiveKind::Box:
                     collider.shape = ColliderShape::Box;
-                    collider.half_extents = params.params;
+                    collider.half_extents = parameters.parameters;
                     break;
                 case PrimitiveKind::Cylinder:
                 {
                     collider.shape = ColliderShape::Capsule;
-                    collider.radius = params.params.x;
+                    collider.radius = parameters.parameters.x;
                     // The authored half-height includes the caps; the capsule's does
                     // not, so a short, fat cylinder degenerates to a sphere rather
                     // than growing longer than it was drawn.
-                    const Scalar half = params.params.y - params.params.x;
+                    const Scalar half = parameters.parameters.y - parameters.parameters.x;
                     collider.half_height = half > Scalar(0) ? half : Scalar(0);
                     break;
                 }
                 case PrimitiveKind::Plane:
                     collider.shape = ColliderShape::Plane;
-                    collider.half_extents = params.params; // the plane's local normal
+                    collider.half_extents = parameters.parameters; // the plane's local normal
                     break;
             }
             return collider;

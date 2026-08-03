@@ -121,27 +121,27 @@ namespace SushiEngine
 
             void TerrainPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc{};
-                desc.layout = layout_.pipeline_layout();
-                desc.vertex_shader = shaders_.module("terrain.vert");
+                Resources::GraphicsPipelineDescription description{};
+                description.layout = layout_.pipeline_layout();
+                description.vertex_shader = shaders_.module("terrain.vert");
                 // The shared shading path, unchanged: terrain.vert's output signature is
                 // mesh.vert's, so pbr.frag cannot tell the two apart.
-                desc.fragment_shader = shaders_.module("pbr.frag");
-                desc.vertex_stride = 0; // the lattice position comes from gl_VertexIndex
-                desc.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                description.fragment_shader = shaders_.module("pbr.frag");
+                description.vertex_stride = 0; // the lattice position comes from gl_VertexIndex
+                description.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
                 // Off until a rendered frame confirms the winding; see the header.
-                desc.cull_mode = VK_CULL_MODE_NONE;
-                desc.depth_test = VK_TRUE;
-                desc.depth_write = VK_TRUE;
-                desc.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
-                desc.color_count = 4;
-                desc.color_formats[0] = Frame::HDR_FORMAT;
-                desc.color_formats[1] = Frame::ID_FORMAT;
-                desc.color_formats[2] = Frame::VELOCITY_FORMAT;
-                desc.color_formats[3] = Frame::GBUFFER_FORMAT;
-                desc.depth_format = Frame::DEPTH_FORMAT;
-                desc.stencil_format = Frame::DEPTH_FORMAT;
-                pipeline_ = pipelines_.create(desc);
+                description.cull_mode = VK_CULL_MODE_NONE;
+                description.depth_test = VK_TRUE;
+                description.depth_write = VK_TRUE;
+                description.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
+                description.color_count = 4;
+                description.color_formats[0] = Frame::HDR_FORMAT;
+                description.color_formats[1] = Frame::ID_FORMAT;
+                description.color_formats[2] = Frame::VELOCITY_FORMAT;
+                description.color_formats[3] = Frame::GBUFFER_FORMAT;
+                description.depth_format = Frame::DEPTH_FORMAT;
+                description.stencil_format = Frame::DEPTH_FORMAT;
+                pipeline_ = pipelines_.create(description);
             }
 
             void TerrainPass::destroy_pipeline() { pipeline_ = Resources::PipelineHandle{}; }
@@ -181,26 +181,26 @@ namespace SushiEngine
                 imported.image = cache.image();
                 imported.view = cache.view();
                 imported.sample_view = cache.view();
-                imported.desc = cache.description();
+                imported.description = cache.description();
                 imported.state = &cache.state();
                 const Graph::TextureHandle slots = graph.import_texture(imported);
 
                 // The node array and the body block as host-visible transients: both are
                 // rewritten every frame and read once, so a device-local copy would buy a
                 // transfer and nothing else.
-                Graph::BufferDescription node_desc{};
-                node_desc.size = terrain_.node_bytes();
-                node_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                node_desc.host_visible = true;
-                node_desc.name = "terrain nodes";
-                const Graph::BufferHandle nodes = graph.create_buffer(node_desc);
+                Graph::BufferDescription node_description{};
+                node_description.size = terrain_.node_bytes();
+                node_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                node_description.host_visible = true;
+                node_description.name = "terrain nodes";
+                const Graph::BufferHandle nodes = graph.create_buffer(node_description);
 
-                Graph::BufferDescription body_desc{};
-                body_desc.size = sizeof(Terrain::TerrainBodyRecord);
-                body_desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                body_desc.host_visible = true;
-                body_desc.name = "terrain body";
-                const Graph::BufferHandle body = graph.create_buffer(body_desc);
+                Graph::BufferDescription body_description{};
+                body_description.size = sizeof(Terrain::TerrainBodyRecord);
+                body_description.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                body_description.host_visible = true;
+                body_description.name = "terrain body";
+                const Graph::BufferHandle body = graph.create_buffer(body_description);
 
                 if (cache.pending_uploads() > 0)
                 {

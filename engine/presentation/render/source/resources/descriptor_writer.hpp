@@ -197,17 +197,18 @@ namespace SushiEngine
 
                     /**
                      * @brief Pushes every queued write into the command buffer.
-                     * @param cmd        The recording command buffer.
+                     * @param command    The recording command buffer.
                      * @param bind_point Graphics or compute.
                      * @param layout     The pipeline layout the set belongs to.
                      * @param set_index  The set number being pushed.
                      */
-                    void push(VkCommandBuffer cmd, VkPipelineBindPoint bind_point,
+                    void push(VkCommandBuffer command, VkPipelineBindPoint bind_point,
                               VkPipelineLayout layout, std::uint32_t set_index)
                     {
                         if (count_ == 0)
                             return;
-                        vkCmdPushDescriptorSet(cmd, bind_point, layout, set_index, count_, writes_);
+                        vkCmdPushDescriptorSet(command, bind_point, layout, set_index, count_,
+                                               writes_);
                         count_ = 0;
                     }
 
@@ -268,17 +269,18 @@ namespace SushiEngine
              * The bind counterpart to DescriptorWriter: routing every set bind through
              * here keeps VK_EXT_descriptor_heap's changed binding model a one-seam swap.
              *
-             * @param cmd        The recording command buffer.
+             * @param command    The recording command buffer.
              * @param bind_point Graphics or compute.
              * @param layout     The pipeline layout the set belongs to.
              * @param first_set  The set number to bind at.
              * @param set        The descriptor set to bind.
              */
-            inline void bind_descriptor_set(VkCommandBuffer cmd, VkPipelineBindPoint bind_point,
+            inline void bind_descriptor_set(VkCommandBuffer command, VkPipelineBindPoint bind_point,
                                             VkPipelineLayout layout, std::uint32_t first_set,
                                             VkDescriptorSet set)
             {
-                vkCmdBindDescriptorSets(cmd, bind_point, layout, first_set, 1, &set, 0, nullptr);
+                vkCmdBindDescriptorSets(command, bind_point, layout, first_set, 1, &set, 0,
+                                        nullptr);
             }
         } // namespace Resources
     } // namespace Render

@@ -105,10 +105,10 @@ namespace SushiEngine
         /** @brief How a transparent material combines with what is behind it. */
         enum class BlendMode : std::uint32_t
         {
-            Alpha,         /**< src.a * src + (1 - src.a) * dst. */
-            Premultiplied, /**< src + (1 - src.a) * dst. */
-            Additive,      /**< src + dst. */
-            Multiply,      /**< src * dst. */
+            Alpha,         /**< source.a * source + (1 - source.a) * destination. */
+            Premultiplied, /**< source + (1 - source.a) * destination. */
+            Additive,      /**< source + destination. */
+            Multiply,      /**< source * destination. */
         };
 
         /** @brief How a sampler behaves outside [0, 1]. */

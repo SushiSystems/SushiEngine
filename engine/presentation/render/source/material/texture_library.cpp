@@ -143,11 +143,11 @@ namespace SushiEngine
                                            std::size_t budget_bytes)
                 : device_(device), heap_(heap), budget_bytes_(budget_bytes)
             {
-                Resources::SamplerDescription desc;
-                desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                desc.max_anisotropy = 16.0f;
-                desc.max_lod = 16.0f;
-                sampler_ = samplers.get(desc);
+                Resources::SamplerDescription description;
+                description.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                description.max_anisotropy = 16.0f;
+                description.max_lod = 16.0f;
+                sampler_ = samplers.get(description);
 
                 VkCommandPoolCreateInfo pool_info{};
                 pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -509,18 +509,19 @@ namespace SushiEngine
                 std::memcpy(staging_mapped.pMappedData, pixels,
                             static_cast<std::size_t>(staging_bytes));
 
-                VkCommandBufferAllocateInfo cmd_info{};
-                cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                cmd_info.commandPool = pool_;
-                cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                cmd_info.commandBufferCount = 1;
-                Vulkan::check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &pending.cmd),
-                              "vkAllocateCommandBuffers(texture)");
+                VkCommandBufferAllocateInfo command_info{};
+                command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                command_info.commandPool = pool_;
+                command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                command_info.commandBufferCount = 1;
+                Vulkan::check(
+                    vkAllocateCommandBuffers(device_.device(), &command_info, &pending.command),
+                    "vkAllocateCommandBuffers(texture)");
 
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                vkBeginCommandBuffer(pending.cmd, &begin);
+                vkBeginCommandBuffer(pending.command, &begin);
 
                 const auto barrier = [&](std::uint32_t base_level, std::uint32_t level_count,
                                          VkImageLayout from, VkImageLayout to,
@@ -549,7 +550,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &image_barrier;
-                    vkCmdPipelineBarrier2(pending.cmd, &dependency);
+                    vkCmdPipelineBarrier2(pending.command, &dependency);
                 };
 
                 barrier(0, levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -560,7 +561,7 @@ namespace SushiEngine
                 copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 copy.imageSubresource.layerCount = 1;
                 copy.imageExtent = {width, height, 1};
-                vkCmdCopyBufferToImage(pending.cmd, pending.staging, image,
+                vkCmdCopyBufferToImage(pending.command, pending.staging, image,
                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
                 // Mip chain by successive halving blits: level N-1 is the source for N,
@@ -587,8 +588,8 @@ namespace SushiEngine
                     blit.dstSubresource.layerCount = 1;
                     blit.dstOffsets[1] = {static_cast<std::int32_t>(target_width),
                                           static_cast<std::int32_t>(target_height), 1};
-                    vkCmdBlitImage(pending.cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
-                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                    vkCmdBlitImage(pending.command, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
                                    VK_FILTER_LINEAR);
                     source_width = target_width;
                     source_height = target_height;
@@ -603,7 +604,7 @@ namespace SushiEngine
                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                vkEndCommandBuffer(pending.cmd);
+                vkEndCommandBuffer(pending.command);
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -611,13 +612,13 @@ namespace SushiEngine
                     vkCreateFence(device_.device(), &fence_info, nullptr, &pending.fence),
                     "vkCreateFence(texture)");
 
-                VkCommandBufferSubmitInfo cmd_submit{};
-                cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                cmd_submit.commandBuffer = pending.cmd;
+                VkCommandBufferSubmitInfo command_submit{};
+                command_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                command_submit.commandBuffer = pending.command;
                 VkSubmitInfo2 submit{};
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
                 submit.commandBufferInfoCount = 1;
-                submit.pCommandBufferInfos = &cmd_submit;
+                submit.pCommandBufferInfos = &command_submit;
                 Vulkan::check(
                     vkQueueSubmit2(device_.graphics_queue(), 1, &submit, pending.fence),
                     "vkQueueSubmit2(texture)");
@@ -637,7 +638,7 @@ namespace SushiEngine
                     if (pending.retired_heap_index != 0xFFFFFFFFu)
                         heap_.free_texture(pending.retired_heap_index);
                     vkDestroyFence(device_.device(), pending.fence, nullptr);
-                    vkFreeCommandBuffers(device_.device(), pool_, 1, &pending.cmd);
+                    vkFreeCommandBuffers(device_.device(), pool_, 1, &pending.command);
                     vmaDestroyBuffer(device_.allocator(), pending.staging,
                                      pending.staging_allocation);
                     if (pending.retired_view != VK_NULL_HANDLE)

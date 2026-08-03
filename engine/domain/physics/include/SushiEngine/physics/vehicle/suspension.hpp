@@ -514,9 +514,9 @@ namespace SushiEngine
 
                     RigidBodyT<T> carrier;
                     carrier.position = world_hub;
-                    carrier.prev_position = world_hub;
+                    carrier.previous_position = world_hub;
                     carrier.orientation = orientation;
-                    carrier.prev_orientation = orientation;
+                    carrier.previous_orientation = orientation;
                     carrier.velocity = velocity;
                     carrier.inv_mass = setup_.carrier_mass > T(0) ? T(1) / setup_.carrier_mass : T(0);
                     // A sphere, because the strut locks the carrier's rotation to the
@@ -539,7 +539,7 @@ namespace SushiEngine
                     // moments are equal and its axial one is not, and `RigidBodyT` has
                     // nowhere to say so except by being in that frame.
                     wheel.orientation = mul(orientation, joint_frame_from_axis(axle));
-                    wheel.prev_orientation = wheel.orientation;
+                    wheel.previous_orientation = wheel.orientation;
                     wheel.inv_mass = setup_.wheel_mass > T(0) ? T(1) / setup_.wheel_mass : T(0);
                     wheel.inv_inertia = cylinder_inverse_inertia();
                     wheel_ = solver.add_body(wheel);
@@ -634,8 +634,8 @@ namespace SushiEngine
                 static Vector3T<T> normalized_or(const Vector3T<T>& v,
                                                  const Vector3T<T>& fallback) noexcept
                 {
-                    const T len = length(v);
-                    return len > T(1e-9) ? v * (T(1) / len) : fallback;
+                    const T vector_length = length(v);
+                    return vector_length > T(1e-9) ? v * (T(1) / vector_length) : fallback;
                 }
 
                 /** @brief The part of @p v perpendicular to @p axis, normalized. */
@@ -643,9 +643,9 @@ namespace SushiEngine
                                                   const Vector3T<T>& fallback) noexcept
                 {
                     const Vector3T<T> rejected = v - axis * dot(axis, v);
-                    const T len = length(rejected);
-                    if (len > T(1e-9))
-                        return rejected * (T(1) / len);
+                    const T rejected_length = length(rejected);
+                    if (rejected_length > T(1e-9))
+                        return rejected * (T(1) / rejected_length);
                     // Parallel to the strut: no axle direction survives, so the fallback
                     // is orthogonalized in turn rather than returned as authored.
                     const Vector3T<T> second = fallback - axis * dot(axis, fallback);

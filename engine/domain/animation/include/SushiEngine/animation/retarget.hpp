@@ -151,14 +151,16 @@ namespace SushiEngine
 
                 for (std::uint32_t f = 0; f < source.frame_count; ++f)
                 {
-                    const std::uint32_t src = f * source.joint_count + s;
-                    const std::uint32_t dst = f * out.joint_count + j;
-                    const Quaternionf delta = detail::pose_delta(source_bind, source.rotations[src]);
-                    out.rotations[dst] = normalize(mul(target_bind, delta));
+                    const std::uint32_t source_index = f * source.joint_count + s;
+                    const std::uint32_t destination_index = f * out.joint_count + j;
+                    const Quaternionf delta =
+                        detail::pose_delta(source_bind, source.rotations[source_index]);
+                    out.rotations[destination_index] = normalize(mul(target_bind, delta));
                     if (is_hips)
                     {
-                        const Vector3f offset = (source.translations[src] - source_bind_t) * hip_scale;
-                        out.translations[dst] = target_bind_t + offset;
+                        const Vector3f offset =
+                            (source.translations[source_index] - source_bind_t) * hip_scale;
+                        out.translations[destination_index] = target_bind_t + offset;
                     }
                 }
             }
@@ -221,13 +223,14 @@ namespace SushiEngine
 
                 for (std::uint32_t f = 0; f < source.frame_count; ++f)
                 {
-                    const std::uint32_t src = f * source.joint_count + s;
-                    const std::uint32_t dst = f * out.joint_count + j;
-                    Quaternionf delta = detail::pose_delta(source_bind, source.rotations[src]);
+                    const std::uint32_t source_index = f * source.joint_count + s;
+                    const std::uint32_t destination_index = f * out.joint_count + j;
+                    Quaternionf delta =
+                        detail::pose_delta(source_bind, source.rotations[source_index]);
                     const Quaternionf mirrored{delta.x, -delta.y, -delta.z, delta.w};
-                    out.rotations[dst] = normalize(mul(target_bind, mirrored));
-                    const Vector3f offset = source.translations[src] - source_bind_t;
-                    out.translations[dst] =
+                    out.rotations[destination_index] = normalize(mul(target_bind, mirrored));
+                    const Vector3f offset = source.translations[source_index] - source_bind_t;
+                    out.translations[destination_index] =
                         target_bind_t + Vector3f{-offset.x, offset.y, offset.z};
                 }
             }

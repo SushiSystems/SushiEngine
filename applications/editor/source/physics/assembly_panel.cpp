@@ -76,7 +76,7 @@ namespace SushiEngine
             /**
              * @brief The authoring collider a part's physics collider means.
              *
-             * The inverse of `collider_from_params`, and lossy in exactly one direction that
+             * The inverse of `collider_from_parameters`, and lossy in exactly one direction that
              * is worth naming: a capsule becomes a `Cylinder`, because that is the primitive
              * the forward mapping turns into a capsule, and a cooked asset has no primitive
              * at all and falls back to a box of its own half-extents. An assembly of cooked
@@ -87,36 +87,37 @@ namespace SushiEngine
              * @param collider The part's collider.
              * @return The authoring parameters that reproduce it.
              */
-            Simulation::ColliderParameters to_collider_params(const Simulation::Collider& collider)
+            Simulation::ColliderParameters to_collider_parameters(
+                const Simulation::Collider& collider)
             {
-                Simulation::ColliderParameters params;
+                Simulation::ColliderParameters parameters;
                 switch (collider.shape)
                 {
                     case ColliderShape::Sphere:
-                        params.kind = Simulation::PrimitiveKind::Sphere;
-                        params.params = Vector3{collider.radius, collider.radius,
-                                                collider.radius};
+                        parameters.kind = Simulation::PrimitiveKind::Sphere;
+                        parameters.parameters =
+                            Vector3{collider.radius, collider.radius, collider.radius};
                         break;
                     case ColliderShape::Capsule:
-                        params.kind = Simulation::PrimitiveKind::Cylinder;
+                        parameters.kind = Simulation::PrimitiveKind::Cylinder;
                         // The authored half-height includes the caps; the capsule's excludes
                         // them, so the radius goes back on.
-                        params.params = Vector3{collider.radius,
-                                                collider.half_height + collider.radius,
-                                                collider.radius};
+                        parameters.parameters =
+                            Vector3{collider.radius, collider.half_height + collider.radius,
+                                    collider.radius};
                         break;
                     case ColliderShape::Plane:
-                        params.kind = Simulation::PrimitiveKind::Plane;
-                        params.params = collider.half_extents;
+                        parameters.kind = Simulation::PrimitiveKind::Plane;
+                        parameters.parameters = collider.half_extents;
                         break;
                     case ColliderShape::Box:
                     case ColliderShape::CookedAsset:
                     default:
-                        params.kind = Simulation::PrimitiveKind::Box;
-                        params.params = collider.half_extents;
+                        parameters.kind = Simulation::PrimitiveKind::Box;
+                        parameters.parameters = collider.half_extents;
                         break;
                 }
-                return params;
+                return parameters;
             }
 
             /**
@@ -201,14 +202,14 @@ namespace SushiEngine
                 AssemblyJoint hinge;
                 hinge.part_a = 0;
                 hinge.part_b = 1;
-                hinge.params.type = Simulation::JointType::Hinge;
-                hinge.params.anchor_a = Vector3{-0.2, 0.1, 0.85};
-                hinge.params.anchor_b = Vector3{-0.6, 0.0, -0.02};
-                hinge.params.axis_a = Vector3{0, 1, 0};
-                hinge.params.axis_b = Vector3{0, 1, 0};
-                hinge.params.twist_limit =
+                hinge.parameters.type = Simulation::JointType::Hinge;
+                hinge.parameters.anchor_a = Vector3{-0.2, 0.1, 0.85};
+                hinge.parameters.anchor_b = Vector3{-0.6, 0.0, -0.02};
+                hinge.parameters.axis_a = Vector3{0, 1, 0};
+                hinge.parameters.axis_b = Vector3{0, 1, 0};
+                hinge.parameters.twist_limit =
                     Simulation::JointLimitDescription{Scalar(0), Scalar(1.7), Scalar(0), true};
-                hinge.params.break_force = Scalar(9000);
+                hinge.parameters.break_force = Scalar(9000);
 
                 asset.parts = {chassis, door};
                 asset.part_names = {"Chassis", "Door"};
@@ -253,7 +254,7 @@ namespace SushiEngine
                     transform.rotation = part.local_orientation;
                     world.set_transform(id, transform);
 
-                    Simulation::ColliderParameters collider = to_collider_params(part.collider);
+                    Simulation::ColliderParameters collider = to_collider_parameters(part.collider);
                     collider.layer = part.group & 31u;
                     // The matrix decides what a group touches, and it decides it here rather
                     // than at each part, so a filter change is one edit instead of one per
@@ -261,16 +262,15 @@ namespace SushiEngine
                     collider.collides_with =
                         Simulation::assembly_group_mask(Simulation::to_view(asset), part.group);
                     world.set_has_collider(id, true);
-                    world.set_collider_params(id, collider);
+                    world.set_collider_parameters(id, collider);
 
                     // The visual follows the collider, so an instanced assembly is visible as
                     // the shape it collides as rather than as whatever a fresh box happens to
                     // be. They are separate components and this is the one moment where the
                     // panel knows they should agree.
                     world.set_has_shape(id, true);
-                    world.set_shape_params(id,
-                                           Simulation::ShapeParameters{collider.kind,
-                                                                       collider.params});
+                    world.set_shape_parameters(
+                        id, Simulation::ShapeParameters{collider.kind, collider.parameters});
 
                     Simulation::PhysicsBodyParameters body;
                     body.density = part.density;
@@ -278,7 +278,7 @@ namespace SushiEngine
                     body.inv_inertia = part.inv_inertia;
                     body.drag_coefficient = part.drag_coefficient;
                     world.set_has_physics_body(id, true);
-                    world.set_physics_body_params(id, body);
+                    world.set_physics_body_parameters(id, body);
 
                     created.push_back(id);
                 }
@@ -287,11 +287,11 @@ namespace SushiEngine
                 {
                     if (joint.part_a >= created.size() || joint.part_b >= created.size())
                         continue;
-                    Simulation::PhysicsJointParameters params;
-                    params.connected_body = created[joint.part_b];
-                    params.joint = joint.params;
+                    Simulation::PhysicsJointParameters parameters;
+                    parameters.connected_body = created[joint.part_b];
+                    parameters.joint = joint.parameters;
                     world.set_has_joint(created[joint.part_a], true);
-                    world.set_joint_params(created[joint.part_a], params);
+                    world.set_joint_parameters(created[joint.part_a], parameters);
                 }
                 return created;
             }
@@ -499,7 +499,7 @@ namespace SushiEngine
                 AssemblyJoint& joint = asset.joints[std::size_t(state.selected_joint)];
 
                 ImGui::SeparatorText("Endpoints");
-                // The one thing `draw_joint_params` deliberately does not draw: an assembly
+                // The one thing `draw_joint_parameters` deliberately does not draw: an assembly
                 // joint names two part indices where an entity joint names a partner entity,
                 // and pretending those are the same question is how one of them ends up
                 // wrong.
@@ -523,7 +523,7 @@ namespace SushiEngine
                                        "A joint from a part to itself is degenerate, not stiff.");
 
                 ImGui::SeparatorText("Held");
-                draw_joint_params(context, world, joint.params);
+                draw_joint_parameters(context, world, joint.parameters);
             }
 
             /** @brief Draws the collision-filter matrix over the assembly's groups. */
@@ -632,7 +632,8 @@ namespace SushiEngine
                     if (!world.has_joint(id))
                         continue;
                     ++shown;
-                    const Simulation::PhysicsJointParameters params = world.joint_params(id);
+                    const Simulation::PhysicsJointParameters parameters =
+                        world.joint_parameters(id);
                     JointState load;
                     if (world.joint_broken(id))
                     {
@@ -649,9 +650,9 @@ namespace SushiEngine
                     const double peak = double(load.peak_force);
                     // Against its own threshold, because the number that matters is not how
                     // hard a mount is being pulled but how close that is to letting go.
-                    if (params.joint.break_force > Scalar(0))
+                    if (parameters.joint.break_force > Scalar(0))
                     {
-                        const double fraction = peak / double(params.joint.break_force);
+                        const double fraction = peak / double(parameters.joint.break_force);
                         if (fraction > 0.8)
                             ImGui::TextColored(warning_color(), "%-20s %8.1f N  peak %.0f%%",
                                                world.name(id).c_str(), force, fraction * 100.0);

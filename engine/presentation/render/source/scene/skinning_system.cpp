@@ -147,7 +147,7 @@ namespace SushiEngine
                 : device_(device)
             {
                 palettes_.resize(frame_slots);
-                prev_palettes_.resize(frame_slots);
+                previous_palettes_.resize(frame_slots);
                 outputs_.resize(frame_slots);
                 morph_weights_.resize(frame_slots);
                 dual_quaternion_palettes_.resize(frame_slots);
@@ -157,7 +157,7 @@ namespace SushiEngine
             {
                 for (Allocation& allocation : palettes_)
                     destroy(allocation);
-                for (Allocation& allocation : prev_palettes_)
+                for (Allocation& allocation : previous_palettes_)
                     destroy(allocation);
                 for (Allocation& allocation : outputs_)
                     destroy(allocation);
@@ -205,7 +205,7 @@ namespace SushiEngine
             {
                 ranges_.clear();
                 palette_scratch_.clear();
-                prev_scratch_.clear();
+                previous_scratch_.clear();
                 morph_weight_scratch_.clear();
                 dual_quaternion_scratch_.clear();
                 total_joints_ = 0;
@@ -236,7 +236,8 @@ namespace SushiEngine
                         instance.previous_palette != nullptr
                             ? static_cast<const std::byte*>(instance.previous_palette)
                             : current;
-                    prev_scratch_.insert(prev_scratch_.end(), previous, previous + palette_bytes);
+                    previous_scratch_.insert(previous_scratch_.end(), previous,
+                                             previous + palette_bytes);
 
                     // Derived, not a second source of truth: one dual quaternion per joint,
                     // converted from the same current-frame matrices just copied above. Copies
@@ -277,7 +278,7 @@ namespace SushiEngine
                     range.base_vertex = vertex_offset;
                     range.palette_base = joint_offset;
                     range.joint_count = instance.joint_count;
-                    range.prev_valid = instance.previous_palette != nullptr ? 1u : 0u;
+                    range.previous_valid = instance.previous_palette != nullptr ? 1u : 0u;
                     range.id = instance.id;
                     range.model = instance.model;
                     range.material = instance.material;
@@ -301,9 +302,10 @@ namespace SushiEngine
                      true);
                 std::memcpy(palettes_[slot].mapped, palette_scratch_.data(),
                             palette_scratch_.size());
-                grow(prev_palettes_[slot], prev_scratch_.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     true);
-                std::memcpy(prev_palettes_[slot].mapped, prev_scratch_.data(), prev_scratch_.size());
+                grow(previous_palettes_[slot], previous_scratch_.size(),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+                std::memcpy(previous_palettes_[slot].mapped, previous_scratch_.data(),
+                            previous_scratch_.size());
 
                 grow(dual_quaternion_palettes_[slot], dual_quaternion_scratch_.size(),
                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
@@ -329,7 +331,7 @@ namespace SushiEngine
 
             VkBuffer SkinningSystem::previous_palette_buffer(std::uint32_t slot) const noexcept
             {
-                return prev_palettes_[slot].buffer;
+                return previous_palettes_[slot].buffer;
             }
 
             VkBuffer SkinningSystem::output_buffer(std::uint32_t slot) const noexcept

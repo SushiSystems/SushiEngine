@@ -41,7 +41,7 @@ namespace SushiEngine
          * diagonally in its own local frame (the common case: a body's inertia tensor
          * is diagonal in the frame aligned with its own principal axes); a component
          * of zero means "cannot be rotated about that axis" the same way `inv_mass ==
-         * 0` pins a body's position. `prev_position`/`prev_orientation` hold the
+         * 0` pins a body's position. `previous_position`/`previous_orientation` hold the
          * pre-solve predicted pose so the velocity update can recover velocity and
          * angular velocity from the position/orientation the constraint solve settled
          * on, per XPBD's core idea (Müller et al., "XPBD: Position-Based Simulation of
@@ -52,8 +52,8 @@ namespace SushiEngine
         {
             Vector3T<T> position;
             QuaternionT<T> orientation{};
-            Vector3T<T> prev_position;
-            QuaternionT<T> prev_orientation{};
+            Vector3T<T> previous_position;
+            QuaternionT<T> previous_orientation{};
             Vector3T<T> velocity;
             Vector3T<T> angular_velocity;
             Vector3T<T> inv_inertia;
@@ -452,14 +452,14 @@ namespace SushiEngine
         inline void predict(RigidBodyT<T>& body, Vector3T<T> linear_acceleration, T h) noexcept
         {
             // A static or sleeping body is not integrated at all. Returning before
-            // the previous-pose stash matters: leaving prev_* alone is what makes a
+            // the previous-pose stash matters: leaving previous_* alone is what makes a
             // later update_velocity on the same body a no-op rather than a
             // spurious zero-velocity write.
             if (!is_simulated(body.flags))
                 return;
 
-            body.prev_position = body.position;
-            body.prev_orientation = body.orientation;
+            body.previous_position = body.position;
+            body.previous_orientation = body.orientation;
 
             if (body.inv_mass > T(0))
             {
@@ -508,9 +508,10 @@ namespace SushiEngine
             if (h <= T(0) || !is_simulated(body.flags))
                 return;
 
-            body.velocity = (body.position - body.prev_position) * (T(1) / h);
+            body.velocity = (body.position - body.previous_position) * (T(1) / h);
 
-            const QuaternionT<T> delta = mul(body.orientation, conjugate(body.prev_orientation));
+            const QuaternionT<T> delta =
+                mul(body.orientation, conjugate(body.previous_orientation));
             const T sign = delta.w < T(0) ? T(-1) : T(1);
             const Vector3T<T> vector = Vector3T<T>{delta.x, delta.y, delta.z} * sign;
             // The logarithmic map, the exact inverse of `integrate_orientation`'s

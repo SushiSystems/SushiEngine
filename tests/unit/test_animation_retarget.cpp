@@ -193,13 +193,13 @@ TEST(Unit_AnimationRetarget,AnAuthoredMappingReachesRigsTheHeuristicCannot)
 
     EXPECT_EQ(build_avatar_heuristic(rig.view()).mapped_count(), 0u);
 
-    AvatarDescription desc;
-    desc.entries.push_back({HumanBone::Hips, "root_00"});
-    desc.entries.push_back({HumanBone::Spine, "seg_a"});
-    desc.entries.push_back({HumanBone::Head, "seg_b"});
-    desc.entries.push_back({HumanBone::Neck, "does_not_exist"});
+    AvatarDescription description;
+    description.entries.push_back({HumanBone::Hips, "root_00"});
+    description.entries.push_back({HumanBone::Spine, "seg_a"});
+    description.entries.push_back({HumanBone::Head, "seg_b"});
+    description.entries.push_back({HumanBone::Neck, "does_not_exist"});
 
-    const Avatar avatar = build_avatar(desc, rig.view());
+    const Avatar avatar = build_avatar(description, rig.view());
     EXPECT_EQ(avatar.joint(HumanBone::Hips), std::int32_t(rig.joint("root_00")));
     EXPECT_EQ(avatar.joint(HumanBone::Head), std::int32_t(rig.joint("seg_b")));
     // A named joint the rig lacks leaves its bone unmapped rather than failing the whole

@@ -55,12 +55,13 @@ namespace SushiEngine
                 }
             }
 
-            std::uint32_t TexturePool::acquire(const Graph::TextureDescription& desc)
+            std::uint32_t TexturePool::acquire(const Graph::TextureDescription& description)
             {
                 for (std::size_t i = 0; i < entries_.size(); ++i)
                 {
                     Entry& slot = entries_[i];
-                    if (!slot.in_use && Graph::same_texture_desc(slot.desc, desc))
+                    if (!slot.in_use &&
+                        Graph::same_texture_description(slot.description, description))
                     {
                         slot.in_use = true;
                         slot.frames_unused = 0;
@@ -69,24 +70,24 @@ namespace SushiEngine
                 }
 
                 Entry slot;
-                slot.desc = desc;
+                slot.description = description;
                 slot.in_use = true;
                 slot.frames_unused = 0;
 
                 VkImageCreateInfo image_info{};
                 image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-                image_info.imageType = desc.type;
-                image_info.format = desc.format;
-                image_info.extent = {desc.width, desc.height, desc.depth};
-                image_info.mipLevels = desc.mip_levels;
-                image_info.arrayLayers = desc.array_layers;
+                image_info.imageType = description.type;
+                image_info.format = description.format;
+                image_info.extent = {description.width, description.height, description.depth};
+                image_info.mipLevels = description.mip_levels;
+                image_info.arrayLayers = description.array_layers;
                 image_info.samples = VK_SAMPLE_COUNT_1_BIT;
                 image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-                image_info.usage = desc.usage;
+                image_info.usage = description.usage;
                 image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                 // Only a transient the graph found on both queues pays for concurrent
                 // sharing; the rest stay exclusive and keep their compression.
-                if (desc.cross_queue)
+                if (description.cross_queue)
                     device_.share_across_queues(image_info);
 
                 VmaAllocationCreateInfo alloc{};
@@ -98,16 +99,16 @@ namespace SushiEngine
                 VkImageViewCreateInfo view_info{};
                 view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
                 view_info.image = slot.image;
-                view_info.viewType = desc.view_type;
-                view_info.format = desc.format;
-                view_info.subresourceRange.aspectMask = desc.aspect;
-                view_info.subresourceRange.levelCount = desc.mip_levels;
-                view_info.subresourceRange.layerCount = desc.array_layers;
+                view_info.viewType = description.view_type;
+                view_info.format = description.format;
+                view_info.subresourceRange.aspectMask = description.aspect;
+                view_info.subresourceRange.levelCount = description.mip_levels;
+                view_info.subresourceRange.layerCount = description.array_layers;
                 check(vkCreateImageView(device_.device(), &view_info, nullptr, &slot.view),
                       "vkCreateImageView(transient)");
 
-                if ((desc.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0 &&
-                    (desc.aspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0)
+                if ((description.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0 &&
+                    (description.aspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0)
                 {
                     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
                     check(vkCreateImageView(device_.device(), &view_info, nullptr,
@@ -171,12 +172,13 @@ namespace SushiEngine
                 }
             }
 
-            std::uint32_t BufferPool::acquire(const Graph::BufferDescription& desc)
+            std::uint32_t BufferPool::acquire(const Graph::BufferDescription& description)
             {
                 for (std::size_t i = 0; i < entries_.size(); ++i)
                 {
                     Entry& slot = entries_[i];
-                    if (!slot.in_use && Graph::same_buffer_desc(slot.desc, desc))
+                    if (!slot.in_use &&
+                        Graph::same_buffer_description(slot.description, description))
                     {
                         slot.in_use = true;
                         slot.frames_unused = 0;
@@ -185,21 +187,21 @@ namespace SushiEngine
                 }
 
                 Entry slot;
-                slot.desc = desc;
+                slot.description = description;
                 slot.in_use = true;
                 slot.frames_unused = 0;
 
                 VkBufferCreateInfo buffer_info{};
                 buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                buffer_info.size = desc.size;
-                buffer_info.usage = desc.usage;
-                if (desc.cross_queue)
+                buffer_info.size = description.size;
+                buffer_info.usage = description.usage;
+                if (description.cross_queue)
                     device_.share_across_queues(buffer_info);
 
                 VmaAllocationCreateInfo alloc{};
-                alloc.usage = desc.host_visible ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST
+                alloc.usage = description.host_visible ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST
                                                 : VMA_MEMORY_USAGE_AUTO;
-                if (desc.host_visible)
+                if (description.host_visible)
                     alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
                                   VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
@@ -207,7 +209,7 @@ namespace SushiEngine
                 check(vmaCreateBuffer(device_.allocator(), &buffer_info, &alloc, &slot.buffer,
                                       &slot.allocation, &allocation_info),
                       "vmaCreateBuffer(transient)");
-                slot.mapped = desc.host_visible ? allocation_info.pMappedData : nullptr;
+                slot.mapped = description.host_visible ? allocation_info.pMappedData : nullptr;
 
                 entries_.push_back(slot);
                 return static_cast<std::uint32_t>(entries_.size() - 1);

@@ -86,16 +86,16 @@ int main()
     AnimationDatabase database;
 
     // A flat rig — every joint a root — so model == local and poses read back directly.
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     for (std::uint32_t j = 0; j < JOINTS; ++j)
     {
         JointDescription joint;
         joint.name = JOINT_NAMES[j];
         joint.parent = -1;
-        skeleton_desc.joints.push_back(joint);
+        skeleton_description.joints.push_back(joint);
     }
     std::vector<std::byte> skeleton_blob;
-    build_skeleton_blob(skeleton_desc, skeleton_blob);
+    build_skeleton_blob(skeleton_description, skeleton_blob);
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
     const SkeletonView skeleton = database.skeleton(skeleton_id);
 
@@ -103,11 +103,11 @@ int main()
     const AssetId aim_clip = make_pose_clip(database, 100.0f);        // aim:  z = 100 + index
 
     // Upper-body mask: admit spine/chest/arm at full weight, exclude everything else.
-    MaskDescription mask_desc;
-    mask_desc.default_weight = 0.0f;
-    mask_desc.entries = {{"spine", 1.0f}, {"chest", 1.0f}, {"arm", 1.0f}};
+    MaskDescription mask_description;
+    mask_description.default_weight = 0.0f;
+    mask_description.entries = {{"spine", 1.0f}, {"chest", 1.0f}, {"arm", 1.0f}};
     std::vector<std::byte> mask_blob;
-    build_mask_blob(mask_desc, mask_blob);
+    build_mask_blob(mask_description, mask_blob);
     const AssetId mask_id = database.add_mask(std::move(mask_blob));
     check(mask_id != INVALID_ASSET, "mask registers");
 
@@ -124,9 +124,9 @@ int main()
     const auto build_layered = [&](AssetId second_clip, LayerBlendMode mode,
                                    const std::string& weight_parameter) -> AssetId
     {
-        ControllerDescription desc;
+        ControllerDescription description;
         if (!weight_parameter.empty())
-            desc.parameters.push_back(
+            description.parameters.push_back(
                 ParameterDescription{weight_parameter, ParameterType::Float, 1.0f});
 
         LayerDescription base;
@@ -149,9 +149,9 @@ int main()
         aim.clip = second_clip;
         upper.states = {aim};
 
-        desc.layers = {base, upper};
+        description.layers = {base, upper};
         std::vector<std::byte> blob;
-        if (!compile_controller_blob(desc, blob))
+        if (!compile_controller_blob(description, blob))
             return INVALID_ASSET;
         return database.add_controller(std::move(blob));
     };

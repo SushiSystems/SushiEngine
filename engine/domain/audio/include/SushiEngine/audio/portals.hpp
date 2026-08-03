@@ -233,7 +233,7 @@ namespace SushiEngine
                     best[start] = dist(listener, portals_[start].center);
 
                     float result = -1.0f;
-                    for (std::size_t iter = 0; iter < n; ++iter)
+                    for (std::size_t iteration = 0; iteration < n; ++iteration)
                     {
                         // Pick the unvisited portal with the smallest tentative distance.
                         std::size_t u = n;

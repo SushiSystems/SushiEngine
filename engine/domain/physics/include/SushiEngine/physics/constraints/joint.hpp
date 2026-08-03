@@ -333,10 +333,10 @@ namespace SushiEngine
         template <typename T>
         inline QuaternionT<T> joint_frame_from_axis(const Vector3T<T>& axis) noexcept
         {
-            const T len = length(axis);
-            if (!(len > T(0)))
+            const T axis_length = length(axis);
+            if (!(axis_length > T(0)))
                 return QuaternionT<T>{T(0), T(0), T(0), T(1)};
-            const Vector3T<T> to = axis * (T(1) / len);
+            const Vector3T<T> to = axis * (T(1) / axis_length);
             const Vector3T<T> from{T(1), T(0), T(0)};
             const T d = dot(from, to);
 

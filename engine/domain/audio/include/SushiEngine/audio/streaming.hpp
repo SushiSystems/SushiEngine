@@ -77,12 +77,13 @@ namespace SushiEngine
 
                 /**
                  * @brief Reads bytes at an offset.
-                 * @param offset Byte offset into the asset.
-                 * @param dst    Destination buffer.
-                 * @param bytes  Bytes to read.
+                 * @param offset      Byte offset into the asset.
+                 * @param destination Destination buffer.
+                 * @param bytes       Bytes to read.
                  * @return The number of bytes actually read (0 past the end).
                  */
-                virtual int read(std::uint32_t offset, std::uint8_t* dst, int bytes) noexcept = 0;
+                virtual int read(std::uint32_t offset, std::uint8_t* destination,
+                                 int bytes) noexcept = 0;
         };
 
         /** @brief An @ref IDataSource over a borrowed in-memory byte buffer. */
@@ -101,7 +102,8 @@ namespace SushiEngine
 
                 std::uint32_t size() const noexcept override { return size_; }
 
-                int read(std::uint32_t offset, std::uint8_t* dst, int bytes) noexcept override
+                int read(std::uint32_t offset, std::uint8_t* destination,
+                         int bytes) noexcept override
                 {
                     if (offset >= size_)
                         return 0;
@@ -109,7 +111,7 @@ namespace SushiEngine
                     if (bytes > available)
                         bytes = available;
                     for (int i = 0; i < bytes; ++i)
-                        dst[i] = data_[offset + static_cast<std::uint32_t>(i)];
+                        destination[i] = data_[offset + static_cast<std::uint32_t>(i)];
                     return bytes;
                 }
 

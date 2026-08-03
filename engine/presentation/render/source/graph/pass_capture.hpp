@@ -146,17 +146,17 @@ namespace SushiEngine
                      * this turns down costs no barrier at all. Turning one down is counted:
                      * see dropped_by_budget() and dropped_by_format().
                      *
-                     * @param desc The written texture's description.
+                     * @param description The written texture's description.
                      * @return true if a following record() would copy it.
                      */
-                    bool wants(const TextureDescription& desc);
+                    bool wants(const TextureDescription& description);
 
                     /**
                      * @brief Records the copy of one pass output into the active slot.
                      *
                      * The caller must have transitioned @p image into
                      * @c VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL and must have had wants()
-                     * return true for @p desc since the last record().
+                     * return true for @p description since the last record().
                      *
                      * Mip 0 only, every array layer, every depth slice, and for a
                      * depth/stencil format the depth aspect alone. A regression confined to
@@ -164,13 +164,13 @@ namespace SushiEngine
                      * plainly because a hash that silently covers less than it appears to is
                      * worse than no hash.
                      *
-                     * @param cmd   The recording command buffer.
-                     * @param pass  The pass name, copied.
-                     * @param desc  The written texture's description.
-                     * @param image The physical image to copy from.
+                     * @param command     The recording command buffer.
+                     * @param pass        The pass name, copied.
+                     * @param description The written texture's description.
+                     * @param image       The physical image to copy from.
                      */
-                    void record(VkCommandBuffer cmd, const char* pass,
-                                const TextureDescription& desc, VkImage image);
+                    void record(VkCommandBuffer command, const char* pass,
+                                const TextureDescription& description, VkImage image);
 
                     /**
                      * @brief Hashes a completed slot's captured bytes.
@@ -217,7 +217,7 @@ namespace SushiEngine
                     {
                         std::string pass;
                         std::string resource;
-                        TextureDescription desc{};
+                        TextureDescription description{};
                         VkDeviceSize offset = 0;
                         VkDeviceSize size = 0;
                     };

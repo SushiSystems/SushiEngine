@@ -94,7 +94,7 @@ namespace SushiEngine
                 std::uint32_t base_vertex = 0;   /**< First output vertex of this instance. */
                 std::uint32_t palette_base = 0;  /**< First joint slot of this instance. */
                 std::uint32_t joint_count = 0;   /**< Joints in this instance's palette. */
-                std::uint32_t prev_valid = 0;    /**< 1 if a previous palette was provided. */
+                std::uint32_t previous_valid = 0; /**< 1 if a previous palette was provided. */
                 std::uint32_t id = 0;            /**< Picking id. */
                 Matrix4 model{};                    /**< Absolute object-to-world transform. */
                 Material material{};             /**< Surface to shade with. */
@@ -205,14 +205,15 @@ namespace SushiEngine
 
                     Vulkan::VulkanDevice& device_;
                     std::vector<Allocation> palettes_;      /**< Host-visible current palettes, per slot. */
-                    std::vector<Allocation> prev_palettes_; /**< Host-visible previous palettes, per slot. */
+                    /** @brief Host-visible previous palettes, per slot. */
+                    std::vector<Allocation> previous_palettes_;
                     std::vector<Allocation> outputs_;       /**< Device-local skinned vertices, per slot. */
                     std::vector<Allocation> morph_weights_; /**< Host-visible morph weights, per slot. */
                     std::vector<Allocation> dual_quaternion_palettes_; /**< Host-visible DQ palettes, per slot. */
                     std::vector<SkinnedRange> ranges_;
                     std::vector<std::byte> palette_scratch_;
                     std::vector<std::byte> morph_weight_scratch_;
-                    std::vector<std::byte> prev_scratch_;
+                    std::vector<std::byte> previous_scratch_;
                     std::vector<std::byte> dual_quaternion_scratch_;
                     std::uint32_t total_joints_ = 0;
                     std::uint32_t total_vertices_ = 0;

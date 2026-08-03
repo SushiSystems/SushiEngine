@@ -247,19 +247,20 @@ namespace SushiEngine
 
         /**
          * @brief Serializes an authored controller to JSON.
-         * @param desc The controller to serialize.
-         * @return A JSON document that @ref controller_from_json reads back to an equal desc.
+         * @param description The controller to serialize.
+         * @return A JSON document that @ref controller_from_json reads back to an equal
+         *         description.
          */
-        inline nlohmann::json controller_to_json(const ControllerDescription& desc)
+        inline nlohmann::json controller_to_json(const ControllerDescription& description)
         {
             nlohmann::json parameters = nlohmann::json::array();
-            for (const ParameterDescription& p : desc.parameters)
+            for (const ParameterDescription& p : description.parameters)
                 parameters.push_back({{"name", p.name},
                                       {"type", detail::parameter_type_name(p.type)},
                                       {"default", p.default_value}});
 
             nlohmann::json layers = nlohmann::json::array();
-            for (const LayerDescription& layer : desc.layers)
+            for (const LayerDescription& layer : description.layers)
             {
                 nlohmann::json states = nlohmann::json::array();
                 for (const StateDescription& state : layer.states)
@@ -306,7 +307,7 @@ namespace SushiEngine
          */
         inline ControllerDescription controller_from_json(const nlohmann::json& json)
         {
-            ControllerDescription desc;
+            ControllerDescription description;
             if (json.contains("parameters"))
                 for (const nlohmann::json& p : json.at("parameters"))
                 {
@@ -314,7 +315,7 @@ namespace SushiEngine
                     parameter.name = p.value("name", std::string{});
                     parameter.type = detail::parameter_type_from(p.value("type", std::string{"Float"}));
                     parameter.default_value = p.value("default", 0.0f);
-                    desc.parameters.push_back(parameter);
+                    description.parameters.push_back(parameter);
                 }
             if (json.contains("layers"))
                 for (const nlohmann::json& l : json.at("layers"))
@@ -354,9 +355,9 @@ namespace SushiEngine
                     if (l.contains("any_state_transitions"))
                         for (const nlohmann::json& t : l.at("any_state_transitions"))
                             layer.any_state_transitions.push_back(detail::transition_from_json(t));
-                    desc.layers.push_back(layer);
+                    description.layers.push_back(layer);
                 }
-            return desc;
+            return description;
         }
     } // namespace Animation
 } // namespace SushiEngine

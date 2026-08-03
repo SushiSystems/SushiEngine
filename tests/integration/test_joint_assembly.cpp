@@ -109,34 +109,34 @@ namespace
     }
 
     /** @brief The chassis: heavy, pinned, and the thing the door hangs off. */
-    RigidBodyDescription chassis_desc()
+    RigidBodyDescription chassis_description()
     {
-        RigidBodyDescription desc;
-        desc.id = CHASSIS;
-        desc.position = Vector3{0, Scalar(2), 0};
+        RigidBodyDescription description;
+        description.id = CHASSIS;
+        description.position = Vector3{0, Scalar(2), 0};
         // Pinned rather than merely heavy: the acceptance is about the door and the
         // hinge, and a chassis free to recoil would make every measurement below a
         // measurement of two things.
-        desc.inv_mass = 0;
-        desc.inv_inertia = Vector3{0, 0, 0};
-        desc.collider = car_part(Vector3{Scalar(1), Scalar(0.6), Scalar(0.5)});
-        return desc;
+        description.inv_mass = 0;
+        description.inv_inertia = Vector3{0, 0, 0};
+        description.collider = car_part(Vector3{Scalar(1), Scalar(0.6), Scalar(0.5)});
+        return description;
     }
 
     /** @brief The door: 35 kg, hung off the chassis's right edge. */
-    RigidBodyDescription door_desc()
+    RigidBodyDescription door_description()
     {
-        RigidBodyDescription desc;
-        desc.id = DOOR;
+        RigidBodyDescription description;
+        description.id = DOOR;
         // Its centre of mass sits half a metre out from the hinge line, which is what
         // gives the hinge a moment to carry.
-        desc.position = Vector3{Scalar(1.5), Scalar(2), 0};
-        desc.inv_mass = Scalar(1) / Scalar(35);
+        description.position = Vector3{Scalar(1.5), Scalar(2), 0};
+        description.inv_mass = Scalar(1) / Scalar(35);
         const Scalar inertia = Scalar(3);
-        desc.inv_inertia = Vector3{Scalar(1) / inertia, Scalar(1) / inertia,
-                                   Scalar(1) / inertia};
-        desc.collider = car_part(Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.05)});
-        return desc;
+        description.inv_inertia =
+            Vector3{Scalar(1) / inertia, Scalar(1) / inertia, Scalar(1) / inertia};
+        description.collider = car_part(Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.05)});
+        return description;
     }
 
     /** @brief The hinge of sec. 10.2: axis local +Y, limits [0, 68 deg], 4 N.m friction. */
@@ -145,24 +145,24 @@ namespace
         JointDescription joint;
         joint.body_a = CHASSIS;
         joint.body_b = DOOR;
-        joint.params.type = JointType::Hinge;
+        joint.parameters.type = JointType::Hinge;
         // The hinge line: the chassis's right edge, and the door's inboard edge.
-        joint.params.anchor_a = Vector3{Scalar(1), 0, 0};
-        joint.params.anchor_b = Vector3{Scalar(-0.5), 0, 0};
-        joint.params.axis_a = Vector3{0, 1, 0};
-        joint.params.axis_b = Vector3{0, 1, 0};
+        joint.parameters.anchor_a = Vector3{Scalar(1), 0, 0};
+        joint.parameters.anchor_b = Vector3{Scalar(-0.5), 0, 0};
+        joint.parameters.axis_a = Vector3{0, 1, 0};
+        joint.parameters.axis_b = Vector3{0, 1, 0};
 
-        joint.params.twist_limit.enabled = true;
-        joint.params.twist_limit.lower = 0;
-        joint.params.twist_limit.upper = Scalar(68.0 * PI / 180.0);
+        joint.parameters.twist_limit.enabled = true;
+        joint.parameters.twist_limit.lower = 0;
+        joint.parameters.twist_limit.upper = Scalar(68.0 * PI / 180.0);
 
         // It does not swing free: a rate drive toward standstill, saturated at the
         // hinge's friction torque.
-        joint.params.motor.type = JointMotorType::Velocity;
-        joint.params.motor.target = 0;
-        joint.params.motor.max_force = Scalar(4);
+        joint.parameters.motor.type = JointMotorType::Velocity;
+        joint.parameters.motor.target = 0;
+        joint.parameters.motor.max_force = Scalar(4);
 
-        joint.params.break_force = break_force;
+        joint.parameters.break_force = break_force;
         return joint;
     }
 
@@ -186,7 +186,7 @@ namespace
 TEST(Integration_JointAssembly, TheHingedDoorHangsFromTheChassisAndCarriesItsWeight)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
-    physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description(), door_description()}, ITERATIONS, SUBSTEP_DT);
 
     const JointId hinge = physics->create_joint(door_hinge(0));
     ASSERT_NE(hinge, NULL_JOINT);
@@ -217,7 +217,7 @@ TEST(Integration_JointAssembly, TheHingedDoorHangsFromTheChassisAndCarriesItsWei
 TEST(Integration_JointAssembly, TheDoorSwingsOnlyWithinItsLimits)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
-    physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description(), door_description()}, ITERATIONS, SUBSTEP_DT);
 
     const JointId hinge = physics->create_joint(door_hinge(0));
     ASSERT_NE(hinge, NULL_JOINT);
@@ -259,13 +259,14 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
     for (int with_friction = 0; with_friction < 2; ++with_friction)
     {
         auto physics = create_physics_simulation(Harness::shared_context());
-        physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
+        physics->set_rigid_bodies({chassis_description(), door_description()}, ITERATIONS,
+                                  SUBSTEP_DT);
 
         JointDescription joint = door_hinge(0);
         // No stop, so the measurement is of the swing and not of a collision with a limit.
-        joint.params.twist_limit.enabled = false;
+        joint.parameters.twist_limit.enabled = false;
         if (with_friction == 0)
-            joint.params.motor.type = JointMotorType::Disabled;
+            joint.parameters.motor.type = JointMotorType::Disabled;
         const JointId hinge = physics->create_joint(joint);
         ASSERT_NE(hinge, NULL_JOINT);
 
@@ -306,7 +307,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
 TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
-    physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description(), door_description()}, ITERATIONS, SUBSTEP_DT);
 
     // The door's own weight puts about 340 N through the hinge, so a threshold well
     // above that survives ordinary hanging and gives only to something violent.
@@ -365,7 +366,7 @@ TEST(Integration_JointAssembly, AHardEnoughImpactTearsTheDoorOff)
 TEST(Integration_JointAssembly, DestroyingAPartTakesItsJointsWithIt)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
-    physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description(), door_description()}, ITERATIONS, SUBSTEP_DT);
 
     const JointId hinge = physics->create_joint(door_hinge(0));
     ASSERT_NE(hinge, NULL_JOINT);
@@ -374,7 +375,7 @@ TEST(Integration_JointAssembly, DestroyingAPartTakesItsJointsWithIt)
 
     // The door is destroyed by the ECS: the solver drops every joint naming its slot,
     // and the boundary record goes with it, so a stale identity is not readable.
-    physics->set_rigid_bodies({chassis_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description()}, ITERATIONS, SUBSTEP_DT);
     physics->step(earth_gravity(), still_air(), SUBSTEPS);
 
     EXPECT_EQ(physics->statistics().joints, std::size_t(0));
@@ -386,14 +387,14 @@ TEST(Integration_JointAssembly, DestroyingAPartTakesItsJointsWithIt)
 TEST(Integration_JointAssembly, AJointNeedsBothOfItsBodiesToExist)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
-    physics->set_rigid_bodies({chassis_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description()}, ITERATIONS, SUBSTEP_DT);
 
     // An immovable endpoint is a body with zero inverse mass, not a missing one, so a
     // joint naming an entity with no body is refused rather than half-created. A
     // half-created joint would be one that projected against slot zero.
     EXPECT_EQ(physics->create_joint(door_hinge(0)), NULL_JOINT);
 
-    physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({chassis_description(), door_description()}, ITERATIONS, SUBSTEP_DT);
     EXPECT_NE(physics->create_joint(door_hinge(0)), NULL_JOINT);
 }
 
@@ -409,7 +410,7 @@ TEST(Integration_JointAssembly, AJointNeedsBothOfItsBodiesToExist)
 
 namespace
 {
-    /** @brief The sec. 10.2 car, as an asset rather than as two hand-written descs. */
+    /** @brief The sec. 10.2 car, as an asset rather than as two hand-written descriptions. */
     PhysicsAssembly car_assembly()
     {
         PhysicsAssembly assembly;
@@ -434,7 +435,7 @@ namespace
         AssemblyJoint hinge;
         hinge.part_a = 0;
         hinge.part_b = 1;
-        hinge.params = door_hinge(0).params;
+        hinge.parameters = door_hinge(0).parameters;
         assembly.joints.push_back(hinge);
 
         // One group for the whole car, excluding itself: the parts overlap and must not
@@ -444,24 +445,24 @@ namespace
     }
 
     /** @brief A five-joint chain, enough to be a limb and short enough to reason about. */
-    Animation::SkeletonDescription chain_desc()
+    Animation::SkeletonDescription chain_description()
     {
         const auto joint = [](const char* name, int parent, Scalar y)
         {
-            Animation::JointDescription desc;
-            desc.name = name;
-            desc.parent = parent;
-            desc.bind_translation = Animation::Vector3f{0.0f, float(y), 0.0f};
-            return desc;
+            Animation::JointDescription description;
+            description.name = name;
+            description.parent = parent;
+            description.bind_translation = Animation::Vector3f{0.0f, float(y), 0.0f};
+            return description;
         };
 
-        Animation::SkeletonDescription desc;
-        desc.joints.push_back(joint("root", -1, Scalar(3)));
-        desc.joints.push_back(joint("a", 0, Scalar(-0.4)));
-        desc.joints.push_back(joint("b", 1, Scalar(-0.4)));
-        desc.joints.push_back(joint("c", 2, Scalar(-0.4)));
-        desc.joints.push_back(joint("tip", 3, Scalar(-0.4)));
-        return desc;
+        Animation::SkeletonDescription description;
+        description.joints.push_back(joint("root", -1, Scalar(3)));
+        description.joints.push_back(joint("a", 0, Scalar(-0.4)));
+        description.joints.push_back(joint("b", 1, Scalar(-0.4)));
+        description.joints.push_back(joint("c", 2, Scalar(-0.4)));
+        description.joints.push_back(joint("tip", 3, Scalar(-0.4)));
+        return description;
     }
 
     /** @brief Instances @p assembly into @p physics, returning the part entities. */
@@ -524,7 +525,7 @@ TEST(Integration_JointAssembly, ARagdollBuiltFromASkeletonHangsTogetherAndFalls)
     auto physics = create_physics_simulation(Harness::shared_context());
 
     std::vector<std::byte> blob;
-    ASSERT_TRUE(Animation::build_skeleton_blob(chain_desc(), blob));
+    ASSERT_TRUE(Animation::build_skeleton_blob(chain_description(), blob));
     const Animation::SkeletonView skeleton =
         Animation::load_skeleton_blob(blob.data(), blob.size());
     ASSERT_TRUE(skeleton.valid());

@@ -509,9 +509,9 @@ namespace
     {
         RigidBody body;
         body.position = position;
-        body.prev_position = position;
+        body.previous_position = position;
         body.orientation = Quaternion{0, 0, 0, 1};
-        body.prev_orientation = body.orientation;
+        body.previous_orientation = body.orientation;
         body.inv_mass = Scalar(1);
         const Scalar edge = Scalar(2) * half_extent;
         const Scalar inertia = edge * edge / Scalar(6);
@@ -521,14 +521,14 @@ namespace
     }
 
     /** @brief Frictional, slightly bouncy contacts: every branch of the solve engaged. */
-    ContactSolveParameters<Scalar> lively_params()
+    ContactSolveParameters<Scalar> lively_parameters()
     {
-        ContactSolveParameters<Scalar> params;
-        params.static_friction = Scalar(0.6);
-        params.dynamic_friction = Scalar(0.5);
-        params.restitution = Scalar(0.3);
-        params.restitution_threshold = Scalar(0.5);
-        return params;
+        ContactSolveParameters<Scalar> parameters;
+        parameters.static_friction = Scalar(0.6);
+        parameters.dynamic_friction = Scalar(0.5);
+        parameters.restitution = Scalar(0.3);
+        parameters.restitution_threshold = Scalar(0.5);
+        return parameters;
     }
 
     /**
@@ -549,7 +549,7 @@ namespace
         const PlaneCollider<Scalar> ground{Vector3{0, 1, 0}, Scalar(0)};
         const Vector3 half{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
         const Scalar offset = Scalar(0.03);
-        const ContactSolveParameters<Scalar> params = lively_params();
+        const ContactSolveParameters<Scalar> parameters = lively_parameters();
 
         std::vector<RigidBody> bodies(handles.size());
         for (std::size_t i = 0; i < handles.size(); ++i)
@@ -563,7 +563,7 @@ namespace
             ContactConstraint contact;
             contact.a = std::uint32_t(solver.body_slot(handles[i]));
             contact.b = null_contact_body;
-            contact.params = params;
+            contact.parameters = parameters;
             contact.manifold = generate_obb_plane_manifold(box, ground, offset);
             if (contact.manifold.point_count > 0)
                 solver.add_contact(contact);
@@ -575,7 +575,7 @@ namespace
             ContactConstraint pair;
             pair.a = contact.a;
             pair.b = std::uint32_t(solver.body_slot(handles[i + 1]));
-            pair.params = params;
+            pair.parameters = parameters;
             pair.manifold = generate_obb_obb_manifold(box, above, offset);
             if (pair.manifold.point_count > 0)
                 solver.add_contact(pair);

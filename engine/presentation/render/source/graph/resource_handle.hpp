@@ -215,8 +215,8 @@ namespace SushiEngine
              * @param b Second description.
              * @return true when the two describe the same physical image.
              */
-            inline bool same_texture_desc(const TextureDescription& a,
-                                          const TextureDescription& b) noexcept
+            inline bool same_texture_description(const TextureDescription& a,
+                                                 const TextureDescription& b) noexcept
             {
                 return a.width == b.width && a.height == b.height && a.depth == b.depth &&
                        a.mip_levels == b.mip_levels && a.array_layers == b.array_layers &&
@@ -231,8 +231,8 @@ namespace SushiEngine
              * @param b Second description.
              * @return true when the two describe the same physical buffer.
              */
-            inline bool same_buffer_desc(const BufferDescription& a,
-                                         const BufferDescription& b) noexcept
+            inline bool same_buffer_description(const BufferDescription& a,
+                                                const BufferDescription& b) noexcept
             {
                 return a.size == b.size && a.usage == b.usage &&
                        a.host_visible == b.host_visible && a.cross_queue == b.cross_queue;

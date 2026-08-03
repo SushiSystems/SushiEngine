@@ -125,7 +125,8 @@ namespace SushiEngine
             Matrix4 model;                /**< Object-to-world transform composed from the entity's state. */
             Vector3 color;                /**< Base colour; also drives @ref material.albedo. */
             PrimitiveKind shape_kind = PrimitiveKind::Box; /**< Which mesh to draw this instance with. */
-            Vector3 shape_params{Vector3{0.5, 0.5, 0.5}};     /**< Per-kind shape parameters, see @ref ShapeParameters. */
+            /** @brief Per-kind shape parameters, see @ref ShapeParameters. */
+            Vector3 shape_parameters{Vector3{0.5, 0.5, 0.5}};
             Render::Material material{}; /**< PBR metallic-roughness surface (albedo synced from @ref color). */
         };
 
@@ -416,15 +417,15 @@ namespace SushiEngine
          * @brief The authorable parameters of a "Shape" entity: its visual mesh.
          *
          * `kind` is fixed at creation (set by which `create_*` primitive call made
-         * the entity). `params` is editable and interpreted per `kind`: Box uses it
-         * as half-extents; Sphere uses `params.x` as radius; Cylinder uses
-         * `params.x` as radius and `params.y` as half-height. Plane is not a valid
+         * the entity). `parameters` is editable and interpreted per `kind`: Box uses it
+         * as half-extents; Sphere uses `parameters.x` as radius; Cylinder uses
+         * `parameters.x` as radius and `parameters.y` as half-height. Plane is not a valid
          * Shape kind (Terrain uses a thin, flat Box for its visual instead).
          */
         struct ShapeParameters
         {
             PrimitiveKind kind = PrimitiveKind::Box;
-            Vector3 params{Vector3{0.5, 0.5, 0.5}};
+            Vector3 parameters{Vector3{0.5, 0.5, 0.5}};
         };
 
         /**
@@ -499,8 +500,8 @@ namespace SushiEngine
          * so a Collider carries no mass or velocity of its own — whether it moves is
          * entirely determined by whether the same entity also has a Rigid Body.
          * A Collider with no Rigid Body (e.g. Terrain) is implicitly static and
-         * gravity-exempt, since nothing integrates its pose. `kind`/`params` follow
-         * the same convention as `ShapeParameters`, plus Plane, which uses `params` as
+         * gravity-exempt, since nothing integrates its pose. `kind`/`parameters` follow
+         * the same convention as `ShapeParameters`, plus Plane, which uses `parameters` as
          * the collider's local-space normal (default {0, 1, 0}). A Collider's kind
          * can be changed independently of any Shape on the same entity (e.g. a
          * box-shaped visual with a simpler sphere collider).
@@ -508,7 +509,7 @@ namespace SushiEngine
         struct ColliderParameters
         {
             PrimitiveKind kind = PrimitiveKind::Box;
-            Vector3 params{Vector3{0.5, 0.5, 0.5}};
+            Vector3 parameters{Vector3{0.5, 0.5, 0.5}};
 
             /**
              * @brief Which collision layer this body is in, as an index rather than a mask.
@@ -517,7 +518,7 @@ namespace SushiEngine
              * `Physics::CollisionFilter::layer` means by "the single layer this body belongs
              * to, as a one-bit mask", and offering an author a 32-bit field for a value with
              * one bit set is offering them a way to author something the filter cannot mean.
-             * The shift happens once, in `collider_from_params`.
+             * The shift happens once, in `collider_from_parameters`.
              */
             std::uint32_t layer = 0;
 
@@ -1274,10 +1275,11 @@ namespace SushiEngine
                 virtual bool is_camera(EntityId id) const noexcept = 0;
 
                 /** @brief The camera's parameters (defaults if @p id is not a camera). */
-                virtual CameraParameters camera_params(EntityId id) const = 0;
+                virtual CameraParameters camera_parameters(EntityId id) const = 0;
 
                 /** @brief Writes a camera entity's parameters; a no-op for non-cameras. */
-                virtual void set_camera_params(EntityId id, const CameraParameters& params) = 0;
+                virtual void set_camera_parameters(EntityId id,
+                                                   const CameraParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches the Camera component on an existing entity.
@@ -1309,11 +1311,12 @@ namespace SushiEngine
                 virtual bool has_particle_emitter(EntityId id) const noexcept = 0;
 
                 /** @brief The emitter's parameters (defaults if @p id is not an emitter). */
-                virtual ParticleEmitterParameters particle_emitter_params(EntityId id) const = 0;
+                virtual ParticleEmitterParameters particle_emitter_parameters(
+                    EntityId id) const = 0;
 
                 /** @brief Writes an emitter's parameters; a no-op for non-emitters. */
-                virtual void set_particle_emitter_params(
-                    EntityId id, const ParticleEmitterParameters& params) = 0;
+                virtual void set_particle_emitter_parameters(
+                    EntityId id, const ParticleEmitterParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches the particle emitter on an existing entity.
@@ -1363,7 +1366,7 @@ namespace SushiEngine
                 virtual bool has_physics_body(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's authored mass/inertia (defaults if not a rigid body). */
-                virtual PhysicsBodyParameters physics_body_params(EntityId id) const = 0;
+                virtual PhysicsBodyParameters physics_body_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Writes a rigid body's mass/inertia; a no-op for non-rigid-bodies.
@@ -1372,8 +1375,8 @@ namespace SushiEngine
                  * exists, so dragging the Inspector's mass slider does not force a
                  * physics-world rebuild.
                  */
-                virtual void set_physics_body_params(EntityId id,
-                                                     const PhysicsBodyParameters& params) = 0;
+                virtual void set_physics_body_parameters(
+                    EntityId id, const PhysicsBodyParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches the physics simulation on an existing entity.
@@ -1402,7 +1405,7 @@ namespace SushiEngine
                 virtual bool has_cloth(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's authored cloth grid parameters (defaults if not cloth). */
-                virtual ClothParameters cloth_params(EntityId id) const = 0;
+                virtual ClothParameters cloth_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Writes a cloth entity's grid parameters; a no-op for non-cloth entities.
@@ -1411,7 +1414,8 @@ namespace SushiEngine
                  * the grid's body count, so it is treated the same as attaching/
                  * detaching: applied lazily, on the next `tick()`, via a full rebuild.
                  */
-                virtual void set_cloth_params(EntityId id, const ClothParameters& params) = 0;
+                virtual void set_cloth_parameters(EntityId id,
+                                                  const ClothParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a simulated cloth grid on an existing entity.
@@ -1445,7 +1449,7 @@ namespace SushiEngine
                  * @brief The soft body's authored parameters, including its cooked asset.
                  * @param id The entity to read; a non-soft-body one reads as defaults.
                  */
-                virtual SoftBodyParameters soft_body_params(EntityId id) const = 0;
+                virtual SoftBodyParameters soft_body_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Replaces the soft body's parameters and rebuilds it.
@@ -1456,8 +1460,8 @@ namespace SushiEngine
                  * whatever deformation the old body had accumulated is gone — which is
                  * what "the cook is part of the parameters" means in practice.
                  */
-                virtual void set_soft_body_params(EntityId id,
-                                                  const SoftBodyParameters& params) = 0;
+                virtual void set_soft_body_parameters(EntityId id,
+                                                      const SoftBodyParameters& parameters) = 0;
 
                 /** @brief Attaches or detaches a soft body on @p id. */
                 virtual void set_has_soft_body(EntityId id, bool value) = 0;
@@ -1507,14 +1511,15 @@ namespace SushiEngine
                 virtual bool has_crowd(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's authored crowd parameters (defaults if not a crowd). */
-                virtual CrowdParameters crowd_params(EntityId id) const = 0;
+                virtual CrowdParameters crowd_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Writes a crowd entity's parameters; a no-op for non-crowd entities.
-                 * @param id     The entity to update.
-                 * @param params The new skeleton/clip/mesh/material/playback state.
+                 * @param id         The entity to update.
+                 * @param parameters The new skeleton/clip/mesh/material/playback state.
                  */
-                virtual void set_crowd_params(EntityId id, const CrowdParameters& params) = 0;
+                virtual void set_crowd_parameters(EntityId id,
+                                                  const CrowdParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches crowd-batched animation on an existing entity.
@@ -1527,14 +1532,15 @@ namespace SushiEngine
                 virtual bool has_light(EntityId id) const noexcept = 0;
 
                 /** @brief The light parameters of @p id, or defaults if it carries none. */
-                virtual LightParameters light_params(EntityId id) const = 0;
+                virtual LightParameters light_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Updates the light parameters of a light-bearing entity.
-                 * @param id     The entity to update; a no-op if it carries no light.
-                 * @param params The new radiometric and cone parameters.
+                 * @param id         The entity to update; a no-op if it carries no light.
+                 * @param parameters The new radiometric and cone parameters.
                  */
-                virtual void set_light_params(EntityId id, const LightParameters& params) = 0;
+                virtual void set_light_parameters(EntityId id,
+                                                  const LightParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a punctual light on an existing entity.
@@ -1551,10 +1557,11 @@ namespace SushiEngine
                 virtual bool has_audio_emitter(EntityId id) const noexcept = 0;
 
                 /** @brief The audio-emitter parameters of @p id, or defaults if it carries none. */
-                virtual AudioEmitterParameters audio_emitter_params(EntityId id) const = 0;
+                virtual AudioEmitterParameters audio_emitter_parameters(EntityId id) const = 0;
 
                 /** @brief Writes an emitter's parameters; a no-op for non-emitters. */
-                virtual void set_audio_emitter_params(EntityId id, const AudioEmitterParameters& params) = 0;
+                virtual void set_audio_emitter_parameters(
+                    EntityId id, const AudioEmitterParameters& parameters) = 0;
 
                 /** @brief Attaches or detaches an audio emitter on an existing entity (host bookkeeping). */
                 virtual void set_has_audio_emitter(EntityId id, bool value) = 0;
@@ -1563,10 +1570,11 @@ namespace SushiEngine
                 virtual bool has_reverb_zone(EntityId id) const noexcept = 0;
 
                 /** @brief The reverb-zone parameters of @p id, or defaults if it carries none. */
-                virtual ReverbZoneParameters reverb_zone_params(EntityId id) const = 0;
+                virtual ReverbZoneParameters reverb_zone_parameters(EntityId id) const = 0;
 
                 /** @brief Writes a reverb zone's parameters; a no-op for non-zones. */
-                virtual void set_reverb_zone_params(EntityId id, const ReverbZoneParameters& params) = 0;
+                virtual void set_reverb_zone_parameters(
+                    EntityId id, const ReverbZoneParameters& parameters) = 0;
 
                 /** @brief Attaches or detaches a reverb zone on an existing entity (host bookkeeping). */
                 virtual void set_has_reverb_zone(EntityId id, bool value) = 0;
@@ -1575,10 +1583,11 @@ namespace SushiEngine
                 virtual bool has_audio_listener(EntityId id) const noexcept = 0;
 
                 /** @brief The audio-listener parameters of @p id, or defaults if it carries none. */
-                virtual AudioListenerParameters audio_listener_params(EntityId id) const = 0;
+                virtual AudioListenerParameters audio_listener_parameters(EntityId id) const = 0;
 
                 /** @brief Writes a listener's parameters; a no-op for non-listeners. */
-                virtual void set_audio_listener_params(EntityId id, const AudioListenerParameters& params) = 0;
+                virtual void set_audio_listener_parameters(
+                    EntityId id, const AudioListenerParameters& parameters) = 0;
 
                 /** @brief Attaches or detaches the audio listener on an existing entity (host bookkeeping). */
                 virtual void set_has_audio_listener(EntityId id, bool value) = 0;
@@ -1598,14 +1607,15 @@ namespace SushiEngine
                 virtual bool has_decal(EntityId id) const noexcept = 0;
 
                 /** @brief The decal parameters of @p id, or defaults if it carries none. */
-                virtual DecalParameters decal_params(EntityId id) const = 0;
+                virtual DecalParameters decal_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Updates the decal parameters of a decal-bearing entity.
-                 * @param id     The entity to update; a no-op if it carries no decal.
-                 * @param params The new tint, box size, and opacity.
+                 * @param id         The entity to update; a no-op if it carries no decal.
+                 * @param parameters The new tint, box size, and opacity.
                  */
-                virtual void set_decal_params(EntityId id, const DecalParameters& params) = 0;
+                virtual void set_decal_parameters(EntityId id,
+                                                  const DecalParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a projected decal on an existing entity.
@@ -1630,7 +1640,7 @@ namespace SushiEngine
                  *
                  * The visual and the collider default to the same half-extents; either
                  * can be edited or removed independently afterward through
-                 * `set_shape_params`/`set_has_collider`.
+                 * `set_shape_parameters`/`set_has_collider`.
                  *
                  * @param name Display name for the new entity.
                  * @return The new entity's stable id.
@@ -1695,8 +1705,8 @@ namespace SushiEngine
                  *
                  * Equivalent to creating an empty entity and `set_has_crowd(id, true)`,
                  * bundled so the Entity menu can offer Crowd as a first-class object. The
-                 * new entity's `crowd_params` are all defaults (no skeleton/clip/mesh bound
-                 * yet) until `set_crowd_params` names ids from
+                 * new entity's `crowd_parameters` are all defaults (no skeleton/clip/mesh bound
+                 * yet) until `set_crowd_parameters` names ids from
                  * `register_crowd_skeleton`/`register_crowd_clip`.
                  *
                  * @param name Display name for the new entity.
@@ -1708,10 +1718,11 @@ namespace SushiEngine
                 virtual bool has_shape(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's shape kind/parameters (defaults if it has no Shape). */
-                virtual ShapeParameters shape_params(EntityId id) const = 0;
+                virtual ShapeParameters shape_parameters(EntityId id) const = 0;
 
                 /** @brief Writes a Shape entity's parameters; a no-op for entities without one. */
-                virtual void set_shape_params(EntityId id, const ShapeParameters& params) = 0;
+                virtual void set_shape_parameters(EntityId id,
+                                                  const ShapeParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a Shape on an existing entity.
@@ -1731,10 +1742,11 @@ namespace SushiEngine
                 virtual bool has_collider(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's collider kind/parameters (defaults if it has no Collider). */
-                virtual ColliderParameters collider_params(EntityId id) const = 0;
+                virtual ColliderParameters collider_parameters(EntityId id) const = 0;
 
                 /** @brief Writes a Collider's parameters; a no-op for entities without one. */
-                virtual void set_collider_params(EntityId id, const ColliderParameters& params) = 0;
+                virtual void set_collider_parameters(EntityId id,
+                                                     const ColliderParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a Collider on an existing entity.
@@ -1752,7 +1764,7 @@ namespace SushiEngine
                 virtual bool has_joint(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's joint authoring (defaults if it has no Physics Joint). */
-                virtual PhysicsJointParameters joint_params(EntityId id) const = 0;
+                virtual PhysicsJointParameters joint_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Writes a joint's authoring; a no-op for entities without one.
@@ -1765,8 +1777,8 @@ namespace SushiEngine
                  * alternative being a joint whose stored load was measured against a range
                  * it no longer has.
                  */
-                virtual void set_joint_params(EntityId id,
-                                              const PhysicsJointParameters& params) = 0;
+                virtual void set_joint_parameters(EntityId id,
+                                                  const PhysicsJointParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a Physics Joint on an existing entity.
@@ -1830,7 +1842,7 @@ namespace SushiEngine
                 virtual bool has_vehicle(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's vehicle authoring (defaults if it has none). */
-                virtual VehicleInstanceParameters vehicle_params(EntityId id) const = 0;
+                virtual VehicleInstanceParameters vehicle_parameters(EntityId id) const = 0;
 
                 /**
                  * @brief Writes a vehicle's authoring; a no-op for entities without one.
@@ -1842,8 +1854,8 @@ namespace SushiEngine
                  * place — and a rebuild that pretended otherwise would leave half the car
                  * built to one setup and half to another.
                  */
-                virtual void set_vehicle_params(EntityId id,
-                                                const VehicleInstanceParameters& params) = 0;
+                virtual void set_vehicle_parameters(
+                    EntityId id, const VehicleInstanceParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a Vehicle on an existing entity.
@@ -1983,7 +1995,7 @@ namespace SushiEngine
                  * The element is parented to @p parent (typically a Canvas) so it
                  * inherits its layout rect; pass `NULL_ENTITY` to anchor it directly
                  * to the viewport. Its rect defaults to a centred box the caller can
-                 * re-anchor via `set_ui_params`.
+                 * re-anchor via `set_ui_parameters`.
                  *
                  * @param name   Display name for the new element.
                  * @param kind   Which UI element to create.
@@ -2000,16 +2012,17 @@ namespace SushiEngine
                 virtual bool is_canvas(EntityId id) const noexcept = 0;
 
                 /** @brief The entity's UI element parameters (defaults if it has no UI). */
-                virtual UIElementParameters ui_params(EntityId id) const = 0;
+                virtual UIElementParameters ui_parameters(EntityId id) const = 0;
 
                 /** @brief Writes a UI entity's element parameters; a no-op for non-UI entities. */
-                virtual void set_ui_params(EntityId id, const UIElementParameters& params) = 0;
+                virtual void set_ui_parameters(EntityId id,
+                                               const UIElementParameters& parameters) = 0;
 
                 /**
                  * @brief Attaches or detaches a UI element on an existing entity.
                  *
                  * Attaching defaults the entity to an `Image` element; the kind can
-                 * then be changed via `set_ui_params`. Detaching removes it from the
+                 * then be changed via `set_ui_parameters`. Detaching removes it from the
                  * UI overlay. Like cloth, this is host-side bookkeeping needing no ECS
                  * component migration.
                  *
@@ -2058,7 +2071,7 @@ namespace SushiEngine
                  * `UIElementParameters`/`SushiEngine::UI::resolve_rect`) resolves against a
                  * Canvas's rect, and a full-viewport Canvas's rect is the screen it fills — so
                  * the host (the editor's viewport panel, or the runtime window) calls this once
-                 * per frame with its current pixel size before reading back `ui_params`/the UI
+                 * per frame with its current pixel size before reading back `ui_parameters`/the UI
                  * overlay, the same way a resize event drives any other screen-space layout. A
                  * host with more than one UI-bearing surface (e.g. Scene and Game views) calls
                  * it with whichever surface's size should currently drive layout; the most

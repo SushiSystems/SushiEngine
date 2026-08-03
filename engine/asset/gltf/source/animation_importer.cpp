@@ -281,15 +281,15 @@ namespace SushiEngine
             const cgltf_size joint_count = skin.joints_count;
 
             // Cook the skeleton and keep the sort order so clips resample in the blob's order.
-            SkeletonDescription skeleton_desc;
-            skeleton_desc.joints.resize(joint_count);
-            skeleton_desc.has_inverse_bind = skin.inverse_bind_matrices != nullptr;
+            SkeletonDescription skeleton_description;
+            skeleton_description.joints.resize(joint_count);
+            skeleton_description.has_inverse_bind = skin.inverse_bind_matrices != nullptr;
             std::vector<Vector3f> bind_t(joint_count), bind_s(joint_count);
             std::vector<Quaternionf> bind_r(joint_count);
             for (cgltf_size j = 0; j < joint_count; ++j)
             {
                 const cgltf_node* node = skin.joints[j];
-                JointDescription& joint = skeleton_desc.joints[j];
+                JointDescription& joint = skeleton_description.joints[j];
                 joint.name = node->name != nullptr ? std::string(node->name)
                                                    : "joint_" + std::to_string(j);
                 joint.parent = joint_index_of(skin, node->parent);
@@ -297,7 +297,7 @@ namespace SushiEngine
                 joint.bind_translation = bind_t[j];
                 joint.bind_rotation = bind_r[j];
                 joint.bind_scale = bind_s[j];
-                if (skeleton_desc.has_inverse_bind)
+                if (skeleton_description.has_inverse_bind)
                 {
                     float ibm[16];
                     if (cgltf_accessor_read_float(skin.inverse_bind_matrices, j, ibm, 16))
@@ -307,7 +307,7 @@ namespace SushiEngine
             }
 
             std::vector<int> order;
-            if (!build_skeleton_blob(skeleton_desc, out.skeleton_blob, &order))
+            if (!build_skeleton_blob(skeleton_description, out.skeleton_blob, &order))
             {
                 cgltf_free(data);
                 return false;

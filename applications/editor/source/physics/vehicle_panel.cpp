@@ -372,15 +372,15 @@ namespace SushiEngine
                     return;
                 }
 
-                Simulation::VehicleInstanceParameters params = world->vehicle_params(id);
+                Simulation::VehicleInstanceParameters parameters = world->vehicle_parameters(id);
                 char path[512];
-                std::snprintf(path, sizeof(path), "%s", params.asset_path.c_str());
+                std::snprintf(path, sizeof(path), "%s", parameters.asset_path.c_str());
                 if (ImGui::InputText("Structure (.sushinodebeam)", path, sizeof(path)))
                 {
                     context.history.record(*world);
-                    params.asset_path = path;
-                    params.setup = state.asset;
-                    world->set_vehicle_params(id, params);
+                    parameters.asset_path = path;
+                    parameters.setup = state.asset;
+                    world->set_vehicle_parameters(id, parameters);
                 }
                 ImGui::SetItemTooltip("The cooked structure this vehicle is built from. The "
                                       "corners, tyres and drivetrain come from this window's "
@@ -392,8 +392,8 @@ namespace SushiEngine
                     // placed relative to a cooked structure, so there is no patching one —
                     // the car is taken down and put back at the new numbers.
                     context.history.record(*world);
-                    params.setup = state.asset;
-                    world->set_vehicle_params(id, params);
+                    parameters.setup = state.asset;
+                    world->set_vehicle_parameters(id, parameters);
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("rebuilds the vehicle at this window's numbers");
@@ -432,12 +432,12 @@ namespace SushiEngine
                 {
                     // Two states, distinguished, because both read as a car that is not
                     // moving: no path authored yet, and a path that did not load.
-                    if (params.asset_path.empty())
+                    if (parameters.asset_path.empty())
                         ImGui::TextDisabled("No structure named yet.");
                     else
                         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
                                            "'%s' did not load as a node-beam asset.",
-                                           params.asset_path.c_str());
+                                           parameters.asset_path.c_str());
                     return;
                 }
 

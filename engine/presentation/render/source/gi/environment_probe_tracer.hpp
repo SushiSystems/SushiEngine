@@ -78,7 +78,8 @@ namespace SushiEngine
                     EnvironmentProbeTracer(const EnvironmentProbeTracer&) = delete;
                     EnvironmentProbeTracer& operator=(const EnvironmentProbeTracer&) = delete;
 
-                    void relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs) override;
+                    void relight(VkCommandBuffer command,
+                                 const ProbeRelightInputs& inputs) override;
                     const char* name() const noexcept override { return "environment"; }
                     void rebuild_pipelines() override;
 

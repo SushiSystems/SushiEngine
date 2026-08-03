@@ -81,9 +81,11 @@ namespace SushiEngine
              */
             struct ProbeVolumeConfiguration
             {
-                float params[4];          /**< x enabled; y indirect intensity; z normal bias metres; w cascade count. */
-                std::int32_t counts[4];   /**< xyz probe counts per axis; w probes per cascade. */
-                float cascade_origin[GI_NUM_CASCADES][4]; /**< Per cascade: xyz camera-relative origin, w spacing metres. */
+                /** @brief x enabled; y indirect intensity; z normal bias metres; w cascades. */
+                float parameters[4];
+                std::int32_t counts[4]; /**< xyz probe counts per axis; w probes per cascade. */
+                /** @brief Per cascade: xyz camera-relative origin, w spacing metres. */
+                float cascade_origin[GI_NUM_CASCADES][4];
             };
 
             static_assert(sizeof(ProbeVolumeConfiguration) == 32 + GI_NUM_CASCADES * 16,

@@ -59,11 +59,12 @@ namespace
                           float dz, std::vector<float>& left, std::vector<float>& right)
     {
         std::vector<float> in(static_cast<std::size_t>(n));
-        long long idx = 0;
+        long long index = 0;
         for (int b = 0; b < blocks; ++b)
         {
             for (int i = 0; i < n; ++i)
-                in[static_cast<std::size_t>(i)] = static_cast<float>(std::sin(kTwoPi * 500.0 * idx++ / 48000.0));
+                in[static_cast<std::size_t>(i)] =
+                    static_cast<float>(std::sin(kTwoPi * 500.0 * index++ / 48000.0));
             std::vector<float> l(static_cast<std::size_t>(n), 0.0f), r(static_cast<std::size_t>(n), 0.0f);
             spatializer.begin_block(n);
             spatializer.encode(in.data(), n, dx, dy, dz, 1.0f);

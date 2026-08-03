@@ -561,13 +561,14 @@ namespace SushiEngine
                 entry["is_camera"] = is_camera;
                 if (is_camera)
                 {
-                    const auto params = world.camera_params(id);
-                    entry["camera"] = json{{"vertical_fov_radians", params.vertical_fov_radians},
-                                           {"near_plane", params.near_plane},
-                                           {"far_plane", params.far_plane},
-                                           {"display_index", params.display_index},
-                                           {"priority", params.priority},
-                                           {"active", params.active}};
+                    const auto parameters = world.camera_parameters(id);
+                    entry["camera"] =
+                        json{{"vertical_fov_radians", parameters.vertical_fov_radians},
+                             {"near_plane", parameters.near_plane},
+                             {"far_plane", parameters.far_plane},
+                             {"display_index", parameters.display_index},
+                             {"priority", parameters.priority},
+                             {"active", parameters.active}};
                 }
 
                 // Not mutually exclusive with camera, so it is captured independently
@@ -599,10 +600,11 @@ namespace SushiEngine
                 entry["has_physics_body"] = has_physics_body;
                 if (has_physics_body)
                 {
-                    const auto params = world.physics_body_params(id);
-                    entry["physics_body"] = json{{"inv_mass", params.inv_mass},
-                                                 {"inv_inertia", vec3_to_json(params.inv_inertia)},
-                                                 {"drag_coefficient", params.drag_coefficient}};
+                    const auto parameters = world.physics_body_parameters(id);
+                    entry["physics_body"] =
+                        json{{"inv_mass", parameters.inv_mass},
+                             {"inv_inertia", vec3_to_json(parameters.inv_inertia)},
+                             {"drag_coefficient", parameters.drag_coefficient}};
                 }
 
                 // Not mutually exclusive with any of the above, so it is its own field
@@ -611,24 +613,24 @@ namespace SushiEngine
                 entry["has_cloth"] = has_cloth;
                 if (has_cloth)
                 {
-                    const auto params = world.cloth_params(id);
-                    entry["cloth"] = json{{"rows", params.rows},
-                                          {"cols", params.cols},
-                                          {"spacing", params.spacing},
-                                          {"compliance", params.compliance}};
+                    const auto parameters = world.cloth_parameters(id);
+                    entry["cloth"] = json{{"rows", parameters.rows},
+                                          {"cols", parameters.cols},
+                                          {"spacing", parameters.spacing},
+                                          {"compliance", parameters.compliance}};
                 }
 
                 const bool has_particle_emitter = world.has_particle_emitter(id);
                 entry["has_particle_emitter"] = has_particle_emitter;
                 if (has_particle_emitter)
                 {
-                    const auto params = world.particle_emitter_params(id);
+                    const auto parameters = world.particle_emitter_parameters(id);
                     // The effect goes with the entity, not as an index into a library: it is the
                     // component's own data, so a scene that reloads without it would come back
                     // with emitters that emit nothing.
                     entry["particle_emitter"] =
-                        json{{"seed", params.seed},
-                             {"playing", params.playing},
+                        json{{"seed", parameters.seed},
+                             {"playing", parameters.playing},
                              {"source", capture_effect(world.particle_effect_source(id))}};
                 }
 
@@ -636,7 +638,7 @@ namespace SushiEngine
                 entry["has_audio_emitter"] = has_audio_emitter;
                 if (has_audio_emitter)
                 {
-                    const auto p = world.audio_emitter_params(id);
+                    const auto p = world.audio_emitter_parameters(id);
                     entry["audio_emitter"] = json{{"sound", p.sound},
                                                   {"gain", p.gain},
                                                   {"priority", p.priority},
@@ -656,7 +658,7 @@ namespace SushiEngine
                 entry["has_reverb_zone"] = has_reverb_zone;
                 if (has_reverb_zone)
                 {
-                    const auto p = world.reverb_zone_params(id);
+                    const auto p = world.reverb_zone_parameters(id);
                     entry["reverb_zone"] = json{{"half_extents", vec3_to_json(p.half_extents)},
                                                 {"room", p.room},
                                                 {"room_hf", p.room_hf},
@@ -675,7 +677,7 @@ namespace SushiEngine
                 entry["has_audio_listener"] = has_audio_listener;
                 if (has_audio_listener)
                 {
-                    const auto p = world.audio_listener_params(id);
+                    const auto p = world.audio_listener_parameters(id);
                     entry["audio_listener"] = json{{"gain", p.gain}, {"active", p.active}};
                 }
 
@@ -685,28 +687,28 @@ namespace SushiEngine
                 entry["has_shape"] = has_shape;
                 if (has_shape)
                 {
-                    const auto params = world.shape_params(id);
-                    entry["shape"] = json{{"kind", static_cast<std::uint32_t>(params.kind)},
-                                          {"params", vec3_to_json(params.params)}};
+                    const auto parameters = world.shape_parameters(id);
+                    entry["shape"] = json{{"kind", static_cast<std::uint32_t>(parameters.kind)},
+                                          {"params", vec3_to_json(parameters.parameters)}};
                 }
 
                 const bool has_collider = world.has_collider(id);
                 entry["has_collider"] = has_collider;
                 if (has_collider)
                 {
-                    const auto params = world.collider_params(id);
+                    const auto parameters = world.collider_parameters(id);
                     entry["collider"] =
-                        json{{"kind", static_cast<std::uint32_t>(params.kind)},
-                             {"params", vec3_to_json(params.params)},
-                             {"layer", params.layer},
-                             {"collides_with", params.collides_with},
-                             {"static_friction", params.static_friction},
-                             {"dynamic_friction", params.dynamic_friction},
-                             {"restitution", params.restitution},
-                             {"friction_combine", params.friction_combine},
-                             {"restitution_combine", params.restitution_combine},
-                             {"trigger", params.trigger},
-                             {"continuous_collision", params.continuous_collision}};
+                        json{{"kind", static_cast<std::uint32_t>(parameters.kind)},
+                             {"params", vec3_to_json(parameters.parameters)},
+                             {"layer", parameters.layer},
+                             {"collides_with", parameters.collides_with},
+                             {"static_friction", parameters.static_friction},
+                             {"dynamic_friction", parameters.dynamic_friction},
+                             {"restitution", parameters.restitution},
+                             {"friction_combine", parameters.friction_combine},
+                             {"restitution_combine", parameters.restitution_combine},
+                             {"trigger", parameters.trigger},
+                             {"continuous_collision", parameters.continuous_collision}};
                 }
 
                 const bool has_vehicle = world.has_vehicle(id);
@@ -719,43 +721,43 @@ namespace SushiEngine
                     // keep in step. Until that record has a serializer of its own, a saved
                     // vehicle reloads as its cooked structure at the default setup, and the
                     // Vehicle window says so rather than the file losing it silently.
-                    const auto params = world.vehicle_params(id);
-                    entry["vehicle"] = json{{"asset_path", params.asset_path}};
+                    const auto parameters = world.vehicle_parameters(id);
+                    entry["vehicle"] = json{{"asset_path", parameters.asset_path}};
                 }
 
                 const bool has_joint = world.has_joint(id);
                 entry["has_joint"] = has_joint;
                 if (has_joint)
                 {
-                    const auto params = world.joint_params(id);
+                    const auto parameters = world.joint_parameters(id);
                     // The partner is written as an *index into this array*, exactly like
                     // the parent link above, because an EntityId is assigned at creation
                     // and is not a property of the scene — a file that stored one would
                     // reconnect to whatever entity happened to be handed that number on
                     // the next load. Resolved in the same second pass, for the same
                     // reason: a joint can be written before the body it names.
-                    const auto partner = index_of.find(params.connected_body);
+                    const auto partner = index_of.find(parameters.connected_body);
                     entry["joint"] =
                         json{{"connected", partner != index_of.end() ? partner->second : -1},
-                             {"type", static_cast<std::uint32_t>(params.joint.type)},
-                             {"anchor_a", vec3_to_json(params.joint.anchor_a)},
-                             {"anchor_b", vec3_to_json(params.joint.anchor_b)},
-                             {"axis_a", vec3_to_json(params.joint.axis_a)},
-                             {"axis_b", vec3_to_json(params.joint.axis_b)},
-                             {"compliance", params.joint.compliance},
-                             {"linear_limit", joint_limit_to_json(params.joint.linear_limit)},
-                             {"twist_limit", joint_limit_to_json(params.joint.twist_limit)},
-                             {"swing_limit", joint_limit_to_json(params.joint.swing_limit)},
-                             {"motor", joint_motor_to_json(params.joint.motor)},
-                             {"break_force", params.joint.break_force},
-                             {"break_torque", params.joint.break_torque}};
+                             {"type", static_cast<std::uint32_t>(parameters.joint.type)},
+                             {"anchor_a", vec3_to_json(parameters.joint.anchor_a)},
+                             {"anchor_b", vec3_to_json(parameters.joint.anchor_b)},
+                             {"axis_a", vec3_to_json(parameters.joint.axis_a)},
+                             {"axis_b", vec3_to_json(parameters.joint.axis_b)},
+                             {"compliance", parameters.joint.compliance},
+                             {"linear_limit", joint_limit_to_json(parameters.joint.linear_limit)},
+                             {"twist_limit", joint_limit_to_json(parameters.joint.twist_limit)},
+                             {"swing_limit", joint_limit_to_json(parameters.joint.swing_limit)},
+                             {"motor", joint_motor_to_json(parameters.joint.motor)},
+                             {"break_force", parameters.joint.break_force},
+                             {"break_torque", parameters.joint.break_torque}};
                 }
 
                 const bool has_light = world.has_light(id);
                 entry["has_light"] = has_light;
                 if (has_light)
                 {
-                    const auto p = world.light_params(id);
+                    const auto p = world.light_parameters(id);
                     entry["light"] = json{{"color", vec3_to_json(p.color)},
                                           {"intensity", p.intensity},
                                           {"range", p.range},
@@ -770,7 +772,7 @@ namespace SushiEngine
                 if (has_decal)
                 {
                     // Ids and paths both, on the material/effect live-handle convention.
-                    const auto p = world.decal_params(id);
+                    const auto p = world.decal_parameters(id);
                     entry["decal"] = json{{"color", vec3_to_json(p.color)},
                                           {"half_extents", vec3_to_json(p.half_extents)},
                                           {"opacity", p.opacity},
@@ -800,7 +802,7 @@ namespace SushiEngine
                 const bool has_ui = world.has_ui(id);
                 entry["has_ui"] = has_ui;
                 if (has_ui)
-                    entry["ui"] = ui_to_json(world.ui_params(id));
+                    entry["ui"] = ui_to_json(world.ui_parameters(id));
 
                 const std::vector<std::string> scripts = world.script_components(id);
                 if (!scripts.empty())
@@ -866,15 +868,15 @@ namespace SushiEngine
                 if (is_camera && entry.contains("camera"))
                 {
                     const json& c = entry["camera"];
-                    SushiEngine::Simulation::CameraParameters params;
-                    params.vertical_fov_radians =
-                        c.value("vertical_fov_radians", params.vertical_fov_radians);
-                    params.near_plane = c.value("near_plane", params.near_plane);
-                    params.far_plane = c.value("far_plane", params.far_plane);
-                    params.display_index = c.value("display_index", params.display_index);
-                    params.priority = c.value("priority", params.priority);
-                    params.active = c.value("active", params.active);
-                    world.set_camera_params(id, params);
+                    SushiEngine::Simulation::CameraParameters parameters;
+                    parameters.vertical_fov_radians =
+                        c.value("vertical_fov_radians", parameters.vertical_fov_radians);
+                    parameters.near_plane = c.value("near_plane", parameters.near_plane);
+                    parameters.far_plane = c.value("far_plane", parameters.far_plane);
+                    parameters.display_index = c.value("display_index", parameters.display_index);
+                    parameters.priority = c.value("priority", parameters.priority);
+                    parameters.active = c.value("active", parameters.active);
+                    world.set_camera_parameters(id, parameters);
                 }
 
                 // `create`/`create_camera` both attach a Renderer by default, so an
@@ -896,13 +898,13 @@ namespace SushiEngine
                     if (entry.contains("physics_body"))
                     {
                         const json& p = entry["physics_body"];
-                        SushiEngine::Simulation::PhysicsBodyParameters params;
-                        params.inv_mass = p.value("inv_mass", params.inv_mass);
+                        SushiEngine::Simulation::PhysicsBodyParameters parameters;
+                        parameters.inv_mass = p.value("inv_mass", parameters.inv_mass);
                         if (p.contains("inv_inertia"))
-                            params.inv_inertia = vec3_from_json(p["inv_inertia"]);
-                        params.drag_coefficient =
-                            p.value("drag_coefficient", params.drag_coefficient);
-                        world.set_physics_body_params(id, params);
+                            parameters.inv_inertia = vec3_from_json(p["inv_inertia"]);
+                        parameters.drag_coefficient =
+                            p.value("drag_coefficient", parameters.drag_coefficient);
+                        world.set_physics_body_parameters(id, parameters);
                     }
                 }
 
@@ -912,12 +914,12 @@ namespace SushiEngine
                     if (entry.contains("cloth"))
                     {
                         const json& c = entry["cloth"];
-                        SushiEngine::Simulation::ClothParameters params;
-                        params.rows = c.value("rows", params.rows);
-                        params.cols = c.value("cols", params.cols);
-                        params.spacing = c.value("spacing", params.spacing);
-                        params.compliance = c.value("compliance", params.compliance);
-                        world.set_cloth_params(id, params);
+                        SushiEngine::Simulation::ClothParameters parameters;
+                        parameters.rows = c.value("rows", parameters.rows);
+                        parameters.cols = c.value("cols", parameters.cols);
+                        parameters.spacing = c.value("spacing", parameters.spacing);
+                        parameters.compliance = c.value("compliance", parameters.compliance);
+                        world.set_cloth_parameters(id, parameters);
                     }
                 }
 
@@ -927,12 +929,12 @@ namespace SushiEngine
                     if (entry.contains("particle_emitter"))
                     {
                         const json& p = entry["particle_emitter"];
-                        SushiEngine::Simulation::ParticleEmitterParameters params;
+                        SushiEngine::Simulation::ParticleEmitterParameters parameters;
                         // An older file's "effect" index is ignored: the effect it named was a
                         // library entry that no longer exists, and "source" carries the real thing.
-                        params.seed = p.value("seed", params.seed);
-                        params.playing = p.value("playing", params.playing);
-                        world.set_particle_emitter_params(id, params);
+                        parameters.seed = p.value("seed", parameters.seed);
+                        parameters.playing = p.value("playing", parameters.playing);
+                        world.set_particle_emitter_parameters(id, parameters);
                         // Absent in files written before the effect moved onto the component; the
                         // emitter then keeps the default it was seeded with rather than failing.
                         if (p.contains("source"))
@@ -964,7 +966,7 @@ namespace SushiEngine
                         p.spatial = a.value("spatial", p.spatial);
                         p.playing = a.value("playing", p.playing);
                         p.looping = a.value("looping", p.looping);
-                        world.set_audio_emitter_params(id, p);
+                        world.set_audio_emitter_parameters(id, p);
                     }
                 }
 
@@ -988,7 +990,7 @@ namespace SushiEngine
                         p.wet_dry_mix = z.value("wet_dry_mix", p.wet_dry_mix);
                         p.send = z.value("send", p.send);
                         p.priority = z.value("priority", p.priority);
-                        world.set_reverb_zone_params(id, p);
+                        world.set_reverb_zone_parameters(id, p);
                     }
                 }
 
@@ -1001,7 +1003,7 @@ namespace SushiEngine
                         SushiEngine::Simulation::AudioListenerParameters p;
                         p.gain = l.value("gain", p.gain);
                         p.active = l.value("active", p.active);
-                        world.set_audio_listener_params(id, p);
+                        world.set_audio_listener_parameters(id, p);
                     }
                 }
 
@@ -1011,12 +1013,12 @@ namespace SushiEngine
                     if (entry.contains("shape"))
                     {
                         const json& s = entry["shape"];
-                        SushiEngine::Simulation::ShapeParameters params;
-                        params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
-                            s.value("kind", static_cast<std::uint32_t>(params.kind)));
+                        SushiEngine::Simulation::ShapeParameters parameters;
+                        parameters.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
+                            s.value("kind", static_cast<std::uint32_t>(parameters.kind)));
                         if (s.contains("params"))
-                            params.params = vec3_from_json(s["params"]);
-                        world.set_shape_params(id, params);
+                            parameters.parameters = vec3_from_json(s["params"]);
+                        world.set_shape_parameters(id, parameters);
                     }
                 }
 
@@ -1025,10 +1027,10 @@ namespace SushiEngine
                     world.set_has_vehicle(id, true);
                     if (entry.contains("vehicle"))
                     {
-                        SushiEngine::Simulation::VehicleInstanceParameters params =
-                            world.vehicle_params(id);
-                        params.asset_path = entry["vehicle"].value("asset_path", std::string());
-                        world.set_vehicle_params(id, params);
+                        SushiEngine::Simulation::VehicleInstanceParameters parameters =
+                            world.vehicle_parameters(id);
+                        parameters.asset_path = entry["vehicle"].value("asset_path", std::string());
+                        world.set_vehicle_parameters(id, parameters);
                     }
                 }
 
@@ -1038,26 +1040,27 @@ namespace SushiEngine
                     if (entry.contains("collider"))
                     {
                         const json& c = entry["collider"];
-                        SushiEngine::Simulation::ColliderParameters params;
-                        params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
-                            c.value("kind", static_cast<std::uint32_t>(params.kind)));
+                        SushiEngine::Simulation::ColliderParameters parameters;
+                        parameters.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
+                            c.value("kind", static_cast<std::uint32_t>(parameters.kind)));
                         if (c.contains("params"))
-                            params.params = vec3_from_json(c["params"]);
-                        params.layer = c.value("layer", params.layer);
-                        params.collides_with = c.value("collides_with", params.collides_with);
-                        params.static_friction = c.value("static_friction",
-                                                         params.static_friction);
-                        params.dynamic_friction = c.value("dynamic_friction",
-                                                          params.dynamic_friction);
-                        params.restitution = c.value("restitution", params.restitution);
-                        params.friction_combine = c.value("friction_combine",
-                                                          params.friction_combine);
-                        params.restitution_combine = c.value("restitution_combine",
-                                                             params.restitution_combine);
-                        params.trigger = c.value("trigger", params.trigger);
-                        params.continuous_collision =
-                            c.value("continuous_collision", params.continuous_collision);
-                        world.set_collider_params(id, params);
+                            parameters.parameters = vec3_from_json(c["params"]);
+                        parameters.layer = c.value("layer", parameters.layer);
+                        parameters.collides_with =
+                            c.value("collides_with", parameters.collides_with);
+                        parameters.static_friction =
+                            c.value("static_friction", parameters.static_friction);
+                        parameters.dynamic_friction =
+                            c.value("dynamic_friction", parameters.dynamic_friction);
+                        parameters.restitution = c.value("restitution", parameters.restitution);
+                        parameters.friction_combine =
+                            c.value("friction_combine", parameters.friction_combine);
+                        parameters.restitution_combine =
+                            c.value("restitution_combine", parameters.restitution_combine);
+                        parameters.trigger = c.value("trigger", parameters.trigger);
+                        parameters.continuous_collision =
+                            c.value("continuous_collision", parameters.continuous_collision);
+                        world.set_collider_parameters(id, parameters);
                     }
                 }
 
@@ -1076,7 +1079,7 @@ namespace SushiEngine
                         p.inner_degrees = l.value("inner_degrees", p.inner_degrees);
                         p.outer_degrees = l.value("outer_degrees", p.outer_degrees);
                         p.casts_shadows = l.value("casts_shadows", p.casts_shadows);
-                        world.set_light_params(id, p);
+                        world.set_light_parameters(id, p);
                     }
                 }
 
@@ -1096,7 +1099,7 @@ namespace SushiEngine
                         p.orm_map = d.value("orm_map", p.orm_map);
                         p.albedo_map_path = d.value("albedo_map_path", p.albedo_map_path);
                         p.orm_map_path = d.value("orm_map_path", p.orm_map_path);
-                        world.set_decal_params(id, p);
+                        world.set_decal_parameters(id, p);
                     }
                 }
 
@@ -1134,7 +1137,7 @@ namespace SushiEngine
                 {
                     world.set_has_ui(id, true);
                     if (entry.contains("ui"))
-                        world.set_ui_params(id, ui_from_json(entry["ui"]));
+                        world.set_ui_parameters(id, ui_from_json(entry["ui"]));
                 }
 
                 if (entry.contains("scripts") && entry["scripts"].is_array())
@@ -1161,38 +1164,39 @@ namespace SushiEngine
                     continue;
 
                 const json& j = entry["joint"];
-                SushiEngine::Simulation::PhysicsJointParameters params;
+                SushiEngine::Simulation::PhysicsJointParameters parameters;
                 const int connected = j.value("connected", -1);
                 if (connected >= 0 && static_cast<std::size_t>(connected) < created.size())
-                    params.connected_body = created[static_cast<std::size_t>(connected)];
-                params.joint.type = static_cast<SushiEngine::Simulation::JointType>(
-                    j.value("type", static_cast<std::uint32_t>(params.joint.type)));
+                    parameters.connected_body = created[static_cast<std::size_t>(connected)];
+                parameters.joint.type = static_cast<SushiEngine::Simulation::JointType>(
+                    j.value("type", static_cast<std::uint32_t>(parameters.joint.type)));
                 if (j.contains("anchor_a"))
-                    params.joint.anchor_a = vec3_from_json(j["anchor_a"]);
+                    parameters.joint.anchor_a = vec3_from_json(j["anchor_a"]);
                 if (j.contains("anchor_b"))
-                    params.joint.anchor_b = vec3_from_json(j["anchor_b"]);
+                    parameters.joint.anchor_b = vec3_from_json(j["anchor_b"]);
                 if (j.contains("axis_a"))
-                    params.joint.axis_a = vec3_from_json(j["axis_a"]);
+                    parameters.joint.axis_a = vec3_from_json(j["axis_a"]);
                 if (j.contains("axis_b"))
-                    params.joint.axis_b = vec3_from_json(j["axis_b"]);
-                params.joint.compliance = j.value("compliance", params.joint.compliance);
+                    parameters.joint.axis_b = vec3_from_json(j["axis_b"]);
+                parameters.joint.compliance = j.value("compliance", parameters.joint.compliance);
                 // `value` with a json default rather than `operator[]`: indexing a *const*
                 // json with an absent key is undefined, and a scene written before a limit
                 // existed is exactly the file that will not have the key.
-                params.joint.linear_limit =
+                parameters.joint.linear_limit =
                     joint_limit_from_json(j.value("linear_limit", json{}),
-                                          params.joint.linear_limit);
-                params.joint.twist_limit =
+                                          parameters.joint.linear_limit);
+                parameters.joint.twist_limit =
                     joint_limit_from_json(j.value("twist_limit", json{}),
-                                          params.joint.twist_limit);
-                params.joint.swing_limit =
+                                          parameters.joint.twist_limit);
+                parameters.joint.swing_limit =
                     joint_limit_from_json(j.value("swing_limit", json{}),
-                                          params.joint.swing_limit);
-                params.joint.motor =
-                    joint_motor_from_json(j.value("motor", json{}), params.joint.motor);
-                params.joint.break_force = j.value("break_force", params.joint.break_force);
-                params.joint.break_torque = j.value("break_torque", params.joint.break_torque);
-                world.set_joint_params(created[i], params);
+                                          parameters.joint.swing_limit);
+                parameters.joint.motor =
+                    joint_motor_from_json(j.value("motor", json{}), parameters.joint.motor);
+                parameters.joint.break_force = j.value("break_force", parameters.joint.break_force);
+                parameters.joint.break_torque =
+                    j.value("break_torque", parameters.joint.break_torque);
+                world.set_joint_parameters(created[i], parameters);
             }
         }
 
@@ -1285,7 +1289,7 @@ namespace SushiEngine
 
                     if (world.has_decal(id))
                     {
-                        SushiEngine::Simulation::DecalParameters decal = world.decal_params(id);
+                        SushiEngine::Simulation::DecalParameters decal = world.decal_parameters(id);
                         if (decal.albedo_map != INVALID_TEXTURE ||
                             decal.orm_map != INVALID_TEXTURE ||
                             !decal.albedo_map_path.empty() || !decal.orm_map_path.empty())
@@ -1294,7 +1298,7 @@ namespace SushiEngine
                                 resolve(decal.albedo_map_path, TextureColorSpace::SRGB);
                             decal.orm_map =
                                 resolve(decal.orm_map_path, TextureColorSpace::Linear);
-                            world.set_decal_params(id, decal);
+                            world.set_decal_parameters(id, decal);
                         }
                     }
                 }

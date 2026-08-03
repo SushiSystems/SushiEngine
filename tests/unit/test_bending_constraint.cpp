@@ -64,7 +64,7 @@ namespace
         for (int i = 0; i < 4; ++i)
         {
             out[i].position = position[i];
-            out[i].prev_position = position[i];
+            out[i].previous_position = position[i];
             out[i].inv_mass = inverse_mass;
             out[i].inv_inertia = Vector3{0, 0, 0};
         }
@@ -91,7 +91,7 @@ namespace
             {
                 RigidBodyT<Scalar>& particle = model.particles[row * cols + col];
                 particle.position = Vector3{Scalar(col) * spacing, Scalar(row) * spacing, 0};
-                particle.prev_position = particle.position;
+                particle.previous_position = particle.position;
                 particle.inv_inertia = Vector3{0, 0, 0};
                 particle.inv_mass = row == 0 ? Scalar(0) : Scalar(1);
             }

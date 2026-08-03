@@ -102,25 +102,25 @@ namespace SushiEngine
 
                     /**
                      * @brief Resets a slot's queries and starts recording into it.
-                     * @param slot The frame slot being recorded.
-                     * @param cmd  The command buffer the frame records into.
+                     * @param slot    The frame slot being recorded.
+                     * @param command The command buffer the frame records into.
                      */
-                    void begin_frame(std::uint32_t slot, VkCommandBuffer cmd);
+                    void begin_frame(std::uint32_t slot, VkCommandBuffer command);
 
                     /**
                      * @brief Writes the opening timestamp of a pass.
-                     * @param cmd  The recording command buffer.
+                     * @param command  The recording command buffer.
                      * @param name The pass name reported alongside the measured time.
                      * @return A handle to pass to end_pass(), or INVALID_TIMER if full.
                      */
-                    std::uint32_t begin_pass(VkCommandBuffer cmd, const char* name);
+                    std::uint32_t begin_pass(VkCommandBuffer command, const char* name);
 
                     /**
                      * @brief Writes the closing timestamp of a pass.
-                     * @param cmd   The recording command buffer.
+                     * @param command   The recording command buffer.
                      * @param timer The handle returned by begin_pass().
                      */
-                    void end_pass(VkCommandBuffer cmd, std::uint32_t timer);
+                    void end_pass(VkCommandBuffer command, std::uint32_t timer);
 
                     /** @brief Timings from the most recently resolved frame. */
                     const std::vector<PassTiming>& timings() const noexcept { return timings_; }

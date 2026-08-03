@@ -57,15 +57,15 @@ namespace
     std::vector<std::byte> make_linear_clip(Vector3f end_translation)
     {
         const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
-        ClipDescription desc;
-        desc.joint_count = 1;
-        desc.frame_count = 2;
-        desc.sample_rate = 1.0f;
-        desc.translations = {Vector3f{0, 0, 0}, end_translation};
-        desc.rotations = {identity, identity};
-        desc.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}};
+        ClipDescription description;
+        description.joint_count = 1;
+        description.frame_count = 2;
+        description.sample_rate = 1.0f;
+        description.translations = {Vector3f{0, 0, 0}, end_translation};
+        description.rotations = {identity, identity};
+        description.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}};
         std::vector<std::byte> blob;
-        if (!build_clip_blob(desc, blob))
+        if (!build_clip_blob(description, blob))
             std::printf("[motion_matching_demo] FAIL: cook clip\n"), ++failures;
         return blob;
     }
@@ -73,13 +73,13 @@ namespace
 
 int main()
 {
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     JointDescription root;
     root.name = "root";
     root.parent = -1;
-    skeleton_desc.joints = {root};
+    skeleton_description.joints = {root};
     std::vector<std::byte> skeleton_blob;
-    check(build_skeleton_blob(skeleton_desc, skeleton_blob), "cook skeleton");
+    check(build_skeleton_blob(skeleton_description, skeleton_blob), "cook skeleton");
 
     AnimationDatabase database;
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
@@ -136,17 +136,17 @@ int main()
     // crouch-idle vs. a standing-idle. With foot_weight zeroed, velocity alone cannot
     // tell them apart (nearest-neighbor tie, resolved to whichever sorts first); with
     // velocity_weight zeroed, only the foot-height term can, and it must pick correctly.
-    SkeletonDescription stance_skeleton_desc;
+    SkeletonDescription stance_skeleton_description;
     JointDescription stance_root;
     stance_root.name = "root";
     stance_root.parent = -1;
     JointDescription foot;
     foot.name = "foot";
     foot.parent = 0;
-    stance_skeleton_desc.joints = {stance_root, foot};
+    stance_skeleton_description.joints = {stance_root, foot};
     std::vector<std::byte> stance_skeleton_blob;
-    check(build_skeleton_blob(stance_skeleton_desc, stance_skeleton_blob),
-         "cook stance skeleton");
+    check(build_skeleton_blob(stance_skeleton_description, stance_skeleton_blob),
+          "cook stance skeleton");
 
     AnimationDatabase stance_asset_db;
     const AssetId stance_skeleton_id =
@@ -160,17 +160,17 @@ int main()
     const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
     auto make_stance_clip = [&](float foot_height)
     {
-        ClipDescription desc;
-        desc.joint_count = 2;
-        desc.frame_count = 2;
-        desc.sample_rate = 1.0f;
-        desc.translations = {Vector3f{0, 0, 0}, Vector3f{0, foot_height, 0},
-                             Vector3f{0, 0, 0}, Vector3f{0, foot_height, 0}};
-        desc.rotations = {identity, identity, identity, identity};
-        desc.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1},
-                       Vector3f{1, 1, 1}};
+        ClipDescription description;
+        description.joint_count = 2;
+        description.frame_count = 2;
+        description.sample_rate = 1.0f;
+        description.translations = {Vector3f{0, 0, 0}, Vector3f{0, foot_height, 0},
+                                    Vector3f{0, 0, 0}, Vector3f{0, foot_height, 0}};
+        description.rotations = {identity, identity, identity, identity};
+        description.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1},
+                              Vector3f{1, 1, 1}};
         std::vector<std::byte> blob;
-        check(build_clip_blob(desc, blob), "cook stance clip");
+        check(build_clip_blob(description, blob), "cook stance clip");
         return blob;
     };
     const AssetId standing_id = stance_asset_db.add_clip(make_stance_clip(1.0f));

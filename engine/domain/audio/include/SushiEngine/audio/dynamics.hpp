@@ -113,13 +113,17 @@ namespace SushiEngine
         class CompressorBusEffect final : public IBusEffect
         {
             public:
-                explicit CompressorBusEffect(const CompressorParameters& params = CompressorParameters{}) noexcept
-                    : params_(params)
+                explicit CompressorBusEffect(
+                    const CompressorParameters& parameters = CompressorParameters{}) noexcept
+                    : parameters_(parameters)
                 {
                 }
 
                 /** @brief Replaces the author parameters. */
-                void set_params(const CompressorParameters& params) noexcept { params_ = params; }
+                void set_parameters(const CompressorParameters& parameters) noexcept
+                {
+                    parameters_ = parameters;
+                }
 
                 /** @brief The current gain reduction in dB (≤ 0), for metering. */
                 float gain_reduction_db() const noexcept { return reduction_db_; }
@@ -139,7 +143,8 @@ namespace SushiEngine
                 {
                     (void)max_block_frames;
                     sample_rate_ = sample_rate;
-                    follower_.configure(params_.attack_seconds, params_.release_seconds, sample_rate);
+                    follower_.configure(parameters_.attack_seconds, parameters_.release_seconds,
+                                        sample_rate);
                     follower_.reset();
                 }
 
@@ -147,10 +152,11 @@ namespace SushiEngine
 
                 void process(float* left, float* right, int frame_count) noexcept override
                 {
-                    const float threshold = params_.threshold_db;
-                    const float knee = params_.knee_db > 0.0f ? params_.knee_db : 0.0001f;
-                    const float slope = 1.0f - 1.0f / (params_.ratio > 1.0f ? params_.ratio : 1.0f);
-                    const float makeup = db_to_lin(params_.makeup_db);
+                    const float threshold = parameters_.threshold_db;
+                    const float knee = parameters_.knee_db > 0.0f ? parameters_.knee_db : 0.0001f;
+                    const float slope =
+                        1.0f - 1.0f / (parameters_.ratio > 1.0f ? parameters_.ratio : 1.0f);
+                    const float makeup = db_to_lin(parameters_.makeup_db);
                     const float key_level = key_ != nullptr ? *key_ : 0.0f;
 
                     float last_reduction = 0.0f;
@@ -192,7 +198,7 @@ namespace SushiEngine
                     return 20.0f * std::log10(lin > 1.0e-7f ? lin : 1.0e-7f);
                 }
 
-                CompressorParameters params_;
+                CompressorParameters parameters_;
                 EnvelopeFollower follower_;
                 const float* key_ = nullptr;
                 double sample_rate_ = 48000.0;
@@ -307,8 +313,8 @@ namespace SushiEngine
         class GateBusEffect final : public IBusEffect
         {
             public:
-                explicit GateBusEffect(const GateParameters& params = GateParameters{}) noexcept
-                    : params_(params)
+                explicit GateBusEffect(const GateParameters& parameters = GateParameters{}) noexcept
+                    : parameters_(parameters)
                 {
                 }
 
@@ -317,9 +323,11 @@ namespace SushiEngine
                     (void)max_block_frames;
                     follower_.configure(0.001, 0.02, sample_rate);
                     follower_.reset();
-                    threshold_ = db_to_lin(params_.threshold_db);
-                    open_ = static_cast<float>(std::exp(-1.0 / (params_.attack_seconds * sample_rate)));
-                    close_ = static_cast<float>(std::exp(-1.0 / (params_.release_seconds * sample_rate)));
+                    threshold_ = db_to_lin(parameters_.threshold_db);
+                    open_ = static_cast<float>(
+                        std::exp(-1.0 / (parameters_.attack_seconds * sample_rate)));
+                    close_ = static_cast<float>(
+                        std::exp(-1.0 / (parameters_.release_seconds * sample_rate)));
                     envelope_gain_ = 0.0f;
                 }
 
@@ -349,7 +357,7 @@ namespace SushiEngine
                     return static_cast<float>(std::pow(10.0, static_cast<double>(db) / 20.0));
                 }
 
-                GateParameters params_;
+                GateParameters parameters_;
                 EnvelopeFollower follower_;
                 float threshold_ = 0.001f;
                 float open_ = 0.0f;

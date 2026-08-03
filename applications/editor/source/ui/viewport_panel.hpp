@@ -51,7 +51,7 @@ namespace SushiEngine
         /**
          * @brief One UI element to draw as a 2D overlay on top of a viewport.
          *
-         * A flattened UI tree node: its authored `params` plus the index of its UI
+         * A flattened UI tree node: its authored `parameters` plus the index of its UI
          * parent in the same array (or -1 when it anchors directly to the viewport).
          * The panel resolves each element's pixel rect against its parent's — a
          * top-left, y-down variant of Unity's uGUI RectTransform math — and paints it
@@ -63,7 +63,7 @@ namespace SushiEngine
             int parent = -1;                            /**< Index of the UI parent, or -1 for viewport-anchored. */
             std::uint32_t id = 0;                       /**< The owning entity id (for picking; 0 = none). */
             /** @brief The authored rect and paint. */
-            SushiEngine::Simulation::UIElementParameters params;
+            SushiEngine::Simulation::UIElementParameters parameters;
             bool selected = false;                      /**< Whether to draw a selection outline and handles. */
         };
 
@@ -73,7 +73,7 @@ namespace SushiEngine
          * In edit mode the overlay is drawn translucent (so the 3D scene shows through
          * a canvas rather than being covered) and is interactive: clicking an element
          * picks it, dragging its body moves it, and dragging a corner handle resizes it,
-         * writing the change back into `elements[edited_index].params`. In play mode
+         * writing the change back into `elements[edited_index].parameters`. In play mode
          * (the Game view) it is drawn solid and non-interactive — the runtime look.
          */
         struct UIOverlay
@@ -84,7 +84,7 @@ namespace SushiEngine
             std::uint32_t selected_id = 0;        /**< In: the selected UI entity (drives handles). */
             std::uint32_t picked_id = 0;          /**< Out: UI entity clicked this frame (0 = none). */
             bool consumed_click = false;          /**< Out: a UI pick/drag consumed the left click. */
-            int edited_index = -1;                /**< Out: element whose params changed this frame. */
+            int edited_index = -1;                /**< Out: element whose values changed here. */
         };
 
         /**

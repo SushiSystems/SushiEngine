@@ -102,13 +102,13 @@ namespace SushiEngine
                      * between builds whose scratch address has already been baked in would
                      * be a use-after-free the GPU only discovers much later.
                      *
-                     * @param cmd       The command buffer to record into.
+                     * @param command   The command buffer to record into.
                      * @param slot      Which frame slot is being recorded.
                      * @param instances The objects drawn this frame.
                      * @param count     Number of instances.
                      * @param eye       Camera world position, subtracted in double.
                      */
-                    void build(VkCommandBuffer cmd, std::uint32_t slot,
+                    void build(VkCommandBuffer command, std::uint32_t slot,
                                const MeshInstance* instances, std::size_t count,
                                const double eye[3]);
 
@@ -169,8 +169,8 @@ namespace SushiEngine
                     void describe_geometry(const Geometry::Mesh& mesh,
                                            VkAccelerationStructureGeometryKHR& geometry) const;
                     void stage_bottom_level(const Geometry::Mesh& mesh);
-                    void record_pending(VkCommandBuffer cmd);
-                    void build_top_level(VkCommandBuffer cmd, TopLevel& top,
+                    void record_pending(VkCommandBuffer command);
+                    void build_top_level(VkCommandBuffer command, TopLevel& top,
                                          VkDeviceSize scratch_offset);
 
                     Vulkan::VulkanDevice& device_;

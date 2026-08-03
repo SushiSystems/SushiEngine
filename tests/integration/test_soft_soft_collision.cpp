@@ -65,7 +65,7 @@ namespace
         for (RigidBodyT<Scalar>& particle : model.particles)
         {
             particle.position = particle.position + offset;
-            particle.prev_position = particle.position;
+            particle.previous_position = particle.position;
         }
     }
 

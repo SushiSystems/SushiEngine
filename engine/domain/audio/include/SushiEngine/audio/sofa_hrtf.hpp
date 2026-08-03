@@ -134,14 +134,14 @@ namespace SushiEngine
                     {
                         for (int ear = 0; ear < 2; ++ear)
                         {
-                            const double* src =
+                            const double* source =
                                 &ir[static_cast<std::size_t>((m * receivers + ear) * taps)];
-                            float* dst =
+                            float* destination =
                                 &ir_[static_cast<std::size_t>((m * 2 + ear) * out_taps)];
                             if (!resample)
                             {
                                 for (int t = 0; t < taps; ++t)
-                                    dst[t] = static_cast<float>(src[t]);
+                                    destination[t] = static_cast<float>(source[t]);
                             }
                             else
                             {
@@ -152,8 +152,8 @@ namespace SushiEngine
                                     const int i0 = static_cast<int>(sp);
                                     const int i1 = (i0 + 1 < taps) ? i0 + 1 : taps - 1;
                                     const double frac = sp - i0;
-                                    dst[t] = static_cast<float>(src[i0] * (1.0 - frac) +
-                                                                src[i1] * frac);
+                                    destination[t] = static_cast<float>(source[i0] * (1.0 - frac) +
+                                                                        source[i1] * frac);
                                 }
                             }
                         }
@@ -176,10 +176,10 @@ namespace SushiEngine
                     if (measurement_count_ == 0)
                         return;
 
-                    float len = std::sqrt(front * front + left * left + up * up);
-                    if (len < 1e-8f)
-                        len = 1.0f;
-                    const float qx = front / len, qy = left / len, qz = up / len;
+                    float length = std::sqrt(front * front + left * left + up * up);
+                    if (length < 1e-8f)
+                        length = 1.0f;
+                    const float qx = front / length, qy = left / length, qz = up / length;
 
                     int best = 0;
                     float best_dot = -2.0f;
@@ -303,17 +303,17 @@ namespace SushiEngine
             {
                 const hsize_t dims[3] = {static_cast<hsize_t>(measurements), 2,
                                          static_cast<hsize_t>(taps)};
-                std::vector<double> buf(static_cast<std::size_t>(measurements * 2 * taps));
-                for (std::size_t i = 0; i < buf.size(); ++i)
-                    buf[i] = ir[i];
-                ok = ok && write_double_dataset(file, "Data.IR", 3, dims, buf.data());
+                std::vector<double> buffer(static_cast<std::size_t>(measurements * 2 * taps));
+                for (std::size_t i = 0; i < buffer.size(); ++i)
+                    buffer[i] = ir[i];
+                ok = ok && write_double_dataset(file, "Data.IR", 3, dims, buffer.data());
             }
             {
                 const hsize_t dims[2] = {static_cast<hsize_t>(measurements), 3};
-                std::vector<double> buf(static_cast<std::size_t>(measurements * 3));
-                for (std::size_t i = 0; i < buf.size(); ++i)
-                    buf[i] = az_el_r[i];
-                ok = ok && write_double_dataset(file, "SourcePosition", 2, dims, buf.data());
+                std::vector<double> buffer(static_cast<std::size_t>(measurements * 3));
+                for (std::size_t i = 0; i < buffer.size(); ++i)
+                    buffer[i] = az_el_r[i];
+                ok = ok && write_double_dataset(file, "SourcePosition", 2, dims, buffer.data());
             }
             {
                 const hsize_t dims[1] = {1};

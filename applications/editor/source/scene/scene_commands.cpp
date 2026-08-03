@@ -236,40 +236,40 @@ namespace SushiEngine
                 entry.material = world->material(id);
                 entry.material_texture_paths = world->material_texture_paths(id);
                 entry.is_camera = world->is_camera(id);
-                entry.camera_params = world->camera_params(id);
+                entry.camera_parameters = world->camera_parameters(id);
                 entry.has_physics_body = world->has_physics_body(id);
-                entry.physics_body_params = world->physics_body_params(id);
+                entry.physics_body_parameters = world->physics_body_parameters(id);
                 entry.has_cloth = world->has_cloth(id);
-                entry.cloth_params = world->cloth_params(id);
+                entry.cloth_parameters = world->cloth_parameters(id);
                 entry.has_light = world->has_light(id);
-                entry.light_params = world->light_params(id);
+                entry.light_parameters = world->light_parameters(id);
                 entry.has_decal = world->has_decal(id);
-                entry.decal_params = world->decal_params(id);
+                entry.decal_parameters = world->decal_parameters(id);
                 entry.has_shape = world->has_shape(id);
-                entry.shape_params = world->shape_params(id);
+                entry.shape_parameters = world->shape_parameters(id);
                 entry.has_collider = world->has_collider(id);
-                entry.collider_params = world->collider_params(id);
+                entry.collider_parameters = world->collider_parameters(id);
                 entry.has_joint = world->has_joint(id);
-                entry.joint_params = world->joint_params(id);
+                entry.joint_parameters = world->joint_parameters(id);
                 entry.has_vehicle = world->has_vehicle(id);
-                entry.vehicle_params = world->vehicle_params(id);
+                entry.vehicle_parameters = world->vehicle_parameters(id);
                 entry.has_particle_emitter = world->has_particle_emitter(id);
                 if (entry.has_particle_emitter)
                 {
-                    entry.particle_emitter_params = world->particle_emitter_params(id);
+                    entry.particle_emitter_parameters = world->particle_emitter_parameters(id);
                     entry.particle_effect = world->particle_effect_source(id);
                 }
                 entry.has_audio_emitter = world->has_audio_emitter(id);
-                entry.audio_emitter_params = world->audio_emitter_params(id);
+                entry.audio_emitter_parameters = world->audio_emitter_parameters(id);
                 entry.has_reverb_zone = world->has_reverb_zone(id);
-                entry.reverb_zone_params = world->reverb_zone_params(id);
+                entry.reverb_zone_parameters = world->reverb_zone_parameters(id);
                 entry.has_audio_listener = world->has_audio_listener(id);
-                entry.audio_listener_params = world->audio_listener_params(id);
+                entry.audio_listener_parameters = world->audio_listener_parameters(id);
                 entry.surface_anchored = world->surface_anchored(id);
                 entry.surface_local_orientation = world->surface_local_orientation(id);
                 entry.entity_frame = world->entity_frame(id);
                 entry.has_ui = world->has_ui(id);
-                entry.ui_params = world->ui_params(id);
+                entry.ui_parameters = world->ui_parameters(id);
                 for (const std::string& type_name : world->script_components(id))
                     entry.scripts.push_back(world->script_component(id, type_name));
                 out.push_back(entry);
@@ -324,28 +324,28 @@ namespace SushiEngine
                 world->set_material_texture_paths(id, entry.material_texture_paths);
                 world->set_is_camera(id, entry.is_camera);
                 if (entry.is_camera)
-                    world->set_camera_params(id, entry.camera_params);
+                    world->set_camera_parameters(id, entry.camera_parameters);
                 world->set_has_physics_body(id, entry.has_physics_body);
                 if (entry.has_physics_body)
-                    world->set_physics_body_params(id, entry.physics_body_params);
+                    world->set_physics_body_parameters(id, entry.physics_body_parameters);
                 world->set_has_cloth(id, entry.has_cloth);
                 if (entry.has_cloth)
-                    world->set_cloth_params(id, entry.cloth_params);
+                    world->set_cloth_parameters(id, entry.cloth_parameters);
                 world->set_has_light(id, entry.has_light);
                 if (entry.has_light)
-                    world->set_light_params(id, entry.light_params);
+                    world->set_light_parameters(id, entry.light_parameters);
                 world->set_has_decal(id, entry.has_decal);
                 if (entry.has_decal)
-                    world->set_decal_params(id, entry.decal_params);
+                    world->set_decal_parameters(id, entry.decal_parameters);
                 world->set_has_shape(id, entry.has_shape);
                 if (entry.has_shape)
-                    world->set_shape_params(id, entry.shape_params);
+                    world->set_shape_parameters(id, entry.shape_parameters);
                 world->set_has_collider(id, entry.has_collider);
                 if (entry.has_collider)
-                    world->set_collider_params(id, entry.collider_params);
+                    world->set_collider_parameters(id, entry.collider_parameters);
                 world->set_has_vehicle(id, entry.has_vehicle);
                 if (entry.has_vehicle)
-                    world->set_vehicle_params(id, entry.vehicle_params);
+                    world->set_vehicle_parameters(id, entry.vehicle_parameters);
                 world->set_has_joint(id, entry.has_joint);
                 if (entry.has_joint)
                 {
@@ -354,30 +354,30 @@ namespace SushiEngine
                     // nothing. Copying a door and its chassis together and expecting the
                     // copy to be self-contained is the case this does not serve, and it
                     // needs the whole selection remapped rather than a per-entity paste.
-                    world->set_joint_params(id, entry.joint_params);
+                    world->set_joint_parameters(id, entry.joint_parameters);
                 }
                 world->set_has_particle_emitter(id, entry.has_particle_emitter);
                 if (entry.has_particle_emitter)
                 {
-                    world->set_particle_emitter_params(id, entry.particle_emitter_params);
+                    world->set_particle_emitter_parameters(id, entry.particle_emitter_parameters);
                     world->set_particle_effect_source(id, entry.particle_effect);
                 }
                 world->set_has_audio_emitter(id, entry.has_audio_emitter);
                 if (entry.has_audio_emitter)
-                    world->set_audio_emitter_params(id, entry.audio_emitter_params);
+                    world->set_audio_emitter_parameters(id, entry.audio_emitter_parameters);
                 world->set_has_reverb_zone(id, entry.has_reverb_zone);
                 if (entry.has_reverb_zone)
-                    world->set_reverb_zone_params(id, entry.reverb_zone_params);
+                    world->set_reverb_zone_parameters(id, entry.reverb_zone_parameters);
                 world->set_has_audio_listener(id, entry.has_audio_listener);
                 if (entry.has_audio_listener)
-                    world->set_audio_listener_params(id, entry.audio_listener_params);
+                    world->set_audio_listener_parameters(id, entry.audio_listener_parameters);
                 world->set_entity_frame(id, entry.entity_frame);
                 world->set_surface_anchored(id, entry.surface_anchored);
                 if (entry.surface_anchored)
                     world->set_surface_local_orientation(id, entry.surface_local_orientation);
                 world->set_has_ui(id, entry.has_ui);
                 if (entry.has_ui)
-                    world->set_ui_params(id, entry.ui_params);
+                    world->set_ui_parameters(id, entry.ui_parameters);
                 for (const SushiEngine::Simulation::ScriptComponent& script : entry.scripts)
                     world->add_script_component(id, script);
 

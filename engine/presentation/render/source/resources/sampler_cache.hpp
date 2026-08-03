@@ -100,16 +100,16 @@ namespace SushiEngine
                      * The requested anisotropy is clamped to the device limit, so a caller
                      * may ask for more than the hardware offers without checking.
                      *
-                     * @param desc What the sampler must be.
+                     * @param description What the sampler must be.
                      * @return The shared sampler; never destroyed by the caller.
                      */
-                    VkSampler get(const SamplerDescription& desc);
+                    VkSampler get(const SamplerDescription& description);
 
                 private:
                     /** @brief One cached sampler and the description that keyed it. */
                     struct Entry
                     {
-                        SamplerDescription desc{};
+                        SamplerDescription description{};
                         VkSampler sampler = VK_NULL_HANDLE;
                     };
 

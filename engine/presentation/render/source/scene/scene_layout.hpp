@@ -352,9 +352,9 @@ namespace SushiEngine
 
                     /**
                      * @brief Binds the bindless heap at set 1 of the GPU-driven pipeline layout.
-                     * @param cmd The recording command buffer.
+                     * @param command The recording command buffer.
                      */
-                    void bind_gpu_heap(VkCommandBuffer cmd) const;
+                    void bind_gpu_heap(VkCommandBuffer command) const;
 
                     /**
                      * @brief The set-2 layout the meshlet path binds a mesh's meshlet buffers into.
@@ -383,9 +383,9 @@ namespace SushiEngine
 
                     /**
                      * @brief Binds the bindless heap at set 1 of the meshlet pipeline layout.
-                     * @param cmd The recording command buffer.
+                     * @param command The recording command buffer.
                      */
-                    void bind_meshlet_heap(VkCommandBuffer cmd) const;
+                    void bind_meshlet_heap(VkCommandBuffer command) const;
 
                     /**
                      * @brief Binds the bindless heap at set 1, when present.
@@ -394,9 +394,9 @@ namespace SushiEngine
                      * SceneSetWriter::commit() rather than bound here; this call only
                      * plants the heap that set 0's push cannot supply.
                      *
-                     * @param cmd The recording command buffer.
+                     * @param command The recording command buffer.
                      */
-                    void bind_heap(VkCommandBuffer cmd) const;
+                    void bind_heap(VkCommandBuffer command) const;
 
                 private:
                     Vulkan::VulkanDevice& device_;
@@ -477,12 +477,12 @@ namespace SushiEngine
 
                     /**
                      * @brief Pushes every queued write into the command buffer as set 0.
-                     * @param cmd    The recording command buffer.
+                     * @param command    The recording command buffer.
                      * @param layout The pipeline layout whose set 0 is being pushed.
                      */
-                    void commit(VkCommandBuffer cmd, VkPipelineLayout layout)
+                    void commit(VkCommandBuffer command, VkPipelineLayout layout)
                     {
-                        writer_.push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0);
+                        writer_.push(command, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0);
                     }
 
                 private:

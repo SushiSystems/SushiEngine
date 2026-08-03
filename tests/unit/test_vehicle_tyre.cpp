@@ -103,9 +103,9 @@ namespace
     {
         RigidBody wheel;
         wheel.position = Vector3{0, RADIUS + SKIN, 0};
-        wheel.prev_position = wheel.position;
+        wheel.previous_position = wheel.position;
         wheel.orientation = Quaternion{0, 0, 0, 1};
-        wheel.prev_orientation = wheel.orientation;
+        wheel.previous_orientation = wheel.orientation;
         wheel.inv_mass = 1 / WHEEL_MASS;
         const Scalar axial = Scalar(0.5) * WHEEL_MASS * RADIUS * RADIUS;
         const Scalar transverse =
@@ -151,10 +151,10 @@ namespace
             ground.valid() ? std::uint32_t(solver.body_slot(ground)) : null_contact_body;
         contact.key = 1;
         contact.manifold = manifold;
-        contact.params.static_friction = 0;   // the tyre is the only tangential source
-        contact.params.dynamic_friction = 0;
-        contact.params.restitution = 0;
-        contact.params.rest_offset = SKIN;
+        contact.parameters.static_friction = 0;   // the tyre is the only tangential source
+        contact.parameters.dynamic_friction = 0;
+        contact.parameters.restitution = 0;
+        contact.parameters.rest_offset = SKIN;
         solver.begin_contacts();
         solver.add_contact(contact);
 
@@ -420,9 +420,9 @@ TEST(Unit_VehicleTyre, TheGroundTakesTheReaction)
 
     RigidBody floor;
     floor.position = Vector3{0, 0, 0};
-    floor.prev_position = floor.position;
+    floor.previous_position = floor.position;
     floor.orientation = Quaternion{0, 0, 0, 1};
-    floor.prev_orientation = floor.orientation;
+    floor.previous_orientation = floor.orientation;
     floor.inv_mass = Scalar(1) / 500;
     floor.inv_inertia = Vector3{0, 0, 0};
     // Gravity cancelled: a dynamic floor would otherwise fall alongside the wheel and the

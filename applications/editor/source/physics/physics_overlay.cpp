@@ -137,18 +137,18 @@ namespace SushiEngine
              * into a door that opens most of the way — and turns a sign error into a door
              * that opens backwards, visibly, before it is ever played.
              *
-             * @param projector The frame's projection.
-             * @param world     The world, for the partner's pose.
-             * @param owner     The entity carrying the joint.
-             * @param params    Its authoring.
+             * @param projector  The frame's projection.
+             * @param world      The world, for the partner's pose.
+             * @param owner      The entity carrying the joint.
+             * @param parameters Its authoring.
              */
             void draw_joint_gizmo(const Projector& projector, IWorldEditor& world, EntityId owner,
-                                  const Simulation::PhysicsJointParameters& params)
+                                  const Simulation::PhysicsJointParameters& parameters)
             {
                 const Simulation::EntityTransform owner_transform = world.world_transform(owner);
                 const Vector3 anchor_a =
                     owner_transform.position +
-                    rotate(owner_transform.rotation, params.joint.anchor_a);
+                    rotate(owner_transform.rotation, parameters.joint.anchor_a);
 
                 // Amber for the joint itself, so it reads apart from the green collider
                 // overlay it is usually drawn beside.
@@ -162,28 +162,29 @@ namespace SushiEngine
                 // The line between the two anchors is the joint's error, drawn: a settled
                 // joint has none and the line is a point, and a joint being pulled apart is a
                 // line whose length is how far apart it is being held.
-                if (params.connected_body != NULL_ENTITY && world.exists(params.connected_body))
+                if (parameters.connected_body != NULL_ENTITY &&
+                    world.exists(parameters.connected_body))
                 {
                     const Simulation::EntityTransform other =
-                        world.world_transform(params.connected_body);
+                        world.world_transform(parameters.connected_body);
                     const Vector3 anchor_b =
-                        other.position + rotate(other.rotation, params.joint.anchor_b);
+                        other.position + rotate(other.rotation, parameters.joint.anchor_b);
                     ImVec2 screen_b;
                     if (projector.point(anchor_b, screen_b))
                         projector.list->AddCircle(screen_b, 4.0f, partner_colour);
                     projector.line(anchor_a, anchor_b, partner_colour, 2.0f);
                 }
 
-                const Simulation::JointType type = params.joint.type;
+                const Simulation::JointType type = parameters.joint.type;
                 if (type == Simulation::JointType::Fixed || type == Simulation::JointType::Ball)
                     return;
 
                 const Vector3 axis =
-                    normalize(rotate(owner_transform.rotation, params.joint.axis_a));
+                    normalize(rotate(owner_transform.rotation, parameters.joint.axis_a));
                 projector.line(anchor_a - axis * AXIS_LENGTH, anchor_a + axis * AXIS_LENGTH,
                                joint_colour, 2.0f);
 
-                if (!params.joint.twist_limit.enabled)
+                if (!parameters.joint.twist_limit.enabled)
                     return;
 
                 // The arc lives in the plane the axis is normal to, swept from the limit's
@@ -191,8 +192,8 @@ namespace SushiEngine
                 // where the range starts as well as how wide it is.
                 const Vector3 u = perpendicular(axis);
                 const Vector3 v = cross(axis, u);
-                const Scalar lower = params.joint.twist_limit.lower;
-                const Scalar upper = params.joint.twist_limit.upper;
+                const Scalar lower = parameters.joint.twist_limit.lower;
+                const Scalar upper = parameters.joint.twist_limit.upper;
                 const auto arc_point = [&](Scalar angle)
                 {
                     return anchor_a + (u * std::cos(double(angle)) + v * std::sin(double(angle))) *
@@ -291,7 +292,7 @@ namespace SushiEngine
 
             if (settings.joints && selected != NULL_ENTITY && world.exists(selected) &&
                 world.has_joint(selected))
-                draw_joint_gizmo(projector, world, selected, world.joint_params(selected));
+                draw_joint_gizmo(projector, world, selected, world.joint_parameters(selected));
         }
     } // namespace Editor
 } // namespace SushiEngine

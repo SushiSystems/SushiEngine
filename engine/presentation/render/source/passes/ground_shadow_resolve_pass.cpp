@@ -51,7 +51,7 @@ namespace SushiEngine
 
             void GroundShadowResolvePass::create_pipeline()
             {
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("ground_shadow_resolve.frag"), Frame::HDR_FORMAT));
             }
@@ -85,18 +85,19 @@ namespace SushiEngine
                         builder.read(frame.targets.ground_shadow,
                                      Graph::TextureAccess::SampledFragment);
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
                             frame.samplers->get(Resources::SamplerDescription{});
                         Scene::SceneSetWriter writer;
                         writer.image(1, context.sampled_view(frame.targets.ground_shadow),
                                     sampler);
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

@@ -227,14 +227,15 @@ namespace SushiEngine
 
         /**
          * @brief Builds an avatar from an explicit bone→joint-name table.
-         * @param desc     The authored mapping.
+         * @param description     The authored mapping.
          * @param skeleton The rig to resolve names against.
          * @return The avatar; a name the rig lacks leaves its bone unmapped.
          */
-        inline Avatar build_avatar(const AvatarDescription& desc, const SkeletonView& skeleton)
+        inline Avatar build_avatar(const AvatarDescription& description,
+                                   const SkeletonView& skeleton)
         {
             Avatar avatar;
-            for (const AvatarDescription::Entry& entry : desc.entries)
+            for (const AvatarDescription::Entry& entry : description.entries)
             {
                 const int joint = skeleton.find_joint(hash_name(entry.joint.c_str()));
                 if (joint >= 0)

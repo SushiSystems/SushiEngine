@@ -79,7 +79,7 @@ namespace
 
 int main()
 {
-    SkeletonDescription desc;
+    SkeletonDescription description;
     JointDescription root;
     root.name = "root";
     root.parent = -1;
@@ -87,10 +87,10 @@ int main()
     tip.name = "jiggle";
     tip.parent = 0;
     tip.bind_translation = Vector3f{0.0f, -1.0f, 0.0f};
-    desc.joints = {root, tip};
+    description.joints = {root, tip};
 
     std::vector<std::byte> blob;
-    check(build_skeleton_blob(desc, blob), "cook 2-joint skeleton");
+    check(build_skeleton_blob(description, blob), "cook 2-joint skeleton");
     AnimationDatabase database;
     const AssetId skeleton_id = database.add_skeleton(std::move(blob));
     const SkeletonView skeleton = database.skeleton(skeleton_id);

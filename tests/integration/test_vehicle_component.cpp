@@ -200,10 +200,10 @@ namespace
         world.set_transform(id, transform);
 
         world.set_has_vehicle(id, true);
-        VehicleInstanceParameters params;
-        params.asset_path = asset_path;
-        params.setup = road_car();
-        world.set_vehicle_params(id, params);
+        VehicleInstanceParameters parameters;
+        parameters.asset_path = asset_path;
+        parameters.setup = road_car();
+        world.set_vehicle_parameters(id, parameters);
         return id;
     }
 
@@ -334,7 +334,7 @@ TEST(Integration_VehicleComponent, AnAssetThatDoesNotLoadIsReportedRatherThanGue
     // corrected for them.
     EXPECT_TRUE(world.has_vehicle(unnamed));
     EXPECT_TRUE(world.has_vehicle(missing));
-    EXPECT_EQ(world.vehicle_params(missing).asset_path, "does/not/exist.sushinodebeam");
+    EXPECT_EQ(world.vehicle_parameters(missing).asset_path, "does/not/exist.sushinodebeam");
 }
 
 TEST(Integration_VehicleComponent, TheStructurePathSurvivesTheSceneFile)
@@ -355,7 +355,7 @@ TEST(Integration_VehicleComponent, TheStructurePathSurvivesTheSceneFile)
     const EntityId restored = find_by_name(world, "Car");
     ASSERT_NE(restored, NULL_ENTITY);
     ASSERT_TRUE(world.has_vehicle(restored));
-    EXPECT_EQ(world.vehicle_params(restored).asset_path, cooked_vehicle_path());
+    EXPECT_EQ(world.vehicle_parameters(restored).asset_path, cooked_vehicle_path());
 
     // And it is live again after the reload, which is the clause a stored path exists for:
     // a scene reopened somewhere else finds its car.

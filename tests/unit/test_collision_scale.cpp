@@ -178,7 +178,7 @@ TEST(Unit_CollisionScale, OneThousandMixedShapeBodiesInContact)
         const std::uint32_t level = i % 40u;
         body.position = vec(Real(stack % 5u) * 3.0 + jitter(engine), 0.5 + Real(level) * 0.99,
                             Real(stack / 5u) * 3.0 + jitter(engine));
-        body.prev_position = body.position;
+        body.previous_position = body.position;
         body.inv_mass = 1.0;
         body.inv_inertia = vec(6.0, 6.0, 6.0);
         body.motion_measure = 1.0; // awake: this is the *active* scene
@@ -212,7 +212,7 @@ TEST(Unit_CollisionScale, TenThousandSleepingBodiesDoNoPairWorkAtAll)
     {
         Body body;
         body.position = vec(Real(i % 100u) * 2.0, 0.5, Real(i / 100u) * 2.0);
-        body.prev_position = body.position;
+        body.previous_position = body.position;
         body.inv_mass = 1.0;
         body.inv_inertia = vec(6.0, 6.0, 6.0);
         scene.bodies.push_back(body);
@@ -249,7 +249,7 @@ TEST(Unit_CollisionScale, WakingOneBodyInATenThousandBodySceneWakesOnlyItsIsland
     {
         Body body;
         body.position = vec(Real(i % 50u) * 2.0, 0.5, Real(i / 50u) * 2.0);
-        body.prev_position = body.position;
+        body.previous_position = body.position;
         body.inv_mass = 1.0;
         body.inv_inertia = vec(6.0, 6.0, 6.0);
         scene.bodies.push_back(body);

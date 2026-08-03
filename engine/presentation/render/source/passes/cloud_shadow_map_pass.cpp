@@ -49,7 +49,7 @@ namespace SushiEngine
                     return (extent + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from,
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout from,
                                 VkImageLayout to, VkPipelineStageFlags2 source,
                                 VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
                                 VkAccessFlags2 destination_access)
@@ -73,7 +73,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -128,10 +128,10 @@ namespace SushiEngine
                 // Tiles under the same convention as the T3 field's own sampler: the
                 // map wraps so a query straying past the tile's own edge reads its own
                 // boundary back, exactly matching how the field it was baked from tiles.
-                Resources::SamplerDescription sampler_desc{};
-                sampler_desc.filter = VK_FILTER_LINEAR;
-                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description{};
+                sampler_description.filter = VK_FILTER_LINEAR;
+                sampler_description.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                sampler_ = samplers.get(sampler_description);
 
                 create_pipeline();
             }
@@ -242,12 +242,12 @@ namespace SushiEngine
                         builder.set_side_effect();
                     },
                     [this, &frame, uniforms, row_start, row_count,
-                     first_bake](VkCommandBuffer cmd, const Graph::PassContext& context)
+                     first_bake](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const Push push{CloudscapeCompilePass::near_span_meters(), row_start,
                                         row_count};
 
-                        transition(cmd, map_.image,
+                        transition(command, map_.image,
                                   first_bake ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                                   VK_IMAGE_LAYOUT_GENERAL,
                                   first_bake ? VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT
@@ -263,20 +263,20 @@ namespace SushiEngine
                                              VK_IMAGE_LAYOUT_GENERAL);
                         writer.uniform_buffer(2, context.buffer(uniforms), sizeof(Scene::SceneUniforms));
                         writer.update(device_.device(), set);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(RESOLUTION), groups(row_count), 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, groups(RESOLUTION), groups(row_count), 1);
 
                         // Readable by every shadow consumer's fragment stage: sky.frag's
                         // ground march and pbr.frag's mesh shading alike.
-                        transition(cmd, map_.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                  VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                        transition(command, map_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                   VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
                     });
             }
         } // namespace Passes

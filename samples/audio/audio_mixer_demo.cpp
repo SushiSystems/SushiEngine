@@ -86,9 +86,9 @@ int main()
         std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
         // A short, restrained room: this S2 slice checks the voice/mixer path, so the
         // reverb stays subtle (a long tail would build up under the sustained test tones).
-        I3DL2Reverb params = I3DL2Reverb::room_small();
-        params.wet_dry_mix = 100.0f; // aux bus: pure wet, dry routes direct to master
-        fx->set_params(params);
+        I3DL2Reverb parameters = I3DL2Reverb::room_small();
+        parameters.wet_dry_mix = 100.0f; // aux bus: pure wet, dry routes direct to master
+        fx->set_parameters(parameters);
         engine.mixer().add_insert(
             reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     }

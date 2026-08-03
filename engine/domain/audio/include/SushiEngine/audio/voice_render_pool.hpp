@@ -112,12 +112,13 @@ namespace SushiEngine
                     // Erase the job's type behind a trampoline so the workers can call it
                     // without the pool being a template (and with no per-block allocation).
                     using JobType = typename std::remove_reference<Job>::type;
-                    auto trampoline = [](void* ctx, int index) {
-                        (*static_cast<JobType*>(ctx))(index);
+                    auto trampoline = [](void* context, int index)
+                    {
+                        (*static_cast<JobType*>(context))(index);
                     };
                     {
                         std::lock_guard<std::mutex> lock(mutex_);
-                        job_ctx_ = static_cast<void*>(&job);
+                        job_context_ = static_cast<void*>(&job);
                         job_fn_ = trampoline;
                         count_ = count;
                         pending_ = worker_count_;
@@ -126,18 +127,18 @@ namespace SushiEngine
                     go_.notify_all();
 
                     // The audio thread takes the last lane.
-                    run_lane(worker_count_, count, job_ctx_, job_fn_);
+                    run_lane(worker_count_, count, job_context_, job_fn_);
 
                     std::unique_lock<std::mutex> lock(mutex_);
                     done_.wait(lock, [this]() { return pending_ == 0; });
                 }
 
             private:
-                void run_lane(int lane, int count, void* ctx, void (*fn)(void*, int)) noexcept
+                void run_lane(int lane, int count, void* context, void (*fn)(void*, int)) noexcept
                 {
                     const int lanes = worker_count_ + 1;
                     for (int i = lane; i < count; i += lanes)
-                        fn(ctx, i);
+                        fn(context, i);
                 }
 
                 void worker_loop(int lane)
@@ -145,7 +146,7 @@ namespace SushiEngine
                     std::uint64_t seen = 0;
                     for (;;)
                     {
-                        void* ctx = nullptr;
+                        void* context = nullptr;
                         void (*fn)(void*, int) = nullptr;
                         int count = 0;
                         {
@@ -154,11 +155,11 @@ namespace SushiEngine
                             if (!running_)
                                 return;
                             seen = epoch_;
-                            ctx = job_ctx_;
+                            context = job_context_;
                             fn = job_fn_;
                             count = count_;
                         }
-                        run_lane(lane, count, ctx, fn);
+                        run_lane(lane, count, context, fn);
                         {
                             std::lock_guard<std::mutex> lock(mutex_);
                             if (--pending_ == 0)
@@ -175,7 +176,7 @@ namespace SushiEngine
                 int worker_count_ = 0;
                 int count_ = 0;
                 int pending_ = 0;
-                void* job_ctx_ = nullptr;
+                void* job_context_ = nullptr;
                 void (*job_fn_)(void*, int) = nullptr;
                 bool running_ = true;
             };

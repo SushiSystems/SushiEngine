@@ -149,23 +149,23 @@ namespace SushiEngine
                         FloatVector3 n =
                             cross(sub(position_of(vertices[b]), position_of(vertices[a])),
                                   sub(position_of(vertices[c]), position_of(vertices[a])));
-                        const float len = length(n);
-                        if (len > 1e-12f)
+                        const float normal_length = length(n);
+                        if (normal_length > 1e-12f)
                         {
-                            n.x /= len;
-                            n.y /= len;
-                            n.z /= len;
+                            n.x /= normal_length;
+                            n.y /= normal_length;
+                            n.z /= normal_length;
                             axis.x += n.x;
                             axis.y += n.y;
                             axis.z += n.z;
                         }
                     }
-                    const float axis_len = length(axis);
-                    if (axis_len > 1e-6f)
+                    const float axis_length = length(axis);
+                    if (axis_length > 1e-6f)
                     {
-                        axis.x /= axis_len;
-                        axis.y /= axis_len;
-                        axis.z /= axis_len;
+                        axis.x /= axis_length;
+                        axis.y /= axis_length;
+                        axis.z /= axis_length;
                         float min_dot = 1.0f;
                         for (std::uint32_t t = 0; t < current.triangle_count; ++t)
                         {
@@ -179,11 +179,12 @@ namespace SushiEngine
                             FloatVector3 n =
                                 cross(sub(position_of(vertices[b]), position_of(vertices[a])),
                                       sub(position_of(vertices[c]), position_of(vertices[a])));
-                            const float len = length(n);
-                            if (len > 1e-12f)
+                            const float normal_length = length(n);
+                            if (normal_length > 1e-12f)
                                 min_dot = std::fmin(
                                     min_dot,
-                                    dot(axis, FloatVector3{n.x / len, n.y / len, n.z / len}));
+                                    dot(axis, FloatVector3{n.x / normal_length, n.y / normal_length,
+                                                           n.z / normal_length}));
                         }
                         current.cone[0] = axis.x;
                         current.cone[1] = axis.y;

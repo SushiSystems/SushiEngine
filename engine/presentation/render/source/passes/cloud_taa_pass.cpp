@@ -58,7 +58,7 @@ namespace SushiEngine
                     return (extent + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout,
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout old_layout,
                                 VkPipelineStageFlags2 source, VkPipelineStageFlags2 destination,
                                 VkAccessFlags2 source_access, VkAccessFlags2 destination_access)
                 {
@@ -81,7 +81,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
 
                 void create_one(Vulkan::VulkanDevice& device, VkFormat format,
@@ -184,8 +184,8 @@ namespace SushiEngine
                 height_ = std::max<std::uint32_t>(1u, output_height / 2u);
                 create_history();
 
-                Resources::SamplerDescription sampler_desc{};
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description{};
+                sampler_ = samplers.get(sampler_description);
 
                 create_pipeline();
             }
@@ -289,8 +289,8 @@ namespace SushiEngine
                         builder.read(frame.targets.temporal, Graph::BufferAccess::UniformComputeRead);
                         builder.set_side_effect();
                     },
-                    [this, &frame, write_slot, read_slot, first_bake,
-                     history_valid_this_frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame, write_slot, read_slot, first_bake, history_valid_this_frame](
+                        VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         Slot& write = slots_[write_slot];
                         Slot& read = slots_[read_slot];
@@ -317,22 +317,22 @@ namespace SushiEngine
                             first_bake ? VK_ACCESS_2_NONE
                                       : (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
 
-                        transition(cmd, write.color_image, old_layout,
+                        transition(command, write.color_image, old_layout,
                                   safe_source ? safe_stage : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                   safe_source ? safe_access : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                        transition(cmd, write.weight_image, old_layout,
+                        transition(command, write.weight_image, old_layout,
                                   safe_source ? safe_stage : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                   safe_source ? safe_access : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                        transition(cmd, read.color_image, old_layout,
+                        transition(command, read.color_image, old_layout,
                                   safe_source ? safe_stage : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                   safe_source ? safe_access : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-                        transition(cmd, read.weight_image, old_layout,
+                        transition(command, read.weight_image, old_layout,
                                   safe_source ? safe_stage : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                   safe_source ? safe_access : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
@@ -357,26 +357,26 @@ namespace SushiEngine
                                              point_or_linear);
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
                         const Push push{history_valid_this_frame ? 1u : 0u,
                                        frame.quality.cloud_variance_clip ? 1u : 0u};
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(width_), groups(height_), 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, groups(width_), groups(height_), 1);
 
                         // Readable by CloudCompositePass's fragment shader this same frame.
-                        transition(cmd, write.color_image, VK_IMAGE_LAYOUT_GENERAL,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                  VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-                        transition(cmd, write.weight_image, VK_IMAGE_LAYOUT_GENERAL,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                                  VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                        transition(command, write.color_image, VK_IMAGE_LAYOUT_GENERAL,
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                        transition(command, write.weight_image, VK_IMAGE_LAYOUT_GENERAL,
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
                         current_color_view_ = write.color_view;
                     });

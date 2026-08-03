@@ -35,23 +35,23 @@ using namespace SushiEngine::Audio;
 namespace
 {
     // Estimate frequency from positive-going zero crossings over a rendered span.
-    double estimate_frequency(VoiceSource& src, double sample_rate, int total)
+    double estimate_frequency(VoiceSource& source, double sample_rate, int total)
     {
-        std::vector<float> buf(512);
+        std::vector<float> buffer(512);
         int rendered = 0;
         int crossings = 0;
-        float prev = 0.0f;
-        bool have_prev = false;
+        float previous = 0.0f;
+        bool have_previous = false;
         while (rendered < total)
         {
             const int n = std::min(512, total - rendered);
-            src.render(buf.data(), n);
+            source.render(buffer.data(), n);
             for (int i = 0; i < n; ++i)
             {
-                if (have_prev && prev <= 0.0f && buf[i] > 0.0f)
+                if (have_previous && previous <= 0.0f && buffer[i] > 0.0f)
                     ++crossings;
-                prev = buf[i];
-                have_prev = true;
+                previous = buffer[i];
+                have_previous = true;
             }
             rendered += n;
         }
@@ -66,19 +66,19 @@ TEST(Unit_Audio, BufferSourceSampleRateConversion)
     const double source_rate = 24000.0;
     const double device_rate = 48000.0;
     const double tone_hz = 1000.0;
-    const int src_len = 24000; // 1 s at the source rate
-    std::vector<float> data(static_cast<std::size_t>(src_len));
-    for (int i = 0; i < src_len; ++i)
+    const int source_length = 24000; // 1 s at the source rate
+    std::vector<float> data(static_cast<std::size_t>(source_length));
+    for (int i = 0; i < source_length; ++i)
         data[static_cast<std::size_t>(i)] =
             static_cast<float>(std::sin(2.0 * 3.14159265358979 * tone_hz * i / source_rate));
 
-    BufferSource src(data.data(), src_len, true, source_rate);
-    src.prepare(device_rate, 512);
-    const double f = estimate_frequency(src, device_rate, static_cast<int>(device_rate)); // 1 s
+    BufferSource source(data.data(), source_length, true, source_rate);
+    source.prepare(device_rate, 512);
+    const double f = estimate_frequency(source, device_rate, static_cast<int>(device_rate)); // 1 s
     EXPECT_NEAR(f, tone_hz, 15.0); // pitch preserved despite the rate mismatch
 
     // Without SRC (source_rate = 0 → ratio 1) the same buffer plays an octave up.
-    BufferSource naive(data.data(), src_len, true, 0.0);
+    BufferSource naive(data.data(), source_length, true, 0.0);
     naive.prepare(device_rate, 512);
     const double f_naive = estimate_frequency(naive, device_rate, static_cast<int>(device_rate));
     EXPECT_NEAR(f_naive, tone_hz * (device_rate / source_rate), 40.0); // ~2000 Hz

@@ -164,19 +164,19 @@ namespace SushiEngine
                     // A mask with no entries and default_weight 1.0 admits every joint at full
                     // weight — identical in effect to no mask at all — so this is always safe
                     // to build and pass, no "did the user actually touch the mask" branch needed.
-                    Animation::MaskDescription mask_desc;
-                    mask_desc.default_weight = add_layer_mask_default_weight;
+                    Animation::MaskDescription mask_description;
+                    mask_description.default_weight = add_layer_mask_default_weight;
                     for (std::uint32_t j = 0; j < skeleton.joint_count; ++j)
                         if (add_layer_mask[j])
                         {
                             Animation::MaskDescription::Entry entry;
                             entry.joint = skeleton.joint_name(j);
                             entry.weight = 1.0f;
-                            mask_desc.entries.push_back(entry);
+                            mask_description.entries.push_back(entry);
                         }
                     preview.add_layer(
                         clips[static_cast<std::size_t>(add_layer_clip_index)].name.c_str(),
-                        &mask_desc, add_layer_weight, add_layer_additive);
+                        &mask_description, add_layer_weight, add_layer_additive);
                 }
             }
 

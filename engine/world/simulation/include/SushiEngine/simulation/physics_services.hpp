@@ -196,9 +196,9 @@ namespace SushiEngine
                  * @param inv_inertia      New diagonal body-local inverse inertia.
                  * @param drag_coefficient New quadratic drag coefficient.
                  */
-                virtual void update_rigid_body_params(EntityId id, Scalar inv_mass,
-                                                      const Vector3& inv_inertia,
-                                                      Scalar drag_coefficient) = 0;
+                virtual void update_rigid_body_parameters(EntityId id, Scalar inv_mass,
+                                                          const Vector3& inv_inertia,
+                                                          Scalar drag_coefficient) = 0;
 
                 /**
                  * @brief Reads a body's solved pose.
@@ -450,7 +450,7 @@ namespace SushiEngine
             EntityId body_b = NULL_ENTITY;
 
             /** @brief What is held between them. */
-            JointParameters params;
+            JointParameters parameters;
         };
 
         /** @brief An opaque identity for a live joint; zero names none. */
@@ -613,12 +613,12 @@ namespace SushiEngine
                 /**
                  * @brief Creates a joint between two entities that already own bodies.
                  *
-                 * @param desc What to create.
+                 * @param description What to create.
                  * @return Its identity, or @ref NULL_JOINT when either entity has no
                  *         body or the joint budget is exhausted — a budget being
                  *         exceeded, counted in the statistics, not an error.
                  */
-                virtual JointId create_joint(const JointDescription& desc) = 0;
+                virtual JointId create_joint(const JointDescription& description) = 0;
 
                 /**
                  * @brief Destroys a joint. What breaking one actually does.

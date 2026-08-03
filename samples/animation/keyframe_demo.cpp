@@ -89,12 +89,12 @@ int main()
     // --- Record a moving pose, bake, and read it back through the runtime clip --------
     {
         AnimationDatabase database;
-        SkeletonDescription skeleton_desc;
+        SkeletonDescription skeleton_description;
         JointDescription root; root.name = "root"; root.parent = -1;
         JointDescription child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
-        skeleton_desc.joints = {root, child};
+        skeleton_description.joints = {root, child};
         std::vector<std::byte> skeleton_blob;
-        build_skeleton_blob(skeleton_desc, skeleton_blob);
+        build_skeleton_blob(skeleton_description, skeleton_blob);
         const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
         const SkeletonView skeleton = database.skeleton(skeleton_id);
 

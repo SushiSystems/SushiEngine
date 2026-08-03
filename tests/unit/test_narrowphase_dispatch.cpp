@@ -29,7 +29,7 @@
 // differ only in which way the normal points.
 //
 // That last one is the property the old code broke without anyone noticing:
-// `gather_rigid_descs` collapsed anything that was not a box into a sphere, so a
+// `gather_rigid_descriptions` collapsed anything that was not a box into a sphere, so a
 // cylinder simulated as a ball and nothing said so (§1.2 item 4).
 
 #include <cmath>

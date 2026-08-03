@@ -79,7 +79,7 @@ namespace
 int main()
 {
     // --- Same rig and clip as clip_demo.cpp -------------------------------------------
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     JointDescription root;
     root.name = "root";
     root.parent = -1;
@@ -87,26 +87,26 @@ int main()
     child.name = "child";
     child.parent = 0;
     child.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
-    skeleton_desc.joints = {root, child};
+    skeleton_description.joints = {root, child};
 
     std::vector<std::byte> skeleton_blob;
-    check(build_skeleton_blob(skeleton_desc, skeleton_blob), "cook skeleton");
+    check(build_skeleton_blob(skeleton_description, skeleton_blob), "cook skeleton");
 
     const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
     const QuaternionT<float> turn =
         quaternion_axis_angle(Vector3T<float>{0, 0, 1}, static_cast<float>(PI * 0.5));
-    ClipDescription clip_desc;
-    clip_desc.joint_count = 2;
-    clip_desc.frame_count = 2;
-    clip_desc.sample_rate = 1.0f;
-    clip_desc.translations = {Vector3f{0, 0, 0}, Vector3f{1, 0, 0}, Vector3f{0, 0, 0},
-                              Vector3f{1, 0, 0}};
-    clip_desc.rotations = {identity, identity, turn, identity};
-    clip_desc.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1},
-                        Vector3f{1, 1, 1}};
+    ClipDescription clip_description;
+    clip_description.joint_count = 2;
+    clip_description.frame_count = 2;
+    clip_description.sample_rate = 1.0f;
+    clip_description.translations = {Vector3f{0, 0, 0}, Vector3f{1, 0, 0}, Vector3f{0, 0, 0},
+                                     Vector3f{1, 0, 0}};
+    clip_description.rotations = {identity, identity, turn, identity};
+    clip_description.scales = {Vector3f{1, 1, 1}, Vector3f{1, 1, 1}, Vector3f{1, 1, 1},
+                               Vector3f{1, 1, 1}};
 
     std::vector<std::byte> clip_blob;
-    check(build_clip_blob(clip_desc, clip_blob), "cook clip");
+    check(build_clip_blob(clip_description, clip_blob), "cook clip");
 
     AnimationDatabase database;
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));

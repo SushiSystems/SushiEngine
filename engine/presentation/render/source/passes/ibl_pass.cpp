@@ -113,19 +113,19 @@ namespace SushiEngine
 
                 /**
                  * @brief Records an image layout transition over a subresource range.
-                 * @param cmd          The recording command buffer.
-                 * @param image        The image to transition.
-                 * @param base_mip     First mip level in the range.
-                 * @param mip_count    Mip levels in the range.
-                 * @param layers       Array layers in the range, from layer 0.
-                 * @param from         Current layout.
-                 * @param to           Layout to move to.
-                 * @param source       Stage that must complete first.
-                 * @param destination  Stage that waits.
+                 * @param command            The recording command buffer.
+                 * @param image              The image to transition.
+                 * @param base_mip           First mip level in the range.
+                 * @param mip_count          Mip levels in the range.
+                 * @param layers             Array layers in the range, from layer 0.
+                 * @param from               Current layout.
+                 * @param to                 Layout to move to.
+                 * @param source             Stage that must complete first.
+                 * @param destination        Stage that waits.
                  * @param source_access      Accesses to make available.
                  * @param destination_access Accesses to make visible.
                  */
-                void transition(VkCommandBuffer cmd, VkImage image, std::uint32_t base_mip,
+                void transition(VkCommandBuffer command, VkImage image, std::uint32_t base_mip,
                                 std::uint32_t mip_count, std::uint32_t layers, VkImageLayout from,
                                 VkImageLayout to, VkPipelineStageFlags2 source,
                                 VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
@@ -151,7 +151,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
 
                 /**
@@ -174,9 +174,9 @@ namespace SushiEngine
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   noise_(noise), atmosphere_(atmosphere), fog_(fog)
             {
-                Resources::SamplerDescription sampler_desc;
-                sampler_desc.max_lod = static_cast<float>(SPECULAR_MIPS);
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description;
+                sampler_description.max_lod = static_cast<float>(SPECULAR_MIPS);
+                sampler_ = samplers.get(sampler_description);
 
                 create_cube(environment_, ENVIRONMENT_RESOLUTION,
                             static_cast<std::uint32_t>(std::log2(ENVIRONMENT_RESOLUTION)) + 1,
@@ -499,7 +499,7 @@ namespace SushiEngine
 
             void IBLPass::create_pipelines()
             {
-                sky_pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                sky_pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("sky.frag"), Frame::HDR_FORMAT));
                 prefilter_pipeline_ = pipelines_.create_compute(
@@ -573,41 +573,41 @@ namespace SushiEngine
                                                   &command_pool),
                               "vkCreateCommandPool(brdf)");
 
-                VkCommandBufferAllocateInfo cmd_info{};
-                cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                cmd_info.commandPool = command_pool;
-                cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                cmd_info.commandBufferCount = 1;
-                VkCommandBuffer cmd = VK_NULL_HANDLE;
-                Vulkan::check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &cmd),
+                VkCommandBufferAllocateInfo command_info{};
+                command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                command_info.commandPool = command_pool;
+                command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                command_info.commandBufferCount = 1;
+                VkCommandBuffer command = VK_NULL_HANDLE;
+                Vulkan::check(vkAllocateCommandBuffers(device_.device(), &command_info, &command),
                               "vkAllocateCommandBuffers(brdf)");
 
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                Vulkan::check(vkBeginCommandBuffer(cmd, &begin), "vkBeginCommandBuffer(brdf)");
+                Vulkan::check(vkBeginCommandBuffer(command, &begin), "vkBeginCommandBuffer(brdf)");
 
-                transition(cmd, brdf_, 0, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                transition(command, brdf_, 0, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                lut_pipeline_layout_, 0, set);
-                LUTParameters params{BRDF_RESOLUTION, BRDF_SAMPLES};
-                vkCmdPushConstants(cmd, lut_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                   sizeof(params), &params);
-                vkCmdDispatch(cmd, groups(BRDF_RESOLUTION, 8), groups(BRDF_RESOLUTION, 8), 1);
+                LUTParameters parameters{BRDF_RESOLUTION, BRDF_SAMPLES};
+                vkCmdPushConstants(command, lut_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                   sizeof(parameters), &parameters);
+                vkCmdDispatch(command, groups(BRDF_RESOLUTION, 8), groups(BRDF_RESOLUTION, 8), 1);
 
-                transition(cmd, brdf_, 0, 1, 1, VK_IMAGE_LAYOUT_GENERAL,
+                transition(command, brdf_, 0, 1, 1, VK_IMAGE_LAYOUT_GENERAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                transition(cmd, dummy_depth_, 0, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                transition(command, dummy_depth_, 0, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, 0,
                            VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -616,14 +616,14 @@ namespace SushiEngine
                 range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 range.levelCount = 1;
                 range.layerCount = 1;
-                vkCmdClearColorImage(cmd, dummy_depth_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                vkCmdClearColorImage(command, dummy_depth_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                      &clear, 1, &range);
-                transition(cmd, dummy_depth_, 0, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                transition(command, dummy_depth_, 0, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                Vulkan::check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(brdf)");
+                Vulkan::check(vkEndCommandBuffer(command), "vkEndCommandBuffer(brdf)");
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -631,13 +631,13 @@ namespace SushiEngine
                 Vulkan::check(vkCreateFence(device_.device(), &fence_info, nullptr, &fence),
                               "vkCreateFence(brdf)");
 
-                VkCommandBufferSubmitInfo cmd_submit{};
-                cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                cmd_submit.commandBuffer = cmd;
+                VkCommandBufferSubmitInfo command_submit{};
+                command_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                command_submit.commandBuffer = command;
                 VkSubmitInfo2 submit{};
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
                 submit.commandBufferInfoCount = 1;
-                submit.pCommandBufferInfos = &cmd_submit;
+                submit.pCommandBufferInfos = &command_submit;
                 Vulkan::check(vkQueueSubmit2(device_.graphics_queue(), 1, &submit, fence),
                               "vkQueueSubmit2(brdf)");
                 Vulkan::check(vkWaitForFences(device_.device(), 1, &fence, VK_TRUE, UINT64_MAX),
@@ -696,11 +696,11 @@ namespace SushiEngine
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                         builder.set_side_effect();
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
-                    { record_update(cmd, frame, context); });
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext& context)
+                    { record_update(command, frame, context); });
             }
 
-            void IBLPass::record_update(VkCommandBuffer cmd, const Frame::FrameContext& frame,
+            void IBLPass::record_update(VkCommandBuffer command, const Frame::FrameContext& frame,
                                         const Graph::PassContext& context)
             {
                 const Scene::SceneUniforms* source = static_cast<const Scene::SceneUniforms*>(
@@ -721,11 +721,11 @@ namespace SushiEngine
                     }
                     // The sky-view LUT is built for the main camera's frame, so the capture
                     // marches the atmosphere per pixel instead of reading it (see sky.frag).
-                    uniforms.ibl_params[3] = 0.0f;
+                    uniforms.ibl_parameters[3] = 0.0f;
                     std::memcpy(face_uniform_mapped_[face], &uniforms, sizeof(uniforms));
                 }
 
-                transition(cmd, environment_.image, 0, environment_.mips, 6,
+                transition(command, environment_.image, 0, environment_.mips, 6,
                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
@@ -805,7 +805,7 @@ namespace SushiEngine
                                  atmosphere_.multiscatter_view(), sampler_,
                                  VK_IMAGE_LAYOUT_GENERAL);
                     // Bound so the descriptor is valid, but the capture keeps the per-pixel
-                    // march (ibl_params.w is cleared in the face uniforms below): the
+                    // march (ibl_parameters.w is cleared in the face uniforms below): the
                     // sky-view LUT is built for the main camera, not these cube viewpoints.
                     writer.image(Scene::SceneLayout::SKY_VIEW_LUT_BINDING,
                                  atmosphere_.sky_view_view(), sampler_,
@@ -816,7 +816,7 @@ namespace SushiEngine
                                  atmosphere_.aerial_view(), sampler_,
                                  VK_IMAGE_LAYOUT_GENERAL);
                     // Bound for a valid descriptor; the fog composite is gated off in the
-                    // capture (ibl_params.w cleared below), so the volume is never sampled. The
+                    // capture (ibl_parameters.w cleared below), so the volume is never sampled. The
                     // real fog volume is pass-owned and only reaches GENERAL once
                     // VolumetricFogPass has run at least once, which registers after this
                     // capture in the pass list. dummy_depth_view_ is 2D and this binding is
@@ -826,26 +826,27 @@ namespace SushiEngine
                     writer.image(Scene::SceneLayout::FOG_LUT_BINDING, atmosphere_.aerial_view(),
                                  sampler_, VK_IMAGE_LAYOUT_GENERAL);
 
-                    vkCmdBeginRendering(cmd, &rendering);
-                    vkCmdSetViewport(cmd, 0, 1, &viewport);
-                    vkCmdSetScissor(cmd, 0, 1, &scissor);
-                    layout_.bind_heap(cmd);
-                    writer.commit(cmd, layout_.pipeline_layout());
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sky_pipeline_.get());
-                    vkCmdDraw(cmd, 3, 1, 0, 0);
-                    vkCmdEndRendering(cmd);
+                    vkCmdBeginRendering(command, &rendering);
+                    vkCmdSetViewport(command, 0, 1, &viewport);
+                    vkCmdSetScissor(command, 0, 1, &scissor);
+                    layout_.bind_heap(command);
+                    writer.commit(command, layout_.pipeline_layout());
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                      sky_pipeline_.get());
+                    vkCmdDraw(command, 3, 1, 0, 0);
+                    vkCmdEndRendering(command);
                 }
 
                 // Mip chain on the environment: the prefilter picks a mip from each
                 // sample's solid angle, which is what keeps the sun from aliasing into
                 // fireflies across the rough mips.
-                transition(cmd, environment_.image, 0, 1, 6,
+                transition(command, environment_.image, 0, 1, 6,
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                            VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                            VK_ACCESS_2_TRANSFER_READ_BIT);
-                transition(cmd, environment_.image, 1, environment_.mips - 1, 6,
+                transition(command, environment_.image, 1, environment_.mips - 1, 6,
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -867,10 +868,11 @@ namespace SushiEngine
                     blit.dstSubresource.layerCount = 6;
                     blit.dstOffsets[1] = {static_cast<std::int32_t>(target_size),
                                           static_cast<std::int32_t>(target_size), 1};
-                    vkCmdBlitImage(cmd, environment_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                   environment_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                                   &blit, VK_FILTER_LINEAR);
-                    transition(cmd, environment_.image, level, 1, 6,
+                    vkCmdBlitImage(command, environment_.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, environment_.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                                   VK_FILTER_LINEAR);
+                    transition(command, environment_.image, level, 1, 6,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
                                VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
@@ -878,22 +880,23 @@ namespace SushiEngine
                     source_size = target_size;
                 }
 
-                transition(cmd, environment_.image, 0, environment_.mips, 6,
+                transition(command, environment_.image, 0, environment_.mips, 6,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
                            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-                transition(cmd, specular_.image, 0, specular_.mips, 6, VK_IMAGE_LAYOUT_UNDEFINED,
-                           VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                transition(command, specular_.image, 0, specular_.mips, 6,
+                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                transition(cmd, irradiance_.image, 0, 1, 6, VK_IMAGE_LAYOUT_UNDEFINED,
+                transition(command, irradiance_.image, 0, 1, 6, VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
                 const auto convolve = [&](VkPipeline pipeline, VkImageView destination,
-                                          const ConvolveParameters& params,
+                                          const ConvolveParameters& parameters,
                                           std::uint32_t resolution)
                 {
                     const VkDescriptorSet set = frame.descriptors->allocate(compute_layout_);
@@ -902,31 +905,32 @@ namespace SushiEngine
                     writer.storage_image(1, destination);
                     writer.update(device_.device(), set);
 
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    compute_pipeline_layout_, 0, set);
-                    vkCmdPushConstants(cmd, compute_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                                       0, sizeof(ConvolveParameters), &params);
-                    vkCmdDispatch(cmd, groups(resolution, 8), groups(resolution, 8), 6);
+                    vkCmdPushConstants(command, compute_pipeline_layout_,
+                                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ConvolveParameters),
+                                       &parameters);
+                    vkCmdDispatch(command, groups(resolution, 8), groups(resolution, 8), 6);
                 };
 
                 for (std::uint32_t level = 0; level < specular_.mips; ++level)
                 {
                     const std::uint32_t resolution =
                         std::max(1u, specular_.resolution >> level);
-                    ConvolveParameters params{resolution, environment_.resolution,
-                                              static_cast<float>(level) /
-                                                  static_cast<float>(specular_.mips - 1),
-                                              PREFILTER_SAMPLES};
-                    convolve(prefilter_pipeline_, specular_.mip_views[level], params, resolution);
+                    ConvolveParameters parameters{resolution, environment_.resolution,
+                                                  static_cast<float>(level) /
+                                                      static_cast<float>(specular_.mips - 1),
+                                                  PREFILTER_SAMPLES};
+                    convolve(prefilter_pipeline_, specular_.mip_views[level], parameters,
+                             resolution);
                 }
 
                 // The irradiance integral is smooth, so it reads a coarse mip of the
                 // environment and still converges at this sample count.
-                ConvolveParameters irradiance_params{irradiance_.resolution,
-                                                     environment_.resolution, 3.0f,
-                                                     IRRADIANCE_SAMPLES};
-                convolve(irradiance_pipeline_, irradiance_.mip_views[0], irradiance_params,
+                ConvolveParameters irradiance_parameters{
+                    irradiance_.resolution, environment_.resolution, 3.0f, IRRADIANCE_SAMPLES};
+                convolve(irradiance_pipeline_, irradiance_.mip_views[0], irradiance_parameters,
                          irradiance_.resolution);
 
                 // Project the environment radiance into 9 diffuse SH coefficients — the
@@ -940,22 +944,22 @@ namespace SushiEngine
                     writer.storage_buffer(1, sh_buffer_, sh_buffer_bytes());
                     writer.update(device_.device(), sh_set);
 
-                    const SHParameters sh_params{SH_SAMPLE_RESOLUTION, 2.0f};
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sh_pipeline_);
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    const SHParameters sh_parameters{SH_SAMPLE_RESOLUTION, 2.0f};
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, sh_pipeline_);
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    sh_pipeline_layout_, 0, sh_set);
-                    vkCmdPushConstants(cmd, sh_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(SHParameters), &sh_params);
-                    vkCmdDispatch(cmd, 1, 1, 1);
+                    vkCmdPushConstants(command, sh_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                       sizeof(SHParameters), &sh_parameters);
+                    vkCmdDispatch(command, 1, 1, 1);
                 }
 
-                transition(cmd, specular_.image, 0, specular_.mips, 6, VK_IMAGE_LAYOUT_GENERAL,
+                transition(command, specular_.image, 0, specular_.mips, 6, VK_IMAGE_LAYOUT_GENERAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-                transition(cmd, irradiance_.image, 0, 1, 6, VK_IMAGE_LAYOUT_GENERAL,
+                transition(command, irradiance_.image, 0, 1, 6, VK_IMAGE_LAYOUT_GENERAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -980,7 +984,7 @@ namespace SushiEngine
                 sh_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                 sh_dependency.bufferMemoryBarrierCount = 1;
                 sh_dependency.pBufferMemoryBarriers = &sh_barrier;
-                vkCmdPipelineBarrier2(cmd, &sh_dependency);
+                vkCmdPipelineBarrier2(command, &sh_dependency);
             }
         } // namespace Passes
     } // namespace Render

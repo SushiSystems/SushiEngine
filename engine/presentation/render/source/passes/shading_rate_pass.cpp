@@ -189,7 +189,7 @@ namespace SushiEngine
                         builder.read(frame.targets.velocity,
                                      Graph::TextureAccess::SampledCompute);
                     },
-                    [this, &frame, luminance, push](VkCommandBuffer cmd,
+                    [this, &frame, luminance, push](VkCommandBuffer command,
                                                     const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
@@ -203,12 +203,12 @@ namespace SushiEngine
                                              sampler);
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, group_count(push.extents[0], GROUP_SIZE),
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, group_count(push.extents[0], GROUP_SIZE),
                                       group_count(push.extents[1], GROUP_SIZE), 1);
                     });
             }

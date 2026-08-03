@@ -439,7 +439,7 @@ namespace SushiEngine
                 frame.output_width = width_;
                 frame.output_height = height_;
                 frame.settings = effective;
-                frame.quality = resolved.params;
+                frame.quality = resolved.parameters;
                 frame.camera = &camera;
                 frame.environment = &environment;
                 Scene::camera_eye(camera.view, frame.eye);
@@ -541,12 +541,12 @@ namespace SushiEngine
                 // The image-based lighting chain is this view's, so its parameters are
                 // stamped in here rather than by the environment fill, which knows
                 // nothing about the renderer's internals.
-                uniforms.ibl_params[0] = environment.ibl_intensity;
-                uniforms.ibl_params[1] = static_cast<float>(ibl_pass_.specular_mip_count());
-                uniforms.ibl_params[2] = environment.image_based_lighting ? 1.0f : 0.0f;
+                uniforms.ibl_parameters[0] = environment.ibl_intensity;
+                uniforms.ibl_parameters[1] = static_cast<float>(ibl_pass_.specular_mip_count());
+                uniforms.ibl_parameters[2] = environment.image_based_lighting ? 1.0f : 0.0f;
                 // The main sky pass reads the background from the sky-view LUT; the IBL
                 // cube capture clears this so it keeps the per-pixel march (see IBLPass).
-                uniforms.ibl_params[3] = 1.0f;
+                uniforms.ibl_parameters[3] = 1.0f;
                 // The jitter enters the projection here and nowhere else, so every pass
                 // that transforms by it inherits the offset and no world-space value
                 // moves. It is subtracted, not added: the third column is scaled by view
@@ -583,13 +583,13 @@ namespace SushiEngine
                 // what actually ran.
                 shadow_uniforms.flags[2] = ray_shadow_pass_.enabled(frame) ? 1.0f : 0.0f;
                 // The soft-shadow tap counts have no field of their own in the block; they
-                // ride the two spare lanes the fit leaves untouched (params.z, filter.w),
+                // ride the two spare lanes the fit leaves untouched (parameters.z, filter.w),
                 // so the tier can cheapen the penumbra filter with no struct change and no
                 // extra plumbing — the sampler reads them straight back.
-                shadow_uniforms.params[2] =
-                    static_cast<float>(resolved.params.shadow_filter_taps);
+                shadow_uniforms.parameters[2] =
+                    static_cast<float>(resolved.parameters.shadow_filter_taps);
                 shadow_uniforms.filter[3] =
-                    static_cast<float>(resolved.params.shadow_blocker_taps);
+                    static_cast<float>(resolved.parameters.shadow_blocker_taps);
                 resources_.upload_shadow(index, shadow_uniforms);
 
                 // The eye's own frame-to-frame travel, formed in double before the narrowing
@@ -628,7 +628,7 @@ namespace SushiEngine
                         index, effective.post.auto_exposure, delta, adapted_exposure_);
                     linear_exposure = adapted_exposure_;
                 }
-                const bool bloom_active = effective.post.bloom.enabled && resolved.params.bloom;
+                const bool bloom_active = effective.post.bloom.enabled && resolved.parameters.bloom;
                 // The display transform and depth of field run at the post-resolve extent — the
                 // output grid when the temporal resolve accumulated into it, the render extent
                 // otherwise — so their pixel-space maths (chromatic aberration, the DoF texel
@@ -671,7 +671,7 @@ namespace SushiEngine
                 // home every pipeline can reach.
                 std::uint32_t samples = 0;
                 GI::SDFClipmapConfiguration field_config{};
-                if (resolved.params.stochastic_light_samples > 0 &&
+                if (resolved.parameters.stochastic_light_samples > 0 &&
                     effective.lights.stochastic_shadows && irradiance_volume_pass_.field_live())
                 {
                     if (visibility_field_slot_ == Resources::INVALID_HEAP_INDEX)
@@ -685,7 +685,7 @@ namespace SushiEngine
                     }
                     if (visibility_field_slot_ != Resources::INVALID_HEAP_INDEX)
                     {
-                        samples = resolved.params.stochastic_light_samples;
+                        samples = resolved.parameters.stochastic_light_samples;
                         // Derived from the eye by the same pure function the tracer's own
                         // populate calls, so the block the shading pass marches with and the
                         // field it marches can never describe different cubes.
@@ -707,13 +707,13 @@ namespace SushiEngine
                 // per-instance draw so the outline's stencil mask still works, but the cull
                 // machinery is still primed so the pyramid stays fresh for when it resumes.
                 const bool gpu_capable =
-                    resolved.params.gpu_driven && settings_.gpu_culling.enabled &&
+                    resolved.parameters.gpu_driven && settings_.gpu_culling.enabled &&
                     assets_.layout().gpu_pipeline_layout() != VK_NULL_HANDLE;
                 // The meshlet path (Ultra + mesh shaders) draws instances itself, so when it is
                 // active the GPU-driven cull is not built — the two are alternative geometry
                 // paths, and meshlets take priority. A selection falls back to neither.
                 const bool meshlet_active =
-                    resolved.params.meshlets && device_.supports_mesh_shader() &&
+                    resolved.parameters.meshlets && device_.supports_mesh_shader() &&
                     assets_.layout().meshlet_pipeline_layout() != VK_NULL_HANDLE &&
                     selected_id == NO_PICK;
                 const bool use_gpu = gpu_capable && !meshlet_active && selected_id == NO_PICK;
@@ -745,13 +745,13 @@ namespace SushiEngine
                     // The advanced lobes the tier permits, applied before any material is
                     // packed — the same gate the opaque pass applies for the classic path.
                     std::uint32_t allowed_lobes = 0;
-                    if (resolved.params.lobe_anisotropy)
+                    if (resolved.parameters.lobe_anisotropy)
                         allowed_lobes |= Assets::MATERIAL_ANISOTROPY;
-                    if (resolved.params.lobe_clearcoat)
+                    if (resolved.parameters.lobe_clearcoat)
                         allowed_lobes |= Assets::MATERIAL_CLEARCOAT;
-                    if (resolved.params.lobe_sheen)
+                    if (resolved.parameters.lobe_sheen)
                         allowed_lobes |= Assets::MATERIAL_SHEEN;
-                    if (resolved.params.lobe_transmission)
+                    if (resolved.parameters.lobe_transmission)
                         allowed_lobes |= Assets::MATERIAL_TRANSMISSION;
                     materials_.set_allowed_lobes(allowed_lobes);
 
@@ -766,8 +766,9 @@ namespace SushiEngine
                         const Matrix4 model =
                             instance.mesh != INVALID_MESH
                                 ? instance.model
-                                : mul(instance.model, Geometry::shape_scale(instance.kind,
-                                                                            instance.shape_params));
+                                : mul(instance.model,
+                                      Geometry::shape_scale(instance.kind,
+                                                            instance.shape_parameters));
                         instance_motions.push_back(motion_.push(instance.id, model));
                     }
                     instance_system_.build(index, instances, count, frame.eye,
@@ -809,7 +810,7 @@ namespace SushiEngine
                 // collapsed at declaration time: the second queue has to exist on the device,
                 // the tier has to permit it, and the author has to have asked for it.
                 graph_.set_async_compute_enabled(device_.supports_async_compute() &&
-                                                 resolved.params.async_compute &&
+                                                 resolved.parameters.async_compute &&
                                                  effective.delivery.async_compute);
                 frame.targets = resources_.declare_targets(
                     graph_, frame, shading_rate_pass_.enabled(frame),
@@ -878,9 +879,9 @@ namespace SushiEngine
                     graph_.execute(buffer, i);
                     check(vkEndCommandBuffer(buffer), "vkEndCommandBuffer");
 
-                    VkCommandBufferSubmitInfo cmd_submit{};
-                    cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                    cmd_submit.commandBuffer = buffer;
+                    VkCommandBufferSubmitInfo command_submit{};
+                    command_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                    command_submit.commandBuffer = buffer;
 
                     VkSemaphoreSubmitInfo waits[2]{};
                     std::uint32_t wait_count = 0;
@@ -932,7 +933,7 @@ namespace SushiEngine
                     submit.waitSemaphoreInfoCount = wait_count;
                     submit.pWaitSemaphoreInfos = waits;
                     submit.commandBufferInfoCount = 1;
-                    submit.pCommandBufferInfos = &cmd_submit;
+                    submit.pCommandBufferInfos = &command_submit;
                     submit.signalSemaphoreInfoCount = 1;
                     submit.pSignalSemaphoreInfos = &signal;
                     check(vkQueueSubmit2(compute ? device_.async_compute_queue()

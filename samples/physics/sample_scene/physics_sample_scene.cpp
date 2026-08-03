@@ -66,7 +66,7 @@ namespace SushiEngine
                 PhysicsBodyParameters body;
                 body.density = density;
                 world.set_has_physics_body(id, true);
-                world.set_physics_body_params(id, body);
+                world.set_physics_body_parameters(id, body);
             }
 
             /** @brief Gives @p id a surface, and optionally a layer other than the default. */
@@ -74,13 +74,13 @@ namespace SushiEngine
                               Scalar dynamic_friction, Scalar restitution,
                               std::uint32_t layer = 0, std::uint32_t collides_with = 0xFFFFFFFFu)
             {
-                ColliderParameters collider = world.collider_params(id);
+                ColliderParameters collider = world.collider_parameters(id);
                 collider.static_friction = static_friction;
                 collider.dynamic_friction = dynamic_friction;
                 collider.restitution = restitution;
                 collider.layer = layer;
                 collider.collides_with = collides_with;
-                world.set_collider_params(id, collider);
+                world.set_collider_parameters(id, collider);
             }
 
             /** @brief The ground: a Plane collider with no body, which is what makes it static. */
@@ -193,7 +193,7 @@ namespace SushiEngine
                 pinned.inv_mass = 0;
                 pinned.inv_inertia = Vector3{0, 0, 0};
                 world.set_has_physics_body(chassis, true);
-                world.set_physics_body_params(chassis, pinned);
+                world.set_physics_body_parameters(chassis, pinned);
                 make_surface(world, chassis, Scalar(0.6), Scalar(0.5), Scalar(0), 4,
                              ~(std::uint32_t(1) << 4));
 
@@ -220,7 +220,7 @@ namespace SushiEngine
                 // gameplay parameter rather than a switch.
                 hinge.joint.break_force = Scalar(12000);
                 world.set_has_joint(door, true);
-                world.set_joint_params(door, hinge);
+                world.set_joint_parameters(door, hinge);
             }
 
             /**
@@ -244,7 +244,7 @@ namespace SushiEngine
                         anchor.inv_mass = 0;
                         anchor.inv_inertia = Vector3{0, 0, 0};
                         world.set_has_physics_body(link, true);
-                        world.set_physics_body_params(link, anchor);
+                        world.set_physics_body_parameters(link, anchor);
                     }
                     else
                     {
@@ -255,7 +255,7 @@ namespace SushiEngine
                         joint.joint.anchor_a = Vector3{0, 0.55, 0};
                         joint.joint.anchor_b = Vector3{0, -0.55, 0};
                         world.set_has_joint(link, true);
-                        world.set_joint_params(link, joint);
+                        world.set_joint_parameters(link, joint);
                     }
                     // Every link is in its own group that excludes itself, so neighbouring
                     // links do not push each other apart against the joints holding them.

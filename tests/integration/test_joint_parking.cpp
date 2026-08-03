@@ -54,25 +54,25 @@ namespace
     WindSampler still_air() { return WindSampler{}; }
 
     /** @brief A pinned body: zero inverse mass and inertia, so nothing can move it. */
-    RigidBodyDescription anchor_desc()
+    RigidBodyDescription anchor_description()
     {
-        RigidBodyDescription desc;
-        desc.id = ANCHOR;
-        desc.position = Vector3{0, Scalar(2), 0};
-        desc.inv_mass = 0;
-        desc.inv_inertia = Vector3{0, 0, 0};
-        return desc;
+        RigidBodyDescription description;
+        description.id = ANCHOR;
+        description.position = Vector3{0, Scalar(2), 0};
+        description.inv_mass = 0;
+        description.inv_inertia = Vector3{0, 0, 0};
+        return description;
     }
 
     /** @brief The body the fixed joint holds in place against gravity. */
-    RigidBodyDescription held_desc()
+    RigidBodyDescription held_description()
     {
-        RigidBodyDescription desc;
-        desc.id = HELD;
-        desc.position = Vector3{Scalar(1), Scalar(2), 0};
-        desc.inv_mass = Scalar(1);
-        desc.inv_inertia = Vector3{Scalar(1), Scalar(1), Scalar(1)};
-        return desc;
+        RigidBodyDescription description;
+        description.id = HELD;
+        description.position = Vector3{Scalar(1), Scalar(2), 0};
+        description.inv_mass = Scalar(1);
+        description.inv_inertia = Vector3{Scalar(1), Scalar(1), Scalar(1)};
+        return description;
     }
 
     /** @brief A rigid attachment between the anchor and the held body. */
@@ -81,8 +81,8 @@ namespace
         JointDescription joint;
         joint.body_a = ANCHOR;
         joint.body_b = HELD;
-        joint.params.type = JointType::Fixed;
-        joint.params.anchor_b = Vector3{Scalar(-1), 0, 0};
+        joint.parameters.type = JointType::Fixed;
+        joint.parameters.anchor_b = Vector3{Scalar(-1), 0, 0};
         return joint;
     }
 
@@ -104,7 +104,7 @@ namespace
 TEST(Integration_JointParking, OffByDefaultNeverParksAJoint)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
-    physics->set_rigid_bodies({anchor_desc(), held_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({anchor_description(), held_description()}, ITERATIONS, SUBSTEP_DT);
     const JointId joint = physics->create_joint(anchor_joint());
     ASSERT_NE(joint, NULL_JOINT);
 
@@ -121,7 +121,7 @@ TEST(Integration_JointParking, ASettledIslandParksItsJointAndTheLiveCountDropsTo
 {
     auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_park_sleeping_joints_requested(true);
-    physics->set_rigid_bodies({anchor_desc(), held_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({anchor_description(), held_description()}, ITERATIONS, SUBSTEP_DT);
     const JointId joint = physics->create_joint(anchor_joint());
     ASSERT_NE(joint, NULL_JOINT);
 
@@ -144,7 +144,7 @@ TEST(Integration_JointParking, TeleportingTheHeldBodyWakesAndUnparksItsJoint)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_park_sleeping_joints_requested(true);
-    physics->set_rigid_bodies({anchor_desc(), held_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({anchor_description(), held_description()}, ITERATIONS, SUBSTEP_DT);
     const JointId joint = physics->create_joint(anchor_joint());
     ASSERT_NE(joint, NULL_JOINT);
 
@@ -184,7 +184,7 @@ TEST(Integration_JointParking, EditingAParkedJointsMotorWakesItImmediately)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
     physics->set_park_sleeping_joints_requested(true);
-    physics->set_rigid_bodies({anchor_desc(), held_desc()}, ITERATIONS, SUBSTEP_DT);
+    physics->set_rigid_bodies({anchor_description(), held_description()}, ITERATIONS, SUBSTEP_DT);
     const JointId joint = physics->create_joint(anchor_joint());
     ASSERT_NE(joint, NULL_JOINT);
 

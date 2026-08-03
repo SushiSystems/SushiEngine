@@ -57,7 +57,7 @@ namespace SushiEngine
         /**
          * @brief Inspector section for an entity's Audio Emitter (drawn if it has one).
          * @param context Editor state (undo history).
-         * @param world   The world to read/write the emitter params on.
+         * @param world   The world to read/write the emitter parameters on.
          * @param id      The selected entity.
          * @param audio   The live audio system (for the Play audition).
          */
@@ -67,7 +67,7 @@ namespace SushiEngine
         /**
          * @brief Inspector section for an entity's Reverb Zone (drawn if it has one).
          * @param context Editor state (undo history).
-         * @param world   The world to read/write the zone params on.
+         * @param world   The world to read/write the zone parameters on.
          * @param id      The selected entity.
          */
         void draw_reverb_zone_inspector(EditorContext& context, Simulation::IWorldEditor& world,
@@ -76,7 +76,7 @@ namespace SushiEngine
         /**
          * @brief Inspector section for an entity's Audio Listener (drawn if it has one).
          * @param context Editor state (undo history).
-         * @param world   The world to read/write the listener params on.
+         * @param world   The world to read/write the listener parameters on.
          * @param id      The selected entity.
          */
         void draw_audio_listener_inspector(EditorContext& context, Simulation::IWorldEditor& world,

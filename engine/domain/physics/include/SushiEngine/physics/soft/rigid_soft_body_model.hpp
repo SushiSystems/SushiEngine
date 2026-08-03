@@ -112,9 +112,9 @@ namespace SushiEngine
                     velocity = velocity * (T(1) / T(count));
 
                     body.position = centre;
-                    body.prev_position = centre;
+                    body.previous_position = centre;
                     body.orientation = QuaternionT<T>{T(0), T(0), T(0), T(1)};
-                    body.prev_orientation = body.orientation;
+                    body.previous_orientation = body.orientation;
                     body.velocity = velocity;
 
                     for (std::size_t i = 0; i < count; ++i)
@@ -184,7 +184,7 @@ namespace SushiEngine
                     for (std::size_t i = 0; i < count; ++i)
                     {
                         RigidBodyT<T>& particle = particles[i];
-                        particle.prev_position = particle.position;
+                        particle.previous_position = particle.position;
                         particle.position =
                             body.position + rotate(body.orientation, local_positions[i]);
                         // The rigid velocity field, so a consumer reading a particle's

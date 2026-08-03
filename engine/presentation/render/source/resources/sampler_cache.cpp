@@ -50,31 +50,32 @@ namespace SushiEngine
                 entries_.clear();
             }
 
-            VkSampler SamplerCache::get(const SamplerDescription& desc)
+            VkSampler SamplerCache::get(const SamplerDescription& description)
             {
                 for (const Entry& entry : entries_)
-                    if (std::memcmp(&entry.desc, &desc, sizeof(SamplerDescription)) == 0)
+                    if (std::memcmp(&entry.description, &description, sizeof(SamplerDescription)) ==
+                        0)
                         return entry.sampler;
 
-                const float anisotropy = std::min(desc.max_anisotropy, max_anisotropy_);
+                const float anisotropy = std::min(description.max_anisotropy, max_anisotropy_);
 
                 VkSamplerCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-                info.magFilter = desc.filter;
-                info.minFilter = desc.filter;
-                info.mipmapMode = desc.mipmap_mode;
-                info.addressModeU = desc.address_mode;
-                info.addressModeV = desc.address_mode;
-                info.addressModeW = desc.address_mode;
+                info.magFilter = description.filter;
+                info.minFilter = description.filter;
+                info.mipmapMode = description.mipmap_mode;
+                info.addressModeU = description.address_mode;
+                info.addressModeV = description.address_mode;
+                info.addressModeW = description.address_mode;
                 info.anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
                 info.maxAnisotropy = anisotropy;
-                info.maxLod = desc.max_lod;
-                info.compareEnable = desc.compare_enable;
-                info.compareOp = desc.compare_op;
-                info.borderColor = desc.border_color;
+                info.maxLod = description.max_lod;
+                info.compareEnable = description.compare_enable;
+                info.compareOp = description.compare_op;
+                info.borderColor = description.border_color;
 
                 Entry entry;
-                entry.desc = desc;
+                entry.description = description;
                 Vulkan::check(vkCreateSampler(device_.device(), &info, nullptr, &entry.sampler),
                               "vkCreateSampler");
                 entries_.push_back(entry);

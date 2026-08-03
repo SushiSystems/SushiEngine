@@ -237,11 +237,11 @@ namespace SushiEngine
                             {
                                 float b = context.blend;
                                 b = b < 0.0f ? 0.0f : (b > 1.0f ? 1.0f : b);
-                                std::uint32_t idx = static_cast<std::uint32_t>(
+                                std::uint32_t index = static_cast<std::uint32_t>(
                                     b * static_cast<float>(n.child_count));
-                                if (idx >= n.child_count)
-                                    idx = n.child_count - 1;
-                                pick = idx;
+                                if (index >= n.child_count)
+                                    index = n.child_count - 1;
+                                pick = index;
                                 break;
                             }
                             case ContainerKind::Switch:

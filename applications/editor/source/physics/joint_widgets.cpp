@@ -140,8 +140,8 @@ namespace SushiEngine
             return changed;
         }
 
-        bool draw_joint_params(EditorContext& context, Simulation::IWorldEditor& world,
-                               Simulation::JointParameters& params)
+        bool draw_joint_parameters(EditorContext& context, Simulation::IWorldEditor& world,
+                                   Simulation::JointParameters& parameters)
         {
             using Simulation::JointMotorType;
             using Simulation::JointType;
@@ -152,7 +152,7 @@ namespace SushiEngine
             static const char* const MOTOR_NAMES[] = {"Disabled", "Position", "Velocity"};
 
             bool changed = false;
-            int type_index = static_cast<int>(params.type);
+            int type_index = static_cast<int>(parameters.type);
             if (type_index < 0 || type_index >= int(Simulation::JOINT_TYPE_COUNT))
                 type_index = 0;
             if (ImGui::BeginCombo("Type", TYPE_NAMES[type_index]))
@@ -161,7 +161,7 @@ namespace SushiEngine
                 {
                     if (!ImGui::Selectable(TYPE_NAMES[option], option == type_index))
                         continue;
-                    params.type = static_cast<JointType>(option);
+                    parameters.type = static_cast<JointType>(option);
                     context.history.record(world);
                     changed = true;
                 }
@@ -171,7 +171,7 @@ namespace SushiEngine
             // Which rows appear follows the kind. A ball joint has no surviving axis, so a
             // twist limit on it would be a control that changes nothing — and a control that
             // changes nothing is worse than a missing one, because it is tried first.
-            const JointType type = params.type;
+            const JointType type = parameters.type;
             const bool has_axis = type != JointType::Fixed && type != JointType::Ball;
             const bool has_twist = type == JointType::Hinge || type == JointType::ConeTwist ||
                                    type == JointType::SixDegreeOfFreedom;
@@ -180,25 +180,25 @@ namespace SushiEngine
             const bool has_swing =
                 type == JointType::ConeTwist || type == JointType::SixDegreeOfFreedom;
 
-            changed |= vector_row(context, world, "Anchor A", params.anchor_a,
+            changed |= vector_row(context, world, "Anchor A", parameters.anchor_a,
                                   "Where the joint attaches on the first body, in its local "
                                   "space, in metres.");
-            changed |= vector_row(context, world, "Anchor B", params.anchor_b,
+            changed |= vector_row(context, world, "Anchor B", parameters.anchor_b,
                                   "Where it attaches on the second body, in that body's local "
                                   "space, in metres.");
             if (has_axis)
             {
-                changed |= vector_row(context, world, "Axis A", params.axis_a,
+                changed |= vector_row(context, world, "Axis A", parameters.axis_a,
                                       "The joint's primary axis on the first body: a hinge's "
                                       "rotation axis, a slider's travel axis, a cone twist's "
                                       "twist axis.");
-                changed |= vector_row(context, world, "Axis B", params.axis_b,
+                changed |= vector_row(context, world, "Axis B", parameters.axis_b,
                                       "The same axis on the second body. With the two bodies in "
                                       "their authored pose these read zero twist — 'the door is "
                                       "shut'.");
             }
 
-            changed |= scalar_row(context, world, "Give", params.compliance, 1e-7f, 0.0f, 1.0f,
+            changed |= scalar_row(context, world, "Give", parameters.compliance, 1e-7f, 0.0f, 1.0f,
                                   "%.7f",
                                   "Compliance of the joint itself — the attachment and the "
                                   "rotations it removes. The limits and the drive carry their "
@@ -207,20 +207,21 @@ namespace SushiEngine
 
             if (has_linear)
                 changed |= draw_joint_limit(
-                    context, world, "Linear Limit", params.linear_limit, false,
+                    context, world, "Linear Limit", parameters.linear_limit, false,
                     type == JointType::Distance
                         ? "The range the anchors may be apart. A rope goes slack below the "
                           "lower bound and a strut resists both ways."
                         : "Travel along the primary axis.",
                     false);
             if (has_twist)
-                changed |= draw_joint_limit(context, world, "Twist Limit", params.twist_limit, true,
-                                            "Rotation about the primary axis: how far the door "
-                                            "opens, and how far past shut it may swing.",
-                                            false);
+                changed |=
+                    draw_joint_limit(context, world, "Twist Limit", parameters.twist_limit, true,
+                                     "Rotation about the primary axis: how far the door "
+                                     "opens, and how far past shut it may swing.",
+                                     false);
             if (has_swing)
                 changed |= draw_joint_limit(
-                    context, world, "Swing Limit", params.swing_limit, true,
+                    context, world, "Swing Limit", parameters.swing_limit, true,
                     "The cone the primary axis may stray inside. Only the half angle is read — "
                     "a swing is an unsigned angle off an axis, so a lower bound would say the "
                     "joint must stay bent.",
@@ -228,7 +229,7 @@ namespace SushiEngine
 
             if (has_axis)
             {
-                int motor_index = static_cast<int>(params.motor.type);
+                int motor_index = static_cast<int>(parameters.motor.type);
                 if (motor_index < 0 || motor_index > 2)
                     motor_index = 0;
                 if (ImGui::BeginCombo("Drive", MOTOR_NAMES[motor_index]))
@@ -237,7 +238,7 @@ namespace SushiEngine
                     {
                         if (!ImGui::Selectable(MOTOR_NAMES[option], option == motor_index))
                             continue;
-                        params.motor.type = static_cast<JointMotorType>(option);
+                        parameters.motor.type = static_cast<JointMotorType>(option);
                         context.history.record(world);
                         changed = true;
                     }
@@ -247,16 +248,16 @@ namespace SushiEngine
                     ImGui::SetTooltip("A servo holds a coordinate; a velocity drive holds a "
                                       "rate. A velocity drive at a target of zero with a small "
                                       "force limit is joint friction.");
-                changed |= scalar_row(context, world, "Drive Target", params.motor.target, 0.05f,
-                                      -1000.0f, 1000.0f, "%.3f",
+                changed |= scalar_row(context, world, "Drive Target", parameters.motor.target,
+                                      0.05f, -1000.0f, 1000.0f, "%.3f",
                                       "An angle or a distance for a servo; an angular or linear "
                                       "rate for a velocity drive.");
-                changed |= scalar_row(context, world, "Drive Force Limit", params.motor.max_force,
-                                      1.0f, 0.0f, 1000000.0f, "%.1f",
+                changed |= scalar_row(context, world, "Drive Force Limit",
+                                      parameters.motor.max_force, 1.0f, 0.0f, 1000000.0f, "%.1f",
                                       "The most the drive may spend, in N or N.m. Zero is an "
                                       "ideal drive that holds its target whatever it costs.");
-                changed |= scalar_row(context, world, "Drive Damping", params.motor.damping, 0.1f,
-                                      0.0f, 1000.0f, "%.2f 1/s",
+                changed |= scalar_row(context, world, "Drive Damping", parameters.motor.damping,
+                                      0.1f, 0.0f, 1000.0f, "%.2f 1/s",
                                       "Viscous resistance on the driven coordinate. A position "
                                       "drive at a compliance is a spring, and a spring alone "
                                       "rings forever — this is the other half of a suspension "
@@ -264,14 +265,14 @@ namespace SushiEngine
                                       "a steering damper is.");
             }
 
-            changed |= scalar_row(context, world, "Break Force", params.break_force, 10.0f, 0.0f,
-                                  1e9f, "%.0f N",
+            changed |= scalar_row(context, world, "Break Force", parameters.break_force, 10.0f,
+                                  0.0f, 1e9f, "%.0f N",
                                   "Force above which the joint tears out and is gone; zero is "
                                   "unbreakable. Measured against the worst single substep, not "
                                   "the mean — an impact's mean is nearly zero because the "
                                   "correction reverses the substep after the hit.");
-            changed |= scalar_row(context, world, "Break Torque", params.break_torque, 10.0f, 0.0f,
-                                  1e9f, "%.0f N.m",
+            changed |= scalar_row(context, world, "Break Torque", parameters.break_torque, 10.0f,
+                                  0.0f, 1e9f, "%.0f N.m",
                                   "Torque above which it shears off; zero is unbreakable.");
             return changed;
         }

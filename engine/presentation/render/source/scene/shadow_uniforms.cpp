@@ -90,9 +90,9 @@ namespace SushiEngine
                     std::min(std::max(settings.cascade_count, 1u), MAX_SHADOW_CASCADES);
                 const float resolution = static_cast<float>(std::max(settings.resolution, 64u));
 
-                uniforms.params[0] = static_cast<float>(count);
-                uniforms.params[1] = 0.5f; // two-by-two atlas
-                uniforms.params[3] = std::min(std::max(settings.cascade_blend, 0.0f), 0.5f);
+                uniforms.parameters[0] = static_cast<float>(count);
+                uniforms.parameters[1] = 0.5f; // two-by-two atlas
+                uniforms.parameters[3] = std::min(std::max(settings.cascade_blend, 0.0f), 0.5f);
                 uniforms.filter[0] = std::max(settings.filter_radius, 0.5f);
                 uniforms.filter[1] = std::max(settings.max_filter_radius, uniforms.filter[0]);
                 // How wide a penumbra grows per metre of gap between blocker and

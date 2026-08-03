@@ -155,18 +155,17 @@ namespace SushiEngine
          * @param restitution_threshold The anti-jitter floor, usually `2 * g * h`.
          */
         template <typename T>
-        inline ContactSolveParameters<T> make_contact_params(const PhysicsMaterialT<T>& material_a,
-                                                             const PhysicsMaterialT<T>& material_b,
-                                                             T rest_offset,
-                                                             T restitution_threshold) noexcept
+        inline ContactSolveParameters<T> make_contact_parameters(
+            const PhysicsMaterialT<T>& material_a, const PhysicsMaterialT<T>& material_b,
+            T rest_offset, T restitution_threshold) noexcept
         {
-            ContactSolveParameters<T> params;
-            params.rest_offset = rest_offset;
-            combine_friction(material_a, material_b, params.static_friction,
-                             params.dynamic_friction);
-            params.restitution = combine_restitution(material_a, material_b);
-            params.restitution_threshold = restitution_threshold;
-            return params;
+            ContactSolveParameters<T> parameters;
+            parameters.rest_offset = rest_offset;
+            combine_friction(material_a, material_b, parameters.static_friction,
+                             parameters.dynamic_friction);
+            parameters.restitution = combine_restitution(material_a, material_b);
+            parameters.restitution_threshold = restitution_threshold;
+            return parameters;
         }
 
         /**
@@ -187,8 +186,8 @@ namespace SushiEngine
             RigidBodyT<T> body;
             body.position = Vector3T<T>{T(0), T(0), T(0)};
             body.orientation = QuaternionT<T>{T(0), T(0), T(0), T(1)};
-            body.prev_position = body.position;
-            body.prev_orientation = body.orientation;
+            body.previous_position = body.position;
+            body.previous_orientation = body.orientation;
             body.velocity = Vector3T<T>{T(0), T(0), T(0)};
             body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
             body.inv_mass = T(0);
@@ -221,8 +220,9 @@ namespace SushiEngine
                 reference = Vector3T<T>{T(0), T(0), T(1)};
 
             tangent_0 = cross(normal, reference);
-            const T len = length(tangent_0);
-            tangent_0 = len > T(1e-12) ? tangent_0 * (T(1) / len) : Vector3T<T>{T(1), T(0), T(0)};
+            const T tangent_length = length(tangent_0);
+            tangent_0 = tangent_length > T(1e-12) ? tangent_0 * (T(1) / tangent_length)
+                                                  : Vector3T<T>{T(1), T(0), T(0)};
             tangent_1 = cross(normal, tangent_0);
         }
 
@@ -295,18 +295,18 @@ namespace SushiEngine
          *    makes a box on a ramp stay exactly where it is rather than settle into
          *    a slow slide.
          *
-         * The tangential displacement is measured against `prev_position` /
-         * `prev_orientation`, which `predict` stashed at the top of this substep.
+         * The tangential displacement is measured against `previous_position` /
+         * `previous_orientation`, which `predict` stashed at the top of this substep.
          *
-         * @param manifold The manifold; its accumulators are updated in place.
-         * @param body_a   The first body (the normal points away from it).
-         * @param body_b   The second body; pass @ref immovable_body for static geometry.
-         * @param params   The combined coefficients.
+         * @param manifold   The manifold; its accumulators are updated in place.
+         * @param body_a     The first body (the normal points away from it).
+         * @param body_b     The second body; pass @ref immovable_body for static geometry.
+         * @param parameters The combined coefficients.
          */
         template <typename T>
         inline void solve_manifold_positions(ContactManifold<T>& manifold, RigidBodyT<T>& body_a,
                                              RigidBodyT<T>& body_b,
-                                             const ContactSolveParameters<T>& params) noexcept
+                                             const ContactSolveParameters<T>& parameters) noexcept
         {
             if (manifold.point_count == 0)
                 return;
@@ -329,7 +329,7 @@ namespace SushiEngine
                 const T separation = dot(world_b - world_a, manifold.normal);
                 point.separation = separation;
 
-                T error = separation - params.rest_offset;
+                T error = separation - parameters.rest_offset;
                 if (error < T(0))
                 {
                     // The depenetration budget (§7.6). Clamped rather than skipped: the
@@ -350,20 +350,20 @@ namespace SushiEngine
                     // far side by the next tick's nearest-face manifold — the recorded
                     // mirror-image rest pose. Cancelling the approach removes exactly
                     // the motion the substep added, so it cannot inject energy.
-                    if (params.max_depenetration > T(0))
+                    if (parameters.max_depenetration > T(0))
                     {
                         const Vector3T<T> then_world_a =
-                            body_a.prev_position +
-                            rotate(body_a.prev_orientation, point.anchor_a_local);
+                            body_a.previous_position +
+                            rotate(body_a.previous_orientation, point.anchor_a_local);
                         const Vector3T<T> then_world_b =
-                            body_b.prev_position +
-                            rotate(body_b.prev_orientation, point.anchor_b_local);
-                        const T prev_separation =
+                            body_b.previous_position +
+                            rotate(body_b.previous_orientation, point.anchor_b_local);
+                        const T previous_separation =
                             dot(then_world_b - then_world_a, manifold.normal);
                         const T approach =
-                            prev_separation > separation ? prev_separation - separation
+                            previous_separation > separation ? previous_separation - separation
                                                          : T(0);
-                        const T budget = params.max_depenetration + approach;
+                        const T budget = parameters.max_depenetration + approach;
                         if (error < -budget)
                             error = -budget;
                     }
@@ -380,7 +380,7 @@ namespace SushiEngine
                     }
                 }
 
-                if (point.normal_lambda <= T(0) || params.static_friction <= T(0))
+                if (point.normal_lambda <= T(0) || parameters.static_friction <= T(0))
                     continue;
 
                 // How far the two anchors slid past each other since the substep
@@ -391,9 +391,11 @@ namespace SushiEngine
                 const Vector3T<T> now_b =
                     body_b.position + rotate(body_b.orientation, point.anchor_b_local);
                 const Vector3T<T> then_a =
-                    body_a.prev_position + rotate(body_a.prev_orientation, point.anchor_a_local);
+                    body_a.previous_position +
+                    rotate(body_a.previous_orientation, point.anchor_a_local);
                 const Vector3T<T> then_b =
-                    body_b.prev_position + rotate(body_b.prev_orientation, point.anchor_b_local);
+                    body_b.previous_position +
+                    rotate(body_b.previous_orientation, point.anchor_b_local);
 
                 const Vector3T<T> slide = (now_b - then_b) - (now_a - then_a);
                 const Vector3T<T> tangential =
@@ -421,7 +423,7 @@ namespace SushiEngine
                 const T requested = -magnitude / w;
                 const T proposed_0 = point.tangent_lambda[0] + requested * dot(direction, tangent_0);
                 const T proposed_1 = point.tangent_lambda[1] + requested * dot(direction, tangent_1);
-                const T limit = params.static_friction * point.normal_lambda;
+                const T limit = parameters.static_friction * point.normal_lambda;
                 if (proposed_0 * proposed_0 + proposed_1 * proposed_1 > limit * limit)
                     continue;
 
@@ -454,16 +456,17 @@ namespace SushiEngine
          *   speed of about `g * h` every substep purely from gravity, and returning
          *   that is how a settled stack buzzes.
          *
-         * @param manifold The manifold, with `normal_velocity` captured this substep.
-         * @param body_a   The first body; velocities updated in place.
-         * @param body_b   The second body; pass @ref immovable_body for static geometry.
-         * @param params   The combined coefficients.
-         * @param h        The substep duration, in seconds (> 0).
+         * @param manifold   The manifold, with `normal_velocity` captured this substep.
+         * @param body_a     The first body; velocities updated in place.
+         * @param body_b     The second body; pass @ref immovable_body for static geometry.
+         * @param parameters The combined coefficients.
+         * @param h          The substep duration, in seconds (> 0).
          */
         template <typename T>
         inline void solve_manifold_velocities(ContactManifold<T>& manifold, RigidBodyT<T>& body_a,
                                               RigidBodyT<T>& body_b,
-                                              const ContactSolveParameters<T>& params, T h) noexcept
+                                              const ContactSolveParameters<T>& parameters,
+                                              T h) noexcept
         {
             if (manifold.point_count == 0 || h <= T(0))
                 return;
@@ -495,7 +498,7 @@ namespace SushiEngine
                     const Vector3T<T> tangential =
                         relative - manifold.normal * dot(relative, manifold.normal);
                     const T tangential_speed = length(tangential);
-                    if (params.dynamic_friction > T(0) && tangential_speed > T(1e-12))
+                    if (parameters.dynamic_friction > T(0) && tangential_speed > T(1e-12))
                     {
                         const Vector3T<T> direction = tangential * (T(-1) / tangential_speed);
                         const T w = generalized_inverse_mass(body_a, lever_a, direction) +
@@ -503,7 +506,7 @@ namespace SushiEngine
                         if (w > T(0))
                         {
                             const T halt = tangential_speed / w;
-                            const T budget = params.dynamic_friction * point.normal_lambda / h;
+                            const T budget = parameters.dynamic_friction * point.normal_lambda / h;
                             const Vector3T<T> impulse =
                                 direction * (halt < budget ? halt : budget);
                             apply_velocity_impulse(body_a, impulse, lever_a, T(-1));
@@ -526,8 +529,8 @@ namespace SushiEngine
                         point_velocity(body_b, lever_b) - point_velocity(body_a, lever_a);
                     const T normal_speed = dot(relative, manifold.normal);
                     const T restitution =
-                        std::abs(point.normal_velocity) > params.restitution_threshold
-                            ? params.restitution
+                        std::abs(point.normal_velocity) > parameters.restitution_threshold
+                            ? parameters.restitution
                             : T(0);
                     const T target = -restitution * point.normal_velocity;
                     const T bounce = target > T(0) ? target : T(0);

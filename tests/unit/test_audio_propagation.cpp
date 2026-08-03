@@ -42,7 +42,7 @@ namespace
     // Runs a phase-continuous sine of `freq` through `prop` while the distance ramps
     // linearly from `d0` to `d1` over `blocks` blocks of `n` samples, returning the
     // concatenated output.
-    std::vector<float> run_propagation(SourcePropagation& prop, const VoiceDescriptor& desc,
+    std::vector<float> run_propagation(SourcePropagation& prop, const VoiceDescriptor& description,
                                        const DSP::Atmosphere& atmo, double freq, double sr,
                                        int n, int blocks, float d0, float d1)
     {
@@ -61,7 +61,7 @@ namespace
             }
             const float t = blocks > 1 ? static_cast<float>(b) / (blocks - 1) : 0.0f;
             const float distance = d0 + t * (d1 - d0);
-            prop.process(in.data(), block_out.data(), n, distance, atmo, desc);
+            prop.process(in.data(), block_out.data(), n, distance, atmo, description);
             out.insert(out.end(), block_out.begin(), block_out.end());
         }
         return out;
@@ -166,7 +166,7 @@ TEST(Unit_Audio, PropagationDelayMatchesDistanceOverSpeedOfSound)
     const double sr = 48000.0;
     const int n = 256;
     DSP::Atmosphere atmo;
-    VoiceDescriptor desc = spatial_descriptor();
+    VoiceDescriptor description = spatial_descriptor();
 
     SourcePropagation prop;
     prop.prepare(sr, n, 40000);
@@ -184,7 +184,7 @@ TEST(Unit_Audio, PropagationDelayMatchesDistanceOverSpeedOfSound)
             in[0] = 1.0f;
         else if (b == 1)
             in[0] = 0.0f;
-        prop.process(in.data(), block_out.data(), n, distance, atmo, desc);
+        prop.process(in.data(), block_out.data(), n, distance, atmo, description);
         out.insert(out.end(), block_out.begin(), block_out.end());
     }
 
@@ -207,16 +207,18 @@ TEST(Unit_Audio, PropagationDopplerRisesApproachingFallsReceding)
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256, blocks = 200;
     DSP::Atmosphere atmo;
-    VoiceDescriptor desc = spatial_descriptor();
+    VoiceDescriptor description = spatial_descriptor();
 
     SourcePropagation approaching;
     approaching.prepare(sr, n, 40000);
-    const std::vector<float> a = run_propagation(approaching, desc, atmo, freq, sr, n, blocks, 120.0f, 20.0f);
+    const std::vector<float> a =
+        run_propagation(approaching, description, atmo, freq, sr, n, blocks, 120.0f, 20.0f);
     const double approach_hz = crossing_frequency(a, n * 40, n * (blocks - 5), sr);
 
     SourcePropagation receding;
     receding.prepare(sr, n, 40000);
-    const std::vector<float> r = run_propagation(receding, desc, atmo, freq, sr, n, blocks, 20.0f, 120.0f);
+    const std::vector<float> r =
+        run_propagation(receding, description, atmo, freq, sr, n, blocks, 20.0f, 120.0f);
     const double recede_hz = crossing_frequency(r, n * 40, n * (blocks - 5), sr);
 
     EXPECT_GT(approach_hz, freq + 5.0); // pitched up
@@ -228,11 +230,12 @@ TEST(Unit_Audio, PropagationHasNoDopplerWhenStationary)
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256, blocks = 120;
     DSP::Atmosphere atmo;
-    VoiceDescriptor desc = spatial_descriptor();
+    VoiceDescriptor description = spatial_descriptor();
 
     SourcePropagation prop;
     prop.prepare(sr, n, 40000);
-    const std::vector<float> out = run_propagation(prop, desc, atmo, freq, sr, n, blocks, 40.0f, 40.0f);
+    const std::vector<float> out =
+        run_propagation(prop, description, atmo, freq, sr, n, blocks, 40.0f, 40.0f);
     const double measured = crossing_frequency(out, n * 40, n * (blocks - 2), sr);
     EXPECT_NEAR(measured, freq, 15.0); // no shift for a fixed distance
 }
@@ -242,12 +245,13 @@ TEST(Unit_Audio, PropagationDelayToggleDisablesDoppler)
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256, blocks = 120;
     DSP::Atmosphere atmo;
-    VoiceDescriptor desc = spatial_descriptor();
-    desc.propagation_delay = false; // delay + Doppler off
+    VoiceDescriptor description = spatial_descriptor();
+    description.propagation_delay = false; // delay + Doppler off
 
     SourcePropagation prop;
     prop.prepare(sr, n, 40000);
-    const std::vector<float> out = run_propagation(prop, desc, atmo, freq, sr, n, blocks, 120.0f, 20.0f);
+    const std::vector<float> out =
+        run_propagation(prop, description, atmo, freq, sr, n, blocks, 120.0f, 20.0f);
     // Even with the distance shrinking fast, no delay means no pitch shift.
     const double measured = crossing_frequency(out, n * 10, n * (blocks - 2), sr);
     EXPECT_NEAR(measured, freq, 15.0);
@@ -258,18 +262,19 @@ TEST(Unit_Audio, PropagationTeleportSnapsWithoutSweep)
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256;
     DSP::Atmosphere atmo;
-    VoiceDescriptor desc = spatial_descriptor();
+    VoiceDescriptor description = spatial_descriptor();
 
     SourcePropagation prop;
     prop.prepare(sr, n, 60000);
 
     std::vector<float> in(static_cast<std::size_t>(n));
     std::vector<float> out(static_cast<std::size_t>(n));
-    long long idx = 0;
+    long long index = 0;
     auto feed = [&](float distance) {
         for (int i = 0; i < n; ++i)
-            in[static_cast<std::size_t>(i)] = static_cast<float>(std::sin(kTwoPi * freq * idx++ / sr));
-        prop.process(in.data(), out.data(), n, distance, atmo, desc);
+            in[static_cast<std::size_t>(i)] =
+                static_cast<float>(std::sin(kTwoPi * freq * index++ / sr));
+        prop.process(in.data(), out.data(), n, distance, atmo, description);
     };
 
     // Settle at a moderate distance (filling the delay history), then teleport nearer.

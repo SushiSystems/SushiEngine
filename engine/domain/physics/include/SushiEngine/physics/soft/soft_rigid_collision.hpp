@@ -179,7 +179,7 @@ namespace SushiEngine
                 std::size_t surface_vertex_count = 0;
 
                 /** @brief The combined coefficients; `rest_offset` is the surface's thickness. */
-                ContactSolveParameters<T> params{};
+                ContactSolveParameters<T> parameters{};
 
                 /**
                  * @brief How far beyond the rest offset a contact is still generated.
@@ -232,7 +232,7 @@ namespace SushiEngine
                             fastest = speed;
                     }
 
-                    const T threshold = params.rest_offset + contact_offset +
+                    const T threshold = parameters.rest_offset + contact_offset +
                                         (dt > T(0) ? fastest * dt : T(0));
                     std::size_t inherited = 0;
                     for (std::size_t i = 0; i < surface_vertex_count; ++i)
@@ -297,7 +297,7 @@ namespace SushiEngine
                         if (substep_index > 0)
                             clear_manifold_impulses(contact.manifold);
                         solve_manifold_positions(contact.manifold, particles[contact.particle],
-                                                 partner(), params);
+                                                 partner(), parameters);
                     }
                 }
 
@@ -312,7 +312,7 @@ namespace SushiEngine
                         return;
                     for (SoftRigidContact<T>& contact : contacts_)
                         solve_manifold_velocities(contact.manifold, particles[contact.particle],
-                                                  partner(), params, h);
+                                                  partner(), parameters, h);
                 }
 
                 /**
@@ -347,15 +347,15 @@ namespace SushiEngine
          * @param settings              The soft body's surface.
          * @param rigid_material        The rigid body's material.
          * @param restitution_threshold The anti-jitter floor, usually `2 * g * h`.
-         * @return Parameters ready to assign to @ref SoftRigidCollider::params.
+         * @return Parameters ready to assign to @ref SoftRigidCollider::parameters.
          */
         template <typename T>
-        inline ContactSolveParameters<T> make_soft_rigid_params(
-            const SoftBodyCollisionSettings<T>& settings,
-            const PhysicsMaterialT<T>& rigid_material, T restitution_threshold) noexcept
+        inline ContactSolveParameters<T> make_soft_rigid_parameters(
+            const SoftBodyCollisionSettings<T>& settings, const PhysicsMaterialT<T>& rigid_material,
+            T restitution_threshold) noexcept
         {
-            return make_contact_params(settings.surface, rigid_material, settings.thickness,
-                                       restitution_threshold);
+            return make_contact_parameters(settings.surface, rigid_material, settings.thickness,
+                                           restitution_threshold);
         }
     } // namespace Physics
 } // namespace SushiEngine

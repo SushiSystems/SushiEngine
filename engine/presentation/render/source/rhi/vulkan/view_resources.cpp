@@ -51,12 +51,12 @@ namespace SushiEngine
                 Graph::TextureDescription color_target(std::uint32_t width, std::uint32_t height,
                                                        VkFormat format, const char* name)
                 {
-                    Graph::TextureDescription desc;
-                    desc.width = width;
-                    desc.height = height;
-                    desc.format = format;
-                    desc.name = name;
-                    return desc;
+                    Graph::TextureDescription description;
+                    description.width = width;
+                    description.height = height;
+                    description.format = format;
+                    description.name = name;
+                    return description;
                 }
 
                 /**
@@ -401,13 +401,13 @@ namespace SushiEngine
 
                 if (used == buffers.size())
                 {
-                    VkCommandBufferAllocateInfo cmd_info{};
-                    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                    cmd_info.commandPool = compute ? s.compute_pool : s.pool;
-                    cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                    cmd_info.commandBufferCount = 1;
+                    VkCommandBufferAllocateInfo command_info{};
+                    command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                    command_info.commandPool = compute ? s.compute_pool : s.pool;
+                    command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                    command_info.commandBufferCount = 1;
                     VkCommandBuffer buffer = VK_NULL_HANDLE;
-                    check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &buffer),
+                    check(vkAllocateCommandBuffers(device_.device(), &command_info, &buffer),
                           "vkAllocateCommandBuffers");
                     buffers.push_back(buffer);
                 }
@@ -529,9 +529,9 @@ namespace SushiEngine
             {
                 Frame::FrameTargets targets;
 
-                Graph::TextureDescription depth_desc =
+                Graph::TextureDescription depth_description =
                     color_target(frame.width, frame.height, Frame::DEPTH_FORMAT, "depth");
-                depth_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+                depth_description.aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
                 targets.hdr = graph.create_texture(
                     color_target(frame.width, frame.height, Frame::HDR_FORMAT, "hdr"));
@@ -569,17 +569,17 @@ namespace SushiEngine
                     color_target(frame.width, frame.height, Frame::ID_FORMAT, "picking ids"));
                 targets.velocity = graph.create_texture(color_target(
                     frame.width, frame.height, Frame::VELOCITY_FORMAT, "velocity"));
-                targets.depth = graph.create_texture(depth_desc);
+                targets.depth = graph.create_texture(depth_description);
 
                 // The cascades share one image as a two-by-two grid of tiles. It is
                 // created even when shadows are off, at one texel a tile: the shading
                 // pass reads the descriptor unconditionally, and a valid tiny image is
                 // cheaper than a shader permutation that avoids it.
-                Graph::TextureDescription shadow_desc =
+                Graph::TextureDescription shadow_description =
                     color_target(frame.shadow_resolution * 2, frame.shadow_resolution * 2,
                                  Frame::SHADOW_FORMAT, "shadow atlas");
-                shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-                targets.shadow_atlas = graph.create_texture(shadow_desc);
+                shadow_description.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+                targets.shadow_atlas = graph.create_texture(shadow_description);
 
                 // The punctual spot-shadow atlas: one depth image, a 4×4 tile grid, created
                 // unconditionally (the shading pass reads it every frame) at a floor of a
@@ -588,10 +588,10 @@ namespace SushiEngine
                     frame.settings.lights.shadow_atlas_size < 4u
                         ? 4u
                         : frame.settings.lights.shadow_atlas_size;
-                Graph::TextureDescription light_shadow_desc = color_target(
+                Graph::TextureDescription light_shadow_description = color_target(
                     light_atlas_size, light_atlas_size, Frame::SHADOW_FORMAT, "light shadow atlas");
-                light_shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-                targets.light_shadow_atlas = graph.create_texture(light_shadow_desc);
+                light_shadow_description.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+                targets.light_shadow_atlas = graph.create_texture(light_shadow_description);
 
                 targets.contact_shadow = graph.create_texture(color_target(
                     frame.width, frame.height, Frame::CONTACT_SHADOW_FORMAT, "contact shadows"));
@@ -626,11 +626,11 @@ namespace SushiEngine
 
                 if (shading_rate_enabled)
                 {
-                    Graph::TextureDescription rate_desc = color_target(
-                        tile_count(frame.width, rate_texel_width),
-                        tile_count(frame.height, rate_texel_height),
-                        Frame::SHADING_RATE_FORMAT, "shading rate");
-                    targets.shading_rate = graph.create_texture(rate_desc);
+                    Graph::TextureDescription rate_description =
+                        color_target(tile_count(frame.width, rate_texel_width),
+                                     tile_count(frame.height, rate_texel_height),
+                                     Frame::SHADING_RATE_FORMAT, "shading rate");
+                    targets.shading_rate = graph.create_texture(rate_description);
                 }
 
                 // The two accumulated frames, ping-ponged by parity: this frame resolves
@@ -639,10 +639,10 @@ namespace SushiEngine
                 Graph::ImportedTexture resolved;
                 resolved.image = history_[parity].image;
                 resolved.view = history_[parity].view;
-                resolved.desc = color_target(width_, height_, Frame::HDR_FORMAT, "resolved");
+                resolved.description = color_target(width_, height_, Frame::HDR_FORMAT, "resolved");
                 // Declared to match how the images were actually created, which is what
                 // the graph's per-pass capture reasons from.
-                resolved.desc.usage =
+                resolved.description.usage =
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                     (targets_copyable_ ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
                 resolved.state = &history_[parity].state;
@@ -651,22 +651,23 @@ namespace SushiEngine
                 Graph::ImportedTexture history = resolved;
                 history.image = history_[1 - parity].image;
                 history.view = history_[1 - parity].view;
-                history.desc.name = "history";
+                history.description.name = "history";
                 history.state = &history_[1 - parity].state;
                 targets.history = graph.import_texture(history);
 
                 Graph::ImportedTexture resolve;
                 resolve.image = slots_[frame.slot].resolve;
                 resolve.view = slots_[frame.slot].resolve_view;
-                resolve.desc = color_target(width_, height_, Frame::RESOLVE_FORMAT, "resolve");
+                resolve.description =
+                    color_target(width_, height_, Frame::RESOLVE_FORMAT, "resolve");
                 // Declared to match how the image was actually created, TRANSFER_SRC
                 // included — an import's description is what anything downstream of the
                 // graph has to reason from, and per-pass capture is the first thing to
                 // ask. Without it the whole post-processing tail, which writes into this
                 // image, is invisible to the golden's per-pass half.
-                resolve.desc.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                     VK_IMAGE_USAGE_SAMPLED_BIT |
-                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                resolve.description.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                            VK_IMAGE_USAGE_SAMPLED_BIT |
+                                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
                 resolve.state = &slots_[frame.slot].resolve_state;
                 targets.resolve = graph.import_texture(resolve);
 
@@ -735,50 +736,50 @@ namespace SushiEngine
                 Graph::ImportedBuffer readback;
                 readback.buffer = slots_[frame.slot].readback;
                 readback.mapped = slots_[frame.slot].readback_mapped;
-                readback.desc.size = VkDeviceSize(width_) * height_ * sizeof(std::uint32_t);
-                readback.desc.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                readback.desc.host_visible = true;
-                readback.desc.name = "picking readback";
+                readback.description.size = VkDeviceSize(width_) * height_ * sizeof(std::uint32_t);
+                readback.description.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                readback.description.host_visible = true;
+                readback.description.name = "picking readback";
                 readback.state = &slots_[frame.slot].readback_state;
                 targets.readback = graph.import_buffer(readback);
 
                 Graph::ImportedBuffer uniforms;
                 uniforms.buffer = slots_[frame.slot].uniforms;
                 uniforms.mapped = slots_[frame.slot].uniforms_mapped;
-                uniforms.desc.size = sizeof(Scene::SceneUniforms);
-                uniforms.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                uniforms.desc.host_visible = true;
-                uniforms.desc.name = "scene uniforms";
+                uniforms.description.size = sizeof(Scene::SceneUniforms);
+                uniforms.description.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                uniforms.description.host_visible = true;
+                uniforms.description.name = "scene uniforms";
                 uniforms.state = &slots_[frame.slot].uniforms_state;
                 targets.uniforms = graph.import_buffer(uniforms);
 
                 Graph::ImportedBuffer temporal;
                 temporal.buffer = slots_[frame.slot].temporal;
                 temporal.mapped = slots_[frame.slot].temporal_mapped;
-                temporal.desc.size = sizeof(Scene::TemporalUniforms);
-                temporal.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                temporal.desc.host_visible = true;
-                temporal.desc.name = "temporal uniforms";
+                temporal.description.size = sizeof(Scene::TemporalUniforms);
+                temporal.description.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                temporal.description.host_visible = true;
+                temporal.description.name = "temporal uniforms";
                 temporal.state = &slots_[frame.slot].temporal_state;
                 targets.temporal = graph.import_buffer(temporal);
 
                 Graph::ImportedBuffer shadow;
                 shadow.buffer = slots_[frame.slot].shadow;
                 shadow.mapped = slots_[frame.slot].shadow_mapped;
-                shadow.desc.size = sizeof(Scene::ShadowUniforms);
-                shadow.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                shadow.desc.host_visible = true;
-                shadow.desc.name = "shadow uniforms";
+                shadow.description.size = sizeof(Scene::ShadowUniforms);
+                shadow.description.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                shadow.description.host_visible = true;
+                shadow.description.name = "shadow uniforms";
                 shadow.state = &slots_[frame.slot].shadow_state;
                 targets.shadow = graph.import_buffer(shadow);
 
                 Graph::ImportedBuffer post;
                 post.buffer = slots_[frame.slot].post;
                 post.mapped = slots_[frame.slot].post_mapped;
-                post.desc.size = sizeof(Scene::PostProcessUniforms);
-                post.desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                post.desc.host_visible = true;
-                post.desc.name = "post uniforms";
+                post.description.size = sizeof(Scene::PostProcessUniforms);
+                post.description.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                post.description.host_visible = true;
+                post.description.name = "post uniforms";
                 post.state = &slots_[frame.slot].post_state;
                 targets.post = graph.import_buffer(post);
 
@@ -786,29 +787,29 @@ namespace SushiEngine
                 // them and the opaque pass reads them within the same frame, so they are
                 // graph-owned and the compute→fragment barrier is derived, not imported
                 // per-slot state like the uniform blocks above.
-                Graph::BufferDescription grid_desc;
-                grid_desc.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
-                grid_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                grid_desc.name = "cluster grid";
-                targets.cluster_grid = graph.create_buffer(grid_desc);
+                Graph::BufferDescription grid_description;
+                grid_description.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
+                grid_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                grid_description.name = "cluster grid";
+                targets.cluster_grid = graph.create_buffer(grid_description);
 
-                Graph::BufferDescription index_desc;
-                index_desc.size = Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t);
-                index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                index_desc.name = "light index list";
-                targets.light_index = graph.create_buffer(index_desc);
+                Graph::BufferDescription index_description;
+                index_description.size = Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t);
+                index_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                index_description.name = "light index list";
+                targets.light_index = graph.create_buffer(index_description);
 
-                Graph::BufferDescription decal_grid_desc;
-                decal_grid_desc.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
-                decal_grid_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                decal_grid_desc.name = "decal grid";
-                targets.decal_grid = graph.create_buffer(decal_grid_desc);
+                Graph::BufferDescription decal_grid_description;
+                decal_grid_description.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
+                decal_grid_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                decal_grid_description.name = "decal grid";
+                targets.decal_grid = graph.create_buffer(decal_grid_description);
 
-                Graph::BufferDescription decal_index_desc;
-                decal_index_desc.size = Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t);
-                decal_index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                decal_index_desc.name = "decal index list";
-                targets.decal_index = graph.create_buffer(decal_index_desc);
+                Graph::BufferDescription decal_index_description;
+                decal_index_description.size = Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t);
+                decal_index_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                decal_index_description.name = "decal index list";
+                targets.decal_index = graph.create_buffer(decal_index_description);
 
                 // The GPU-driven geometry buffers, transient and device-local: the cull pass
                 // writes them and the depth/opaque passes read them the same frame, so the
@@ -818,20 +819,20 @@ namespace SushiEngine
                 if (frame.quality.gpu_driven && frame.gpu_instance_count > 0 &&
                     frame.gpu_bucket_count > 0)
                 {
-                    Graph::BufferDescription commands_desc;
-                    commands_desc.size = static_cast<VkDeviceSize>(frame.gpu_bucket_count) *
-                                         sizeof(VkDrawIndexedIndirectCommand);
-                    commands_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                    Graph::BufferDescription commands_description;
+                    commands_description.size = static_cast<VkDeviceSize>(frame.gpu_bucket_count) *
+                                                sizeof(VkDrawIndexedIndirectCommand);
+                    commands_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-                    commands_desc.name = "gpu draw commands";
-                    targets.draw_commands = graph.create_buffer(commands_desc);
+                    commands_description.name = "gpu draw commands";
+                    targets.draw_commands = graph.create_buffer(commands_description);
 
-                    Graph::BufferDescription compacted_desc;
-                    compacted_desc.size = static_cast<VkDeviceSize>(frame.gpu_instance_count) *
-                                          sizeof(std::uint32_t);
-                    compacted_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                    compacted_desc.name = "gpu compacted instances";
-                    targets.compacted = graph.create_buffer(compacted_desc);
+                    Graph::BufferDescription compacted_description;
+                    compacted_description.size =
+                        static_cast<VkDeviceSize>(frame.gpu_instance_count) * sizeof(std::uint32_t);
+                    compacted_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    compacted_description.name = "gpu compacted instances";
+                    targets.compacted = graph.create_buffer(compacted_description);
                 }
 
                 // The particle hand-off buffers, transient and device-local: the sim pass writes
@@ -840,51 +841,51 @@ namespace SushiEngine
                 // barriers. Only declared when the frame has cosmetic emitters.
                 if (frame.draws.emitter_count > 0 && frame.particle_capacity > 0)
                 {
-                    Graph::BufferDescription draw_desc;
-                    draw_desc.size = static_cast<VkDeviceSize>(frame.particle_capacity) *
-                                     sizeof(VFX::GPUParticle);
-                    draw_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                    draw_desc.name = "particle draw list";
-                    targets.particle_draw = graph.create_buffer(draw_desc);
+                    Graph::BufferDescription draw_description;
+                    draw_description.size = static_cast<VkDeviceSize>(frame.particle_capacity) *
+                                            sizeof(VFX::GPUParticle);
+                    draw_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    draw_description.name = "particle draw list";
+                    targets.particle_draw = graph.create_buffer(draw_description);
 
-                    Graph::BufferDescription alpha_desc = draw_desc;
-                    alpha_desc.name = "particle alpha list";
-                    targets.particle_alpha = graph.create_buffer(alpha_desc);
+                    Graph::BufferDescription alpha_description = draw_description;
+                    alpha_description.name = "particle alpha list";
+                    targets.particle_alpha = graph.create_buffer(alpha_description);
 
-                    Graph::BufferDescription ribbon_desc = draw_desc;
-                    ribbon_desc.name = "particle ribbon list";
-                    targets.particle_ribbon = graph.create_buffer(ribbon_desc);
+                    Graph::BufferDescription ribbon_description = draw_description;
+                    ribbon_description.name = "particle ribbon list";
+                    targets.particle_ribbon = graph.create_buffer(ribbon_description);
 
-                    Graph::BufferDescription mesh_desc = draw_desc;
-                    mesh_desc.name = "particle mesh list";
-                    targets.particle_mesh = graph.create_buffer(mesh_desc);
+                    Graph::BufferDescription mesh_description = draw_description;
+                    mesh_description.name = "particle mesh list";
+                    targets.particle_mesh = graph.create_buffer(mesh_description);
 
-                    Graph::BufferDescription mesh_args_desc;
+                    Graph::BufferDescription mesh_args_description;
                     // One VkDrawIndexedIndirectCommand (five uints) per mesh-draw slice.
-                    mesh_args_desc.size = sizeof(std::uint32_t) * 5 *
+                    mesh_args_description.size = sizeof(std::uint32_t) * 5 *
                                           Scene::ParticleSystem::MAX_MESH_EMITTERS;
-                    mesh_args_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                    mesh_args_desc.name = "particle mesh draw args";
-                    targets.particle_mesh_args = graph.create_buffer(mesh_args_desc);
+                    mesh_args_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                  VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                    mesh_args_description.name = "particle mesh draw args";
+                    targets.particle_mesh_args = graph.create_buffer(mesh_args_description);
 
-                    Graph::BufferDescription sort_desc;
+                    Graph::BufferDescription sort_description;
                     // One {float distance, uint index} entry per pool slot (8 bytes).
-                    sort_desc.size =
+                    sort_description.size =
                         static_cast<VkDeviceSize>(frame.particle_capacity) * 2 * sizeof(std::uint32_t);
-                    sort_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                    sort_desc.name = "particle sort keys";
-                    targets.particle_sort_keys = graph.create_buffer(sort_desc);
+                    sort_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                    sort_description.name = "particle sort keys";
+                    targets.particle_sort_keys = graph.create_buffer(sort_description);
 
-                    Graph::BufferDescription args_desc;
+                    Graph::BufferDescription args_description;
                     // Three VkDrawIndirectCommand: additive at 0, alpha at 16, ribbons at 32.
-                    args_desc.size = sizeof(std::uint32_t) * 12;
-                    args_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                    args_desc.name = "particle draw args";
-                    targets.particle_args = graph.create_buffer(args_desc);
+                    args_description.size = sizeof(std::uint32_t) * 12;
+                    args_description.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                    args_description.name = "particle draw args";
+                    targets.particle_args = graph.create_buffer(args_description);
                 }
 
                 return targets;
@@ -981,19 +982,19 @@ namespace SushiEngine
                 check(vkCreateCommandPool(device, &pool_info, nullptr, &pool),
                       "vkCreateCommandPool(read_output)");
 
-                VkCommandBufferAllocateInfo cmd_info{};
-                cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                cmd_info.commandPool = pool;
-                cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                cmd_info.commandBufferCount = 1;
-                VkCommandBuffer cmd = VK_NULL_HANDLE;
-                check(vkAllocateCommandBuffers(device, &cmd_info, &cmd),
+                VkCommandBufferAllocateInfo command_info{};
+                command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                command_info.commandPool = pool;
+                command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                command_info.commandBufferCount = 1;
+                VkCommandBuffer command = VK_NULL_HANDLE;
+                check(vkAllocateCommandBuffers(device, &command_info, &command),
                       "vkAllocateCommandBuffers(read_output)");
 
                 VkCommandBufferBeginInfo begin_info{};
                 begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                check(vkBeginCommandBuffer(cmd, &begin_info),
+                check(vkBeginCommandBuffer(command, &begin_info),
                       "vkBeginCommandBuffer(read_output)");
 
                 // Out of whatever the frame left the resolve in, and back into it again.
@@ -1002,17 +1003,17 @@ namespace SushiEngine
                 // barrier describe a transition that did not happen.
                 const Graph::TextureState resting = s.resolve_state;
                 const auto barrier = [&](VkImageLayout from, VkImageLayout to,
-                                         VkPipelineStageFlags2 src_stage,
-                                         VkAccessFlags2 src_access,
-                                         VkPipelineStageFlags2 dst_stage,
-                                         VkAccessFlags2 dst_access)
+                                         VkPipelineStageFlags2 source_stage,
+                                         VkAccessFlags2 source_access,
+                                         VkPipelineStageFlags2 destination_stage,
+                                         VkAccessFlags2 destination_access)
                 {
                     VkImageMemoryBarrier2 image_barrier{};
                     image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    image_barrier.srcStageMask = src_stage;
-                    image_barrier.srcAccessMask = src_access;
-                    image_barrier.dstStageMask = dst_stage;
-                    image_barrier.dstAccessMask = dst_access;
+                    image_barrier.srcStageMask = source_stage;
+                    image_barrier.srcAccessMask = source_access;
+                    image_barrier.dstStageMask = destination_stage;
+                    image_barrier.dstAccessMask = destination_access;
                     image_barrier.oldLayout = from;
                     image_barrier.newLayout = to;
                     image_barrier.image = s.resolve;
@@ -1024,7 +1025,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &image_barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 };
 
                 barrier(resting.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1038,7 +1039,7 @@ namespace SushiEngine
                 copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 copy.imageSubresource.layerCount = 1;
                 copy.imageExtent = {width_, height_, 1};
-                vkCmdCopyImageToBuffer(cmd, s.resolve,
+                vkCmdCopyImageToBuffer(command, s.resolve,
                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1,
                                        &copy);
 
@@ -1049,7 +1050,7 @@ namespace SushiEngine
                             : resting.stage,
                         resting.access);
 
-                check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(read_output)");
+                check(vkEndCommandBuffer(command), "vkEndCommandBuffer(read_output)");
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -1060,7 +1061,7 @@ namespace SushiEngine
                 VkSubmitInfo submit{};
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 submit.commandBufferCount = 1;
-                submit.pCommandBuffers = &cmd;
+                submit.pCommandBuffers = &command;
                 check(vkQueueSubmit(device_.graphics_queue(), 1, &submit, fence),
                       "vkQueueSubmit(read_output)");
                 check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX),

@@ -99,7 +99,7 @@ namespace SushiEngine
                         float right[4];   /**< xyz = unit right, w = tan(fovx/2). */
                         float up[4];      /**< xyz = unit up, w = tan(fovy/2). */
                         float forward[4]; /**< xyz = unit forward, w = light count. */
-                        float params[4];  /**< x = near, y = far, zw spare. */
+                        float parameters[4]; /**< x = near, y = far, zw spare. */
                     };
 
                     void create_pipeline();

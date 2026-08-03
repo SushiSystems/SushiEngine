@@ -110,7 +110,7 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            void EnvironmentProbeTracer::relight(VkCommandBuffer cmd,
+            void EnvironmentProbeTracer::relight(VkCommandBuffer command,
                                                  const ProbeRelightInputs& inputs)
             {
                 if (inputs.frame == nullptr || inputs.probe_count == 0)
@@ -123,12 +123,12 @@ namespace SushiEngine
                 writer.update(device_.device(), set);
 
                 Push push{static_cast<std::int32_t>(inputs.probe_count)};
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                pipeline_layout_, 0, set);
-                vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                    sizeof(Push), &push);
-                vkCmdDispatch(cmd, (inputs.probe_count + GROUP_SIZE - 1) / GROUP_SIZE, 1, 1);
+                vkCmdDispatch(command, (inputs.probe_count + GROUP_SIZE - 1) / GROUP_SIZE, 1, 1);
             }
         } // namespace GI
     } // namespace Render

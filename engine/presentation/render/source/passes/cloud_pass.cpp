@@ -76,20 +76,21 @@ namespace SushiEngine
 
             void CloudPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc = fullscreen_pipeline_desc(
-                    layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
-                    shaders_.module("cloud.frag"), Frame::HDR_FORMAT);
+                Resources::GraphicsPipelineDescription description =
+                    fullscreen_pipeline_description(
+                        layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
+                        shaders_.module("cloud.frag"), Frame::HDR_FORMAT);
                 // Second MRT slot: the W3 transmittance-weighted mean march depth
                 // (frame.targets.cloud_depth), the aerial-perspective coupling's input.
-                desc.color_formats[1] = VK_FORMAT_R32_SFLOAT;
-                desc.color_count = 2;
+                description.color_formats[1] = VK_FORMAT_R32_SFLOAT;
+                description.color_count = 2;
                 // Whether a rate image is actually bound is decided per frame (see
                 // register_pass), but the pipeline has to be created knowing one may be, so
                 // on a device that supports it the cloud pipeline always opts in — the same
                 // opt-in sky_pass makes for the frame's other heavy per-pixel march.
-                desc.shading_rate_attachment =
+                description.shading_rate_attachment =
                     device_.supports_shading_rate_image() ? VK_TRUE : VK_FALSE;
-                pipeline_ = pipelines_.create(desc);
+                pipeline_ = pipelines_.create(description);
             }
 
             void CloudPass::destroy_pipeline()
@@ -142,7 +143,7 @@ namespace SushiEngine
                             std::max<std::uint32_t>(1u, device_.shading_rate_texel_width() / 2),
                             std::max<std::uint32_t>(1u, device_.shading_rate_texel_height() / 2));
                     },
-                    [this, &frame, clouds_on](VkCommandBuffer cmd,
+                    [this, &frame, clouds_on](VkCommandBuffer command,
                                               const Graph::PassContext& context)
                     {
                         if (!clouds_on)
@@ -211,10 +212,11 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),
                                        sizeof(Scene::TemporalUniforms));
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
                         // The tier's march budget rides the shared push range's fragment
                         // bytes, which this fullscreen pass otherwise leaves unused. Mirrors
                         // cloud.frag's CloudBudget block, byte for byte — including the two
@@ -253,7 +255,7 @@ namespace SushiEngine
                                  {}};
 
                         const std::uint32_t cloud_height = std::max<std::uint32_t>(
-                            1u, context.texture_desc(frame.targets.cloud).height);
+                            1u, context.texture_description(frame.targets.cloud).height);
                         budget.pixel_ndc = 2.0f / static_cast<float>(cloud_height);
 
                         const std::vector<float>& spread = noise_.march_carve_spread();
@@ -264,10 +266,10 @@ namespace SushiEngine
                         // The shared push-constant range is declared VERTEX|FRAGMENT (see
                         // SceneLayout::MeshPushConstants), so a push touching any of its bytes
                         // must cover both stages even though only the fragment shader reads these.
-                        vkCmdPushConstants(cmd, layout_.pipeline_layout(),
+                        vkCmdPushConstants(command, layout_.pipeline_layout(),
                                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                            0, sizeof(budget), &budget);
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

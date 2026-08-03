@@ -93,7 +93,7 @@ namespace SushiEngine
                 std::unique_ptr<Audio::FDNReverbEffect> fx(new Audio::FDNReverbEffect());
                 Audio::I3DL2Reverb hall = Audio::I3DL2Reverb::concert_hall();
                 hall.wet_dry_mix = 100.0f; // aux bus: pure wet, the dry goes direct to master
-                fx->set_params(hall);
+                fx->set_parameters(hall);
                 reverb_ = fx.get();
                 engine_.mixer().add_insert(
                     reverb_bus_, std::unique_ptr<Audio::IBusEffect>(new Audio::ReverbBusEffect(std::move(fx))));
@@ -160,7 +160,7 @@ namespace SushiEngine
             {
                 if (!world.has_reverb_zone(id))
                     continue;
-                const Simulation::ReverbZoneParameters z = world.reverb_zone_params(id);
+                const Simulation::ReverbZoneParameters z = world.reverb_zone_parameters(id);
                 const Vector3 c = world.world_transform(id).position;
                 const double dx = std::fabs(listener_position.x - c.x);
                 const double dy = std::fabs(listener_position.y - c.y);
@@ -180,7 +180,7 @@ namespace SushiEngine
             {
                 if (!world.has_audio_emitter(id))
                     continue;
-                const Simulation::AudioEmitterParameters e = world.audio_emitter_params(id);
+                const Simulation::AudioEmitterParameters e = world.audio_emitter_parameters(id);
                 const Vector3 pos = world.world_transform(id).position;
 
                 Audio::EmitterSnapshot es;

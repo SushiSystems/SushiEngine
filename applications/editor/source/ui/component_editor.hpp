@@ -76,8 +76,8 @@ namespace SushiEngine
          * entity carries the component, read its parameters, write them back — named as
          * data so @ref ComponentEditor can perform them for an entity it was never told
          * about. Member-function pointers rather than callables so the parameter type is
-         * checked at the binding site: passing `set_light_params` alongside
-         * `collider_params` does not compile.
+         * checked at the binding site: passing `set_light_parameters` alongside
+         * `collider_parameters` does not compile.
          *
          * @tparam Parameters The component's authoring parameter aggregate.
          */
@@ -124,16 +124,16 @@ namespace SushiEngine
          * are not trivially copyable, like the Decal's map paths — without a variant per
          * component or a serialization format.
          *
-         * @param context Editor state holding the clipboard.
-         * @param component The component's display name, e.g. "Light".
-         * @param params The values to remember.
+         * @param context    Editor state holding the clipboard.
+         * @param component  The component's display name, e.g. "Light".
+         * @param parameters The values to remember.
          */
         template <typename Parameters>
         void copy_component_values(EditorContext& context, const char* component,
-                                   const Parameters& params)
+                                   const Parameters& parameters)
         {
             context.component_clipboard.component = component;
-            context.component_clipboard.values = std::make_shared<Parameters>(params);
+            context.component_clipboard.values = std::make_shared<Parameters>(parameters);
         }
 
         /**
@@ -450,7 +450,7 @@ namespace SushiEngine
              * @brief One component of a vector field, for the fields whose axes mean
              * different things.
              *
-             * A sphere's `ShapeParameters` stores its radius in `params.x` and leaves the other
+             * A sphere's `ShapeParameters` stores its radius in `parameters.x` and leaves the other
              * two unused; drawing all three would offer two controls that change nothing.
              *
              * @param label Field label, also the ImGui id.
@@ -486,9 +486,9 @@ namespace SushiEngine
                 values_.*member = with_axis(values_.*member, axis, to_scalar(value));
                 for (const Simulation::EntityId id : targets_)
                 {
-                    Parameters params = (world_.*access_.read)(id);
-                    params.*member = with_axis(params.*member, axis, to_scalar(value));
-                    (world_.*access_.write)(id, params);
+                    Parameters parameters = (world_.*access_.read)(id);
+                    parameters.*member = with_axis(parameters.*member, axis, to_scalar(value));
+                    (world_.*access_.write)(id, parameters);
                 }
                 return true;
             }
@@ -590,28 +590,28 @@ namespace SushiEngine
                 std::snprintf(values_.*member, N, "%s", buffer);
                 for (const Simulation::EntityId id : targets_)
                 {
-                    Parameters params = (world_.*access_.read)(id);
-                    std::snprintf(params.*member, N, "%s", buffer);
-                    (world_.*access_.write)(id, params);
+                    Parameters parameters = (world_.*access_.read)(id);
+                    std::snprintf(parameters.*member, N, "%s", buffer);
+                    (world_.*access_.write)(id, parameters);
                 }
                 return true;
             }
 
             /**
-             * @brief Installs @p params on every target, as one undo step.
+             * @brief Installs @p parameters on every target, as one undo step.
              *
              * The whole-component path behind Reset and Paste Values, and the escape hatch
              * for a section that edits its parameters some other way — the Decal's texture
              * slots load through the asset library rather than through a field method.
              *
-             * @param params The values to install everywhere.
+             * @param parameters The values to install everywhere.
              */
-            void write_all(const Parameters& params)
+            void write_all(const Parameters& parameters)
             {
                 context_.history.record(world_);
-                values_ = params;
+                values_ = parameters;
                 for (const Simulation::EntityId id : targets_)
-                    (world_.*access_.write)(id, params);
+                    (world_.*access_.write)(id, parameters);
             }
 
             /**
@@ -691,9 +691,9 @@ namespace SushiEngine
                 values_.*member = value;
                 for (const Simulation::EntityId id : targets_)
                 {
-                    Parameters params = (world_.*access_.read)(id);
-                    params.*member = value;
-                    (world_.*access_.write)(id, params);
+                    Parameters parameters = (world_.*access_.read)(id);
+                    parameters.*member = value;
+                    (world_.*access_.write)(id, parameters);
                 }
             }
 

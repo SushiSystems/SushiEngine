@@ -304,9 +304,9 @@ namespace SushiEngine
             {
                 Physics::RigidBodyT<Scalar>& particle = model.particles[i];
                 particle.position = lattice.vertices[i];
-                particle.prev_position = particle.position;
+                particle.previous_position = particle.position;
                 particle.orientation = Quaternion{0, 0, 0, 1};
-                particle.prev_orientation = particle.orientation;
+                particle.previous_orientation = particle.orientation;
                 particle.inv_inertia = Vector3{0, 0, 0};
                 particle.inv_mass = Scalar(0);
             }

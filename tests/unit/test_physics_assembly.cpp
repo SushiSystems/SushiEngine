@@ -79,14 +79,14 @@ namespace
         AssemblyJoint hinge;
         hinge.part_a = 0;
         hinge.part_b = 1;
-        hinge.params.type = JointType::Hinge;
-        hinge.params.anchor_a = Vector3{1, 0, 0};
-        hinge.params.anchor_b = Vector3{Scalar(-0.5), 0, 0};
-        hinge.params.axis_a = Vector3{0, 1, 0};
-        hinge.params.axis_b = Vector3{0, 1, 0};
-        hinge.params.twist_limit.enabled = true;
-        hinge.params.twist_limit.upper = Scalar(1.18682);
-        hinge.params.break_force = Scalar(12000);
+        hinge.parameters.type = JointType::Hinge;
+        hinge.parameters.anchor_a = Vector3{1, 0, 0};
+        hinge.parameters.anchor_b = Vector3{Scalar(-0.5), 0, 0};
+        hinge.parameters.axis_a = Vector3{0, 1, 0};
+        hinge.parameters.axis_b = Vector3{0, 1, 0};
+        hinge.parameters.twist_limit.enabled = true;
+        hinge.parameters.twist_limit.upper = Scalar(1.18682);
+        hinge.parameters.break_force = Scalar(12000);
         assembly.joints.push_back(hinge);
 
         assembly.group_masks.assign(1, assembly_group_excluding_self(0));
@@ -100,29 +100,29 @@ namespace
      * children so the mean-of-children bone is used, and `head` and `wrist` are leaves
      * so the no-part path is taken.
      */
-    Animation::SkeletonDescription humanoid_desc()
+    Animation::SkeletonDescription humanoid_description()
     {
         const auto joint = [](const char* name, int parent, Scalar x, Scalar y, Scalar z)
         {
-            Animation::JointDescription desc;
-            desc.name = name;
-            desc.parent = parent;
-            desc.bind_translation =
+            Animation::JointDescription description;
+            description.name = name;
+            description.parent = parent;
+            description.bind_translation =
                 Animation::Vector3f{float(x), float(y), float(z)};
-            return desc;
+            return description;
         };
 
-        Animation::SkeletonDescription desc;
-        desc.joints.push_back(joint("root", -1, 0, 0, 0));
-        desc.joints.push_back(joint("hip", 0, 0, Scalar(0.9), 0));
-        desc.joints.push_back(joint("spine", 1, 0, Scalar(0.2), 0));
-        desc.joints.push_back(joint("chest", 2, 0, Scalar(0.25), 0));
-        desc.joints.push_back(joint("neck", 3, 0, Scalar(0.2), 0));
-        desc.joints.push_back(joint("head", 4, 0, Scalar(0.12), 0));
-        desc.joints.push_back(joint("shoulder", 3, Scalar(0.18), Scalar(0.05), 0));
-        desc.joints.push_back(joint("elbow", 6, Scalar(0.28), 0, 0));
-        desc.joints.push_back(joint("wrist", 7, Scalar(0.25), 0, 0));
-        return desc;
+        Animation::SkeletonDescription description;
+        description.joints.push_back(joint("root", -1, 0, 0, 0));
+        description.joints.push_back(joint("hip", 0, 0, Scalar(0.9), 0));
+        description.joints.push_back(joint("spine", 1, 0, Scalar(0.2), 0));
+        description.joints.push_back(joint("chest", 2, 0, Scalar(0.25), 0));
+        description.joints.push_back(joint("neck", 3, 0, Scalar(0.2), 0));
+        description.joints.push_back(joint("head", 4, 0, Scalar(0.12), 0));
+        description.joints.push_back(joint("shoulder", 3, Scalar(0.18), Scalar(0.05), 0));
+        description.joints.push_back(joint("elbow", 6, Scalar(0.28), 0, 0));
+        description.joints.push_back(joint("wrist", 7, Scalar(0.25), 0, 0));
+        return description;
     }
 
     /** @brief Holds a skeleton blob alive for as long as the view over it. */
@@ -133,7 +133,7 @@ namespace
 
         Humanoid()
         {
-            const bool built = Animation::build_skeleton_blob(humanoid_desc(), blob);
+            const bool built = Animation::build_skeleton_blob(humanoid_description(), blob);
             if (built)
                 view = Animation::load_skeleton_blob(blob.data(), blob.size());
         }
@@ -180,7 +180,7 @@ namespace
                                   Scalar) override
             {
             }
-            void update_rigid_body_params(EntityId, Scalar, const Vector3&, Scalar) override {}
+            void update_rigid_body_parameters(EntityId, Scalar, const Vector3&, Scalar) override {}
             void set_rigid_pose(EntityId id, const Vector3& position,
                                 const Quaternion& orientation) override
             {
@@ -241,10 +241,10 @@ TEST(Unit_PhysicsAssembly, TheBlobRoundTripsEveryPartAndJoint)
 
     EXPECT_EQ(view.joints[0].part_a, 0u);
     EXPECT_EQ(view.joints[0].part_b, 1u);
-    EXPECT_EQ(int(view.joints[0].params.type), int(JointType::Hinge));
-    EXPECT_TRUE(view.joints[0].params.twist_limit.enabled);
-    EXPECT_NEAR(double(view.joints[0].params.twist_limit.upper), 1.18682, 1e-9);
-    EXPECT_NEAR(double(view.joints[0].params.break_force), 12000.0, 1e-9);
+    EXPECT_EQ(int(view.joints[0].parameters.type), int(JointType::Hinge));
+    EXPECT_TRUE(view.joints[0].parameters.twist_limit.enabled);
+    EXPECT_NEAR(double(view.joints[0].parameters.twist_limit.upper), 1.18682, 1e-9);
+    EXPECT_NEAR(double(view.joints[0].parameters.break_force), 12000.0, 1e-9);
 
     // The group's own bit is clear, which is the whole of "the parts of one assembly do
     // not push each other".
@@ -417,9 +417,9 @@ TEST(Unit_PhysicsAssembly, InstancingNamesTheEntitiesItsPartsBecame)
     EXPECT_EQ(out.joints[0].body_b, ids[1]);
     // And the parameters travelled whole, which is what sharing `JointParameters` with a
     // hand-built joint buys: nothing here copies a field, so nothing here can forget one.
-    EXPECT_EQ(int(out.joints[0].params.type), int(JointType::Hinge));
-    EXPECT_NEAR(double(out.joints[0].params.break_force), 12000.0, 1e-9);
-    EXPECT_NEAR(double(out.joints[0].params.anchor_a.x), 1.0, 1e-12);
+    EXPECT_EQ(int(out.joints[0].parameters.type), int(JointType::Hinge));
+    EXPECT_NEAR(double(out.joints[0].parameters.break_force), 12000.0, 1e-9);
+    EXPECT_NEAR(double(out.joints[0].parameters.anchor_a.x), 1.0, 1e-12);
 }
 
 TEST(Unit_PhysicsAssembly, InstancingRefusesRatherThanHalfBuildAnAssembly)
@@ -456,7 +456,7 @@ TEST(Unit_PhysicsAssembly, ARagdollGivesAPartToEveryBoneAndNoneToALeaf)
     ASSERT_EQ(rig.part_of_joint.size(), 9u);
 
     // By name, never by authored index: the skeleton cook sorts and remaps joints
-    // topologically, so the order a desc was written in is not the order a rig is built
+    // topologically, so the order a description was written in is not the order a rig is built
     // against. A test that hard-codes indices is testing the cook's sort.
     const auto joint_of = [&humanoid](const char* name)
     {
@@ -642,26 +642,26 @@ TEST(Unit_PhysicsAssembly, TheTwistRangeIsCentredOnTheTwistTheBindPoseAlreadyHol
     {
         const AssemblyPart& a = rig.assembly.parts[joint.part_a];
         const AssemblyPart& b = rig.assembly.parts[joint.part_b];
-        const Quaternion basis_a =
-            mul(a.local_orientation, Physics::joint_frame_from_axis<Scalar>(joint.params.axis_a));
-        const Quaternion basis_b =
-            mul(b.local_orientation, Physics::joint_frame_from_axis<Scalar>(joint.params.axis_b));
+        const Quaternion basis_a = mul(
+            a.local_orientation, Physics::joint_frame_from_axis<Scalar>(joint.parameters.axis_a));
+        const Quaternion basis_b = mul(
+            b.local_orientation, Physics::joint_frame_from_axis<Scalar>(joint.parameters.axis_b));
         const Scalar twist =
             Physics::joint_twist_angle<Scalar>(normalize(mul(conjugate(basis_a), basis_b)));
 
         // Inside the range, and at its centre — the range is symmetric about the bind
         // twist by construction.
-        EXPECT_GE(double(twist), double(joint.params.twist_limit.lower) - 1e-9);
-        EXPECT_LE(double(twist), double(joint.params.twist_limit.upper) + 1e-9);
-        const double centre = 0.5 * (double(joint.params.twist_limit.lower) +
-                                     double(joint.params.twist_limit.upper));
+        EXPECT_GE(double(twist), double(joint.parameters.twist_limit.lower) - 1e-9);
+        EXPECT_LE(double(twist), double(joint.parameters.twist_limit.upper) + 1e-9);
+        const double centre = 0.5 * (double(joint.parameters.twist_limit.lower) +
+                                     double(joint.parameters.twist_limit.upper));
         EXPECT_NEAR(double(twist), centre, 1e-9);
-        EXPECT_NEAR(double(joint.params.twist_limit.upper) - centre, 0.35, 1e-9);
+        EXPECT_NEAR(double(joint.parameters.twist_limit.upper) - centre, 0.35, 1e-9);
 
         // The swing is zero at bind whatever the twist is, because both axes are the
         // same world direction — so its limit needs no such correction.
-        EXPECT_TRUE(joint.params.swing_limit.enabled);
-        EXPECT_NEAR(double(joint.params.swing_limit.upper), double(profile.swing_limit), 1e-12);
+        EXPECT_TRUE(joint.parameters.swing_limit.enabled);
+        EXPECT_NEAR(double(joint.parameters.swing_limit.upper), double(profile.swing_limit), 1e-12);
     }
 }
 
@@ -722,14 +722,14 @@ TEST(Unit_PhysicsAssembly, ASkeletonWithNoBonesYieldsNoRig)
 {
     // A single joint has no children, so no bone, so nothing to simulate. Reported as an
     // empty rig rather than a rig of one degenerate capsule.
-    Animation::SkeletonDescription desc;
+    Animation::SkeletonDescription description;
     Animation::JointDescription only;
     only.name = "root";
     only.parent = -1;
-    desc.joints.push_back(only);
+    description.joints.push_back(only);
 
     std::vector<std::byte> blob;
-    ASSERT_TRUE(Animation::build_skeleton_blob(desc, blob));
+    ASSERT_TRUE(Animation::build_skeleton_blob(description, blob));
     const Animation::SkeletonView view = Animation::load_skeleton_blob(blob.data(), blob.size());
 
     const RagdollRig rig = build_ragdoll_rig(view, RagdollProfile{});

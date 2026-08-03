@@ -49,7 +49,7 @@ namespace SushiEngine
 
             void SSRPass::create_pipeline()
             {
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("ssr.frag"), Frame::HDR_FORMAT));
             }
@@ -81,15 +81,16 @@ namespace SushiEngine
                         builder.read(frame.targets.gbuffer, Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame, trace](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame, trace](VkCommandBuffer command,
+                                          const Graph::PassContext& context)
                     {
                         const VkSampler linear =
                             frame.samplers->get(Resources::SamplerDescription{});
-                        Resources::SamplerDescription hiz_desc;
-                        hiz_desc.filter = VK_FILTER_NEAREST;
-                        hiz_desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                        hiz_desc.max_lod = 16.0f;
-                        const VkSampler hiz_sampler = frame.samplers->get(hiz_desc);
+                        Resources::SamplerDescription hiz_description;
+                        hiz_description.filter = VK_FILTER_NEAREST;
+                        hiz_description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                        hiz_description.max_lod = 16.0f;
+                        const VkSampler hiz_sampler = frame.samplers->get(hiz_description);
                         // The pyramid is pass-owned, so the trace binds its raw view directly;
                         // when it has not been built yet the trace is disabled and the pass just
                         // copies the scene through (the view still needs a valid image to bind).
@@ -109,9 +110,9 @@ namespace SushiEngine
                         writer.image(4, hiz_view, hiz_sampler,
                                     trace ? VK_IMAGE_LAYOUT_GENERAL
                                           : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
+                        frame.layout->bind_heap(command);
 
                         Push push{};
                         push.p0[0] = static_cast<float>(frame.settings.ssr.max_steps);
@@ -119,12 +120,13 @@ namespace SushiEngine
                         push.p0[2] = frame.settings.ssr.roughness_cutoff;
                         push.p0[3] = frame.settings.ssr.intensity;
                         push.p1[0] = trace ? 1.0f : 0.0f;
-                        vkCmdPushConstants(cmd, frame.layout->pipeline_layout(),
+                        vkCmdPushConstants(command, frame.layout->pipeline_layout(),
                                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                            0, sizeof(Push), &push);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

@@ -94,17 +94,20 @@ namespace SushiEngine
                 }
             } // namespace
 
-            Matrix4 shape_scale(MeshKind kind, const Vector3& params) noexcept
+            Matrix4 shape_scale(MeshKind kind, const Vector3& parameters) noexcept
             {
                 switch (kind)
                 {
                     case MeshKind::Sphere:
-                        return scaling(Vector3{params.x * 2, params.x * 2, params.x * 2});
+                        return scaling(
+                            Vector3{parameters.x * 2, parameters.x * 2, parameters.x * 2});
                     case MeshKind::Cylinder:
-                        return scaling(Vector3{params.x * 2, params.y * 2, params.x * 2});
+                        return scaling(
+                            Vector3{parameters.x * 2, parameters.y * 2, parameters.x * 2});
                     case MeshKind::Box:
                     default:
-                        return scaling(Vector3{params.x * 2, params.y * 2, params.z * 2});
+                        return scaling(
+                            Vector3{parameters.x * 2, parameters.y * 2, parameters.z * 2});
                 }
             }
 

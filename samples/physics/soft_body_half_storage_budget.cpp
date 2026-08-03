@@ -153,9 +153,9 @@ namespace
         {
             RigidBodyT<float>& particle = model.particles[i];
             particle.position = rest[i];
-            particle.prev_position = rest[i];
+            particle.previous_position = rest[i];
             particle.orientation = QuaternionT<float>{0, 0, 0, 1};
-            particle.prev_orientation = particle.orientation;
+            particle.previous_orientation = particle.orientation;
             particle.inv_mass = 1.0f;
         }
 

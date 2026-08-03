@@ -45,13 +45,13 @@ using namespace SushiEngine::Audio;
 int main()
 {
     const int block = 256;
-    const int ir_len = 64;
+    const int ir_length = 64;
     const int lookahead = 3;
     const int blocks = 32;
 
     // A decaying FIR and a test signal.
-    std::vector<float> ir(static_cast<std::size_t>(ir_len));
-    for (int i = 0; i < ir_len; ++i)
+    std::vector<float> ir(static_cast<std::size_t>(ir_length));
+    for (int i = 0; i < ir_length; ++i)
         ir[static_cast<std::size_t>(i)] = std::exp(-i * 0.08f) * std::cos(i * 0.4f);
 
     const int total = block * blocks;
@@ -64,17 +64,17 @@ int main()
     for (int n = 0; n < total; ++n)
     {
         float acc = 0.0f;
-        for (int k = 0; k < ir_len; ++k)
+        for (int k = 0; k < ir_length; ++k)
         {
-            const int idx = n - k;
-            if (idx >= 0)
-                acc += signal[static_cast<std::size_t>(idx)] * ir[static_cast<std::size_t>(k)];
+            const int index = n - k;
+            if (index >= 0)
+                acc += signal[static_cast<std::size_t>(index)] * ir[static_cast<std::size_t>(k)];
         }
         reference[static_cast<std::size_t>(n)] = acc;
     }
 
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    SYCLDSPAccelerator accel(runtime, block, ir_len, lookahead);
+    SYCLDSPAccelerator accel(runtime, block, ir_length, lookahead);
 
     if (!accel.available())
     {
@@ -82,8 +82,8 @@ int main()
                     "(this is the shipping default). OK\n");
         return 0;
     }
-    accel.set_impulse(ir.data(), ir_len);
-    std::printf("accelerator available: block=%d ir=%d lookahead=%d history=%d\n", block, ir_len,
+    accel.set_impulse(ir.data(), ir_length);
+    std::printf("accelerator available: block=%d ir=%d lookahead=%d history=%d\n", block, ir_length,
                 accel.lookahead(), accel.history());
 
     const int hist = accel.history();
@@ -101,9 +101,9 @@ int main()
             const int start = t * block;
             for (int i = 0; i < hist; ++i)
             {
-                const int idx = start - hist + i;
+                const int index = start - hist + i;
                 padded[static_cast<std::size_t>(i)] =
-                    idx >= 0 ? signal[static_cast<std::size_t>(idx)] : 0.0f;
+                    index >= 0 ? signal[static_cast<std::size_t>(index)] : 0.0f;
             }
             for (int i = 0; i < block; ++i)
                 padded[static_cast<std::size_t>(hist + i)] =

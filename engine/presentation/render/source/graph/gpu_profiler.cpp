@@ -103,18 +103,18 @@ namespace SushiEngine
                 return true;
             }
 
-            void GPUProfiler::begin_frame(std::uint32_t slot_index, VkCommandBuffer cmd)
+            void GPUProfiler::begin_frame(std::uint32_t slot_index, VkCommandBuffer command)
             {
                 if (!enabled_ || slot_index >= slots_.size())
                     return;
                 recording_slot_ = slot_index;
                 Slot& slot = slots_[slot_index];
-                vkCmdResetQueryPool(cmd, slot.pool, 0, max_passes_ * 2);
+                vkCmdResetQueryPool(command, slot.pool, 0, max_passes_ * 2);
                 slot.names.clear();
                 slot.recorded = 0;
             }
 
-            std::uint32_t GPUProfiler::begin_pass(VkCommandBuffer cmd, const char* name)
+            std::uint32_t GPUProfiler::begin_pass(VkCommandBuffer command, const char* name)
             {
                 if (!enabled_ || recording_slot_ >= slots_.size())
                     return INVALID_TIMER;
@@ -124,15 +124,16 @@ namespace SushiEngine
 
                 const std::uint32_t timer = slot.recorded++;
                 slot.names.emplace_back(name != nullptr ? name : "pass");
-                vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, slot.pool, timer * 2);
+                vkCmdWriteTimestamp2(command, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, slot.pool,
+                                     timer * 2);
                 return timer;
             }
 
-            void GPUProfiler::end_pass(VkCommandBuffer cmd, std::uint32_t timer)
+            void GPUProfiler::end_pass(VkCommandBuffer command, std::uint32_t timer)
             {
                 if (!enabled_ || timer == INVALID_TIMER || recording_slot_ >= slots_.size())
                     return;
-                vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                vkCmdWriteTimestamp2(command, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
                                      slots_[recording_slot_].pool, timer * 2 + 1);
             }
         } // namespace Graph

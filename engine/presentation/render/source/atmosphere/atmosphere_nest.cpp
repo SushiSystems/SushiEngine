@@ -199,18 +199,18 @@ namespace SushiEngine
                 class TimedSection
                 {
                     public:
-                        TimedSection(Graph::GPUProfiler* profiler, VkCommandBuffer cmd,
+                        TimedSection(Graph::GPUProfiler* profiler, VkCommandBuffer command,
                                      const char* name)
-                            : profiler_(profiler), cmd_(cmd),
+                            : profiler_(profiler), command_(command),
                               timer_(profiler != nullptr
-                                         ? profiler->begin_pass(cmd, name)
+                                         ? profiler->begin_pass(command, name)
                                          : Graph::GPUProfiler::INVALID_TIMER)
                         {
                         }
                         ~TimedSection()
                         {
                             if (profiler_ != nullptr)
-                                profiler_->end_pass(cmd_, timer_);
+                                profiler_->end_pass(command_, timer_);
                         }
 
                         TimedSection(const TimedSection&) = delete;
@@ -218,11 +218,11 @@ namespace SushiEngine
 
                     private:
                         Graph::GPUProfiler* profiler_;
-                        VkCommandBuffer cmd_;
+                        VkCommandBuffer command_;
                         std::uint32_t timer_;
                 };
 
-                void barrier(VkCommandBuffer cmd)
+                void barrier(VkCommandBuffer command)
                 {
                     VkMemoryBarrier2 memory{};
                     memory.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -237,7 +237,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.memoryBarrierCount = 1;
                     dependency.pMemoryBarriers = &memory;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -252,10 +252,10 @@ namespace SushiEngine
                 // the boundary cell, which is where the Davies zone has already nudged the
                 // solution toward the parent — so the clamp returns the most nearly correct value
                 // available rather than wrapping into the far side of the domain.
-                Resources::SamplerDescription sampler_desc{};
-                sampler_desc.filter = VK_FILTER_LINEAR;
-                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description{};
+                sampler_description.filter = VK_FILTER_LINEAR;
+                sampler_description.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                sampler_ = samplers.get(sampler_description);
 
                 mirror_columns_.resize(std::size_t(ATMOSPHERE_MIRROR_CELLS) *
                                        std::size_t(ATMOSPHERE_MIRROR_CELLS));
@@ -419,8 +419,8 @@ namespace SushiEngine
                         *mapped = info_out.pMappedData;
                 };
 
-                make(params_, params_allocation_, &params_mapped_, sizeof(NestParameters),
-                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
+                make(parameters_, parameters_allocation_, &parameters_mapped_,
+                     sizeof(NestParameters), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
 
                 const VkDeviceSize mirror_bytes = sizeof(AtmosphereMirrorColumn) *
                                                   std::size_t(ATMOSPHERE_MIRROR_CELLS) *
@@ -463,7 +463,7 @@ namespace SushiEngine
                     buffer = VK_NULL_HANDLE;
                     allocation = VK_NULL_HANDLE;
                 };
-                drop(params_, params_allocation_);
+                drop(parameters_, parameters_allocation_);
                 drop(mirror_, mirror_allocation_);
                 drop(profile_, profile_allocation_);
                 drop(forcing_staging_, forcing_staging_allocation_);
@@ -484,10 +484,10 @@ namespace SushiEngine
 
                 for (std::uint32_t stage = 0; stage < STAGE_COUNT; ++stage)
                 {
-                    const StageDescription& desc = STAGES[stage];
+                    const StageDescription& description = STAGES[stage];
                     VkDescriptorSetLayoutBinding bindings[16]{};
                     std::uint32_t count = 0;
-                    for (const char* c = desc.bindings; *c != '\0'; ++c, ++count)
+                    for (const char* c = description.bindings; *c != '\0'; ++c, ++count)
                     {
                         bindings[count].binding = count;
                         bindings[count].descriptorCount = 1;
@@ -524,13 +524,13 @@ namespace SushiEngine
 
                     VkPushConstantRange range{};
                     range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                    range.size = desc.push_size;
+                    range.size = description.push_size;
 
                     VkPipelineLayoutCreateInfo pipeline_info{};
                     pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                     pipeline_info.setLayoutCount = 1;
                     pipeline_info.pSetLayouts = &layouts_[stage];
-                    pipeline_info.pushConstantRangeCount = desc.push_size > 0 ? 1u : 0u;
+                    pipeline_info.pushConstantRangeCount = description.push_size > 0 ? 1u : 0u;
                     pipeline_info.pPushConstantRanges = &range;
                     Vulkan::check(vkCreatePipelineLayout(device_.device(), &pipeline_info, nullptr,
                                                          &pipeline_layouts_[stage]),
@@ -714,7 +714,7 @@ namespace SushiEngine
 
             void AtmosphereNest::upload_parameters(const AtmosphereNestParameters& p, float dt)
             {
-                if (params_mapped_ == nullptr)
+                if (parameters_mapped_ == nullptr)
                     return;
                 NestParameters block{};
                 block.gas_constant_dry = p.gas_constant_dry;
@@ -788,7 +788,7 @@ namespace SushiEngine
                 // the same reason — the parameter block is uploaded once per step and this is
                 // one of its fields, not something to thread through every record call.
                 block.coriolis = coriolis_;
-                std::memcpy(params_mapped_, &block, sizeof(NestParameters));
+                std::memcpy(parameters_mapped_, &block, sizeof(NestParameters));
             }
 
             VkDescriptorSet AtmosphereNest::allocate(std::uint32_t stage, std::uint32_t slot)
@@ -804,7 +804,7 @@ namespace SushiEngine
                 return set;
             }
 
-            void AtmosphereNest::prepare_layouts(VkCommandBuffer cmd)
+            void AtmosphereNest::prepare_layouts(VkCommandBuffer command)
             {
                 if (layouts_ready_)
                     return;
@@ -848,10 +848,10 @@ namespace SushiEngine
                 dependency.imageMemoryBarrierCount =
                     std::uint32_t(sizeof(images) / sizeof(images[0]));
                 dependency.pImageMemoryBarriers = barriers;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
             }
 
-            void AtmosphereNest::upload_forcing(VkCommandBuffer cmd,
+            void AtmosphereNest::upload_forcing(VkCommandBuffer command,
                                                 const AtmosphereForcing& forcing)
             {
                 if (forcing_staging_mapped_ == nullptr)
@@ -892,10 +892,10 @@ namespace SushiEngine
                 copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 copy.imageSubresource.layerCount = 1;
                 copy.imageExtent = {ATMOSPHERE_FORCING_MAX_CELLS, ATMOSPHERE_FORCING_MAX_CELLS, 1};
-                vkCmdCopyBufferToImage(cmd, forcing_staging_, forcing_.image,
+                vkCmdCopyBufferToImage(command, forcing_staging_, forcing_.image,
                                        VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
                 copy.bufferOffset = VkDeviceSize(vertical_base) * sizeof(float);
-                vkCmdCopyBufferToImage(cmd, forcing_staging_, forcing_vertical_.image,
+                vkCmdCopyBufferToImage(command, forcing_staging_, forcing_vertical_.image,
                                        VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
 
                 VkMemoryBarrier2 memory{};
@@ -909,10 +909,10 @@ namespace SushiEngine
                 dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                 dependency.memoryBarrierCount = 1;
                 dependency.pMemoryBarriers = &memory;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
             }
 
-            void AtmosphereNest::record_shift(VkCommandBuffer cmd, std::int32_t shift_x,
+            void AtmosphereNest::record_shift(VkCommandBuffer command, std::int32_t shift_x,
                                               std::int32_t shift_z,
                                               const AtmosphereForcing& forcing)
             {
@@ -933,10 +933,10 @@ namespace SushiEngine
                                                             double(forcing.uv_scale_z) *
                                                                 forcing.observer_z);
 
-                TimedSection timed(profiler_.get(), cmd, "shift");
+                TimedSection timed(profiler_.get(), command, "shift");
                 const VkDescriptorSet set = allocate(STAGE_SHIFT, slot_);
                 Resources::DescriptorWriter writer;
-                writer.uniform_buffer(0, params_, sizeof(NestParameters));
+                writer.uniform_buffer(0, parameters_, sizeof(NestParameters));
                 const Volume* sources[] = {&wind_x_.front, &wind_y_.front, &wind_z_.front,
                                            &theta_.front, &moisture_.front};
                 const Volume* targets[] = {&wind_x_.back, &wind_y_.back, &wind_z_.back,
@@ -951,15 +951,15 @@ namespace SushiEngine
                 writer.storage_image(13, surface_.back.view, VK_IMAGE_LAYOUT_GENERAL);
                 writer.update(device_.device(), set);
 
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                   stage_pipelines_[STAGE_SHIFT]);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                pipeline_layouts_[STAGE_SHIFT], 0, set);
-                vkCmdPushConstants(cmd, pipeline_layouts_[STAGE_SHIFT],
+                vkCmdPushConstants(command, pipeline_layouts_[STAGE_SHIFT],
                                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-                vkCmdDispatch(cmd, groups(size_.cells_x, GROUP_3D), groups(size_.levels, GROUP_3D),
-                              groups(size_.cells_z, GROUP_3D));
-                barrier(cmd);
+                vkCmdDispatch(command, groups(size_.cells_x, GROUP_3D),
+                              groups(size_.levels, GROUP_3D), groups(size_.cells_z, GROUP_3D));
+                barrier(command);
 
                 wind_x_.swap();
                 wind_y_.swap();
@@ -969,8 +969,9 @@ namespace SushiEngine
                 surface_.swap();
             }
 
-            void AtmosphereNest::record_step(VkCommandBuffer cmd, const AtmosphereForcing& forcing,
-                                             double step_seconds, bool timed)
+            void AtmosphereNest::record_step(VkCommandBuffer command,
+                                             const AtmosphereForcing& forcing, double step_seconds,
+                                             bool timed)
             {
                 const std::uint32_t gx = groups(size_.cells_x, GROUP_3D);
                 const std::uint32_t gy = groups(size_.levels, GROUP_3D);
@@ -985,29 +986,29 @@ namespace SushiEngine
                 const auto begin = [&](std::uint32_t stage, Resources::DescriptorWriter& writer)
                 {
                     const VkDescriptorSet set = allocate(stage, slot_);
-                    writer.uniform_buffer(0, params_, sizeof(NestParameters));
+                    writer.uniform_buffer(0, parameters_, sizeof(NestParameters));
                     return set;
                 };
                 const auto dispatch = [&](std::uint32_t stage, VkDescriptorSet set,
                                           const void* push, std::uint32_t push_size,
                                           std::uint32_t x, std::uint32_t y, std::uint32_t z)
                 {
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                       stage_pipelines_[stage]);
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    pipeline_layouts_[stage], 0, set);
                     if (push_size > 0)
-                        vkCmdPushConstants(cmd, pipeline_layouts_[stage],
+                        vkCmdPushConstants(command, pipeline_layouts_[stage],
                                            VK_SHADER_STAGE_COMPUTE_BIT, 0, push_size, push);
-                    vkCmdDispatch(cmd, x, y, z);
-                    barrier(cmd);
+                    vkCmdDispatch(command, x, y, z);
+                    barrier(command);
                 };
 
                 // 1. Transport the momentum, then the scalars *with the transported momentum* —
                 //    the order a semi-Lagrangian step wants, because the scalars should follow
                 //    the flow this step ends with rather than the one it started from.
                 {
-                    TimedSection timed(profiler, cmd, "advect wind");
+                    TimedSection timed(profiler, command, "advect wind");
                     Resources::DescriptorWriter writer;
                     const VkDescriptorSet set = begin(STAGE_ADVECT_VELOCITY, writer);
                     writer.sampled_image(1, wind_x_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
@@ -1023,7 +1024,7 @@ namespace SushiEngine
                     wind_z_.swap();
                 }
                 {
-                    TimedSection timed(profiler, cmd, "advect scalars");
+                    TimedSection timed(profiler, command, "advect scalars");
                     Resources::DescriptorWriter writer;
                     const VkDescriptorSet set = begin(STAGE_ADVECT_SCALARS, writer);
                     writer.sampled_image(1, wind_x_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
@@ -1045,7 +1046,7 @@ namespace SushiEngine
                 //    solving the surface energy balance against the air the advection just
                 //    delivered, which is the state it should be exchanging with.
                 {
-                    TimedSection timed(profiler, cmd, "surface");
+                    TimedSection timed(profiler, command, "surface");
                     SurfacePushBlock push{};
                     double origin_x = 0.0;
                     double origin_z = 0.0;
@@ -1081,7 +1082,7 @@ namespace SushiEngine
                 //    diffusion, the sponge, the surface fluxes the stage above solved, and the
                 //    lateral relaxation.
                 {
-                    TimedSection timed(profiler, cmd, "forces");
+                    TimedSection timed(profiler, command, "forces");
                     ForcePushBlock push{};
                     double origin_x = 0.0;
                     double origin_z = 0.0;
@@ -1115,7 +1116,7 @@ namespace SushiEngine
                 // 4. The anelastic projection: measure the mass divergence the provisional
                 //    velocity carries, solve for the pressure that removes it, remove it.
                 {
-                    TimedSection timed(profiler, cmd, "divergence");
+                    TimedSection timed(profiler, command, "divergence");
                     Resources::DescriptorWriter writer;
                     const VkDescriptorSet set = begin(STAGE_DIVERGENCE, writer);
                     writer.sampled_image(1, wind_x_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
@@ -1132,7 +1133,7 @@ namespace SushiEngine
                     // relaxation — `pressure_iterations` is the knob, so the cost of all of the
                     // sweeps together is the number that decides whether turning it down is
                     // worth anything.
-                    TimedSection timed(profiler, cmd, "pressure");
+                    TimedSection timed(profiler, command, "pressure");
                     for (std::uint32_t sweep = 0; sweep < pressure_sweeps_; ++sweep)
                     {
                         // Red then black. The previous step's solution is left in place as this
@@ -1154,7 +1155,7 @@ namespace SushiEngine
                     }
                 }
                 {
-                    TimedSection timed(profiler, cmd, "project");
+                    TimedSection timed(profiler, command, "project");
                     Resources::DescriptorWriter writer;
                     const VkDescriptorSet set = begin(STAGE_PROJECT, writer);
                     writer.sampled_image(1, pressure_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
@@ -1168,7 +1169,7 @@ namespace SushiEngine
                 // 5. The microphysics, on a flow that now transports mass consistently — which
                 //    is the precondition for condensate to concentrate where the updraft is.
                 {
-                    TimedSection timed(profiler, cmd, "microphysics");
+                    TimedSection timed(profiler, command, "microphysics");
                     Resources::DescriptorWriter writer;
                     const VkDescriptorSet set = begin(STAGE_MICROPHYSICS, writer);
                     writer.storage_image(1, theta_.front.view, VK_IMAGE_LAYOUT_GENERAL);
@@ -1180,7 +1181,7 @@ namespace SushiEngine
 
             }
 
-            void AtmosphereNest::record_clear(VkCommandBuffer cmd)
+            void AtmosphereNest::record_clear(VkCommandBuffer command)
             {
                 // The volumes that hold undefined memory on the seed frame. Three of them are
                 // step outputs `atmosphere_shift.comp` does not write, because it seeds the
@@ -1208,7 +1209,7 @@ namespace SushiEngine
                                           surface_rain_.image, surface_.front.image,
                                           surface_.back.image, cloud_shade_.image};
                 for (VkImage image : images)
-                    vkCmdClearColorImage(cmd, image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+                    vkCmdClearColorImage(command, image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
 
                 VkMemoryBarrier2 memory{};
                 memory.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -1222,42 +1223,42 @@ namespace SushiEngine
                 dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                 dependency.memoryBarrierCount = 1;
                 dependency.pMemoryBarriers = &memory;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
             }
 
-            void AtmosphereNest::record_extinction(VkCommandBuffer cmd)
+            void AtmosphereNest::record_extinction(VkCommandBuffer command)
             {
                 // What the rest of the engine sees. Recorded separately from the step because a
                 // frame that only *shifts* still needs it: the shift moves the lattice, and the
                 // cloudscape bake addresses this field through the nest's new origin, so leaving
                 // yesterday's extinction behind a moved mapping draws the sky offset by however
                 // many cells the camera travelled.
-                TimedSection timed(profiler_.get(), cmd, "extinction");
+                TimedSection timed(profiler_.get(), command, "extinction");
                 const VkDescriptorSet set = allocate(STAGE_EXTINCTION, slot_);
                 Resources::DescriptorWriter writer;
-                writer.uniform_buffer(0, params_, sizeof(NestParameters));
+                writer.uniform_buffer(0, parameters_, sizeof(NestParameters));
                 writer.sampled_image(1, moisture_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.storage_image(2, extinction_.view, VK_IMAGE_LAYOUT_GENERAL);
                 writer.storage_image(3, cloud_shade_.view, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(4, theta_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.update(device_.device(), set);
 
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                   stage_pipelines_[STAGE_EXTINCTION]);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                pipeline_layouts_[STAGE_EXTINCTION], 0, set);
-                vkCmdDispatch(cmd, groups(size_.cells_x, GROUP_3D), groups(size_.levels, GROUP_3D),
-                              groups(size_.cells_z, GROUP_3D));
-                barrier(cmd);
+                vkCmdDispatch(command, groups(size_.cells_x, GROUP_3D),
+                              groups(size_.levels, GROUP_3D), groups(size_.cells_z, GROUP_3D));
+                barrier(command);
             }
 
-            void AtmosphereNest::record_readback(VkCommandBuffer cmd, std::uint32_t slot)
+            void AtmosphereNest::record_readback(VkCommandBuffer command, std::uint32_t slot)
             {
-                TimedSection timed(profiler_.get(), cmd, "readback");
+                TimedSection timed(profiler_.get(), command, "readback");
                 ReadbackPush push{ATMOSPHERE_MIRROR_CELLS};
                 const VkDescriptorSet set = allocate(STAGE_READBACK, slot);
                 Resources::DescriptorWriter writer;
-                writer.uniform_buffer(0, params_, sizeof(NestParameters));
+                writer.uniform_buffer(0, parameters_, sizeof(NestParameters));
                 writer.sampled_image(1, extinction_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(2, moisture_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(3, theta_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
@@ -1276,13 +1277,13 @@ namespace SushiEngine
                 writer.sampled_image(11, surface_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.update(device_.device(), set);
 
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                   stage_pipelines_[STAGE_READBACK]);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                pipeline_layouts_[STAGE_READBACK], 0, set);
-                vkCmdPushConstants(cmd, pipeline_layouts_[STAGE_READBACK],
+                vkCmdPushConstants(command, pipeline_layouts_[STAGE_READBACK],
                                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-                vkCmdDispatch(cmd, groups(ATMOSPHERE_MIRROR_CELLS, GROUP_2D),
+                vkCmdDispatch(command, groups(ATMOSPHERE_MIRROR_CELLS, GROUP_2D),
                               groups(ATMOSPHERE_MIRROR_CELLS, GROUP_2D), 1);
 
                 VkMemoryBarrier2 memory{};
@@ -1295,18 +1296,18 @@ namespace SushiEngine
                 dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                 dependency.memoryBarrierCount = 1;
                 dependency.pMemoryBarriers = &memory;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vkCmdPipelineBarrier2(command, &dependency);
 
                 VkBufferCopy copy{};
                 copy.size = sizeof(AtmosphereMirrorColumn) *
                             std::size_t(ATMOSPHERE_MIRROR_CELLS) *
                             std::size_t(ATMOSPHERE_MIRROR_CELLS);
-                vkCmdCopyBuffer(cmd, mirror_, mirror_slots_[slot].buffer, 1, &copy);
+                vkCmdCopyBuffer(command, mirror_, mirror_slots_[slot].buffer, 1, &copy);
 
                 VkBufferCopy profile_copy{};
                 profile_copy.size = sizeof(AtmosphereProfileLevel) *
                                     std::size_t(ATMOSPHERE_PROFILE_MAX_LEVELS);
-                vkCmdCopyBuffer(cmd, profile_, mirror_slots_[slot].profile_buffer, 1,
+                vkCmdCopyBuffer(command, profile_, mirror_slots_[slot].profile_buffer, 1,
                                 &profile_copy);
             }
 
@@ -1533,23 +1534,23 @@ namespace SushiEngine
                 }
                 upload_parameters(parameters, dt);
 
-                VkCommandBuffer cmd = commands_[slot];
-                Vulkan::check(vkResetCommandBuffer(cmd, 0), "vkResetCommandBuffer(atmosphere)");
+                VkCommandBuffer command = commands_[slot];
+                Vulkan::check(vkResetCommandBuffer(command, 0), "vkResetCommandBuffer(atmosphere)");
                 VkCommandBufferBeginInfo begin_info{};
                 begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                Vulkan::check(vkBeginCommandBuffer(cmd, &begin_info),
+                Vulkan::check(vkBeginCommandBuffer(command, &begin_info),
                               "vkBeginCommandBuffer(atmosphere)");
 
                 // Resets this slot's queries; every timestamp below is written into it. The
                 // outer section is recorded first and is therefore index 0 of the resolved
                 // list, which is what `publish_cost` reads the submission total off.
-                profiler_->begin_frame(slot, cmd);
+                profiler_->begin_frame(slot, command);
                 {
-                    TimedSection submission(profiler_.get(), cmd, "submission");
+                    TimedSection submission(profiler_.get(), command, "submission");
 
-                    prepare_layouts(cmd);
-                    upload_forcing(cmd, forcing);
+                    prepare_layouts(command);
+                    upload_forcing(command, forcing);
 
                     if (seeding)
                     {
@@ -1557,14 +1558,14 @@ namespace SushiEngine
                         // which is exactly "fill everything from the base state and the parent"
                         // — the seed is the degenerate case of the re-centre, not a second code
                         // path.
-                        record_clear(cmd);
-                        record_shift(cmd, std::int32_t(size_.cells_x), std::int32_t(size_.cells_z),
-                                     forcing);
+                        record_clear(command);
+                        record_shift(command, std::int32_t(size_.cells_x),
+                                     std::int32_t(size_.cells_z), forcing);
                         seeded_ = true;
                     }
                     else if (shifting)
                     {
-                        record_shift(cmd, shift_x, shift_z, forcing);
+                        record_shift(command, shift_x, shift_z, forcing);
                     }
 
                     // Several steps into one command buffer, sharing one upload of the parameter
@@ -1573,16 +1574,16 @@ namespace SushiEngine
                     // elevation, the parent solution) or passed per dispatch (the clock the
                     // thermal seed is drawn at).
                     for (std::uint32_t i = 0; i < steps; ++i)
-                        record_step(cmd, forcing,
+                        record_step(command, forcing,
                                     first_step_seconds + double(dt) * double(i), i == 0);
                     // Always, not only after a step: a seed or a shift changes what every cell
                     // holds and where it is, and both the cloudscape bake and the readback
                     // address this through the nest's current origin.
-                    record_extinction(cmd);
-                    record_readback(cmd, slot);
+                    record_extinction(command);
+                    record_readback(command, slot);
                 }
 
-                Vulkan::check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(atmosphere)");
+                Vulkan::check(vkEndCommandBuffer(command), "vkEndCommandBuffer(atmosphere)");
 
                 ++timeline_value_;
                 target.timeline_value = timeline_value_;
@@ -1592,9 +1593,9 @@ namespace SushiEngine
                 target.steps = steps;
                 origin(target.origin_x, target.origin_z);
 
-                VkCommandBufferSubmitInfo cmd_submit{};
-                cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                cmd_submit.commandBuffer = cmd;
+                VkCommandBufferSubmitInfo command_submit{};
+                command_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                command_submit.commandBuffer = command;
 
                 VkSemaphoreSubmitInfo signal{};
                 signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -1611,7 +1612,7 @@ namespace SushiEngine
                 submit.waitSemaphoreInfoCount = reader_count;
                 submit.pWaitSemaphoreInfos = reader_count > 0 ? readers : nullptr;
                 submit.commandBufferInfoCount = 1;
-                submit.pCommandBufferInfos = &cmd_submit;
+                submit.pCommandBufferInfos = &command_submit;
                 submit.signalSemaphoreInfoCount = 1;
                 submit.pSignalSemaphoreInfos = &signal;
                 Vulkan::check(vkQueueSubmit2(device_.graphics_queue(), 1, &submit, VK_NULL_HANDLE),

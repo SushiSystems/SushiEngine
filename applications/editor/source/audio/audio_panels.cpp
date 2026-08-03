@@ -221,7 +221,7 @@ namespace SushiEngine
             if (!ImGui::CollapsingHeader("Audio Emitter", ImGuiTreeNodeFlags_DefaultOpen))
                 return;
 
-            Simulation::AudioEmitterParameters p = world.audio_emitter_params(id);
+            Simulation::AudioEmitterParameters p = world.audio_emitter_parameters(id);
 
             auto slider = [&](const char* label, float* v, float lo, float hi, const char* fmt) {
                 const bool ch = ImGui::SliderFloat(label, v, lo, hi, fmt);
@@ -230,7 +230,7 @@ namespace SushiEngine
                 if (ImGui::IsItemDeactivatedAfterEdit())
                     context.history.end_change();
                 if (ch)
-                    world.set_audio_emitter_params(id, p);
+                    world.set_audio_emitter_parameters(id, p);
             };
 
             int sound = static_cast<int>(p.sound);
@@ -238,7 +238,7 @@ namespace SushiEngine
             {
                 context.history.record(world);
                 p.sound = static_cast<std::uint32_t>(sound < 0 ? 0 : sound);
-                world.set_audio_emitter_params(id, p);
+                world.set_audio_emitter_parameters(id, p);
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Play"))
@@ -258,7 +258,7 @@ namespace SushiEngine
             {
                 context.history.record(world);
                 p.bus = static_cast<std::uint32_t>(bus);
-                world.set_audio_emitter_params(id, p);
+                world.set_audio_emitter_parameters(id, p);
             }
 
             bool spatial = p.spatial;
@@ -266,7 +266,7 @@ namespace SushiEngine
             {
                 context.history.record(world);
                 p.spatial = spatial;
-                world.set_audio_emitter_params(id, p);
+                world.set_audio_emitter_parameters(id, p);
             }
             ImGui::SameLine();
             bool playing = p.playing;
@@ -274,7 +274,7 @@ namespace SushiEngine
             {
                 context.history.record(world);
                 p.playing = playing;
-                world.set_audio_emitter_params(id, p);
+                world.set_audio_emitter_parameters(id, p);
             }
             ImGui::SameLine();
             bool looping = p.looping;
@@ -282,7 +282,7 @@ namespace SushiEngine
             {
                 context.history.record(world);
                 p.looping = looping;
-                world.set_audio_emitter_params(id, p);
+                world.set_audio_emitter_parameters(id, p);
             }
 
             if (spatial)
@@ -293,7 +293,7 @@ namespace SushiEngine
                 {
                     context.history.record(world);
                     p.distance_model = static_cast<std::uint32_t>(model);
-                    world.set_audio_emitter_params(id, p);
+                    world.set_audio_emitter_parameters(id, p);
                 }
                 slider("Min distance", &p.min_distance, 0.1f, 100.0f, "%.1f m");
                 slider("Max distance", &p.max_distance, 1.0f, 500.0f, "%.1f m");
@@ -325,9 +325,9 @@ namespace SushiEngine
             if (!ImGui::CollapsingHeader("Reverb Zone", ImGuiTreeNodeFlags_DefaultOpen))
                 return;
 
-            Simulation::ReverbZoneParameters p = world.reverb_zone_params(id);
+            Simulation::ReverbZoneParameters p = world.reverb_zone_parameters(id);
 
-            auto apply = [&]() { world.set_reverb_zone_params(id, p); };
+            auto apply = [&]() { world.set_reverb_zone_parameters(id, p); };
             auto slider = [&](const char* label, float* v, float lo, float hi, const char* fmt) {
                 const bool ch = ImGui::SliderFloat(label, v, lo, hi, fmt);
                 if (ImGui::IsItemActivated())
@@ -397,7 +397,7 @@ namespace SushiEngine
             if (!ImGui::CollapsingHeader("Audio Listener", ImGuiTreeNodeFlags_DefaultOpen))
                 return;
 
-            Simulation::AudioListenerParameters p = world.audio_listener_params(id);
+            Simulation::AudioListenerParameters p = world.audio_listener_parameters(id);
 
             bool changed = false;
             const bool ch = ImGui::SliderFloat("Master gain", &p.gain, 0.0f, 2.0f, "%.2f");
@@ -415,7 +415,7 @@ namespace SushiEngine
                 changed = true;
             }
             if (changed)
-                world.set_audio_listener_params(id, p);
+                world.set_audio_listener_parameters(id, p);
 
             ImGui::TextDisabled("In-editor preview listens from the Scene camera;");
             ImGui::TextDisabled("this marks the ears for a running game.");

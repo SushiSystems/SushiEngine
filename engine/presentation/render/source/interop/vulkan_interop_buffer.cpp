@@ -83,12 +83,12 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Allocates the buffer and exports its memory.
-                     * @param device The live Vulkan device.
-                     * @param desc   Size and usage the buffer must satisfy.
+                     * @param device      The live Vulkan device.
+                     * @param description Size and usage the buffer must satisfy.
                      */
                     VulkanInteropBuffer(Vulkan::VulkanDevice& device,
-                                        const InteropBufferDescription& desc)
-                        : device_(device), size_(desc.size_bytes)
+                                        const InteropBufferDescription& description)
+                        : device_(device), size_(description.size_bytes)
                     {
                         // The buffer must be told at creation that its memory will be
                         // external; a driver may lay it out differently, so this cannot be
@@ -100,11 +100,11 @@ namespace SushiEngine
                         VkBufferCreateInfo buffer_info{};
                         buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
                         buffer_info.pNext = &external;
-                        buffer_info.size = desc.size_bytes;
+                        buffer_info.size = description.size_bytes;
                         buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                             VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                        if (desc.device_address)
+                        if (description.device_address)
                             buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
                         // Simulation output is written by one API and read by the other, so
                         // the graphics and compute families both address it.
@@ -135,7 +135,7 @@ namespace SushiEngine
 
                         VkMemoryAllocateFlagsInfo flags{};
                         flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
-                        flags.flags = desc.device_address
+                        flags.flags = description.device_address
                                           ? VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT
                                           : 0;
                         flags.pNext = &export_info;
@@ -246,14 +246,15 @@ namespace SushiEngine
             };
         } // namespace
 
-        std::unique_ptr<IInteropBuffer> create_interop_buffer(IRenderDevice& device,
-                                                              const InteropBufferDescription& desc)
+        std::unique_ptr<IInteropBuffer> create_interop_buffer(
+            IRenderDevice& device, const InteropBufferDescription& description)
         {
             Vulkan::VulkanDevice& vulkan = static_cast<Vulkan::VulkanDevice&>(device);
-            if (!vulkan.supports_external_memory() || desc.size_bytes == 0)
+            if (!vulkan.supports_external_memory() || description.size_bytes == 0)
                 return nullptr;
 
-            std::unique_ptr<VulkanInteropBuffer> buffer(new VulkanInteropBuffer(vulkan, desc));
+            std::unique_ptr<VulkanInteropBuffer> buffer(
+                new VulkanInteropBuffer(vulkan, description));
             if (!buffer->valid())
                 return nullptr;
             return std::unique_ptr<IInteropBuffer>(buffer.release());

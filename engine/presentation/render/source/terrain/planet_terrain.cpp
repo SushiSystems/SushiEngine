@@ -70,12 +70,12 @@ namespace SushiEngine
             }
 
             PlanetTerrain::PlanetTerrain(Vulkan::VulkanDevice& device,
-                                         const PlanetTerrainDescription& desc)
-                : device_(device), source_(pack_), desc_(desc)
+                                         const PlanetTerrainDescription& description)
+                : device_(device), source_(pack_), description_(description)
             {
-                records_.reserve(desc.maximum_nodes);
-                nodes_.reserve(desc.maximum_nodes);
-                misses_.reserve(desc.maximum_nodes);
+                records_.reserve(description.maximum_nodes);
+                nodes_.reserve(description.maximum_nodes);
+                misses_.reserve(description.maximum_nodes);
                 scratch_.resize(Field::TILE_SAMPLE_COUNT);
             }
 
@@ -93,7 +93,7 @@ namespace SushiEngine
                 // body after it: its slots carry no identity beyond what the residency says
                 // they hold, so a new body needs the index cleared and nothing else.
                 if (!cache_)
-                    cache_ = std::make_unique<TileCache>(device_, desc_.slot_count);
+                    cache_ = std::make_unique<TileCache>(device_, description_.slot_count);
                 else
                     cache_->forget_all();
             }
@@ -126,11 +126,11 @@ namespace SushiEngine
                 cache_->begin_frame(view.frame_index, view.frame_slot);
 
                 Field::QuadtreeParameters parameters;
-                parameters.screen_error_pixels = desc_.screen_error_pixels;
+                parameters.screen_error_pixels = description_.screen_error_pixels;
                 parameters.viewport_height_pixels = view.viewport_height_pixels;
                 parameters.vertical_field_of_view_radians = view.vertical_field_of_view_radians;
-                parameters.maximum_depth = desc_.maximum_depth;
-                parameters.maximum_nodes = desc_.maximum_nodes;
+                parameters.maximum_depth = description_.maximum_depth;
+                parameters.maximum_nodes = description_.maximum_nodes;
                 parameters.frustum = view.frustum;
                 statistics_ = Field::select_terrain_nodes(ellipsoid, source_,
                                                           view.camera_body_fixed, parameters,

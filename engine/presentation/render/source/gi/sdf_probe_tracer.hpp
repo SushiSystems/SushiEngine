@@ -88,7 +88,8 @@ namespace SushiEngine
                     SDFProbeTracer(const SDFProbeTracer&) = delete;
                     SDFProbeTracer& operator=(const SDFProbeTracer&) = delete;
 
-                    void relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs) override;
+                    void relight(VkCommandBuffer command,
+                                 const ProbeRelightInputs& inputs) override;
                     const char* name() const noexcept override { return "sdf"; }
                     void rebuild_pipelines() override;
 

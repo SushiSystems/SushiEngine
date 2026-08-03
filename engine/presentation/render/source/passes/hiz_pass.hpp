@@ -105,8 +105,9 @@ namespace SushiEngine
                 private:
                     struct Push
                     {
-                        std::uint32_t a[4]; /**< level, dst_w, dst_h, src_w. */
-                        std::uint32_t b[4]; /**< src_h. */
+                        /** @brief level, destination width, destination height, source width. */
+                        std::uint32_t a[4];
+                        std::uint32_t b[4]; /**< source height. */
                         float c[4];         /**< near. */
                     };
 

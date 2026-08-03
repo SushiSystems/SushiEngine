@@ -84,14 +84,14 @@ namespace SushiEngine
                 return false;
             }
 
-            SkeletonDescription desc;
-            desc.joints.resize(skin.joints_count);
-            desc.has_inverse_bind = skin.inverse_bind_matrices != nullptr;
+            SkeletonDescription description;
+            description.joints.resize(skin.joints_count);
+            description.has_inverse_bind = skin.inverse_bind_matrices != nullptr;
 
             for (cgltf_size j = 0; j < skin.joints_count; ++j)
             {
                 const cgltf_node* node = skin.joints[j];
-                JointDescription& joint = desc.joints[j];
+                JointDescription& joint = description.joints[j];
                 joint.name = node->name != nullptr ? std::string(node->name)
                                                    : "joint_" + std::to_string(j);
                 joint.parent = joint_index_of(skin, node->parent);
@@ -118,7 +118,7 @@ namespace SushiEngine
 
                 // glTF stores inverse-bind matrices column-major, the same layout as
                 // JointMatrix, so a well-formed read is a straight copy.
-                if (desc.has_inverse_bind)
+                if (description.has_inverse_bind)
                 {
                     float ibm[16];
                     if (cgltf_accessor_read_float(skin.inverse_bind_matrices, j, ibm, 16))
@@ -128,7 +128,7 @@ namespace SushiEngine
             }
 
             cgltf_free(data);
-            return build_skeleton_blob(desc, out_blob);
+            return build_skeleton_blob(description, out_blob);
         }
     } // namespace Animation
 } // namespace SushiEngine

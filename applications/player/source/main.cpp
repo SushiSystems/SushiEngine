@@ -92,18 +92,18 @@ int main(int argc, char** argv)
                 manifest.scene_path = arg; // a bare positional path
         }
 
-        SushiEngine::Player::PlayerApp::Description desc;
-        desc.scene_path = manifest.scene_path;
-        desc.window_title = manifest.window_title;
-        desc.width = manifest.width;
-        desc.height = manifest.height;
-        desc.enable_validation = manifest.enable_validation;
-        desc.organization = manifest.organization;
-        desc.application = manifest.application;
-        desc.headless = headless;
+        SushiEngine::Player::PlayerApp::Description description;
+        description.scene_path = manifest.scene_path;
+        description.window_title = manifest.window_title;
+        description.width = manifest.width;
+        description.height = manifest.height;
+        description.enable_validation = manifest.enable_validation;
+        description.organization = manifest.organization;
+        description.application = manifest.application;
+        description.headless = headless;
 
         SushiEngine::Player::PlayerApp app;
-        app.start(desc);
+        app.start(description);
 
         if (headless)
         {

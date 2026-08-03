@@ -32,7 +32,7 @@
  *   1. Runs headless and self-checks the FDN directly: an impulse produces a bounded,
  *      decaying tail (no blow-up, no infinite ring); a 50 ms predelay leaves the wet
  *      output silent until the tail arrives; a longer requested decay measurably rings
- *      longer than a short one; and the shoebox room factory yields sane I3DL2 params.
+ *      longer than a short one; and the shoebox room factory yields sane I3DL2 parameters.
  *      No hardware needed — this is the CI check.
  *   2. Best-effort plays a percussive pattern through the reverb aux bus so the tail is
  *      audible (headphones or speakers).
@@ -107,7 +107,7 @@ int main()
         I3DL2Reverb p = I3DL2Reverb::concert_hall();
         p.wet_dry_mix = 100.0f;
         p.reverb_delay = 0.01f;
-        reverb.set_params(p);
+        reverb.set_parameters(p);
 
         const DecayProfile prof = impulse_response(reverb, sample_rate, block);
         std::printf("concert_hall: peak=%.4f early=%.4f late=%.4f\n",
@@ -131,7 +131,7 @@ int main()
         I3DL2Reverb p = I3DL2Reverb::generic();
         p.reverb_delay = 0.05f;
         p.wet_dry_mix = 100.0f;
-        reverb.set_params(p);
+        reverb.set_parameters(p);
 
         std::vector<float> l(block, 0.0f), r(block, 0.0f);
         l[0] = r[0] = 1.0f;
@@ -157,8 +157,8 @@ int main()
         ps.reverb_delay = 0.005f; ps.room = 0.0f; ps.reverb = 0.0f;
         I3DL2Reverb pl = ps;
         pl.decay_time = 3.0f;
-        shortv.set_params(ps);
-        longv.set_params(pl);
+        shortv.set_parameters(ps);
+        longv.set_parameters(pl);
 
         const double late_short = impulse_response(shortv, sample_rate, block).late;
         const double late_long = impulse_response(longv, sample_rate, block).late;
@@ -198,7 +198,7 @@ int main()
         std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
         I3DL2Reverb hall = I3DL2Reverb::concert_hall();
         hall.wet_dry_mix = 100.0f; // aux bus: pure wet, dry goes direct to master
-        fx->set_params(hall);
+        fx->set_parameters(hall);
         engine.mixer().add_insert(
             reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     }
@@ -210,8 +210,8 @@ int main()
     // tail is clearly audible between hits.
     static std::vector<float> blip;
     {
-        const int len = static_cast<int>(sample_rate * 0.6); // 600 ms cell
-        blip.assign(static_cast<std::size_t>(len), 0.0f);
+        const int length = static_cast<int>(sample_rate * 0.6); // 600 ms cell
+        blip.assign(static_cast<std::size_t>(length), 0.0f);
         const int hit = static_cast<int>(sample_rate * 0.12); // 120 ms hit
         for (int i = 0; i < hit; ++i)
         {

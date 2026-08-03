@@ -338,10 +338,11 @@ namespace SushiEngine
             }
 
             /** @brief Resolves a parameter name to its index, or -1. */
-            inline int find_parameter(const ControllerDescription& desc, const std::string& name)
+            inline int find_parameter(const ControllerDescription& description,
+                                      const std::string& name)
             {
-                for (std::size_t i = 0; i < desc.parameters.size(); ++i)
-                    if (desc.parameters[i].name == name)
+                for (std::size_t i = 0; i < description.parameters.size(); ++i)
+                    if (description.parameters[i].name == name)
                         return static_cast<int>(i);
                 return -1;
             }
@@ -387,8 +388,9 @@ namespace SushiEngine
                                 pair.delta_x = jx - ix;
                                 pair.delta_y = jy - iy;
                             }
-                            const float len_sq = pair.delta_x * pair.delta_x + pair.delta_y * pair.delta_y;
-                            pair.inv_length_sq = len_sq > 1e-12f ? 1.0f / len_sq : 0.0f;
+                            const float length_sq =
+                                pair.delta_x * pair.delta_x + pair.delta_y * pair.delta_y;
+                            pair.inv_length_sq = length_sq > 1e-12f ? 1.0f / length_sq : 0.0f;
                         }
                         pairs.push_back(pair);
                     }
@@ -482,20 +484,20 @@ namespace SushiEngine
          * Flattens layers, states, transitions, conditions, and events into index-linked POD
          * arrays: a state's transition indices are into one global transition array, a
          * transition's conditions into one global condition array, and so on. State and
-         * parameter names in the desc are resolved to indices here, so the runtime never
+         * parameter names in the description are resolved to indices here, so the runtime never
          * matches a string. Any-State transitions compile to a per-layer span.
          *
-         * @param desc The authored controller.
+         * @param description The authored controller.
          * @param out  Receives the blob bytes; cleared first. Empty on failure.
          * @return True on success; false if a referenced state/parameter name is unknown, or
          *         a layer/parameter count exceeds its cap.
          */
-        inline bool compile_controller_blob(const ControllerDescription& desc,
+        inline bool compile_controller_blob(const ControllerDescription& description,
                                             std::vector<std::byte>& out)
         {
             out.clear();
-            if (desc.layers.empty() || desc.layers.size() > MAX_LAYERS ||
-                desc.parameters.size() > MAX_PARAMETERS)
+            if (description.layers.empty() || description.layers.size() > MAX_LAYERS ||
+                description.parameters.size() > MAX_PARAMETERS)
                 return false;
 
             std::vector<ParameterRecord> parameters;
@@ -508,7 +510,7 @@ namespace SushiEngine
             std::vector<BlendTreeChildRecord> children;
             std::vector<BlendPairRecord> pairs;
 
-            for (const ParameterDescription& p : desc.parameters)
+            for (const ParameterDescription& p : description.parameters)
             {
                 ParameterRecord record;
                 record.name = hash_name(p.name.c_str());
@@ -547,7 +549,7 @@ namespace SushiEngine
                     record.condition_count = static_cast<std::uint32_t>(t.conditions.size());
                     for (const ConditionDescription& c : t.conditions)
                     {
-                        const int parameter = detail::find_parameter(desc, c.parameter);
+                        const int parameter = detail::find_parameter(description, c.parameter);
                         if (parameter < 0)
                             return false;
                         ConditionRecord condition;
@@ -562,15 +564,16 @@ namespace SushiEngine
                 return true;
             };
 
-            for (const LayerDescription& layer : desc.layers)
+            for (const LayerDescription& layer : description.layers)
             {
                 LayerRecord layer_record;
                 layer_record.weight = layer.weight;
                 layer_record.mask = layer.mask;
                 layer_record.blend_mode = static_cast<std::uint32_t>(layer.blend_mode);
                 layer_record.weight_parameter =
-                    layer.weight_parameter.empty() ? -1
-                                                   : detail::find_parameter(desc, layer.weight_parameter);
+                    layer.weight_parameter.empty()
+                        ? -1
+                        : detail::find_parameter(description, layer.weight_parameter);
                 if (!layer.weight_parameter.empty() && layer_record.weight_parameter < 0)
                     return false;
                 layer_record.state_base = static_cast<std::uint32_t>(states.size());
@@ -594,13 +597,13 @@ namespace SushiEngine
                     state_record.speed_parameter =
                         state.speed_parameter.empty()
                             ? -1
-                            : detail::find_parameter(desc, state.speed_parameter);
+                            : detail::find_parameter(description, state.speed_parameter);
                     state_record.cycle_offset = state.cycle_offset;
                     state_record.name = hash_name(state.name.c_str());
                     if (state.blend_tree)
                     {
-                        const int root = detail::flatten_blend_tree(desc, *state.blend_tree, nodes,
-                                                                    children, pairs);
+                        const int root = detail::flatten_blend_tree(description, *state.blend_tree,
+                                                                    nodes, children, pairs);
                         if (root < 0)
                             return false;
                         state_record.blend_tree = root;

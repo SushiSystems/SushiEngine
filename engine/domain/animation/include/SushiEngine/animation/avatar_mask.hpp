@@ -127,17 +127,17 @@ namespace SushiEngine
 
         /**
          * @brief Cooks a mask description into a relocatable `.sushimask` blob.
-         * @param desc The authored mask.
+         * @param description The authored mask.
          * @param out  Receives the blob bytes; cleared first, empty on failure.
          * @return True on success; false only if a section overflows the size type.
          */
-        inline bool build_mask_blob(const MaskDescription& desc, std::vector<std::byte>& out)
+        inline bool build_mask_blob(const MaskDescription& description, std::vector<std::byte>& out)
         {
             out.clear();
 
             std::vector<MaskEntryRecord> entries;
-            entries.reserve(desc.entries.size());
-            for (const MaskDescription::Entry& e : desc.entries)
+            entries.reserve(description.entries.size());
+            for (const MaskDescription::Entry& e : description.entries)
             {
                 MaskEntryRecord record;
                 record.name = hash_name(e.joint.c_str());
@@ -157,7 +157,7 @@ namespace SushiEngine
             std::memcpy(header.magic, MASK_BLOB_MAGIC, sizeof(header.magic));
             header.version = MASK_BLOB_VERSION;
             header.entry_count = static_cast<std::uint32_t>(entries.size());
-            header.default_weight = desc.default_weight;
+            header.default_weight = description.default_weight;
             header.total_size = static_cast<std::uint32_t>(total_size);
             header.entries_offset = static_cast<std::uint32_t>(entries_offset);
             header.reserved = 0;

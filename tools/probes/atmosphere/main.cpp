@@ -641,9 +641,9 @@ int main(int argc, char** argv)
 
     try
     {
-        SushiEngine::Render::RenderDeviceDescription desc;
-        desc.enable_validation = options.validation;
-        SushiEngine::Render::Vulkan::VulkanDevice device(desc);
+        SushiEngine::Render::RenderDeviceDescription description;
+        description.enable_validation = options.validation;
+        SushiEngine::Render::Vulkan::VulkanDevice device(description);
         std::printf("device: %s\n", device.info().name.c_str());
 
         // No watch directory: the probe runs the shaders the binary was built with, so a run is

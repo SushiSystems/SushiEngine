@@ -57,7 +57,7 @@ namespace SushiEngine
                     return (extent + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from,
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout from,
                                 VkImageLayout to, VkPipelineStageFlags2 source,
                                 VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
                                 VkAccessFlags2 destination_access)
@@ -81,7 +81,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -228,10 +228,10 @@ namespace SushiEngine
                 // which is exactly the property the near/far cross-fade and the sun marches rely
                 // on. Linear filtering smooths the block boundaries the bake's discrete texels
                 // leave, as before.
-                Resources::SamplerDescription sampler_desc{};
-                sampler_desc.filter = VK_FILTER_LINEAR;
-                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description{};
+                sampler_description.filter = VK_FILTER_LINEAR;
+                sampler_description.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                sampler_ = samplers.get(sampler_description);
 
                 create_catalogue();
                 create_pipelines();
@@ -502,7 +502,7 @@ namespace SushiEngine
                 for (int i = 0; i < 4; ++i)
                 {
                     uniforms.atmosphere_nest_map[i] = 0.0f;
-                    uniforms.atmosphere_nest_params[i] = 0.0f;
+                    uniforms.atmosphere_nest_parameters[i] = 0.0f;
                 }
                 if (nest_ != nullptr && nest_->step_count() > 0)
                 {
@@ -521,15 +521,15 @@ namespace SushiEngine
                         static_cast<float>((frame.eye[0] - origin_x) * inverse_span);
                     uniforms.atmosphere_nest_map[3] =
                         static_cast<float>((frame.eye[2] - origin_z) * inverse_span);
-                    uniforms.atmosphere_nest_params[0] = size.top_m;
+                    uniforms.atmosphere_nest_parameters[0] = size.top_m;
                     // Uploaded already inverted so the bake's altitude -> W is one pow rather
                     // than a divide inside a per-texel loop.
-                    uniforms.atmosphere_nest_params[1] = 1.0f / ATMOSPHERE_VERTICAL_STRETCH;
-                    uniforms.atmosphere_nest_params[2] = 1.0f;
+                    uniforms.atmosphere_nest_parameters[1] = 1.0f / ATMOSPHERE_VERTICAL_STRETCH;
+                    uniforms.atmosphere_nest_parameters[2] = 1.0f;
                     // The extinction of the authored "fully overcast" water content, from the
                     // authored droplet radius: the scale the baked density states sigma against.
                     const AtmosphereNestParameters& physics = environment.atmosphere_nest;
-                    uniforms.atmosphere_nest_params[3] =
+                    uniforms.atmosphere_nest_parameters[3] =
                         3.0f * std::max(physics.coverage_reference_lwc, 1.0e-6f) /
                         (2.0f * physics.water_density *
                          std::max(physics.droplet_effective_radius, 1.0e-7f));
@@ -545,7 +545,7 @@ namespace SushiEngine
                     {
                         uniforms.cloud_field_near[i] = 0.0f;
                         uniforms.cloud_field_far[i] = 0.0f;
-                        uniforms.cloud_field_params[i] = 0.0f;
+                        uniforms.cloud_field_parameters[i] = 0.0f;
                         uniforms.cloud_field_pattern[i] = 0.0f;
                     }
                     near_window_.baked = false;
@@ -680,11 +680,11 @@ namespace SushiEngine
                            uniforms.cloud_field_near);
                 window_map(far_window_, FAR_SPAN_METERS, frame.eye, wind_x, wind_z,
                            uniforms.cloud_field_far);
-                uniforms.cloud_field_params[0] = near_window_.baked ? NEAR_SPAN_METERS : 0.0f;
-                uniforms.cloud_field_params[1] = far_window_.baked ? FAR_SPAN_METERS : 0.0f;
-                uniforms.cloud_field_params[2] =
+                uniforms.cloud_field_parameters[0] = near_window_.baked ? NEAR_SPAN_METERS : 0.0f;
+                uniforms.cloud_field_parameters[1] = far_window_.baked ? FAR_SPAN_METERS : 0.0f;
+                uniforms.cloud_field_parameters[2] =
                     NEAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ / SKIP_DOWNSAMPLE_XZ);
-                uniforms.cloud_field_params[3] = FAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ);
+                uniforms.cloud_field_parameters[3] = FAR_SPAN_METERS / float(FIELD_RESOLUTION_XZ);
                 // The pattern frame the march's analytic carve reconstructs world-anchored
                 // noise coordinates in (CloudsV2); the same float cast the bake's own push
                 // constants make, so the carve and the bake agree to the bit.
@@ -705,7 +705,7 @@ namespace SushiEngine
                 built_ = true;
             }
 
-            void CloudscapeCompilePass::record_density(VkCommandBuffer cmd,
+            void CloudscapeCompilePass::record_density(VkCommandBuffer command,
                                                        const Frame::FrameContext& frame,
                                                        VkBuffer uniform_buffer, Volume& target,
                                                        const Push& push,
@@ -715,7 +715,7 @@ namespace SushiEngine
                 // UNDEFINED discards, which is right only for a slab that starts a bake; an
                 // amortized continuation owns slices written in earlier frames and must keep
                 // them.
-                transition(cmd, target.image,
+                transition(command, target.image,
                            discard ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                            VK_IMAGE_LAYOUT_GENERAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
@@ -743,21 +743,21 @@ namespace SushiEngine
                                      nest_ != nullptr ? VK_IMAGE_LAYOUT_GENERAL
                                                       : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 writer.update(device_.device(), set);
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, field_pipeline_);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, field_pipeline_);
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                field_pipeline_layout_, 0, set);
                 Push slab = push;
                 slab.slab_base = slab_base;
-                vkCmdPushConstants(cmd, field_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                vkCmdPushConstants(command, field_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                    sizeof(Push), &slab);
-                vkCmdDispatch(cmd, groups(target.width), groups(target.height),
+                vkCmdDispatch(command, groups(target.width), groups(target.height),
                               groups(slab_depth));
             }
 
-            void CloudscapeCompilePass::record_skip(VkCommandBuffer cmd,
+            void CloudscapeCompilePass::record_skip(VkCommandBuffer command,
                                                     const Frame::FrameContext& frame)
             {
-                transition(cmd, skip_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                transition(command, skip_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -767,17 +767,18 @@ namespace SushiEngine
                 writer.storage_image(0, skip_.view);
                 writer.sampled_image(1, near_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.update(device_.device(), set);
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, skip_pipeline_);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, skip_pipeline_);
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                skip_pipeline_layout_, 0, set);
-                vkCmdDispatch(cmd, groups(skip_.width), groups(skip_.height), groups(skip_.depth));
+                vkCmdDispatch(command, groups(skip_.width), groups(skip_.height),
+                              groups(skip_.depth));
             }
 
-            void CloudscapeCompilePass::record_far_light(VkCommandBuffer cmd,
+            void CloudscapeCompilePass::record_far_light(VkCommandBuffer command,
                                                          const Frame::FrameContext& frame,
                                                          VkBuffer uniform_buffer)
             {
-                transition(cmd, far_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                transition(command, far_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
                                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
@@ -790,12 +791,12 @@ namespace SushiEngine
                 writer.sampled_image(1, far_source_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.uniform_buffer(2, uniform_buffer, sizeof(Scene::SceneUniforms));
                 writer.update(device_.device(), set);
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, far_light_pipeline_);
-                Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, far_light_pipeline_);
+                Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                far_light_pipeline_layout_, 0, set);
-                vkCmdPushConstants(cmd, far_light_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                   sizeof(FarLightPush), &push);
-                vkCmdDispatch(cmd, groups(far_.width), groups(far_.height), groups(far_.depth));
+                vkCmdPushConstants(command, far_light_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                   0, sizeof(FarLightPush), &push);
+                vkCmdDispatch(command, groups(far_.width), groups(far_.height), groups(far_.depth));
             }
 
             void CloudscapeCompilePass::register_pass(Graph::RenderGraph& graph,
@@ -820,17 +821,18 @@ namespace SushiEngine
                         builder.read(uniforms, Graph::BufferAccess::UniformRead);
                         builder.set_side_effect();
                     },
-                    [this, &frame, uniforms](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame, uniforms](VkCommandBuffer command,
+                                             const Graph::PassContext& context)
                     {
                         const VkBuffer uniform_buffer = context.buffer(uniforms);
 
                         if (near_dirty_)
                         {
-                            record_density(cmd, frame, uniform_buffer, near_, near_push_, 0u,
+                            record_density(command, frame, uniform_buffer, near_, near_push_, 0u,
                                            near_.depth, true);
                             // Readable by the skip build below (compute) and, once this pass ends,
                             // by the view march, the light volume, the shadow map and the panorama.
-                            transition(cmd, near_.image, VK_IMAGE_LAYOUT_GENERAL,
+                            transition(command, near_.image, VK_IMAGE_LAYOUT_GENERAL,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
@@ -838,8 +840,8 @@ namespace SushiEngine
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                            record_skip(cmd, frame);
-                            transition(cmd, skip_.image, VK_IMAGE_LAYOUT_GENERAL,
+                            record_skip(command, frame);
+                            transition(command, skip_.image, VK_IMAGE_LAYOUT_GENERAL,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -855,20 +857,20 @@ namespace SushiEngine
                             const std::uint32_t slab =
                                 std::min(FAR_BAKE_SLICES_PER_FRAME,
                                          far_source_.depth - far_slice_base_);
-                            record_density(cmd, frame, uniform_buffer, far_source_, far_push_,
+                            record_density(command, frame, uniform_buffer, far_source_, far_push_,
                                            far_slice_base_, slab, far_slice_base_ == 0u);
 
                             if (far_completing_)
                             {
-                                transition(cmd, far_source_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                transition(command, far_source_.image, VK_IMAGE_LAYOUT_GENERAL,
                                            VK_IMAGE_LAYOUT_GENERAL,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                                record_far_light(cmd, frame, uniform_buffer);
-                                transition(cmd, far_.image, VK_IMAGE_LAYOUT_GENERAL,
+                                record_far_light(command, frame, uniform_buffer);
+                                transition(command, far_.image, VK_IMAGE_LAYOUT_GENERAL,
                                            VK_IMAGE_LAYOUT_GENERAL,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |

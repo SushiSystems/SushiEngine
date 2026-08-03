@@ -53,7 +53,7 @@ namespace SushiEngine
                     return (extent + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from,
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout from,
                                 VkImageLayout to, VkPipelineStageFlags2 source,
                                 VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
                                 VkAccessFlags2 destination_access)
@@ -77,7 +77,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -286,15 +286,15 @@ namespace SushiEngine
                 const float weather_bias = frame.environment->weather.fog_density_bias;
                 const bool authored = fog.enabled;
                 push.color_density[3] = (authored ? fog.density : 0.0f) + weather_bias;
-                push.params[0] = fog.height_falloff;
-                push.params[1] = fog.ambient;
-                push.params[2] = fog.phase_anisotropy;
+                push.parameters[0] = fog.height_falloff;
+                push.parameters[1] = fog.ambient;
+                push.parameters[2] = fog.phase_anisotropy;
                 // The author's toggle *or* weather that genuinely obscures, dropped by the
                 // lowest tier either way (fog is the least essential atmosphere term). The
                 // threshold is well below anything visible, so a scene with neither pays nothing.
                 const bool fog_on =
                     (authored || weather_bias > 1.0e-5f) && frame.quality.volumetric_fog;
-                push.params[3] = fog_on ? 1.0f : 0.0f;
+                push.parameters[3] = fog_on ? 1.0f : 0.0f;
 
                 // Pack the local fog volumes camera-relative into this frame's ring buffer.
                 const std::uint32_t ring = frame.index % RING;
@@ -350,12 +350,12 @@ namespace SushiEngine
                         builder.set_side_effect();
                     },
                     [this, &frame, push, uniforms, volume_buffer](
-                        VkCommandBuffer cmd, const Graph::PassContext& context)
+                        VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
                             frame.samplers->get(Resources::SamplerDescription{});
 
-                        transition(cmd, volume_.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, volume_.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -376,14 +376,14 @@ namespace SushiEngine
                         writer.uniform_buffer(7, lights_.config_buffer(),
                                               lights_.config_buffer_range());
                         writer.update(device_.device(), set);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &push);
-                        vkCmdDispatch(cmd, groups(volume_.size), groups(volume_.size), 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &push);
+                        vkCmdDispatch(command, groups(volume_.size), groups(volume_.size), 1);
 
-                        transition(cmd, volume_.image, VK_IMAGE_LAYOUT_GENERAL,
+                        transition(command, volume_.image, VK_IMAGE_LAYOUT_GENERAL,
                                    VK_IMAGE_LAYOUT_GENERAL,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,

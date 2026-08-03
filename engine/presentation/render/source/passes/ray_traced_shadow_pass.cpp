@@ -113,7 +113,7 @@ namespace SushiEngine
             {
                 if (pipeline_layout_ == VK_NULL_HANDLE)
                     return;
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     pipeline_layout_, shaders_.module("fullscreen.vert"),
                     shaders_.module("ray_shadow.frag"), Frame::CONTACT_SHADOW_FORMAT));
             }
@@ -153,9 +153,9 @@ namespace SushiEngine
                 graph.add_pass(
                     "acceleration build",
                     [](Graph::RenderPassBuilder& builder) { builder.set_side_effect(); },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext&)
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext&)
                     {
-                        accelerator_.build(cmd, frame.slot, frame.draws.instances,
+                        accelerator_.build(command, frame.slot, frame.draws.instances,
                                            frame.draws.instance_count, frame.eye);
                     });
 
@@ -196,7 +196,7 @@ namespace SushiEngine
                                                  Graph::AttachmentLoad::Discard);
                         builder.read(frame.targets.depth, Graph::TextureAccess::SampledFragment);
                     },
-                    [this, &frame, push](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame, push](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkAccelerationStructureKHR structure =
                             accelerator_.top_level(frame.slot);
@@ -211,12 +211,13 @@ namespace SushiEngine
                                              frame.samplers->get(Resources::SamplerDescription{}));
                         writer.update(device_.device(), set);
 
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                        pipeline_layout_, 0, set);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                                            0, sizeof(Push), &push);
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

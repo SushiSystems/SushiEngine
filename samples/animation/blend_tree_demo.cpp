@@ -80,12 +80,12 @@ int main()
 {
     AnimationDatabase database;
 
-    SkeletonDescription skeleton_desc;
+    SkeletonDescription skeleton_description;
     JointDescription root; root.name = "root"; root.parent = -1;
     JointDescription child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
-    skeleton_desc.joints = {root, child};
+    skeleton_description.joints = {root, child};
     std::vector<std::byte> skeleton_blob;
-    build_skeleton_blob(skeleton_desc, skeleton_blob);
+    build_skeleton_blob(skeleton_description, skeleton_blob);
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
 
     const AssetId idle = make_marker_clip(database, 0.0f);
@@ -97,8 +97,8 @@ int main()
     const auto compile_tree = [&](const std::vector<ParameterDescription>& parameters,
                                   std::shared_ptr<BlendTreeNodeDescription> tree) -> AssetId
     {
-        ControllerDescription desc;
-        desc.parameters = parameters;
+        ControllerDescription description;
+        description.parameters = parameters;
         LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Move";
@@ -106,9 +106,9 @@ int main()
         state.name = "Move";
         state.blend_tree = std::move(tree);
         layer.states = {state};
-        desc.layers.push_back(layer);
+        description.layers.push_back(layer);
         std::vector<std::byte> blob;
-        if (!compile_controller_blob(desc, blob))
+        if (!compile_controller_blob(description, blob))
             return INVALID_ASSET;
         return database.add_controller(std::move(blob));
     };

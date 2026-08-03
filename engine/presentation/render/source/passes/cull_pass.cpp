@@ -52,23 +52,25 @@ namespace SushiEngine
 
                 Resources::SamplerDescription point_sampler() noexcept
                 {
-                    Resources::SamplerDescription desc;
-                    desc.filter = VK_FILTER_NEAREST;
-                    desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                    desc.max_lod = 16.0f;
-                    return desc;
+                    Resources::SamplerDescription description;
+                    description.filter = VK_FILTER_NEAREST;
+                    description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    description.max_lod = 16.0f;
+                    return description;
                 }
 
-                void buffer_barrier(VkCommandBuffer cmd, VkBuffer buffer,
-                                    VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                    VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access)
+                void buffer_barrier(VkCommandBuffer command, VkBuffer buffer,
+                                    VkPipelineStageFlags2 source_stage,
+                                    VkAccessFlags2 source_access,
+                                    VkPipelineStageFlags2 destination_stage,
+                                    VkAccessFlags2 destination_access)
                 {
                     VkBufferMemoryBarrier2 barrier{};
                     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-                    barrier.srcStageMask = src_stage;
-                    barrier.srcAccessMask = src_access;
-                    barrier.dstStageMask = dst_stage;
-                    barrier.dstAccessMask = dst_access;
+                    barrier.srcStageMask = source_stage;
+                    barrier.srcAccessMask = source_access;
+                    barrier.dstStageMask = destination_stage;
+                    barrier.dstAccessMask = destination_access;
                     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     barrier.buffer = buffer;
@@ -79,7 +81,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.bufferMemoryBarrierCount = 1;
                     dependency.pBufferMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -89,7 +91,7 @@ namespace SushiEngine
                 : device_(device), shaders_(shaders), pipelines_(pipelines), occlusion_(occlusion),
                   instances_(instances)
             {
-                // Two uniform buffers (the scene block and the cull params), five storage
+                // Two uniform buffers (the scene block and the cull parameters), five storage
                 // buffers (instances, buckets, draw commands, compacted, stats), and the
                 // occlusion pyramid — all read or written by the compute stage.
                 VkDescriptorSetLayoutBinding bindings[8]{};
@@ -128,20 +130,21 @@ namespace SushiEngine
 
                 for (SlotBuffers& slot : slots_)
                 {
-                    VkBufferCreateInfo params_info{};
-                    params_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    params_info.size = sizeof(Parameters);
-                    params_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                    VmaAllocationCreateInfo params_alloc{};
-                    params_alloc.usage = VMA_MEMORY_USAGE_AUTO;
-                    params_alloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                                         VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                    VmaAllocationInfo params_mapped{};
-                    Vulkan::check(vmaCreateBuffer(device_.allocator(), &params_info, &params_alloc,
-                                                  &slot.params, &slot.params_allocation,
-                                                  &params_mapped),
+                    VkBufferCreateInfo parameters_info{};
+                    parameters_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+                    parameters_info.size = sizeof(Parameters);
+                    parameters_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                    VmaAllocationCreateInfo parameters_alloc{};
+                    parameters_alloc.usage = VMA_MEMORY_USAGE_AUTO;
+                    parameters_alloc.flags =
+                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                        VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    VmaAllocationInfo parameters_mapped{};
+                    Vulkan::check(vmaCreateBuffer(device_.allocator(), &parameters_info,
+                                                  &parameters_alloc, &slot.parameters,
+                                                  &slot.parameters_allocation, &parameters_mapped),
                                   "vmaCreateBuffer(cull params)");
-                    slot.params_mapped = params_mapped.pMappedData;
+                    slot.parameters_mapped = parameters_mapped.pMappedData;
 
                     VkBufferCreateInfo stats_info{};
                     stats_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -180,8 +183,9 @@ namespace SushiEngine
                 destroy_pipeline();
                 for (SlotBuffers& slot : slots_)
                 {
-                    if (slot.params != VK_NULL_HANDLE)
-                        vmaDestroyBuffer(device_.allocator(), slot.params, slot.params_allocation);
+                    if (slot.parameters != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), slot.parameters,
+                                         slot.parameters_allocation);
                     if (slot.stats != VK_NULL_HANDLE)
                         vmaDestroyBuffer(device_.allocator(), slot.stats, slot.stats_allocation);
                     if (slot.readback != VK_NULL_HANDLE)
@@ -249,11 +253,11 @@ namespace SushiEngine
                         builder.write(compacted, Graph::BufferAccess::StorageWrite);
                     },
                     [this, &frame, slot, bucket_count, candidate_count, commands, compacted,
-                     uniforms](VkCommandBuffer cmd, const Graph::PassContext& context)
+                     uniforms](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         // Make last frame's occlusion pyramid readable (or clear it far on the
                         // first frame) before the cull samples it.
-                        occlusion_.prepare_sampling(cmd);
+                        occlusion_.prepare_sampling(command);
 
                         // Fill the cull parameters into this slot's mapped UBO. Host writes made
                         // before this submit are visible to the compute read.
@@ -307,8 +311,8 @@ namespace SushiEngine
                                     ? static_cast<float>(frame.eye[i] - frozen_eye_[i])
                                     : 0.0f;
                         values.frozen_delta_eye[3] = frozen_valid_ ? 1.0f : 0.0f;
-                        if (slots_[slot].params_mapped != nullptr)
-                            std::memcpy(slots_[slot].params_mapped, &values, sizeof(values));
+                        if (slots_[slot].parameters_mapped != nullptr)
+                            std::memcpy(slots_[slot].parameters_mapped, &values, sizeof(values));
 
                         const VkBuffer stats = slots_[slot].stats;
                         const VkBuffer readback = slots_[slot].readback;
@@ -317,7 +321,7 @@ namespace SushiEngine
                         Resources::DescriptorWriter writer;
                         // Only the leading two matrices of the scene block are read here.
                         writer.uniform_buffer(0, context.buffer(uniforms), 2 * 16 * sizeof(float));
-                        writer.uniform_buffer(1, slots_[slot].params, sizeof(Parameters));
+                        writer.uniform_buffer(1, slots_[slot].parameters, sizeof(Parameters));
                         writer.storage_buffer(2, instances_.instance_buffer(),
                                               instances_.instance_buffer_range());
                         writer.storage_buffer(3, instances_.bucket_buffer(),
@@ -333,8 +337,8 @@ namespace SushiEngine
                                              VK_IMAGE_LAYOUT_GENERAL);
                         writer.update(device_.device(), set);
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-                        Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+                        Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
 
                         // Pass 0: seed each bucket's indirect command and zero the counters.
@@ -342,18 +346,18 @@ namespace SushiEngine
                         seed.mode = 0;
                         seed.bucket_count = bucket_count;
                         seed.candidate_count = candidate_count;
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &seed);
-                        vkCmdDispatch(cmd, groups(bucket_count), 1, 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &seed);
+                        vkCmdDispatch(command, groups(bucket_count), 1, 1);
 
                         // Make the seeded counters visible to the atomics the cull pass runs.
-                        buffer_barrier(cmd, context.buffer(commands),
+                        buffer_barrier(command, context.buffer(commands),
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
                                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                        buffer_barrier(cmd, stats, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                        buffer_barrier(command, stats, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
@@ -364,19 +368,19 @@ namespace SushiEngine
                         cull.mode = 1;
                         cull.bucket_count = bucket_count;
                         cull.candidate_count = candidate_count;
-                        vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                           sizeof(Push), &cull);
-                        vkCmdDispatch(cmd, groups(candidate_count), 1, 1);
+                        vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0, sizeof(Push), &cull);
+                        vkCmdDispatch(command, groups(candidate_count), 1, 1);
 
                         // Copy the counts into the host-visible readback the editor reads a frame
                         // late; it is only for the cull statistics, never for the draw itself.
-                        buffer_barrier(cmd, stats, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                        buffer_barrier(command, stats, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
                         VkBufferCopy copy{};
                         copy.size = STATS_BYTES;
-                        vkCmdCopyBuffer(cmd, stats, readback, 1, &copy);
-                        buffer_barrier(cmd, readback, VK_PIPELINE_STAGE_2_COPY_BIT,
+                        vkCmdCopyBuffer(command, stats, readback, 1, &copy);
+                        buffer_barrier(command, readback, VK_PIPELINE_STAGE_2_COPY_BIT,
                                        VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
                                        VK_ACCESS_2_HOST_READ_BIT);
                     });

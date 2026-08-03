@@ -102,16 +102,16 @@ namespace SushiEngine
             {
                 if (n <= 0)
                     return;
-                for (int len = 1; len < n; len <<= 1)
+                for (int length = 1; length < n; length <<= 1)
                 {
-                    for (int i = 0; i < n; i += (len << 1))
+                    for (int i = 0; i < n; i += (length << 1))
                     {
-                        for (int j = i; j < i + len; ++j)
+                        for (int j = i; j < i + length; ++j)
                         {
                             const float a = v[j];
-                            const float b = v[j + len];
+                            const float b = v[j + length];
                             v[j] = a + b;
-                            v[j + len] = a - b;
+                            v[j + length] = a - b;
                         }
                     }
                 }

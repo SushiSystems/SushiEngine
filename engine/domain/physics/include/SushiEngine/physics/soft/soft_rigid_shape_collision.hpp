@@ -287,7 +287,7 @@ namespace SushiEngine
                 std::size_t surface_vertex_count = 0;
 
                 /** @brief The combined coefficients; `rest_offset` is the surface's thickness. */
-                ContactSolveParameters<T> params{};
+                ContactSolveParameters<T> parameters{};
 
                 /** @brief How far beyond the rest offset a contact is still generated (§7.5). */
                 T contact_offset = 0;
@@ -315,7 +315,7 @@ namespace SushiEngine
                             fastest = speed;
                     }
 
-                    const T threshold = params.rest_offset + contact_offset +
+                    const T threshold = parameters.rest_offset + contact_offset +
                                         (dt > T(0) ? fastest * dt : T(0));
                     std::size_t inherited = 0;
                     for (std::size_t i = 0; i < surface_vertex_count; ++i)
@@ -367,7 +367,7 @@ namespace SushiEngine
                         if (substep_index > 0)
                             clear_manifold_impulses(contact.manifold);
                         solve_manifold_positions(contact.manifold, particles[contact.particle],
-                                                 partner(), params);
+                                                 partner(), parameters);
                     }
                 }
 
@@ -377,7 +377,7 @@ namespace SushiEngine
                         return;
                     for (SoftRigidPrimitiveContact<T>& contact : contacts_)
                         solve_manifold_velocities(contact.manifold, particles[contact.particle],
-                                                  partner(), params, h);
+                                                  partner(), parameters, h);
                 }
 
                 /** @brief This tick's contacts, ascending by particle index. */

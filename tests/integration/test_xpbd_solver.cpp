@@ -85,11 +85,11 @@ namespace
         const Vector3 p1 = body_a.position + anchor_a;
         const Vector3 p2 = body_b.position + anchor_b;
         const Vector3 d = p2 - p1;
-        const Scalar len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-        if (len <= Scalar(1e-8))
+        const Scalar length = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        if (length <= Scalar(1e-8))
             return;
-        const Vector3 n = d * (Scalar(1) / len);
-        const Scalar error = len - c.rest_length;
+        const Vector3 n = d * (Scalar(1) / length);
+        const Scalar error = length - c.rest_length;
 
         // Generalized inverse mass: the linear share plus the angular share the
         // lever arm exposes, `inv_mass + (r x n) . I^-1 (r x n)`, in world space.

@@ -127,12 +127,12 @@ namespace SushiEngine
                         float frozen_delta_eye[4]; /**< xyz = eye - frozen eye; w = freeze active. */
                     };
 
-                    /** @brief One slot's cull-params UBO, device stats buffer, and readback. */
+                    /** @brief One slot's cull-parameters UBO, device stats buffer, and readback. */
                     struct SlotBuffers
                     {
-                        VkBuffer params = VK_NULL_HANDLE;
-                        VmaAllocation params_allocation = VK_NULL_HANDLE;
-                        void* params_mapped = nullptr;
+                        VkBuffer parameters = VK_NULL_HANDLE;
+                        VmaAllocation parameters_allocation = VK_NULL_HANDLE;
+                        void* parameters_mapped = nullptr;
                         VkBuffer stats = VK_NULL_HANDLE;
                         VmaAllocation stats_allocation = VK_NULL_HANDLE;
                         VkBuffer readback = VK_NULL_HANDLE;

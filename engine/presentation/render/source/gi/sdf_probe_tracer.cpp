@@ -64,7 +64,7 @@ namespace SushiEngine
                     return (extent + size - 1) / size;
                 }
 
-                void image_barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout from,
+                void image_barrier(VkCommandBuffer command, VkImage image, VkImageLayout from,
                                    VkImageLayout to, VkPipelineStageFlags2 source,
                                    VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
                                    VkAccessFlags2 destination_access)
@@ -88,7 +88,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -409,7 +409,7 @@ namespace SushiEngine
                 return count;
             }
 
-            void SDFProbeTracer::relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs)
+            void SDFProbeTracer::relight(VkCommandBuffer command, const ProbeRelightInputs& inputs)
             {
                 if (inputs.frame == nullptr || inputs.config == nullptr || inputs.probe_count == 0)
                     return;
@@ -497,12 +497,12 @@ namespace SushiEngine
 
                 // Populate both clipmaps. Every voxel is rewritten, so the old contents are
                 // discarded (UNDEFINED old layout).
-                image_barrier(cmd, clipmap_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                image_barrier(command, clipmap_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                               VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-                image_barrier(cmd, emissive_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-                              VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                image_barrier(command, emissive_, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
                 {
@@ -521,20 +521,20 @@ namespace SushiEngine
                                               MAX_SDF_BRICKS);
                     writer.storage_image(5, emissive_view_);
                     writer.update(device_.device(), set);
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, populate_pipeline_);
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, populate_pipeline_);
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    populate_pipeline_layout_, 0, set);
                     const std::uint32_t dispatch =
                         groups(static_cast<std::uint32_t>(SDF_CLIPMAP_RESOLUTION), POPULATE_GROUP);
-                    vkCmdDispatch(cmd, dispatch, dispatch, dispatch);
+                    vkCmdDispatch(command, dispatch, dispatch, dispatch);
                 }
                 // Both clipmaps stay in GENERAL and become sampled-readable for the trace.
-                image_barrier(cmd, clipmap_, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+                image_barrier(command, clipmap_, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                               VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-                image_barrier(cmd, emissive_, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+                image_barrier(command, emissive_, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
@@ -555,13 +555,13 @@ namespace SushiEngine
                     writer.update(device_.device(), set);
 
                     RelightPush push{first_probe, relight_count, RAY_COUNT, MAX_TRACE_DISTANCE};
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, relight_pipeline_);
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, relight_pipeline_);
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    relight_pipeline_layout_, 0, set);
-                    vkCmdPushConstants(cmd, relight_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(RelightPush), &push);
-                    vkCmdDispatch(cmd, groups(static_cast<std::uint32_t>(relight_count),
-                                              RELIGHT_GROUP),
+                    vkCmdPushConstants(command, relight_pipeline_layout_,
+                                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RelightPush), &push);
+                    vkCmdDispatch(command,
+                                  groups(static_cast<std::uint32_t>(relight_count), RELIGHT_GROUP),
                                   1, 1);
                 }
             }

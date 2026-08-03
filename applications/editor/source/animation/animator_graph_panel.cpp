@@ -124,8 +124,8 @@ namespace SushiEngine
             {
                 const ImVec2 ab = b - a;
                 const ImVec2 ap = p - a;
-                const float len_sq = ab.x * ab.x + ab.y * ab.y;
-                float t = len_sq > 1e-4f ? (ap.x * ab.x + ap.y * ab.y) / len_sq : 0.0f;
+                const float length_sq = ab.x * ab.x + ab.y * ab.y;
+                float t = length_sq > 1e-4f ? (ap.x * ab.x + ap.y * ab.y) / length_sq : 0.0f;
                 t = std::max(0.0f, std::min(1.0f, t));
                 const ImVec2 closest(a.x + ab.x * t, a.y + ab.y * t);
                 const ImVec2 d = p - closest;
@@ -136,10 +136,10 @@ namespace SushiEngine
             {
                 draw->AddLine(from, to, color, 2.0f);
                 const ImVec2 dir = to - from;
-                const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-                if (len < 1e-3f)
+                const float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                if (length < 1e-3f)
                     return;
-                const ImVec2 unit(dir.x / len, dir.y / len);
+                const ImVec2 unit(dir.x / length, dir.y / length);
                 const ImVec2 normal(-unit.y, unit.x);
                 const ImVec2 tip = to - ImVec2(unit.x * 4.0f, unit.y * 4.0f);
                 const ImVec2 base = tip - ImVec2(unit.x * 10.0f, unit.y * 10.0f);

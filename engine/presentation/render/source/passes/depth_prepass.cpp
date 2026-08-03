@@ -62,9 +62,8 @@ namespace SushiEngine
 
             void DepthPrepass::create_pipelines()
             {
-                Resources::GraphicsPipelineDescription mesh =
-                    depth_only_pipeline_desc(layout_.pipeline_layout(),
-                                             shaders_.module("mesh.vert"), Frame::DEPTH_FORMAT);
+                Resources::GraphicsPipelineDescription mesh = depth_only_pipeline_description(
+                    layout_.pipeline_layout(), shaders_.module("mesh.vert"), Frame::DEPTH_FORMAT);
                 // Reverse-Z, matching the camera the opaque pass will test EQUAL against.
                 mesh.depth_compare = VK_COMPARE_OP_GREATER;
                 mesh_pipeline_ = pipelines_.create(mesh);
@@ -74,7 +73,7 @@ namespace SushiEngine
                 // when the layout exists (the bindless heap is present).
                 if (layout_.gpu_pipeline_layout() != VK_NULL_HANDLE)
                 {
-                    Resources::GraphicsPipelineDescription gpu = depth_only_pipeline_desc(
+                    Resources::GraphicsPipelineDescription gpu = depth_only_pipeline_description(
                         layout_.gpu_pipeline_layout(), shaders_.module("mesh_gpu.vert"),
                         Frame::DEPTH_FORMAT);
                     gpu.depth_compare = VK_COMPARE_OP_GREATER;
@@ -87,8 +86,9 @@ namespace SushiEngine
                 // meshlet layout exists (the device offers mesh shaders).
                 if (layout_.meshlet_pipeline_layout() != VK_NULL_HANDLE)
                 {
-                    Resources::GraphicsPipelineDescription meshlet = depth_only_pipeline_desc(
-                        layout_.meshlet_pipeline_layout(), VK_NULL_HANDLE, Frame::DEPTH_FORMAT);
+                    Resources::GraphicsPipelineDescription meshlet =
+                        depth_only_pipeline_description(layout_.meshlet_pipeline_layout(),
+                                                        VK_NULL_HANDLE, Frame::DEPTH_FORMAT);
                     meshlet.depth_compare = VK_COMPARE_OP_GREATER;
                     meshlet.task_shader = shaders_.module("meshlet.task");
                     meshlet.mesh_shader = shaders_.module("meshlet.mesh");
@@ -155,7 +155,7 @@ namespace SushiEngine
                         // tracks as a read.
                         builder.set_side_effect();
                     },
-                    [this, &frame, gpu, meshlet](VkCommandBuffer cmd,
+                    [this, &frame, gpu, meshlet](VkCommandBuffer command,
                                                  const Graph::PassContext& context)
                     {
                         Scene::SceneSetWriter writer;
@@ -170,8 +170,8 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                        context.buffer(frame.targets.temporal),
                                        sizeof(Scene::TemporalUniforms));
-                        writer.commit(cmd, frame.layout->pipeline_layout());
-                        frame.layout->bind_heap(cmd);
+                        writer.commit(command, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(command);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
@@ -192,9 +192,9 @@ namespace SushiEngine
                             meshlet_writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                                    context.buffer(frame.targets.temporal),
                                                    sizeof(Scene::TemporalUniforms));
-                            meshlet_writer.commit(cmd, meshlet_layout);
-                            layout_.bind_meshlet_heap(cmd);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            meshlet_writer.commit(command, meshlet_layout);
+                            layout_.bind_meshlet_heap(command);
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                               meshlet_pipeline_.get());
                             const Vulkan::MeshShaderFunctions& mesh_shader = device_.mesh_shader();
 
@@ -220,14 +220,14 @@ namespace SushiEngine
                                 meshlet_set_writer.storage_buffer(3, mesh.vertices, VK_WHOLE_SIZE);
                                 meshlet_set_writer.update(device_.device(), meshlet_set);
                                 Resources::bind_descriptor_set(
-                                    cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
+                                    command, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
                                     Scene::SceneLayout::INSTANCE_SET, meshlet_set);
 
                                 const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
-                                                   Geometry::shape_scale(instance.kind,
-                                                                         instance.shape_params));
+                                                   Geometry::shape_scale(
+                                                       instance.kind, instance.shape_parameters));
                                 Scene::MeshletPushConstants push{};
                                 for (int m = 0; m < 16; ++m)
                                     push.model[m] = static_cast<float>(model.m[m]);
@@ -236,11 +236,11 @@ namespace SushiEngine
                                 push.model[14] = static_cast<float>(model.m[14] - frame.eye[2]);
                                 push.meshlet_count = mesh.meshlet_count;
                                 vkCmdPushConstants(
-                                    cmd, meshlet_layout,
+                                    command, meshlet_layout,
                                     VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0,
                                     sizeof(Scene::MeshletPushConstants), &push);
                                 mesh_shader.draw_mesh_tasks(
-                                    cmd, (mesh.meshlet_count + 31u) / 32u, 1, 1);
+                                    command, (mesh.meshlet_count + 31u) / 32u, 1, 1);
                             }
                             return;
                         }
@@ -260,8 +260,8 @@ namespace SushiEngine
                             gpu_writer.uniform(Scene::SceneLayout::TEMPORAL_BINDING,
                                                context.buffer(frame.targets.temporal),
                                                sizeof(Scene::TemporalUniforms));
-                            gpu_writer.commit(cmd, gpu_layout);
-                            layout_.bind_gpu_heap(cmd);
+                            gpu_writer.commit(command, gpu_layout);
+                            layout_.bind_gpu_heap(command);
 
                             const VkDescriptorSet instance_set =
                                 frame.descriptors->allocate(layout_.instance_set_layout());
@@ -272,32 +272,34 @@ namespace SushiEngine
                                 1, context.buffer(frame.targets.compacted),
                                 frame.gpu_instance_count * sizeof(std::uint32_t));
                             instance_writer.update(device_.device(), instance_set);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                            gpu_layout,
                                                            Scene::SceneLayout::INSTANCE_SET,
                                                            instance_set);
 
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                               gpu_mesh_pipeline_.get());
                             const VkBuffer commands = context.buffer(frame.targets.draw_commands);
                             const std::vector<Scene::GPUDrawBucket>& buckets = instances_.buckets();
                             for (std::size_t b = 0; b < buckets.size(); ++b)
                             {
                                 const Scene::GPUDrawBucket& bucket = buckets[b];
-                                vkCmdBindVertexBuffers(cmd, 0, 1, &bucket.vertices, &zero);
-                                vkCmdBindIndexBuffer(cmd, bucket.indices, 0, VK_INDEX_TYPE_UINT32);
+                                vkCmdBindVertexBuffers(command, 0, 1, &bucket.vertices, &zero);
+                                vkCmdBindIndexBuffer(command, bucket.indices, 0,
+                                                     VK_INDEX_TYPE_UINT32);
                                 Scene::GPUDrawPush push{bucket.candidate_base, 0};
-                                vkCmdPushConstants(cmd, gpu_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                                   sizeof(Scene::GPUDrawPush), &push);
+                                vkCmdPushConstants(command, gpu_layout, VK_SHADER_STAGE_VERTEX_BIT,
+                                                   0, sizeof(Scene::GPUDrawPush), &push);
                                 vkCmdDrawIndexedIndirect(
-                                    cmd, commands,
+                                    command, commands,
                                     b * sizeof(VkDrawIndexedIndirectCommand), 1,
                                     sizeof(VkDrawIndexedIndirectCommand));
                             }
                             return;
                         }
 
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_.get());
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          mesh_pipeline_.get());
                         VkBuffer bound_vertices = VK_NULL_HANDLE;
                         for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
                         {
@@ -310,20 +312,21 @@ namespace SushiEngine
                                 continue;
                             if (mesh.vertices != bound_vertices)
                             {
-                                vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices, &zero);
-                                vkCmdBindIndexBuffer(cmd, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
+                                vkCmdBindVertexBuffers(command, 0, 1, &mesh.vertices, &zero);
+                                vkCmdBindIndexBuffer(command, mesh.indices, 0,
+                                                     VK_INDEX_TYPE_UINT32);
                                 bound_vertices = mesh.vertices;
                             }
                             const Matrix4 model =
                                 imported ? instance.model
                                          : mul(instance.model,
                                                Geometry::shape_scale(instance.kind,
-                                                                     instance.shape_params));
+                                                                     instance.shape_parameters));
                             const Scene::MeshPushConstants push =
                                 depth_only_push(model, frame.eye);
-                            vkCmdPushConstants(cmd, pipeline_layout, DEPTH_PUSH_STAGES, 0,
+                            vkCmdPushConstants(command, pipeline_layout, DEPTH_PUSH_STAGES, 0,
                                                sizeof(Scene::MeshPushConstants), &push);
-                            vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
+                            vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
                         }
                     });
             }

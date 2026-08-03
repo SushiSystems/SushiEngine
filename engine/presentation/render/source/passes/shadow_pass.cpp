@@ -57,47 +57,48 @@ namespace SushiEngine
 
             VkSampler ShadowPass::atlas_sampler(Resources::SamplerCache& samplers)
             {
-                Resources::SamplerDescription desc;
-                desc.compare_enable = VK_TRUE;
+                Resources::SamplerDescription description;
+                description.compare_enable = VK_TRUE;
                 // The maps store distance from the light, so a texel closer than the
                 // reference is what occludes it.
-                desc.compare_op = VK_COMPARE_OP_LESS_OR_EQUAL;
+                description.compare_op = VK_COMPARE_OP_LESS_OR_EQUAL;
                 // A tap that lands outside the map must read "lit": the shader already
                 // rejects out-of-range lookups, and a white border makes the filter's
                 // edge taps agree with it instead of darkening the boundary.
-                desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-                desc.border_color = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-                return samplers.get(desc);
+                description.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+                description.border_color = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+                return samplers.get(description);
             }
 
             VkSampler ShadowPass::atlas_depth_sampler(Resources::SamplerCache& samplers)
             {
-                Resources::SamplerDescription desc;
-                desc.filter = VK_FILTER_NEAREST;
-                desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                Resources::SamplerDescription description;
+                description.filter = VK_FILTER_NEAREST;
+                description.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                 // A tap off the edge of the atlas must read the far plane, which is the
                 // same as saying nothing blocks there.
-                desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-                desc.border_color = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-                return samplers.get(desc);
+                description.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+                description.border_color = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+                return samplers.get(description);
             }
 
             void ShadowPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc = depth_only_pipeline_desc(
-                    layout_.pipeline_layout(), shaders_.module("shadow.vert"),
-                    Frame::SHADOW_FORMAT);
+                Resources::GraphicsPipelineDescription description =
+                    depth_only_pipeline_description(layout_.pipeline_layout(),
+                                                    shaders_.module("shadow.vert"),
+                                                    Frame::SHADOW_FORMAT);
                 // Conventional depth, not reverse-Z: an orthographic projection is linear
                 // in depth, so there is no precision to redistribute.
-                desc.depth_compare = VK_COMPARE_OP_LESS;
+                description.depth_compare = VK_COMPARE_OP_LESS;
                 // Double-sided, matching every other pass in this renderer. Culling front
                 // faces to record the back of each object is the older way to avoid
                 // self-shadowing, and it pays for it by pulling a large caster's shadow
                 // in toward the light by the object's own thickness. The normal offset in
                 // shadow_common.glsl solves the same problem without that cost, and it is
                 // the only one of the two that also works on an open surface.
-                desc.cull_mode = VK_CULL_MODE_NONE;
-                pipeline_ = pipelines_.create(desc);
+                description.cull_mode = VK_CULL_MODE_NONE;
+                pipeline_ = pipelines_.create(description);
             }
 
             void ShadowPass::destroy_pipeline()
@@ -133,19 +134,20 @@ namespace SushiEngine
                                                          Graph::AttachmentLoad::Clear, 1.0f, 0);
                         builder.read(frame.targets.shadow, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame, cascades, tile](VkCommandBuffer cmd,
+                    [this, &frame, cascades, tile](VkCommandBuffer command,
                                                    const Graph::PassContext& context)
                     {
                         Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SHADOW_BINDING,
                                        context.buffer(frame.targets.shadow),
                                        sizeof(Scene::ShadowUniforms));
-                        writer.commit(cmd, frame.layout->pipeline_layout());
-                        frame.layout->bind_heap(cmd);
+                        writer.commit(command, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(command);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
 
                         for (std::uint32_t cascade = 0; cascade < cascades; ++cascade)
                         {
@@ -159,8 +161,8 @@ namespace SushiEngine
                             scissor.offset = {static_cast<std::int32_t>(viewport.x),
                                               static_cast<std::int32_t>(viewport.y)};
                             scissor.extent = {tile, tile};
-                            vkCmdSetViewport(cmd, 0, 1, &viewport);
-                            vkCmdSetScissor(cmd, 0, 1, &scissor);
+                            vkCmdSetViewport(command, 0, 1, &viewport);
+                            vkCmdSetScissor(command, 0, 1, &scissor);
 
                             VkBuffer bound_vertices = VK_NULL_HANDLE;
                             for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
@@ -176,21 +178,21 @@ namespace SushiEngine
                                     continue;
                                 if (mesh.vertices != bound_vertices)
                                 {
-                                    vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices, &zero);
-                                    vkCmdBindIndexBuffer(cmd, mesh.indices, 0,
+                                    vkCmdBindVertexBuffers(command, 0, 1, &mesh.vertices, &zero);
+                                    vkCmdBindIndexBuffer(command, mesh.indices, 0,
                                                          VK_INDEX_TYPE_UINT32);
                                     bound_vertices = mesh.vertices;
                                 }
                                 const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
-                                                   Geometry::shape_scale(instance.kind,
-                                                                         instance.shape_params));
+                                                   Geometry::shape_scale(
+                                                       instance.kind, instance.shape_parameters));
                                 const Scene::MeshPushConstants push = depth_only_push(
                                     model, frame.eye, static_cast<float>(cascade));
-                                vkCmdPushConstants(cmd, pipeline_layout, DEPTH_PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, pipeline_layout, DEPTH_PUSH_STAGES, 0,
                                                    sizeof(Scene::MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
+                                vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
                             }
                         }
                     });

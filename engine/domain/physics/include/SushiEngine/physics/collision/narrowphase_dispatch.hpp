@@ -439,7 +439,7 @@ namespace SushiEngine
          * @ref generate_shape_manifold reports no contact for it — a pair nobody has
          * taught the engine to collide should be visibly absent, not quietly
          * approximated by the nearest thing that compiles. (The engine used to do
-         * the latter: `gather_rigid_descs` collapsed a cylinder to a sphere, §1.2
+         * the latter: `gather_rigid_descriptions` collapsed a cylinder to a sphere, §1.2
          * item 4.)
          */
         template <typename T>

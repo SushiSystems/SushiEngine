@@ -394,18 +394,18 @@ namespace SushiEngine
                 AssemblyJoint joint;
                 joint.part_a = ancestor;
                 joint.part_b = child_part;
-                joint.params.type = JointType::ConeTwist;
-                joint.params.anchor_a =
+                joint.parameters.type = JointType::ConeTwist;
+                joint.parameters.anchor_a =
                     rotate(inverse_parent, bind_position[i] - parent_part.local_position);
-                joint.params.anchor_b =
+                joint.parameters.anchor_b =
                     rotate(inverse_child, bind_position[i] - part.local_position);
-                joint.params.axis_a = rotate(inverse_parent, axis);
-                joint.params.axis_b = rotate(inverse_child, axis);
-                joint.params.compliance = profile.joint_compliance;
+                joint.parameters.axis_a = rotate(inverse_parent, axis);
+                joint.parameters.axis_b = rotate(inverse_child, axis);
+                joint.parameters.compliance = profile.joint_compliance;
 
-                joint.params.swing_limit.enabled = true;
-                joint.params.swing_limit.upper = profile.swing_limit;
-                joint.params.swing_limit.compliance = profile.limit_compliance;
+                joint.parameters.swing_limit.enabled = true;
+                joint.parameters.swing_limit.upper = profile.swing_limit;
+                joint.parameters.swing_limit.compliance = profile.limit_compliance;
 
                 // The twist range is centred on the twist the *bind pose* already holds,
                 // not on zero, and that correction is load-bearing. Both frames are
@@ -416,17 +416,17 @@ namespace SushiEngine
                 // been, and the limit would fight the bind pose from the first substep.
                 const Quaternion basis_a = mul(parent_part.local_orientation,
                                                Physics::joint_frame_from_axis<Scalar>(
-                                                   joint.params.axis_a));
+                                                   joint.parameters.axis_a));
                 const Quaternion basis_b = mul(part.local_orientation,
                                                Physics::joint_frame_from_axis<Scalar>(
-                                                   joint.params.axis_b));
+                                                   joint.parameters.axis_b));
                 const Scalar bind_twist = Physics::joint_twist_angle<Scalar>(
                     normalize(mul(conjugate(basis_a), basis_b)));
 
-                joint.params.twist_limit.enabled = true;
-                joint.params.twist_limit.lower = bind_twist - profile.twist_limit;
-                joint.params.twist_limit.upper = bind_twist + profile.twist_limit;
-                joint.params.twist_limit.compliance = profile.limit_compliance;
+                joint.parameters.twist_limit.enabled = true;
+                joint.parameters.twist_limit.lower = bind_twist - profile.twist_limit;
+                joint.parameters.twist_limit.upper = bind_twist + profile.twist_limit;
+                joint.parameters.twist_limit.compliance = profile.limit_compliance;
 
                 rig.assembly.joints.push_back(joint);
             }

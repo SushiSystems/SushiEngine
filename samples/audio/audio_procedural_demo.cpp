@@ -44,14 +44,14 @@ using namespace SushiEngine::Audio;
 
 namespace
 {
-    double energy_of(VoiceSource& src, int blocks, int block)
+    double energy_of(VoiceSource& source, int blocks, int block)
     {
         double e = 0.0;
-        std::vector<float> buf(static_cast<std::size_t>(block));
+        std::vector<float> buffer(static_cast<std::size_t>(block));
         for (int b = 0; b < blocks; ++b)
         {
-            src.render(buf.data(), block);
-            for (float s : buf)
+            source.render(buffer.data(), block);
+            for (float s : buffer)
                 e += static_cast<double>(s) * s;
         }
         return e;
@@ -70,11 +70,11 @@ int main()
         bank.prepare(sample_rate);
         bank.strike(1.0f);
         double early = 0.0, late = 0.0;
-        std::vector<float> buf(block, 0.0f);
+        std::vector<float> buffer(block, 0.0f);
         for (int b = 0; b < 40; ++b)
         {
-            bank.process_block(buf.data(), block);
-            for (float s : buf)
+            bank.process_block(buffer.data(), block);
+            for (float s : buffer)
             {
                 if (b < 4) early += static_cast<double>(s) * s;
                 else if (b >= 36) late += static_cast<double>(s) * s;
@@ -105,12 +105,12 @@ int main()
             WindSource w(0xBEEFu);
             w.prepare(sample_rate, block);
             w.set_speed(speed);
-            std::vector<float> buf(block);
+            std::vector<float> buffer(block);
             double e = 0.0;
             for (int b = 0; b < 30; ++b)
             {
-                w.render(buf.data(), block);
-                for (float s : buf) e += static_cast<double>(s) * s;
+                w.render(buffer.data(), block);
+                for (float s : buffer) e += static_cast<double>(s) * s;
             }
             return std::sqrt(e / (30 * block));
         };
@@ -133,7 +133,7 @@ int main()
 
     // A persistent wind bed we sweep.
     auto wind = std::unique_ptr<WindSource>(new WindSource(0x5EEDu, 0.04f));
-    WindSource* wind_ptr = wind.get();
+    WindSource* wind_pointer = wind.get();
     {
         VoiceDescriptor d;
         d.base_gain = 0.5f;
@@ -161,7 +161,7 @@ int main()
         for (int step = 0; step < total; ++step)
         {
             const float phase = static_cast<float>(step) / static_cast<float>(total);
-            wind_ptr->set_speed(0.2f + 0.8f * (0.5f - 0.5f * std::cos(phase * 6.2831853f)));
+            wind_pointer->set_speed(0.2f + 0.8f * (0.5f - 0.5f * std::cos(phase * 6.2831853f)));
             VoiceDescriptor d;
             d.base_gain = 0.6f;
             d.priority = 10.0f;
@@ -179,7 +179,7 @@ int main()
         double peak = 0.0;
         for (int b = 0; b < 200; ++b)
         {
-            wind_ptr->set_speed(0.5f);
+            wind_pointer->set_speed(0.5f);
             if (b % 40 == 0)
             {
                 VoiceDescriptor d;

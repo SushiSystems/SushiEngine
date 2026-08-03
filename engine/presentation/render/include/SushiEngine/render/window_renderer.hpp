@@ -194,10 +194,10 @@ namespace SushiEngine
          * The one place the host names a backend. Throws std::runtime_error if the
          * device or swapchain cannot be created.
          *
-         * @param desc Surface hooks, device preference, and initial size.
+         * @param description Surface hooks, device preference, and initial size.
          * @return An owning handle to the live windowed renderer.
          */
         std::unique_ptr<IWindowRenderer> create_window_renderer(
-            const WindowRendererDescription& desc);
+            const WindowRendererDescription& description);
     } // namespace Render
 } // namespace SushiEngine

@@ -96,9 +96,9 @@ namespace
                 const Vector3& c = view.vertices[view.indices[t * 3 + 2]];
                 sum = sum + cross(b - a, c - a);
             }
-            const Scalar len = length(sum);
-            if (len > Scalar(1e-12))
-                sum = sum * (Scalar(1) / len);
+            const Scalar sum_length = length(sum);
+            if (sum_length > Scalar(1e-12))
+                sum = sum * (Scalar(1) / sum_length);
             normals[v] = sum;
         }
         return normals;

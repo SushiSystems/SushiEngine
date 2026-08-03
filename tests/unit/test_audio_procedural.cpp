@@ -32,14 +32,14 @@ using namespace SushiEngine::Audio;
 
 namespace
 {
-    double render_energy(VoiceSource& src, double sr, int blocks, int block)
+    double render_energy(VoiceSource& source, double sr, int blocks, int block)
     {
         double e = 0.0;
-        std::vector<float> buf(static_cast<std::size_t>(block));
+        std::vector<float> buffer(static_cast<std::size_t>(block));
         for (int b = 0; b < blocks; ++b)
         {
-            src.render(buf.data(), block);
-            for (float s : buf)
+            source.render(buffer.data(), block);
+            for (float s : buffer)
                 e += static_cast<double>(s) * s;
         }
         (void)sr;
@@ -58,11 +58,11 @@ TEST(Unit_Audio, ModalImpactRingsAndDecays)
     EXPECT_TRUE(bank.is_ringing());
 
     double early = 0.0, late = 0.0;
-    std::vector<float> buf(480);
+    std::vector<float> buffer(480);
     for (int b = 0; b < 20; ++b)
     {
-        bank.process_block(buf.data(), 480);
-        for (float s : buf)
+        bank.process_block(buffer.data(), 480);
+        for (float s : buffer)
         {
             if (b < 3)
                 early += static_cast<double>(s) * s;
@@ -75,7 +75,7 @@ TEST(Unit_Audio, ModalImpactRingsAndDecays)
 
     // Enough silence and even a long metal ring falls below the audibility threshold.
     for (int b = 0; b < 48000 / 480 * 4; ++b) // ~4 s
-        bank.process_block(buf.data(), 480);
+        bank.process_block(buffer.data(), 480);
     EXPECT_FALSE(bank.is_ringing());
 }
 
@@ -83,9 +83,9 @@ TEST(Unit_Audio, ModalImpactRingsAndDecays)
 TEST(Unit_Audio, ModalImpactEnergyScales)
 {
     auto strike_energy = [](int material, float base, float energy) {
-        ModalImpactSource src(material, base, energy);
-        src.prepare(48000.0, 512);
-        return render_energy(src, 48000.0, 40, 512);
+        ModalImpactSource source(material, base, energy);
+        source.prepare(48000.0, 512);
+        return render_energy(source, 48000.0, 40, 512);
     };
     const double soft = strike_energy(1, 400.0f, 0.3f);
     const double hard = strike_energy(1, 400.0f, 1.0f);
@@ -104,11 +104,11 @@ TEST(Unit_Audio, WindSpeedAndDeterminism)
         wind.prepare(48000.0, 512);
         wind.set_speed(speed);
         double e = 0.0;
-        std::vector<float> buf(512);
+        std::vector<float> buffer(512);
         for (int b = 0; b < 30; ++b)
         {
-            wind.render(buf.data(), 512);
-            for (float s : buf)
+            wind.render(buffer.data(), 512);
+            for (float s : buffer)
                 e += static_cast<double>(s) * s;
         }
         return std::sqrt(e / (30 * 512));

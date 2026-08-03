@@ -146,53 +146,54 @@ namespace SushiEngine
 
             void ParticlePass::create_pipeline()
             {
-                Resources::GraphicsPipelineDescription desc;
-                desc.layout = pipeline_layout_;
-                desc.vertex_shader = shaders_.module("particle.vert");
-                desc.fragment_shader = shaders_.module("particle.frag");
-                desc.vertex_stride = 0;
-                desc.attribute_count = 0;
-                desc.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-                desc.cull_mode = VK_CULL_MODE_NONE;
-                desc.depth_test = VK_FALSE;
-                desc.depth_write = VK_FALSE;
-                desc.color_count = 1;
-                desc.color_formats[0] = Frame::HDR_FORMAT;
-                desc.depth_format = VK_FORMAT_UNDEFINED;
+                Resources::GraphicsPipelineDescription description;
+                description.layout = pipeline_layout_;
+                description.vertex_shader = shaders_.module("particle.vert");
+                description.fragment_shader = shaders_.module("particle.frag");
+                description.vertex_stride = 0;
+                description.attribute_count = 0;
+                description.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                description.cull_mode = VK_CULL_MODE_NONE;
+                description.depth_test = VK_FALSE;
+                description.depth_write = VK_FALSE;
+                description.color_count = 1;
+                description.color_formats[0] = Frame::HDR_FORMAT;
+                description.depth_format = VK_FORMAT_UNDEFINED;
                 // The fragment output is premultiplied (rgb already scaled by alpha). Additive
-                // is src + dst (glow); true-alpha is a premultiplied "over": src + dst*(1-a).
-                desc.blend.enable = VK_TRUE;
-                desc.blend.src_color = VK_BLEND_FACTOR_ONE;
-                desc.blend.dst_color = VK_BLEND_FACTOR_ONE;
-                desc.blend.color_op = VK_BLEND_OP_ADD;
-                desc.blend.src_alpha = VK_BLEND_FACTOR_ONE;
-                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE;
-                desc.blend.alpha_op = VK_BLEND_OP_ADD;
-                pipeline_ = pipelines_.create(desc);
+                // is source + destination (glow); true-alpha is a premultiplied "over":
+                // source + destination*(1-a).
+                description.blend.enable = VK_TRUE;
+                description.blend.source_color = VK_BLEND_FACTOR_ONE;
+                description.blend.destination_color = VK_BLEND_FACTOR_ONE;
+                description.blend.color_op = VK_BLEND_OP_ADD;
+                description.blend.source_alpha = VK_BLEND_FACTOR_ONE;
+                description.blend.destination_alpha = VK_BLEND_FACTOR_ONE;
+                description.blend.alpha_op = VK_BLEND_OP_ADD;
+                pipeline_ = pipelines_.create(description);
 
                 // The alpha bucket draws back-to-front through the sort keys, so it uses the
                 // indexed vertex shader and the premultiplied "over" blend.
-                desc.vertex_shader = shaders_.module("particle_sorted.vert");
-                desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                alpha_pipeline_ = pipelines_.create(desc);
+                description.vertex_shader = shaders_.module("particle_sorted.vert");
+                description.blend.destination_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                description.blend.destination_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                alpha_pipeline_ = pipelines_.create(description);
 
                 // The deterministic billboards: additive like the first pipeline, but through a
                 // vertex shader that reads no emitter table — they belong to a host-side pool, not
                 // to a GPU emitter, so there is no authored alignment for them to index.
-                desc.vertex_shader = shaders_.module("particle_billboard.vert");
-                desc.blend.dst_color = VK_BLEND_FACTOR_ONE;
-                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE;
-                billboard_pipeline_ = pipelines_.create(desc);
+                description.vertex_shader = shaders_.module("particle_billboard.vert");
+                description.blend.destination_color = VK_BLEND_FACTOR_ONE;
+                description.blend.destination_alpha = VK_BLEND_FACTOR_ONE;
+                billboard_pipeline_ = pipelines_.create(description);
 
                 // Ribbons composite with the premultiplied "over" regardless of the emitter's
                 // authored blend: a trail's tail is nearly transparent, where "over" and additive
                 // agree, and its head should occlude rather than glow. A second additive ribbon
                 // bucket is a later increment if a purely emissive trail ever needs one.
-                desc.vertex_shader = shaders_.module("particle_ribbon.vert");
-                desc.blend.dst_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                desc.blend.dst_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-                ribbon_pipeline_ = pipelines_.create(desc);
+                description.vertex_shader = shaders_.module("particle_ribbon.vert");
+                description.blend.destination_color = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                description.blend.destination_alpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                ribbon_pipeline_ = pipelines_.create(description);
             }
 
             void ParticlePass::destroy_pipeline()
@@ -254,7 +255,7 @@ namespace SushiEngine
                         }
                     },
                     [this, &frame, slot, draw_emitters, draw_billboards](
-                        VkCommandBuffer cmd, const Graph::PassContext& context)
+                        VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
                             frame.samplers->get(Resources::SamplerDescription{});
@@ -309,7 +310,7 @@ namespace SushiEngine
                         auto draw_bucket = [&](Resources::PipelineHandle& pipeline, VkBuffer source,
                                                VkDeviceSize range, VkBuffer keys, auto&& issue)
                         {
-                            vkCmdPushConstants(cmd, pipeline_layout_,
+                            vkCmdPushConstants(command, pipeline_layout_,
                                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                                0, sizeof(Push), &push);
                             const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
@@ -356,14 +357,15 @@ namespace SushiEngine
                             writer.storage_buffer(TRAIL_BINDING, particles_.trail_buffer(),
                                                   particles_.trail_range());
                             writer.update(device_.device(), set);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.get());
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                              pipeline.get());
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                            pipeline_layout_, 0, set);
                             // The sprite materials' textures. Bound per bucket rather than once
                             // per pass because the set is bound against this pass's own pipeline
                             // layout, which only exists here.
                             if (heap_.available())
-                                Resources::bind_descriptor_set(cmd,
+                                Resources::bind_descriptor_set(command,
                                                                VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                                pipeline_layout_, HEAP_SET,
                                                                heap_.set());
@@ -375,21 +377,23 @@ namespace SushiEngine
                             const VkBuffer args = context.buffer(frame.targets.particle_args);
                             draw_bucket(pipeline_, context.buffer(frame.targets.particle_draw),
                                         particles_.pool_range(), VK_NULL_HANDLE, [&]() {
-                                            vkCmdDrawIndirect(cmd, args, 0, 1,
+                                            vkCmdDrawIndirect(command, args, 0, 1,
                                                               sizeof(VkDrawIndirectCommand));
                                         });
-                            draw_bucket(alpha_pipeline_, context.buffer(frame.targets.particle_alpha),
+                            draw_bucket(alpha_pipeline_,
+                                        context.buffer(frame.targets.particle_alpha),
                                         particles_.pool_range(),
                                         context.buffer(frame.targets.particle_sort_keys), [&]() {
-                                            vkCmdDrawIndirect(cmd, args, sizeof(VkDrawIndirectCommand),
-                                                              1, sizeof(VkDrawIndirectCommand));
+                                            vkCmdDrawIndirect(command, args,
+                                                              sizeof(VkDrawIndirectCommand), 1,
+                                                              sizeof(VkDrawIndirectCommand));
                                         });
                             // Ribbons last of the emitter buckets: they are the most opaque of the
                             // three, so drawing them over the glow reads correctly without a sort.
                             draw_bucket(ribbon_pipeline_,
                                         context.buffer(frame.targets.particle_ribbon),
                                         particles_.pool_range(), VK_NULL_HANDLE, [&]() {
-                                            vkCmdDrawIndirect(cmd, args,
+                                            vkCmdDrawIndirect(command, args,
                                                               2 * sizeof(VkDrawIndirectCommand), 1,
                                                               sizeof(VkDrawIndirectCommand));
                                         });
@@ -398,7 +402,10 @@ namespace SushiEngine
                         {
                             draw_bucket(billboard_pipeline_, particles_.billboard_buffer(slot),
                                         particles_.billboard_range(), VK_NULL_HANDLE,
-                                        [&]() { vkCmdDraw(cmd, 6, particles_.billboard_count(), 0, 0); });
+                                        [&]() {
+                                            vkCmdDraw(command, 6, particles_.billboard_count(), 0,
+                                                      0);
+                                        });
                         }
                     });
             }

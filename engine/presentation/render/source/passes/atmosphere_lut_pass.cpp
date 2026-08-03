@@ -58,7 +58,7 @@ namespace SushiEngine
                     return (extent + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from,
+                void transition(VkCommandBuffer command, VkImage image, VkImageLayout from,
                                 VkImageLayout to, VkPipelineStageFlags2 source,
                                 VkPipelineStageFlags2 destination, VkAccessFlags2 source_access,
                                 VkAccessFlags2 destination_access)
@@ -82,7 +82,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 }
             } // namespace
 
@@ -458,7 +458,7 @@ namespace SushiEngine
                         builder.set_side_effect();
                     },
                     [this, &frame, push, sky_view, build_static, uniforms](
-                        VkCommandBuffer cmd, const Graph::PassContext& context)
+                        VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
                             frame.samplers->get(Resources::SamplerDescription{});
@@ -466,7 +466,7 @@ namespace SushiEngine
                         if (build_static)
                         {
                             // Transmittance first: the multiple-scattering build samples it.
-                            transition(cmd, transmittance_.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                            transition(command, transmittance_.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
@@ -477,19 +477,19 @@ namespace SushiEngine
                                 Resources::DescriptorWriter writer;
                                 writer.storage_image(0, transmittance_.view);
                                 writer.update(device_.device(), set);
-                                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                   transmittance_pipeline_);
                                 Resources::bind_descriptor_set(
-                                    cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                    command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                     transmittance_pipeline_layout_, 0, set);
-                                vkCmdPushConstants(cmd, transmittance_pipeline_layout_,
+                                vkCmdPushConstants(command, transmittance_pipeline_layout_,
                                                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push),
                                                    &push);
-                                vkCmdDispatch(cmd, groups(transmittance_.width),
+                                vkCmdDispatch(command, groups(transmittance_.width),
                                               groups(transmittance_.height), 1);
                             }
                             // Readable by the MS/sky-view builds and the fragment passes.
-                            transition(cmd, transmittance_.image, VK_IMAGE_LAYOUT_GENERAL,
+                            transition(command, transmittance_.image, VK_IMAGE_LAYOUT_GENERAL,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
@@ -497,7 +497,7 @@ namespace SushiEngine
                                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                            transition(cmd, multiscatter_.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                            transition(command, multiscatter_.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
@@ -510,19 +510,19 @@ namespace SushiEngine
                                 writer.sampled_image(1, transmittance_.view, sampler,
                                                      VK_IMAGE_LAYOUT_GENERAL);
                                 writer.update(device_.device(), set);
-                                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                   multiscatter_pipeline_);
                                 Resources::bind_descriptor_set(
-                                    cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                    command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                     multiscatter_pipeline_layout_, 0, set);
-                                vkCmdPushConstants(cmd, multiscatter_pipeline_layout_,
+                                vkCmdPushConstants(command, multiscatter_pipeline_layout_,
                                                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push),
                                                    &push);
-                                vkCmdDispatch(cmd, groups(multiscatter_.width),
+                                vkCmdDispatch(command, groups(multiscatter_.width),
                                               groups(multiscatter_.height), 1);
                             }
                             // Visible to the sky-view build (compute) and the sky/IBL passes.
-                            transition(cmd, multiscatter_.image, VK_IMAGE_LAYOUT_GENERAL,
+                            transition(command, multiscatter_.image, VK_IMAGE_LAYOUT_GENERAL,
                                        VK_IMAGE_LAYOUT_GENERAL,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
@@ -532,7 +532,7 @@ namespace SushiEngine
                         }
 
                         // Sky-view LUT: every frame, marched off the current static LUTs.
-                        transition(cmd, sky_view_.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, sky_view_.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -546,17 +546,17 @@ namespace SushiEngine
                             writer.sampled_image(2, multiscatter_.view, sampler,
                                                  VK_IMAGE_LAYOUT_GENERAL);
                             writer.update(device_.device(), set);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                               sky_view_pipeline_);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            sky_view_pipeline_layout_, 0, set);
-                            vkCmdPushConstants(cmd, sky_view_pipeline_layout_,
+                            vkCmdPushConstants(command, sky_view_pipeline_layout_,
                                                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SkyViewPush),
                                                &sky_view);
-                            vkCmdDispatch(cmd, groups(sky_view_.width), groups(sky_view_.height),
-                                          1);
+                            vkCmdDispatch(command, groups(sky_view_.width),
+                                          groups(sky_view_.height), 1);
                         }
-                        transition(cmd, sky_view_.image, VK_IMAGE_LAYOUT_GENERAL,
+                        transition(command, sky_view_.image, VK_IMAGE_LAYOUT_GENERAL,
                                    VK_IMAGE_LAYOUT_GENERAL,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -565,7 +565,7 @@ namespace SushiEngine
 
                         // Aerial-perspective froxel volume: every frame, from the scene
                         // uniform block and the current static LUTs.
-                        transition(cmd, aerial_.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                        transition(command, aerial_.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_NONE,
                                    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -582,14 +582,15 @@ namespace SushiEngine
                             writer.sampled_image(3, multiscatter_.view, sampler,
                                                  VK_IMAGE_LAYOUT_GENERAL);
                             writer.update(device_.device(), set);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                               aerial_pipeline_);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                            aerial_pipeline_layout_, 0, set);
                             // One thread per (x, y) column; the shader loops the depth slices.
-                            vkCmdDispatch(cmd, groups(aerial_.width), groups(aerial_.height), 1);
+                            vkCmdDispatch(command, groups(aerial_.width), groups(aerial_.height),
+                                          1);
                         }
-                        transition(cmd, aerial_.image, VK_IMAGE_LAYOUT_GENERAL,
+                        transition(command, aerial_.image, VK_IMAGE_LAYOUT_GENERAL,
                                    VK_IMAGE_LAYOUT_GENERAL,
                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,

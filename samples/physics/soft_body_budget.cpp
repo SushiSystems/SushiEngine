@@ -107,7 +107,7 @@ namespace
     {
         RigidBody body;
         body.position = position;
-        body.prev_position = position;
+        body.previous_position = position;
         body.inv_mass = Scalar(1);
         return body;
     }

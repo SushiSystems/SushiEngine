@@ -100,8 +100,9 @@ namespace SushiEngine
                 }
 
             private:
-                // Linearly resample src[0..n) at rate 1/warp_ into dst[0..n) (stretch if warp_>1).
-                void warp(const float* src, float* dst, int n) const noexcept
+                // Linearly resample source[0..n) at rate 1/warp_ into destination[0..n)
+                // (stretch if warp_>1).
+                void warp(const float* source, float* destination, int n) const noexcept
                 {
                     for (int t = 0; t < n; ++t)
                     {
@@ -109,11 +110,11 @@ namespace SushiEngine
                         const int i0 = static_cast<int>(sp);
                         if (i0 + 1 >= n)
                         {
-                            dst[t] = 0.0f;
+                            destination[t] = 0.0f;
                             continue;
                         }
                         const float frac = sp - i0;
-                        dst[t] = src[i0] * (1.0f - frac) + src[i0 + 1] * frac;
+                        destination[t] = source[i0] * (1.0f - frac) + source[i0 + 1] * frac;
                     }
                 }
 
@@ -151,8 +152,8 @@ namespace SushiEngine
                     channels_ = DSP::ambisonic_channel_count(order_);
                     sample_rate_ = sample_rate;
                     fft_size_ = fft_size;
-                    const int ir_len = database.ir_length();
-                    if (ir_len <= 0 || ir_len > fft_size_)
+                    const int ir_length = database.ir_length();
+                    if (ir_length <= 0 || ir_length > fft_size_)
                         return false;
 
                     fft_.prepare(fft_size_);
@@ -180,19 +181,21 @@ namespace SushiEngine
                     // 3. HRTF spectra per direction per ear.
                     std::vector<std::complex<float>> hl(static_cast<std::size_t>(m * bins));
                     std::vector<std::complex<float>> hr(static_cast<std::size_t>(m * bins));
-                    std::vector<float> lir(static_cast<std::size_t>(ir_len));
-                    std::vector<float> rir(static_cast<std::size_t>(ir_len));
-                    std::vector<std::complex<float>> spec(static_cast<std::size_t>(fft_size_));
+                    std::vector<float> lir(static_cast<std::size_t>(ir_length));
+                    std::vector<float> rir(static_cast<std::size_t>(ir_length));
+                    std::vector<std::complex<float>> spectrum(static_cast<std::size_t>(fft_size_));
                     for (int i = 0; i < m; ++i)
                     {
                         database.get_hrir(dirs[i * 3 + 0], dirs[i * 3 + 1], dirs[i * 3 + 2],
                                           lir.data(), rir.data());
-                        transform_ir(lir.data(), ir_len, spec.data());
+                        transform_ir(lir.data(), ir_length, spectrum.data());
                         for (int k = 0; k < bins; ++k)
-                            hl[static_cast<std::size_t>(i * bins + k)] = spec[static_cast<std::size_t>(k)];
-                        transform_ir(rir.data(), ir_len, spec.data());
+                            hl[static_cast<std::size_t>(i * bins + k)] =
+                                spectrum[static_cast<std::size_t>(k)];
+                        transform_ir(rir.data(), ir_length, spectrum.data());
                         for (int k = 0; k < bins; ++k)
-                            hr[static_cast<std::size_t>(i * bins + k)] = spec[static_cast<std::size_t>(k)];
+                            hr[static_cast<std::size_t>(i * bins + k)] =
+                                spectrum[static_cast<std::size_t>(k)];
                     }
 
                     // 4. Solve decode filters per ear.
@@ -265,13 +268,14 @@ namespace SushiEngine
                     }
                 }
 
-                // Zero-pad an impulse response to fft_size and forward transform into spec.
-                void transform_ir(const float* ir, int ir_len, std::complex<float>* spec) noexcept
+                // Zero-pad an impulse response to fft_size and forward transform into spectrum.
+                void transform_ir(const float* ir, int ir_length,
+                                  std::complex<float>* spectrum) noexcept
                 {
                     for (int i = 0; i < fft_size_; ++i)
-                        spec[i] = (i < ir_len) ? std::complex<float>(ir[i], 0.0f)
+                        spectrum[i] = (i < ir_length) ? std::complex<float>(ir[i], 0.0f)
                                                : std::complex<float>(0.0f, 0.0f);
-                    fft_.forward(spec);
+                    fft_.forward(spectrum);
                 }
 
                 // (YᵀY)⁻¹Yᵀ with Y row-major m×c; result ypinv row-major c×m. Regularized.
@@ -409,21 +413,21 @@ namespace SushiEngine
                     // Hermitian-complete and inverse-transform each channel to real taps.
                     filters.assign(static_cast<std::size_t>(c),
                                    std::vector<float>(static_cast<std::size_t>(fft_size_), 0.0f));
-                    std::vector<std::complex<float>> spec(static_cast<std::size_t>(fft_size_));
+                    std::vector<std::complex<float>> spectrum(static_cast<std::size_t>(fft_size_));
                     for (int a = 0; a < c; ++a)
                     {
                         for (int k = 0; k < fft_size_; ++k)
-                            spec[static_cast<std::size_t>(k)] =
+                            spectrum[static_cast<std::size_t>(k)] =
                                 d[static_cast<std::size_t>(a)][static_cast<std::size_t>(k)];
                         for (int k = 1; k < bins; ++k)
-                            spec[static_cast<std::size_t>(fft_size_ - k)] =
-                                std::conj(spec[static_cast<std::size_t>(k)]);
-                        spec[static_cast<std::size_t>(bins)] =
-                            std::complex<float>(spec[static_cast<std::size_t>(bins)].real(), 0.0f);
-                        fft_.inverse(spec.data());
+                            spectrum[static_cast<std::size_t>(fft_size_ - k)] =
+                                std::conj(spectrum[static_cast<std::size_t>(k)]);
+                        spectrum[static_cast<std::size_t>(bins)] = std::complex<float>(
+                            spectrum[static_cast<std::size_t>(bins)].real(), 0.0f);
+                        fft_.inverse(spectrum.data());
                         for (int t = 0; t < fft_size_; ++t)
                             filters[static_cast<std::size_t>(a)][static_cast<std::size_t>(t)] =
-                                spec[static_cast<std::size_t>(t)].real();
+                                spectrum[static_cast<std::size_t>(t)].real();
                     }
                 }
 

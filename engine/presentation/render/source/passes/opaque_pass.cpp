@@ -138,50 +138,50 @@ namespace SushiEngine
                 }
 
                 /** @brief The description shared by all three of this pass's pipelines. */
-                Resources::GraphicsPipelineDescription base_desc(VkPipelineLayout layout)
+                Resources::GraphicsPipelineDescription base_description(VkPipelineLayout layout)
                 {
-                    Resources::GraphicsPipelineDescription desc;
-                    desc.layout = layout;
-                    desc.vertex_stride = sizeof(Geometry::MeshVertex);
-                    desc.attribute_count = 6;
-                    desc.attributes[0] = {
+                    Resources::GraphicsPipelineDescription description;
+                    description.layout = layout;
+                    description.vertex_stride = sizeof(Geometry::MeshVertex);
+                    description.attribute_count = 6;
+                    description.attributes[0] = {
                         0, VK_FORMAT_R32G32B32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, position))};
-                    desc.attributes[1] = {
+                    description.attributes[1] = {
                         1, VK_FORMAT_R32G32B32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, normal))};
-                    desc.attributes[2] = {
+                    description.attributes[2] = {
                         2, VK_FORMAT_R32G32B32A32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, tangent))};
-                    desc.attributes[3] = {
+                    description.attributes[3] = {
                         3, VK_FORMAT_R32G32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv0))};
-                    desc.attributes[4] = {
+                    description.attributes[4] = {
                         4, VK_FORMAT_R32G32_SFLOAT,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, uv1))};
                     // Normalised so the shader reads the packed byte colour as 0..1.
-                    desc.attributes[5] = {
+                    description.attributes[5] = {
                         5, VK_FORMAT_R8G8B8A8_UNORM,
                         static_cast<std::uint32_t>(offsetof(Geometry::MeshVertex, color))};
-                    desc.depth_test = VK_TRUE;
-                    desc.depth_write = VK_TRUE;
-                    desc.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
-                    desc.stencil_test = VK_TRUE;
-                    desc.stencil.compareOp = VK_COMPARE_OP_ALWAYS;
-                    desc.stencil.passOp = VK_STENCIL_OP_REPLACE;
-                    desc.stencil.failOp = VK_STENCIL_OP_KEEP;
-                    desc.stencil.depthFailOp = VK_STENCIL_OP_KEEP;
-                    desc.stencil.compareMask = 0xFF;
-                    desc.stencil.writeMask = 0xFF;
-                    desc.dynamic_stencil_reference = VK_TRUE;
-                    desc.color_count = 4;
-                    desc.color_formats[0] = Frame::HDR_FORMAT;
-                    desc.color_formats[1] = Frame::ID_FORMAT;
-                    desc.color_formats[2] = Frame::VELOCITY_FORMAT;
-                    desc.color_formats[3] = Frame::GBUFFER_FORMAT;
-                    desc.depth_format = Frame::DEPTH_FORMAT;
-                    desc.stencil_format = Frame::DEPTH_FORMAT;
-                    return desc;
+                    description.depth_test = VK_TRUE;
+                    description.depth_write = VK_TRUE;
+                    description.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL; // reverse-Z
+                    description.stencil_test = VK_TRUE;
+                    description.stencil.compareOp = VK_COMPARE_OP_ALWAYS;
+                    description.stencil.passOp = VK_STENCIL_OP_REPLACE;
+                    description.stencil.failOp = VK_STENCIL_OP_KEEP;
+                    description.stencil.depthFailOp = VK_STENCIL_OP_KEEP;
+                    description.stencil.compareMask = 0xFF;
+                    description.stencil.writeMask = 0xFF;
+                    description.dynamic_stencil_reference = VK_TRUE;
+                    description.color_count = 4;
+                    description.color_formats[0] = Frame::HDR_FORMAT;
+                    description.color_formats[1] = Frame::ID_FORMAT;
+                    description.color_formats[2] = Frame::VELOCITY_FORMAT;
+                    description.color_formats[3] = Frame::GBUFFER_FORMAT;
+                    description.depth_format = Frame::DEPTH_FORMAT;
+                    description.stencil_format = Frame::DEPTH_FORMAT;
+                    return description;
                 }
             } // namespace
 
@@ -208,7 +208,8 @@ namespace SushiEngine
                 const VkShaderModule vertex = shaders_.module("mesh.vert");
                 const VkShaderModule outline_vertex = shaders_.module("outline.vert");
 
-                Resources::GraphicsPipelineDescription mesh = base_desc(layout_.pipeline_layout());
+                Resources::GraphicsPipelineDescription mesh =
+                    base_description(layout_.pipeline_layout());
                 mesh.vertex_shader = vertex;
                 mesh.fragment_shader = shaders_.module("pbr.frag");
                 mesh_pipeline_ = pipelines_.create(mesh);
@@ -218,7 +219,7 @@ namespace SushiEngine
                 // so the stride grows to 72 and a seventh attribute feeds mesh_skinned.vert the
                 // previous position for a deformation-correct motion vector.
                 Resources::GraphicsPipelineDescription skinned =
-                    base_desc(layout_.pipeline_layout());
+                    base_description(layout_.pipeline_layout());
                 skinned.vertex_stride = static_cast<std::uint32_t>(Scene::SKINNED_VERTEX_SIZE);
                 skinned.attribute_count = 7;
                 skinned.attributes[6] = {6, VK_FORMAT_R32G32B32_SFLOAT, 60};
@@ -248,7 +249,7 @@ namespace SushiEngine
                 if (layout_.gpu_pipeline_layout() != VK_NULL_HANDLE)
                 {
                     Resources::GraphicsPipelineDescription gpu =
-                        base_desc(layout_.gpu_pipeline_layout());
+                        base_description(layout_.gpu_pipeline_layout());
                     gpu.vertex_shader = shaders_.module("mesh_gpu.vert");
                     gpu.fragment_shader = shaders_.module("pbr.frag");
                     gpu_mesh_pipeline_ = pipelines_.create(gpu);
@@ -260,7 +261,7 @@ namespace SushiEngine
                 if (layout_.meshlet_pipeline_layout() != VK_NULL_HANDLE)
                 {
                     Resources::GraphicsPipelineDescription meshlet =
-                        base_desc(layout_.meshlet_pipeline_layout());
+                        base_description(layout_.meshlet_pipeline_layout());
                     meshlet.vertex_shader = VK_NULL_HANDLE;
                     meshlet.task_shader = shaders_.module("meshlet.task");
                     meshlet.mesh_shader = shaders_.module("meshlet.mesh");
@@ -354,8 +355,9 @@ namespace SushiEngine
                         const Matrix4 model =
                             instance.mesh != INVALID_MESH
                                 ? instance.model
-                                : mul(instance.model, Geometry::shape_scale(instance.kind,
-                                                                            instance.shape_params));
+                                : mul(instance.model,
+                                      Geometry::shape_scale(instance.kind,
+                                                            instance.shape_parameters));
                         instance_motions.push_back(motion_.push(instance.id, model));
                     }
                 }
@@ -429,7 +431,7 @@ namespace SushiEngine
                     },
                     [this, &frame, gpu, meshlet, instance_materials, deformable_materials,
                      instance_motions, deformable_motions, skinned_materials,
-                     skinned_motions](VkCommandBuffer cmd, const Graph::PassContext& context)
+                     skinned_motions](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         // The full scene set the shading fragment shader reads, shared
                         // with every other pbr.frag pass (`passes/shading_set.hpp`).
@@ -443,8 +445,8 @@ namespace SushiEngine
 
                         Scene::SceneSetWriter writer;
                         write_scene_set(writer);
-                        writer.commit(cmd, frame.layout->pipeline_layout());
-                        frame.layout->bind_heap(cmd);
+                        writer.commit(command, frame.layout->pipeline_layout());
+                        frame.layout->bind_heap(command);
 
                         const VkPipelineLayout pipeline_layout = frame.layout->pipeline_layout();
                         const VkDeviceSize zero = 0;
@@ -455,9 +457,10 @@ namespace SushiEngine
                         // which is why both live in one loop rather than two paths.
                         const auto draw_instances = [&](VkPipeline pipeline, bool outline)
                         {
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                             if (outline)
-                                vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
+                                vkCmdSetStencilReference(command, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                                         1);
 
                             VkBuffer bound_vertices = VK_NULL_HANDLE;
                             for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
@@ -476,19 +479,19 @@ namespace SushiEngine
                                     continue;
                                 if (mesh.vertices != bound_vertices)
                                 {
-                                    vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices, &zero);
-                                    vkCmdBindIndexBuffer(cmd, mesh.indices, 0,
+                                    vkCmdBindVertexBuffers(command, 0, 1, &mesh.vertices, &zero);
+                                    vkCmdBindIndexBuffer(command, mesh.indices, 0,
                                                          VK_INDEX_TYPE_UINT32);
                                     bound_vertices = mesh.vertices;
                                 }
 
                                 // An imported mesh carries its own geometry and scale; only
-                                // a primitive needs its unit mesh mapped onto shape params.
+                                // a primitive needs its unit mesh mapped onto shape parameters.
                                 const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
-                                                   Geometry::shape_scale(instance.kind,
-                                                                         instance.shape_params));
+                                                   Geometry::shape_scale(
+                                                       instance.kind, instance.shape_parameters));
                                 const MeshPushConstants push =
                                     outline ? make_push(model, frame.eye,
                                                         flat_material(instance.color), instance.id,
@@ -501,11 +504,11 @@ namespace SushiEngine
                                                         instance_motions[i]);
                                 if (!outline)
                                     vkCmdSetStencilReference(
-                                        cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                        command, VK_STENCIL_FACE_FRONT_AND_BACK,
                                         instance.id == frame.draws.selected_id ? 1 : 0);
-                                vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
+                                vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
                             }
                         };
 
@@ -517,11 +520,11 @@ namespace SushiEngine
                             const VkPipelineLayout meshlet_layout = layout_.meshlet_pipeline_layout();
                             Scene::SceneSetWriter meshlet_writer;
                             write_scene_set(meshlet_writer);
-                            meshlet_writer.commit(cmd, meshlet_layout);
-                            layout_.bind_meshlet_heap(cmd);
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            meshlet_writer.commit(command, meshlet_layout);
+                            layout_.bind_meshlet_heap(command);
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                               meshlet_pipeline_.get());
-                            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+                            vkCmdSetStencilReference(command, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                             const Vulkan::MeshShaderFunctions& mesh_shader = device_.mesh_shader();
 
                             for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
@@ -548,14 +551,14 @@ namespace SushiEngine
                                 meshlet_set_writer.storage_buffer(3, mesh.vertices, VK_WHOLE_SIZE);
                                 meshlet_set_writer.update(device_.device(), meshlet_set);
                                 Resources::bind_descriptor_set(
-                                    cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
+                                    command, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
                                     Scene::SceneLayout::INSTANCE_SET, meshlet_set);
 
                                 const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
-                                                   Geometry::shape_scale(instance.kind,
-                                                                         instance.shape_params));
+                                                   Geometry::shape_scale(
+                                                       instance.kind, instance.shape_parameters));
                                 Scene::MeshletPushConstants push{};
                                 for (int m = 0; m < 16; ++m)
                                     push.model[m] = static_cast<float>(model.m[m]);
@@ -566,18 +569,18 @@ namespace SushiEngine
                                 push.entity_id = instance.id;
                                 push.motion_index = instance_motions[i];
                                 push.meshlet_count = mesh.meshlet_count;
-                                vkCmdPushConstants(cmd, meshlet_layout, MESHLET_PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, meshlet_layout, MESHLET_PUSH_STAGES, 0,
                                                    sizeof(Scene::MeshletPushConstants), &push);
-                                mesh_shader.draw_mesh_tasks(cmd, meshlet_groups(mesh.meshlet_count),
-                                                            1, 1);
+                                mesh_shader.draw_mesh_tasks(
+                                    command, meshlet_groups(mesh.meshlet_count), 1, 1);
                             }
 
                             // Restore set 0 and the heap on the classic layout for the deformable
                             // draw that follows.
                             Scene::SceneSetWriter restore;
                             write_scene_set(restore);
-                            restore.commit(cmd, frame.layout->pipeline_layout());
-                            frame.layout->bind_heap(cmd);
+                            restore.commit(command, frame.layout->pipeline_layout());
+                            frame.layout->bind_heap(command);
                         }
                         else if (gpu)
                         {
@@ -588,8 +591,8 @@ namespace SushiEngine
                             const VkPipelineLayout gpu_layout = layout_.gpu_pipeline_layout();
                             Scene::SceneSetWriter gpu_writer;
                             write_scene_set(gpu_writer);
-                            gpu_writer.commit(cmd, gpu_layout);
-                            layout_.bind_gpu_heap(cmd);
+                            gpu_writer.commit(command, gpu_layout);
+                            layout_.bind_gpu_heap(command);
 
                             const VkDescriptorSet instance_set =
                                 frame.descriptors->allocate(layout_.instance_set_layout());
@@ -600,27 +603,29 @@ namespace SushiEngine
                                 1, context.buffer(frame.targets.compacted),
                                 frame.gpu_instance_count * sizeof(std::uint32_t));
                             instance_writer.update(device_.device(), instance_set);
-                            Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                            gpu_layout,
                                                            Scene::SceneLayout::INSTANCE_SET,
                                                            instance_set);
 
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                               gpu_mesh_pipeline_.get());
-                            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+                            vkCmdSetStencilReference(command, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                             const VkBuffer commands = context.buffer(frame.targets.draw_commands);
                             const std::vector<Scene::GPUDrawBucket>& buckets = instances_.buckets();
                             const VkDeviceSize zero_offset = 0;
                             for (std::size_t b = 0; b < buckets.size(); ++b)
                             {
                                 const Scene::GPUDrawBucket& bucket = buckets[b];
-                                vkCmdBindVertexBuffers(cmd, 0, 1, &bucket.vertices, &zero_offset);
-                                vkCmdBindIndexBuffer(cmd, bucket.indices, 0, VK_INDEX_TYPE_UINT32);
+                                vkCmdBindVertexBuffers(command, 0, 1, &bucket.vertices,
+                                                       &zero_offset);
+                                vkCmdBindIndexBuffer(command, bucket.indices, 0,
+                                                     VK_INDEX_TYPE_UINT32);
                                 Scene::GPUDrawPush push{bucket.candidate_base, 0};
-                                vkCmdPushConstants(cmd, gpu_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                                   sizeof(Scene::GPUDrawPush), &push);
+                                vkCmdPushConstants(command, gpu_layout, VK_SHADER_STAGE_VERTEX_BIT,
+                                                   0, sizeof(Scene::GPUDrawPush), &push);
                                 vkCmdDrawIndexedIndirect(
-                                    cmd, commands, b * sizeof(VkDrawIndexedIndirectCommand), 1,
+                                    command, commands, b * sizeof(VkDrawIndexedIndirectCommand), 1,
                                     sizeof(VkDrawIndexedIndirectCommand));
                             }
 
@@ -628,8 +633,8 @@ namespace SushiEngine
                             // draw that follows, which uses the classic mesh pipeline.
                             Scene::SceneSetWriter restore;
                             write_scene_set(restore);
-                            restore.commit(cmd, frame.layout->pipeline_layout());
-                            frame.layout->bind_heap(cmd);
+                            restore.commit(command, frame.layout->pipeline_layout());
+                            frame.layout->bind_heap(command);
                         }
                         else
                         {
@@ -648,7 +653,7 @@ namespace SushiEngine
                             const VkBuffer skinned_vertices = skinning_.output_buffer(frame.slot);
                             if (skinned_vertices != VK_NULL_HANDLE)
                             {
-                                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                   skinned_pipeline_.get());
                                 const std::vector<Scene::SkinnedRange>& ranges = skinning_.ranges();
                                 for (std::size_t i = 0; i < ranges.size(); ++i)
@@ -662,19 +667,20 @@ namespace SushiEngine
                                     const VkDeviceSize vertex_offset =
                                         static_cast<VkDeviceSize>(range.base_vertex) *
                                         Scene::SKINNED_VERTEX_SIZE;
-                                    vkCmdBindVertexBuffers(cmd, 0, 1, &skinned_vertices,
+                                    vkCmdBindVertexBuffers(command, 0, 1, &skinned_vertices,
                                                            &vertex_offset);
-                                    vkCmdBindIndexBuffer(cmd, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
+                                    vkCmdBindIndexBuffer(command, mesh.indices, 0,
+                                                         VK_INDEX_TYPE_UINT32);
                                     vkCmdSetStencilReference(
-                                        cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                        command, VK_STENCIL_FACE_FRONT_AND_BACK,
                                         range.id == frame.draws.selected_id ? 1 : 0);
                                     const MeshPushConstants push = make_push(
                                         range.model, frame.eye, range.material, range.id,
                                         frame.draws.selected_id, skinned_materials[i],
                                         skinned_motions[i]);
-                                    vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
+                                    vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                        sizeof(MeshPushConstants), &push);
-                                    vkCmdDrawIndexed(cmd, range.index_count, 1, 0, 0, 0);
+                                    vkCmdDrawIndexed(command, range.index_count, 1, 0, 0, 0);
                                 }
                             }
                         }
@@ -696,12 +702,13 @@ namespace SushiEngine
                         const double no_eye[3] = {0.0, 0.0, 0.0};
                         const auto draw_deformable = [&](VkPipeline pipeline, bool outline)
                         {
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                            vkCmdBindVertexBuffers(cmd, 0, 1, &deformable_mesh.vertices, &zero);
-                            vkCmdBindIndexBuffer(cmd, deformable_mesh.indices, 0,
+                            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                            vkCmdBindVertexBuffers(command, 0, 1, &deformable_mesh.vertices, &zero);
+                            vkCmdBindIndexBuffer(command, deformable_mesh.indices, 0,
                                                  VK_INDEX_TYPE_UINT32);
                             if (outline)
-                                vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
+                                vkCmdSetStencilReference(command, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                                         1);
                             for (const Geometry::DeformableMeshRange& range : deformable_.ranges())
                             {
                                 const std::size_t s = range.view_index;
@@ -710,15 +717,15 @@ namespace SushiEngine
                                     continue;
                                 if (!outline)
                                     vkCmdSetStencilReference(
-                                        cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+                                        command, VK_STENCIL_FACE_FRONT_AND_BACK,
                                         view.id == frame.draws.selected_id ? 1 : 0);
                                 const MeshPushConstants push =
                                     make_push(Matrix4{}, no_eye, flat_material(view.color), view.id,
                                               frame.draws.selected_id, deformable_materials[s],
                                               deformable_motions[s], outline ? 0.006f : 0.0f);
-                                vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,
+                                vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
-                                vkCmdDrawIndexed(cmd, range.index_count, 1, range.base_index,
+                                vkCmdDrawIndexed(command, range.index_count, 1, range.base_index,
                                                  static_cast<std::int32_t>(range.base_vertex), 0);
                             }
                         };

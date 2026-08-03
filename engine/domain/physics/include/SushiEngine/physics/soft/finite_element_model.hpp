@@ -206,9 +206,9 @@ namespace SushiEngine
                 RigidBodyT<T>& particle = model.particles[i];
                 particle.position =
                     origin + Vector3T<T>{T(source.x), T(source.y), T(source.z)};
-                particle.prev_position = particle.position;
+                particle.previous_position = particle.position;
                 particle.orientation = QuaternionT<T>{T(0), T(0), T(0), T(1)};
-                particle.prev_orientation = particle.orientation;
+                particle.previous_orientation = particle.orientation;
                 particle.inv_inertia = Vector3T<T>{T(0), T(0), T(0)};
                 const Scalar mass = view.vertex_mass[record.first_vertex + i];
                 particle.inv_mass = mass > Scalar(0) ? T(1) / T(mass) : T(0);

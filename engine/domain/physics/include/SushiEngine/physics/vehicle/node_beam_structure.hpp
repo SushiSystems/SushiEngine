@@ -466,10 +466,10 @@ namespace SushiEngine
                     core_frame_ = conjugate(principal);
                     core_center_ = center;
                     body.orientation = mul(settings.orientation, principal);
-                    body.prev_orientation = body.orientation;
+                    body.previous_orientation = body.orientation;
                     body.center_of_mass_local = rotate(conjugate(principal), center);
                     body.position = settings.position + rotate(settings.orientation, center);
-                    body.prev_position = body.position;
+                    body.previous_position = body.position;
                     body.velocity = settings.velocity;
                     body.inv_mass = T(1) / T(view.core.mass);
                     body.inv_inertia = inverse_inertia(view.core.principal_inertia);
@@ -494,7 +494,7 @@ namespace SushiEngine
                         RigidBodyT<T> body;
                         body.position = settings.position +
                                         rotate(settings.orientation, column_vector(record.position));
-                        body.prev_position = body.position;
+                        body.previous_position = body.position;
                         body.velocity = settings.velocity;
                         // A node is a particle: §11.1 defines it as a body with zero
                         // inverse inertia, which is what makes a beam's lack of anchors

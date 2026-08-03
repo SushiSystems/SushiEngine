@@ -645,7 +645,7 @@ TEST(Unit_JointProjection, AnImpactIsReportedAsAPeakTheMeanCannotSee)
     RigidBody door;
     ASSERT_TRUE(solver.read_body(b, door));
     door.position = Vector3{Scalar(3.5), Scalar(2), 0};
-    door.prev_position = door.position;
+    door.previous_position = door.position;
     door.velocity = Vector3{0, 0, 0};
     ASSERT_TRUE(solver.write_body(b, door));
 

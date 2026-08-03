@@ -122,12 +122,12 @@ namespace SushiEngine
                     double px = environment.planet_pole.x;
                     double py = environment.planet_pole.y;
                     double pz = environment.planet_pole.z;
-                    const double pole_len = std::sqrt(px * px + py * py + pz * pz);
-                    if (pole_len > 0.0)
+                    const double pole_length = std::sqrt(px * px + py * py + pz * pz);
+                    if (pole_length > 0.0)
                     {
-                        px /= pole_len;
-                        py /= pole_len;
-                        pz /= pole_len;
+                        px /= pole_length;
+                        py /= pole_length;
+                        pz /= pole_length;
                     }
                     const double c_ax = cx * px + cy * py + cz * pz;
                     const double c_rad_x = cx - px * c_ax;
@@ -250,10 +250,10 @@ namespace SushiEngine
                     const SynopticFieldView& synoptic = environment.synoptic;
                     const int count =
                         std::min(std::max(synoptic.count, 0), SYNOPTIC_FIELD_MAX_CENTRES);
-                    uniforms.synoptic_params[0] = static_cast<float>(count);
-                    uniforms.synoptic_params[1] = synoptic.itcz_latitude;
-                    uniforms.synoptic_params[2] = synoptic.valid ? 1.0f : 0.0f;
-                    uniforms.synoptic_params[3] = 0.0f;
+                    uniforms.synoptic_parameters[0] = static_cast<float>(count);
+                    uniforms.synoptic_parameters[1] = synoptic.itcz_latitude;
+                    uniforms.synoptic_parameters[2] = synoptic.valid ? 1.0f : 0.0f;
+                    uniforms.synoptic_parameters[3] = 0.0f;
                     for (int i = 0; i < SYNOPTIC_FIELD_MAX_CENTRES; ++i)
                     {
                         const SynopticFieldCentre& centre = synoptic.centres[i];
@@ -366,10 +366,10 @@ namespace SushiEngine
                 uniforms.cloud_global[2] = top_max;
                 uniforms.cloud_global[3] = static_cast<float>(CLOUD_MAX_DECKS);
 
-                uniforms.star_params[0] = environment.stars.brightness;
-                uniforms.star_params[1] = environment.stars.density;
-                uniforms.star_params[2] = environment.atmosphere.enabled ? 1.0f : 0.0f;
-                uniforms.star_params[3] = environment.stars.enabled ? 1.0f : 0.0f;
+                uniforms.star_parameters[0] = environment.stars.brightness;
+                uniforms.star_parameters[1] = environment.stars.density;
+                uniforms.star_parameters[2] = environment.atmosphere.enabled ? 1.0f : 0.0f;
+                uniforms.star_parameters[3] = environment.stars.enabled ? 1.0f : 0.0f;
                 uniforms.misc[0] = camera.near_plane;
                 uniforms.misc[1] = camera.far_plane;
                 uniforms.misc[2] = time_seconds;

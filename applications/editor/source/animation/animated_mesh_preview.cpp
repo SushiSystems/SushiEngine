@@ -55,7 +55,7 @@ namespace SushiEngine
             clip_ = database_.clip(clip_id_);
             available_clips_ = std::move(import.clips);
 
-            controller_desc_ = Animation::ControllerDescription{};
+            controller_description_ = Animation::ControllerDescription{};
             Animation::LayerDescription base_layer;
             base_layer.name = "Base";
             base_layer.weight = 1.0f;
@@ -63,7 +63,7 @@ namespace SushiEngine
             base_state.name = "State0";
             base_state.clip = clip_id_;
             base_layer.states.push_back(base_state);
-            controller_desc_.layers.push_back(base_layer);
+            controller_description_.layers.push_back(base_layer);
             if (!compile_controller())
             {
                 clear();
@@ -137,7 +137,7 @@ namespace SushiEngine
                     return false;
             }
 
-            const std::size_t new_layer_index = controller_desc_.layers.size();
+            const std::size_t new_layer_index = controller_description_.layers.size();
             const std::string weight_param_name =
                 "layer_weight_" + std::to_string(new_layer_index);
 
@@ -148,7 +148,7 @@ namespace SushiEngine
             param.name = weight_param_name;
             param.type = Animation::ParameterType::Float;
             param.default_value = weight;
-            controller_desc_.parameters.push_back(param);
+            controller_description_.parameters.push_back(param);
 
             Animation::LayerDescription layer;
             layer.name = "Layer" + std::to_string(new_layer_index);
@@ -161,12 +161,12 @@ namespace SushiEngine
             state.name = "State0";
             state.clip = layer_clip_id;
             layer.states.push_back(state);
-            controller_desc_.layers.push_back(layer);
+            controller_description_.layers.push_back(layer);
 
             if (!compile_controller())
             {
-                controller_desc_.layers.pop_back();
-                controller_desc_.parameters.pop_back();
+                controller_description_.layers.pop_back();
+                controller_description_.parameters.pop_back();
                 compile_controller(); // best-effort restore of the previous, known-good controller
                 return false;
             }
@@ -177,20 +177,22 @@ namespace SushiEngine
 
         bool AnimatedMeshPreview::remove_layer(std::size_t index)
         {
-            if (index == 0 || index >= controller_desc_.layers.size())
+            if (index == 0 || index >= controller_description_.layers.size())
                 return false;
 
-            // Copy before erase: the layer's own weight_parameter name is still needed after
-            // it leaves controller_desc_.layers, to drop the matching ParameterDescription too.
-            const Animation::LayerDescription removed = controller_desc_.layers[index];
-            controller_desc_.layers.erase(controller_desc_.layers.begin() +
-                                          static_cast<std::ptrdiff_t>(index));
+            // Copy before erase: the layer's own weight_parameter name is still needed
+            // after it leaves controller_description_.layers, to drop the matching
+            // ParameterDescription too.
+            const Animation::LayerDescription removed = controller_description_.layers[index];
+            controller_description_.layers.erase(controller_description_.layers.begin() +
+                                                 static_cast<std::ptrdiff_t>(index));
             if (!removed.weight_parameter.empty())
-                for (std::size_t p = 0; p < controller_desc_.parameters.size(); ++p)
-                    if (controller_desc_.parameters[p].name == removed.weight_parameter)
+                for (std::size_t p = 0; p < controller_description_.parameters.size(); ++p)
+                    if (controller_description_.parameters[p].name == removed.weight_parameter)
                     {
-                        controller_desc_.parameters.erase(controller_desc_.parameters.begin() +
-                                                          static_cast<std::ptrdiff_t>(p));
+                        controller_description_.parameters.erase(
+                            controller_description_.parameters.begin() +
+                            static_cast<std::ptrdiff_t>(p));
                         break;
                     }
 
@@ -199,12 +201,12 @@ namespace SushiEngine
 
         float AnimatedMeshPreview::layer_weight(std::size_t index) const noexcept
         {
-            if (index >= controller_desc_.layers.size())
+            if (index >= controller_description_.layers.size())
                 return 0.0f;
             if (index == 0)
                 return 1.0f;
             if (index >= layer_weight_param_index_.size())
-                return controller_desc_.layers[index].weight;
+                return controller_description_.layers[index].weight;
             return animator_instance_.parameters.values[layer_weight_param_index_[index]].as_float;
         }
 
@@ -217,14 +219,14 @@ namespace SushiEngine
 
         void AnimatedMeshPreview::rebuild_weight_param_index_cache()
         {
-            layer_weight_param_index_.assign(controller_desc_.layers.size(), 0u);
-            for (std::size_t i = 1; i < controller_desc_.layers.size(); ++i)
+            layer_weight_param_index_.assign(controller_description_.layers.size(), 0u);
+            for (std::size_t i = 1; i < controller_description_.layers.size(); ++i)
             {
-                const std::string& name = controller_desc_.layers[i].weight_parameter;
+                const std::string& name = controller_description_.layers[i].weight_parameter;
                 if (name.empty())
                     continue;
-                for (std::size_t p = 0; p < controller_desc_.parameters.size(); ++p)
-                    if (controller_desc_.parameters[p].name == name)
+                for (std::size_t p = 0; p < controller_description_.parameters.size(); ++p)
+                    if (controller_description_.parameters[p].name == name)
                     {
                         layer_weight_param_index_[i] = static_cast<std::uint32_t>(p);
                         break;
@@ -232,17 +234,18 @@ namespace SushiEngine
             }
         }
 
-        bool AnimatedMeshPreview::apply_controller(const Animation::ControllerDescription& desc)
+        bool AnimatedMeshPreview::apply_controller(
+            const Animation::ControllerDescription& description)
         {
             if (!loaded())
                 return false;
-            const Animation::ControllerDescription previous = controller_desc_;
-            controller_desc_ = desc;
+            const Animation::ControllerDescription previous = controller_description_;
+            controller_description_ = description;
             if (!compile_controller())
             {
                 // Restore the known-good controller so a bad graph reports as a message,
                 // never as a character that stops animating.
-                controller_desc_ = previous;
+                controller_description_ = previous;
                 compile_controller();
                 return false;
             }
@@ -252,7 +255,7 @@ namespace SushiEngine
         bool AnimatedMeshPreview::compile_controller()
         {
             std::vector<std::byte> blob;
-            if (!Animation::compile_controller_blob(controller_desc_, blob))
+            if (!Animation::compile_controller_blob(controller_description_, blob))
                 return false;
             controller_id_ = database_.add_controller(std::move(blob));
             if (controller_id_ == Animation::INVALID_ASSET)
@@ -275,7 +278,7 @@ namespace SushiEngine
             clip_id_ = Animation::INVALID_ASSET;
             skeleton_ = Animation::SkeletonView{};
             clip_ = Animation::ClipView{};
-            controller_desc_ = Animation::ControllerDescription{};
+            controller_description_ = Animation::ControllerDescription{};
             controller_id_ = Animation::INVALID_ASSET;
             controller_ = Animation::ControllerView{};
             animator_instance_ = Animation::AnimatorInstance{};

@@ -100,15 +100,15 @@ namespace SushiEngine
                                    Resources::DescriptorHeap& heap)
                 : device_(device), heap_(heap)
             {
-                Resources::SamplerDescription sampler_desc;
-                sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                sampler_ = samplers.get(sampler_desc);
+                Resources::SamplerDescription sampler_description;
+                sampler_description.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                sampler_ = samplers.get(sampler_description);
                 // The same sampler, allowed to reach the march volume's coarser levels. A
                 // sampler's maxLod is part of its identity, so this cannot be folded into the
                 // one above without also lifting the clamp on four volumes that have exactly
                 // one level and would gain nothing from it.
-                sampler_desc.max_lod = static_cast<float>(MARCH_MIP_LEVELS - 1u);
-                march_sampler_ = samplers.get(sampler_desc);
+                sampler_description.max_lod = static_cast<float>(MARCH_MIP_LEVELS - 1u);
+                march_sampler_ = samplers.get(sampler_description);
 
                 create_volume(SHAPE, SHAPE_RESOLUTION, true, 1);
                 create_volume(DETAIL, DETAIL_RESOLUTION, true, 1);
@@ -345,19 +345,19 @@ namespace SushiEngine
                     vkCreateCommandPool(device_.device(), &pool_info, nullptr, &command_pool),
                     "vkCreateCommandPool(noise)");
 
-                VkCommandBufferAllocateInfo cmd_info{};
-                cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                cmd_info.commandPool = command_pool;
-                cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                cmd_info.commandBufferCount = 1;
-                VkCommandBuffer cmd = VK_NULL_HANDLE;
-                Vulkan::check(vkAllocateCommandBuffers(device_.device(), &cmd_info, &cmd),
+                VkCommandBufferAllocateInfo command_info{};
+                command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                command_info.commandPool = command_pool;
+                command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                command_info.commandBufferCount = 1;
+                VkCommandBuffer command = VK_NULL_HANDLE;
+                Vulkan::check(vkAllocateCommandBuffers(device_.device(), &command_info, &command),
                               "vkAllocateCommandBuffers(noise)");
 
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                Vulkan::check(vkBeginCommandBuffer(cmd, &begin), "vkBeginCommandBuffer(noise)");
+                Vulkan::check(vkBeginCommandBuffer(command, &begin), "vkBeginCommandBuffer(noise)");
 
                 const auto transition = [&](VkImage image, VkImageLayout from, VkImageLayout to,
                                             VkPipelineStageFlags2 source_stage,
@@ -387,7 +387,7 @@ namespace SushiEngine
                     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dependency.imageMemoryBarrierCount = 1;
                     dependency.pImageMemoryBarriers = &barrier;
-                    vkCmdPipelineBarrier2(cmd, &dependency);
+                    vkCmdPipelineBarrier2(command, &dependency);
                 };
 
                 // Pass one: every volume's finest level, from its own generator.
@@ -401,29 +401,29 @@ namespace SushiEngine
                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
                                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                       volume.three_dimensional ? volume_pipeline
                                                                : weather_pipeline);
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    pipeline_layout_, 0, sets[slot]);
 
-                    NoiseParameters params{volume.resolution, slot};
-                    vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(NoiseParameters), &params);
+                    NoiseParameters parameters{volume.resolution, slot};
+                    vkCmdPushConstants(command, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                       sizeof(NoiseParameters), &parameters);
 
                     if (volume.three_dimensional)
-                        vkCmdDispatch(cmd, groups(volume.resolution, 4), groups(volume.resolution, 4),
-                                      groups(volume.resolution, 4));
+                        vkCmdDispatch(command, groups(volume.resolution, 4),
+                                      groups(volume.resolution, 4), groups(volume.resolution, 4));
                     else
-                        vkCmdDispatch(cmd, groups(volume.resolution, 8), groups(volume.resolution, 8),
-                                      1);
+                        vkCmdDispatch(command, groups(volume.resolution, 8),
+                                      groups(volume.resolution, 8), 1);
                 }
 
                 // Pass two: the march volume's chain, one level at a time. Each level's write
                 // must complete before the next reads it, so the barrier is per level rather
                 // than one for the whole chain — which is also why this cannot be folded into
                 // the loop above.
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mip_pipeline);
+                vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, mip_pipeline);
                 for (std::uint32_t level = 1; level < MARCH_MIP_LEVELS; ++level)
                 {
                     transition(march.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
@@ -432,15 +432,15 @@ namespace SushiEngine
                                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                VK_ACCESS_2_SHADER_STORAGE_READ_BIT, level - 1, 1);
 
-                    Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    Resources::bind_descriptor_set(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    mip_pipeline_layout_, 0,
                                                    mip_descriptor_sets[level - 1]);
-                    MipParameters mip_params{MARCH_RESOLUTION >> level};
-                    vkCmdPushConstants(cmd, mip_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(MipParameters), &mip_params);
-                    vkCmdDispatch(cmd, groups(mip_params.resolution, 4),
-                                  groups(mip_params.resolution, 4),
-                                  groups(mip_params.resolution, 4));
+                    MipParameters mip_parameters{MARCH_RESOLUTION >> level};
+                    vkCmdPushConstants(command, mip_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                       0, sizeof(MipParameters), &mip_parameters);
+                    vkCmdDispatch(command, groups(mip_parameters.resolution, 4),
+                                  groups(mip_parameters.resolution, 4),
+                                  groups(mip_parameters.resolution, 4));
                 }
 
                 // The finest level, on its way to the host for the spread measurement. Copied
@@ -456,7 +456,7 @@ namespace SushiEngine
                 region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 region.imageSubresource.layerCount = 1;
                 region.imageExtent = {MARCH_RESOLUTION, MARCH_RESOLUTION, MARCH_RESOLUTION};
-                vkCmdCopyImageToBuffer(cmd, march.image, VK_IMAGE_LAYOUT_GENERAL, readback, 1,
+                vkCmdCopyImageToBuffer(command, march.image, VK_IMAGE_LAYOUT_GENERAL, readback, 1,
                                        &region);
 
                 // Pass three: hand every level of every volume to the shaders that sample them.
@@ -468,7 +468,7 @@ namespace SushiEngine
                                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-                Vulkan::check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(noise)");
+                Vulkan::check(vkEndCommandBuffer(command), "vkEndCommandBuffer(noise)");
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -476,13 +476,13 @@ namespace SushiEngine
                 Vulkan::check(vkCreateFence(device_.device(), &fence_info, nullptr, &fence),
                               "vkCreateFence(noise)");
 
-                VkCommandBufferSubmitInfo cmd_submit{};
-                cmd_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                cmd_submit.commandBuffer = cmd;
+                VkCommandBufferSubmitInfo command_submit{};
+                command_submit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                command_submit.commandBuffer = command;
                 VkSubmitInfo2 submit{};
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
                 submit.commandBufferInfoCount = 1;
-                submit.pCommandBufferInfos = &cmd_submit;
+                submit.pCommandBufferInfos = &command_submit;
                 Vulkan::check(vkQueueSubmit2(device_.graphics_queue(), 1, &submit, fence),
                               "vkQueueSubmit2(noise)");
                 vkWaitForFences(device_.device(), 1, &fence, VK_TRUE, UINT64_MAX);

@@ -54,7 +54,7 @@ namespace SushiEngine
 
             void ContactShadowPass::create_pipeline()
             {
-                pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
+                pipeline_ = pipelines_.create(fullscreen_pipeline_description(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("contact_shadow.frag"), Frame::CONTACT_SHADOW_FORMAT));
             }
@@ -92,7 +92,7 @@ namespace SushiEngine
                         builder.read(frame.targets.uniforms, Graph::BufferAccess::UniformRead);
                         builder.read(frame.targets.shadow, Graph::BufferAccess::UniformRead);
                     },
-                    [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [this, &frame](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
                             frame.samplers->get(Resources::SamplerDescription{});
@@ -104,11 +104,12 @@ namespace SushiEngine
                         writer.uniform(Scene::SceneLayout::SHADOW_BINDING,
                                        context.buffer(frame.targets.shadow),
                                        sizeof(Scene::ShadowUniforms));
-                        writer.commit(cmd, frame.layout->pipeline_layout());
+                        writer.commit(command, frame.layout->pipeline_layout());
 
-                        frame.layout->bind_heap(cmd);
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        frame.layout->bind_heap(command);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_.get());
+                        vkCmdDraw(command, 3, 1, 0, 0);
                     });
             }
         } // namespace Passes

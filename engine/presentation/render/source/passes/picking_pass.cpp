@@ -44,13 +44,13 @@ namespace SushiEngine
                                       Graph::BufferAccess::TransferDestination);
                         builder.set_side_effect();
                     },
-                    [&frame](VkCommandBuffer cmd, const Graph::PassContext& context)
+                    [&frame](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         VkBufferImageCopy copy{};
                         copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                         copy.imageSubresource.layerCount = 1;
                         copy.imageExtent = {frame.width, frame.height, 1};
-                        vkCmdCopyImageToBuffer(cmd, context.image(frame.targets.id),
+                        vkCmdCopyImageToBuffer(command, context.image(frame.targets.id),
                                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                                context.buffer(frame.targets.readback), 1, &copy);
                     });

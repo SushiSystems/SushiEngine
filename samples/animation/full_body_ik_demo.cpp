@@ -78,7 +78,7 @@ int main()
 {
     // --- Test 1: a single 3-joint chain reaches an out-of-plane target -----------------
     {
-        SkeletonDescription desc;
+        SkeletonDescription description;
         JointDescription root;
         root.name = "root";
         root.parent = -1;
@@ -90,10 +90,10 @@ int main()
         tip.name = "tip";
         tip.parent = 1;
         tip.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
-        desc.joints = {root, mid, tip};
+        description.joints = {root, mid, tip};
 
         std::vector<std::byte> blob;
-        check(build_skeleton_blob(desc, blob), "cook 3-joint skeleton");
+        check(build_skeleton_blob(description, blob), "cook 3-joint skeleton");
         AnimationDatabase database;
         const AssetId skeleton_id = database.add_skeleton(std::move(blob));
         const SkeletonView skeleton = database.skeleton(skeleton_id);
@@ -134,7 +134,7 @@ int main()
 
     // --- Test 2: two independent limbs off a shared, never-rotated anchor --------------
     {
-        SkeletonDescription desc;
+        SkeletonDescription description;
         JointDescription root;
         root.name = "root";
         root.parent = -1;
@@ -154,10 +154,10 @@ int main()
         limb_b_tip.name = "limb_b_tip";
         limb_b_tip.parent = 3;
         limb_b_tip.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
-        desc.joints = {root, limb_a_base, limb_a_tip, limb_b_base, limb_b_tip};
+        description.joints = {root, limb_a_base, limb_a_tip, limb_b_base, limb_b_tip};
 
         std::vector<std::byte> blob;
-        check(build_skeleton_blob(desc, blob), "cook 5-joint skeleton");
+        check(build_skeleton_blob(description, blob), "cook 5-joint skeleton");
         AnimationDatabase database;
         const AssetId skeleton_id = database.add_skeleton(std::move(blob));
         const SkeletonView skeleton = database.skeleton(skeleton_id);
@@ -165,7 +165,7 @@ int main()
         // The cook topologically re-sorts joints by depth (stable_sort), so authored
         // index order is NOT preserved once two joints share a depth — exactly this
         // skeleton's case (limb_a_base and limb_b_base are both depth 1). Resolve every
-        // index by name post-cook rather than assuming it matches `desc.joints`' order.
+        // index by name post-cook rather than assuming it matches `description.joints`' order.
         const std::uint32_t root_index =
             static_cast<std::uint32_t>(skeleton.find_joint(hash_name("root")));
         const std::uint32_t limb_a_base_index =
