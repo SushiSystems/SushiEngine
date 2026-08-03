@@ -50,9 +50,12 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/terrain/height_function.hpp>
 #include <SushiEngine/terrain/layer_stack.hpp>
 #include <SushiEngine/terrain/pack_format.hpp>
 #include <SushiEngine/terrain/quadtree.hpp>
+#include <SushiEngine/terrain/terrain_authoring.hpp>
+#include <SushiEngine/terrain/tile_address.hpp>
 
 #include "terrain/terrain_frame.hpp"
 #include "terrain/tile_cache.hpp"
@@ -133,8 +136,13 @@ namespace SushiEngine
              * @brief A body's terrain: its asset, its edits, its cache, and its frame data.
              *
              * Non-copyable: it owns the cache's device resources.
+             *
+             * It is also the authoring surface for the ground it is drawing
+             * (@ref SushiEngine::Terrain::ITerrainAuthoring), because it is the only thing
+             * that holds both halves of an edit: the layer record, and the compiled tiles
+             * that record has just made wrong.
              */
-            class PlanetTerrain
+            class PlanetTerrain : public SushiEngine::Terrain::ITerrainAuthoring
             {
                 public:
                     /**
@@ -173,7 +181,7 @@ namespace SushiEngine
                     void set_body(int body, const std::string& pack_path);
 
                     /** @brief The body this is currently pointed at, or negative for none. */
-                    int body() const noexcept { return body_index_; }
+                    int body() const noexcept override { return body_index_; }
 
                     /**
                      * @brief Whether a pack was found and accepted.
@@ -182,7 +190,7 @@ namespace SushiEngine
                      * analytic ground the sky pass already draws, which is what shipped
                      * before terrain existed.
                      */
-                    bool loaded() const noexcept { return pack_.loaded(); }
+                    bool loaded() const noexcept override { return pack_.loaded(); }
 
                     /**
                      * @brief Whether this frame's selection produced something to draw.
@@ -232,19 +240,77 @@ namespace SushiEngine
                     TileCache& cache() noexcept { return *cache_; }
 
                     /** @brief What the last selection did, for the editor's readout. */
-                    const SushiEngine::Terrain::QuadtreeStatistics& statistics() const noexcept
+                    SushiEngine::Terrain::QuadtreeStatistics
+                    selection_statistics() const noexcept override
                     {
                         return statistics_;
                     }
 
-                    /** @brief Tiles staged by the last @ref prepare. */
+                    /** @brief Tiles staged by the last @ref prepare, recompiles included. */
                     std::uint32_t uploads() const noexcept { return uploads_; }
 
                     /** @brief Nodes drawing from an ancestor rather than their own tile. */
                     std::uint32_t inherited() const noexcept { return inherited_; }
 
-                    /** @brief The layer stack, so the builder can edit this body's ground. */
-                    SushiEngine::Terrain::LayerStack& layers() noexcept { return layers_; }
+                    /** @brief The loaded body's mean radius, metres; zero without a pack. */
+                    double mean_radius_metres() const noexcept override;
+
+                    /** @brief Where the last @ref prepare looked from, as a unit direction. */
+                    SushiEngine::Vector3 view_direction() const noexcept override
+                    {
+                        return view_direction_;
+                    }
+
+                    /** @brief How many layers this body's stack holds. */
+                    std::size_t layer_count() const noexcept override { return layers_.size(); }
+
+                    /**
+                     * @brief One layer, by position in composition order.
+                     * @param index Position, below @ref layer_count.
+                     * @return The layer, or a default-constructed one when out of range.
+                     */
+                    SushiEngine::Terrain::TerrainLayer layer(std::size_t index) const override;
+
+                    /**
+                     * @brief Adds a layer and marks the ground under it for recompilation.
+                     * @param layer The layer to add; its order must be free.
+                     * @return Whether it was added.
+                     */
+                    bool insert_layer(const SushiEngine::Terrain::TerrainLayer& layer) override;
+
+                    /**
+                     * @brief Rewrites a layer, marking both the ground it left and the
+                     *        ground it reached.
+                     * @param order The order identifying the layer to rewrite.
+                     * @param layer Its new value; its order may differ, which moves it.
+                     * @return Whether it was rewritten.
+                     */
+                    bool update_layer(std::uint32_t order,
+                                      const SushiEngine::Terrain::TerrainLayer& layer) override;
+
+                    /**
+                     * @brief Removes a layer and marks the ground it shaped.
+                     * @param order The order to remove.
+                     * @return Whether a layer held that order.
+                     */
+                    bool remove_layer(std::uint32_t order) override;
+
+                    /**
+                     * @brief Exchanges two layers' places in composition order.
+                     * @param first  One layer's order.
+                     * @param second The other's.
+                     * @return Whether both existed; the stack is untouched when not.
+                     */
+                    bool swap_layer_order(std::uint32_t first, std::uint32_t second) override;
+
+                    /** @brief Drops every layer, marking the ground all of them shaped. */
+                    void clear_layers() override;
+
+                    /** @brief Tiles still holding pre-edit ground. */
+                    std::size_t pending_recompile_count() const noexcept override
+                    {
+                        return recompile_.size();
+                    }
 
                 private:
                     /** @brief One node that wanted its own tile and did not have one. */
@@ -253,6 +319,44 @@ namespace SushiEngine
                         std::size_t node = 0;
                         double distance = 0.0;
                     };
+
+                    /**
+                     * @brief Records that the ground under a footprint no longer matches
+                     *        the stack.
+                     *
+                     * Only the footprint, not the tiles: which tiles are resident is a
+                     * question with a different answer every frame, and answering it at the
+                     * moment of the edit would miss every tile that streams in between the
+                     * edit and the next frame. Resolved in @ref collect_recompilations.
+                     *
+                     * Dropped when there is no pool, since nothing is compiled to be stale.
+                     *
+                     * @param footprint The region the edit reached.
+                     */
+                    void mark_dirty(const SushiEngine::Terrain::LayerFootprint& footprint);
+
+                    /**
+                     * @brief Turns this frame's dirty footprints into a queue of tiles.
+                     *
+                     * Walks the resident slots once per edit rather than once per frame —
+                     * the dirty list is empty on every frame nobody authored anything — and
+                     * queues each tile the edits reach, deduplicated against what is already
+                     * queued so a run of edits over one crater does not compile it ten times.
+                     */
+                    void collect_recompilations();
+
+                    /**
+                     * @brief Recompiles queued tiles into the slots they already occupy.
+                     *
+                     * Re-staging rather than evicting: a resident tile keeps its slot when it
+                     * is staged again, so no frame in flight has an image pulled out from
+                     * under a draw it has already queued, and no device idle is needed.
+                     * Bounded by the frame's upload budget, which is why the queue survives
+                     * across frames.
+                     *
+                     * @param height The composed height function to compile with.
+                     */
+                    void drain_recompilations(const SushiEngine::Terrain::HeightFunction& height);
 
                     Vulkan::VulkanDevice& device_;
                     SushiEngine::Terrain::PlanetPack pack_;
@@ -273,6 +377,12 @@ namespace SushiEngine
                     std::vector<TerrainNodeRecord> records_;
                     std::vector<Miss> misses_;
                     std::vector<float> scratch_;
+                    /** @brief Where the last prepared frame sat, as a unit direction. */
+                    SushiEngine::Vector3 view_direction_{SushiEngine::Vector3{0.0, 0.0, 1.0}};
+                    /** @brief Regions edited since the last frame resolved them to tiles. */
+                    std::vector<SushiEngine::Terrain::LayerFootprint> dirty_footprints_;
+                    /** @brief Resident tiles compiled before an edit; deduplicated. */
+                    std::vector<SushiEngine::Terrain::TileAddress> recompile_;
                     TerrainBodyRecord body_{};
                     SushiEngine::Terrain::QuadtreeStatistics statistics_{};
                     std::uint32_t uploads_ = 0;

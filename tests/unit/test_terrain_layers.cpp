@@ -346,3 +346,51 @@ TEST(Unit_TerrainLayers, BilinearSamplingRecoversStoredValuesAndInterpolatesBetw
     const double outside = -1.0 / static_cast<double>(TILE_GRID_SIZE - 1u);
     EXPECT_NEAR(sample_tile_bilinear(heights.data(), outside, 0.0), 0.0f, 1e-4f);
 }
+
+TEST(Unit_TerrainLayers, FindReturnsTheLayerHoldingAnOrder)
+{
+    LayerStack stack;
+    ASSERT_TRUE(stack.insert(make_flatten(30, SITE, 100.0)));
+    ASSERT_TRUE(stack.insert(make_raise(10, Vector3{0.0, 1.0, 0.0}, 5.0)));
+
+    const TerrainLayer* found = stack.find(10);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->operation, LayerOperation::Raise);
+    EXPECT_DOUBLE_EQ(found->footprint.direction.y, 1.0);
+
+    // The query an editor needs before a removal: the footprint it is about to invalidate
+    // is only knowable from the record that is about to stop existing.
+    EXPECT_NE(stack.find(30), nullptr);
+    EXPECT_EQ(stack.find(20), nullptr);
+    EXPECT_EQ(stack.find(0), nullptr);
+}
+
+TEST(Unit_TerrainLayers, FootprintOverlapAgreesWithTheStackQuery)
+{
+    LayerFootprint footprint;
+    footprint.direction = SITE;
+    footprint.inner_radians = 0.010;
+    footprint.outer_radians = 0.020;
+
+    // A cap centred on the footprint always overlaps, however small it is.
+    EXPECT_TRUE(footprint_overlaps(footprint, SITE, 0.0));
+    // And one whose nearest edge stops short of the outer radius does not.
+    const Vector3 away{std::cos(0.5), std::sin(0.5), 0.0};
+    EXPECT_FALSE(footprint_overlaps(footprint, away, 0.4));
+    EXPECT_TRUE(footprint_overlaps(footprint, away, 0.49));
+
+    // The stack's own question is the same question, so a caller invalidating tiles for
+    // one edited layer and a tile compile skipping an untouched tile cannot disagree.
+    LayerStack stack;
+    TerrainLayer layer = make_raise(1, SITE, 10.0);
+    layer.footprint = footprint;
+    ASSERT_TRUE(stack.insert(layer));
+    for (int step = 0; step <= 10; ++step)
+    {
+        const double separation = 0.05 * static_cast<double>(step);
+        const Vector3 centre{std::cos(separation), std::sin(separation), 0.0};
+        EXPECT_EQ(stack.overlaps(centre, 0.03),
+                  footprint_overlaps(footprint, centre, 0.03))
+            << "at separation " << separation;
+    }
+}

@@ -385,6 +385,16 @@ namespace SushiEngine
                 tested = stats.tested;
             }
 
+            SushiEngine::Terrain::ITerrainAuthoring*
+            VulkanSceneView::terrain_authoring() noexcept
+            {
+                // Without the terrain layout there is no terrain descriptor set and
+                // update_terrain_body never points the selector at anything, so the stack
+                // behind this would be one nothing composes. Refusing is what tells a host
+                // to say "unavailable" rather than to accept edits that cannot be drawn.
+                return terrain_layout_.available() ? &terrain_ : nullptr;
+            }
+
             void VulkanSceneView::render(const CameraView& camera, const Environment& environment,
                                          const MeshInstance* instances, std::size_t count,
                                          std::uint32_t selected_id,

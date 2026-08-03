@@ -161,6 +161,7 @@ namespace SushiEngine
                                       {"meteorology", p.meteorology},
                                       {"gpu_culling", p.gpu_culling},
                                       {"physics", p.physics},
+                                      {"terrain", p.terrain},
                                       {"preview", p.preview},
                                       {"audio_mixer", p.audio_mixer},
                                       {"audio_profiler", p.audio_profiler},
@@ -192,6 +193,7 @@ namespace SushiEngine
                 p.meteorology = j.value("meteorology", p.meteorology);
                 p.gpu_culling = j.value("gpu_culling", p.gpu_culling);
                 p.physics = j.value("physics", p.physics);
+                p.terrain = j.value("terrain", p.terrain);
                 p.preview = j.value("preview", p.preview);
                 p.audio_mixer = j.value("audio_mixer", p.audio_mixer);
                 p.audio_profiler = j.value("audio_profiler", p.audio_profiler);

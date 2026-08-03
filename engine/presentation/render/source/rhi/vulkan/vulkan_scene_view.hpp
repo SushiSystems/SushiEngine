@@ -179,6 +179,7 @@ namespace SushiEngine
                     ScenePassTiming pass_timing(std::size_t index) const noexcept override;
                     void cull_statistics(std::uint32_t& drawn,
                                          std::uint32_t& tested) const noexcept override;
+                    SushiEngine::Terrain::ITerrainAuthoring* terrain_authoring() noexcept override;
                     bool read_output(std::uint32_t slot, FrameImage& image) override;
                     bool enable_pass_capture(bool enabled) override;
                     bool read_pass_hashes(std::uint32_t slot,

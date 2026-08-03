@@ -129,6 +129,25 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Whether one footprint reaches into a spherical cap.
+         *
+         * The one overlap test in the system, so the stack's own query and a caller
+         * asking about a single edit — which resident tiles one changed layer invalidated,
+         * for instance — cannot answer it differently.
+         *
+         * @param footprint      The footprint.
+         * @param direction      Unit direction of the cap's centre.
+         * @param radius_radians Angular radius of the cap.
+         * @return true when the footprint's outer radius reaches inside the cap.
+         */
+        inline bool footprint_overlaps(const LayerFootprint& footprint, const Vector3& direction,
+                                       double radius_radians) noexcept
+        {
+            return angular_distance(direction, footprint.direction) <
+                   radius_radians + footprint.outer_radians;
+        }
+
+        /**
          * @brief A layer's strength at an angular distance from its centre.
          *
          * One inside the inner radius, zero past the outer, and a smoothstep between, so
@@ -235,6 +254,27 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief The layer holding an order, or null when none does.
+                 *
+                 * The query an editor needs before it changes anything: the footprint a
+                 * removal or a rewrite invalidates is the *old* layer's, and it is
+                 * unreachable once the record is gone.
+                 *
+                 * @param order The order to look for.
+                 * @return The layer, or nullptr; invalidated by any later insert or remove.
+                 */
+                const TerrainLayer* find(std::uint32_t order) const noexcept
+                {
+                    const auto position =
+                        std::lower_bound(layers_.begin(), layers_.end(), order,
+                                         [](const TerrainLayer& entry, std::uint32_t value)
+                                         { return entry.order < value; });
+                    if (position == layers_.end() || position->order != order)
+                        return nullptr;
+                    return &*position;
+                }
+
+                /**
                  * @brief Removes the layer holding an order.
                  * @param order The order to remove.
                  * @return true when a layer was removed, false when none held that order.
@@ -291,12 +331,8 @@ namespace SushiEngine
                 bool overlaps(const Vector3& direction, double radius_radians) const
                 {
                     for (const TerrainLayer& layer : layers_)
-                    {
-                        const double separation =
-                            angular_distance(direction, layer.footprint.direction);
-                        if (separation < radius_radians + layer.footprint.outer_radians)
+                        if (footprint_overlaps(layer.footprint, direction, radius_radians))
                             return true;
-                    }
                     return false;
                 }
 

@@ -8,7 +8,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Added
+- 2026-08-04 — Added the Terrain window (Window ▸ World ▸ Terrain): the near-field body's layer stack, editable in place, plus every field of the last frame's node selection.
+  - Added `Terrain::ITerrainAuthoring` and `ISceneView::terrain_authoring()`, the seam a host reaches a body's ground through; `PlanetTerrain` implements it.
+  - Changed a layer edit to queue the resident tiles it invalidated for recompilation, bounded by the frame's upload budget, so an edit reshapes ground that is already on screen instead of only ground that streams in later.
+  - Changed `PlanetTerrain::set_body` to drop the layer stack with the body it was authored against.
+- 2026-08-04 — Added the Crowd component's authoring surface: an Entity ▸ Objects ▸ Crowd item, an Inspector section, an Add Component entry, copy/paste, and a `crowd` block in the scene format.
+  - Added `skeleton_path`/`clip_path`/`mesh_path` to `CrowdParameters`, so the component carries the files its handles came from; `set_crowd_parameters` re-registers the skeleton and clip from those paths on every write, and `Scene::resolve_scene_assets` re-imports the skinned mesh and its maps after a load from disk.
+  - Added a Crowd round-trip to `test_scene_serializer_roundtrip.cpp` covering the snapshot path, the scene file, an unloadable rig, and undo.
+- 2026-08-04 — Added a measured peak-stress readout to the Inspector's Soft Body section, driven off `IWorldEditor::soft_body_maximum_stress` each frame, with a warning row once the body is past the yield stress its material declares.
+
 ### Fixed
+- 2026-08-04 — Fixed `ClothParameters` carrying no documentation: its Doxygen block sat above `CrowdParameters`, which had one of its own, so Doxygen attached neither block to the cloth struct.
 - 2026-08-04 — Fixed `capture_scene` never capturing a `SoftBodyParameters` component, which made Save→Load, Undo/Redo and Play→Stop each destroy every soft body in the scene.
   - Added `Scene::ISceneBlobTable`/`Scene::SceneBlobTable`, plus optional `blobs` parameters on `capture_scene`/`apply_scene`: a scene file inlines the cooked `.sushisoft` blob as base64 so it stays self-contained, while an in-memory snapshot names it by content hash so fifty undo steps hold one copy rather than fifty.
   - Changed `CommandHistory` and the editor's play-mode snapshot to each own a blob table beside their snapshots.

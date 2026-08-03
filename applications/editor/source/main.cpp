@@ -90,6 +90,7 @@
 #include "physics/assembly_panel.hpp"
 #include "physics/vehicle_drive.hpp"
 #include "physics/vehicle_panel.hpp"
+#include "terrain/terrain_panel.hpp"
 
 namespace
 {
@@ -396,6 +397,10 @@ int main(int argc, char** argv)
         // are: they outlive a frame, and exactly one of each should exist.
         SushiEngine::Editor::AnimationState animation_state;
         SushiEngine::Editor::GraphState animator_graph;
+
+        // The Terrain window's draft layer, owned here for the same reason: it is the one
+        // piece of that panel not already held by the body's own layer stack.
+        SushiEngine::Editor::TerrainPanelState terrain_panel_state;
 
         // The editor opens with no scene, which is the "new scene" state — so the world
         // starts from the user's default environment. A scene opened later brings its
@@ -1193,6 +1198,10 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_lighting_panel(context);
             SushiEngine::Editor::draw_post_process_panel(context);
             SushiEngine::Editor::draw_meteorology_panel(context);
+            // The Scene view's terrain, not the Game view's: the two views select and
+            // compile independently, and the ground is authored where it is being looked at.
+            SushiEngine::Editor::draw_terrain_panel(context, terrain_panel_state,
+                                                    scene_view.terrain_authoring());
             SushiEngine::Editor::draw_gpu_culling_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
             SushiEngine::Editor::draw_cooking_override_modal(context);

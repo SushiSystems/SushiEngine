@@ -205,6 +205,30 @@ namespace SushiEngine
                         return residency_.resident_count();
                     }
 
+                    /**
+                     * @brief Whether a slot holds a tile.
+                     * @param slot Slot index, below @ref slot_count.
+                     */
+                    bool slot_occupied(std::uint32_t slot) const
+                    {
+                        return residency_.slot_occupied(slot);
+                    }
+
+                    /**
+                     * @brief The tile a slot holds.
+                     *
+                     * With @ref slot_occupied, this is how a caller asks "what ground is
+                     * currently compiled" — the question an edit has to ask, because the
+                     * tiles an edit invalidates are exactly the resident ones it reaches.
+                     *
+                     * @param slot Slot index, below @ref slot_count; only meaningful while
+                     *             @ref slot_occupied says so.
+                     */
+                    SushiEngine::Terrain::TileAddress slot_address(std::uint32_t slot) const
+                    {
+                        return residency_.slot_address(slot);
+                    }
+
                     /** @brief Device memory the slot image occupies, bytes. */
                     std::size_t image_bytes() const noexcept;
 

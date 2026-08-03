@@ -63,6 +63,15 @@ namespace SushiEngine
             bool gpu_culling = false;
             bool physics = false;
 
+            /**
+             * @brief The Terrain window: a body's layer stack and what the last selection did.
+             *
+             * Off by default. Only one body at a time has baked ground under it, and
+             * reshaping it is a deliberate authoring session rather than something a scene
+             * is edited through — the same reason Bake is off.
+             */
+            bool terrain = false;
+
             /** @brief The Vehicle window: §11's authoring surface. */
             bool vehicle = false;
 

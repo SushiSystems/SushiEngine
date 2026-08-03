@@ -374,6 +374,21 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief This view's planetary ground, as something an author can edit.
+                 *
+                 * Forwarded rather than exposing the scene view itself, for the same reason
+                 * the timings and cull counts are: the host reads one capability at a time
+                 * and never gains the whole renderer through a viewport.
+                 *
+                 * @return The authoring surface, or nullptr when this view draws no terrain;
+                 *         owned by the view, which outlives the panel's callers.
+                 */
+                SushiEngine::Terrain::ITerrainAuthoring* terrain_authoring() noexcept
+                {
+                    return view_->terrain_authoring();
+                }
+
+                /**
                  * @brief Number of per-pass GPU timings from the last resolved frame.
                  *
                  * Zero until a timed submit has completed, and zero for the whole run on

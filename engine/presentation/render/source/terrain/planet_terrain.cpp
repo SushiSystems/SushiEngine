@@ -84,6 +84,13 @@ namespace SushiEngine
                 body_index_ = body;
                 records_.clear();
                 nodes_.clear();
+                // The edits go with the body they were authored against: a crater is a
+                // direction on *this* sphere, and carrying the stack across would reshape
+                // the next world at whatever point that direction happens to hit. The
+                // pending work goes with them — it names tiles of the world being left.
+                layers_.clear();
+                dirty_footprints_.clear();
+                recompile_.clear();
                 pack_ = pack_path.empty() ? Field::PlanetPack{}
                                           : Field::load_planet_pack(pack_path);
                 if (!pack_.loaded())
@@ -108,6 +115,12 @@ namespace SushiEngine
 
                 std::memcpy(body_.body_to_scene, view.body_to_scene,
                             sizeof(body_.body_to_scene));
+                // Kept for the authoring surface, which has no other way to say "here":
+                // the camera's own direction from the body centre is the ground under it.
+                // A camera exactly at the centre has no direction, so the axis stands.
+                const double reach = length(view.camera_body_fixed);
+                if (reach > 0.0)
+                    view_direction_ = normalize(view.camera_body_fixed);
                 const Field::Ellipsoid& ellipsoid = pack_.ellipsoid();
                 body_.semi_axes[0] = static_cast<float>(ellipsoid.semi_axis_x);
                 body_.semi_axes[1] = static_cast<float>(ellipsoid.semi_axis_y);
@@ -124,6 +137,7 @@ namespace SushiEngine
                 const Field::HeightFunction height{source_, layers_, ellipsoid};
 
                 cache_->begin_frame(view.frame_index, view.frame_slot);
+                collect_recompilations();
 
                 Field::QuadtreeParameters parameters;
                 parameters.screen_error_pixels = description_.screen_error_pixels;
@@ -151,6 +165,11 @@ namespace SushiEngine
 
                 std::sort(misses_.begin(), misses_.end(),
                           [](const Miss& a, const Miss& b) { return a.distance < b.distance; });
+
+                // Ahead of the misses in the frame's budget: a queued recompile is ground
+                // already on screen carrying the shape it had before an edit, while a miss
+                // is ground drawn coarser than asked for. Wrong beats coarse.
+                drain_recompilations(height);
 
                 for (const Miss& miss : misses_)
                 {
@@ -205,6 +224,158 @@ namespace SushiEngine
                     record.uv_rect[3] = binding.rect.scale_t;
                 }
                 records_.resize(written);
+            }
+
+            double PlanetTerrain::mean_radius_metres() const noexcept
+            {
+                if (!pack_.loaded())
+                    return 0.0;
+                const Field::Ellipsoid& ellipsoid = pack_.ellipsoid();
+                return (ellipsoid.semi_axis_x + ellipsoid.semi_axis_y + ellipsoid.semi_axis_z) /
+                       3.0;
+            }
+
+            Field::TerrainLayer PlanetTerrain::layer(std::size_t index) const
+            {
+                if (index >= layers_.size())
+                    return Field::TerrainLayer{};
+                return layers_.at(index);
+            }
+
+            bool PlanetTerrain::insert_layer(const Field::TerrainLayer& layer)
+            {
+                if (!layers_.insert(layer))
+                    return false;
+                mark_dirty(layer.footprint);
+                return true;
+            }
+
+            bool PlanetTerrain::update_layer(std::uint32_t order,
+                                             const Field::TerrainLayer& layer)
+            {
+                const Field::TerrainLayer* existing = layers_.find(order);
+                if (existing == nullptr)
+                    return false;
+                if (layer.order != order && layers_.find(layer.order) != nullptr)
+                    return false;
+                // Copied before the removal invalidates the pointer, and needed after it:
+                // the ground the layer stops covering is as wrong as the ground it starts
+                // covering, and only the old record knows where that was.
+                const Field::LayerFootprint vacated = existing->footprint;
+                layers_.remove(order);
+                layers_.insert(layer);
+                mark_dirty(vacated);
+                mark_dirty(layer.footprint);
+                return true;
+            }
+
+            bool PlanetTerrain::remove_layer(std::uint32_t order)
+            {
+                const Field::TerrainLayer* existing = layers_.find(order);
+                if (existing == nullptr)
+                    return false;
+                const Field::LayerFootprint vacated = existing->footprint;
+                layers_.remove(order);
+                mark_dirty(vacated);
+                return true;
+            }
+
+            bool PlanetTerrain::swap_layer_order(std::uint32_t first, std::uint32_t second)
+            {
+                if (first == second)
+                    return false;
+                const Field::TerrainLayer* lower = layers_.find(first);
+                const Field::TerrainLayer* upper = layers_.find(second);
+                if (lower == nullptr || upper == nullptr)
+                    return false;
+                Field::TerrainLayer moved_lower = *lower;
+                Field::TerrainLayer moved_upper = *upper;
+                moved_lower.order = second;
+                moved_upper.order = first;
+                layers_.remove(first);
+                layers_.remove(second);
+                layers_.insert(moved_lower);
+                layers_.insert(moved_upper);
+                mark_dirty(moved_lower.footprint);
+                mark_dirty(moved_upper.footprint);
+                return true;
+            }
+
+            void PlanetTerrain::clear_layers()
+            {
+                for (std::size_t index = 0; index < layers_.size(); ++index)
+                    mark_dirty(layers_.at(index).footprint);
+                layers_.clear();
+            }
+
+            void PlanetTerrain::mark_dirty(const Field::LayerFootprint& footprint)
+            {
+                // With no pool there is nothing compiled to be stale, and remembering the
+                // region anyway would grow a list nothing ever drains.
+                if (!cache_)
+                    return;
+                dirty_footprints_.push_back(footprint);
+            }
+
+            void PlanetTerrain::collect_recompilations()
+            {
+                if (dirty_footprints_.empty())
+                    return;
+
+                const std::uint32_t slots = cache_->slot_count();
+                for (std::uint32_t slot = 0; slot < slots; ++slot)
+                {
+                    if (!cache_->slot_occupied(slot))
+                        continue;
+                    const Field::TileAddress address = cache_->slot_address(slot);
+                    const SushiEngine::Vector3 centre = Field::tile_sample_direction(
+                        address, Field::TILE_STRIDE / 2u, Field::TILE_STRIDE / 2u);
+                    const double radius = Field::tile_angular_radius(address);
+                    for (const Field::LayerFootprint& footprint : dirty_footprints_)
+                    {
+                        if (!Field::footprint_overlaps(footprint, centre, radius))
+                            continue;
+                        recompile_.push_back(address);
+                        break;
+                    }
+                }
+                dirty_footprints_.clear();
+
+                std::sort(recompile_.begin(), recompile_.end(),
+                          [](const Field::TileAddress& a, const Field::TileAddress& b)
+                          {
+                              return Field::tile_address_key(a) < Field::tile_address_key(b);
+                          });
+                recompile_.erase(
+                    std::unique(recompile_.begin(), recompile_.end(),
+                                [](const Field::TileAddress& a, const Field::TileAddress& b)
+                                {
+                                    return Field::tile_address_key(a) ==
+                                           Field::tile_address_key(b);
+                                }),
+                    recompile_.end());
+            }
+
+            void PlanetTerrain::drain_recompilations(const Field::HeightFunction& height)
+            {
+                while (!recompile_.empty() && cache_->can_stage())
+                {
+                    const Field::TileAddress address = recompile_.back();
+                    // A tile evicted since the edit holds nothing stale: whatever is staged
+                    // into its slot next is compiled from the stack as it is then.
+                    if (cache_->find(address) != Field::INVALID_TILE_SLOT)
+                    {
+                        Field::TileStatistics statistics;
+                        if (height.evaluate_tile(address, scratch_.data(), statistics))
+                        {
+                            if (cache_->stage(address, scratch_.data()) ==
+                                Field::INVALID_TILE_SLOT)
+                                return; // no slot to take this frame; it stays queued
+                            ++uploads_;
+                        }
+                    }
+                    recompile_.pop_back();
+                }
             }
         } // namespace Terrain
     } // namespace Render

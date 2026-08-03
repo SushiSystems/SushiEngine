@@ -216,6 +216,7 @@ namespace SushiEngine
                 {
                     ImGui::MenuItem("Environment", nullptr, &context.panels.environment);
                     ImGui::MenuItem("Meteorology", nullptr, &context.panels.meteorology);
+                    ImGui::MenuItem("Terrain", nullptr, &context.panels.terrain);
                     ImGui::EndMenu();
                 }
                 if (ImGui::BeginMenu("Animation"))
@@ -1022,6 +1023,7 @@ namespace SushiEngine
             ImGui::DockBuilderDockWindow("Post Process", right);
             ImGui::DockBuilderDockWindow("GPU Culling", right);
             ImGui::DockBuilderDockWindow("Meteorology", right);
+            ImGui::DockBuilderDockWindow("Terrain", right);
             ImGui::DockBuilderDockWindow("Physics", right);
             ImGui::DockBuilderDockWindow("Vehicle", right);
             ImGui::DockBuilderDockWindow("Assembly", right);

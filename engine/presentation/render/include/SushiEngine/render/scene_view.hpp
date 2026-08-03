@@ -50,6 +50,20 @@
 
 namespace SushiEngine
 {
+    namespace Terrain
+    {
+        /**
+         * @brief A body's editable ground; see `SushiEngine/terrain/terrain_authoring.hpp`.
+         *
+         * Declared rather than included because @ref Render::ISceneView only hands out a
+         * pointer to one. This header is resolved by consumers that reach it through the
+         * simulation seam's include root rather than by linking the renderer, and those
+         * consumers have no terrain include path — a caller that means to *use* the
+         * authoring surface includes its header and links the module it belongs to.
+         */
+        class ITerrainAuthoring;
+    } // namespace Terrain
+
     namespace Render
     {
         /**
@@ -471,6 +485,27 @@ namespace SushiEngine
                 {
                     drawn = 0;
                     tested = 0;
+                }
+
+                /**
+                 * @brief The near-field body's ground, as something a host can edit and read.
+                 *
+                 * The one seam an authoring shell reaches the planet's layer stack and its
+                 * last selection through. A capability with a default rather than an
+                 * obligation, for the same reason the readbacks below are: a view that draws
+                 * no planet has no ground to author, and a null answer is the honest one.
+                 *
+                 * The returned object belongs to the view and lives exactly as long as it
+                 * does. It reflects whichever body the last frame's environment named, so a
+                 * caller that cares which world it is editing checks
+                 * @ref SushiEngine::Terrain::ITerrainAuthoring::body first — a view that has
+                 * travelled to another body has dropped the previous body's layers.
+                 *
+                 * @return The authoring surface, or nullptr when this view draws no terrain.
+                 */
+                virtual SushiEngine::Terrain::ITerrainAuthoring* terrain_authoring() noexcept
+                {
+                    return nullptr;
                 }
 
                 /**

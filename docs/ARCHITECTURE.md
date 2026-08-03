@@ -3711,6 +3711,21 @@ duplicate is refused rather than resolved, so the composed ground is a pure func
 the *set* of layers and not of the order they arrived in — the property a server and a
 client need to agree on a collidable surface.
 
+**Where an edit comes from.** A stack nothing writes to is a stack that composes nothing, so
+the records have an authoring surface: `terrain/terrain_authoring.hpp` declares
+`ITerrainAuthoring` — insert, rewrite, remove, reorder, and the last frame's selection — and
+`PlanetTerrain` implements it, reached from a host through `ISceneView::terrain_authoring()`
+and drawn by the editor's Terrain window (`applications/editor/source/terrain/`). The
+interface exists rather than the stack being handed out directly because an edit is two
+things, not one: the record changes, and every tile already compiled from the old record is
+now wrong. Each mutator marks the footprints it touched, and the next frame turns those into
+a queue of resident tiles and re-stages them into the slots they already hold — re-staging
+rather than evicting, because a resident tile keeps its slot, so no frame in flight has an
+image pulled out from under a draw it has already queued and no device idle is needed. The
+queue is drained under the same per-frame upload budget as a streaming miss and ahead of it,
+since ground that is wrong is worse than ground that is coarse. The stack belongs to the body
+it was authored against and is dropped when the view travels to another one.
+
 `height_source.hpp` is the seam that keeps real and invented bodies on one code path: a
 baked pak, a procedural generator, and a higher-resolution regional inset are three
 implementations of `IHeightSource`, and no consumer learns which one answered. Its
@@ -3819,4 +3834,8 @@ uncovered; a body with no pack keeps it.
 
 What is not here yet: the streamer, terrain in the depth prepass (so Hi-Z and GTAO do not
 see it), the collision patch set, and sub-Nyquist detail synthesis. Each is a later phase in
-the design document, and each has an exit criterion there rather than in prose.
+the design document, and each has an exit criterion there rather than in prose. Layers are
+also not persisted: the scene file carries entities, the environment and the sky, and a layer
+stack an author builds lives only in the view that drew it, so it is lost on a reload and on a
+trip to another body. The record was designed to serialise — that is what makes it a record —
+and giving it an owner in the scene is the step that closes the loop.

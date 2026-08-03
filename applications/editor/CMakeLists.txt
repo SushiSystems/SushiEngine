@@ -88,6 +88,9 @@ add_executable(sushiengine_editor
     source/physics/cook_bake_panel.cpp
     source/physics/collision_overlay.cpp
     source/physics/soft_body_overlay.cpp
+    # The Terrain window: the layer stack a body's ground is composed from, and what the
+    # last frame's node selection made of it.
+    source/terrain/terrain_panel.cpp
     source/gizmo/gizmo_controller.cpp)
 target_link_libraries(sushiengine_editor PRIVATE
     sushiengine_imgui
