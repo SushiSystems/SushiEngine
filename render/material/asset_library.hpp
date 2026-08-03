@@ -39,6 +39,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <SushiEngine/render/material.hpp>
@@ -76,9 +77,19 @@ namespace SushiEngine
                 public:
                     /**
                      * @brief Brings up every device-level service.
-                     * @param device The live Vulkan device.
+                     * @param device                 The live Vulkan device.
+                     * @param shader_source_directory Directory shaders are loaded from at
+                     *     runtime for hot-reload; empty selects the compiled-in default
+                     *     (the source tree's `shaders/` directory, wrong for a shipped
+                     *     player — see `SUSHI_SHADER_SOURCE_DIR`).
+                     * @param pipeline_cache_path     File the driver's pipeline cache blob is
+                     *     read from and written back to; empty selects the compiled-in
+                     *     default (the build directory, wrong for a shipped player — see
+                     *     `SUSHI_PIPELINE_CACHE_DIR`).
                      */
-                    explicit AssetLibrary(Vulkan::VulkanDevice& device);
+                    explicit AssetLibrary(Vulkan::VulkanDevice& device,
+                                          std::string shader_source_directory = std::string(),
+                                          std::string pipeline_cache_path = std::string());
                     ~AssetLibrary() override;
 
                     AssetLibrary(const AssetLibrary&) = delete;

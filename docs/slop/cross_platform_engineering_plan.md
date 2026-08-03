@@ -244,7 +244,7 @@ Recommendation: **SPIRV-Cross now, Slang later, delete the bridge in the same mi
 
 | Code | Delivers | Size |
 |---|---|---|
-| **RHI0** | **Code complete 2026-08-01** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. *Not yet green — no baseline is recorded; every recording so far predated a fix found by running it (see "What running it actually taught").* Reachable as `se render --probe golden`. Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
+| **RHI0** | **Closed 2026-08-03** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. Baselines recorded and reproduction-verified (`render/probe/goldens/`); see "RHI0 closed" below. Reachable as `se render --probe golden`. Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
 | **RHI1** | Neutral vocabulary (`Rhi::types.hpp`/`handles.hpp`); collapse `TextureState`/`BufferState`; one Vulkan conversion TU. Slang GLSL-front-end spike. Exit: `render/graph/` no longer includes `vulkan.h`; trace byte-identical. | Small–Medium |
 | **RHI2** | `ICommandList` (21 verbs); port **recording only** across all 39 passes (95 `VkCommandBuffer` sites). Exit: zero `vkCmd*` under `render/passes/`; golden images identical. | Large |
 | **RHI3** | `IDevice` + generation-tagged handle tables; port all resource-owning systems (texture/buffer pools, samplers, pipelines, descriptor heap, material/light/instance systems, all pass-owned resources). Exit: zero `vulkan.h`/`vk_mem_alloc.h` outside `render/rhi/vulkan/`; `sushi_render` links Vulkan **PRIVATE**. | Large |
@@ -360,28 +360,32 @@ knew `render` and `atmosphere` and not the target this milestone added, so the o
 to run it was a raw path into the build tree — which is exactly what `docs/CLAUDE.md`
 forbids. `se render --probe golden` now exists.
 
-#### What RHI0 still owes, in order (2026-08-02)
+#### RHI0 closed (2026-08-03)
 
-Everything below is small and concrete. None of it is design work; it is the tail of a
-milestone whose code is finished.
+1. **Baselines recorded.** `se render --probe golden -- --update` recorded both cases
+   (`opaque_lit`, `opaque_unshadowed`); a following plain `se render --probe golden`
+   reproduced both bit-for-bit (`RESULT: OK (0 recorded, 0 failed)`) — the harness's
+   reference survives the run immediately after recording it, on the same machine
+   (`NVIDIA GeForce GTX 1060 6GB`). Checked in under `render/probe/goldens/`.
+2. **The recorded pass list was read, deliberately.** The post-processing tail
+   (`tonemap`) and the TAA resolve (`temporal_resolve`) both appear, as expected once the
+   usage fixes above landed. `depth_prepass` **also now appears** (`opaque_lit`: 15 of 20
+   captured outputs kept, `0 un-copyable`) — the guess two paragraphs above this one, that
+   it was absent because the opaque pass writes depth itself, was never checked and was
+   wrong. The actual cause, found and fixed earlier this session: `pass_capture.cpp`'s
+   format table had no case for `VK_FORMAT_D32_SFLOAT_S8_UINT` (`Frame::DEPTH_FORMAT`),
+   so every depth-writing output silently fell into `dropped_by_format` rather than being
+   hashed. `fxaa` does not appear, which is correct rather than a gap: the golden scene's
+   configured anti-aliasing mode is temporal, and `declare_targets()` only routes the
+   display transform through an FXAA intermediate when `AntiAliasingMode::Fxaa` is
+   selected — the two modes are mutually exclusive by construction, not a coverage hole.
+3. **Sky, cloud, and terrain cases remain future work, not owed by RHI0's own exit
+   criterion.** Sky/cloud is blocked on the cloudscape rewrite (unchanged from the
+   original assessment); terrain needs `golden_main.cpp::build_scene()` to actually stand
+   up a `PlanetTerrain`/`TileCache`, which is scene-authoring work outside this harness's
+   scope. Each is one row in `cases[]` plus a recording whenever its prerequisite lands.
 
-1. **Record the first baselines.** `se render --probe golden -- --update`, then a plain
-   `se render --probe golden` to prove they reproduce — a harness whose reference does
-   not survive the very next run is not a harness. This is the only remaining exit
-   criterion, and it cannot be done by reading: a golden is a measurement, taken on the
-   machine it will be compared against. Every recording attempted so far was against a
-   build predating one of the fixes above and was superseded before it was useful, which
-   is why nothing is checked in.
-2. **Read the recorded pass list once, deliberately.** Two things to confirm rather than
-   assume: that the post-processing tail (`tonemap`, `fxaa`) and the TAA resolve now
-   appear, both having been unreachable until the usage fixes; and why `depth_prepass`
-   does not — the likely answer is that it is culled because the opaque pass writes depth
-   itself, but that has been inferred and never checked.
-3. **Add cases as the frame settles.** Sky and cloud when the cloudscape rewrite lands;
-   terrain now that `terrain_pass` exists. Each new case is one row in the harness's
-   `cases[]` table and a recording.
-
-Then RHI0 is closed and RHI1 has the safety net it was scheduled behind.
+RHI0 is closed. RHI1 has the safety net it was scheduled behind.
 
 Two known limits are recorded rather than fixed, because fixing either costs more than
 it currently buys. Per-pass capture reads **mip 0 and the depth aspect only**, so a
@@ -464,7 +468,7 @@ Refactor first (extract composite actions for the SYCL/vcpkg bootstrap, currentl
 
 | Code | Delivers | Size |
 |---|---|---|
-| **PLATFORM0** | `sushi_platform`/`sushi_scene` extracted from `editor/`; `se_player` with the `start/frame/suspend/resume/shutdown` shape; `IWindowRenderer::present_scene_view()` (the highest-risk item); boot manifest; runtime-resolved pipeline-cache path; `--headless` mode (enables CI without a GPU runner); `se_editor` unaffected, now linking the extracted libraries. Windows only — no new OS support. Proves the editor/runtime boundary is real: `se_player` never links `sushi_imgui`, and that one link failure *is* the enforcement mechanism. | Large |
+| **PLATFORM0** | **Closed 2026-08-03** (S1–S6 all done). `sushi_platform`/`sushi_scene` extracted from `editor/`; `se_player` with the `start/frame/suspend/resume/shutdown` shape; `IWindowRenderer::present_scene_view()` (the highest-risk item); `boot.json` boot manifest; runtime-resolved pipeline-cache path; `--headless --frames N` mode (enables CI without a display, verified by actually running a 5-frame headless smoke test — see §5.6/§10); `se_editor` unaffected, now linking the extracted libraries. Windows only — no new OS support. Proves the editor/runtime boundary is real: `se_player` never links `sushi_imgui`, and that one link failure *is* the enforcement mechanism. Not verified: a real `.sushiscene` loaded through `se player` end-to-end, and the windowed suspend/resume path (both need a display/manual interaction PLATFORM0's own sessions could not exercise). | Large |
 | **PLATFORM1** | Linux parity: `cmake/Platform.cmake`, the shell/path fixes (§6.5), `install()`+CPack rules, CI refactor, root `vcpkg.json`, `.deps.toml` schema v2. First shippable artifact on two platforms. | Medium |
 | **PLATFORM2** | Windowing/lifecycle interface split (§6.3) — exercised on **desktop** first (minimize/restore, alt-tab as stand-ins for suspend/resume) before any mobile hardware is involved; touch wiring validated with mouse-as-pointer. | Medium |
 | **PLATFORM3** | *(= RHI5 in §5.6 — renderer-side prerequisite, listed here only because Android/iOS bring-up cannot start without it.)* | — |
@@ -523,7 +527,7 @@ Rows are ordered by platform priority (§0.0): Windows/Linux, then Android, then
 
 | Platform | Wall 1 (`RUNTIME-PORT*`) | Wall 2 (`RHI*`) | Wall 3 (`PLATFORM*`) | External blocker |
 |---|---|---|---|---|
-| **Windows** | works today; PORT0 recommended for hygiene | works today | PLATFORM0 (player split) | none |
+| **Windows** | works today; PORT0 recommended for hygiene | works today | PLATFORM0 (player split) — **closed 2026-08-03** | none |
 | **Linux** | works today; PORT1 (native backend as a control) optional but recommended | works today | PLATFORM1 | none |
 | **Android** | **PORT4 required, or explicit stub-sim decision at kickoff** | RHI5 (1.3 floor — mandatory, not optional) + RHI6 | PLATFORM2 + PLATFORM4 | none |
 | **macOS** | **PORT2 required** (no SYCL toolchain exists) | RHI5 (version floor) + RHI7/8 (Metal) or MoltenVK interim | PLATFORM6 | none |
@@ -568,8 +572,8 @@ Rows are ordered by platform priority (§0.0): Windows/Linux, then Android, then
 These three can start today, in parallel, without waiting on any decision this document doesn't already make:
 
 1. **`RUNTIME-PORT0`** — *code complete 2026-08-01; the remaining exit criterion is running the suite, not writing code.* Extract the `Execution` seam behind the existing SYCL path, zero behavior change, **minting the vocabulary defined in `unified_hazard_model.md` §4 (milestone UHM0)**. Self-contained, has a pass/fail oracle (`sandbox`), and immediately collapses SushiRuntime's engine-wide blast radius from 66 files to ~4. The runtime-side R1–R7 merge (2026-08-01) also unblocks the engine's adoption pass (delete the hand reduction, `sized_from_device` chains, region-per-island) — route that adoption *through* the new seam rather than adding direct call sites the seam must then chase.
-2. **`RHI0`** — *done 2026-08-01.* `render_golden`: a deterministic, per-pass-hashed golden-image harness. (`TraceCommandList` moved to RHI2; see §5.6's correction.) The one thing it still needs from a person is the first `--update` run, which records the baselines on the machine they will be compared against.
-3. **`PLATFORM0`**, starting with the `IWindowRenderer::present_scene_view()` gap specifically — it's the highest-risk, most architecturally-uncertain piece of the whole player-split effort, and resolving it early de-risks everything else in that milestone.
+2. **`RHI0`** — *closed 2026-08-03.* `render_golden`: a deterministic, per-pass-hashed golden-image harness. (`TraceCommandList` moved to RHI2; see §5.6's correction.) Baselines recorded and reproduction-verified; see "RHI0 closed" in §5.6.
+3. **`PLATFORM0`** — *closed 2026-08-03, all six sessions.* `present_scene_view()` (S4) was the highest-risk, most architecturally-uncertain piece of the whole player-split effort; `se_player`/`PlayerApp` (S5) is its first real caller, linking zero `sushi_imgui`; headless mode, the `boot.json` manifest, and the `se player` CLI (S6) closed the milestone, verified by actually running a 5-frame headless smoke test with no display attached rather than only compiling it.
 
 None of these three requires a decision on Metal-vs-MoltenVK, Slang-vs-SPIRV-Cross, or the Android stub-sim question — those decisions can be made later, closer to when they're actually load-bearing.
 

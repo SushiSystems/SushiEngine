@@ -27,8 +27,6 @@
 #include <optional>
 #include <vector>
 
-#include <sycl/sycl.hpp>
-
 #include <SushiEngine/execution/context.hpp>
 
 #include <SushiEngine/core/types.hpp>

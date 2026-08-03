@@ -67,6 +67,26 @@ namespace SushiEngine
         namespace Vulkan
         {
             /**
+             * @brief A slot's resolve image, ready for a caller to blit or copy from.
+             *
+             * The seam `present_scene_view()` reads through (`docs/slop/cross_platform_engineering_plan.md`
+             * PLATFORM0 S4): unlike @ref ISceneView::texture(), which hands out a sampler/view pair for
+             * an in-place ImGui sample, this exposes the raw image and its graph-tracked resting state
+             * so a caller can barrier it into a transfer layout, blit it elsewhere, and barrier it back
+             * without lying to the render graph about what layout the image is actually in. @c image is
+             * VK_NULL_HANDLE when the slot has never been rendered — there is nothing to present yet.
+             */
+            struct PresentSource
+            {
+                VkImage image = VK_NULL_HANDLE;
+                VkFormat format = VK_FORMAT_UNDEFINED;
+                std::uint32_t width = 0;
+                std::uint32_t height = 0;
+                /** @brief The layout/stage/access the graph believes this image is resting in. */
+                Graph::TextureState state{};
+            };
+
+            /**
              * @brief The double-buffered device resources one scene view renders with.
              *
              * Owns everything per-slot (command recording state, persistent targets, the
@@ -262,6 +282,12 @@ namespace SushiEngine
                      * @return Whether the image was produced.
                      */
                     bool read_output(std::uint32_t slot, FrameImage& image);
+
+                    /**
+                     * @brief The resolve image and its resting state for a slot, for presenting.
+                     * @param slot The slot to read; VK_NULL_HANDLE-image'd back when never rendered.
+                     */
+                    PresentSource present_source(std::uint32_t slot) const noexcept;
 
                 private:
                     /**

@@ -62,6 +62,7 @@ set(SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_field_window.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere_nest_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_weather_tail.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/synoptic_field.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting_common.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_lighting.glsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/blue_noise.glsl"
@@ -162,6 +163,8 @@ sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_volum
     cloud_noise_volume_comp_spv CLOUD_NOISE_VOLUME_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_weather.comp"
     cloud_noise_weather_comp_spv CLOUD_NOISE_WEATHER_HEADER)
+sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloud_noise_mip.comp"
+    cloud_noise_mip_comp_spv CLOUD_NOISE_MIP_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloudscape_field.comp"
     cloudscape_field_comp_spv CLOUDSCAPE_FIELD_HEADER)
 sushi_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cloudscape_skip.comp"
@@ -399,6 +402,7 @@ add_library(sushi_render STATIC
     "${RAY_SHADOW_FRAG_HEADER}"
     "${CLOUD_NOISE_VOLUME_HEADER}"
     "${CLOUD_NOISE_WEATHER_HEADER}"
+    "${CLOUD_NOISE_MIP_HEADER}"
     "${CLOUDSCAPE_FIELD_HEADER}"
     "${CLOUDSCAPE_SKIP_HEADER}"
     "${CLOUDSCAPE_FAR_LIGHT_HEADER}"

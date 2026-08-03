@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_PLATFORM_WINDOW_HPP
-#define SUSHIENGINE_EDITOR_PLATFORM_WINDOW_HPP
+#ifndef SUSHIENGINE_PLATFORM_PLATFORM_WINDOW_HPP
+#define SUSHIENGINE_PLATFORM_PLATFORM_WINDOW_HPP
 
 #include <cstdint>
 #include <functional>
@@ -31,7 +31,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Platform
     {
         /**
          * @brief The window the editor runs in, abstracted from any windowing library.
@@ -101,7 +101,7 @@ namespace SushiEngine
                 /** @brief The native window handle (an SDL_Window*), for backend init. */
                 virtual void* native_handle() const = 0;
         };
-    } // namespace Editor
+    } // namespace Platform
 } // namespace SushiEngine
 
 #endif

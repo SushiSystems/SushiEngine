@@ -85,15 +85,25 @@ namespace SushiEngine
             } // namespace
 
             VulkanWindowRenderer::VulkanWindowRenderer(const WindowRendererDesc& desc)
-                : device_(to_device_desc(desc))
+                : device_(to_device_desc(desc)),
+                  headless_(device_.surface() == VK_NULL_HANDLE)
             {
-                if (device_.surface() == VK_NULL_HANDLE)
-                    throw std::runtime_error(
-                        "SushiEngine: a windowed renderer needs a surface factory");
-                present_mode_ = desc.present_mode;
-                create_swapchain(desc.width, desc.height);
-                create_frames();
-                assets_.reset(new Assets::AssetLibrary(device_));
+                if (!headless_)
+                {
+                    present_mode_ = desc.present_mode;
+                    create_swapchain(desc.width, desc.height);
+                    create_frames();
+                }
+                else
+                {
+                    // No swapchain to size acquire()'s later resize check against, but
+                    // extent_ is still read (color_format()/image_count() callers aside,
+                    // nothing headless-relevant needs it) — recorded for completeness.
+                    extent_.width = desc.width;
+                    extent_.height = desc.height;
+                }
+                assets_.reset(new Assets::AssetLibrary(device_, desc.shader_source_directory,
+                                                        desc.pipeline_cache_path));
             }
 
             VulkanWindowRenderer::~VulkanWindowRenderer()
@@ -157,6 +167,8 @@ namespace SushiEngine
                 if (mode == present_mode_)
                     return;
                 present_mode_ = mode;
+                if (headless_)
+                    return; // recorded, but there is no swapchain to rebuild with it
                 // The pacing is baked into the swapchain, so changing it means building a
                 // new one; the builder falls back to FIFO where the surface does not offer
                 // what was asked for, which is why no capability check is needed here.
@@ -227,10 +239,16 @@ namespace SushiEngine
                 }
             }
 
-            void* VulkanWindowRenderer::begin_frame(std::uint32_t width, std::uint32_t height)
+            VkCommandBuffer VulkanWindowRenderer::acquire(std::uint32_t width, std::uint32_t height)
             {
+                if (headless_)
+                    return VK_NULL_HANDLE; // no swapchain image ever exists to acquire
+
+                if (frame_acquired_)
+                    return frames_[frame_index_].cmd;
+
                 if (width == 0 || height == 0)
-                    return nullptr; // minimized: nothing to present
+                    return VK_NULL_HANDLE; // minimized: nothing to present
 
                 if (width != extent_.width || height != extent_.height)
                 {
@@ -249,7 +267,7 @@ namespace SushiEngine
                 {
                     vkDeviceWaitIdle(device_.device());
                     create_swapchain(width, height);
-                    return nullptr;
+                    return VK_NULL_HANDLE;
                 }
                 if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR)
                     check(acquired, "vkAcquireNextImageKHR");
@@ -262,7 +280,18 @@ namespace SushiEngine
                 begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
                 check(vkBeginCommandBuffer(frame.cmd, &begin_info), "vkBeginCommandBuffer");
 
-                transition(frame.cmd, images_[image_index_], VK_IMAGE_LAYOUT_UNDEFINED,
+                frame_acquired_ = true;
+                rendering_open_ = false;
+                return frame.cmd;
+            }
+
+            void* VulkanWindowRenderer::begin_frame(std::uint32_t width, std::uint32_t height)
+            {
+                VkCommandBuffer cmd = acquire(width, height);
+                if (cmd == VK_NULL_HANDLE)
+                    return nullptr;
+
+                transition(cmd, images_[image_index_], VK_IMAGE_LAYOUT_UNDEFINED,
                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
@@ -282,26 +311,103 @@ namespace SushiEngine
                 rendering.layerCount = 1;
                 rendering.colorAttachmentCount = 1;
                 rendering.pColorAttachments = &color_attachment;
-                vkCmdBeginRendering(frame.cmd, &rendering);
+                vkCmdBeginRendering(cmd, &rendering);
 
-                frame_open_ = true;
-                return frame.cmd;
+                rendering_open_ = true;
+                return cmd;
+            }
+
+            void VulkanWindowRenderer::present_scene_view(ISceneView& view, std::uint32_t slot,
+                                                           std::uint32_t width,
+                                                           std::uint32_t height)
+            {
+                // Read the source before touching any frame state: a slot that has never
+                // rendered must leave the renderer exactly as it found it, so the caller's
+                // next attempt (once the view has actually rendered something) starts clean.
+                VulkanSceneView& vulkan_view = static_cast<VulkanSceneView&>(view);
+                const PresentSource source = vulkan_view.present_source(slot);
+                if (source.image == VK_NULL_HANDLE)
+                    return;
+
+                VkCommandBuffer cmd = acquire(width, height);
+                if (cmd == VK_NULL_HANDLE)
+                    return; // minimized or the swapchain was just rebuilt; try again next tick
+
+                if (rendering_open_)
+                    return; // a begin_frame() on this renderer already opened a UI scope; the
+                            // blit below cannot record inside it, and mixing the two frame
+                            // styles in one tick is not a supported call pattern.
+
+                VkImage swap_image = images_[image_index_];
+
+                transition(cmd, swap_image, VK_IMAGE_LAYOUT_UNDEFINED,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, 0,
+                           VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+                const VkPipelineStageFlags2 source_src_stage =
+                    source.state.stage == VK_PIPELINE_STAGE_2_NONE
+                        ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+                        : source.state.stage;
+                transition(cmd, source.image, source.state.layout,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, source_src_stage,
+                           VK_PIPELINE_STAGE_2_BLIT_BIT, source.state.access,
+                           VK_ACCESS_2_TRANSFER_READ_BIT);
+
+                VkImageBlit blit{};
+                blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.srcSubresource.layerCount = 1;
+                blit.srcOffsets[1] = {static_cast<std::int32_t>(source.width),
+                                      static_cast<std::int32_t>(source.height), 1};
+                blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.dstSubresource.layerCount = 1;
+                blit.dstOffsets[1] = {static_cast<std::int32_t>(extent_.width),
+                                      static_cast<std::int32_t>(extent_.height), 1};
+                // A blit, not vkCmdCopyImage: the resolve is R8G8B8A8 and the swapchain is
+                // B8G8R8A8 (create_swapchain()'s desired format), a channel order a raw copy
+                // would carry over verbatim rather than convert, swapping red and blue in
+                // whatever is presented.
+                vkCmdBlitImage(cmd, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               swap_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                               VK_FILTER_LINEAR);
+
+                // Restored to the layout the render graph believes it is resting in — not
+                // politeness, the same reason ViewResources::read_output() restores it: the
+                // graph tracks this image's state across frames, and returning it in a
+                // different layout would make the next render()'s first barrier describe a
+                // transition that did not happen.
+                transition(cmd, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           source.state.layout, VK_PIPELINE_STAGE_2_BLIT_BIT, source_src_stage,
+                           VK_ACCESS_2_TRANSFER_READ_BIT, source.state.access);
+
+                transition(cmd, swap_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                           VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                           VK_ACCESS_2_TRANSFER_WRITE_BIT, 0);
             }
 
             void VulkanWindowRenderer::end_frame()
             {
-                if (!frame_open_)
+                if (!frame_acquired_)
                     return;
 
                 FrameResources& frame = frames_[frame_index_];
-                vkCmdEndRendering(frame.cmd);
 
-                transition(frame.cmd, images_[image_index_],
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                           VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, 0);
+                if (rendering_open_)
+                {
+                    vkCmdEndRendering(frame.cmd);
+
+                    transition(frame.cmd, images_[image_index_],
+                               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                               VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, 0);
+                    rendering_open_ = false;
+                }
+                // Else present_scene_view() already left the swapchain image in
+                // PRESENT_SRC_KHR, or neither ran and this frame was acquired but never
+                // targeted — the caller's own bug, not this method's to guess at.
 
                 check(vkEndCommandBuffer(frame.cmd), "vkEndCommandBuffer");
 
@@ -315,8 +421,13 @@ namespace SushiEngine
                 if (assets_)
                     assets_->flush_atmosphere();
 
-                const VkPipelineStageFlags wait_stage =
-                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                // ALL_COMMANDS rather than COLOR_ATTACHMENT_OUTPUT: a begin_frame() submit
+                // only ever touches the swapchain image at that stage, but a
+                // present_scene_view()-only submit touches it at BLIT instead, which the
+                // legacy submit-stage order places after COLOR_ATTACHMENT_OUTPUT — gating on
+                // the earlier stage alone would not hold back a command that never reaches
+                // it, letting the blit race the presentation engine's release of the image.
+                const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
                 VkSubmitInfo submit{};
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 submit.waitSemaphoreCount = 1;
@@ -342,7 +453,7 @@ namespace SushiEngine
                     check(presented, "vkQueuePresentKHR");
 
                 frame_index_ = (frame_index_ + 1) % FRAMES_IN_FLIGHT;
-                frame_open_ = false;
+                frame_acquired_ = false;
             }
 
             void VulkanWindowRenderer::wait_idle()

@@ -71,7 +71,6 @@ add_executable(se_editor
     core/preferences_window.cpp
     input/input_manager_window.cpp
     ui/material_inspector.cpp
-    window/sdl_window.cpp
     ui/imgui_backend.cpp
     ui/viewport_panel.cpp
     animation/skeleton_debug_draw.cpp
@@ -99,12 +98,10 @@ add_executable(se_editor
     physics/soft_body_overlay.cpp
     gizmo/gizmo_controller.cpp
     core/preferences.cpp
-    serialization/scene_serializer.cpp
-    serialization/environment_serializer.cpp
-    serialization/effect_serializer.cpp
     core/command_history.cpp)
 target_link_libraries(se_editor PRIVATE
-    sushi_imgui sushi_render sushi_sim sushi_input sushi_audio nlohmann_json::nlohmann_json)
+    sushi_imgui sushi_render sushi_sim sushi_scene sushi_platform sushi_input
+    sushi_audio nlohmann_json::nlohmann_json)
 # The bake surface cooks, and cooking needs the pipeline plus the neutral glTF mesh importer
 # it is wired to through the `MeshLoader` seam — the editor is the consumer that owns that
 # seam, which is why `sushi_cooking` itself links neither cgltf nor this target.

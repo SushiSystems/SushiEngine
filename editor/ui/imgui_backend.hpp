@@ -28,7 +28,7 @@
 
 #include <SushiEngine/render/window_renderer.hpp>
 
-#include "../window/platform_window.hpp"
+#include "platform_window.hpp"
 
 namespace SushiEngine
 {
@@ -53,7 +53,7 @@ namespace SushiEngine
                  * @param renderer The windowed renderer providing the device and swapchain.
                  * @throws std::runtime_error on descriptor-pool or backend init failure.
                  */
-                ImGuiBackend(IPlatformWindow& window,
+                ImGuiBackend(Platform::IPlatformWindow& window,
                              SushiEngine::Render::IWindowRenderer& renderer);
                 ~ImGuiBackend();
 

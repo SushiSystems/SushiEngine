@@ -33,7 +33,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Scene
     {
         namespace
         {
@@ -423,5 +423,5 @@ namespace SushiEngine
             std::sort(files.begin(), files.end());
             return files;
         }
-    } // namespace Editor
+    } // namespace Scene
 } // namespace SushiEngine

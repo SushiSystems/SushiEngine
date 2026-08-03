@@ -65,6 +65,22 @@ namespace SushiEngine
 
             /** @brief How finished frames are paced onto the display. */
             PresentMode present_mode = PresentMode::Vsync;
+
+            /**
+             * @brief Runtime shader directory; empty selects the engine's compiled-in
+             * default (the source tree, correct for the editor's hot-reload workflow,
+             * wrong for a shipped player — see `SUSHI_SHADER_SOURCE_DIR`).
+             */
+            std::string shader_source_directory;
+
+            /**
+             * @brief Full path the driver's pipeline cache blob is read from and
+             * written back to; empty selects the compiled-in default (the build
+             * directory — see `SUSHI_PIPELINE_CACHE_DIR`). A shipped player should
+             * pass a per-user path here rather than writing into its own install
+             * directory.
+             */
+            std::string pipeline_cache_path;
         };
 
         /**
@@ -148,6 +164,28 @@ namespace SushiEngine
                  * @return An owning handle to the new scene view.
                  */
                 virtual std::unique_ptr<ISceneView> create_scene_view() = 0;
+
+                /**
+                 * @brief Blits a scene view's finished slot directly onto the window frame.
+                 *
+                 * For a host with no other UI to draw — the player, not the editor, whose
+                 * viewport instead samples the scene view's texture() through ImGui. Valid
+                 * either standalone (it acquires the frame itself if none is open yet) or
+                 * after a begin_frame() the host recorded nothing into; it never opens a
+                 * dynamic-rendering scope of its own, since the blit it records must not run
+                 * inside one. A no-op if @p slot has never been rendered, or if the frame
+                 * must be skipped this tick (a resize/acquire miss) — the same case
+                 * begin_frame() reports by returning nullptr.
+                 *
+                 * @param view   The scene view whose slot to present; must belong to this
+                 *               renderer's device (create_scene_view()'s return value).
+                 * @param slot   The slot to present; normally the view's current_slot() after
+                 *               its render().
+                 * @param width  Current framebuffer width in pixels.
+                 * @param height Current framebuffer height in pixels.
+                 */
+                virtual void present_scene_view(ISceneView& view, std::uint32_t slot,
+                                                std::uint32_t width, std::uint32_t height) = 0;
         };
 
         /**

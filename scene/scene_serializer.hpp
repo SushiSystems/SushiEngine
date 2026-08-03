@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_SCENE_SERIALIZER_HPP
-#define SUSHIENGINE_EDITOR_SCENE_SERIALIZER_HPP
+#ifndef SUSHIENGINE_SCENE_SCENE_SERIALIZER_HPP
+#define SUSHIENGINE_SCENE_SCENE_SERIALIZER_HPP
 
 #include <string>
 
@@ -38,7 +38,7 @@ namespace SushiEngine
         class IAssetLibrary;
     }
 
-    namespace Editor
+    namespace Scene
     {
         /**
          * @brief The astronomical-sky authoring state the Environment panel's "Solar
@@ -137,7 +137,7 @@ namespace SushiEngine
         bool load_scene(SushiEngine::Simulation::IWorldEditor& world, const std::string& path,
                          SceneSkyState* sky = nullptr,
                          SushiEngine::Render::IAssetLibrary* assets = nullptr);
-    } // namespace Editor
+    } // namespace Scene
 } // namespace SushiEngine
 
 #endif

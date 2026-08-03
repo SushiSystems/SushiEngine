@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_SDL_WINDOW_HPP
-#define SUSHIENGINE_EDITOR_SDL_WINDOW_HPP
+#ifndef SUSHIENGINE_PLATFORM_SDL_WINDOW_HPP
+#define SUSHIENGINE_PLATFORM_SDL_WINDOW_HPP
 
 #include "platform_window.hpp"
 
@@ -30,7 +30,7 @@ struct SDL_Window;
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Platform
     {
         /**
          * @brief The SDL2 implementation of IPlatformWindow, created for Vulkan.
@@ -75,7 +75,7 @@ namespace SushiEngine
                 SDL_Window* window_ = nullptr;
                 std::vector<EventHandler> handlers_;
         };
-    } // namespace Editor
+    } // namespace Platform
 } // namespace SushiEngine
 
 #endif

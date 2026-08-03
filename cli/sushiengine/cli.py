@@ -17,6 +17,7 @@ from .services import diag as diag_svc
 from .services import docker as docker_svc
 from .services import editor as editor_svc
 from .services import planet as planet_svc
+from .services import player as player_svc
 from .services import project as project_svc
 from .services import render as render_svc
 from .services.project import BuildType, Suite
@@ -128,6 +129,34 @@ def editor(
     two never clobber each other's CMAKE_BUILD_TYPE.
     """
     raise typer.Exit(editor_svc.build_and_run(run=not no_run, build_type=type))
+
+
+# --------------------------------------------------------------------------- #
+# player
+# --------------------------------------------------------------------------- #
+@app.command("player", context_settings={"allow_extra_args": True,
+                                         "ignore_unknown_options": True})
+def player(
+    ctx: typer.Context,
+    type: BuildType = typer.Option(
+        BuildType.release, "--type", "-t", case_sensitive=False,
+        help="Build type: release | debug | relwithdebinfo."),
+    no_run: bool = typer.Option(
+        False, "--no-run", help="Build the player but do not launch it."),
+):
+    """Build and launch the ImGui-free player (configures with SE_BUILD_PLAYER=ON).
+
+    Uses its own build-player/ tree, separate from `se build`'s build/, so the
+    two never clobber each other's CMAKE_BUILD_TYPE. Arguments after `--` are
+    forwarded to se_player, so `se player -- --scene path/to/scene.sushiscene`
+    works. `se player -- --headless --frames 30` runs a fixed number of frames
+    with no window and exits (PLATFORM0 S6, for CI without a display) instead
+    of the normal `while(!app.should_quit())` loop; `-- --manifest boot.json`
+    picks a boot manifest explicitly (a bare `boot.json` next to the built exe
+    is read automatically otherwise). See `se_player/main.cpp` for the full set.
+    """
+    raise typer.Exit(
+        player_svc.build_and_run(run=not no_run, build_type=type, args=ctx.args))
 
 
 # --------------------------------------------------------------------------- #

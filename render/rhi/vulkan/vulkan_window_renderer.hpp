@@ -64,6 +64,19 @@ namespace SushiEngine
              * submission (@ref FRAMES_IN_FLIGHT frames), with one render-finished
              * semaphore per swapchain image so present never waits on a semaphore
              * still in use. Non-copyable: it owns Vulkan handles.
+             *
+             * Also the headless case (PLATFORM0 S6): a @ref WindowRendererDesc with no
+             * @c surface_factory builds no swapchain and no per-frame sync objects at
+             * all — @ref VulkanDevice already supports this (it is exactly how
+             * `render_probe`/`render_golden` construct a device), so the only thing
+             * this class had to stop doing was throwing when it saw one. A headless
+             * instance still builds its asset library and still answers
+             * @ref create_scene_view, so a host can render offscreen frames and read
+             * them back through `ISceneView::read_output()`; @ref begin_frame,
+             * @ref present_scene_view, and @ref end_frame become well-defined no-ops
+             * (the same "return null / do nothing" shape they already use for a
+             * minimized window) rather than something a headless host must remember
+             * never to call.
              */
             class VulkanWindowRenderer final : public IWindowRenderer
             {
@@ -89,6 +102,8 @@ namespace SushiEngine
                     void set_present_mode(PresentMode mode) override;
                     std::unique_ptr<ISceneView> create_scene_view() override;
                     IAssetLibrary& assets() noexcept override;
+                    void present_scene_view(ISceneView& view, std::uint32_t slot,
+                                            std::uint32_t width, std::uint32_t height) override;
 
                 private:
                     static constexpr std::uint32_t FRAMES_IN_FLIGHT = 2;
@@ -113,7 +128,26 @@ namespace SushiEngine
                     void create_frames();
                     void destroy_frames();
 
+                    /**
+                     * @brief Rebuilds the swapchain if needed, waits the slot's fence, and
+                     *        acquires+begins recording the next swapchain image.
+                     *
+                     * The part begin_frame() and present_scene_view() share: everything up to
+                     * but not including a layout transition, since the two callers put the
+                     * acquired image into different starting layouts (COLOR_ATTACHMENT_OPTIMAL
+                     * to open dynamic rendering, TRANSFER_DST_OPTIMAL to blit into). A no-op
+                     * call this frame (frame_acquired_ already true) returns the same buffer
+                     * without acquiring twice.
+                     *
+                     * @param width  Current framebuffer width in pixels.
+                     * @param height Current framebuffer height in pixels.
+                     * @return The frame's command buffer, or VK_NULL_HANDLE to skip this tick.
+                     */
+                    VkCommandBuffer acquire(std::uint32_t width, std::uint32_t height);
+
                     VulkanDevice device_;
+                    /** @brief Whether this instance has no surface (no swapchain, ever). */
+                    bool headless_ = false;
                     // Held by pointer so the concrete asset library stays out of this
                     // header: it drags in the whole resource stack, and nothing that
                     // includes a window renderer needs to see it.
@@ -131,7 +165,17 @@ namespace SushiEngine
                     FrameResources frames_[FRAMES_IN_FLIGHT];
                     std::uint32_t frame_index_ = 0;
                     std::uint32_t image_index_ = 0;
-                    bool frame_open_ = false;
+                    /** @brief Whether this frame's image is acquired and its buffer recording. */
+                    bool frame_acquired_ = false;
+                    /**
+                     * @brief Whether a dynamic-rendering scope is open on the acquired image.
+                     *
+                     * begin_frame() opens one so the host can record UI draws; end_frame() must
+                     * close it and transition to PRESENT_SRC_KHR only when it is the one that
+                     * left the image needing that — present_scene_view() does both itself, since
+                     * its blit cannot run inside a render scope in the first place.
+                     */
+                    bool rendering_open_ = false;
             };
         } // namespace Vulkan
     } // namespace Render

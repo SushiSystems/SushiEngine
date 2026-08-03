@@ -35,7 +35,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "../serialization/environment_serializer.hpp"
+#include "environment_serializer.hpp"
 
 namespace SushiEngine
 {
@@ -628,10 +628,10 @@ namespace SushiEngine
                         // this held before it was a *default* — read as a fallback so an
                         // existing preferences file keeps its authored values.
                         if (json.contains("default_environment"))
-                            preferences.default_environment = environment_from_json(
+                            preferences.default_environment = Scene::environment_from_json(
                                 json["default_environment"], preferences.default_environment);
                         else if (json.contains("environment"))
-                            preferences.default_environment = environment_from_json(
+                            preferences.default_environment = Scene::environment_from_json(
                                 json["environment"], preferences.default_environment);
                         if (json.contains("panels"))
                             preferences.panels = panels_from_json(json["panels"]);
@@ -668,7 +668,7 @@ namespace SushiEngine
                         json["render_settings"] = render_settings_to_json(preferences.render_settings);
                         json["simulation_settings"] = simulation_settings_to_json(preferences.simulation);
                         json["default_environment"] =
-                            environment_to_json(preferences.default_environment);
+                            Scene::environment_to_json(preferences.default_environment);
                         json["panels"] = panels_to_json(preferences.panels);
                         json["game_view"] = game_view_to_json(preferences.game_view);
                         json["gizmo_mode"] = to_string(preferences.gizmo_mode);

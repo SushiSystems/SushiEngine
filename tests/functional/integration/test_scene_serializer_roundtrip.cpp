@@ -35,7 +35,7 @@
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "core/command_history.hpp"
-#include "serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;
@@ -229,7 +229,7 @@ TEST(Integration_SceneSerializer, LightsDecalsMaterialsSurviveCaptureApply)
     IWorldEditor& world = simulation->world();
 
     build_reference_scene(world);
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
 
     // Wreck everything the snapshot should restore: delete the light, gut the
     // decal, reset the material.
@@ -239,7 +239,7 @@ TEST(Integration_SceneSerializer, LightsDecalsMaterialsSurviveCaptureApply)
     world.set_material_texture_paths(find_by_name(world, "BrickBox"),
                                      MaterialTexturePaths{});
 
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
     expect_reference_scene(world);
 }
 
@@ -254,14 +254,14 @@ TEST(Integration_SceneSerializer, DefaultMaterialStaysOutOfTheCapture)
 
     // A never-touched material must not bloat the file: the entry carries no
     // material block, and the round-trip still yields a default material.
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     ASSERT_TRUE(snapshot.contains("entities"));
     const nlohmann::json& entities = snapshot["entities"];
     ASSERT_EQ(entities.size(), 1u);
     EXPECT_FALSE(entities.front().contains("material"));
     EXPECT_FALSE(entities.front().contains("material_texture_paths"));
 
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
     const EntityId box = find_by_name(world, "PlainBox");
     ASSERT_NE(box, NULL_ENTITY);
     expect_material_equal(world.material(box), Render::Material{});
@@ -358,11 +358,11 @@ TEST(Integration_SceneSerializer, EnvironmentSurvivesCaptureApply)
     // must ride the same capture the entities do, or undo/save/play silently reset
     // the weather an author tuned.
     world.set_environment(reference_environment());
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     ASSERT_TRUE(snapshot.contains("environment"));
 
     world.set_environment(SushiEngine::Render::Environment{});
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
     expect_environment_equal(world.environment(), reference_environment());
 }
 

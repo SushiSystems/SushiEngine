@@ -23,7 +23,7 @@
 
 #include "command_history.hpp"
 
-#include "../serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 namespace SushiEngine
 {
@@ -44,7 +44,7 @@ namespace SushiEngine
         void CommandHistory::record(SushiEngine::Simulation::IWorldEditor& world)
         {
             pending_.reset();
-            push_bounded(undo_stack_, capture_scene(world));
+            push_bounded(undo_stack_, Scene::capture_scene(world));
             redo_stack_.clear();
             ++revision_;
         }
@@ -52,7 +52,7 @@ namespace SushiEngine
         void CommandHistory::begin_change(SushiEngine::Simulation::IWorldEditor& world)
         {
             if (!pending_.has_value())
-                pending_ = capture_scene(world);
+                pending_ = Scene::capture_scene(world);
         }
 
         void CommandHistory::end_change()
@@ -70,10 +70,10 @@ namespace SushiEngine
             pending_.reset();
             if (undo_stack_.empty())
                 return false;
-            push_bounded(redo_stack_, capture_scene(world));
+            push_bounded(redo_stack_, Scene::capture_scene(world));
             const nlohmann::json snapshot = std::move(undo_stack_.back());
             undo_stack_.pop_back();
-            apply_scene(world, snapshot);
+            Scene::apply_scene(world, snapshot);
             ++revision_;
             return true;
         }
@@ -83,10 +83,10 @@ namespace SushiEngine
             pending_.reset();
             if (redo_stack_.empty())
                 return false;
-            push_bounded(undo_stack_, capture_scene(world));
+            push_bounded(undo_stack_, Scene::capture_scene(world));
             const nlohmann::json snapshot = std::move(redo_stack_.back());
             redo_stack_.pop_back();
-            apply_scene(world, snapshot);
+            Scene::apply_scene(world, snapshot);
             ++revision_;
             return true;
         }

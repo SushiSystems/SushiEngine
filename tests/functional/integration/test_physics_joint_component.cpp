@@ -45,7 +45,7 @@
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "core/command_history.hpp"
-#include "serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;
@@ -369,11 +369,11 @@ TEST(Integration_PhysicsJoint, EveryFieldSurvivesCaptureAndApply)
     world.set_has_joint(held, true);
     world.set_joint_params(held, reference_joint(anchor));
 
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     world.set_joint_params(held, PhysicsJointParams{});
     world.set_has_joint(held, false);
 
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
 
     const EntityId restored = find_by_name(world, "Held");
     const EntityId restored_anchor = find_by_name(world, "Anchor");
@@ -401,9 +401,9 @@ TEST(Integration_PhysicsJoint, ThePartnerSurvivesBeingWrittenAfterTheJoint)
     world.set_has_joint(held, true);
     world.set_joint_params(held, params);
 
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     clear_world(world);
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
 
     const EntityId restored = find_by_name(world, "Held");
     const EntityId restored_anchor = find_by_name(world, "Anchor");
@@ -422,9 +422,9 @@ TEST(Integration_PhysicsJoint, AnUnconnectedJointRoundTripsAsUnconnected)
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
     world.set_has_joint(held, true);
 
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     clear_world(world);
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
 
     const EntityId restored = find_by_name(world, "Held");
     ASSERT_NE(restored, NULL_ENTITY);
@@ -452,8 +452,8 @@ TEST(Integration_PhysicsJoint, DetachingTheComponentLeavesNothingBehind)
     EXPECT_FALSE(world.has_joint(held));
     EXPECT_FALSE(world.joint_load(held, load));
 
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     clear_world(world);
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
     EXPECT_FALSE(world.has_joint(find_by_name(world, "Held")));
 }

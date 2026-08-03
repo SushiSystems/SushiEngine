@@ -39,7 +39,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Scene
     {
         namespace
         {
@@ -188,7 +188,14 @@ namespace SushiEngine
             json weather_to_json(IWorldEditor& world, const std::string& scene_path)
             {
                 json j;
-                j["procedural_enabled"] = world.procedural_weather_enabled();
+                // The mode by name rather than by the old boolean: the two are no longer
+                // "procedural, or the absence of it", and a name survives a third mode being
+                // added in a way `procedural_enabled: false` would not.
+                j["mode"] = SushiEngine::Simulation::weather_mode_name(world.weather_mode());
+                // Always written, in either mode. Manual's sky *is* this number, and Procedural
+                // remembers it so that coming back to Manual returns the same sky rather than a
+                // new one — see ISimulation::weather_seed.
+                j["seed"] = world.weather_seed();
                 SushiEngine::Simulation::IWeatherAuthoring* weather = world.weather_authoring();
                 if (weather == nullptr)
                     return j;
@@ -217,9 +224,21 @@ namespace SushiEngine
             {
                 if (!j.is_object())
                     return;
-                const bool enabled = j.value("procedural_enabled", false);
-                world.set_procedural_weather_enabled(enabled);
-                if (!enabled)
+                // The seed goes in before the mode, so installing a Manual provider builds it
+                // from the scene's own seed rather than from the default and then rebuilding.
+                world.set_weather_seed(
+                    j.value("seed", static_cast<std::uint64_t>(world.weather_seed())));
+                // `procedural_enabled` is the pre-WM-SEED spelling and is still read, so scenes
+                // saved before the mode existed open as what they were rather than silently
+                // switching. New files write `mode`.
+                const bool procedural =
+                    j.contains("mode")
+                        ? j.value("mode", std::string("manual")) == "procedural"
+                        : j.value("procedural_enabled", false);
+                world.set_weather_mode(procedural
+                                           ? SushiEngine::Simulation::WeatherMode::Procedural
+                                           : SushiEngine::Simulation::WeatherMode::Manual);
+                if (!procedural)
                     return;
                 SushiEngine::Simulation::IWeatherAuthoring* weather = world.weather_authoring();
                 if (weather == nullptr)
@@ -683,7 +702,9 @@ namespace SushiEngine
                              {"dynamic_friction", params.dynamic_friction},
                              {"restitution", params.restitution},
                              {"friction_combine", params.friction_combine},
-                             {"restitution_combine", params.restitution_combine}};
+                             {"restitution_combine", params.restitution_combine},
+                             {"trigger", params.trigger},
+                             {"continuous_collision", params.continuous_collision}};
                 }
 
                 const bool has_vehicle = world.has_vehicle(id);
@@ -1031,6 +1052,9 @@ namespace SushiEngine
                                                           params.friction_combine);
                         params.restitution_combine = c.value("restitution_combine",
                                                              params.restitution_combine);
+                        params.trigger = c.value("trigger", params.trigger);
+                        params.continuous_collision =
+                            c.value("continuous_collision", params.continuous_collision);
                         world.set_collider_params(id, params);
                     }
                 }
@@ -1316,5 +1340,5 @@ namespace SushiEngine
                 *sky = sky_from_json(root["sky"], *sky);
             return true;
         }
-    } // namespace Editor
+    } // namespace Scene
 } // namespace SushiEngine

@@ -49,7 +49,7 @@
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "core/command_history.hpp"
-#include "serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;
@@ -129,6 +129,10 @@ namespace
             attachment.break_force = 40000;
             asset.attachments.push_back(attachment);
         }
+        // Every record defaults to part 0 (a single connected structure), so the
+        // summary's count has to say one part -- build_node_beam_blob() derives the
+        // count from the records and refuses a summary that disagrees with them.
+        asset.summary.part_count = 1;
         return asset;
     }
 
@@ -344,9 +348,9 @@ TEST(Integration_VehicleComponent, TheStructurePathSurvivesTheSceneFile)
 
     make_vehicle(world, "Car", Vector3{1, 2, 3}, cooked_vehicle_path());
 
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     clear_world(world);
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
 
     const EntityId restored = find_by_name(world, "Car");
     ASSERT_NE(restored, NULL_ENTITY);

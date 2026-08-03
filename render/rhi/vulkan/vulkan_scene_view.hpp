@@ -184,6 +184,22 @@ namespace SushiEngine
                     bool read_pass_hashes(std::uint32_t slot,
                                           PassCaptureReport& report) override;
 
+                    /**
+                     * @brief The resolve image and resting state for a slot, for presenting.
+                     *
+                     * Not part of @ref ISceneView: `VulkanWindowRenderer::present_scene_view()`
+                     * is the only caller, and it already downcasts to this concrete type to
+                     * reach it (PLATFORM0 S4's approved same-library downcast) rather than
+                     * growing the public interface with a Vulkan-shaped image handle.
+                     *
+                     * @param slot The slot to read.
+                     * @return The resolve image, or a null one if @p slot was never rendered.
+                     */
+                    PresentSource present_source(std::uint32_t slot) const noexcept
+                    {
+                        return resources_.present_source(slot);
+                    }
+
                 private:
                     /** @brief The most frames that may be in flight; see @ref frame_slots_. */
                     static constexpr std::uint32_t SLOTS = ViewResources::SLOTS;

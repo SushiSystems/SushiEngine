@@ -41,7 +41,7 @@
 #include <string>
 
 #include "../core/editor_context.hpp"
-#include "../serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 namespace SushiEngine
 {
@@ -56,7 +56,7 @@ namespace SushiEngine
          * @param context Editor state, read for the clock and the observer.
          * @return The sky state to write into the scene file.
          */
-        SceneSkyState capture_sky_state(const EditorContext& context);
+        Scene::SceneSkyState capture_sky_state(const EditorContext& context);
 
         /**
          * @brief Records a scene path at the head of the recent-scenes list.

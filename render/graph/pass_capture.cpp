@@ -125,17 +125,22 @@ namespace SushiEngine
                 /** @brief Bytes mip 0 of @p desc occupies, across every layer and slice. */
                 VkDeviceSize capture_size(const TextureDesc& desc) noexcept
                 {
-                    const std::uint32_t texel = texel_size(desc.format);
-                    if (texel == 0)
-                        return 0;
                     // A combined depth/stencil image copies its depth aspect only, and for
-                    // the one such format this renderer can meet that aspect is 4 bytes
-                    // wide even though the format as a whole is not.
+                    // the two such formats this renderer can meet, that aspect packs
+                    // tightly at 4 bytes per texel (the VK_FORMAT_D32_SFLOAT / _UINT
+                    // component size, per the VkBufferImageCopy spec for combined
+                    // formats) even though the format as a whole is not a fixed-size
+                    // texel format texel_size() can describe — checked ahead of that
+                    // table rather than folded into it, so texel_size() keeps meaning
+                    // "whole texel size" for every format it does list.
+                    const bool depth_only_combined =
+                        (desc.format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                         desc.format == VK_FORMAT_D32_SFLOAT_S8_UINT) &&
+                        capture_aspect(desc) == VK_IMAGE_ASPECT_DEPTH_BIT;
                     const std::uint32_t stride =
-                        desc.format == VK_FORMAT_D24_UNORM_S8_UINT &&
-                                capture_aspect(desc) == VK_IMAGE_ASPECT_DEPTH_BIT
-                            ? 4
-                            : texel;
+                        depth_only_combined ? 4 : texel_size(desc.format);
+                    if (stride == 0)
+                        return 0;
                     return VkDeviceSize(stride) * desc.width * desc.height * desc.depth *
                            desc.array_layers;
                 }

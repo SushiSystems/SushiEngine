@@ -62,7 +62,7 @@
 #if defined(SUSHIENGINE_EXECUTION_BACKEND_RUNTIME)
 #    include <SushiEngine/execution/backend/runtime_backend.hpp>
 #else
-#    error "The selected execution backend has no implementation in this tree yet."
+#    include <SushiEngine/execution/backend/native_backend.hpp>
 #endif
 
 namespace SushiEngine
@@ -72,13 +72,25 @@ namespace SushiEngine
 #if defined(SUSHIENGINE_EXECUTION_BACKEND_RUNTIME)
         /** @brief The backend this build executes through. */
         namespace SelectedBackend = RuntimeBackend;
+#else
+        /** @brief The backend this build executes through. */
+        namespace SelectedBackend = NativeBackend;
 #endif
+
+        /** @brief Owns a runtime and hands out @ref Context instances bound to it. */
+        using Runtime = SelectedBackend::Runtime;
 
         /** @brief The device or thread pool subsystems allocate and build graphs against. */
         using Context = SelectedBackend::Context;
 
         /** @brief A graph of nodes compiled once and replayed. */
         using Graph = SelectedBackend::Graph;
+
+        /** @brief A graph partitioned into regions that stream in and out cheaply. */
+        using DynamicGraph = SelectedBackend::DynamicGraph;
+
+        /** @brief One mutable partition of a @ref DynamicGraph, recorded like a @ref Graph. */
+        using Region = SelectedBackend::Region;
 
         /**
          * @brief An allocation the execution backend owns.

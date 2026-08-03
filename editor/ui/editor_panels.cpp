@@ -35,8 +35,8 @@
 #include "../vfx/particle_panel.hpp"
 
 #include "../audio/audio_panels.hpp"
-#include "../serialization/effect_serializer.hpp"
-#include "../serialization/scene_serializer.hpp"
+#include "effect_serializer.hpp"
+#include "scene_serializer.hpp"
 #include "../animation/animated_mesh_preview.hpp"
 #include "../vfx/effect_preview.hpp"
 
@@ -325,7 +325,8 @@ namespace SushiEngine
                 {
                     context.play_state = PlayState::Playing;
                     if (context.simulation != nullptr)
-                        context.play_mode_snapshot = capture_scene(context.simulation->world());
+                        context.play_mode_snapshot =
+                            Scene::capture_scene(context.simulation->world());
                     editor_log(context, "Playback started.");
                 }
                 else
@@ -333,7 +334,7 @@ namespace SushiEngine
                     context.play_state = PlayState::Stopped;
                     if (context.simulation != nullptr && context.play_mode_snapshot.has_value())
                     {
-                        apply_scene(context.simulation->world(), *context.play_mode_snapshot);
+                        Scene::apply_scene(context.simulation->world(), *context.play_mode_snapshot);
                         context.play_mode_snapshot.reset();
                         select_only(context, SushiEngine::Simulation::NULL_ENTITY);
                     }

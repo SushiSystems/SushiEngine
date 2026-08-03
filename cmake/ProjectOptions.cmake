@@ -14,6 +14,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # `se editor` (or -DSE_BUILD_EDITOR=ON) turns it on.
 option(SE_BUILD_EDITOR "Build the SushiEngine editor" OFF)
 
+# The ImGui-free runtime shell (se_player/, PLATFORM0 S5): sushi_platform's window,
+# sushi_render's renderer, and PlayerApp's own start/frame/suspend/resume/shutdown
+# loop, with no sushi_imgui link at all — the point of the whole player/editor split.
+# OFF so a plain configure needs nothing beyond what SE_BUILD_RENDER already needs;
+# `se player` (or -DSE_BUILD_PLAYER=ON) turns it on.
+option(SE_BUILD_PLAYER "Build the SushiEngine player" OFF)
+
 # OFF so a plain configure stays minimal; the CLI (`se build`) and CI turn it ON.
 # GoogleTest comes from vcpkg, the same toolchain the runtime already requires on
 # Windows.

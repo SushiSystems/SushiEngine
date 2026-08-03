@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_ENVIRONMENT_SERIALIZER_HPP
-#define SUSHIENGINE_EDITOR_ENVIRONMENT_SERIALIZER_HPP
+#ifndef SUSHIENGINE_SCENE_ENVIRONMENT_SERIALIZER_HPP
+#define SUSHIENGINE_SCENE_ENVIRONMENT_SERIALIZER_HPP
 
 /**
  * @file environment_serializer.hpp
@@ -51,7 +51,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Scene
     {
         /**
          * @brief Serializes the authored fields of @p environment to JSON.
@@ -83,7 +83,7 @@ namespace SushiEngine
          */
         SushiEngine::Render::Environment environment_from_json(
             const nlohmann::json& json, SushiEngine::Render::Environment base);
-    } // namespace Editor
+    } // namespace Scene
 } // namespace SushiEngine
 
 #endif

@@ -25,7 +25,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Scene
     {
         namespace
         {
@@ -499,5 +499,5 @@ namespace SushiEngine
             }
             return environment;
         }
-    } // namespace Editor
+    } // namespace Scene
 } // namespace SushiEngine

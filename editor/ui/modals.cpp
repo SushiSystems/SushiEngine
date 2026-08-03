@@ -24,7 +24,7 @@
 #include "modals.hpp"
 
 #include "../scene/scene_commands.hpp"
-#include "../serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 #include "panel_widgets.hpp"
 
 #include <filesystem>
@@ -66,8 +66,8 @@ namespace SushiEngine
                     if (path.extension() != ".sushiscene")
                         path += ".sushiscene";
                     IWorldEditor* world = world_of(context);
-                    const SceneSkyState sky = capture_sky_state(context);
-                    if (world != nullptr && save_scene(*world, path.string(), &sky))
+                    const Scene::SceneSkyState sky = capture_sky_state(context);
+                    if (world != nullptr && Scene::save_scene(*world, path.string(), &sky))
                     {
                         context.scene_path = path.string();
                         context.saved_scene_revision = context.history.revision();

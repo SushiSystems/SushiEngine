@@ -33,7 +33,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Platform
     {
         SdlWindow::SdlWindow(const char* title, int width, int height)
         {
@@ -111,5 +111,5 @@ namespace SushiEngine
                                          SDL_GetError());
             return reinterpret_cast<std::uint64_t>(surface);
         }
-    } // namespace Editor
+    } // namespace Platform
 } // namespace SushiEngine

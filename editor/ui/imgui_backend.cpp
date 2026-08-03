@@ -60,7 +60,7 @@ namespace SushiEngine
             }
         } // namespace
 
-        ImGuiBackend::ImGuiBackend(IPlatformWindow& window,
+        ImGuiBackend::ImGuiBackend(Platform::IPlatformWindow& window,
                                    SushiEngine::Render::IWindowRenderer& renderer)
             : renderer_(renderer)
         {

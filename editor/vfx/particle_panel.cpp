@@ -24,7 +24,7 @@
 #include "particle_panel.hpp"
 
 #include "effect_preview.hpp"
-#include "../serialization/effect_serializer.hpp"
+#include "effect_serializer.hpp"
 #include "../ui/panel_widgets.hpp"
 
 #include <algorithm>
@@ -157,7 +157,7 @@ namespace SushiEngine
 
                 if (!scanned)
                 {
-                    files = list_effect_files(EFFECT_LIBRARY_DIRECTORY);
+                    files = Scene::list_effect_files(EFFECT_LIBRARY_DIRECTORY);
                     scanned = true;
                 }
 
@@ -170,19 +170,19 @@ namespace SushiEngine
                 if (ImGui::Button("Save"))
                 {
                     const std::string path = std::string(EFFECT_LIBRARY_DIRECTORY) + "/" +
-                                             name_buffer + EFFECT_FILE_EXTENSION;
+                                             name_buffer + Scene::EFFECT_FILE_EXTENSION;
                     // The file keeps the asset's name; the emitter's own effect keeps the name the
                     // world knows it by, so saving a template never renames the live emitter.
                     Vfx::ParticleEffect asset = target;
                     asset.name = name_buffer;
-                    status = save_effect(asset, path) ? "Saved " + path
+                    status = Scene::save_effect(asset, path) ? "Saved " + path
                                                       : "Could not write " + path;
-                    files = list_effect_files(EFFECT_LIBRARY_DIRECTORY);
+                    files = Scene::list_effect_files(EFFECT_LIBRARY_DIRECTORY);
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Refresh"))
                 {
-                    files = list_effect_files(EFFECT_LIBRARY_DIRECTORY);
+                    files = Scene::list_effect_files(EFFECT_LIBRARY_DIRECTORY);
                     status.clear();
                 }
 
@@ -225,12 +225,12 @@ namespace SushiEngine
                             // not bound to it, so editing one emitter never changes another that
                             // started from the same file.
                             Vfx::ParticleEffect loaded;
-                            if (load_effect(file, loaded))
+                            if (Scene::load_effect(file, loaded))
                             {
                                 // The file names its sprite textures by path; the handles it was
                                 // written with belong to whichever session wrote it.
                                 if (assets != nullptr)
-                                    resolve_effect_textures(loaded, *assets);
+                                    Scene::resolve_effect_textures(loaded, *assets);
                                 const std::string keep = target.name;
                                 std::snprintf(name_buffer, sizeof(name_buffer), "%s",
                                               loaded.name.c_str());
@@ -433,7 +433,7 @@ namespace SushiEngine
             // The pre-frame shape of the effect, for the undo bracketing at the bottom:
             // these widgets edit the scratch directly and report no per-widget change,
             // so "did this frame edit the effect" is answered by comparing captures.
-            const nlohmann::json effect_before = capture_effect(target);
+            const nlohmann::json effect_before = Scene::capture_effect(target);
             if (draw_effect_library(target, context.assets, context.panel_state.effect_library))
                 context.particle_effect_dirty = true;
 
@@ -697,7 +697,7 @@ namespace SushiEngine
             // world before set_particle_effect_source writes the edit into it.
             const bool particle_item_active = ImGui::IsAnyItemActive();
             const bool effect_edited = context.particle_effect_dirty ||
-                                       capture_effect(target) != effect_before;
+                                       Scene::capture_effect(target) != effect_before;
             if (effect_edited && !context.particle_effect_change_active)
             {
                 if (particle_item_active)

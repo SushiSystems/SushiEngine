@@ -14,31 +14,56 @@ cmake_minimum_required(VERSION 3.20)
 # See cmake/ for the details of each stage.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Read before project(): which SushiEngine::Execution backend this configure is
+# for (RUNTIME-PORT1). A -D override on the command line is already visible here
+# — CMake populates command-line values before any script runs — and a fresh
+# configure with no override falls back to the same "runtime" default
+# ProjectOptions.cmake formalizes as the cache entry below (a re-configure with
+# an existing cache entry picks that entry up instead, since DEFINED is already
+# true by then and this block is skipped). This is not optional plumbing: when
+# native is selected, the SushiRuntime subproject and its SYCL toolchain probe
+# are skipped entirely (below), which is the actual mechanism behind "no SYCL
+# toolchain needed" for a native build — gating sushi_apply_sycl() later, after
+# project() already required a SYCL-capable compiler, would be too late.
+if(NOT DEFINED SE_EXECUTION_BACKEND)
+    set(SE_EXECUTION_BACKEND "runtime")
+endif()
+
 # --- Pre-project: toolchain shaping -------------------------------------------
-include(Vcpkg)      # (Windows) locate vcpkg + set the toolchain file
-include(Toolchain)  # pick the default SYCL compiler (clang++) before the probe
+include(Vcpkg)  # (Windows) locate vcpkg + set the toolchain file — needed by both
+                # backends (SDL2/GoogleTest/nlohmann_json all come from vcpkg too).
+if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+    include(Toolchain)  # pick the default SYCL compiler (clang++) before the probe
+endif()
 
 project(SushiEngine VERSION 0.1.0 LANGUAGES CXX)
 
 # --- Post-project: options, runtime, SYCL policy ------------------------------
 include(ProjectOptions)  # C++17 baseline, cross-cutting options
-include(Runtime)         # add_subdirectory(sushiruntime) -> sushiruntime target,
-                         # add_sycl_to_target(), SR_SYCL_TOOLCHAIN
-include(SyclTarget)      # sushi_apply_sycl() / add_sushi_sycl_executable() helpers
+if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+    include(Runtime)         # add_subdirectory(sushiruntime) -> sushiruntime target,
+                             # add_sycl_to_target(), SR_SYCL_TOOLCHAIN
+    include(SyclTarget)      # sushi_apply_sycl() / add_sushi_sycl_executable() helpers
+else()
+    include(NativeExecutionTarget)  # sushi_exec_native target,
+                                    # add_sushiengine_native_executable() helper
+endif()
 
 # --- The engine + its examples ------------------------------------------------
 # The engine is header-only so its SYCL kernels instantiate inside the consuming
 # translation unit (each example below), which is the safe way to ship device code.
 add_library(SushiEngine INTERFACE)
 target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(SushiEngine INTERFACE sushiruntime)
 
 # Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
 # consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
-# once by the build instead of per translation unit.
+# once by the build instead of per translation unit — and link the matching backend
+# library so SushiEngine::Execution has an implementation to compile against.
 if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+    target_link_libraries(SushiEngine INTERFACE sushiruntime)
     target_compile_definitions(SushiEngine INTERFACE SUSHIENGINE_EXECUTION_BACKEND_RUNTIME=1)
 elseif(SE_EXECUTION_BACKEND STREQUAL "native")
+    target_link_libraries(SushiEngine INTERFACE sushi_exec_native)
     target_compile_definitions(SushiEngine INTERFACE SUSHIENGINE_EXECUTION_BACKEND_NATIVE=1)
 else()
     message(FATAL_ERROR
@@ -52,6 +77,12 @@ endif()
 # engine's primary compiler is the intel/llvm clang++ SYCL toolchain.
 target_compile_options(SushiEngine INTERFACE
     $<$<AND:$<BOOL:${SE_DETERMINISTIC_FP}>,$<CXX_COMPILER_ID:Clang,AppleClang,GNU>>:-fno-fast-math;-ffp-contract=off>)
+
+# --- Runtime-backend lane: every example, editor, and test target --------------
+# All of it is SYCL/SushiRuntime-aware — the native lane below is deliberately
+# narrow (RUNTIME-PORT1) rather than an attempt to make all of this build without
+# a SYCL toolchain too; that is future, milestone-by-milestone work, not this one.
+if(SE_EXECUTION_BACKEND STREQUAL "runtime")
 
 # The sandbox is the ECS worked example; pgs_demo/xpbd_demo are the physics
 # constraint solvers (plain PGS and its rigid-body XPBD generalization).
@@ -80,6 +111,13 @@ add_sushi_sycl_executable(soft_body_demo examples/soft_body_demo.cpp)
 # suite that fails on the hardware it happens to run on is a suite people stop reading.
 # The scene's *shape* is pinned by the conformance suite; this reports its *cost*.
 add_sushi_sycl_executable(soft_body_budget examples/soft_body_budget.cpp)
+
+# soft_body_half_storage_budget measures §6.5's second half: the same cosmetic soft
+# body stepped once with `float` storage and once through `SoftBodyHalfStorage`'s
+# `sycl::half` narrow/widen seam, reporting the wall-clock difference rather than a
+# keep-or-drop verdict — the measurement P8 gates that decision on.
+add_sushi_sycl_executable(soft_body_half_storage_budget
+                          examples/soft_body_half_storage_budget.cpp)
 
 # skeleton_demo exercises the phase-A0 animation foundations: the math seam additions
 # (TRS decompose, affine inverse, slerp/nlerp) and the skeleton cook/load path
@@ -208,6 +246,15 @@ if(SE_BUILD_EDITOR)
     set(SE_BUILD_RENDER ON)
     set(SE_BUILD_INPUT ON)
     set(SE_BUILD_AUDIO ON) # the editor's live audio system links sushi_audio (S9)
+endif()
+
+# The player presents through the same Vulkan renderer and needs the same input
+# translator as the editor, minus ImGui — see se_player/CMakeLists.txt's own header
+# for the point of that split. Audio is not forced on: PlayerApp's S5 skeleton has
+# no live audio system yet (a follow-up, not this session's scope).
+if(SE_BUILD_PLAYER)
+    set(SE_BUILD_RENDER ON)
+    set(SE_BUILD_INPUT ON)
 endif()
 
 # The compiled input backend (input/): the SDL event translator behind the header-only
@@ -425,28 +472,41 @@ endif()
 # off the target went missing and the test binary failed to link against a library
 # nothing had been asked to build. It needs no renderer (it links SushiEngine and
 # sushi_atmosphere only), so building it in the tests lane costs one static library.
-if(SE_BUILD_EDITOR OR SE_BUILD_TESTS)
+# The player is a fourth consumer for the same reason: PlayerApp ticks a real
+# ISimulation and loads a `.sushiscene` through sushi_scene, same as the editor.
+if(SE_BUILD_EDITOR OR SE_BUILD_TESTS OR SE_BUILD_PLAYER)
     add_subdirectory(sim)
+
+    # sushi_scene: the one JSON shape for a `.sushiscene`/`.sushieffect`/environment,
+    # UI-free by construction (see scene/CMakeLists.txt). Needs sushi_sim's
+    # IWorldEditor, so it is added here rather than unconditionally at top level —
+    # the editor, physics_sample_scene, the player, and the test suite are its only
+    # consumers, and all four already sit behind this same condition.
+    add_subdirectory(scene)
 
     # physics_sample_scene writes the physics demonstration to a `.sushiscene`. Generated
     # rather than hand-authored, and deliberately: the file comes out of the same builder
     # the integration suite steps and asserts on, so the shipped scene cannot drift from
     # the code that is tested. Here rather than beside the other examples because it needs
-    # `sushi_sim`, which only exists inside this condition; it links the editor's
-    # serializer and scene builder, which are UI-free translation units — the same ones the
+    # `sushi_sim`, which only exists inside this condition; it links sushi_scene and the
+    # editor's scene builder, which is a UI-free translation unit — the same one the
     # test target already compiles.
     find_package(nlohmann_json CONFIG REQUIRED)
     add_sushi_sycl_executable(physics_sample_scene examples/physics_sample_scene.cpp)
     target_sources(physics_sample_scene PRIVATE
-        editor/scene/physics_sample_scene.cpp
-        editor/serialization/scene_serializer.cpp
-        editor/serialization/effect_serializer.cpp
-        editor/serialization/environment_serializer.cpp
-        editor/core/command_history.cpp
-        editor/core/preferences.cpp)
+        editor/scene/physics_sample_scene.cpp)
     target_include_directories(physics_sample_scene
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/editor")
-    target_link_libraries(physics_sample_scene PRIVATE sushi_sim nlohmann_json::nlohmann_json)
+    target_link_libraries(physics_sample_scene
+        PRIVATE sushi_sim sushi_scene nlohmann_json::nlohmann_json)
+endif()
+
+# sushi_platform: the window/lifecycle seam (IPlatformWindow) and its SDL2
+# implementation. Both the editor and the player need it and neither owns it, so it
+# is added once, ahead of both, guarded so turning both on in one configure does not
+# add_subdirectory() it twice.
+if((SE_BUILD_EDITOR OR SE_BUILD_PLAYER) AND NOT TARGET sushi_platform)
+    add_subdirectory(platform)
 endif()
 
 # The Unity-style ImGui editor shell. OFF by default (see ProjectOptions). It links
@@ -456,9 +516,43 @@ if(SE_BUILD_EDITOR)
     add_subdirectory(editor)
 endif()
 
+# The ImGui-free player shell (PLATFORM0 S5). OFF by default (see ProjectOptions).
+# Links sushi_platform/sushi_render/sushi_sim/sushi_input/sushi_scene and, unlike
+# se_editor, never sushi_imgui — that is the whole point of the split (see
+# se_player/CMakeLists.txt).
+if(SE_BUILD_PLAYER)
+    add_subdirectory(se_player)
+endif()
+
 # One SYCL test binary against the real runtime (no mocks). OFF by default.
 if(SE_BUILD_TESTS)
     enable_testing()
     find_package(GTest CONFIG REQUIRED)
     add_subdirectory(tests)
+endif()
+
+else() # SE_EXECUTION_BACKEND STREQUAL "native"
+
+# Native lane (RUNTIME-PORT1): only the executables this milestone proves out —
+# no SYCL toolchain, no SushiRuntime subproject. Widen this list milestone by
+# milestone as the native backend gains real coverage (RUNTIME-PORT1.x/PORT2),
+# not speculatively; each addition is its own reviewable diff against a real
+# build/run oracle, not a guess about what "should" work. Everything else in the
+# runtime-backend lane above — every other example, sim/, editor/, tests/ — stays
+# out of the native lane's build graph entirely rather than being added as broken
+# targets nobody asked `cmake --build .` to actually build.
+add_sushiengine_native_executable(sandbox sandbox/main.cpp)
+add_sushiengine_native_executable(pgs_demo examples/pgs_demo.cpp)
+
+# se_native_execution_tests: the Execution-seam conformance cases (hazard
+# vocabulary + DynamicGraph), run against NativeBackend instead of
+# SushiRuntime. Its own subdirectory, not tests/ itself — that target
+# (se_functional_tests) links sushi_sim/the editor serializers/sushi_import,
+# none of which this lane builds.
+if(SE_BUILD_TESTS)
+    enable_testing()
+    find_package(GTest CONFIG REQUIRED)
+    add_subdirectory(tests/execution_native)
+endif()
+
 endif()

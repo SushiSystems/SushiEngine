@@ -114,7 +114,7 @@ namespace SushiEngine
              * only the starting point File ▸ New Scene applies, so an author who
              * always works at the same latitude with the same sky does not re-author
              * it per scene. Serialized in the same full shape the scene file uses
-             * (see `serialization/environment_serializer.hpp`).
+             * (see `scene/environment_serializer.hpp`).
              */
             SushiEngine::Render::Environment default_environment;
 

@@ -192,6 +192,13 @@ add_executable(se_functional_tests
     # that overrides the rule (a body a rollback replays stays in double), and
     # the holder that keeps the decision from spreading past instantiation.
     functional/unit/test_soft_body_precision.cpp
+    # P8: §6.5's second half -- a cosmetic body's stored pose narrowed to
+    # `sycl::half` between ticks, widened back to `float` before the next
+    # tick's projection touches it. Checked for round-trip error against
+    # half precision's own bound, for actually being half the storage width,
+    # and for a free-fall trajectory staying close to the same scene with no
+    # narrow/widen seam at all.
+    functional/unit/test_soft_body_half_storage.cpp
     # P7-A/P7-B: §11.1's beam and §11.2's claim that its numbers come from a
     # material. The load recovery is checked against Hooke's law rather than
     # against itself -- a compliant beam must report `E*A*d/L` -- which is the
@@ -393,6 +400,11 @@ add_executable(se_functional_tests
     functional/unit/test_weather_field.cpp
     functional/unit/test_atmosphere_nest.cpp
 
+    # WM-SEED: the planetary placement behind Manual mode. The claims are about variety --
+    # that a planet contains both a storm and completely clear air, that a seed decides which
+    # is where, and that the same seed always decides the same way.
+    functional/unit/test_synoptic_field.cpp
+
     # Astro: the solar-system model behind the WGS84/atmosphere/orbital-mechanics regime.
     # Pure double-precision maths, verified against astronomical reference landmarks and
     # structural invariants (round-trips, orthonormality, energy conservation).
@@ -442,6 +454,11 @@ add_executable(se_functional_tests
     # half-space a plane keeps, when the body offset is taken) are each wrong in a way that
     # still draws a planet.
     functional/unit/test_terrain_frame.cpp
+    # §18 R8 (closed 2026-08-02): the run-report-to-statistics conversion that
+    # groups a synthetic RunReport's node timings by name, against known-correct
+    # sums -- the same grouping `soft_body_budget.cpp` does by hand, checked here
+    # without needing a live runtime or device to produce the report.
+    functional/unit/test_physics_statistics.cpp
 
     functional/integration/test_schedule.cpp
     functional/integration/test_pgs_solver.cpp
@@ -453,6 +470,12 @@ add_executable(se_functional_tests
     # here are what stop the late-binding design from silently regressing into a
     # graph that recompiles every time a body is spawned.
     functional/integration/test_runtime_graph_builder.cpp
+    # P8's per-island substepping leans on Execution::DynamicGraph/Region, which sat
+    # unreached through the engine's own execution seam until now (docs/slop/
+    # physics_system.md §6.6, §18 R3). Seam-level, not physics-level: two regions
+    # keyed independently, a drop that takes effect immediately, and a run that does
+    # not recompose when nothing changed.
+    functional/integration/test_execution_dynamic_graph.cpp
     # The shared IConstraintSolver conformance suite: the same scenes against every
     # implementation, which is what lets a device solver replace a host one.
     functional/integration/test_solver_conformance.cpp
@@ -460,6 +483,9 @@ add_executable(se_functional_tests
     # driven through IJointService on the live simulation rather than through the
     # solver, because the claim is about the whole path and not the arithmetic.
     functional/integration/test_joint_assembly.cpp
+    # §16.44's park_sleeping_joints: a settled island's joint drops from the solve
+    # graph rather than dispatching for its projection's own early return to catch.
+    functional/integration/test_joint_parking.cpp
     # P7's own acceptance criterion, in the roadmap's own words: a drivable vehicle that
     # deforms permanently on impact and loses parts, deterministic under replay. Every
     # earlier P7 file tests one piece against its own closed form; this one tests that the
@@ -525,15 +551,13 @@ add_executable(se_functional_tests
 
     # The editor's scene capture/apply round-trip against the real simulation:
     # Save/Load, Undo/Redo, and the Play→Stop restore all ride this one seam, so a
-    # component it forgets is destroyed by all four. Compiled from the editor tree
-    # (serialization + command history are UI-free translation units).
+    # component it forgets is destroyed by all four. The serializers themselves are
+    # sushi_scene (linked below); command history/preferences are compiled from the
+    # editor tree since they are UI-free translation units in their own right.
     # (`sushi_sim` imports a glTF skeleton and its animations to build a live world;
     # the importers it needs are `sushi_import`, linked below, and no longer three of
     # render/'s translation units compiled in by hand.)
 
-    ../editor/serialization/scene_serializer.cpp
-    ../editor/serialization/effect_serializer.cpp
-    ../editor/serialization/environment_serializer.cpp
     ../editor/core/command_history.cpp
     ../editor/core/preferences.cpp
     functional/integration/test_scene_serializer_roundtrip.cpp
@@ -584,10 +608,11 @@ target_link_libraries(se_functional_tests PRIVATE sushi_cooking)
 # The global dynamical core and its Fourier transform are the two compiled units in
 # the neutral atmosphere module.
 target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
-# The scene-serializer round-trip drives the real simulation behind IWorldEditor,
-# and the editor translation units it compiles include their own headers by
-# editor-relative paths.
-target_link_libraries(se_functional_tests PRIVATE sushi_sim)
+# The scene-serializer round-trip drives the real simulation behind IWorldEditor.
+# sushi_scene is the serializers themselves; command_history.cpp/preferences.cpp
+# (compiled above from the editor tree) are UI-free but still include their own
+# headers by editor-relative paths, hence the include directory below.
+target_link_libraries(se_functional_tests PRIVATE sushi_sim sushi_scene)
 target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/editor")
 # The terrain frame maths, by include path only -- it is header-only and Vulkan-free on
 # purpose, so this buys the coverage without linking the renderer into the test binary.

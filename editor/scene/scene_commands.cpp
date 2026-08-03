@@ -447,9 +447,9 @@ namespace SushiEngine
                                      (removed == 1 ? "y" : "ies") + ".");
         }
 
-        SceneSkyState capture_sky_state(const EditorContext& context)
+        Scene::SceneSkyState capture_sky_state(const EditorContext& context)
         {
-            SceneSkyState sky;
+            Scene::SceneSkyState sky;
             sky.enabled = context.sky_enabled;
             sky.date = context.sky_date;
             sky.latitude_degrees = context.sky_latitude_degrees;
@@ -464,7 +464,7 @@ namespace SushiEngine
         namespace
         {
             // The inverse of `capture_sky_state`, applied as a scene is loaded.
-            void apply_sky_state(EditorContext& context, const SceneSkyState& sky)
+            void apply_sky_state(EditorContext& context, const Scene::SceneSkyState& sky)
             {
                 context.sky_enabled = sky.enabled;
                 context.sky_date = sky.date;
@@ -504,8 +504,8 @@ namespace SushiEngine
                 context.show_save_scene_as = true;
                 return false;
             }
-            const SceneSkyState sky = capture_sky_state(context);
-            if (save_scene(*world, context.scene_path, &sky))
+            const Scene::SceneSkyState sky = capture_sky_state(context);
+            if (Scene::save_scene(*world, context.scene_path, &sky))
             {
                 context.saved_scene_revision = context.history.revision();
                 note_recent_scene(context, context.scene_path);
@@ -563,8 +563,8 @@ namespace SushiEngine
                 IWorldEditor* world = world_of(context);
                 if (world == nullptr)
                     return;
-                SceneSkyState sky = capture_sky_state(context);
-                if (load_scene(*world, path, &sky, context.assets))
+                Scene::SceneSkyState sky = capture_sky_state(context);
+                if (Scene::load_scene(*world, path, &sky, context.assets))
                 {
                     apply_sky_state(context, sky);
                     context.scene_path = path;

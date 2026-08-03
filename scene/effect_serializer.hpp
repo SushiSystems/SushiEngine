@@ -51,7 +51,7 @@ namespace SushiEngine
         class IAssetLibrary;
     }
 
-    namespace Editor
+    namespace Scene
     {
         /** @brief The extension every particle-effect asset carries, including the dot. */
         extern const char* const EFFECT_FILE_EXTENSION;
@@ -117,5 +117,5 @@ namespace SushiEngine
          * @return Full paths of the files whose extension is @ref EFFECT_FILE_EXTENSION.
          */
         std::vector<std::string> list_effect_files(const std::string& directory);
-    } // namespace Editor
+    } // namespace Scene
 } // namespace SushiEngine

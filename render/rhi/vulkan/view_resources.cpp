@@ -898,6 +898,22 @@ namespace SushiEngine
                 return texture;
             }
 
+            PresentSource ViewResources::present_source(std::uint32_t slot) const noexcept
+            {
+                PresentSource source;
+                if (slot >= SLOTS)
+                    return source;
+                const Slot& s = slots_[slot];
+                if (!s.ever_rendered || s.resolve == VK_NULL_HANDLE)
+                    return source;
+                source.image = s.resolve;
+                source.format = Frame::RESOLVE_FORMAT;
+                source.width = width_;
+                source.height = height_;
+                source.state = s.resolve_state;
+                return source;
+            }
+
             std::uint32_t ViewResources::pick(std::uint32_t slot, std::uint32_t x, std::uint32_t y,
                                               std::uint32_t output_width,
                                               std::uint32_t output_height) const

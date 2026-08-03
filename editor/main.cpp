@@ -71,9 +71,9 @@
 #include "ui/modals.hpp"
 #include "ui/imgui_backend.hpp"
 #include "core/preferences.hpp"
-#include "serialization/effect_serializer.hpp"
-#include "serialization/scene_serializer.hpp"
-#include "window/sdl_window.hpp"
+#include "effect_serializer.hpp"
+#include "scene_serializer.hpp"
+#include "sdl_window.hpp"
 #include "ui/viewport_panel.hpp"
 #include "animation/animation_panel.hpp"
 #include "animation/animator_graph_panel.hpp"
@@ -167,7 +167,7 @@ int main(int argc, char** argv)
 {
     try
     {
-        SushiEngine::Editor::SdlWindow window("SushiEngine Editor", 1600, 900);
+        SushiEngine::Platform::SdlWindow window("SushiEngine Editor", 1600, 900);
 
         std::uint32_t width = 0;
         std::uint32_t height = 0;
@@ -329,6 +329,21 @@ int main(int argc, char** argv)
         // to a runtime bank. Session-scoped until project-file persistence lands.
         SushiEngine::Audio::AudioAuthoringProject audio_authoring_project;
 
+        // The Project panel's root: the last one the user browsed to, or a
+        // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
+        // so authored project code never mixes with the engine's. Resolved here, ahead of
+        // the Bake surface below, because that surface's cooking profile is project-scoped
+        // storage and needs to know where the project lives before it can load anything.
+        context.project_root = context.preferences.last_project_root.empty()
+                                    ? default_projects_root()
+                                    : context.preferences.last_project_root;
+        context.current_directory = context.project_root;
+        if (context.preferences.last_project_root != context.project_root)
+        {
+            context.preferences.last_project_root = context.project_root;
+            preferences_store->save(context.preferences);
+        }
+
         // The bake surface's model, and the one place the `MeshLoader` seam is wired: the
         // editor is the consumer, so the editor is what decides that "a path" means a glTF
         // file. The cooking module itself links no importer, which is what lets it be built
@@ -337,6 +352,18 @@ int main(int argc, char** argv)
             [](const std::string& path, SushiEngine::Geometry::TriangleMesh& out)
             { return SushiEngine::Geometry::import_gltf_mesh(path.c_str(), out); },
             "cooked");
+        // §16.45.3: the project-default fidelity dial, its pin overrides, and every
+        // per-asset override were session-only until now — set before the Bake or Cooking
+        // Override UI can touch `profiles()`, so the very first frame shows what was saved
+        // rather than the hard-coded defaults for one frame before an overwrite.
+        cook_bake_state.set_profile_storage_path(
+            (std::filesystem::path(context.project_root) / "cooking_profile.json").string());
+        if (!cook_bake_state.load_profiles())
+        {
+            SushiEngine::Editor::editor_log(
+                context, "Could not parse the project's cooking_profile.json; using defaults.",
+                SushiEngine::Editor::LogLevel::Warning);
+        }
         // Injected so a panel that brings a mesh into the project can queue it for
         // cooking automatically (see project_panel.cpp's glTF open handler) instead of
         // an artist having to find and press the Bake panel's button for every asset.
@@ -376,19 +403,6 @@ int main(int argc, char** argv)
         // own: the environment is scene content, loaded and saved with the file.
         simulation->world().set_environment(context.preferences.default_environment);
 
-
-        // The Project panel's root: the last one the user browsed to, or a
-        // %USERPROFILE%/SushiProjects default — never the engine's own source tree,
-        // so authored project code never mixes with the engine's.
-        context.project_root = context.preferences.last_project_root.empty()
-                                    ? default_projects_root()
-                                    : context.preferences.last_project_root;
-        context.current_directory = context.project_root;
-        if (context.preferences.last_project_root != context.project_root)
-        {
-            context.preferences.last_project_root = context.project_root;
-            preferences_store->save(context.preferences);
-        }
         scene_camera.set_move_speed(context.preferences.camera_move_speed);
 
         SushiEngine::Editor::editor_log(context, "Editor ready (Vulkan).");
@@ -485,6 +499,7 @@ int main(int argc, char** argv)
             }
             context.world_entity_count = simulation->entity_count();
             context.physics_statistics = simulation->physics_statistics();
+            simulation->set_park_sleeping_joints(context.park_sleeping_joints);
 
             // Soft-body surfaces: one view per simulated mesh, pointing directly into the
             // snapshot's concatenated vertex and index buffers for this frame's lifetime.
@@ -1179,6 +1194,7 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_meteorology_panel(context);
             SushiEngine::Editor::draw_gpu_culling_panel(context);
             SushiEngine::Editor::draw_project_panel(context);
+            SushiEngine::Editor::draw_cooking_override_modal(context);
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);
             SushiEngine::Editor::draw_statistics_panel(context);

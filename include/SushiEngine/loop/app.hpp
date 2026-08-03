@@ -50,12 +50,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
-
-#include <SushiRuntime/SushiRuntime.h>
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/ecs/command_buffer.hpp>
@@ -68,6 +65,13 @@
 #include <SushiEngine/loop/net.hpp>
 #include <SushiEngine/loop/rng.hpp>
 #include <SushiEngine/loop/rollback.hpp>
+
+// Only after execution/context.hpp, which either sees the build's -D or falls back
+// to defining this itself — checking any earlier would see an unresolved macro on
+// a stray hand-driven compile that sets no -D at all.
+#if defined(SUSHIENGINE_EXECUTION_BACKEND_RUNTIME)
+#    include <SushiRuntime/SushiRuntime.h>
+#endif
 
 namespace SushiEngine
 {
@@ -157,18 +161,17 @@ namespace SushiEngine
                 /**
                  * @brief Creates a game host that owns its own runtime.
                  *
-                 * The settled default for a real game: one `App` brings up one
-                 * `SushiRuntime`. The prvalue from `Runtime::create()` initialises the
-                 * heap object directly (C++17 mandatory copy elision), so the runtime is
-                 * never moved or copied.
+                 * The settled default for a real game: one `App` brings up one backend
+                 * runtime, portably across every `Execution` backend. The prvalue from
+                 * `Execution::Runtime::create()` initialises `owned_runtime_` directly
+                 * (C++17 mandatory copy elision), so no backend runtime type is ever
+                 * required to be movable.
                  *
                  * @param config The fixed step, chunk capacity, RNG seed, and rollback depth.
                  */
                 explicit App(const AppConfig& config = AppConfig{})
-                    : owned_runtime_(new SushiRuntime::API::Runtime(
-                          SushiRuntime::API::Runtime::create())),
-                      runtime_(*owned_runtime_),
-                      context_(runtime_),
+                    : owned_runtime_(Execution::Runtime::create()),
+                      context_(owned_runtime_->context()),
                       world_(context_, config.chunk_capacity),
                       schedule_(context_),
                       clock_(config.fixed_dt_seconds),
@@ -178,6 +181,7 @@ namespace SushiEngine
                         rollback_.emplace(config.rollback_capacity);
                 }
 
+#if defined(SUSHIENGINE_EXECUTION_BACKEND_RUNTIME)
                 /**
                  * @brief Creates a game host that borrows an existing runtime.
                  *
@@ -186,13 +190,18 @@ namespace SushiEngine
                  * that outlives the App instead of having it create its own. The App
                  * never destroys a borrowed runtime.
                  *
+                 * Runtime-backend-only: sharing one device across many worlds this way
+                 * is a SushiRuntime-specific capability with no native-backend analogue
+                 * yet, so this overload is present only on this backend, exactly like
+                 * @ref runtime().
+                 *
                  * @param runtime A runtime that outlives this App; borrowed, not owned.
                  * @param config  The fixed step, chunk capacity, RNG seed, and rollback depth.
                  */
                 App(SushiRuntime::API::Runtime& runtime, const AppConfig& config)
-                    : owned_runtime_(nullptr),
-                      runtime_(runtime),
-                      context_(runtime_),
+                    : owned_runtime_(),
+                      borrowed_runtime_(&runtime),
+                      context_(runtime),
                       world_(context_, config.chunk_capacity),
                       schedule_(context_),
                       clock_(config.fixed_dt_seconds),
@@ -201,6 +210,7 @@ namespace SushiEngine
                     if (config.rollback_capacity > 0)
                         rollback_.emplace(config.rollback_capacity);
                 }
+#endif
 
                 App(const App&) = delete;
                 App& operator=(const App&) = delete;
@@ -210,6 +220,7 @@ namespace SushiEngine
                 /** @brief The game world: spawn/destroy entities, reserve archetypes, read components. */
                 World& world() noexcept { return world_; }
 
+#if defined(SUSHIENGINE_EXECUTION_BACKEND_RUNTIME)
                 /**
                  * @brief The runtime this App drives, whether owned or borrowed.
                  *
@@ -221,12 +232,24 @@ namespace SushiEngine
                  * the one-way engine→runtime dependency: the App still owns the
                  * lifetime, and a borrowed runtime is returned, never destroyed.
                  *
+                 * Present only on this backend, deliberately (see @ref
+                 * Execution::RuntimeBackend::Context::runtime()'s doc) — every remaining
+                 * direct consumer of SushiRuntime through an App fails to compile the
+                 * moment the engine is built against a different backend.
+                 *
                  * @return A reference to the App's runtime.
                  */
-                SushiRuntime::API::Runtime& runtime() noexcept { return runtime_; }
+                SushiRuntime::API::Runtime& runtime() noexcept
+                {
+                    return owned_runtime_ ? owned_runtime_->native() : *borrowed_runtime_;
+                }
 
                 /** @copydoc runtime() */
-                const SushiRuntime::API::Runtime& runtime() const noexcept { return runtime_; }
+                const SushiRuntime::API::Runtime& runtime() const noexcept
+                {
+                    return owned_runtime_ ? owned_runtime_->native() : *borrowed_runtime_;
+                }
+#endif
 
                 /**
                  * @brief The execution context the world and schedule are built on.
@@ -444,8 +467,10 @@ namespace SushiEngine
                 /** @brief Runs every registered system once over the world. */
                 void simulate() { schedule_.run(world_); }
 
-                std::unique_ptr<SushiRuntime::API::Runtime> owned_runtime_;
-                SushiRuntime::API::Runtime& runtime_;
+                std::optional<Execution::Runtime> owned_runtime_;
+#if defined(SUSHIENGINE_EXECUTION_BACKEND_RUNTIME)
+                SushiRuntime::API::Runtime* borrowed_runtime_ = nullptr;
+#endif
                 Execution::Context context_;
                 World world_;
                 Schedule schedule_;

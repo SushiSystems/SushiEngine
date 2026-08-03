@@ -1,5 +1,6 @@
 build/
 build-editor/
+build-player/
 *.log
 
 # Editor runtime layout, written next to the working dir on exit.

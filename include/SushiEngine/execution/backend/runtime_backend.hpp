@@ -26,6 +26,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -315,8 +316,14 @@ namespace SushiEngine
                         SushiRuntime::API::Writes writes;
                         Detail::split_accesses(node, reads, writes);
 
+                        // node.name is nullable (§5.5's NodeDescriptor default); the
+                        // runtime's own name parameter is a non-null const char* with no
+                        // null check of its own, so an unlabeled node falls back here
+                        // rather than handing it a null string it will copy into a
+                        // std::string.
                         graph_.add(Detail::to_dynamic(node), reads, writes, node.capacity,
-                                   std::forward<Kernel>(kernel));
+                                   std::forward<Kernel>(kernel),
+                                   node.name != nullptr ? node.name : "unnamed_task");
                         return *this;
                     }
 
@@ -338,7 +345,8 @@ namespace SushiEngine
                         SushiRuntime::API::Writes writes;
                         Detail::split_accesses(node, reads, writes);
 
-                        graph_.add_host(reads, writes, std::forward<Kernel>(kernel));
+                        graph_.add_host(reads, writes, std::forward<Kernel>(kernel),
+                                        node.name != nullptr ? node.name : "unnamed_task");
                         return *this;
                     }
 
@@ -383,10 +391,185 @@ namespace SushiEngine
                      * @brief Compiles if needed, then executes every node once.
                      * @return What the run did, in the portable subset.
                      */
-                    RunReport run() { return Detail::to_run_report(graph_.run()); }
+                    RunReport run()
+                    {
+                        native_report_ = graph_.run();
+                        return Detail::to_run_report(native_report_);
+                    }
+
+                    /**
+                     * @brief The backend-native report for the most recent @ref run.
+                     *
+                     * `RunReport` is deliberately the cross-backend intersection (its own
+                     * doc comment says so); this is the escape hatch that comment
+                     * promises — SushiRuntime's own `node_timings`/`worker_timings`
+                     * (§18 R8), empty unless the runtime was created with profiling on.
+                     * Default-constructed (every field empty/zero) before the first
+                     * @ref run.
+                     */
+                    const SushiRuntime::Core::RunReport& native_report() const noexcept
+                    {
+                        return native_report_;
+                    }
 
                 private:
                     SushiRuntime::API::Graph graph_;
+                    SushiRuntime::Core::RunReport native_report_;
+            };
+
+            /**
+             * @brief One mutable partition of a DynamicGraph, recorded like a Graph.
+             *
+             * Exposes the same three node-building calls @ref Graph does — nothing
+             * else, because a region does not run itself; its owning DynamicGraph
+             * composes every live region into one plan and steps them together. A
+             * non-owning wrapper by necessity: the runtime's own `API::Region` lives
+             * in the DynamicGraph that returned it and is neither copyable nor
+             * movable, so this type is a thin reference the caller cannot outlive it.
+             */
+            class Region
+            {
+                public:
+                    /**
+                     * @brief Wraps a region already recorded in some DynamicGraph.
+                     * @param region The runtime region to build nodes against; must
+                     *               outlive this wrapper.
+                     */
+                    explicit Region(SushiRuntime::API::Region& region) noexcept
+                        : region_(region)
+                    {
+                    }
+
+                    /** @copydoc Graph::add_parallel */
+                    template <typename Kernel>
+                    Region& add_parallel(const NodeDescriptor& node, Kernel&& kernel)
+                    {
+                        assert(node.kind == NodeKind::Parallel &&
+                               "add_parallel() on a node declared as another kind");
+
+                        SushiRuntime::API::Reads reads;
+                        SushiRuntime::API::Writes writes;
+                        Detail::split_accesses(node, reads, writes);
+
+                        region_.add(Detail::to_dynamic(node), reads, writes, node.capacity,
+                                    std::forward<Kernel>(kernel),
+                                    node.name != nullptr ? node.name : "unnamed_task");
+                        return *this;
+                    }
+
+                    /** @copydoc Graph::add_host */
+                    template <typename Kernel>
+                    Region& add_host(const NodeDescriptor& node, Kernel&& kernel)
+                    {
+                        assert(node.kind == NodeKind::Host &&
+                               "add_host() on a node declared as another kind");
+
+                        SushiRuntime::API::Reads reads;
+                        SushiRuntime::API::Writes writes;
+                        Detail::split_accesses(node, reads, writes);
+
+                        region_.add_host(reads, writes, std::forward<Kernel>(kernel),
+                                         node.name != nullptr ? node.name : "unnamed_task");
+                        return *this;
+                    }
+
+                    /** @copydoc Graph::add_reduce */
+                    template <typename T, typename Combine>
+                    Region& add_reduce(const Buffer<T>& input, const Buffer<T>& output,
+                                       std::size_t count, Combine combine, T identity)
+                    {
+                        region_.add_reduce(input.native(), output.native(), count, combine,
+                                           identity);
+                        return *this;
+                    }
+
+                    /** @brief Number of nodes recorded in this region so far. */
+                    std::size_t size() const noexcept { return region_.size(); }
+
+                private:
+                    SushiRuntime::API::Region& region_;
+            };
+
+            /**
+             * @brief A graph partitioned into regions that stream in and out cheaply.
+             *
+             * The mutable counterpart to @ref Graph, keyed by a caller-chosen
+             * identity per region (§6.6's "one region per island"). `region(key)`
+             * records work with the same node-building surface a plain Graph has;
+             * `drop(key)` removes one. Both only ever touch this object's own
+             * bookkeeping — the actual recomposition happens lazily, inside the next
+             * @ref run, so a caller never has to call a separate commit step.
+             *
+             * Composition is incremental in the changed region and its shared
+             * boundary, not the whole world (SushiRuntime's own `DynamicGraph` doc
+             * comment states the cost bound this promises: O(changed region +
+             * affected boundary pins)). Cross-region edges follow ascending region
+             * key, so a caller assigning keys must do so deterministically, or the
+             * dependency order — and with it the result — depends on how the keys
+             * happened to come out.
+             */
+            class DynamicGraph
+            {
+                public:
+                    /** @brief Caller-chosen identity of a region; stable across steps. */
+                    using RegionKey = SushiRuntime::API::DynamicGraph::RegionKey;
+
+                    /**
+                     * @brief Wraps a freshly created runtime dynamic graph.
+                     * @param graph The runtime dynamic graph to own.
+                     */
+                    explicit DynamicGraph(SushiRuntime::API::DynamicGraph graph) noexcept
+                        : graph_(std::move(graph))
+                    {
+                    }
+
+                    /**
+                     * @brief Returns the region for @p key, creating it if absent.
+                     * @param key Identity of the region; stable across steps.
+                     * @return A wrapper valid until the region is dropped.
+                     */
+                    Region region(RegionKey key) { return Region(graph_.region(key)); }
+
+                    /** @brief Whether a live region with @p key exists. */
+                    bool has_region(RegionKey key) const noexcept
+                    {
+                        return graph_.has_region(key);
+                    }
+
+                    /**
+                     * @brief Removes the region for @p key from the live set.
+                     * @param key Identity of the region to remove; a no-op if absent.
+                     */
+                    void drop(RegionKey key) { graph_.drop(key); }
+
+                    /** @brief Number of live regions. */
+                    std::size_t region_count() const noexcept { return graph_.region_count(); }
+
+                    /** @brief Total nodes recorded across every live region. */
+                    std::size_t size() const noexcept { return graph_.size(); }
+
+                    /** @brief Times the plan has been (re)composed; one after warm-up. */
+                    std::size_t compile_count() const noexcept { return graph_.compile_count(); }
+
+                    /**
+                     * @brief Recomposes if any region changed, then executes one step.
+                     * @return What the run did, in the portable subset.
+                     */
+                    RunReport run()
+                    {
+                        native_report_ = graph_.run();
+                        return Detail::to_run_report(native_report_);
+                    }
+
+                    /** @copydoc Graph::native_report */
+                    const SushiRuntime::Core::RunReport& native_report() const noexcept
+                    {
+                        return native_report_;
+                    }
+
+                private:
+                    SushiRuntime::API::DynamicGraph graph_;
+                    SushiRuntime::Core::RunReport native_report_;
             };
 
             /**
@@ -458,6 +641,12 @@ namespace SushiEngine
                     /** @brief Creates an empty graph bound to this context. */
                     Graph create_graph() { return Graph(runtime_.graph()); }
 
+                    /** @brief Creates an empty region-partitioned graph bound to this context. */
+                    DynamicGraph create_dynamic_graph()
+                    {
+                        return DynamicGraph(runtime_.dynamic_graph());
+                    }
+
                     /**
                      * @brief The underlying runtime, for subsystems not yet on the seam.
                      *
@@ -476,6 +665,54 @@ namespace SushiEngine
 
                 private:
                     SushiRuntime::API::Runtime& runtime_;
+            };
+
+            /**
+             * @brief Owns a runtime and hands out contexts bound to it.
+             *
+             * The portable "stand up a backend" factory `Execution::Runtime` denotes on
+             * this build: a caller that used to do
+             * `auto runtime = SushiRuntime::API::Runtime::create(); Context ctx(runtime);`
+             * now does `auto runtime = Execution::Runtime::create(); auto ctx =
+             * runtime.context();` unchanged across backends. Heap-allocates the runtime
+             * behind a `unique_ptr` rather than storing it by value so this type is
+             * cheaply movable regardless of whether `SushiRuntime::API::Runtime` itself
+             * is — `native()` is the escape hatch every remaining direct SushiRuntime
+             * consumer (audio's optional DSP accelerator, `Loop::App::runtime()`) still
+             * needs, present only on this backend for the same reason `Context::runtime()`
+             * is.
+             */
+            class Runtime
+            {
+                public:
+                    /** @brief Creates a new runtime, discovering and binding a device. */
+                    static Runtime create()
+                    {
+                        // Guaranteed copy elision (C++17): the prvalue from create()
+                        // initialises the heap object directly, so SushiRuntime::API::Runtime
+                        // is never required to be movable.
+                        return Runtime(
+                            new SushiRuntime::API::Runtime(SushiRuntime::API::Runtime::create()));
+                    }
+
+                    Runtime(const Runtime&) = delete;
+                    Runtime& operator=(const Runtime&) = delete;
+                    Runtime(Runtime&&) = default;
+                    Runtime& operator=(Runtime&&) = default;
+
+                    /** @brief A new context bound to this runtime. */
+                    Context context() noexcept { return Context(*runtime_); }
+
+                    /** @brief The underlying runtime, for subsystems not yet on the seam. */
+                    SushiRuntime::API::Runtime& native() noexcept { return *runtime_; }
+
+                    /** @copydoc native() */
+                    const SushiRuntime::API::Runtime& native() const noexcept { return *runtime_; }
+
+                private:
+                    explicit Runtime(SushiRuntime::API::Runtime* runtime) : runtime_(runtime) {}
+
+                    std::unique_ptr<SushiRuntime::API::Runtime> runtime_;
             };
         } // namespace RuntimeBackend
     } // namespace Execution

@@ -45,9 +45,9 @@ namespace SushiEngine
 #define SUSHI_PIPELINE_CACHE_DIR "."
 #endif
 
-                /** @brief File the driver's compiled pipeline blob is carried across runs in. */
-                constexpr const char* PIPELINE_CACHE_PATH =
-                    SUSHI_PIPELINE_CACHE_DIR "/sushi_pipeline_cache.bin";
+                /** @brief Compiled-in fallback used when the caller passes no path. */
+                const std::string DEFAULT_PIPELINE_CACHE_PATH =
+                    std::string(SUSHI_PIPELINE_CACHE_DIR) + "/sushi_pipeline_cache.bin";
 
                 /**
                  * @brief Device memory the resident texture set is held under.
@@ -59,11 +59,17 @@ namespace SushiEngine
                 constexpr std::size_t TEXTURE_BUDGET_BYTES = 512u * 1024u * 1024u;
             } // namespace
 
-            AssetLibrary::AssetLibrary(Vulkan::VulkanDevice& device)
+            AssetLibrary::AssetLibrary(Vulkan::VulkanDevice& device,
+                                       std::string shader_source_directory,
+                                       std::string pipeline_cache_path)
                 : device_(device),
-                  shaders_(device, SUSHI_SHADER_SOURCE_DIR, shader_catalogue(),
-                           shader_catalogue_count()),
-                  pipeline_cache_(device, PIPELINE_CACHE_PATH),
+                  shaders_(device,
+                           shader_source_directory.empty() ? SUSHI_SHADER_SOURCE_DIR
+                                                            : std::move(shader_source_directory),
+                           shader_catalogue(), shader_catalogue_count()),
+                  pipeline_cache_(device, pipeline_cache_path.empty()
+                                              ? DEFAULT_PIPELINE_CACHE_PATH
+                                              : std::move(pipeline_cache_path)),
                   pipelines_(device, pipeline_cache_), samplers_(device),
                   heap_(device, HEAP_TEXTURES, HEAP_BUFFERS), layout_(device, heap_),
                   meshes_(device),

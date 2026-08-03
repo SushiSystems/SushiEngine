@@ -48,7 +48,7 @@
 #include <SushiEngine/sim/simulation.hpp>
 
 #include "scene/physics_sample_scene.hpp"
-#include "serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 int main(int argc, char** argv)
 {
@@ -68,7 +68,7 @@ int main(int argc, char** argv)
     // Written before any tick. The file is the *authored* scene — where an author put
     // things — and a scene saved after a second of simulation would ship a stack already
     // settled and a ball already on the floor, which is a scene nobody authored.
-    if (!SushiEngine::Editor::save_scene(world, path, nullptr))
+    if (!SushiEngine::Scene::save_scene(world, path, nullptr))
     {
         std::printf("physics_sample_scene: could not write '%s'\n", path.c_str());
         return 1;
