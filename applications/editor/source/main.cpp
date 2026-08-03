@@ -197,7 +197,7 @@ int main(int argc, char** argv)
         // ImGui context, so it lives in main's scope; the directory is created now
         // because ImGui writes the file itself and creates nothing.
         const std::string layout_ini_path =
-            (std::filesystem::path(Authoring::user_config_directory()) /
+            (std::filesystem::path(SushiEngine::Authoring::user_config_directory()) /
              "layout.ini")
                 .string();
         {
@@ -220,7 +220,7 @@ int main(int argc, char** argv)
 
         // The editor's shortcut and tool keys as rebindable contexts. Built with their
         // compiled-in defaults here; any saved overrides are applied once preferences load
-        // (below), and the Authoring::Preferences page rebinds against these live objects.
+        // (below), and the Preferences page rebinds against these live objects.
         SushiEngine::Input::InputContext editor_global{"EditorGlobal"};
         SushiEngine::Input::InputContext editor_viewport{"EditorViewport"};
         SushiEngine::Editor::build_editor_global_context(editor_global);
@@ -252,9 +252,9 @@ int main(int argc, char** argv)
 
         // Load persisted preferences first, so the editor opens in the user's theme
         // and camera speed. The store is injected into the context for the
-        // Authoring::Preferences window to display its path.
-        std::unique_ptr<Authoring::IPreferencesStore> preferences_store =
-            Authoring::create_preferences_store();
+        // Preferences window to display its path.
+        std::unique_ptr<SushiEngine::Authoring::IPreferencesStore> preferences_store =
+            SushiEngine::Authoring::create_preferences_store();
         context.preferences_store = preferences_store.get();
         context.preferences = preferences_store->load();
         SushiEngine::Editor::apply_theme(context.preferences.theme);
@@ -348,7 +348,7 @@ int main(int argc, char** argv)
         // editor is the consumer, so the editor is what decides that "a path" means a glTF
         // file. The cooking module itself links no importer, which is what lets it be built
         // and tested on a machine with neither cgltf nor a device.
-        Authoring::CookBakeState cook_bake_state(
+        SushiEngine::Authoring::CookBakeState cook_bake_state(
             [](const std::string& path, SushiEngine::Geometry::TriangleMesh& out)
             { return SushiEngine::Geometry::import_gltf_mesh(path.c_str(), out); },
             "cooked");
@@ -413,7 +413,7 @@ int main(int argc, char** argv)
         bool ui_was_dragging = false;
         // Autosave: the timer accumulates only while a save would be meaningful
         // (enabled, scene has a file, scene is dirty) — see autosave.hpp for the policy.
-        Authoring::AutosaveTimer autosave_timer;
+        SushiEngine::Authoring::AutosaveTimer autosave_timer;
         // Multi-select drag: every co-selected entity's pose captured at the grab, so a
         // translate drag carries the whole selection rigidly with the primary.
         SushiEngine::Simulation::EntityTransform multi_primary_start;
@@ -550,7 +550,8 @@ int main(int argc, char** argv)
             displays.reserve(scene.display_cameras.size());
             const SushiEngine::Simulation::CameraState* game = &scene.camera;
             bool selected_display_present = false;
-            for (const SushiEngine::Simulation::DisplayCamera& display_camera : scene.display_cameras)
+            for (const SushiEngine::Simulation::DisplayCamera& display_camera :
+                 scene.display_cameras)
             {
                 displays.push_back(display_camera.display);
                 if (display_camera.display == context.game_display)
@@ -625,7 +626,7 @@ int main(int argc, char** argv)
             const bool reset_layout = context.layout_reset_requested;
             context.layout_reset_requested = false;
             if (reset_layout)
-                context.panels = Authoring::PanelVisibility{};
+                context.panels = SushiEngine::Authoring::PanelVisibility{};
             draw_dockspace(reset_layout);
 
             // Selection is shared between the viewports and the panels. The scene
@@ -886,9 +887,9 @@ int main(int argc, char** argv)
                 // orientation, since it is stored ground-local and composed onto the tangent
                 // frame. Forcing Local there gives the author east/north/up handles; other
                 // entities keep the chosen World/Local space.
-                const Authoring::GizmoSpace gizmo_space =
+                const SushiEngine::Authoring::GizmoSpace gizmo_space =
                     (has_selection && world.surface_anchored(context.selected_entity))
-                        ? Authoring::GizmoSpace::Local
+                        ? SushiEngine::Authoring::GizmoSpace::Local
                         : context.gizmo_space;
                 // Pushed before the draw, so a change made in the Environment panel this
                 // frame is the setting the frame is actually rendered with.
@@ -924,8 +925,10 @@ int main(int argc, char** argv)
                 // view only, for the same reason as the collider above.
                 std::vector<SushiEngine::Vector3> soft_body_positions;
                 std::vector<SushiEngine::Simulation::SoftBodyElementSample> soft_body_elements;
-                if (context.soft_body_debug_view != Authoring::SoftBodyDebugView::Off &&
-                    simulation != nullptr && context.selected_entity != SushiEngine::Simulation::NULL_ENTITY)
+                if (context.soft_body_debug_view !=
+                        SushiEngine::Authoring::SoftBodyDebugView::Off &&
+                    simulation != nullptr &&
+                    context.selected_entity != SushiEngine::Simulation::NULL_ENTITY)
                 {
                     SushiEngine::Simulation::IWorldEditor& soft_world = simulation->world();
                     std::vector<std::uint32_t> unused_indices;

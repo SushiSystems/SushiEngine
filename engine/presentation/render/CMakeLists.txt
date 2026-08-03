@@ -229,7 +229,6 @@ sushiengine_add_module(NAME render LAYER presentation
         source/frame/upscaler.cpp
         source/frame/quality.cpp
         source/geometry/mesh_registry.cpp
-        source/geometry/meshlet.cpp
         source/geometry/deformable_buffers.cpp
         source/geometry/ui_buffers.cpp
         source/material/asset_library.cpp

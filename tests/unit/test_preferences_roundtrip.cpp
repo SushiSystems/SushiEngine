@@ -22,8 +22,8 @@
 /**************************************************************************/
 
 // The preferences store's round-trip contract, pinned for the session state the
-// editor's layout persistence rides on: the open window set (Authoring::PanelVisibility),
-// the Game view toolbar (Authoring::GameViewSettings), and the gizmo tool/space. What the
+// editor's layout persistence rides on: the open window set (PanelVisibility),
+// the Game view toolbar (GameViewSettings), and the gizmo tool/space. What the
 // editor saves at exit must be exactly what the next launch restores — and a
 // missing or empty file must degrade to defaults, never to a throw.
 
@@ -68,11 +68,11 @@ namespace
             std::string path_;
     };
 
-    /** @brief A Authoring::Preferences with every session-state field moved off its default. */
-    Authoring::Preferences non_default_preferences()
+    /** @brief A Preferences with every session-state field moved off its default. */
+    Preferences non_default_preferences()
     {
-        Authoring::Preferences preferences;
-        preferences.theme = Authoring::EditorTheme::Classic;
+        Preferences preferences;
+        preferences.theme = EditorTheme::Classic;
         preferences.camera_move_speed = 9.5f;
         preferences.simulation.atmosphere.quality =
             SushiEngine::Simulation::AtmosphereQuality::Ultra;
@@ -90,17 +90,16 @@ namespace
         preferences.panels.preferences = true;
         preferences.panels.input_manager = true;
 
-        preferences.game_view.aspect = Authoring::GameViewAspectPreset::Ultrawide21x9;
-        preferences.game_view.orientation = Authoring::GameViewOrientation::Portrait;
+        preferences.game_view.aspect = GameViewAspectPreset::Ultrawide21x9;
+        preferences.game_view.orientation = GameViewOrientation::Portrait;
         preferences.game_view.fullscreen = true;
 
-        preferences.gizmo_mode = Authoring::GizmoMode::Rotate;
-        preferences.gizmo_space = Authoring::GizmoSpace::Local;
+        preferences.gizmo_mode = GizmoMode::Rotate;
+        preferences.gizmo_space = GizmoSpace::Local;
         return preferences;
     }
 
-    void expect_session_state_equal(const Authoring::Preferences& actual,
-                                    const Authoring::Preferences& expected)
+    void expect_session_state_equal(const Preferences& actual, const Preferences& expected)
     {
         EXPECT_EQ(actual.theme, expected.theme);
         EXPECT_FLOAT_EQ(actual.camera_move_speed, expected.camera_move_speed);
@@ -145,11 +144,11 @@ namespace
 TEST(Unit_PreferencesRoundTrip, SessionStateSurvivesSaveAndLoad)
 {
     const ScratchPreferencesFile file("sushiengine_test_preferences_roundtrip.json");
-    const Authoring::Preferences saved = non_default_preferences();
+    const Preferences saved = non_default_preferences();
 
-    ASSERT_TRUE(Authoring::create_preferences_store(file.path())->save(saved));
-    const Authoring::Preferences loaded =
-        Authoring::create_preferences_store(file.path())->load();
+    ASSERT_TRUE(SushiEngine::Authoring::create_preferences_store(file.path())->save(saved));
+    const Preferences loaded =
+        SushiEngine::Authoring::create_preferences_store(file.path())->load();
 
     expect_session_state_equal(loaded, saved);
 }
@@ -158,10 +157,10 @@ TEST(Unit_PreferencesRoundTrip, MissingFileYieldsDefaults)
 {
     const ScratchPreferencesFile file("sushiengine_test_preferences_missing.json");
 
-    const Authoring::Preferences loaded =
-        Authoring::create_preferences_store(file.path())->load();
+    const Preferences loaded =
+        SushiEngine::Authoring::create_preferences_store(file.path())->load();
 
-    expect_session_state_equal(loaded, Authoring::Preferences{});
+    expect_session_state_equal(loaded, Preferences{});
 }
 
 TEST(Unit_PreferencesRoundTrip, FileWithoutSessionKeysFallsBackToDefaults)
@@ -175,10 +174,10 @@ TEST(Unit_PreferencesRoundTrip, FileWithoutSessionKeysFallsBackToDefaults)
         output << "{\"theme\": \"classic\"}\n";
     }
 
-    const Authoring::Preferences loaded =
-        Authoring::create_preferences_store(file.path())->load();
+    const Preferences loaded =
+        SushiEngine::Authoring::create_preferences_store(file.path())->load();
 
-    Authoring::Preferences expected;
-    expected.theme = Authoring::EditorTheme::Classic;
+    Preferences expected;
+    expected.theme = EditorTheme::Classic;
     expect_session_state_equal(loaded, expected);
 }

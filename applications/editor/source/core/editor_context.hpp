@@ -63,6 +63,12 @@ namespace SushiEngine
         class InputContext;
     } // namespace Input
 
+    namespace Authoring
+    {
+        /** @brief The Bake surface's model, owned by main() (see authoring/cook_bake_state.hpp). */
+        class CookBakeState;
+    } // namespace Authoring
+
     namespace Editor
     {
         /** @brief The live particle-effect preview, owned by main() (see effect_preview.hpp). */
@@ -73,9 +79,6 @@ namespace SushiEngine
 
         /** @brief The live editor audio system, owned by main() (see audio/audio_editor_system.hpp). */
         class AudioEditorSystem;
-
-        /** @brief The Bake surface's model, owned by main() (see physics/cook_bake_state.hpp). */
-        class Authoring::CookBakeState;
 
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.

@@ -33,7 +33,7 @@ using SushiEngine::Authoring::AutosaveTimer;
 
 TEST(Unit_Autosave, FiresAfterContinuousEligibleInterval)
 {
-    Authoring::AutosaveTimer timer;
+    AutosaveTimer timer;
     for (int i = 0; i < 9; ++i)
         EXPECT_FALSE(timer.tick(true, 1.0, 10.0f));
     EXPECT_TRUE(timer.tick(true, 1.0, 10.0f));
@@ -43,7 +43,7 @@ TEST(Unit_Autosave, FiresAfterContinuousEligibleInterval)
 
 TEST(Unit_Autosave, IneligibilityResetsTheClock)
 {
-    Authoring::AutosaveTimer timer;
+    AutosaveTimer timer;
     for (int i = 0; i < 9; ++i)
         EXPECT_FALSE(timer.tick(true, 1.0, 10.0f));
     // One clean (or disabled, or pathless) frame discards the accumulated time…
@@ -56,7 +56,7 @@ TEST(Unit_Autosave, IneligibilityResetsTheClock)
 
 TEST(Unit_Autosave, NeverFiresWhileIneligible)
 {
-    Authoring::AutosaveTimer timer;
+    AutosaveTimer timer;
     for (int i = 0; i < 100; ++i)
         EXPECT_FALSE(timer.tick(false, 60.0, 10.0f));
 }

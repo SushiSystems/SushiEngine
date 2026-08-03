@@ -465,7 +465,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 - 2026-07-30 — Added `Cooking::CollisionCooker`, the five-stage rigid cooker: repair, mass properties, convex decomposition or a static triangle hierarchy, distance-field bake, and serialization.
 - 2026-07-30 — Added the `.sushicollision` blob — `build_collision_blob`, `validate_collision_blob`, `load_collision_blob`, and the `collision_asset_hull`/`collision_asset_mesh` views that point straight into the loaded bytes.
 - 2026-07-30 — Added the editor's Bake window (Analysis ▸ Bake): the fidelity dial with what it derives, live cook progress, per-asset cook reports for both asset kinds, and a Re-cook button.
-- 2026-07-30 — Added `Editor::CookBakeState`, the Bake window's UI-free model — the profile library, the worker, the filed cook reports, and the collider overlay's geometry.
+- 2026-07-30 — Added `Authoring::CookBakeState`, the Bake window's UI-free model — the profile library, the worker, the filed cook reports, and the collider overlay's geometry.
 - 2026-07-30 — Added `Cooking::collision_asset_wireframe` and `Editor::draw_collision_overlay`, which draw a cooked collider over the mesh it came from so "the collider is not the mesh" is visible rather than a number.
 - 2026-07-30 — Added `IMeshCooker::cache_key`, so a Re-cook can evict the entry a content hash cannot see is stale — the case where the cooker changed rather than the mesh.
 - 2026-07-30 — Added `Cooking::MeshPostProcessorChain` and `IMeshPostProcessor`, §8.1's ordered, registered import chain, with the collision and soft-body cookers registered as its shipped members.
