@@ -69,14 +69,14 @@ namespace SushiEngine
             /**
              * @brief Runtime shader directory; empty selects the engine's compiled-in
              * default (the source tree, correct for the editor's hot-reload workflow,
-             * wrong for a shipped player — see `SUSHI_SHADER_SOURCE_DIR`).
+             * wrong for a shipped player — see `SUSHIENGINE_SHADER_SOURCE_DIR`).
              */
             std::string shader_source_directory;
 
             /**
              * @brief Full path the driver's pipeline cache blob is read from and
              * written back to; empty selects the compiled-in default (the build
-             * directory — see `SUSHI_PIPELINE_CACHE_DIR`). A shipped player should
+             * directory — see `SUSHIENGINE_PIPELINE_CACHE_DIR`). A shipped player should
              * pass a per-user path here rather than writing into its own install
              * directory.
              */

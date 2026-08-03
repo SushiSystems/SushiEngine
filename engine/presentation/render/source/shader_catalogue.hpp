@@ -37,8 +37,8 @@
 
 #include "resources/shader_library.hpp"
 
-#ifndef SUSHI_SHADER_SOURCE_DIR
-#define SUSHI_SHADER_SOURCE_DIR ""
+#ifndef SUSHIENGINE_SHADER_SOURCE_DIR
+#define SUSHIENGINE_SHADER_SOURCE_DIR ""
 #endif
 
 namespace SushiEngine

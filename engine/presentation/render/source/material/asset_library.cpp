@@ -41,13 +41,13 @@ namespace SushiEngine
                 /** @brief Slots reserved in the bindless storage-buffer heap. */
                 constexpr std::uint32_t HEAP_BUFFERS = 256;
 
-#ifndef SUSHI_PIPELINE_CACHE_DIR
-#define SUSHI_PIPELINE_CACHE_DIR "."
+#ifndef SUSHIENGINE_PIPELINE_CACHE_DIR
+#define SUSHIENGINE_PIPELINE_CACHE_DIR "."
 #endif
 
                 /** @brief Compiled-in fallback used when the caller passes no path. */
                 const std::string DEFAULT_PIPELINE_CACHE_PATH =
-                    std::string(SUSHI_PIPELINE_CACHE_DIR) + "/sushi_pipeline_cache.bin";
+                    std::string(SUSHIENGINE_PIPELINE_CACHE_DIR) + "/sushi_pipeline_cache.bin";
 
                 /**
                  * @brief Device memory the resident texture set is held under.
@@ -64,7 +64,7 @@ namespace SushiEngine
                                        std::string pipeline_cache_path)
                 : device_(device),
                   shaders_(device,
-                           shader_source_directory.empty() ? SUSHI_SHADER_SOURCE_DIR
+                           shader_source_directory.empty() ? SUSHIENGINE_SHADER_SOURCE_DIR
                                                             : std::move(shader_source_directory),
                            shader_catalogue(), shader_catalogue_count()),
                   pipeline_cache_(device, pipeline_cache_path.empty()
