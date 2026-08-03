@@ -38,12 +38,12 @@
 namespace
 {
     namespace fs = std::filesystem;
-    using Authoring::EditorTheme;
-    using Authoring::GameViewAspectPreset;
-    using Authoring::GameViewOrientation;
-    using Authoring::GizmoMode;
-    using Authoring::GizmoSpace;
-    using Authoring::Preferences;
+    using SushiEngine::Authoring::EditorTheme;
+    using SushiEngine::Authoring::GameViewAspectPreset;
+    using SushiEngine::Authoring::GameViewOrientation;
+    using SushiEngine::Authoring::GizmoMode;
+    using SushiEngine::Authoring::GizmoSpace;
+    using SushiEngine::Authoring::Preferences;
 
     /** @brief A scratch preferences path in the system temp dir, removed on destruction. */
     class ScratchPreferencesFile

@@ -29,7 +29,7 @@
 
 #include <SushiEngine/authoring/autosave.hpp>
 
-using Authoring::AutosaveTimer;
+using SushiEngine::Authoring::AutosaveTimer;
 
 TEST(Unit_Autosave, FiresAfterContinuousEligibleInterval)
 {
